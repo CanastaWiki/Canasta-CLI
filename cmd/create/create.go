@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
-	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
@@ -47,17 +46,15 @@ func NewCmdCreate() *cobra.Command {
 func createCanasta(Path, Orchestrator, DatabasePath, LocalSettingsPath, EnvPath string) error {
 
 	fmt.Printf("Cloning the %s stack repo \n", Orchestrator)
-	if !(strings.HasSuffix(Path, "/")) {
-		Path += "/"
-	}
-	Path += "Canasta-" + Orchestrator + "/"
+
+	Path += "/Canasta-" + Orchestrator + "/"
 	err := cloneStackRepo(Orchestrator, Path)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Copying .env.example to .env\n")
-	err = exec.Command("cp", Path+".env.example", Path+".env").Run()
+	err = exec.Command("cp", Path+"/.env.example", Path+"/.env").Run()
 	if err != nil {
 		return err
 	}
