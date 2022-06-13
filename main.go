@@ -1,10 +1,6 @@
-/*
-Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
-*/
 package main
 
-import "github.com/CanastaWiki/Canasta-CLI-Go/cmd"
+import cmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/root"
 
 func main() {
 	cmd.Execute()
