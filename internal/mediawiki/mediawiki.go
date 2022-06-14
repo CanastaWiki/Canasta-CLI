@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/sethvargo/go-password/password"
 )
 
 func getEnvVariable(envPath string) (map[string]string, error) {
@@ -25,24 +26,44 @@ func getEnvVariable(envPath string) (map[string]string, error) {
 	return EnvVariables, nil
 }
 
-func Install(path, orchestrator, databasePath, localSettingsPath, envPath string) error {
+func Install(path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) (map[string]string, error) {
 	fmt.Println("Running install.php ")
+
+	infoCanasta := make(map[string]string)
 	envVariables, err := getEnvVariable(path + "/.env")
 	if err != nil {
-		return err
+		return infoCanasta, err
 	}
+
 	command := "/wait-for-it.sh -t 60 db:3306"
 	err = orchestrators.Exec(path, orchestrator, "web", command)
 	if err != nil {
-		return err
+		return infoCanasta, err
 	}
 
-	wiki_name := "My Wiki"
-	admin_password := "92SPc27Dgi$^ADk"
-	command = fmt.Sprintf("php maintenance/install.php --dbserver=db  --confpath=/mediawiki/config/ --scriptpath=/w	--dbuser='root' --dbpass='%s' --pass='%s' '%s' 'Admin'", envVariables["MYSQL_PASSWORD"], admin_password, wiki_name)
-	//For Debugging
-	fmt.Println(command)
+	defaultVariables := map[string]string{
+		"dbUser":    "root",
+		"wikiName":  "My Wiki",
+		"adminName": "Admin",
+	}
+
+	if userVariables["adminPassword"] == "" {
+		userVariables["adminPassword"], err = password.Generate(12, 2, 4, false, true)
+		if err != nil {
+			return infoCanasta, err
+		}
+	}
+
+	for index, value := range userVariables {
+		if value == "" {
+			userVariables[index] = defaultVariables[index]
+		}
+	}
+
+	command = fmt.Sprintf("php maintenance/install.php --dbserver=db  --confpath=/mediawiki/config/ --scriptpath=/w	--dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
+		userVariables["dbUser"], envVariables["MYSQL_PASSWORD"], userVariables["adminPassword"], userVariables["wikiName"], userVariables["adminName"])
+
 	err = orchestrators.Exec(path, orchestrator, "web", command)
 
-	return err
+	return infoCanasta, err
 }

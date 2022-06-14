@@ -2,7 +2,6 @@ package create
 
 import (
 	"fmt"
-	"log"
 	"os/exec"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
@@ -13,71 +12,91 @@ import (
 
 func NewCmdCreate() *cobra.Command {
 	var (
-		Path              string
-		Orchestrator      string
-		DatabasePath      string
-		LocalSettingsPath string
-		EnvPath           string
+		path              string
+		orchestrator      string
+		wikiName          string
+		adminName         string
+		adminPassword     string
+		databasePath      string
+		localSettingsPath string
+		envPath           string
+		userVariables     map[string]string
 	)
 
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a Canasta Installation",
 		Long:  `A Command to create a Canasta Installation with Docker-compose, Kubernetes, AWS. Also allows you to import from your previous installations.`,
-		Run: func(cmd *cobra.Command, args []string) {
-			err := createCanasta(Path, Orchestrator, DatabasePath, LocalSettingsPath, EnvPath)
-			if err != nil {
-				log.Fatal(err)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			userVariables = map[string]string{
+				"wikiName":      wikiName,
+				"adminName":     adminName,
+				"adminPassword": adminPassword,
+				"dbUser":        "",
 			}
+			err := createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
+			if err != nil {
+				return err
+			}
+			return nil
 		},
 	}
 
-	createCmd.Flags().StringVarP(&Path, "path", "p", "", "Canasta Installation directory")
-	createCmd.Flags().StringVarP(&Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
-	createCmd.Flags().StringVarP(&DatabasePath, "database", "d", "", "Path to the existing database dump")
-	createCmd.Flags().StringVarP(&LocalSettingsPath, "localsettings", "l", "", "Path to the existing LocalSettings.php")
-	createCmd.Flags().StringVarP(&EnvPath, "env", "e", "", "Path to the existing .env file")
+	createCmd.Flags().StringVarP(&path, "path", "p", "", "Canasta Installation directory")
+	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
+	createCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "Name of the Canasta Wiki Installation")
+	createCmd.Flags().StringVarP(&adminName, "admin", "a", "", "Name of the Admin user")
+	createCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Password for the Admin user")
+	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing Database dump")
+	createCmd.Flags().StringVarP(&localSettingsPath, "localsettings", "l", "", "Path to the existing LocalSettings.php")
+	createCmd.Flags().StringVarP(&envPath, "env", "e", "", "Path to the existing .env file")
 	createCmd.MarkFlagRequired("path")
 
 	return createCmd
 }
 
 // createCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
-func createCanasta(Path, Orchestrator, DatabasePath, LocalSettingsPath, EnvPath string) error {
+func createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) error {
 
-	fmt.Printf("Cloning the %s stack repo \n", Orchestrator)
+	var infoCanasta = make(map[string]string)
 
-	Path += "/Canasta-" + Orchestrator + "/"
-	err := cloneStackRepo(Orchestrator, Path)
+	fmt.Printf("Cloning the %s stack repo \n", orchestrator)
+
+	path += "/Canasta-" + orchestrator + "/"
+	err := cloneStackRepo(orchestrator, path)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Copying .env.example to .env\n")
-	err = exec.Command("cp", Path+"/.env.example", Path+"/.env").Run()
+	err = exec.Command("cp", path+"/.env.example", path+"/.env").Run()
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Starting the containers\n")
-	err = orchestrators.Up(Path, Orchestrator)
+	err = orchestrators.Up(path, orchestrator)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Configuring Mediawiki Installation\n")
-	err = mediawiki.Install(Path, Orchestrator, DatabasePath, LocalSettingsPath, EnvPath)
+
+	infoCanasta, err = mediawiki.Install(path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Restarting the containers\n")
-	err = orchestrators.DownUp(Path, Orchestrator)
+	err = orchestrators.DownUp(path, orchestrator)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("\nCanasta have been succesffuly installed and configured.Below are the details:\nPath: %s,\nOrchestrator: %s\nUsername: %s\nPassword: %s\n", Path, Orchestrator, "root", "password")
+	fmt.Printf("\nCanasta have been succesffuly installed and configured.Below are the details:\n")
+	for index, value := range infoCanasta {
+		fmt.Printf("%s: %s", index, value)
+	}
 
 	return nil
 
