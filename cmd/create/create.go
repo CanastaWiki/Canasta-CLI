@@ -2,6 +2,7 @@ package create
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 
@@ -44,7 +45,13 @@ func NewCmdCreate() *cobra.Command {
 		},
 	}
 
-	createCmd.Flags().StringVarP(&path, "path", "p", "", "Canasta Installation directory")
+	// Defaults the path's value to the current working directory if no value is passed
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	createCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta directory")
 	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
 	createCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "Name of the Canasta Wiki Installation")
 	createCmd.Flags().StringVarP(&adminName, "admin", "a", "", "Name of the Admin user")
@@ -63,16 +70,6 @@ func createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath 
 	var err error
 	var infoCanasta = make(map[string]string)
 
-	// Defaults the path's value to the current working directory if no value is passed
-	pwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-
-	if path == "" {
-		path = pwd
-	}
-
 	fmt.Printf("Cloning the %s stack repo to %s \n", orchestrator, path)
 
 	path += "/Canasta-" + orchestrator + "/"
@@ -88,7 +85,7 @@ func createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath 
 	}
 
 	fmt.Printf("Starting the containers\n")
-	err = orchestrators.Up(path, orchestrator)
+	err = orchestrators.Start(path, orchestrator)
 	if err != nil {
 		return err
 	}
@@ -101,7 +98,7 @@ func createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath 
 	}
 
 	fmt.Printf("Restarting the containers\n")
-	err = orchestrators.DownUp(path, orchestrator)
+	err = orchestrators.StopAndStart(path, orchestrator)
 	if err != nil {
 		return err
 	}

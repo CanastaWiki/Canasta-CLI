@@ -17,7 +17,7 @@ func GetRepoLink(orchestrator string) (string, error) {
 	return repo, nil
 }
 
-func Up(path, orchestrator string) error {
+func Start(path, orchestrator string) error {
 	switch orchestrator {
 	case "docker-compose":
 		fmt.Println("docker compose up")
@@ -35,7 +35,7 @@ func Up(path, orchestrator string) error {
 	return nil
 }
 
-func Down(path, orchestrator string) error {
+func Stop(path, orchestrator string) error {
 	switch orchestrator {
 	case "docker-compose":
 		fmt.Println("docker compose down")
@@ -53,12 +53,12 @@ func Down(path, orchestrator string) error {
 	return nil
 }
 
-func DownUp(path, orchestrator string) error {
-	err := Down(path, orchestrator)
+func StopAndStart(path, orchestrator string) error {
+	err := Stop(path, orchestrator)
 	if err != nil {
 		return err
 	}
-	err = Up(path, orchestrator)
+	err = Start(path, orchestrator)
 
 	return err
 }

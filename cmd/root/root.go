@@ -4,6 +4,9 @@ import (
 	"os"
 
 	createCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/create"
+	startCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/start"
+	stopCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/stop"
+
 	"github.com/spf13/cobra"
 )
 
@@ -21,5 +24,8 @@ func Execute() {
 }
 
 func init() {
+
 	rootCmd.AddCommand(createCmd.NewCmdCreate())
+	rootCmd.AddCommand(startCmd.NewCmdCreate())
+	rootCmd.AddCommand(stopCmd.NewCmdCreate())
 }
