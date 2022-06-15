@@ -2,6 +2,7 @@ package create
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
@@ -32,8 +33,9 @@ func NewCmdCreate() *cobra.Command {
 				"wikiName":      wikiName,
 				"adminName":     adminName,
 				"adminPassword": adminPassword,
-				"dbUser":        "",
+				"dbUser":        "root",
 			}
+
 			err := createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
 			if err != nil {
 				return err
@@ -50,20 +52,31 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing Database dump")
 	createCmd.Flags().StringVarP(&localSettingsPath, "localsettings", "l", "", "Path to the existing LocalSettings.php")
 	createCmd.Flags().StringVarP(&envPath, "env", "e", "", "Path to the existing .env file")
-	createCmd.MarkFlagRequired("path")
-
+	createCmd.MarkFlagRequired("wiki")
+	createCmd.MarkFlagRequired("admin")
+	createCmd.MarkFlagRequired("password")
 	return createCmd
 }
 
 // createCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
 func createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) error {
-
+	var err error
 	var infoCanasta = make(map[string]string)
 
-	fmt.Printf("Cloning the %s stack repo \n", orchestrator)
+	// Defaults the path's value to the current working directory if no value is passed
+	pwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	if path == "" {
+		path = pwd
+	}
+
+	fmt.Printf("Cloning the %s stack repo to %s \n", orchestrator, path)
 
 	path += "/Canasta-" + orchestrator + "/"
-	err := cloneStackRepo(orchestrator, path)
+	err = cloneStackRepo(orchestrator, path)
 	if err != nil {
 		return err
 	}

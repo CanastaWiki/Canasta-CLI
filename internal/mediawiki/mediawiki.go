@@ -41,22 +41,10 @@ func Install(path, orchestrator, databasePath, localSettingsPath, envPath string
 		return infoCanasta, err
 	}
 
-	defaultVariables := map[string]string{
-		"dbUser":    "root",
-		"wikiName":  "My Wiki",
-		"adminName": "Admin",
-	}
-
 	if userVariables["adminPassword"] == "" {
 		userVariables["adminPassword"], err = password.Generate(12, 2, 4, false, true)
 		if err != nil {
 			return infoCanasta, err
-		}
-	}
-
-	for index, value := range userVariables {
-		if value == "" {
-			userVariables[index] = defaultVariables[index]
 		}
 	}
 
