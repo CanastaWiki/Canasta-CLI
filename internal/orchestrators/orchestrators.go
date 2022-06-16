@@ -23,8 +23,7 @@ func Start(path, orchestrator string) error {
 		fmt.Println("docker compose up")
 		cmd := exec.Command("docker-compose", "up", "-d")
 		cmd.Dir = path
-		out, err := cmd.CombinedOutput()
-		fmt.Println(string(out))
+		_, err := cmd.CombinedOutput()
 		if err != nil {
 			return err
 		}
@@ -41,8 +40,7 @@ func Stop(path, orchestrator string) error {
 		fmt.Println("docker compose down")
 		cmd := exec.Command("docker-compose", "down")
 		cmd.Dir = path
-		out, err := cmd.CombinedOutput()
-		fmt.Println(string(out))
+		_, err := cmd.CombinedOutput()
 		if err != nil {
 			return err
 		}
