@@ -1,6 +1,7 @@
 package mediawiki
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -8,6 +9,37 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/sethvargo/go-password/password"
 )
+
+func PromptUser(userVariables map[string]string) (map[string]string, error) {
+	for index, value := range userVariables {
+
+		scanner := bufio.NewScanner(os.Stdin)
+		if index == "adminPassword" {
+
+			fmt.Println("Enter the  Admin Password")
+			scanner.Scan()
+			password := scanner.Text()
+
+			fmt.Println("Re-enter the  Admin Password")
+			scanner.Scan()
+			reEnterPassword := scanner.Text()
+
+			if password == reEnterPassword {
+				userVariables[index] = password
+			} else {
+				return userVariables, fmt.Errorf("please enter the same password")
+			}
+
+		} else if value == "" {
+			fmt.Printf("Enter %s\n", index)
+			scanner.Scan()
+			input := scanner.Text()
+			userVariables[index] = input
+		}
+	}
+
+	return userVariables, nil
+}
 
 func getEnvVariable(envPath string) (map[string]string, error) {
 
