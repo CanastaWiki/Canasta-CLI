@@ -17,7 +17,7 @@ func PromptUser(userVariables map[string]string) (map[string]string, error) {
 		scanner := bufio.NewScanner(os.Stdin)
 		if strings.Contains(index, "password") || strings.Contains(index, "Password") {
 
-			password, err := promtPassword(index)
+			password, err := promtPassword(userVariables["adminName"], index)
 			if err != nil {
 				return userVariables, err
 			}
@@ -25,9 +25,12 @@ func PromptUser(userVariables map[string]string) (map[string]string, error) {
 
 		} else if value == "" {
 
-			fmt.Printf("Enter %s\n", index)
+			fmt.Printf("Enter %s: ", index)
 			scanner.Scan()
 			input := scanner.Text()
+			if input == "" {
+				return userVariables, fmt.Errorf("please enter a value")
+			}
 			userVariables[index] = input
 		}
 	}
@@ -82,8 +85,8 @@ func getEnvVariable(envPath string) (map[string]string, error) {
 	return EnvVariables, nil
 }
 
-func promtPassword(name string) (string, error) {
-	fmt.Printf("Enter the  %s (Press Enter to autogenerate the password)\n", name)
+func promtPassword(userName, userRole string) (string, error) {
+	fmt.Printf("Enter the  %s (Press Enter to autogenerate the password): \n", userRole)
 	pass, err := term.ReadPassword(0)
 	if err != nil {
 		return "", err
@@ -93,8 +96,12 @@ func promtPassword(name string) (string, error) {
 	if password == "" {
 		return password, nil
 	}
+	err = passwordCheck(userName, password)
+	if err != nil {
+		return password, err
+	}
 
-	fmt.Printf("Re-enter the  %s\n", name)
+	fmt.Printf("Re-enter the  %s: \n", userRole)
 	pass, err = term.ReadPassword(0)
 	if err != nil {
 		return "", err
@@ -106,4 +113,14 @@ func promtPassword(name string) (string, error) {
 	} else {
 		return "", fmt.Errorf("please enter the same password")
 	}
+}
+
+func passwordCheck(admin, password string) error {
+	if len(password) <= 10 {
+		return fmt.Errorf("password must be atleast 10 characters long ")
+	} else if strings.Contains(password, admin) || strings.Contains(admin, password) {
+		return fmt.Errorf("password should not be same as admin name")
+	}
+
+	return nil
 }

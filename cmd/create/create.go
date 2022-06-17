@@ -29,7 +29,7 @@ func NewCmdCreate() *cobra.Command {
 		Use:   "create",
 		Short: "Create a Canasta Installation",
 		Long:  `A Command to create a Canasta Installation with Docker-compose, Kubernetes, AWS. Also allows you to import from your previous installations.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Run: func(cmd *cobra.Command, args []string) {
 			var err error
 			userVariables = map[string]string{
 				"wikiName":      wikiName,
@@ -37,17 +37,16 @@ func NewCmdCreate() *cobra.Command {
 				"adminPassword": adminPassword,
 				"dbUser":        "root",
 			}
-
+			log.SetFlags(0)
 			userVariables, err = mediawiki.PromptUser(userVariables)
 			if err != nil {
-				return err
+				log.Fatal("Canasta: ", err)
 			}
 
 			err = createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
 			if err != nil {
-				return err
+				log.Fatal("Canasta: ", err)
 			}
-			return nil
 		},
 	}
 
