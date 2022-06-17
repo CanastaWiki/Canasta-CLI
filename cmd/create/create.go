@@ -71,7 +71,6 @@ func NewCmdCreate() *cobra.Command {
 // createCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
 func createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) error {
 	var err error
-	var infoCanasta = make(map[string]string)
 
 	fmt.Printf("Cloning the %s stack repo to %s \n", orchestrator, path)
 
@@ -95,7 +94,7 @@ func createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath 
 
 	fmt.Printf("Configuring Mediawiki Installation\n")
 
-	infoCanasta, err = mediawiki.Install(path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
+	_, err = mediawiki.Install(path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
 	if err != nil {
 		return err
 	}
@@ -104,11 +103,6 @@ func createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath 
 	err = orchestrators.StopAndStart(path, orchestrator)
 	if err != nil {
 		return err
-	}
-
-	fmt.Printf("\nCanasta have been succesffuly installed and configured.Below are the details:\n")
-	for index, value := range infoCanasta {
-		fmt.Printf("%s: %s", index, value)
 	}
 
 	return nil
