@@ -75,9 +75,7 @@ func createCanasta(wikiId, path, orchestrator, databasePath, localSettingsPath, 
 	var err error
 
 	fmt.Printf("Cloning the %s stack repo to %s \n", orchestrator, path)
-
-	path += "/Canasta-" + orchestrator + "/"
-	err = cloneStackRepo(orchestrator, path)
+	err = cloneStackRepo(orchestrator, &path)
 	if err != nil {
 		return err
 	}
@@ -95,7 +93,6 @@ func createCanasta(wikiId, path, orchestrator, databasePath, localSettingsPath, 
 	}
 
 	fmt.Printf("Configuring Mediawiki Installation\n")
-
 	_, err = mediawiki.Install(path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
 	if err != nil {
 		return err
@@ -118,14 +115,14 @@ func createCanasta(wikiId, path, orchestrator, databasePath, localSettingsPath, 
 
 // cloneStackRepo accept the orchestrator from the cli and pass the corresponding reopository link
 // and clones the repo to a new folder in the specified path
-func cloneStackRepo(orchestrator, path string) error {
-
+func cloneStackRepo(orchestrator string, path *string) error {
+	*path += "/canasta-" + orchestrator
 	repo, err := orchestrators.GetRepoLink(orchestrator)
 	if err != nil {
 		return err
 	}
 
-	err = git.Clone(repo, path)
+	err = git.Clone(repo, *path)
 	if err != nil {
 		return err
 	}
