@@ -7,6 +7,7 @@ import (
 	"os/exec"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/spf13/cobra"
@@ -23,6 +24,7 @@ func NewCmdCreate() *cobra.Command {
 		localSettingsPath string
 		envPath           string
 		userVariables     map[string]string
+		wikiId            string
 	)
 
 	createCmd := &cobra.Command{
@@ -58,7 +60,8 @@ func NewCmdCreate() *cobra.Command {
 
 	createCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta directory")
 	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
-	createCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "Name of the Canasta Wiki Installation")
+	createCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "Name of the Wiki Installation")
+	createCmd.Flags().StringVarP(&wikiId, "id", "i", "", "Canasta ID to differentiate between different Canasta Installations")
 	createCmd.Flags().StringVarP(&adminName, "admin", "a", "", "Name of the Admin user")
 	createCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Password for the Admin user")
 	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing Database dump")
@@ -68,7 +71,7 @@ func NewCmdCreate() *cobra.Command {
 }
 
 // createCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
-func createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) error {
+func createCanasta(wikiId, path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) error {
 	var err error
 
 	fmt.Printf("Cloning the %s stack repo to %s \n", orchestrator, path)
@@ -98,13 +101,18 @@ func createCanasta(path, orchestrator, databasePath, localSettingsPath, envPath 
 		return err
 	}
 
+	err = logging.Add(logging.Installation{Id: wikiId, Path: path, Orchestrator: orchestrator})
+	if err != nil {
+		return err
+	}
+
 	fmt.Printf("Restarting the containers\n")
 	err = orchestrators.StopAndStart(path, orchestrator)
 	if err != nil {
 		return err
 	}
 
-	return nil
+	return err
 
 }
 

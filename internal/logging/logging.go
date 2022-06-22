@@ -6,14 +6,15 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"syscall"
 )
 
-type CanastaInstallation struct {
+type Installation struct {
 	Id, Path, Orchestrator string
 }
 
 type Canasta struct {
-	Installations map[string]CanastaInstallation
+	Installations map[string]Installation
 }
 
 var (
@@ -41,14 +42,14 @@ func ListAll() {
 	}
 }
 
-func GetDetails(canastaId string) (CanastaInstallation, error) {
+func GetDetails(canastaId string) (Installation, error) {
 	if Exists(canastaId) {
 		return existingInstallations.Installations[canastaId], nil
 	}
-	return CanastaInstallation{}, fmt.Errorf("Canasta Installation with the ID doesn't exist")
+	return Installation{}, fmt.Errorf("Canasta Installation with the ID doesn't exist")
 }
 
-func Add(details CanastaInstallation) error {
+func Add(details Installation) error {
 	if Exists(details.Id) {
 		return fmt.Errorf("Canasta ID is already used for another installation")
 	} else {
@@ -88,8 +89,6 @@ func read(details *Canasta) error {
 
 func init() {
 
-	log.SetFlags(0)
-	log.SetPrefix("Error: ")
 	directory = "/etc/canasta"
 	confFile = directory + "/conf.js"
 
@@ -109,9 +108,17 @@ func init() {
 			log.Fatal(err)
 		}
 		//Creating confFile.js
-		_, err := os.Create(confFile)
+		err := write(Canasta{Installations: map[string]Installation{}})
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
+	// Check if the file is writable/ has enough permissions
+	err = syscall.Access(confFile, syscall.O_RDWR)
+	if err != nil {
+		log.Fatal(err)
+	} else {
+		fmt.Println("Logging module is running")
+	}
+
 }
