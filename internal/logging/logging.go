@@ -117,8 +117,5 @@ func init() {
 	err = syscall.Access(confFile, syscall.O_RDWR)
 	if err != nil {
 		log.Fatal(err)
-	} else {
-		fmt.Println("Logging module is running")
 	}
-
 }

@@ -11,31 +11,21 @@ import (
 	"golang.org/x/term"
 )
 
-func PromptUser(userVariables map[string]string) (map[string]string, error) {
-	for index, value := range userVariables {
-
-		scanner := bufio.NewScanner(os.Stdin)
-		if strings.Contains(index, "password") || strings.Contains(index, "Password") {
-
-			password, err := promtPassword(userVariables["adminName"], index)
-			if err != nil {
-				return userVariables, err
-			}
-			userVariables[index] = password
-
-		} else if value == "" {
-
-			fmt.Printf("Enter %s: ", index)
-			scanner.Scan()
-			input := scanner.Text()
-			if input == "" {
-				return userVariables, fmt.Errorf("please enter a value")
-			}
-			userVariables[index] = input
-		}
+func PromptUser(canastaId string, userVariables map[string]string) (string, map[string]string, error) {
+	var err error
+	userVariables["wikiName"], err = prompt(userVariables["wikiName"], "Wiki Name")
+	if err != nil {
+		return canastaId, userVariables, err
 	}
-
-	return userVariables, nil
+	canastaId, err = prompt(canastaId, "Canasta ID")
+	if err != nil {
+		return canastaId, userVariables, err
+	}
+	userVariables["adminName"], userVariables["adminPassword"], err = promtUserPassword(userVariables["adminName"], userVariables["adminPassword"], "admin name", "admin password")
+	if err != nil {
+		return canastaId, userVariables, err
+	}
+	return canastaId, userVariables, nil
 }
 
 func Install(path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) (map[string]string, error) {
@@ -85,33 +75,54 @@ func getEnvVariable(envPath string) (map[string]string, error) {
 	return EnvVariables, nil
 }
 
-func promtPassword(userName, userRole string) (string, error) {
-	fmt.Printf("Enter the  %s (Press Enter to autogenerate the password): \n", userRole)
-	pass, err := term.ReadPassword(0)
-	if err != nil {
-		return "", err
+func prompt(value, prompt string) (string, error) {
+	if value != "" {
+		return value, nil
 	}
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Printf("Enter %s: ", prompt)
+	scanner.Scan()
+	input := scanner.Text()
+	if input == "" {
+		return input, fmt.Errorf("please enter a value")
+	}
+	return input, nil
+}
+
+func promtUserPassword(userValue, passwordValue, userPrompt, passwordPrompt string) (string, string, error) {
+	username, err := prompt(userValue, userPrompt)
+	if err != nil {
+		return userValue, passwordValue, err
+	}
+	if passwordValue != "" {
+		return userValue, passwordValue, nil
+	}
+	fmt.Printf("Enter the  %s (Press Enter to autogenerate the password): \n", passwordPrompt)
+	pass, err := term.ReadPassword(0)
 	password := string(pass)
+	if err != nil {
+		return username, password, err
+	}
 
 	if password == "" {
-		return password, nil
+		return username, password, nil
 	}
-	err = passwordCheck(userName, password)
+	err = passwordCheck(username, password)
 	if err != nil {
-		return password, err
+		return username, password, err
 	}
 
-	fmt.Printf("Re-enter the  %s: \n", userRole)
+	fmt.Printf("Re-enter the  %s: \n", passwordPrompt)
 	pass, err = term.ReadPassword(0)
 	if err != nil {
-		return "", err
+		return username, password, err
 	}
 	reEnterPassword := string(pass)
 
 	if password == reEnterPassword {
-		return password, nil
+		return username, password, nil
 	} else {
-		return "", fmt.Errorf("please enter the same password")
+		return username, password, fmt.Errorf("please enter the same password")
 	}
 }
 
