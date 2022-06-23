@@ -7,23 +7,24 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
 func NewCmdCreate() *cobra.Command {
-	var (
-		path         string
-		orchestrator string
-	)
+	var instance logging.Installation
 
 	var stopCmd = &cobra.Command{
 		Use:   "stop",
 		Short: "Stop the Canasta installation",
 		Long:  `Stop the Canasta installation`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := Stop(path, orchestrator)
+			if instance.Id == "" {
+				instance.Id = args[0]
+			}
+			err := Stop(instance)
 			if err != nil {
-				return err
+				log.Fatal(err)
 			}
 			return nil
 		},
@@ -34,14 +35,21 @@ func NewCmdCreate() *cobra.Command {
 	if err != nil {
 		log.Fatal(err)
 	}
-	stopCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta installation directory")
-	stopCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
+	stopCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
+	stopCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Name of the Canasta Wiki Installation")
+	stopCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
 	return stopCmd
 }
 
-func Stop(path, orchestrator string) error {
+func Stop(instance logging.Installation) error {
 	fmt.Println("Stopping Canasta")
-	orchestrators.Stop(path, orchestrator)
-
-	return nil
+	var err error
+	if instance.Id != "" {
+		instance, err = logging.GetDetails(instance.Id)
+		if err != nil {
+			return err
+		}
+	}
+	err = orchestrators.Stop(instance.Path, instance.Orchestrator)
+	return err
 }

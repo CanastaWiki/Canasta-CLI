@@ -7,21 +7,22 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
 func NewCmdCreate() *cobra.Command {
-	var (
-		path         string
-		orchestrator string
-	)
+	var instance logging.Installation
 
 	var startCmd = &cobra.Command{
 		Use:   "start",
 		Short: "Start the Canasta installation",
 		Long:  `Start the Canasta installation`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := Start(path, orchestrator)
+			if instance.Id == "" {
+				instance.Id = args[0]
+			}
+			err := Start(instance)
 			if err != nil {
 				return err
 			}
@@ -34,14 +35,21 @@ func NewCmdCreate() *cobra.Command {
 	if err != nil {
 		log.Fatal(err)
 	}
-	startCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta installation directory")
-	startCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
+	startCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
+	startCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Name of the Canasta Wiki Installation")
+	startCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
 	return startCmd
 }
 
-func Start(path, orchestrator string) error {
-	fmt.Println("Startping Canasta")
-	orchestrators.Start(path, orchestrator)
-
-	return nil
+func Start(instance logging.Installation) error {
+	fmt.Println("Starting Canasta")
+	var err error
+	if instance.Id != "" {
+		instance, err = logging.GetDetails(instance.Id)
+		if err != nil {
+			return err
+		}
+	}
+	err = orchestrators.Start(instance.Path, instance.Orchestrator)
+	return err
 }
