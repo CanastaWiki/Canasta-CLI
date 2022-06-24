@@ -19,7 +19,8 @@ func NewCmdCreate() *cobra.Command {
 		Short: "Start the Canasta installation",
 		Long:  `Start the Canasta installation`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if instance.Id == "" {
+
+			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
 			err := Start(instance)
