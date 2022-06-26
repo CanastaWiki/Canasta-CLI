@@ -13,7 +13,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "canasta",
 	Short: "A CLI tool for Canasta installations.",
-	Long:  `A CLI tool to create and manage Canasta installations`,
+	Long:  `A CLI tool to create, import, start, stop and backup multiple Canasta installations`,
 }
 
 func Execute() {
