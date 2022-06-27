@@ -36,7 +36,7 @@ func ListAll() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Canasta ID\tInstallation Path\tOrchestrator\n\n")
+	fmt.Printf("Canasta ID\tInstallation Path\t\t\t\t\tOrchestrator\n\n")
 	for _, installation := range existingInstallations.Installations {
 		fmt.Printf("%s\t%s\t%s\n", installation.Id, installation.Path, installation.Orchestrator)
 	}
