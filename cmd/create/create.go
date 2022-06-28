@@ -13,17 +13,14 @@ import (
 
 func NewCmdCreate() *cobra.Command {
 	var (
-		pwd               string
-		path              string
-		orchestrator      string
-		wikiName          string
-		adminName         string
-		adminPassword     string
-		databasePath      string
-		localSettingsPath string
-		envPath           string
-		canastaId         string
-		userVariables     map[string]string
+		pwd           string
+		path          string
+		orchestrator  string
+		wikiName      string
+		adminName     string
+		adminPassword string
+		canastaId     string
+		userVariables map[string]string
 	)
 
 	var err error
@@ -45,12 +42,8 @@ func NewCmdCreate() *cobra.Command {
 			if err != nil {
 				log.Fatal("Canasta: ", err)
 			}
-			// err = databaseSanityChecks(databasePath)
-			// if err != nil {
-			// 	log.Fatal("Database Path:", err)
-			// }
 
-			err = createCanasta(pwd, canastaId, path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
+			err = createCanasta(pwd, canastaId, path, orchestrator, userVariables)
 			if err != nil {
 				log.Fatal("Canasta: ", err)
 			}
@@ -69,25 +62,22 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&canastaId, "id", "i", "", "Name of the Canasta Wiki Installation")
 	createCmd.Flags().StringVarP(&adminName, "admin", "a", "", "Name of the Admin user")
 	createCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Password for the Admin user")
-	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing Database dump")
-	createCmd.Flags().StringVarP(&localSettingsPath, "localsettings", "l", "", "Path to the existing LocalSettings.php")
-	createCmd.Flags().StringVarP(&envPath, "env", "e", "", "Path to the existing .env file")
 	return createCmd
 }
 
 // createCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
-func createCanasta(pwd, canastaId, path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) error {
+func createCanasta(pwd, canastaId, path, orchestrator string, userVariables map[string]string) error {
 	var err error
 	if err = canasta.CloneStackRepo(orchestrator, &path); err != nil {
 		return err
 	}
-	if err = canasta.CopyEnv(envPath, path, pwd); err != nil {
+	if err = canasta.CopyEnv("", path, pwd); err != nil {
 		return err
 	}
 	if err = orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}
-	if _, err = mediawiki.Install(path, orchestrator, databasePath, localSettingsPath, envPath, userVariables); err != nil {
+	if _, err = mediawiki.Install(path, orchestrator, userVariables); err != nil {
 		return err
 	}
 	if err = logging.Add(logging.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator}); err != nil {

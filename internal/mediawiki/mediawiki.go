@@ -28,7 +28,7 @@ func PromptUser(canastaId string, userVariables map[string]string) (string, map[
 	return canastaId, userVariables, nil
 }
 
-func Install(path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) (map[string]string, error) {
+func Install(path, orchestrator string, userVariables map[string]string) (map[string]string, error) {
 	fmt.Println("Configuring Mediawiki Installation")
 	fmt.Println("Running install.php ")
 
