@@ -18,6 +18,7 @@ func GetRepoLink(orchestrator string) (string, error) {
 }
 
 func Start(path, orchestrator string) error {
+	fmt.Printf("Starting the containers\n")
 	switch orchestrator {
 	case "docker-compose":
 		fmt.Println("docker compose up")
@@ -35,6 +36,7 @@ func Start(path, orchestrator string) error {
 }
 
 func Stop(path, orchestrator string) error {
+	fmt.Printf("Stoping the containers\n")
 	switch orchestrator {
 	case "docker-compose":
 		fmt.Println("docker compose down")

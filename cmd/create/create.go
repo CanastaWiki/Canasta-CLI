@@ -1,12 +1,10 @@
 package create
 
 import (
-	"fmt"
 	"log"
 	"os"
-	"os/exec"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
@@ -15,6 +13,7 @@ import (
 
 func NewCmdCreate() *cobra.Command {
 	var (
+		pwd               string
 		path              string
 		orchestrator      string
 		wikiName          string
@@ -26,6 +25,8 @@ func NewCmdCreate() *cobra.Command {
 		canastaId         string
 		userVariables     map[string]string
 	)
+
+	var err error
 
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -44,8 +45,12 @@ func NewCmdCreate() *cobra.Command {
 			if err != nil {
 				log.Fatal("Canasta: ", err)
 			}
+			// err = databaseSanityChecks(databasePath)
+			// if err != nil {
+			// 	log.Fatal("Database Path:", err)
+			// }
 
-			err = createCanasta(canastaId, path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
+			err = createCanasta(pwd, canastaId, path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
 			if err != nil {
 				log.Fatal("Canasta: ", err)
 			}
@@ -53,7 +58,7 @@ func NewCmdCreate() *cobra.Command {
 	}
 
 	// Defaults the path's value to the current working directory if no value is passed
-	pwd, err := os.Getwd()
+	pwd, err = os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -71,61 +76,27 @@ func NewCmdCreate() *cobra.Command {
 }
 
 // createCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
-func createCanasta(canastaId, path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) error {
+func createCanasta(pwd, canastaId, path, orchestrator, databasePath, localSettingsPath, envPath string, userVariables map[string]string) error {
 	var err error
-
-	fmt.Printf("Cloning the %s stack repo to %s \n", orchestrator, path)
-	err = cloneStackRepo(orchestrator, &path)
-	if err != nil {
+	if err = canasta.CloneStackRepo(orchestrator, &path); err != nil {
 		return err
 	}
-
-	fmt.Printf("Copying .env.example to .env\n")
-	err = exec.Command("cp", path+"/.env.example", path+"/.env").Run()
-	if err != nil {
+	if err = canasta.CopyEnv(envPath, path, pwd); err != nil {
 		return err
 	}
-
-	fmt.Printf("Starting the containers\n")
-	err = orchestrators.Start(path, orchestrator)
-	if err != nil {
+	if err = orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}
-
-	fmt.Printf("Configuring Mediawiki Installation\n")
-	_, err = mediawiki.Install(path, orchestrator, databasePath, localSettingsPath, envPath, userVariables)
-	if err != nil {
+	if _, err = mediawiki.Install(path, orchestrator, databasePath, localSettingsPath, envPath, userVariables); err != nil {
 		return err
 	}
-
-	err = logging.Add(logging.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator})
-	if err != nil {
+	if err = logging.Add(logging.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator}); err != nil {
 		return err
 	}
-
-	fmt.Printf("Restarting the containers\n")
-	err = orchestrators.StopAndStart(path, orchestrator)
-	if err != nil {
+	if err = orchestrators.StopAndStart(path, orchestrator); err != nil {
 		return err
 	}
 
 	return err
 
-}
-
-// cloneStackRepo accept the orchestrator from the cli and pass the corresponding reopository link
-// and clones the repo to a new folder in the specified path
-func cloneStackRepo(orchestrator string, path *string) error {
-	*path += "/canasta-" + orchestrator
-	repo, err := orchestrators.GetRepoLink(orchestrator)
-	if err != nil {
-		return err
-	}
-
-	err = git.Clone(repo, *path)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
