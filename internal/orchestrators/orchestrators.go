@@ -63,6 +63,23 @@ func StopAndStart(path, orchestrator string) error {
 	return err
 }
 
+func Delete(path, orchestrator string) error {
+	switch orchestrator {
+	case "docker-compose":
+		fmt.Println("docker compose down -v")
+		cmd := exec.Command("docker-compose", "down", "-v")
+		cmd.Dir = path
+		_, err := cmd.CombinedOutput()
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("orchestrator: %s is not available", orchestrator)
+	}
+
+	return nil
+}
+
 func Exec(path, orchestrator, container, command string) error {
 	switch orchestrator {
 	case "docker-compose":

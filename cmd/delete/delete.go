@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -55,13 +56,15 @@ func Delete(instance logging.Installation) error {
 		}
 	}
 
-	err = exec.Command("rm", "-rf", instance.Path).Run()
-	if err != nil {
+	if err = orchestrators.Delete(instance.Path, instance.Orchestrator); err != nil {
 		return err
 	}
-	err = logging.Delete(instance.Id)
-	if err == nil {
-		fmt.Println("Deleted Canasta")
+	if err = exec.Command("rm", "-rf", instance.Path).Run(); err != nil {
+		return err
 	}
-	return err
+	if err = logging.Delete(instance.Id); err != nil {
+		return err
+	}
+	fmt.Println("Deleted Canasta")
+	return nil
 }
