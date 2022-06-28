@@ -69,9 +69,18 @@ func CopyDatabase(databasePath, path, pwd string) error {
 }
 
 //sanity checks database dump file
-func DatabaseSanityChecks(databasePath string) error {
-	if databasePath == "" || (strings.HasSuffix(databasePath, ".sql") || strings.HasSuffix(databasePath, ".sql.gz")) {
-		return nil
+func SanityChecks(databasePath, localSettingsPath string) error {
+	if databasePath == "" {
+		return fmt.Errorf("database dump path not mentioned")
 	}
-	return fmt.Errorf("mysqldump is of invalid file type")
+	if localSettingsPath == "" {
+		return fmt.Errorf("localsettings.php path not mentioned")
+	}
+	if !strings.HasSuffix(databasePath, ".sql") && !strings.HasSuffix(databasePath, ".sql.gz") {
+		return fmt.Errorf("mysqldump is of invalid file type")
+	}
+	if !strings.HasSuffix(localSettingsPath, ".php") {
+		return fmt.Errorf("make sure correct LocalSettings.php is mentioned")
+	}
+	return nil
 }
