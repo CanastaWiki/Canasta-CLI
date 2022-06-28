@@ -49,6 +49,16 @@ func GetDetails(canastaId string) (Installation, error) {
 	return Installation{}, fmt.Errorf("Canasta Installation with the ID doesn't exist")
 }
 
+func GetCanastaId(path string) (string, error) {
+	var canastaId string
+	for _, installations := range existingInstallations.Installations {
+		if installations.Path == path {
+			return installations.Id, nil
+		}
+	}
+	return canastaId, fmt.Errorf("no canasta installations exist at %s", path)
+}
+
 func Add(details Installation) error {
 	if Exists(details.Id) {
 		return fmt.Errorf("Canasta ID is already used for another installation")
