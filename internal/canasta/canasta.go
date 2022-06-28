@@ -2,6 +2,9 @@ package canasta
 
 import (
 	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -27,7 +30,7 @@ func CloneStackRepo(orchestrator string, path *string) error {
 	return nil
 }
 
-func CopyEnv(envPath, path, pwd string) error {
+func CopyEnv(envPath, domainName, path, pwd string) error {
 	var err error
 	if envPath == "" {
 		envPath = path + "/.env.example"
@@ -37,6 +40,12 @@ func CopyEnv(envPath, path, pwd string) error {
 	fmt.Printf("Copying %s to %s/.env\n", envPath, path)
 	err = exec.Command("cp", envPath, path+"/.env").Run()
 	if err != nil {
+		return err
+	}
+	if err = SaveEnvVariable(path+"/.env", "MW_SITE_SERVER", "https://"+domainName); err != nil {
+		return err
+	}
+	if err = SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", domainName); err != nil {
 		return err
 	}
 	return nil
@@ -83,4 +92,42 @@ func SanityChecks(databasePath, localSettingsPath string) error {
 		return fmt.Errorf("make sure correct LocalSettings.php is mentioned")
 	}
 	return nil
+}
+
+func SaveEnvVariable(envPath, key, value string) error {
+	file, err := os.ReadFile(envPath)
+	if err != nil {
+		return err
+	}
+	data := string(file)
+	list := strings.Split(data, "\n")
+	for index, line := range list {
+		if strings.Contains(line, key) {
+			list[index] = fmt.Sprintf("%s=%s", key, value)
+		}
+	}
+	lines := strings.Join(list, "\n")
+	err = ioutil.WriteFile(envPath, []byte(lines), 0644)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	return nil
+}
+
+func GetEnvVariable(envPath string) (map[string]string, error) {
+
+	EnvVariables := make(map[string]string)
+	file_data, err := os.ReadFile(envPath)
+	if err != nil {
+		return EnvVariables, err
+	}
+	data := strings.TrimSuffix(string(file_data), "\n")
+	variable_list := strings.Split(data, "\n")
+	for _, variable := range variable_list {
+		list := strings.Split(variable, "=")
+		EnvVariables[list[0]] = list[1]
+	}
+
+	return EnvVariables, nil
 }

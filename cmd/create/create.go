@@ -20,6 +20,7 @@ func NewCmdCreate() *cobra.Command {
 		adminName     string
 		adminPassword string
 		canastaId     string
+		domainName    string
 		userVariables map[string]string
 	)
 
@@ -43,7 +44,7 @@ func NewCmdCreate() *cobra.Command {
 				log.Fatal("Canasta: ", err)
 			}
 
-			err = createCanasta(pwd, canastaId, path, orchestrator, userVariables)
+			err = createCanasta(pwd, canastaId, domainName, path, orchestrator, userVariables)
 			if err != nil {
 				log.Fatal("Canasta: ", err)
 			}
@@ -59,6 +60,7 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta directory")
 	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
 	createCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "Name of the Canasta Wiki Installation")
+	createCmd.Flags().StringVarP(&domainName, "domain-name", "n", "localhost", "Domain Name for the Canasta Wiki Installation")
 	createCmd.Flags().StringVarP(&canastaId, "id", "i", "", "Name of the Canasta Wiki Installation")
 	createCmd.Flags().StringVarP(&adminName, "admin", "a", "", "Name of the Admin user")
 	createCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Password for the Admin user")
@@ -66,12 +68,12 @@ func NewCmdCreate() *cobra.Command {
 }
 
 // createCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
-func createCanasta(pwd, canastaId, path, orchestrator string, userVariables map[string]string) error {
+func createCanasta(pwd, canastaId, domainName, path, orchestrator string, userVariables map[string]string) error {
 	var err error
 	if err = canasta.CloneStackRepo(orchestrator, &path); err != nil {
 		return err
 	}
-	if err = canasta.CopyEnv("", path, pwd); err != nil {
+	if err = canasta.CopyEnv("", domainName, path, pwd); err != nil {
 		return err
 	}
 	if err = orchestrators.Start(path, orchestrator); err != nil {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/sethvargo/go-password/password"
 	"golang.org/x/term"
@@ -33,7 +34,7 @@ func Install(path, orchestrator string, userVariables map[string]string) (map[st
 	fmt.Println("Running install.php ")
 
 	infoCanasta := make(map[string]string)
-	envVariables, err := getEnvVariable(path + "/.env")
+	envVariables, err := canasta.GetEnvVariable(path + "/.env")
 	if err != nil {
 		return infoCanasta, err
 	}
@@ -57,23 +58,6 @@ func Install(path, orchestrator string, userVariables map[string]string) (map[st
 	err = orchestrators.Exec(path, orchestrator, "web", command)
 
 	return infoCanasta, err
-}
-
-func getEnvVariable(envPath string) (map[string]string, error) {
-
-	EnvVariables := make(map[string]string)
-	file_data, err := os.ReadFile(envPath)
-	if err != nil {
-		return EnvVariables, err
-	}
-	data := strings.TrimSuffix(string(file_data), "\n")
-	variable_list := strings.Split(data, "\n")
-	for _, variable := range variable_list {
-		list := strings.Split(variable, "=")
-		EnvVariables[list[0]] = list[1]
-	}
-
-	return EnvVariables, nil
 }
 
 func prompt(value, prompt string) (string, error) {
