@@ -11,9 +11,8 @@ func NewCmdCreate() *cobra.Command {
 
 	var listCmd = &cobra.Command{
 		Use:   "list",
-		Short: "list all  Canasta installation",
+		Short: "list all  Canasta installations",
 		RunE: func(cmd *cobra.Command, args []string) error {
-
 			err := List(instance)
 			if err != nil {
 				return err

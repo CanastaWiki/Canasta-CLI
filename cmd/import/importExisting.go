@@ -1,6 +1,7 @@
 package importExisting
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -20,6 +21,7 @@ func NewCmdCreate() *cobra.Command {
 		envPath           string
 		canastaId         string
 		domainName        string
+		verbose           bool
 	)
 
 	var err error
@@ -30,21 +32,22 @@ func NewCmdCreate() *cobra.Command {
 		Long:  `A Command to create a Canasta Installation with Docker-compose, Kubernetes, AWS. Also allows you to import from your previous installations.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			log.SetFlags(0)
+			logging.SetVerbose(verbose)
 			err = canasta.SanityChecks(databasePath, localSettingsPath)
 			if err != nil {
 				return err
 			}
+			fmt.Println("Importing Canasta")
 			err = importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath)
 			if err != nil {
 				log.Fatal(err)
 				return err
 			}
+			fmt.Println("Done")
 			return nil
 		},
 	}
 
-	// Defaults the path's value to the current working directory if no value is passed
 	pwd, err = os.Getwd()
 	if err != nil {
 		log.Fatal(err)
@@ -57,10 +60,11 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing Database dump")
 	createCmd.Flags().StringVarP(&localSettingsPath, "localsettings", "l", "", "Path to the existing LocalSettings.php")
 	createCmd.Flags().StringVarP(&envPath, "env", "e", "", "Path to the existing .env file")
+	createCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return createCmd
 }
 
-// createCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
+// importCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
 func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath string) error {
 	var err error
 	if err = canasta.CloneStackRepo(orchestrator, &path); err != nil {
@@ -81,10 +85,6 @@ func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath,
 	if err = logging.Add(logging.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator}); err != nil {
 		return err
 	}
-	if err = orchestrators.StopAndStart(path, orchestrator); err != nil {
-		return err
-	}
 
 	return err
-
 }

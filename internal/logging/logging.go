@@ -20,13 +20,14 @@ type Canasta struct {
 var (
 	directory             string
 	confFile              string
+	verbose               bool
 	existingInstallations Canasta
 )
 
 func Exists(canastaId string) bool {
 	err := read(&existingInstallations)
 	if err != nil {
-		log.Fatal(err)
+		Fatal(err)
 	}
 	return existingInstallations.Installations[canastaId].Id != ""
 }
@@ -34,7 +35,7 @@ func Exists(canastaId string) bool {
 func ListAll() {
 	err := read(&existingInstallations)
 	if err != nil {
-		log.Fatal(err)
+		Fatal(err)
 	}
 	fmt.Printf("Canasta ID\tInstallation Path\t\t\t\t\tOrchestrator\n\n")
 	for _, installation := range existingInstallations.Installations {
@@ -73,17 +74,19 @@ func Delete(canastaID string) error {
 	if Exists(canastaID) {
 		delete(existingInstallations.Installations, canastaID)
 	} else {
-		return fmt.Errorf("Canasta Installation with the ID doesn't exist")
+		Fatal(fmt.Errorf("Canasta Installation with the ID doesn't exist"))
 	}
-	err := write(existingInstallations)
-	return err
+	if err := write(existingInstallations); err != nil {
+		Fatal(err)
+	}
+
+	return nil
 }
 
 func write(details Canasta) error {
-
 	file, err := json.MarshalIndent(details, "", "	")
 	if err != nil {
-		return err
+		Fatal(err)
 	}
 	return ioutil.WriteFile(confFile, file, 0644)
 }
@@ -91,10 +94,26 @@ func write(details Canasta) error {
 func read(details *Canasta) error {
 	data, err := os.ReadFile(confFile)
 	if err != nil {
-		return err
+		Fatal(err)
 	}
 	err = json.Unmarshal(data, details)
 	return err
+}
+
+func SetVerbose(v bool) {
+	verbose = v
+}
+
+func Print(output string) {
+	log.SetFlags(0)
+	if verbose {
+		log.Print(output)
+	}
+}
+
+func Fatal(err error) {
+	log.SetFlags(0)
+	log.Fatal(err)
 }
 
 func init() {
@@ -109,23 +128,23 @@ func init() {
 		_, err = os.Stat(directory)
 		//Creating configuration folder
 		if os.IsNotExist(err) {
-			fmt.Println("Creating", directory)
+			Print(fmt.Sprintf("Creating %s\n", directory))
 			err = os.Mkdir(directory, os.ModePerm)
 			if err != nil {
-				log.Fatal(err)
+				Fatal(err)
 			}
 		} else if err != nil {
-			log.Fatal(err)
+			Fatal(err)
 		}
 		//Creating confFile.js
 		err := write(Canasta{Installations: map[string]Installation{}})
 		if err != nil {
-			log.Fatal(err)
+			Fatal(err)
 		}
 	}
 	// Check if the file is writable/ has enough permissions
 	err = syscall.Access(confFile, syscall.O_RDWR)
 	if err != nil {
-		log.Fatal(err)
+		Fatal(err)
 	}
 }

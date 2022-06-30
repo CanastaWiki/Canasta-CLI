@@ -3,6 +3,8 @@ package orchestrators
 import (
 	"fmt"
 	"os/exec"
+
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
 func GetRepoLink(orchestrator string) (string, error) {
@@ -11,89 +13,83 @@ func GetRepoLink(orchestrator string) (string, error) {
 	case "docker-compose":
 		repo = "https://github.com/CanastaWiki/Canasta-DockerCompose.git"
 	default:
-		return repo, fmt.Errorf("orchestrator: %s is not available", orchestrator)
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
 
 	return repo, nil
 }
 
 func Start(path, orchestrator string) error {
-	fmt.Printf("Starting the containers\n")
+	logging.Print("Starting Canasta\n")
 	switch orchestrator {
 	case "docker-compose":
-		fmt.Println("docker compose up")
+		logging.Print("docker compose up\n")
 		cmd := exec.Command("docker-compose", "up", "-d")
 		cmd.Dir = path
-		_, err := cmd.CombinedOutput()
-		if err != nil {
-			return err
+		if _, err := cmd.CombinedOutput(); err != nil {
+			logging.Fatal(err)
 		}
 	default:
-		return fmt.Errorf("orchestrator: %s is not available", orchestrator)
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
 
 	return nil
 }
 
 func Stop(path, orchestrator string) error {
-	fmt.Printf("Stoping the containers\n")
+	logging.Print("Stoping the containers\n")
 	switch orchestrator {
 	case "docker-compose":
-		fmt.Println("docker compose down")
+		logging.Print("docker compose down\n")
 		cmd := exec.Command("docker-compose", "down")
 		cmd.Dir = path
-		_, err := cmd.CombinedOutput()
-		if err != nil {
-			return err
+		if _, err := cmd.CombinedOutput(); err != nil {
+			logging.Fatal(err)
 		}
 	default:
-		return fmt.Errorf("orchestrator: %s is not available", orchestrator)
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
-
 	return nil
 }
 
 func StopAndStart(path, orchestrator string) error {
-	err := Stop(path, orchestrator)
-	if err != nil {
-		return err
+	if err := Stop(path, orchestrator); err != nil {
+		logging.Fatal(err)
 	}
-	err = Start(path, orchestrator)
-
-	return err
+	if err := Start(path, orchestrator); err != nil {
+		logging.Fatal(err)
+	}
+	return nil
 }
 
 func Delete(path, orchestrator string) error {
 	switch orchestrator {
 	case "docker-compose":
-		fmt.Println("docker compose down -v")
+		logging.Print("docker compose down -v")
 		cmd := exec.Command("docker-compose", "down", "-v")
 		cmd.Dir = path
-		_, err := cmd.CombinedOutput()
-		if err != nil {
-			return err
+		if _, err := cmd.CombinedOutput(); err != nil {
+			logging.Fatal(err)
 		}
 	default:
-		return fmt.Errorf("orchestrator: %s is not available", orchestrator)
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
-
 	return nil
 }
 
 func Exec(path, orchestrator, container, command string) error {
 	switch orchestrator {
 	case "docker-compose":
-		fmt.Println("docker compose exec " + command)
+		logging.Print(fmt.Sprintf("docker compose exec %s %s ", container, command))
 		cmd := exec.Command("docker-compose", "exec", container, "/bin/bash", "-c", command)
 		cmd.Dir = path
 		out, err := cmd.CombinedOutput()
-		fmt.Println(string(out))
+		logging.Print(string(out))
 		if err != nil {
 			return err
 		}
 	default:
-		return fmt.Errorf("orchestrator: %s is not available", orchestrator)
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
-
 	return nil
 }

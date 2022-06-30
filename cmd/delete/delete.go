@@ -12,9 +12,11 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
+var verbose bool
+
 func NewCmdCreate() *cobra.Command {
 	var instance logging.Installation
-
+	logging.SetVerbose(verbose)
 	var deleteCmd = &cobra.Command{
 		Use:   "delete",
 		Short: "delete a  Canasta installation",
@@ -30,14 +32,13 @@ func NewCmdCreate() *cobra.Command {
 			return nil
 		},
 	}
-
-	// Defaults the path's value to the current working directory if no value is passed
 	pwd, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
 	deleteCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
 	deleteCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Name of the Canasta Wiki Installation")
+	deleteCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return deleteCmd
 }
 
@@ -59,6 +60,7 @@ func Delete(instance logging.Installation) error {
 	if err = orchestrators.Delete(instance.Path, instance.Orchestrator); err != nil {
 		return err
 	}
+	//Deleting the installation folder
 	if err = exec.Command("rm", "-rf", instance.Path).Run(); err != nil {
 		return err
 	}

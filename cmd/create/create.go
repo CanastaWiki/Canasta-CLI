@@ -1,14 +1,15 @@
 package create
 
 import (
-	"log"
+	"fmt"
 	"os"
+
+	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/spf13/cobra"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -21,40 +22,38 @@ func NewCmdCreate() *cobra.Command {
 		adminPassword string
 		canastaId     string
 		domainName    string
+		verbose       bool
 		userVariables map[string]string
 	)
-
 	var err error
-
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a Canasta Installation",
 		Long:  `A Command to create a Canasta Installation with Docker-compose, Kubernetes, AWS. Also allows you to import from your previous installations.`,
-		Run: func(cmd *cobra.Command, args []string) {
-			var err error
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logging.SetVerbose(verbose)
 			userVariables = map[string]string{
 				"wikiName":      wikiName,
 				"adminName":     adminName,
 				"adminPassword": adminPassword,
 				"dbUser":        "root",
 			}
-			log.SetFlags(0)
 			canastaId, userVariables, err = mediawiki.PromptUser(canastaId, userVariables)
 			if err != nil {
-				log.Fatal("Canasta: ", err)
+				logging.Fatal(err)
 			}
-
+			fmt.Println("Setting up Canasta")
 			err = createCanasta(pwd, canastaId, domainName, path, orchestrator, userVariables)
 			if err != nil {
-				log.Fatal("Canasta: ", err)
+				return err
 			}
+			fmt.Println("Done")
+			return nil
 		},
 	}
 
-	// Defaults the path's value to the current working directory if no value is passed
-	pwd, err = os.Getwd()
-	if err != nil {
-		log.Fatal(err)
+	if pwd, err = os.Getwd(); err != nil {
+		logging.Fatal(err)
 	}
 
 	createCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta directory")
@@ -64,10 +63,11 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&canastaId, "id", "i", "", "Name of the Canasta Wiki Installation")
 	createCmd.Flags().StringVarP(&adminName, "admin", "a", "", "Name of the Admin user")
 	createCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Password for the Admin user")
+	createCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return createCmd
 }
 
-// createCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
+// createCanasta accepts all the arguments required and create a installation of the latest Canasta.
 func createCanasta(pwd, canastaId, domainName, path, orchestrator string, userVariables map[string]string) error {
 	var err error
 	if err = canasta.CloneStackRepo(orchestrator, &path); err != nil {
@@ -89,6 +89,5 @@ func createCanasta(pwd, canastaId, domainName, path, orchestrator string, userVa
 		return err
 	}
 
-	return err
-
+	return nil
 }

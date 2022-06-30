@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/sethvargo/go-password/password"
 	"golang.org/x/term"
@@ -16,46 +17,46 @@ func PromptUser(canastaId string, userVariables map[string]string) (string, map[
 	var err error
 	userVariables["wikiName"], err = prompt(userVariables["wikiName"], "Wiki Name")
 	if err != nil {
-		return canastaId, userVariables, err
+		logging.Fatal(err)
 	}
 	canastaId, err = prompt(canastaId, "Canasta ID")
 	if err != nil {
-		return canastaId, userVariables, err
+		logging.Fatal(err)
 	}
 	userVariables["adminName"], userVariables["adminPassword"], err = promtUserPassword(userVariables["adminName"], userVariables["adminPassword"], "admin name", "admin password")
 	if err != nil {
-		return canastaId, userVariables, err
+		logging.Fatal(err)
 	}
 	return canastaId, userVariables, nil
 }
 
 func Install(path, orchestrator string, userVariables map[string]string) (map[string]string, error) {
-	fmt.Println("Configuring Mediawiki Installation")
-	fmt.Println("Running install.php ")
-
+	logging.Print("Configuring Mediawiki Installation\n")
+	logging.Print("Running install.php\n")
 	infoCanasta := make(map[string]string)
 	envVariables, err := canasta.GetEnvVariable(path + "/.env")
 	if err != nil {
-		return infoCanasta, err
+		logging.Fatal(err)
 	}
 
 	command := "/wait-for-it.sh -t 60 db:3306"
-	err = orchestrators.Exec(path, orchestrator, "web", command)
-	if err != nil {
-		return infoCanasta, err
+	if err = orchestrators.Exec(path, orchestrator, "web", command); err != nil {
+		logging.Fatal(err)
 	}
 
 	if userVariables["adminPassword"] == "" {
 		userVariables["adminPassword"], err = password.Generate(12, 2, 4, false, true)
 		if err != nil {
-			return infoCanasta, err
+			logging.Fatal(err)
 		}
 	}
 
 	command = fmt.Sprintf("php maintenance/install.php --dbserver=db  --confpath=/mediawiki/config/ --scriptpath=/w	--dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
 		userVariables["dbUser"], envVariables["MYSQL_PASSWORD"], userVariables["adminPassword"], userVariables["wikiName"], userVariables["adminName"])
 
-	err = orchestrators.Exec(path, orchestrator, "web", command)
+	if err = orchestrators.Exec(path, orchestrator, "web", command); err != nil {
+		logging.Fatal(err)
+	}
 
 	return infoCanasta, err
 }
@@ -69,7 +70,7 @@ func prompt(value, prompt string) (string, error) {
 	scanner.Scan()
 	input := scanner.Text()
 	if input == "" {
-		return input, fmt.Errorf("please enter a value")
+		logging.Fatal(fmt.Errorf("please enter a value"))
 	}
 	return input, nil
 }
@@ -77,16 +78,16 @@ func prompt(value, prompt string) (string, error) {
 func promtUserPassword(userValue, passwordValue, userPrompt, passwordPrompt string) (string, string, error) {
 	username, err := prompt(userValue, userPrompt)
 	if err != nil {
-		return userValue, passwordValue, err
+		logging.Fatal(err)
 	}
 	if passwordValue != "" {
-		return userValue, passwordValue, nil
+		logging.Fatal(err)
 	}
 	fmt.Printf("Enter the  %s (Press Enter to autogenerate the password): \n", passwordPrompt)
 	pass, err := term.ReadPassword(0)
 	password := string(pass)
 	if err != nil {
-		return username, password, err
+		logging.Fatal(err)
 	}
 
 	if password == "" {
@@ -94,28 +95,27 @@ func promtUserPassword(userValue, passwordValue, userPrompt, passwordPrompt stri
 	}
 	err = passwordCheck(username, password)
 	if err != nil {
-		return username, password, err
+		logging.Fatal(err)
 	}
 
 	fmt.Printf("Re-enter the  %s: \n", passwordPrompt)
 	pass, err = term.ReadPassword(0)
 	if err != nil {
-		return username, password, err
+		logging.Fatal(err)
 	}
 	reEnterPassword := string(pass)
 
-	if password == reEnterPassword {
-		return username, password, nil
-	} else {
-		return username, password, fmt.Errorf("please enter the same password")
+	if password != reEnterPassword {
+		logging.Fatal(fmt.Errorf("please enter the same password"))
 	}
+	return username, password, nil
 }
 
 func passwordCheck(admin, password string) error {
 	if len(password) <= 10 {
-		return fmt.Errorf("password must be atleast 10 characters long ")
+		logging.Fatal(fmt.Errorf("password must be atleast 10 characters long "))
 	} else if strings.Contains(password, admin) || strings.Contains(admin, password) {
-		return fmt.Errorf("password should not be same as admin name")
+		logging.Fatal(fmt.Errorf("password should not be same as admin name"))
 	}
 
 	return nil
