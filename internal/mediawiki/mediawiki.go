@@ -13,27 +13,26 @@ import (
 	"golang.org/x/term"
 )
 
-func PromptUser(canastaId string, userVariables map[string]string) (string, map[string]string, error) {
+func PromptUser(canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
 	var err error
-	userVariables["wikiName"], err = prompt(userVariables["wikiName"], "Wiki Name")
+	canastaInfo.WikiName, err = prompt(canastaInfo.WikiName, "Wiki Name")
 	if err != nil {
 		logging.Fatal(err)
 	}
-	canastaId, err = prompt(canastaId, "Canasta ID")
+	canastaInfo.Id, err = prompt(canastaInfo.Id, "Canasta ID")
 	if err != nil {
 		logging.Fatal(err)
 	}
-	userVariables["adminName"], userVariables["adminPassword"], err = promtUserPassword(userVariables["adminName"], userVariables["adminPassword"], "admin name", "admin password")
+	canastaInfo.AdminName, canastaInfo.AdminPassword, err = promtUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword, "admin name", "admin password")
 	if err != nil {
 		logging.Fatal(err)
 	}
-	return canastaId, userVariables, nil
+	return canastaInfo, nil
 }
 
-func Install(path, orchestrator string, userVariables map[string]string) (map[string]string, error) {
+func Install(path, orchestrator string, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
 	logging.Print("Configuring Mediawiki Installation\n")
 	logging.Print("Running install.php\n")
-	infoCanasta := make(map[string]string)
 	envVariables, err := canasta.GetEnvVariable(path + "/.env")
 	if err != nil {
 		logging.Fatal(err)
@@ -44,21 +43,21 @@ func Install(path, orchestrator string, userVariables map[string]string) (map[st
 		logging.Fatal(err)
 	}
 
-	if userVariables["adminPassword"] == "" {
-		userVariables["adminPassword"], err = password.Generate(12, 2, 4, false, true)
+	if canastaInfo.AdminPassword == "" {
+		canastaInfo.AdminPassword, err = password.Generate(12, 2, 4, false, true)
 		if err != nil {
 			logging.Fatal(err)
 		}
 	}
 
 	command = fmt.Sprintf("php maintenance/install.php --dbserver=db  --confpath=/mediawiki/config/ --scriptpath=/w	--dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
-		userVariables["dbUser"], envVariables["MYSQL_PASSWORD"], userVariables["adminPassword"], userVariables["wikiName"], userVariables["adminName"])
+		"root", envVariables["MYSQL_PASSWORD"], canastaInfo.AdminPassword, canastaInfo.WikiName, canastaInfo.AdminName)
 
 	if err = orchestrators.Exec(path, orchestrator, "web", command); err != nil {
 		logging.Fatal(err)
 	}
 
-	return infoCanasta, err
+	return canastaInfo, err
 }
 
 func prompt(value, prompt string) (string, error) {

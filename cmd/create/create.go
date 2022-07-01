@@ -14,37 +14,24 @@ import (
 
 func NewCmdCreate() *cobra.Command {
 	var (
-		pwd           string
-		path          string
-		orchestrator  string
-		wikiName      string
-		adminName     string
-		adminPassword string
-		canastaId     string
-		domainName    string
-		verbose       bool
-		userVariables map[string]string
+		path         string
+		orchestrator string
+		pwd          string
+		verbose      bool
+		err          error
+		canastaInfo  canasta.CanastaVariables
 	)
-	var err error
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a Canasta Installation",
 		Long:  `A Command to create a Canasta Installation with Docker-compose, Kubernetes, AWS. Also allows you to import from your previous installations.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
-			userVariables = map[string]string{
-				"wikiName":      wikiName,
-				"adminName":     adminName,
-				"adminPassword": adminPassword,
-				"dbUser":        "root",
-			}
-			canastaId, userVariables, err = mediawiki.PromptUser(canastaId, userVariables)
-			if err != nil {
+			if canastaInfo, err = mediawiki.PromptUser(canastaInfo); err != nil {
 				logging.Fatal(err)
 			}
 			fmt.Println("Setting up Canasta")
-			err = createCanasta(pwd, canastaId, domainName, path, orchestrator, userVariables)
-			if err != nil {
+			if err = createCanasta(canastaInfo, pwd, path, orchestrator); err != nil {
 				return err
 			}
 			fmt.Println("Done")
@@ -58,36 +45,34 @@ func NewCmdCreate() *cobra.Command {
 
 	createCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta directory")
 	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
-	createCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "Name of the Canasta Wiki Installation")
-	createCmd.Flags().StringVarP(&domainName, "domain-name", "n", "localhost", "Domain Name for the Canasta Wiki Installation")
-	createCmd.Flags().StringVarP(&canastaId, "id", "i", "", "Name of the Canasta Wiki Installation")
-	createCmd.Flags().StringVarP(&adminName, "admin", "a", "", "Name of the Admin user")
-	createCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Password for the Admin user")
+	createCmd.Flags().StringVarP(&canastaInfo.Id, "id", "i", "", "Name of the Canasta Wiki Installation")
+	createCmd.Flags().StringVarP(&canastaInfo.WikiName, "wiki", "w", "", "Name of the Canasta Wiki Installation")
+	createCmd.Flags().StringVarP(&canastaInfo.DomainName, "domain-name", "n", "localhost", "Domain Name for the Canasta Wiki Installation")
+	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "admin", "a", "", "Name of the Admin user")
+	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Password for the Admin user")
 	createCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return createCmd
 }
 
-// createCanasta accepts all the arguments required and create a installation of the latest Canasta.
-func createCanasta(pwd, canastaId, domainName, path, orchestrator string, userVariables map[string]string) error {
-	var err error
-	if err = canasta.CloneStackRepo(orchestrator, canastaId, &path); err != nil {
+// importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
+func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator string) error {
+	if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path); err != nil {
 		return err
 	}
-	if err = canasta.CopyEnv("", domainName, path, pwd); err != nil {
+	if err := canasta.CopyEnv("", canastaInfo.DomainName, path, pwd); err != nil {
 		return err
 	}
-	if err = orchestrators.Start(path, orchestrator); err != nil {
+	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}
-	if _, err = mediawiki.Install(path, orchestrator, userVariables); err != nil {
+	if _, err := mediawiki.Install(path, orchestrator, canastaInfo); err != nil {
 		return err
 	}
-	if err = logging.Add(logging.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator}); err != nil {
+	if err := logging.Add(logging.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator}); err != nil {
 		return err
 	}
-	if err = orchestrators.StopAndStart(path, orchestrator); err != nil {
+	if err := orchestrators.StopAndStart(path, orchestrator); err != nil {
 		return err
 	}
-
 	return nil
 }

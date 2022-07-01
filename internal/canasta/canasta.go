@@ -13,6 +13,14 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
+type CanastaVariables struct {
+	Id            string
+	WikiName      string
+	DomainName    string
+	AdminPassword string
+	AdminName     string
+}
+
 // CloneStackRepo accept the orchestrator from the cli and pass the corresponding reopository link
 // and clones the repo to a new folder in the specified path
 func CloneStackRepo(orchestrator, canastaId string, path *string) error {
