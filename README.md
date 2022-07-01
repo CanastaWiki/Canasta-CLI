@@ -48,3 +48,11 @@ Flags:
 
 Use "canasta [command] --help" for more information about a command.
 ```
+
+# Example
+
+create
+
+` sudo canasta create -w "My Wiki" -n wiki.my.com -i mywiki -a admin -o docker-compose `
+
+This command will create a canasta installation with a Wiki named ` My Wiki `, hosted at domain ` wiki.my.com `, admin name as ` admin `, using the orchestrator ` docker-compose `. This also sets a unique ID `mywiki` to the Installation. Which can be used to start, stop, delete instances without moving into the installation folder.
