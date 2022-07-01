@@ -15,9 +15,9 @@ import (
 
 // CloneStackRepo accept the orchestrator from the cli and pass the corresponding reopository link
 // and clones the repo to a new folder in the specified path
-func CloneStackRepo(orchestrator string, path *string) error {
+func CloneStackRepo(orchestrator, canastaId string, path *string) error {
+	*path += "/" + canastaId
 	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
-	*path += "/canasta-" + orchestrator
 	repo, err := orchestrators.GetRepoLink(orchestrator)
 	if err != nil {
 		logging.Fatal(err)

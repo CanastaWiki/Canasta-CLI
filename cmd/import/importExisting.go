@@ -67,7 +67,7 @@ func NewCmdCreate() *cobra.Command {
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
 func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath string) error {
 	var err error
-	if err = canasta.CloneStackRepo(orchestrator, &path); err != nil {
+	if err = canasta.CloneStackRepo(orchestrator, canastaId, &path); err != nil {
 		return err
 	}
 	if err = canasta.CopyEnv(envPath, domainName, path, pwd); err != nil {

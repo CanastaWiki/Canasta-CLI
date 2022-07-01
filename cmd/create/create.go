@@ -70,7 +70,7 @@ func NewCmdCreate() *cobra.Command {
 // createCanasta accepts all the arguments required and create a installation of the latest Canasta.
 func createCanasta(pwd, canastaId, domainName, path, orchestrator string, userVariables map[string]string) error {
 	var err error
-	if err = canasta.CloneStackRepo(orchestrator, &path); err != nil {
+	if err = canasta.CloneStackRepo(orchestrator, canastaId, &path); err != nil {
 		return err
 	}
 	if err = canasta.CopyEnv("", domainName, path, pwd); err != nil {
