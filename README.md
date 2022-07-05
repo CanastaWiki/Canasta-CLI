@@ -2,7 +2,7 @@
 The Canasta command line interface, written in Go
 
 # Installation
-Make sure you have `go` installed and set your `$GOPATH`
+Make sure you have the `go` compiler installed (at least 1.18) and set your `$GOPATH`
 
 Clone the repo
 
