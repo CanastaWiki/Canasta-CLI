@@ -32,7 +32,8 @@ func NewCmdCreate() *cobra.Command {
 			}
 			fmt.Println("Setting up Canasta")
 			if err = createCanasta(canastaInfo, pwd, path, orchestrator); err != nil {
-				return err
+				orchestrators.Delete(path, orchestrator)
+				logging.Fatal(err)
 			}
 			fmt.Println("Done")
 			return nil
@@ -56,12 +57,8 @@ func NewCmdCreate() *cobra.Command {
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
 func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator string) error {
-	if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path); err != nil {
-		return err
-	}
-	if err := canasta.CopyEnv("", canastaInfo.DomainName, path, pwd); err != nil {
-		return err
-	}
+	canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path)
+	canasta.CopyEnv("", canastaInfo.DomainName, path, pwd)
 	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}

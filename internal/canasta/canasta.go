@@ -5,9 +5,9 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
@@ -23,69 +23,52 @@ type CanastaVariables struct {
 
 // CloneStackRepo accept the orchestrator from the cli and pass the corresponding reopository link
 // and clones the repo to a new folder in the specified path
-func CloneStackRepo(orchestrator, canastaId string, path *string) error {
+func CloneStackRepo(orchestrator, canastaId string, path *string) {
 	*path += "/" + canastaId
 	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
-	repo, err := orchestrators.GetRepoLink(orchestrator)
-	if err != nil {
-		logging.Fatal(err)
-	}
-	err = git.Clone(repo, *path)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	repo := orchestrators.GetRepoLink(orchestrator)
+	git.Clone(repo, *path)
 }
 
-func CopyEnv(envPath, domainName, path, pwd string) error {
-	var err error
+//if envPath is passed as argument copies the file located at envPath to the installation directory
+//else copies .env.example to .env in the installation directory
+func CopyEnv(envPath, domainName, path, pwd string) {
 	if envPath == "" {
 		envPath = path + "/.env.example"
 	} else {
 		envPath = pwd + "/" + envPath
 	}
 	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", envPath, path))
-	err = exec.Command("cp", envPath, path+"/.env").Run()
-	if err != nil {
+	execute.Run("", "cp", envPath, path+"/.env")
+	if err := SaveEnvVariable(path+"/.env", "MW_SITE_SERVER", "https://"+domainName); err != nil {
 		logging.Fatal(err)
 	}
-	if err = SaveEnvVariable(path+"/.env", "MW_SITE_SERVER", "https://"+domainName); err != nil {
+	if err := SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", domainName); err != nil {
 		logging.Fatal(err)
 	}
-	if err = SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", domainName); err != nil {
-		logging.Fatal(err)
-	}
-	return nil
 }
 
+//Copies the LocalSettings.php at localSettingsPath to /config at the installation directory
 func CopyLocalSettings(localSettingsPath, path, pwd string) error {
-	var err error
 	if localSettingsPath != "" {
 		localSettingsPath = pwd + "/" + localSettingsPath
 		logging.Print(fmt.Sprintf("Copying %s to %s/config/LocalSettings.php\n", localSettingsPath, path))
-		err = exec.Command("cp", localSettingsPath, path+"/config/LocalSettings.php").Run()
-		if err != nil {
-			logging.Fatal(err)
-		}
+		execute.Run("", "cp", localSettingsPath, path+"/config/LocalSettings.php")
 	}
 	return nil
 }
 
+//Copies database dump from databasePath to the /_initdb/ at the installation directory
 func CopyDatabase(databasePath, path, pwd string) error {
-	var err error
 	if databasePath != "" {
 		databasePath = pwd + "/" + databasePath
 		logging.Print(fmt.Sprintf("Copying %s to %s/_initdb\n", databasePath, path))
-		err = exec.Command("cp", databasePath, path+"/_initdb/").Run()
-		if err != nil {
-			logging.Fatal(err)
-		}
+		execute.Run("", "cp", databasePath, path+"/_initdb/")
 	}
 	return nil
 }
 
-//sanity checks database dump file
+//Verifying file extension for database dump
 func SanityChecks(databasePath, localSettingsPath string) error {
 	if databasePath == "" {
 		return fmt.Errorf("database dump path not mentioned")
@@ -102,10 +85,11 @@ func SanityChecks(databasePath, localSettingsPath string) error {
 	return nil
 }
 
+//Make changes to the .env file at the installation directory
 func SaveEnvVariable(envPath, key, value string) error {
 	file, err := os.ReadFile(envPath)
 	if err != nil {
-		return err
+		logging.Fatal(err)
 	}
 	data := string(file)
 	list := strings.Split(data, "\n")
@@ -115,16 +99,14 @@ func SaveEnvVariable(envPath, key, value string) error {
 		}
 	}
 	lines := strings.Join(list, "\n")
-	err = ioutil.WriteFile(envPath, []byte(lines), 0644)
-	if err != nil {
+	if err := ioutil.WriteFile(envPath, []byte(lines), 0644); err != nil {
 		log.Fatalln(err)
 	}
-
 	return nil
 }
 
+//Get values saved inside the .env at the installation directory
 func GetEnvVariable(envPath string) (map[string]string, error) {
-
 	EnvVariables := make(map[string]string)
 	file_data, err := os.ReadFile(envPath)
 	if err != nil {
@@ -136,6 +118,5 @@ func GetEnvVariable(envPath string) (map[string]string, error) {
 		list := strings.Split(variable, "=")
 		EnvVariables[list[0]] = list[1]
 	}
-
 	return EnvVariables, nil
 }

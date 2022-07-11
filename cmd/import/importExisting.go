@@ -22,34 +22,28 @@ func NewCmdCreate() *cobra.Command {
 		canastaId         string
 		domainName        string
 		verbose           bool
+		err               error
 	)
-
-	var err error
 
 	createCmd := &cobra.Command{
 		Use:   "import",
 		Short: "Create a Canasta Installation",
 		Long:  `A Command to create a Canasta Installation with Docker-compose, Kubernetes, AWS. Also allows you to import from your previous installations.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var err error
 			logging.SetVerbose(verbose)
-			err = canasta.SanityChecks(databasePath, localSettingsPath)
-			if err != nil {
+			if err := canasta.SanityChecks(databasePath, localSettingsPath); err != nil {
 				return err
 			}
 			fmt.Println("Importing Canasta")
-			err = importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath)
-			if err != nil {
+			if err := importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath); err != nil {
 				log.Fatal(err)
-				return err
 			}
 			fmt.Println("Done")
 			return nil
 		},
 	}
 
-	pwd, err = os.Getwd()
-	if err != nil {
+	if pwd, err = os.Getwd(); err != nil {
 		log.Fatal(err)
 	}
 
@@ -64,27 +58,21 @@ func NewCmdCreate() *cobra.Command {
 	return createCmd
 }
 
-// importCanasta accepts all the keyword arguments and create a installation of the latest Canasta and configures it.
+// importCanasta copies LocalSettings.php and databasedump to create canasta from a previous mediawiki installation
 func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath string) error {
-	var err error
-	if err = canasta.CloneStackRepo(orchestrator, canastaId, &path); err != nil {
+	canasta.CloneStackRepo(orchestrator, canastaId, &path)
+	canasta.CopyEnv(envPath, domainName, path, pwd)
+	if err := canasta.CopyDatabase(databasePath, path, pwd); err != nil {
 		return err
 	}
-	if err = canasta.CopyEnv(envPath, domainName, path, pwd); err != nil {
+	if err := canasta.CopyLocalSettings(localSettingsPath, path, pwd); err != nil {
 		return err
 	}
-	if err = canasta.CopyDatabase(databasePath, path, pwd); err != nil {
+	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}
-	if err = canasta.CopyLocalSettings(localSettingsPath, path, pwd); err != nil {
+	if err := logging.Add(logging.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator}); err != nil {
 		return err
 	}
-	if err = orchestrators.Start(path, orchestrator); err != nil {
-		return err
-	}
-	if err = logging.Add(logging.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator}); err != nil {
-		return err
-	}
-
-	return err
+	return nil
 }

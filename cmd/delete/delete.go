@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 
 	"github.com/spf13/cobra"
 
@@ -12,28 +11,29 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
-var verbose bool
+var (
+	pwd      string
+	verbose  bool
+	err      error
+	instance logging.Installation
+)
 
 func NewCmdCreate() *cobra.Command {
-	var instance logging.Installation
 	logging.SetVerbose(verbose)
 	var deleteCmd = &cobra.Command{
 		Use:   "delete",
 		Short: "delete a  Canasta installation",
 		RunE: func(cmd *cobra.Command, args []string) error {
-
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
-			err := Delete(instance)
-			if err != nil {
+			if err := Delete(instance); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	pwd, err := os.Getwd()
-	if err != nil {
+	if pwd, err = os.Getwd(); err != nil {
 		log.Fatal(err)
 	}
 	deleteCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
@@ -45,25 +45,21 @@ func NewCmdCreate() *cobra.Command {
 func Delete(instance logging.Installation) error {
 	fmt.Println("Deleting Canasta")
 	var err error
+	//Checking Installation existence
 	if instance.Id != "" {
-		instance, err = logging.GetDetails(instance.Id)
-		if err != nil {
+		if instance, err = logging.GetDetails(instance.Id); err != nil {
 			return err
 		}
 	} else {
-		instance.Id, err = logging.GetCanastaId(instance.Path)
-		if err != nil {
+		if instance.Id, err = logging.GetCanastaId(instance.Path); err != nil {
 			return err
 		}
 	}
 
-	if err = orchestrators.Delete(instance.Path, instance.Orchestrator); err != nil {
-		return err
-	}
-	//Deleting the installation folder
-	if err = exec.Command("rm", "-rf", instance.Path).Run(); err != nil {
-		return err
-	}
+	//Stopping and deleting Contianers and it's volumes
+	orchestrators.Delete(instance.Path, instance.Orchestrator)
+
+	//Deleting installation details from conf.js
 	if err = logging.Delete(instance.Id); err != nil {
 		return err
 	}

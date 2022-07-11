@@ -1,14 +1,14 @@
 package cmd
 
 import (
-	"os"
-
+	backupCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/backup"
 	createCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/delete"
 	importCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/import"
 	listCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/list"
 	startCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/start"
 	stopCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/stop"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 
 	"github.com/spf13/cobra"
 )
@@ -22,7 +22,7 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		os.Exit(1)
+		logging.Fatal(err)
 	}
 }
 
@@ -34,5 +34,5 @@ func init() {
 	rootCmd.AddCommand(stopCmd.NewCmdCreate())
 	rootCmd.AddCommand(listCmd.NewCmdCreate())
 	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
-
+	rootCmd.AddCommand(backupCmd.NewCmdCreate())
 }
