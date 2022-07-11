@@ -13,6 +13,10 @@ import (
 	"golang.org/x/term"
 )
 
+const dbServer = "db"
+const confPath = "/mediawiki/config/"
+const scriptPath = "/w"
+
 func PromptUser(canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
 	var err error
 	canastaInfo.WikiName, err = prompt(canastaInfo.WikiName, "Wiki Name")
@@ -23,7 +27,7 @@ func PromptUser(canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables,
 	if err != nil {
 		logging.Fatal(err)
 	}
-	canastaInfo.AdminName, canastaInfo.AdminPassword, err = promtUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword, "admin name", "admin password")
+	canastaInfo.AdminName, canastaInfo.AdminPassword, err = promptUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword, "admin name", "admin password")
 	if err != nil {
 		logging.Fatal(err)
 	}
@@ -31,7 +35,7 @@ func PromptUser(canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables,
 }
 
 func Install(path, orchestrator string, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
-	logging.Print("Configuring Mediawiki Installation\n")
+	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
 	envVariables, err := canasta.GetEnvVariable(path + "/.env")
 	if err != nil {
@@ -50,8 +54,8 @@ func Install(path, orchestrator string, canastaInfo canasta.CanastaVariables) (c
 		}
 	}
 
-	command = fmt.Sprintf("php maintenance/install.php --dbserver=db  --confpath=/mediawiki/config/ --scriptpath=/w	--dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
-		"root", envVariables["MYSQL_PASSWORD"], canastaInfo.AdminPassword, canastaInfo.WikiName, canastaInfo.AdminName)
+	command = fmt.Sprintf("php maintenance/install.php --dbserver=%s  --confpath=%s --scriptpath=%s	--dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
+		"root", envVariables["MYSQL_PASSWORD"], dbServer, confPath, scriptPath, canastaInfo.AdminPassword, canastaInfo.WikiName, canastaInfo.AdminName)
 
 	if err = orchestrators.Exec(path, orchestrator, "web", command); err != nil {
 		logging.Fatal(err)
@@ -74,7 +78,7 @@ func prompt(value, prompt string) (string, error) {
 	return input, nil
 }
 
-func promtUserPassword(userValue, passwordValue, userPrompt, passwordPrompt string) (string, string, error) {
+func promptUserPassword(userValue, passwordValue, userPrompt, passwordPrompt string) (string, string, error) {
 	username, err := prompt(userValue, userPrompt)
 	if err != nil {
 		logging.Fatal(err)
@@ -82,7 +86,7 @@ func promtUserPassword(userValue, passwordValue, userPrompt, passwordPrompt stri
 	if passwordValue != "" {
 		logging.Fatal(err)
 	}
-	fmt.Printf("Enter the  %s (Press Enter to autogenerate the password): \n", passwordPrompt)
+	fmt.Printf("Enter the %s (Press Enter to autogenerate the password): \n", passwordPrompt)
 	pass, err := term.ReadPassword(0)
 	password := string(pass)
 	if err != nil {
@@ -97,7 +101,7 @@ func promtUserPassword(userValue, passwordValue, userPrompt, passwordPrompt stri
 		logging.Fatal(err)
 	}
 
-	fmt.Printf("Re-enter the  %s: \n", passwordPrompt)
+	fmt.Printf("Re-enter the %s: \n", passwordPrompt)
 	pass, err = term.ReadPassword(0)
 	if err != nil {
 		logging.Fatal(err)
@@ -105,16 +109,16 @@ func promtUserPassword(userValue, passwordValue, userPrompt, passwordPrompt stri
 	reEnterPassword := string(pass)
 
 	if password != reEnterPassword {
-		logging.Fatal(fmt.Errorf("please enter the same password"))
+		logging.Fatal(fmt.Errorf("Please enter the same password"))
 	}
 	return username, password, nil
 }
 
 func passwordCheck(admin, password string) error {
 	if len(password) <= 10 {
-		logging.Fatal(fmt.Errorf("password must be atleast 10 characters long "))
+		logging.Fatal(fmt.Errorf("Password must be at least 10 characters long "))
 	} else if strings.Contains(password, admin) || strings.Contains(admin, password) {
-		logging.Fatal(fmt.Errorf("password should not be same as admin name"))
+		logging.Fatal(fmt.Errorf("Password should not be same as admin name"))
 	}
 
 	return nil

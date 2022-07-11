@@ -47,7 +47,7 @@ func GetDetails(canastaId string) (Installation, error) {
 	if Exists(canastaId) {
 		return existingInstallations.Installations[canastaId], nil
 	}
-	return Installation{}, fmt.Errorf("Canasta Installation with the ID doesn't exist")
+	return Installation{}, fmt.Errorf("Canasta installation with the ID doesn't exist")
 }
 
 func GetCanastaId(path string) (string, error) {
@@ -57,7 +57,7 @@ func GetCanastaId(path string) (string, error) {
 			return installations.Id, nil
 		}
 	}
-	return canastaId, fmt.Errorf("no canasta installations exist at %s", path)
+	return canastaId, fmt.Errorf("No canasta installations exist at %s", path)
 }
 
 func Add(details Installation) error {
@@ -74,7 +74,7 @@ func Delete(canastaID string) error {
 	if Exists(canastaID) {
 		delete(existingInstallations.Installations, canastaID)
 	} else {
-		Fatal(fmt.Errorf("Canasta Installation with the ID doesn't exist"))
+		Fatal(fmt.Errorf("Canasta installation with the ID doesn't exist"))
 	}
 	if err := write(existingInstallations); err != nil {
 		Fatal(err)
@@ -119,14 +119,14 @@ func Fatal(err error) {
 func init() {
 
 	directory = "/etc/canasta"
-	confFile = directory + "/conf.js"
+	confFile = directory + "/conf.json"
 
-	//Checks for the conf.js file
+	// Checks for the conf.json file
 	_, err := os.Stat(confFile)
 	if os.IsNotExist(err) {
-		//Check for the configuration folder
+		// Check for the configuration folder
 		_, err = os.Stat(directory)
-		//Creating configuration folder
+		// Creating configuration folder
 		if os.IsNotExist(err) {
 			Print(fmt.Sprintf("Creating %s\n", directory))
 			err = os.Mkdir(directory, os.ModePerm)
@@ -136,13 +136,13 @@ func init() {
 		} else if err != nil {
 			Fatal(err)
 		}
-		//Creating confFile.js
+		// Creating conf.json
 		err := write(Canasta{Installations: map[string]Installation{}})
 		if err != nil {
 			Fatal(err)
 		}
 	}
-	// Check if the file is writable/ has enough permissions
+	// Check if the file is writable/has enough permissions
 	err = syscall.Access(confFile, syscall.O_RDWR)
 	if err != nil {
 		Fatal(err)

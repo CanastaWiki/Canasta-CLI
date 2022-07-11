@@ -16,8 +16,7 @@ func NewCmdCreate() *cobra.Command {
 	var verbose bool
 	var stopCmd = &cobra.Command{
 		Use:   "stop",
-		Short: "Stop the Canasta installation",
-		Long:  `Stop the Canasta installation`,
+		Short: "Shuts down the Canasta installation",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			if instance.Id == "" && len(args) > 0 {
@@ -37,7 +36,7 @@ func NewCmdCreate() *cobra.Command {
 		log.Fatal(err)
 	}
 	stopCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
-	stopCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Name of the Canasta Wiki Installation")
+	stopCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	stopCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
 	stopCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return stopCmd

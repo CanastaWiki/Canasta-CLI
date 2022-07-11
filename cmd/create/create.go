@@ -23,8 +23,8 @@ func NewCmdCreate() *cobra.Command {
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
-		Short: "Create a Canasta Installation",
-		Long:  `A Command to create a Canasta Installation with Docker-compose, Kubernetes, AWS. Also allows you to import from your previous installations.`,
+		Short: "Create a Canasta installation",
+		Long:  `Creates a Canasta installation using an orchestrator of your choice.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			if canastaInfo, err = mediawiki.PromptUser(canastaInfo); err != nil {
@@ -46,12 +46,12 @@ func NewCmdCreate() *cobra.Command {
 
 	createCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta directory")
 	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
-	createCmd.Flags().StringVarP(&canastaInfo.Id, "id", "i", "", "Name of the Canasta Wiki Installation")
-	createCmd.Flags().StringVarP(&canastaInfo.WikiName, "wiki", "w", "", "Name of the Canasta Wiki Installation")
-	createCmd.Flags().StringVarP(&canastaInfo.DomainName, "domain-name", "n", "localhost", "Domain Name for the Canasta Wiki Installation")
-	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "admin", "a", "", "Name of the Admin user")
-	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Password for the Admin user")
-	createCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
+	createCmd.Flags().StringVarP(&canastaInfo.Id, "id", "i", "", "Canasta instance ID")
+	createCmd.Flags().StringVarP(&canastaInfo.WikiName, "wiki", "w", "", "Name of wiki")
+	createCmd.Flags().StringVarP(&canastaInfo.DomainName, "domain-name", "n", "localhost", "Domain name")
+	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "admin", "a", "", "Initial wiki admin username")
+	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password")
+	createCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return createCmd
 }
 

@@ -27,8 +27,8 @@ func NewCmdCreate() *cobra.Command {
 
 	createCmd := &cobra.Command{
 		Use:   "import",
-		Short: "Create a Canasta Installation",
-		Long:  `A Command to create a Canasta Installation with Docker-compose, Kubernetes, AWS. Also allows you to import from your previous installations.`,
+		Short: "Import a wiki installation",
+		Long:  `Import a wiki from your previous installation.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			if err := canasta.SanityChecks(databasePath, localSettingsPath); err != nil {
@@ -49,12 +49,12 @@ func NewCmdCreate() *cobra.Command {
 
 	createCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta directory")
 	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
-	createCmd.Flags().StringVarP(&canastaId, "id", "i", "", "Name of the Canasta Wiki Installation")
-	createCmd.Flags().StringVarP(&domainName, "domain-name", "n", "localhost", "Domain Name for the Canasta Wiki Installation")
-	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing Database dump")
+	createCmd.Flags().StringVarP(&canastaId, "id", "i", "", "Canasta instance ID")
+	createCmd.Flags().StringVarP(&domainName, "domain-name", "n", "localhost", "Domain name")
+	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
 	createCmd.Flags().StringVarP(&localSettingsPath, "localsettings", "l", "", "Path to the existing LocalSettings.php")
 	createCmd.Flags().StringVarP(&envPath, "env", "e", "", "Path to the existing .env file")
-	createCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
+	createCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return createCmd
 }
 

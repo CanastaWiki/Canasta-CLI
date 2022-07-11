@@ -22,7 +22,7 @@ func NewCmdCreate() *cobra.Command {
 	logging.SetVerbose(verbose)
 	var deleteCmd = &cobra.Command{
 		Use:   "delete",
-		Short: "delete a  Canasta installation",
+		Short: "Delete a  Canasta installation",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
@@ -37,8 +37,8 @@ func NewCmdCreate() *cobra.Command {
 		log.Fatal(err)
 	}
 	deleteCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
-	deleteCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Name of the Canasta Wiki Installation")
-	deleteCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
+	deleteCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	deleteCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return deleteCmd
 }
 
@@ -59,7 +59,7 @@ func Delete(instance logging.Installation) error {
 	//Stopping and deleting Contianers and it's volumes
 	orchestrators.Delete(instance.Path, instance.Orchestrator)
 
-	//Deleting installation details from conf.js
+	//Deleting installation details from conf.json
 	if err = logging.Delete(instance.Id); err != nil {
 		return err
 	}
