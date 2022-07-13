@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
@@ -46,14 +47,9 @@ func Delete(instance logging.Installation) error {
 	fmt.Println("Deleting Canasta")
 	var err error
 	//Checking Installation existence
-	if instance.Id != "" {
-		if instance, err = logging.GetDetails(instance.Id); err != nil {
-			return err
-		}
-	} else {
-		if instance.Id, err = logging.GetCanastaId(instance.Path); err != nil {
-			return err
-		}
+	instance, err = canasta.CheckCanastaId(instance)
+	if err != nil {
+		return err
 	}
 
 	//Stopping and deleting Contianers and it's volumes
