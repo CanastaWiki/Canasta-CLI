@@ -46,6 +46,7 @@ func NewCmdCreate() *cobra.Command {
 func Delete(instance logging.Installation) error {
 	fmt.Println("Deleting Canasta")
 	var err error
+
 	//Checking Installation existence
 	instance, err = canasta.CheckCanastaId(instance)
 	if err != nil {
