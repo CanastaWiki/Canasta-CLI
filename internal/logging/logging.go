@@ -147,4 +147,9 @@ func init() {
 	if err != nil {
 		Fatal(err)
 	}
+	// Update the existingInstallations list
+	if err := read(&existingInstallations); err != nil {
+		Fatal(err)
+	}
+
 }

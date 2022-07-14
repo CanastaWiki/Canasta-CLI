@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	backupCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/backup"
 	createCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/delete"
 	importCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/import"
@@ -34,5 +33,4 @@ func init() {
 	rootCmd.AddCommand(stopCmd.NewCmdCreate())
 	rootCmd.AddCommand(listCmd.NewCmdCreate())
 	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
-	rootCmd.AddCommand(backupCmd.NewCmdCreate())
 }
