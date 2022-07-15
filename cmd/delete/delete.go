@@ -14,13 +14,11 @@ import (
 
 var (
 	pwd      string
-	verbose  bool
 	err      error
 	instance logging.Installation
 )
 
 func NewCmdCreate() *cobra.Command {
-	logging.SetVerbose(verbose)
 	var deleteCmd = &cobra.Command{
 		Use:   "delete",
 		Short: "Delete a  Canasta installation",
@@ -39,7 +37,6 @@ func NewCmdCreate() *cobra.Command {
 	}
 	deleteCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
 	deleteCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	deleteCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return deleteCmd
 }
 

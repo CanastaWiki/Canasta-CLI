@@ -17,7 +17,6 @@ func NewCmdCreate() *cobra.Command {
 		path         string
 		orchestrator string
 		pwd          string
-		verbose      bool
 		err          error
 		canastaInfo  canasta.CanastaVariables
 	)
@@ -26,7 +25,6 @@ func NewCmdCreate() *cobra.Command {
 		Short: "Create a Canasta installation",
 		Long:  `Creates a Canasta installation using an orchestrator of your choice.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			logging.SetVerbose(verbose)
 			if canastaInfo, err = mediawiki.PromptUser(canastaInfo); err != nil {
 				logging.Fatal(err)
 			}
@@ -51,7 +49,6 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&canastaInfo.DomainName, "domain-name", "n", "localhost", "Domain name")
 	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "admin", "a", "", "Initial wiki admin username")
 	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password")
-	createCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return createCmd
 }
 

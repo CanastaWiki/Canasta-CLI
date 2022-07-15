@@ -124,6 +124,7 @@ func GetEnvVariable(envPath string) map[string]string {
 	return EnvVariables
 }
 
+//Checking Installation existence
 func CheckCanastaId(instance logging.Installation) (logging.Installation, error) {
 	var err error
 	if instance.Id != "" {

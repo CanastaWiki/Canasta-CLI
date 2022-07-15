@@ -21,7 +21,6 @@ func NewCmdCreate() *cobra.Command {
 		envPath           string
 		canastaId         string
 		domainName        string
-		verbose           bool
 		err               error
 	)
 
@@ -30,7 +29,6 @@ func NewCmdCreate() *cobra.Command {
 		Short: "Import a wiki installation",
 		Long:  `Import a wiki from your previous installation.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			logging.SetVerbose(verbose)
 			if err := canasta.SanityChecks(databasePath, localSettingsPath); err != nil {
 				return err
 			}
@@ -54,7 +52,6 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
 	createCmd.Flags().StringVarP(&localSettingsPath, "localsettings", "l", "", "Path to the existing LocalSettings.php")
 	createCmd.Flags().StringVarP(&envPath, "env", "e", "", "Path to the existing .env file")
-	createCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return createCmd
 }
 
