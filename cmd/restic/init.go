@@ -7,7 +7,6 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
 func initCmdCreate() *cobra.Command {
@@ -16,7 +15,6 @@ func initCmdCreate() *cobra.Command {
 		Use:   "init",
 		Short: "Initialize a restic repo",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			logging.SetVerbose(verbose)
 			initRestic()
 			return nil
 		},

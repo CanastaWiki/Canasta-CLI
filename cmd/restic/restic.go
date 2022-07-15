@@ -24,6 +24,7 @@ func NewCmdCreate() *cobra.Command {
 		Use:   "restic",
 		Short: "Use restic to backup and restore Canasta",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			logging.SetVerbose(verbose)
 			instance, err = canasta.CheckCanastaId(instance)
 			return err
 		},
@@ -32,6 +33,7 @@ func NewCmdCreate() *cobra.Command {
 	resticCmd.AddCommand(initCmdCreate())
 	resticCmd.AddCommand(viewSnapshotsCmdCreate())
 	resticCmd.AddCommand(takeSnapshotCmdCreate())
+	resticCmd.AddCommand(restoreSnapshotCmdCreate())
 
 	if pwd, err = os.Getwd(); err != nil {
 		log.Fatal(err)
@@ -41,4 +43,27 @@ func NewCmdCreate() *cobra.Command {
 	resticCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return resticCmd
 
+}
+
+func checkCurrentSnapshotFolder(currentSnapshotFolder string) {
+
+	if _, err := os.Stat(currentSnapshotFolder); err != nil {
+		if os.IsNotExist(err) {
+			logging.Print("Creating..." + currentSnapshotFolder)
+			if err := os.Mkdir(currentSnapshotFolder, os.ModePerm); err != nil {
+				logging.Fatal(err)
+			}
+		} else {
+			logging.Fatal(err)
+		}
+	} else {
+		logging.Print("Emptying... " + currentSnapshotFolder)
+		if err := os.RemoveAll(currentSnapshotFolder); err != nil {
+			logging.Fatal(err)
+		}
+		if err := os.Mkdir(currentSnapshotFolder, os.ModePerm); err != nil {
+			logging.Fatal(err)
+		}
+		logging.Print("Emptied.. " + currentSnapshotFolder)
+	}
 }
