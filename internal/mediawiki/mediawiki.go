@@ -54,8 +54,8 @@ func Install(path, orchestrator string, canastaInfo canasta.CanastaVariables) (c
 		}
 	}
 
-	command = fmt.Sprintf("php maintenance/install.php --dbserver=%s  --confpath=%s --scriptpath=%s	--dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
-		dbServer, confPath, scriptPath, "root", envVariables["MYSQL_PASSWORD"], canastaInfo.AdminPassword, canastaInfo.WikiName, canastaInfo.AdminName)
+	command = fmt.Sprintf("php maintenance/install.php --dbserver=%s  --confpath=%s --scriptpath=%s	--server='https://%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
+		dbServer, confPath, scriptPath, canastaInfo.DomainName, "root", envVariables["MYSQL_PASSWORD"], canastaInfo.AdminPassword, canastaInfo.WikiName, canastaInfo.AdminName)
 
 	if err = orchestrators.Exec(path, orchestrator, "web", command); err != nil {
 		logging.Fatal(err)
