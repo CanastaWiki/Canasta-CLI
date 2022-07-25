@@ -3,6 +3,7 @@ package cmd
 import (
 	createCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/delete"
+	extensionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/extension"
 	importCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/import"
 	listCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/list"
 	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/maintenanceUpdate"
@@ -49,4 +50,6 @@ func init() {
 	rootCmd.AddCommand(resticCmd.NewCmdCreate())
 	rootCmd.AddCommand(maintenanceCmd.NewCmdCreate())
 	rootCmd.AddCommand(skinCmd.NewCmdCreate())
+	rootCmd.AddCommand(extensionCmd.NewCmdCreate())
+
 }
