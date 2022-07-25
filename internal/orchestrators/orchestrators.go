@@ -62,12 +62,11 @@ func Delete(path, orchestrator string) {
 	execute.Run("", "rm", "-rf", path)
 }
 
-func Exec(path, orchestrator, container, command string) error {
+func Exec(path, orchestrator, container, command string) {
 	switch orchestrator {
 	case "docker-compose":
 		execute.Run(path, "docker-compose", "exec", container, "/bin/bash", "-c", command)
 	default:
 		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
-	return nil
 }

@@ -6,6 +6,8 @@ import (
 	importCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/import"
 	listCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/list"
 	restartCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restart"
+	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/maintenanceUpdate"
+	resticCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restic"
 	startCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/start"
 	stopCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/stop"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
@@ -13,10 +15,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	verbose bool
+)
+
 var rootCmd = &cobra.Command{
 	Use:   "canasta",
 	Short: "A CLI tool for Canasta installations.",
 	Long:  `A CLI tool to create, import, start, stop and backup multiple Canasta installations`,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		logging.SetVerbose(verbose)
+		logging.Print("Setting verbose")
+	},
 }
 
 func Execute() {
@@ -28,6 +38,8 @@ func Execute() {
 
 func init() {
 
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+
 	rootCmd.AddCommand(createCmd.NewCmdCreate())
 	rootCmd.AddCommand(importCmd.NewCmdCreate())
 	rootCmd.AddCommand(startCmd.NewCmdCreate())
@@ -35,5 +47,6 @@ func init() {
 	rootCmd.AddCommand(listCmd.NewCmdCreate())
 	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
 	rootCmd.AddCommand(restartCmd.NewCmdCreate())
-
+	rootCmd.AddCommand(resticCmd.NewCmdCreate())
+	rootCmd.AddCommand(maintenanceCmd.NewCmdCreate())
 }

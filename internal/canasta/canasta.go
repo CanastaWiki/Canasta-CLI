@@ -105,8 +105,8 @@ func SaveEnvVariable(envPath, key, value string) error {
 	return nil
 }
 
-//Get values saved inside the .env at the installation directory
-func GetEnvVariable(envPath string) (map[string]string, error) {
+//Get values saved inside the .env at the envPath
+func GetEnvVariable(envPath string) map[string]string {
 	EnvVariables := make(map[string]string)
 	file_data, err := os.ReadFile(envPath)
 	if err != nil {
@@ -116,7 +116,28 @@ func GetEnvVariable(envPath string) (map[string]string, error) {
 	variable_list := strings.Split(data, "\n")
 	for _, variable := range variable_list {
 		list := strings.Split(variable, "=")
+		if len(list) < 2 {
+			continue
+		}
 		EnvVariables[list[0]] = list[1]
 	}
-	return EnvVariables, nil
+	return EnvVariables
+}
+
+//Checking Installation existence
+func CheckCanastaId(instance logging.Installation) (logging.Installation, error) {
+	var err error
+	if instance.Id != "" {
+		if instance, err = logging.GetDetails(instance.Id); err != nil {
+			return instance, err
+		}
+	} else {
+		if instance.Id, err = logging.GetCanastaId(instance.Path); err != nil {
+			return instance, err
+		}
+		if instance, err = logging.GetDetails(instance.Id); err != nil {
+			return instance, err
+		}
+	}
+	return instance, nil
 }

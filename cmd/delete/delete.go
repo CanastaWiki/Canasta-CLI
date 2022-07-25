@@ -7,19 +7,18 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
 var (
 	pwd      string
-	verbose  bool
 	err      error
 	instance logging.Installation
 )
 
 func NewCmdCreate() *cobra.Command {
-	logging.SetVerbose(verbose)
 	var deleteCmd = &cobra.Command{
 		Use:   "delete",
 		Short: "Delete a  Canasta installation",
@@ -38,7 +37,6 @@ func NewCmdCreate() *cobra.Command {
 	}
 	deleteCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
 	deleteCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	deleteCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	return deleteCmd
 }
 
@@ -47,17 +45,9 @@ func Delete(instance logging.Installation) error {
 	var err error
 
 	//Checking Installation existence
-	if instance.Id != "" {
-		if instance, err = logging.GetDetails(instance.Id); err != nil {
-			return err
-		}
-	} else {
-		if instance.Id, err = logging.GetCanastaId(instance.Path); err != nil {
-			return err
-		}
-		if instance, err = logging.GetDetails(instance.Id); err != nil {
-			return err
-		}
+	instance, err = canasta.CheckCanastaId(instance)
+	if err != nil {
+		return err
 	}
 
 	//Stopping and deleting Contianers and it's volumes

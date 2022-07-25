@@ -143,10 +143,10 @@ func init() {
 		}
 	}
 	// Check if the file is writable/has enough permissions
-	err = syscall.Access(confFile, syscall.O_RDWR)
-	if err != nil {
+	if err = syscall.Access(confFile, syscall.O_RDWR); err != nil {
 		Fatal(err)
 	}
+
 	// Update the existingInstallations list
 	if err := read(&existingInstallations); err != nil {
 		Fatal(err)
