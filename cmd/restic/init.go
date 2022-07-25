@@ -9,6 +9,10 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
 )
 
+var (
+	tag string
+)
+
 func initCmdCreate() *cobra.Command {
 
 	initCmd := &cobra.Command{

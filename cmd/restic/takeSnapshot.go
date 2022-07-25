@@ -12,15 +12,12 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
-var (
-	tag string
-)
-
 func takeSnapshotCmdCreate() *cobra.Command {
 
 	takeSnapshotCmd := &cobra.Command{
 		Use:   "take-snapshot",
 		Short: "Take restic snapshots",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			takeSnapshot(tag)
 			return nil
@@ -28,7 +25,6 @@ func takeSnapshotCmdCreate() *cobra.Command {
 	}
 
 	takeSnapshotCmd.Flags().StringVarP(&tag, "tag", "t", "", "Restic snapshot tag (required)")
-	takeSnapshotCmd.MarkFlagRequired("tag")
 	return takeSnapshotCmd
 }
 
