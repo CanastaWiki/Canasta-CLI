@@ -36,6 +36,7 @@ func NewCmdCreate() *cobra.Command {
 	resticCmd.AddCommand(restoreSnapshotCmdCreate())
 	resticCmd.AddCommand(forgetSnapshotCmdCreate())
 	resticCmd.AddCommand(unlockCmdCreate())
+	resticCmd.AddCommand(listFilesCmdCreate())
 
 	if pwd, err = os.Getwd(); err != nil {
 		log.Fatal(err)
