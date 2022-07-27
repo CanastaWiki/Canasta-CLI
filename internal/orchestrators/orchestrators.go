@@ -74,7 +74,6 @@ func ExecWithError(path, orchestrator, container, command string) (string, error
 			cmd.Dir = path
 		}
 		outputByte, err = cmd.CombinedOutput()
-		// output = execute.Run(path, "docker-compose", "exec", "-T", container, "/bin/bash", "-c", command)
 	default:
 		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
