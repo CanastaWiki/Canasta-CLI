@@ -2,6 +2,7 @@ package orchestrators
 
 import (
 	"fmt"
+	"os/exec"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
@@ -62,13 +63,31 @@ func Delete(path, orchestrator string) {
 	execute.Run("", "rm", "-rf", path)
 }
 
-func Exec(path, orchestrator, container, command string) string {
-	var output string
+func ExecWithError(path, orchestrator, container, command string) (string, error) {
+	var outputByte []byte
+	var err error
+
 	switch orchestrator {
 	case "docker-compose":
-		output = execute.Run(path, "docker-compose", "exec", "-T", container, "/bin/bash", "-c", command)
+		cmd := exec.Command("docker-compose", "exec", "-T", container, "/bin/bash", "-c", command)
+		if path != "" {
+			cmd.Dir = path
+		}
+		outputByte, err = cmd.CombinedOutput()
+		// output = execute.Run(path, "docker-compose", "exec", "-T", container, "/bin/bash", "-c", command)
 	default:
 		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
+	output := string(outputByte)
+	logging.Print(output)
+	return output, err
+}
+
+func Exec(path, orchestrator, container, command string) string {
+	output, err := ExecWithError(path, orchestrator, container, command)
+	if err != nil {
+		logging.Fatal(fmt.Errorf(output))
+	}
 	return output
+
 }
