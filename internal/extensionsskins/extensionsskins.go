@@ -25,11 +25,11 @@ func Contains(list []string, element string) bool {
 
 func List(instance logging.Installation, constants Item) {
 	fmt.Printf("Available %s:\n", constants.Name)
-	fmt.Print(orchestrators.Exec(instance.Path, instance.Orchestrator, "web", "ls $MW_HOME/"+constants.RelativeInstallationPath))
+	fmt.Print(orchestrators.Exec(instance.Path, instance.Orchestrator, "web", "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find * -maxdepth 0 -type d"))
 }
 
 func CheckInstalled(name string, instance logging.Installation, constants Item) (string, error) {
-	output := orchestrators.Exec(instance.Path, instance.Orchestrator, "web", "ls $MW_HOME/canasta-extensions")
+	output := orchestrators.Exec(instance.Path, instance.Orchestrator, "web", "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find * -maxdepth 0 -type d")
 	if !Contains(strings.Split(output, "\n"), name) {
 		return "", fmt.Errorf("%s %s doesn't exist", name, constants.Name)
 	}
