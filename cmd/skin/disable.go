@@ -1,6 +1,9 @@
 package skin
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/extensionsskins"
 	"github.com/spf13/cobra"
 )
@@ -12,11 +15,15 @@ func disableCmdCreate() *cobra.Command {
 		Short: "Disable a canasta-skin",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			skinName, err := extensionsskins.CheckEnabled(args[0], instance, constants)
-			if err != nil {
-				return err
+			skins := strings.Split(args[0], ",")
+			for _, skin := range skins {
+				skinName, err := extensionsskins.CheckEnabled(skin, instance, constants)
+				if err != nil {
+					fmt.Print(err.Error() + "\n")
+					continue
+				}
+				extensionsskins.Disable(skinName, instance, constants)
 			}
-			extensionsskins.Disable(skinName, instance, constants)
 			return err
 		},
 	}
