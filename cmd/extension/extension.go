@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/extensionsskins"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
@@ -16,6 +17,7 @@ var (
 	err          error
 	verbose      bool
 	extensionCmd *cobra.Command
+	constants    = extensionsskins.Item{Name: "Canasta extension", RelativeInstallationPath: "canasta-extensions", PhpCommand: "cfLoadExtension"}
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -25,7 +27,10 @@ func NewCmdCreate() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			instance, err = canasta.CheckCanastaId(instance)
-			return err
+			if err != nil {
+				return err
+			}
+			return nil
 		},
 	}
 
@@ -41,13 +46,4 @@ func NewCmdCreate() *cobra.Command {
 	extensionCmd.AddCommand(disableCmdCreate())
 
 	return extensionCmd
-}
-
-func contains(list []string, element string) bool {
-	for _, item := range list {
-		if item == element {
-			return true
-		}
-	}
-	return false
 }

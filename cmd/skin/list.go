@@ -1,10 +1,7 @@
 package skin
 
 import (
-	"fmt"
-
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/extensionsskins"
 	"github.com/spf13/cobra"
 )
 
@@ -14,15 +11,10 @@ func listCmdCreate() *cobra.Command {
 		Use:   "list",
 		Short: "Lists all the installed skins",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			list(instance)
+			extensionsskins.List(instance, constants)
 			return err
 		},
 	}
 
 	return listCmd
-}
-
-func list(instance logging.Installation) {
-	fmt.Printf("Available Canasta-skins:\n")
-	fmt.Print(orchestrators.Exec(instance.Path, instance.Orchestrator, "web", "ls $MW_HOME/canasta-skins"))
 }

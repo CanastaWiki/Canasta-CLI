@@ -7,15 +7,17 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/extensionsskins"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
 var (
-	instance logging.Installation
-	pwd      string
-	err      error
-	verbose  bool
-	skinCmd  *cobra.Command
+	instance  logging.Installation
+	pwd       string
+	err       error
+	verbose   bool
+	skinCmd   *cobra.Command
+	constants = extensionsskins.Item{Name: "Canasta skin", RelativeInstallationPath: "canasta-skins", PhpCommand: "cfLoadSkin"}
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -41,13 +43,4 @@ func NewCmdCreate() *cobra.Command {
 	skinCmd.AddCommand(disableCmdCreate())
 
 	return skinCmd
-}
-
-func contains(list []string, element string) bool {
-	for _, item := range list {
-		if item == element {
-			return true
-		}
-	}
-	return false
 }
