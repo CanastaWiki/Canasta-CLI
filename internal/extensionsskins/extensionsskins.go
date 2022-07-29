@@ -41,7 +41,7 @@ func Enable(name string, instance logging.Installation, constants Item) {
 	filePath := fmt.Sprintf("/mediawiki/config/settings/%s.php", name)
 	output, err := orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", "ls "+filePath)
 	if err == nil {
-		fmt.Printf("%s is already enabled!", constants.Name)
+		fmt.Printf("%s %s is already enabled!\n", constants.Name, name)
 	} else if Contains(strings.Split(output, ":"), " No such file or directory\n") {
 		command := fmt.Sprintf(`echo -e "%s" > %s`, phpScript, filePath)
 		orchestrators.Exec(instance.Path, instance.Orchestrator, "web", command)
