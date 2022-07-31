@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
 )
 
@@ -28,9 +27,7 @@ func initCmdCreate() *cobra.Command {
 
 func initRestic() {
 	fmt.Println("Initializing Restic repo in S3")
-	envPath := instance.Path + "/.env"
-	EnvVariables := canasta.GetEnvVariable(envPath)
-
-	execute.Run(instance.Path, "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "restic/restic", "-r", "s3:"+EnvVariables["AWS_S3_API"]+"/"+EnvVariables["AWS_S3_BUCKET"], "init")
-	fmt.Println("")
+	commandArgs = append(commandArgs, "init")
+	output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	fmt.Println(output)
 }

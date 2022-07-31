@@ -3,7 +3,6 @@ package restic
 import (
 	"fmt"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
 	"github.com/spf13/cobra"
 )
@@ -29,9 +28,7 @@ func forgetSnapshotCmdCreate() *cobra.Command {
 }
 
 func forgetSnapshot() {
-	envPath := instance.Path + "/.env"
-	EnvVariables := canasta.GetEnvVariable(envPath)
-
-	output := execute.Run(instance.Path, "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "restic/restic", "-r", "s3:"+EnvVariables["AWS_S3_API"]+"/"+EnvVariables["AWS_S3_BUCKET"], "forget", tag)
+	commandArgs = append(commandArgs, "forget", tag)
+	output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	fmt.Print(output)
 }

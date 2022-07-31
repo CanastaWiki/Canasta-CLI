@@ -17,6 +17,7 @@ var (
 	verbose       bool
 	resticCmd     *cobra.Command
 	mysqldumpPath = "/mediawiki/config/db.sql"
+	commandArgs   = make([]string, 10)
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -26,7 +27,14 @@ func NewCmdCreate() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			instance, err = canasta.CheckCanastaId(instance)
-			return err
+			if err != nil {
+				return err
+			}
+			envPath := instance.Path + "/.env"
+			EnvVariables := canasta.GetEnvVariable(envPath)
+			commandArgs = append(make([]string, 0), "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "restic/restic", "-r", "s3:"+EnvVariables["AWS_S3_API"]+"/"+EnvVariables["AWS_S3_BUCKET"])
+
+			return nil
 		},
 	}
 
