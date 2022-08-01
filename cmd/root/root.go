@@ -33,4 +33,6 @@ func init() {
 	rootCmd.AddCommand(stopCmd.NewCmdCreate())
 	rootCmd.AddCommand(listCmd.NewCmdCreate())
 	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
+
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }
