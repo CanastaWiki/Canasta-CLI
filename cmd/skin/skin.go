@@ -23,7 +23,7 @@ var (
 func NewCmdCreate() *cobra.Command {
 	skinCmd = &cobra.Command{
 		Use:   "skin",
-		Short: "Manage skins",
+		Short: "Manage Canasta skins",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			instance, err = canasta.CheckCanastaId(instance)

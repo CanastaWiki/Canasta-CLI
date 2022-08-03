@@ -23,7 +23,7 @@ var (
 func NewCmdCreate() *cobra.Command {
 	extensionCmd = &cobra.Command{
 		Use:   "extension",
-		Short: "Manage extensions",
+		Short: "Manage Canasta extensions",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			instance, err = canasta.CheckCanastaId(instance)

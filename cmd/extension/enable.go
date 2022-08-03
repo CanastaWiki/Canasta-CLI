@@ -12,7 +12,7 @@ func enableCmdCreate() *cobra.Command {
 
 	enableCmd := &cobra.Command{
 		Use:   "enable EXTENSION1,EXTENSION2,...",
-		Short: "Enable a canasta-extension",
+		Short: "Enable a Canasta extension",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			extensions := strings.Split(args[0], ",")

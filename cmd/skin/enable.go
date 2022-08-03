@@ -12,7 +12,7 @@ func enableCmdCreate() *cobra.Command {
 
 	enableCmd := &cobra.Command{
 		Use:   "enable SKIN_NAME",
-		Short: "Enable a canasta-skin",
+		Short: "Enable a Canasta skin",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			skins := strings.Split(args[0], ",")

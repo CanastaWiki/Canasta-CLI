@@ -9,7 +9,7 @@ func listCmdCreate() *cobra.Command {
 
 	listCmd := &cobra.Command{
 		Use:   "list",
-		Short: "Lists all the installed skins",
+		Short: "Lists all the installed Canasta skins",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			extensionsskins.List(instance, constants)
 			return err
