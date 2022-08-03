@@ -15,7 +15,6 @@ var (
 	instance logging.Installation
 	pwd      string
 	err      error
-	verbose  bool
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -23,7 +22,6 @@ func NewCmdCreate() *cobra.Command {
 		Use:   "start",
 		Short: "Start the Canasta installation",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			logging.SetVerbose(verbose)
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
@@ -41,7 +39,6 @@ func NewCmdCreate() *cobra.Command {
 	startCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
 	startCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	startCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
-	startCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return startCmd
 }
 

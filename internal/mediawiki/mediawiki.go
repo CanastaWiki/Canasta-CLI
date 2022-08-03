@@ -35,17 +35,13 @@ func PromptUser(canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables,
 }
 
 func Install(path, orchestrator string, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
+	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
-	envVariables, err := canasta.GetEnvVariable(path + "/.env")
-	if err != nil {
-		logging.Fatal(err)
-	}
+	envVariables := canasta.GetEnvVariable(path + "/.env")
 
 	command := "/wait-for-it.sh -t 60 db:3306"
-	if err = orchestrators.Exec(path, orchestrator, "web", command); err != nil {
-		logging.Fatal(err)
-	}
+	orchestrators.Exec(path, orchestrator, "web", command)
 
 	if canastaInfo.AdminPassword == "" {
 		canastaInfo.AdminPassword, err = password.Generate(12, 2, 4, false, true)
@@ -57,9 +53,7 @@ func Install(path, orchestrator string, canastaInfo canasta.CanastaVariables) (c
 	command = fmt.Sprintf("php maintenance/install.php --dbserver=%s  --confpath=%s --scriptpath=%s	--server='https://%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
 		dbServer, confPath, scriptPath, canastaInfo.DomainName, "root", envVariables["MYSQL_PASSWORD"], canastaInfo.AdminPassword, canastaInfo.WikiName, canastaInfo.AdminName)
 
-	if err = orchestrators.Exec(path, orchestrator, "web", command); err != nil {
-		logging.Fatal(err)
-	}
+	orchestrators.Exec(path, orchestrator, "web", command)
 
 	return canastaInfo, err
 }
