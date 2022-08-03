@@ -53,5 +53,5 @@ func init() {
 	rootCmd.AddCommand(maintenanceCmd.NewCmdCreate())
 	rootCmd.AddCommand(skinCmd.NewCmdCreate())
 	rootCmd.AddCommand(extensionCmd.NewCmdCreate())
-
+  rootCmd.CompletionOptions.DisableDefaultCmd = true
 }
