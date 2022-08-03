@@ -47,5 +47,6 @@ func init() {
 	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
 	rootCmd.AddCommand(resticCmd.NewCmdCreate())
 	rootCmd.AddCommand(maintenanceCmd.NewCmdCreate())
-  rootCmd.CompletionOptions.DisableDefaultCmd = true
+	
+  	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }
