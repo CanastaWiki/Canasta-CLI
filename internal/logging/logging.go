@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/user"
 	"syscall"
 )
 
@@ -121,8 +122,18 @@ func init() {
 	directory = "/etc/canasta"
 	confFile = directory + "/conf.json"
 
+	// Verifies that this is running as root
+	currentUser, err := user.Current()
+	if err != nil {
+		errReport := fmt.Errorf("Unable to get the current user: %s", err)
+		Fatal(errReport)
+	}
+	if currentUser.Username != "root" {
+		Fatal(fmt.Errorf("This program must be run as root."))
+	}
+
 	// Checks for the conf.json file
-	_, err := os.Stat(confFile)
+	_, err = os.Stat(confFile)
 	if os.IsNotExist(err) {
 		// Check for the configuration folder
 		_, err = os.Stat(directory)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 
 	"github.com/spf13/cobra"
 
@@ -26,7 +27,13 @@ func NewCmdCreate() *cobra.Command {
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a Canasta installation",
-		Long:  `Creates a Canasta installation using an orchestrator of your choice.`,
+		Long:  "Creates a Canasta installation using an orchestrator of your choice.",
+		PreRun: func(cmd *cobra.Command, args []string) {
+			_, err := exec.LookPath("docker-compose")
+			if err != nil {
+				logging.Fatal(fmt.Errorf("docker-compose should be installed! (%s)", err))
+			}
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if canastaInfo, err = mediawiki.PromptUser(canastaInfo); err != nil {
 				logging.Fatal(err)
