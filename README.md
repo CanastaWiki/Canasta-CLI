@@ -16,7 +16,7 @@ curl -fsL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/installer/in
 ``` A CLI tool to create, import, start, stop and backup multiple Canasta installations
 
 Usage:
-  canasta [command]
+  sudo canasta [command]
 
 Available Commands:
 
