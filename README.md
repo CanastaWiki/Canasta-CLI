@@ -1,4 +1,4 @@
-# Canasta-CLI-Go
+# Canasta CLI
 The Canasta command line interface, written in Go
 
 # Installation
