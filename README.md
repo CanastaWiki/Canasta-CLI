@@ -3,9 +3,7 @@ The Canasta command line interface, written in Go
 
 # Installation
 
-Make sure you have Docker and DockerCompose installed on your computer running the CLI.
-
-Run the following line of scirpt to install the Canasta CLI on your computer.
+First, ake sure you have Docker and Docker Compose installed. Then, run the following line to install the Canasta CLI:
 
 ```
 curl -fsL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/installer/install.sh | bash
@@ -18,23 +16,23 @@ curl -fsL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/installer/in
 Usage:
   sudo canasta [command]
 
-Available Commands:
+Available commands:
 
   completion  Generate the autocompletion script for the specified shell
 
-  create      Create a Canasta Installation
+  create      Create a Canasta installation
   
-  delete      delete a  Canasta installation
+  delete      Delete a Canasta installation
   
   help        Help about any command
   
-  import      Create a Canasta Installation
+  import      Create a Canasta installation
   
-  list        list all  Canasta installations
+  list        List all Canasta installations
   
-  start       Start the Canasta installation
+  start       Start a Canasta installation
   
-  stop        Stop the Canasta installation
+  stop        Stop a Canasta installation
 
 Flags:
   -h, --help   help for canasta
