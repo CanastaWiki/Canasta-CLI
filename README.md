@@ -2,28 +2,21 @@
 The Canasta command line interface, written in Go
 
 # Installation
-Make sure you have the `go` compiler installed (at least 1.18) and set your `$GOPATH`
 
-Clone the repo
+Make sure you have Docker and DockerCompose installed on your computer running the CLI.
 
-`git clone git@github.com:CanastaWiki/Canasta-CLI-Go.git`
+Run the following line of scirpt to install the Canasta CLI on your computer.
 
-Checkout into the `dev` branch
-
-`git checkout dev`
-
-Install Canasta.go
-
-`go install canasta.go`
-
-Now you should be able to access the `canasta` cli from any directories
+```
+curl -fsL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/installer/install.sh | bash
+```
 
 # Documentation
 
 ``` A CLI tool to create, import, start, stop and backup multiple Canasta installations
 
 Usage:
-  canasta [command]
+  sudo canasta [command]
 
 Available Commands:
 
