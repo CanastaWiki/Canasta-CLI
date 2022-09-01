@@ -1,7 +1,7 @@
 # Canasta CLI
-The Canasta command line interface, written in Go
+The Canasta command line interface, written in Go.
 
-# Installation
+## Installation
 
 First, make sure you have Docker and Docker Compose installed. Then, run the following line to install the Canasta CLI:
 
@@ -9,7 +9,7 @@ First, make sure you have Docker and Docker Compose installed. Then, run the fol
 curl -fsL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/installer/install.sh | bash
 ```
 
-# Documentation
+## Documentation
 
 ``` A CLI tool to create, import, start, stop and backup multiple Canasta installations
 
@@ -40,7 +40,7 @@ Flags:
 Use "canasta [command] --help" for more information about a command.
 ```
 
-# Example
+## Example
 
 create
 
