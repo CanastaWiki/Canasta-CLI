@@ -3,7 +3,7 @@ The Canasta command line interface, written in Go
 
 # Installation
 
-First, ake sure you have Docker and Docker Compose installed. Then, run the following line to install the Canasta CLI:
+First, make sure you have Docker and Docker Compose installed. Then, run the following line to install the Canasta CLI:
 
 ```
 curl -fsL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/installer/install.sh | bash
@@ -46,4 +46,4 @@ create
 
 ` sudo canasta create -w "My Wiki" -n wiki.my.com -i mywiki -a admin -o docker-compose `
 
-This command will create a canasta installation with a Wiki named ` My Wiki `, hosted at domain ` wiki.my.com `, admin name as ` admin `, using the orchestrator ` docker-compose `. This also sets a unique ID `mywiki` to the Installation. Which can be used to start, stop, delete instances without moving into the installation folder.
+This command will create a Canasta installation with a wiki named ` My Wiki `, hosted at domain ` wiki.my.com `, with the admin name ` admin `, using the orchestrator ` docker-compose `. This also sets a unique ID, `mywiki`, for the installation, which can then be used to start, stop, and delete that instance from the command line.
