@@ -3,7 +3,6 @@ package canasta
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"strings"
 
@@ -23,16 +22,17 @@ type CanastaVariables struct {
 
 // CloneStackRepo accept the orchestrator from the cli and pass the corresponding reopository link
 // and clones the repo to a new folder in the specified path
-func CloneStackRepo(orchestrator, canastaId string, path *string) {
+func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 	*path += "/" + canastaId
 	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
 	repo := orchestrators.GetRepoLink(orchestrator)
-	git.Clone(repo, *path)
+	err := git.Clone(repo, *path)
+	return err
 }
 
 //if envPath is passed as argument copies the file located at envPath to the installation directory
 //else copies .env.example to .env in the installation directory
-func CopyEnv(envPath, domainName, path, pwd string) {
+func CopyEnv(envPath, domainName, path, pwd string) error {
 	if envPath == "" {
 		envPath = path + "/.env.example"
 	} else {
@@ -41,14 +41,15 @@ func CopyEnv(envPath, domainName, path, pwd string) {
 	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", envPath, path))
 	err, output := execute.Run("", "cp", envPath, path+"/.env")
 	if err != nil {
-		logging.Fatal(fmt.Errorf(output))
+		return fmt.Errorf(output)
 	}
 	if err := SaveEnvVariable(path+"/.env", "MW_SITE_SERVER", "https://"+domainName); err != nil {
-		logging.Fatal(err)
+		return err
 	}
 	if err := SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", domainName); err != nil {
-		logging.Fatal(err)
+		return err
 	}
+	return nil
 }
 
 //Copies the LocalSettings.php at localSettingsPath to /config at the installation directory
@@ -98,7 +99,7 @@ func SanityChecks(databasePath, localSettingsPath string) error {
 func SaveEnvVariable(envPath, key, value string) error {
 	file, err := os.ReadFile(envPath)
 	if err != nil {
-		logging.Fatal(err)
+		return err
 	}
 	data := string(file)
 	list := strings.Split(data, "\n")
@@ -109,7 +110,7 @@ func SaveEnvVariable(envPath, key, value string) error {
 	}
 	lines := strings.Join(list, "\n")
 	if err := ioutil.WriteFile(envPath, []byte(lines), 0644); err != nil {
-		log.Fatalln(err)
+		return err
 	}
 	return nil
 }

@@ -21,7 +21,7 @@ var (
 func NewCmdCreate() *cobra.Command {
 	var deleteCmd = &cobra.Command{
 		Use:   "delete",
-		Short: "Delete a  Canasta installation",
+		Short: "Delete a Canasta installation",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
@@ -51,7 +51,14 @@ func Delete(instance logging.Installation) error {
 	}
 
 	//Stopping and deleting Contianers and it's volumes
-	orchestrators.Delete(instance.Path, instance.Orchestrator)
+	if _, err := orchestrators.DeleteContainers(instance.Path, instance.Orchestrator); err != nil {
+		return err
+	}
+
+	//Delete config files
+	if _, err := orchestrators.DeleteConfig(instance.Path); err != nil {
+		return err
+	}
 
 	//Deleting installation details from conf.json
 	if err = logging.Delete(instance.Id); err != nil {

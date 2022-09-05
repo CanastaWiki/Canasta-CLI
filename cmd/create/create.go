@@ -1,7 +1,9 @@
 package create
 
 import (
+	"bufio"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -30,10 +32,19 @@ func NewCmdCreate() *cobra.Command {
 			}
 			fmt.Println("Setting up Canasta")
 			if err = createCanasta(canastaInfo, pwd, path, orchestrator); err != nil {
-				orchestrators.Delete(path, orchestrator)
-				//For testing to be removed
-				fmt.Print("Printed at create.go")
-				logging.Fatal(err)
+				fmt.Print(err.Error(), "\n")
+				fmt.Println("A fatal error occured during the installation\nDo you want to delete the files related to it? (y/n)")
+				scanner := bufio.NewScanner(os.Stdin)
+				scanner.Scan()
+				input := scanner.Text()
+				if input == "y" {
+					installationDir := path + "/" + canastaInfo.Id
+					fmt.Println("Removing containers")
+					orchestrators.DeleteContainers(installationDir, orchestrator)
+					fmt.Println("Deleting config files")
+					orchestrators.DeleteConfig(installationDir)
+					logging.Fatal(fmt.Errorf("Exiting"))
+				}
 			}
 			fmt.Println("Done")
 			return nil
@@ -56,8 +67,15 @@ func NewCmdCreate() *cobra.Command {
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
 func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator string) error {
-	canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path)
-	canasta.CopyEnv("", canastaInfo.DomainName, path, pwd)
+	if _, err := logging.GetDetails(canastaInfo.Id); err == nil {
+		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
+	}
+	if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path); err != nil {
+		return err
+	}
+	if err := canasta.CopyEnv("", canastaInfo.DomainName, path, pwd); err != nil {
+		return err
+	}
 	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}
@@ -68,7 +86,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator
 		return err
 	}
 	if err := orchestrators.StopAndStart(path, orchestrator); err != nil {
-		return err
+		log.Fatal(err)
 	}
 	return nil
 }

@@ -21,15 +21,15 @@ func PromptUser(canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables,
 	var err error
 	canastaInfo.WikiName, err = prompt(canastaInfo.WikiName, "Wiki Name")
 	if err != nil {
-		logging.Fatal(err)
+		return canastaInfo, err
 	}
 	canastaInfo.Id, err = prompt(canastaInfo.Id, "Canasta ID")
 	if err != nil {
-		logging.Fatal(err)
+		return canastaInfo, err
 	}
 	canastaInfo.AdminName, canastaInfo.AdminPassword, err = promptUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword, "admin name", "admin password")
 	if err != nil {
-		logging.Fatal(err)
+		return canastaInfo, err
 	}
 	return canastaInfo, nil
 }
@@ -41,20 +41,24 @@ func Install(path, orchestrator string, canastaInfo canasta.CanastaVariables) (c
 	envVariables := canasta.GetEnvVariable(path + "/.env")
 
 	command := "/wait-for-it.sh -t 60 db:3306"
-	orchestrators.Exec(path, orchestrator, "web", command)
-
+	output, err := orchestrators.ExecWithError(path, orchestrator, "web", command)
+	if err != nil {
+		return canastaInfo, fmt.Errorf(output)
+	}
 	if canastaInfo.AdminPassword == "" {
 		canastaInfo.AdminPassword, err = password.Generate(12, 2, 4, false, true)
 		if err != nil {
-			logging.Fatal(err)
+			return canastaInfo, err
 		}
 	}
 
 	command = fmt.Sprintf("php maintenance/install.php --dbserver=%s  --confpath=%s --scriptpath=%s	--server='https://%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
 		dbServer, confPath, scriptPath, canastaInfo.DomainName, "root", envVariables["MYSQL_PASSWORD"], canastaInfo.AdminPassword, canastaInfo.WikiName, canastaInfo.AdminName)
 
-	orchestrators.Exec(path, orchestrator, "web", command)
-
+	output, err = orchestrators.ExecWithError(path, orchestrator, "web", command)
+	if err != nil {
+		return canastaInfo, fmt.Errorf(output)
+	}
 	return canastaInfo, err
 }
 
@@ -75,16 +79,16 @@ func prompt(value, prompt string) (string, error) {
 func promptUserPassword(userValue, passwordValue, userPrompt, passwordPrompt string) (string, string, error) {
 	username, err := prompt(userValue, userPrompt)
 	if err != nil {
-		logging.Fatal(err)
+		return "", "", err
 	}
 	if passwordValue != "" {
-		logging.Fatal(err)
+		return "", "", err
 	}
 	fmt.Printf("Enter the %s (Press Enter to autogenerate the password): \n", passwordPrompt)
 	pass, err := term.ReadPassword(0)
 	password := string(pass)
 	if err != nil {
-		logging.Fatal(err)
+		return "", "", err
 	}
 
 	if password == "" {
@@ -92,18 +96,18 @@ func promptUserPassword(userValue, passwordValue, userPrompt, passwordPrompt str
 	}
 	err = passwordCheck(username, password)
 	if err != nil {
-		logging.Fatal(err)
+		return "", "", err
 	}
 
 	fmt.Printf("Re-enter the %s: \n", passwordPrompt)
 	pass, err = term.ReadPassword(0)
 	if err != nil {
-		logging.Fatal(err)
+		return "", "", err
 	}
 	reEnterPassword := string(pass)
 
 	if password != reEnterPassword {
-		logging.Fatal(fmt.Errorf("Please enter the same password"))
+		return "", "", fmt.Errorf("Please enter the same password")
 	}
 	return username, password, nil
 }

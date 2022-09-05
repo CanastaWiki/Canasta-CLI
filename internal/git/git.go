@@ -4,12 +4,12 @@ import (
 	"fmt"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
-func Clone(repo, path string) {
+func Clone(repo, path string) error {
 	err, output := execute.Run("", "git", "clone", repo, path)
 	if err != nil {
-		logging.Fatal(fmt.Errorf(output))
+		return fmt.Errorf(output)
 	}
+	return nil
 }
