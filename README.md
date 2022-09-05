@@ -123,6 +123,25 @@ sudo canasta skin enable CologneBlue,Modern -i canastaId
 ```
 Note: the skin names are case-sensitive.
 
+## Manage an existing Canasta installation
+To manage an existing Canasta installation with the CLI, you just have to add a object to the `/etc/canasta/conf.json`'s `Installations` object.
+```
+{
+  "Installations": {
+    "wiki2": {
+      "Id": "myExistingCanastaInstance",
+      "Path": "/home/user/canasta/myExistingCanastaInstance",
+      "Orchestrator": "docker-compose"
+    }
+  }
+}
+```
+"Id"   - Represent the Canasta Id used by the cli to differentiate between installations.
+
+"Path" - The location where the configuration files(i.e. 'docker-compose.yaml' and other such files) are saved.
+
+"Orchestrator" - The orchestrator used to manage the instance. 
+
 ## Uninstall
 To uninstall the CLI, delete the binary file from the installation folder (default: /usr/local/bin/canasta)
 
