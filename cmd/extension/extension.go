@@ -7,12 +7,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/extensionsskins"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
 var (
-	instance     logging.Installation
+	instance     config.Installation
 	pwd          string
 	err          error
 	verbose      bool

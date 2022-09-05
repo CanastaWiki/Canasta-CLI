@@ -15,6 +15,7 @@ import (
 	versionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/version"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 
 	"github.com/spf13/cobra"
 )
@@ -41,7 +42,7 @@ func Execute() {
 }
 
 func init() {
-
+	orchestrators.CheckDependencies()
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 
 	rootCmd.AddCommand(createCmd.NewCmdCreate())

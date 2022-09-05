@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
@@ -135,17 +136,17 @@ func GetEnvVariable(envPath string) map[string]string {
 }
 
 //Checking Installation existence
-func CheckCanastaId(instance logging.Installation) (logging.Installation, error) {
+func CheckCanastaId(instance config.Installation) (config.Installation, error) {
 	var err error
 	if instance.Id != "" {
-		if instance, err = logging.GetDetails(instance.Id); err != nil {
+		if instance, err = config.GetDetails(instance.Id); err != nil {
 			return instance, err
 		}
 	} else {
-		if instance.Id, err = logging.GetCanastaId(instance.Path); err != nil {
+		if instance.Id, err = config.GetCanastaId(instance.Path); err != nil {
 			return instance, err
 		}
-		if instance, err = logging.GetDetails(instance.Id); err != nil {
+		if instance, err = config.GetDetails(instance.Id); err != nil {
 			return instance, err
 		}
 	}

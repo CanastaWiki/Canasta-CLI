@@ -3,6 +3,7 @@ module github.com/CanastaWiki/Canasta-CLI-Go
 go 1.18
 
 require (
+	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f
 	github.com/spf13/cobra v1.4.0
 	golang.org/x/term v0.0.0-20220526004731-065cf7ba2467
 )

@@ -8,6 +8,13 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
+func CheckDependencies() {
+	_, err := exec.LookPath("docker-compose")
+	if err != nil {
+		logging.Fatal(fmt.Errorf("docker-compose should be installed! (%s)", err))
+	}
+}
+
 func GetRepoLink(orchestrator string) string {
 	var repo string
 	switch orchestrator {

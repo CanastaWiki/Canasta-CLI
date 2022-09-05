@@ -3,10 +3,10 @@ package start
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 )
 
-var instance logging.Installation
+var instance config.Installation
 
 func NewCmdCreate() *cobra.Command {
 	var listCmd = &cobra.Command{
@@ -22,7 +22,7 @@ func NewCmdCreate() *cobra.Command {
 	return listCmd
 }
 
-func List(instance logging.Installation) error {
-	logging.ListAll()
+func List(instance config.Installation) error {
+	config.ListAll()
 	return nil
 }

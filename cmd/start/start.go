@@ -7,12 +7,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
 var (
-	instance logging.Installation
+	instance config.Installation
 	pwd      string
 	err      error
 )
@@ -42,9 +43,9 @@ func NewCmdCreate() *cobra.Command {
 	return startCmd
 }
 
-func Start(instance logging.Installation) error {
+func Start(instance config.Installation) error {
 	if instance.Id != "" {
-		if instance, err = logging.GetDetails(instance.Id); err != nil {
+		if instance, err = config.GetDetails(instance.Id); err != nil {
 			logging.Fatal(err)
 		}
 	}

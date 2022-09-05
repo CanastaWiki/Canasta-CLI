@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/spf13/cobra"
 )
@@ -90,7 +90,7 @@ func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath,
 	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}
-	if err := logging.Add(logging.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator}); err != nil {
+	if err := config.Add(config.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator}); err != nil {
 		return err
 	}
 	return nil
