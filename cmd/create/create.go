@@ -31,6 +31,8 @@ func NewCmdCreate() *cobra.Command {
 			fmt.Println("Setting up Canasta")
 			if err = createCanasta(canastaInfo, pwd, path, orchestrator); err != nil {
 				orchestrators.Delete(path, orchestrator)
+				//For testing to be removed
+				fmt.Print("Printed at create.go")
 				logging.Fatal(err)
 			}
 			fmt.Println("Done")

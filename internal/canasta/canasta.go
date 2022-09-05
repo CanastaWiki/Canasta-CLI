@@ -39,7 +39,10 @@ func CopyEnv(envPath, domainName, path, pwd string) {
 		envPath = pwd + "/" + envPath
 	}
 	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", envPath, path))
-	execute.Run("", "cp", envPath, path+"/.env")
+	err, output := execute.Run("", "cp", envPath, path+"/.env")
+	if err != nil {
+		logging.Fatal(fmt.Errorf(output))
+	}
 	if err := SaveEnvVariable(path+"/.env", "MW_SITE_SERVER", "https://"+domainName); err != nil {
 		logging.Fatal(err)
 	}
@@ -53,7 +56,10 @@ func CopyLocalSettings(localSettingsPath, path, pwd string) error {
 	if localSettingsPath != "" {
 		localSettingsPath = pwd + "/" + localSettingsPath
 		logging.Print(fmt.Sprintf("Copying %s to %s/config/LocalSettings.php\n", localSettingsPath, path))
-		execute.Run("", "cp", localSettingsPath, path+"/config/LocalSettings.php")
+		err, output := execute.Run("", "cp", localSettingsPath, path+"/config/LocalSettings.php")
+		if err != nil {
+			logging.Fatal(fmt.Errorf(output))
+		}
 	}
 	return nil
 }
@@ -63,7 +69,10 @@ func CopyDatabase(databasePath, path, pwd string) error {
 	if databasePath != "" {
 		databasePath = pwd + "/" + databasePath
 		logging.Print(fmt.Sprintf("Copying %s to %s/_initdb\n", databasePath, path))
-		execute.Run("", "cp", databasePath, path+"/_initdb/")
+		err, output := execute.Run("", "cp", databasePath, path+"/_initdb/")
+		if err != nil {
+			logging.Fatal(fmt.Errorf(output))
+		}
 	}
 	return nil
 }

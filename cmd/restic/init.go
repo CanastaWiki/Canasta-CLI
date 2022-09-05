@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
 var (
@@ -28,6 +29,10 @@ func initCmdCreate() *cobra.Command {
 func initRestic() {
 	fmt.Println("Initializing Restic repo in S3")
 	commandArgs = append(commandArgs, "init")
-	output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
-	fmt.Println(output)
+	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	if err != nil {
+		logging.Fatal(fmt.Errorf(output))
+	} else {
+		fmt.Print(output)
+	}
 }

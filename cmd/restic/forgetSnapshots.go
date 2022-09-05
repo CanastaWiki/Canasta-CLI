@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +30,10 @@ func forgetSnapshotCmdCreate() *cobra.Command {
 
 func forgetSnapshot() {
 	commandArgs = append(commandArgs, "forget", tag)
-	output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
-	fmt.Print(output)
+	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	if err != nil {
+		logging.Fatal(fmt.Errorf(output))
+	} else {
+		fmt.Print(output)
+	}
 }
