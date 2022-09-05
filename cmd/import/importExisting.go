@@ -1,6 +1,7 @@
 package importExisting
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
@@ -34,7 +35,19 @@ func NewCmdCreate() *cobra.Command {
 			}
 			fmt.Println("Importing Canasta")
 			if err := importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath); err != nil {
-				log.Fatal(err)
+				fmt.Print(err.Error(), "\n")
+				fmt.Println("A fatal error occured during the installation\nDo you want to delete the files related to it? (y/n)")
+				scanner := bufio.NewScanner(os.Stdin)
+				scanner.Scan()
+				input := scanner.Text()
+				if input == "y" {
+					installationDir := path + "/" + canastaId
+					fmt.Println("Removing containers")
+					orchestrators.DeleteContainers(installationDir, orchestrator)
+					fmt.Println("Deleting config files")
+					orchestrators.DeleteConfig(installationDir)
+					logging.Fatal(fmt.Errorf("Exiting"))
+				}
 			}
 			fmt.Println("Done")
 			return nil
@@ -57,8 +70,15 @@ func NewCmdCreate() *cobra.Command {
 
 // importCanasta copies LocalSettings.php and databasedump to create canasta from a previous mediawiki installation
 func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath string) error {
-	canasta.CloneStackRepo(orchestrator, canastaId, &path)
-	canasta.CopyEnv(envPath, domainName, path, pwd)
+	if _, err := logging.GetDetails(canastaId); err == nil {
+		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
+	}
+	if err := canasta.CloneStackRepo(orchestrator, canastaId, &path); err != nil {
+		return err
+	}
+	if err := canasta.CopyEnv(envPath, domainName, path, pwd); err != nil {
+		return err
+	}
 	if err := canasta.CopyDatabase(databasePath, path, pwd); err != nil {
 		return err
 	}
