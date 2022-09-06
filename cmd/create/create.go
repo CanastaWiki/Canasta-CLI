@@ -33,18 +33,19 @@ func NewCmdCreate() *cobra.Command {
 			fmt.Println("Setting up Canasta")
 			if err = createCanasta(canastaInfo, pwd, path, orchestrator); err != nil {
 				fmt.Print(err.Error(), "\n")
-				fmt.Println("A fatal error occured during the installation\nDo you want to delete the files related to it? (y/n)")
+				fmt.Println("A fatal error occured during the installation\nDo you want to keep the files related to it? (y/n)")
 				scanner := bufio.NewScanner(os.Stdin)
 				scanner.Scan()
 				input := scanner.Text()
-				if input == "y" {
-					installationDir := path + "/" + canastaInfo.Id
-					fmt.Println("Removing containers")
-					orchestrators.DeleteContainers(installationDir, orchestrator)
-					fmt.Println("Deleting config files")
-					orchestrators.DeleteConfig(installationDir)
+				if input == "y" || input == "Y" || input == "yes" {
 					logging.Fatal(fmt.Errorf("Exiting"))
 				}
+				installationDir := path + "/" + canastaInfo.Id
+				fmt.Println("Removing containers")
+				orchestrators.DeleteContainers(installationDir, orchestrator)
+				fmt.Println("Deleting config files")
+				orchestrators.DeleteConfig(installationDir)
+				fmt.Println("Deleted all containers and config files")
 			}
 			fmt.Println("Done")
 			return nil
