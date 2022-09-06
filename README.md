@@ -136,9 +136,9 @@ To manage an existing Canasta installation with the CLI, you just have to add a 
   }
 }
 ```
-"Id"   - Represent the Canasta Id used by the cli to differentiate between installations.
+"Id"   - Represent the Canasta ID used by the cli to differentiate between installations.
 
-"Path" - The location where the configuration files(i.e. 'docker-compose.yaml' and other such files) are saved.
+"Path" - The location where the configuration files (i.e. 'docker-compose.yaml' and other such files) are saved.
 
 "Orchestrator" - The orchestrator used to manage the instance. 
 
