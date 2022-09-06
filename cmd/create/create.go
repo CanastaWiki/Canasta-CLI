@@ -20,6 +20,7 @@ func NewCmdCreate() *cobra.Command {
 		orchestrator string
 		pwd          string
 		err          error
+		keepConfig   bool
 		canastaInfo  canasta.CanastaVariables
 	)
 	createCmd := &cobra.Command{
@@ -33,19 +34,17 @@ func NewCmdCreate() *cobra.Command {
 			fmt.Println("Setting up Canasta")
 			if err = createCanasta(canastaInfo, pwd, path, orchestrator); err != nil {
 				fmt.Print(err.Error(), "\n")
-				fmt.Println("A fatal error occured during the installation\nDo you want to keep the files related to it? (y/n)")
+				if keepConfig {
+					logging.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
+				}
 				scanner := bufio.NewScanner(os.Stdin)
+				fmt.Println("A fatal error occured during the installation\nDo you want to keep the files related to it? (y/n)")
 				scanner.Scan()
 				input := scanner.Text()
 				if input == "y" || input == "Y" || input == "yes" {
-					logging.Fatal(fmt.Errorf("Exiting"))
+					logging.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
 				}
-				installationDir := path + "/" + canastaInfo.Id
-				fmt.Println("Removing containers")
-				orchestrators.DeleteContainers(installationDir, orchestrator)
-				fmt.Println("Deleting config files")
-				orchestrators.DeleteConfig(installationDir)
-				fmt.Println("Deleted all containers and config files")
+				canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orchestrator)
 			}
 			fmt.Println("Done")
 			return nil
@@ -63,6 +62,7 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&canastaInfo.DomainName, "domain-name", "n", "localhost", "Domain name")
 	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "admin", "a", "", "Initial wiki admin username")
 	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password")
+	createCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
 	return createCmd
 }
 

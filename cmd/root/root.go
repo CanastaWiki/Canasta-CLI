@@ -6,8 +6,8 @@ import (
 	extensionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/extension"
 	importCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/import"
 	listCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/list"
-	restartCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restart"
 	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/maintenanceUpdate"
+	restartCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restart"
 	resticCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restic"
 	skinCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/skin"
 	startCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/start"
@@ -53,5 +53,5 @@ func init() {
 	rootCmd.AddCommand(maintenanceCmd.NewCmdCreate())
 	rootCmd.AddCommand(skinCmd.NewCmdCreate())
 	rootCmd.AddCommand(extensionCmd.NewCmdCreate())
-  rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }

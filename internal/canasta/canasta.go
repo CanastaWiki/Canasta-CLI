@@ -151,3 +151,11 @@ func CheckCanastaId(instance logging.Installation) (logging.Installation, error)
 	}
 	return instance, nil
 }
+
+func DeleteConfigAndContainers(keepConfig bool, installationDir, orchestrator string) {
+	fmt.Println("Removing containers")
+	orchestrators.DeleteContainers(installationDir, orchestrator)
+	fmt.Println("Deleting config files")
+	orchestrators.DeleteConfig(installationDir)
+	fmt.Println("Deleted all containers and config files")
+}
