@@ -61,7 +61,7 @@ For more info on finishing up your installation, visit https://canasta.wiki/setu
 ## Import an existing wiki
 Place all the files mentioned below in the same directory for ease of use.
 
-Create a .env file and customize as needed (more details on how to configure it at https://canasta.wiki/setup/#configuration, and for an example see https://github.com/CanastaWiki/Canasta-DockerCompose/blob/main/.env.example).
+Create a .env file and customize it as needed (more details on how to configure it at https://canasta.wiki/setup/#configuration, and for an example see https://github.com/CanastaWiki/Canasta-DockerCompose/blob/main/.env.example).
 Drop your database dump (in either a .sql or .sql.gz file).
 
 Place your existing LocalSettings.php and change your database configuration to be the following:
@@ -124,7 +124,7 @@ sudo canasta skin enable CologneBlue,Modern -i canastaId
 Note: the skin names are case-sensitive.
 
 ## Manage an existing Canasta installation
-To manage an existing Canasta installation with the CLI, you just have to add a object to the `/etc/canasta/conf.json`'s `Installations` object.
+To manage an existing Canasta installation with the CLI, you just have to add an object to the `/etc/canasta/conf.json`'s `Installations` object.
 ```
 {
   "Installations": {
@@ -136,7 +136,7 @@ To manage an existing Canasta installation with the CLI, you just have to add a 
   }
 }
 ```
-"Id"   - Represent the Canasta ID used by the cli to differentiate between installations.
+"Id"   - Represents the Canasta ID used by the CLI to differentiate between installations.
 
 "Path" - The location where the configuration files (i.e. 'docker-compose.yaml' and other such files) are saved.
 
