@@ -23,7 +23,10 @@ func Start(path, orchestrator string) error {
 	logging.Print("Starting Canasta\n")
 	switch orchestrator {
 	case "docker-compose":
-		execute.Run(path, "docker-compose", "up", "-d")
+		err, output := execute.Run(path, "docker-compose", "up", "-d")
+		if err != nil {
+			return fmt.Errorf(output)
+		}
 	default:
 		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
@@ -34,7 +37,10 @@ func Stop(path, orchestrator string) error {
 	logging.Print("Stoping the containers\n")
 	switch orchestrator {
 	case "docker-compose":
-		execute.Run(path, "docker-compose", "down")
+		err, output := execute.Run(path, "docker-compose", "down")
+		if err != nil {
+			return fmt.Errorf(output)
+		}
 	default:
 		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
@@ -43,24 +49,29 @@ func Stop(path, orchestrator string) error {
 
 func StopAndStart(path, orchestrator string) error {
 	if err := Stop(path, orchestrator); err != nil {
-		logging.Fatal(err)
+		return err
 	}
 	if err := Start(path, orchestrator); err != nil {
-		logging.Fatal(err)
+		return err
 	}
 	return nil
 }
 
-func Delete(path, orchestrator string) {
+func DeleteContainers(path, orchestrator string) (string, error) {
 	switch orchestrator {
 	case "docker-compose":
-		execute.Run(path, "docker-compose", "down", "-v")
+		err, output := execute.Run(path, "docker-compose", "down", "-v")
+		return output, err
 	default:
 		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
+	return "", nil
+}
 
+func DeleteConfig(path string) (string, error) {
 	//Deleting the installation folder
-	execute.Run("", "rm", "-rf", path)
+	err, output := execute.Run("", "rm", "-rf", path)
+	return output, err
 }
 
 func ExecWithError(path, orchestrator, container, command string) (string, error) {

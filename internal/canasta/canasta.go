@@ -3,7 +3,6 @@ package canasta
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"strings"
 
@@ -23,29 +22,34 @@ type CanastaVariables struct {
 
 // CloneStackRepo accept the orchestrator from the cli and pass the corresponding reopository link
 // and clones the repo to a new folder in the specified path
-func CloneStackRepo(orchestrator, canastaId string, path *string) {
+func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 	*path += "/" + canastaId
 	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
 	repo := orchestrators.GetRepoLink(orchestrator)
-	git.Clone(repo, *path)
+	err := git.Clone(repo, *path)
+	return err
 }
 
 //if envPath is passed as argument copies the file located at envPath to the installation directory
 //else copies .env.example to .env in the installation directory
-func CopyEnv(envPath, domainName, path, pwd string) {
+func CopyEnv(envPath, domainName, path, pwd string) error {
 	if envPath == "" {
 		envPath = path + "/.env.example"
 	} else {
 		envPath = pwd + "/" + envPath
 	}
 	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", envPath, path))
-	execute.Run("", "cp", envPath, path+"/.env")
+	err, output := execute.Run("", "cp", envPath, path+"/.env")
+	if err != nil {
+		return fmt.Errorf(output)
+	}
 	if err := SaveEnvVariable(path+"/.env", "MW_SITE_SERVER", "https://"+domainName); err != nil {
-		logging.Fatal(err)
+		return err
 	}
 	if err := SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", domainName); err != nil {
-		logging.Fatal(err)
+		return err
 	}
+	return nil
 }
 
 //Copies the LocalSettings.php at localSettingsPath to /config at the installation directory
@@ -53,7 +57,10 @@ func CopyLocalSettings(localSettingsPath, path, pwd string) error {
 	if localSettingsPath != "" {
 		localSettingsPath = pwd + "/" + localSettingsPath
 		logging.Print(fmt.Sprintf("Copying %s to %s/config/LocalSettings.php\n", localSettingsPath, path))
-		execute.Run("", "cp", localSettingsPath, path+"/config/LocalSettings.php")
+		err, output := execute.Run("", "cp", localSettingsPath, path+"/config/LocalSettings.php")
+		if err != nil {
+			logging.Fatal(fmt.Errorf(output))
+		}
 	}
 	return nil
 }
@@ -63,7 +70,10 @@ func CopyDatabase(databasePath, path, pwd string) error {
 	if databasePath != "" {
 		databasePath = pwd + "/" + databasePath
 		logging.Print(fmt.Sprintf("Copying %s to %s/_initdb\n", databasePath, path))
-		execute.Run("", "cp", databasePath, path+"/_initdb/")
+		err, output := execute.Run("", "cp", databasePath, path+"/_initdb/")
+		if err != nil {
+			logging.Fatal(fmt.Errorf(output))
+		}
 	}
 	return nil
 }
@@ -89,7 +99,7 @@ func SanityChecks(databasePath, localSettingsPath string) error {
 func SaveEnvVariable(envPath, key, value string) error {
 	file, err := os.ReadFile(envPath)
 	if err != nil {
-		logging.Fatal(err)
+		return err
 	}
 	data := string(file)
 	list := strings.Split(data, "\n")
@@ -100,7 +110,7 @@ func SaveEnvVariable(envPath, key, value string) error {
 	}
 	lines := strings.Join(list, "\n")
 	if err := ioutil.WriteFile(envPath, []byte(lines), 0644); err != nil {
-		log.Fatalln(err)
+		return err
 	}
 	return nil
 }
@@ -140,4 +150,12 @@ func CheckCanastaId(instance logging.Installation) (logging.Installation, error)
 		}
 	}
 	return instance, nil
+}
+
+func DeleteConfigAndContainers(keepConfig bool, installationDir, orchestrator string) {
+	fmt.Println("Removing containers")
+	orchestrators.DeleteContainers(installationDir, orchestrator)
+	fmt.Println("Deleting config files")
+	orchestrators.DeleteConfig(installationDir)
+	fmt.Println("Deleted all containers and config files")
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
 var (
@@ -31,6 +32,10 @@ func diffCmdCreate() *cobra.Command {
 
 func diff() {
 	commandArgs = append(commandArgs, "diff", tag1, tag2)
-	output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
-	fmt.Print(output)
+	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	if err != nil {
+		logging.Fatal(fmt.Errorf(output))
+	} else {
+		fmt.Print(output)
+	}
 }

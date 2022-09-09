@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
 func viewSnapshotsCmdCreate() *cobra.Command {
@@ -23,6 +24,9 @@ func viewSnapshotsCmdCreate() *cobra.Command {
 
 func viewSnapshots() {
 	commandArgs = append(commandArgs, "snapshots")
-	output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	if err != nil {
+		logging.Fatal(fmt.Errorf(output))
+	}
 	fmt.Print(output)
 }

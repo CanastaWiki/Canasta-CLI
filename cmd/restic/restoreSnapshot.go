@@ -53,8 +53,10 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) {
 	logging.Print("Restoring snapshot to /currentsnapshot")
 	command := fmt.Sprintf("docker run --rm -i --env-file %s/.env -v %s:/currentsnapshot restic/restic -r s3:%s/%s restore %s --target /currentsnapshot", instance.Path, currentSnapshotFolder, EnvVariables["AWS_S3_API"], EnvVariables["AWS_S3_BUCKET"], snapshotId)
 	commandArgs := strings.Fields(command)
-	execute.Run("", "sudo", commandArgs...)
-
+	err, output := execute.Run("", "sudo", commandArgs...)
+	if err != nil {
+		logging.Fatal(fmt.Errorf(output))
+	}
 	logging.Print("Copying files....")
 	folders := [...]string{"/config", "/extensions", "/images", "/skins"}
 	for _, folder := range folders {

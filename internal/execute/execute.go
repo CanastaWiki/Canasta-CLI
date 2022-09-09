@@ -9,7 +9,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
-func Run(path, command string, cmdArgs ...string) string {
+func Run(path, command string, cmdArgs ...string) (error, string) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	logging.Print(fmt.Sprint(command, " ", strings.Join(cmdArgs, " ")))
@@ -21,13 +21,11 @@ func Run(path, command string, cmdArgs ...string) string {
 		cmd.Dir = path
 	}
 
-	err := cmd.Start()
-	if err != nil {
+	if err := cmd.Start(); err != nil {
 		logging.Fatal(err)
 	}
-	if err := cmd.Wait(); err != nil {
-		logging.Fatal(fmt.Errorf(stdout.String() + stderr.String()))
-	}
-	logging.Print(stdout.String() + stderr.String())
-	return stdout.String() + stderr.String()
+	err := cmd.Wait()
+	output := stdout.String() + stderr.String()
+	logging.Print(output)
+	return err, output
 }

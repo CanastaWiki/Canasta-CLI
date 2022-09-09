@@ -1,7 +1,9 @@
 package create
 
 import (
+	"bufio"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -18,6 +20,7 @@ func NewCmdCreate() *cobra.Command {
 		orchestrator string
 		pwd          string
 		err          error
+		keepConfig   bool
 		canastaInfo  canasta.CanastaVariables
 	)
 	createCmd := &cobra.Command{
@@ -30,8 +33,18 @@ func NewCmdCreate() *cobra.Command {
 			}
 			fmt.Println("Setting up Canasta")
 			if err = createCanasta(canastaInfo, pwd, path, orchestrator); err != nil {
-				orchestrators.Delete(path, orchestrator)
-				logging.Fatal(err)
+				fmt.Print(err.Error(), "\n")
+				if keepConfig {
+					logging.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
+				}
+				scanner := bufio.NewScanner(os.Stdin)
+				fmt.Println("A fatal error occured during the installation\nDo you want to keep the files related to it? (y/n)")
+				scanner.Scan()
+				input := scanner.Text()
+				if input == "y" || input == "Y" || input == "yes" {
+					logging.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
+				}
+				canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orchestrator)
 			}
 			fmt.Println("Done")
 			return nil
@@ -49,13 +62,21 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&canastaInfo.DomainName, "domain-name", "n", "localhost", "Domain name")
 	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "admin", "a", "", "Initial wiki admin username")
 	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password")
+	createCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
 	return createCmd
 }
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
 func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator string) error {
-	canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path)
-	canasta.CopyEnv("", canastaInfo.DomainName, path, pwd)
+	if _, err := logging.GetDetails(canastaInfo.Id); err == nil {
+		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
+	}
+	if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path); err != nil {
+		return err
+	}
+	if err := canasta.CopyEnv("", canastaInfo.DomainName, path, pwd); err != nil {
+		return err
+	}
 	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}
@@ -66,7 +87,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator
 		return err
 	}
 	if err := orchestrators.StopAndStart(path, orchestrator); err != nil {
-		return err
+		log.Fatal(err)
 	}
 	return nil
 }
