@@ -10,7 +10,6 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
@@ -30,20 +29,20 @@ func NewCmdCreate() *cobra.Command {
 		Long:  "Creates a Canasta installation using an orchestrator of your choice.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if canastaInfo, err = mediawiki.PromptUser(canastaInfo); err != nil {
-				logging.Fatal(err)
+				log.Fatal(err)
 			}
 			fmt.Println("Setting up Canasta")
 			if err = createCanasta(canastaInfo, pwd, path, orchestrator); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if keepConfig {
-					logging.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
+					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
 				}
 				scanner := bufio.NewScanner(os.Stdin)
 				fmt.Println("A fatal error occured during the installation\nDo you want to keep the files related to it? (y/n)")
 				scanner.Scan()
 				input := scanner.Text()
 				if input == "y" || input == "Y" || input == "yes" {
-					logging.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
+					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
 				}
 				canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orchestrator)
 			}
@@ -53,7 +52,7 @@ func NewCmdCreate() *cobra.Command {
 	}
 
 	if pwd, err = os.Getwd(); err != nil {
-		logging.Fatal(err)
+		log.Fatal(err)
 	}
 
 	createCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta directory")
@@ -69,7 +68,7 @@ func NewCmdCreate() *cobra.Command {
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
 func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator string) error {
-	if _, err := logging.GetDetails(canastaInfo.Id); err == nil {
+	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
 	if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path); err != nil {
