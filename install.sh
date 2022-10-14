@@ -11,19 +11,25 @@ chmod u=rwx,g=xr,o=x canasta
 sudo mv canasta /usr/local/bin/canasta
 
 loc=$(which docker)
-if [ -x $loc ]
+if [ -z $loc ]
 then
-    echo "Docker is installed"
+    echo "Docker is not installed; please follow the guide at https://docs.docker.com/engine/install/ to install it."
+elif [ -x $loc ]
+then
+    echo "Docker is already installed."
 else
-    echo "Docker is not installed, Please follow the guide at https://docs.docker.com/engine/install/ to install Docker."
+    echo "Docker appears to be installed at $loc but is not executable; please check permissions."
 fi
 
 loc=$(which docker-compose)
-if [ -x $loc ]
+if [ -z $loc ]
 then
-    echo "DockerCompose is installed"
+    echo "Docker Compose is not installed; please follow the guide at https://docs.docker.com/compose/install/ to install it."
+elif [ -x $loc ]
+then
+    echo "Docker Compose is already installed."
 else
-    echo "DockerCompose is not installed, Please follow the guide at https://docs.docker.com/compose/install/compose-plugin/#installing-compose-on-linux-systems to install DockerCompose."
+    echo "Docker Compose appears to be installed at $loc but is not executable; please check permissions."
 fi
 
 echo "Please make sure you have a working kubectl if you wish to use Kubernetes as an orchestrator."
