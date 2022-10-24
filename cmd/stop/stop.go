@@ -7,12 +7,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
 func NewCmdCreate() *cobra.Command {
-	var instance logging.Installation
+	var instance config.Installation
 	var stopCmd = &cobra.Command{
 		Use:   "stop",
 		Short: "Shuts down the Canasta installation",
@@ -39,10 +39,10 @@ func NewCmdCreate() *cobra.Command {
 	return stopCmd
 }
 
-func Stop(instance logging.Installation) error {
+func Stop(instance config.Installation) error {
 	var err error
 	if instance.Id != "" {
-		instance, err = logging.GetDetails(instance.Id)
+		instance, err = config.GetDetails(instance.Id)
 		if err != nil {
 			return err
 		}

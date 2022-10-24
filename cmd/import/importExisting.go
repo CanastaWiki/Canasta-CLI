@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/spf13/cobra"
 )
@@ -38,14 +38,14 @@ func NewCmdCreate() *cobra.Command {
 			if err := importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if keepConfig {
-					logging.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
+					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
 				}
 				scanner := bufio.NewScanner(os.Stdin)
 				fmt.Println("A fatal error occured during the installation\nDo you want to keep the files related to it? (y/n)")
 				scanner.Scan()
 				input := scanner.Text()
 				if input == "y" || input == "Y" || input == "yes" {
-					logging.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
+					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
 				}
 				canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaId, orchestrator)
 			}
@@ -72,7 +72,7 @@ func NewCmdCreate() *cobra.Command {
 
 // importCanasta copies LocalSettings.php and databasedump to create canasta from a previous mediawiki installation
 func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath string) error {
-	if _, err := logging.GetDetails(canastaId); err == nil {
+	if _, err := config.GetDetails(canastaId); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
 	if err := canasta.CloneStackRepo(orchestrator, canastaId, &path); err != nil {
@@ -90,7 +90,7 @@ func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath,
 	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}
-	if err := logging.Add(logging.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator}); err != nil {
+	if err := config.Add(config.Installation{Id: canastaId, Path: path, Orchestrator: orchestrator}); err != nil {
 		return err
 	}
 	return nil
