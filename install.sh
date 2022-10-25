@@ -4,7 +4,15 @@
 # Requirements Docker Engine 18.06.0+ and DockerCompose 
 
 echo "Downloading Canasta CLI latest release"
-wget -q --show-progress https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta
+canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
+# The show-progress param was added to wget in version 1.16 (October 2014).
+wgetOptions=$(wget --help)
+if [[ $wgetOptions == *"show-progress"* ]]
+then
+  wget -q --show-progress $canastaURL
+else
+  wget -q $canastaURL
+fi
 
 echo "Installing Canasta CLI"
 chmod u=rwx,g=xr,o=x canasta
