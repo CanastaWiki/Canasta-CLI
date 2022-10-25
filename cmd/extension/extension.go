@@ -18,7 +18,7 @@ var (
 	err          error
 	verbose      bool
 	extensionCmd *cobra.Command
-	constants    = extensionsskins.Item{Name: "Canasta extension", RelativeInstallationPath: "canasta-extensions", PhpCommand: "cfLoadExtension"}
+	constants    = extensionsskins.Item{Name: "Canasta extension", RelativeInstallationPath: "canasta-extensions", PhpCommand: "wfLoadExtension"}
 )
 
 func NewCmdCreate() *cobra.Command {
