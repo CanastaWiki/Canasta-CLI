@@ -50,6 +50,17 @@ func Install(path, orchestrator string, canastaInfo canasta.CanastaVariables) (c
 		if err != nil {
 			return canastaInfo, err
 		}
+		// Save automatically generated password to .admin.password inside the configuration folder
+		fmt.Printf("Saving password to %s/.admin.password\n", path)
+		file, err := os.Create(path + "/.admin-password")
+		if err != nil {
+			return canastaInfo, err
+		}
+		defer file.Close()
+		_, err = file.WriteString(canastaInfo.AdminPassword)
+		if err != nil {
+			return canastaInfo, err
+		}
 	}
 
 	command = fmt.Sprintf("php maintenance/install.php --dbserver=%s  --confpath=%s --scriptpath=%s	--server='https://%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
