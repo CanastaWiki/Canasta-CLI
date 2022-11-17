@@ -57,6 +57,5 @@ func init() {
 	rootCmd.AddCommand(startCmd.NewCmdCreate())
 	rootCmd.AddCommand(stopCmd.NewCmdCreate())
 	rootCmd.AddCommand(versionCmd.NewCmdCreate())
-	rootCmd.AddCommand(extensionCmd.NewCmdCreate())
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }
