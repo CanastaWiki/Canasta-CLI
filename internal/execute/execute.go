@@ -13,7 +13,7 @@ func Run(path, command string, cmdArgs ...string) (error, string) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	logging.Print(fmt.Sprint(command, " ", strings.Join(cmdArgs, " ")))
-	cmd := exec.Command(command, cmdArgs[:]...)
+	cmd := exec.Command("bash", "-c", command+" "+strings.Join(cmdArgs, " "))
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
