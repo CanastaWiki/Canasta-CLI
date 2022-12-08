@@ -107,28 +107,32 @@ func read(details *Canasta) error {
 func GetConfigDir() string {
 	dir := configdir.LocalConfig("canasta")
 	exists := false
-	fi, err := os.Stat(dir)
-	if err != nil {
-		msg := fmt.Sprintf("error statting %s (%s)", dir, err)
-		log.Print(msg)
-	} else {
-		mode := fi.Mode()
-		if mode.IsDir() {
-			exists = true
-		}
-	}
-
+	
 	// Checks if this is running as root
 	currentUser, err := user.Current()
 	if err != nil {
 		errReport := fmt.Errorf("Unable to get the current user: %s", err)
 		log.Fatal(errReport)
 	}
+
 	if currentUser.Username == "root" {
 		dir = directory
-	} else if currentUser.Username != "root" && exists != true {
-		msg := fmt.Sprintf("Using %s for configuration...", dir)
-		log.Print(msg)
+	} else if currentUser.Username != "root" {
+		fi, err := os.Stat(dir)
+		if err != nil {
+			msg := fmt.Sprintf("error statting %s (%s)", dir, err)
+			log.Print(msg)
+		} else {
+			mode := fi.Mode()
+			if mode.IsDir() {
+				exists = true
+			}
+		}
+
+		if exists != true {
+			msg := fmt.Sprintf("Using %s for configuration...", dir)
+			log.Print(msg)
+		}
 	}
 
 	return dir
