@@ -119,7 +119,14 @@ func GetConfigDir() string {
 		dir = directory
 	} else if currentUser.Username != "root" {
 		fi, err := os.Stat(dir)
-		if err != nil {
+		if os.IsNotExist(err) {
+			var configDir string = ".config"
+			log.Print(fmt.Sprintf("Creating %s\n", configDir))
+			err = os.Mkdir(configDir, os.ModePerm)
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else if err != nil {
 			msg := fmt.Sprintf("error statting %s (%s)", dir, err)
 			log.Print(msg)
 		} else {
