@@ -107,7 +107,7 @@ func read(details *Canasta) error {
 func GetConfigDir() string {
 	dir := configdir.LocalConfig("canasta")
 	exists := false
-	
+
 	// Checks if this is running as root
 	currentUser, err := user.Current()
 	if err != nil {
@@ -117,15 +117,15 @@ func GetConfigDir() string {
 
 	if currentUser.Username == "root" {
 		dir = directory
-	} else if currentUser.Username != "root" {
+	} else {
 		fi, err := os.Stat(dir)
 		if os.IsNotExist(err) {
-			var configDir string = ".config"
-			log.Print(fmt.Sprintf("Creating %s\n", configDir))
-			err = os.Mkdir(configDir, os.ModePerm)
+			log.Print(fmt.Sprintf("Creating %s\n", dir))
+			err = os.MkdirAll(dir, os.ModePerm)
 			if err != nil {
 				log.Fatal(err)
 			}
+			exists = true
 		} else if err != nil {
 			msg := fmt.Sprintf("error statting %s (%s)", dir, err)
 			log.Print(msg)
@@ -162,7 +162,7 @@ func init() {
 		// Creating configuration folder
 		if os.IsNotExist(err) {
 			log.Print(fmt.Sprintf("Creating %s\n", directory))
-			err = os.Mkdir(directory, os.ModePerm)
+			err = os.MkdirAll(directory, os.ModePerm)
 			if err != nil {
 				log.Fatal(err)
 			}
