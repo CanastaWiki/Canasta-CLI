@@ -11,6 +11,7 @@ import (
 	"path"
 	"syscall"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/kirsle/configdir"
 )
 
@@ -31,7 +32,7 @@ var (
 func Exists(canastaId string) bool {
 	err := read(&existingInstallations)
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	return existingInstallations.Installations[canastaId].Id != ""
 }
@@ -39,7 +40,7 @@ func Exists(canastaId string) bool {
 func ListAll() {
 	err := read(&existingInstallations)
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	fmt.Printf("Canasta ID\tInstallation Path\t\t\t\t\tOrchestrator\n\n")
 	for _, installation := range existingInstallations.Installations {
@@ -78,10 +79,10 @@ func Delete(canastaID string) error {
 	if Exists(canastaID) {
 		delete(existingInstallations.Installations, canastaID)
 	} else {
-		log.Fatal(fmt.Errorf("Canasta installation with the ID doesn't exist"))
+		logging.Fatal(fmt.Errorf("Canasta installation with the ID doesn't exist"))
 	}
 	if err := write(existingInstallations); err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 
 	return nil
@@ -90,7 +91,7 @@ func Delete(canastaID string) error {
 func write(details Canasta) error {
 	file, err := json.MarshalIndent(details, "", "	")
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	return ioutil.WriteFile(confFile, file, 0644)
 }
@@ -98,7 +99,7 @@ func write(details Canasta) error {
 func read(details *Canasta) error {
 	data, err := os.ReadFile(confFile)
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	err = json.Unmarshal(data, details)
 	return err
@@ -117,31 +118,30 @@ func GetConfigDir() string {
 
 	if currentUser.Username == "root" {
 		dir = directory
-	} else {
-		fi, err := os.Stat(dir)
-		if os.IsNotExist(err) {
-			log.Print(fmt.Sprintf("Creating %s\n", dir))
-			err = os.MkdirAll(dir, os.ModePerm)
-			if err != nil {
-				log.Fatal(err)
-			}
-			exists = true
-		} else if err != nil {
-			msg := fmt.Sprintf("error statting %s (%s)", dir, err)
-			log.Print(msg)
-		} else {
-			mode := fi.Mode()
-			if mode.IsDir() {
-				exists = true
-			}
-		}
+	}
 
-		if exists != true {
-			msg := fmt.Sprintf("Using %s for configuration...", dir)
-			log.Print(msg)
+	fi, err := os.Stat(dir)
+	if os.IsNotExist(err) {
+		log.Print(fmt.Sprintf("Creating %s\n", dir))
+		err = os.MkdirAll(dir, os.ModePerm)
+		if err != nil {
+			log.Fatal(err)
+		}
+		exists = true
+	} else if err != nil {
+		msg := fmt.Sprintf("error statting %s (%s)", dir, err)
+		log.Print(msg)
+	} else {
+		mode := fi.Mode()
+		if mode.IsDir() {
+			exists = true
 		}
 	}
 
+	if exists {
+		msg := fmt.Sprintf("Using %s for configuration...", dir)
+		log.Print(msg)
+	}
 	return dir
 }
 
@@ -157,24 +157,17 @@ func init() {
 	// Checks for the conf.json file
 	_, err = os.Stat(confFile)
 	if os.IsNotExist(err) {
-		// Check for the configuration folder
-		_, err = os.Stat(directory)
-		// Creating configuration folder
-		if os.IsNotExist(err) {
-			log.Print(fmt.Sprintf("Creating %s\n", directory))
-			err = os.MkdirAll(directory, os.ModePerm)
-			if err != nil {
-				log.Fatal(err)
-			}
-		} else if err != nil {
-			log.Fatal(err)
-		}
 		// Creating conf.json
+		log.Print("Creating " + confFile)
 		err := write(Canasta{Installations: map[string]Installation{}})
 		if err != nil {
 			log.Fatal(err)
 		}
+	} else if err != nil {
+		msg := fmt.Sprintf("error statting %s (%s)", confFile, err)
+		log.Print(msg)
 	}
+
 	// Check if the file is writable/has enough permissions
 	if err = syscall.Access(confFile, syscall.O_RDWR); err != nil {
 		log.Fatal(err)
