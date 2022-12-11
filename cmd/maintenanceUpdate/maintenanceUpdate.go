@@ -1,4 +1,4 @@
-package maintenanceupdate
+package maintenance
 
 import (
 	"fmt"
@@ -12,15 +12,10 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 )
 
-var (
-	instance config.Installation
-	pwd      string
-	err      error
-)
+func updateCmdCreate() *cobra.Command {
 
-func NewCmdCreate() *cobra.Command {
-	maintenanceCmd := &cobra.Command{
-		Use:   "maintenance",
+	updateCmd := &cobra.Command{
+		Use:   "update",
 		Short: "Run maintenance update jobs",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			instance, err = canasta.CheckCanastaId(instance)
@@ -34,9 +29,7 @@ func NewCmdCreate() *cobra.Command {
 	if pwd, err = os.Getwd(); err != nil {
 		log.Fatal(err)
 	}
-	maintenanceCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	maintenanceCmd.PersistentFlags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
-	return maintenanceCmd
+	return updateCmd
 }
 
 func runMaintenanceUpdate(instance config.Installation) {
