@@ -21,6 +21,7 @@ func NewCmdCreate() *cobra.Command {
 	}
 
 	maintenanceCmd.AddCommand(updateCmdCreate())
+	maintenanceCmd.AddCommand(scriptCmdCreate())
 	if pwd, err = os.Getwd(); err != nil {
 		log.Fatal(err)
 	}
