@@ -30,7 +30,7 @@ else
      echo "Git was found on the system"
 fi
 
-loc=$(command -v docker)
+loc=$(which docker)
 if [ -z $loc ]
 then
     echo "Docker is not installed; please follow the guide at https://docs.docker.com/engine/install/ to install it."
@@ -41,7 +41,7 @@ else
     echo "Docker appears to be installed at $loc but is not executable; please check permissions."
 fi
 
-loc=$(command -v docker-compose)
+loc=$(which docker-compose)
 if [ -z $loc ]
 then
     echo "Docker Compose is not installed; please follow the guide at https://docs.docker.com/compose/install/ to install it."
