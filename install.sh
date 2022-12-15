@@ -18,7 +18,19 @@ echo "Installing Canasta CLI"
 chmod u=rwx,g=xr,o=x canasta
 sudo mv canasta /usr/local/bin/canasta
 
-loc=$(which docker)
+# Testing git if installed else tell to install it
+git --version 2>&1 >/dev/null
+
+GIT_IS_AVAILABLE=$?
+
+if [ $GIT_IS_AVAILABLE -ne 0 ]; 
+then echo "Git was not found, please install before continuing.";
+     exit; 
+else
+     echo "Git was found on the system"
+fi
+
+loc=$(command -v docker)
 if [ -z $loc ]
 then
     echo "Docker is not installed; please follow the guide at https://docs.docker.com/engine/install/ to install it."
@@ -29,7 +41,7 @@ else
     echo "Docker appears to be installed at $loc but is not executable; please check permissions."
 fi
 
-loc=$(which docker-compose)
+loc=$(command -v docker-compose)
 if [ -z $loc ]
 then
     echo "Docker Compose is not installed; please follow the guide at https://docs.docker.com/compose/install/ to install it."
