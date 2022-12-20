@@ -89,5 +89,6 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator
 	if err := orchestrators.StopAndStart(path, orchestrator); err != nil {
 		log.Fatal(err)
 	}
+	fmt.Println("\033[32mIf you need mailing for this wiki, please set $wgSMTP in order to use an outside email provider; mailing will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP\033[0m")
 	return nil
 }
