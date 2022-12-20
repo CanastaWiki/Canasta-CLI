@@ -68,26 +68,36 @@ func NewCmdCreate() *cobra.Command {
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
 func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator string) error {
-	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
-		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
-	}
-	if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path); err != nil {
-		return err
-	}
-	if err := canasta.CopyEnv("", canastaInfo.DomainName, path, pwd); err != nil {
-		return err
-	}
-	if err := orchestrators.Start(path, orchestrator); err != nil {
-		return err
-	}
-	if _, err := mediawiki.Install(path, orchestrator, canastaInfo); err != nil {
-		return err
-	}
-	if err := config.Add(config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator}); err != nil {
-		return err
-	}
-	if err := orchestrators.StopAndStart(path, orchestrator); err != nil {
-		log.Fatal(err)
-	}
-	return nil
+        bar := progressbar.Default(100)
+        if _, err := config.GetDetails(canastaInfo.Id); err == nil {
+                log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
+        }
+        bar.Add(15)
+        if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path); err != nil {
+                return err
+        }
+        bar.Add(15)
+        if err := canasta.CopyEnv("", canastaInfo.DomainName, path, pwd); err != nil {
+                return err
+        }
+        bar.Add(15)
+        if err := orchestrators.Start(path, orchestrator); err != nil {
+                return err
+        }
+        bar.Add(15)
+        if _, err := mediawiki.Install(path, orchestrator, canastaInfo); err != nil {
+                return err
+        }
+        bar.Add(15)
+        if err := config.Add(config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator}); err != nil {
+                return err
+        }
+        bar.Add(15)
+        if err := orchestrators.StopAndStart(path, orchestrator); err != nil {
+                log.Fatal(err)
+        }
+        bar.Add(10)
+        fmt.Printf("Saving password to %s/.admin.password\n", path)
+	fmt.Println("\033[32mIf you need mailing for this wiki, please set $wgSMTP in order to use an outside email provider; mailing will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP\033[0m")
+        return nil
 }
