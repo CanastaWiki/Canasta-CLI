@@ -50,8 +50,6 @@ func Install(path, orchestrator string, canastaInfo canasta.CanastaVariables) (c
 		if err != nil {
 			return canastaInfo, err
 		}
-		// Save automatically generated password to .admin.password inside the configuration folder
-		fmt.Printf("Saving password to %s/.admin.password\n", path)
 		file, err := os.Create(path + "/.admin-password")
 		if err != nil {
 			return canastaInfo, err
