@@ -13,10 +13,10 @@ else
 fi
 
 loc=$(command -v docker)
-if [ -z $loc ]
+if [ -z "$loc" ]
 then
     echo "Docker is not installed; please follow the guide at https://docs.docker.com/engine/install/ to install it."
-elif [ -x $loc ]
+elif [ -x "$loc" ]
 then
     echo "Docker is already installed."
 else
@@ -24,10 +24,10 @@ else
 fi
 
 loc=$(command -v docker-compose)
-if [ -z $loc ]
+if [ -z "$loc" ]
 then
     echo "Docker Compose is not installed; please follow the guide at https://docs.docker.com/compose/install/ to install it."
-elif [ -x $loc ]
+elif [ -x "$loc" ]
 then
     echo "Docker Compose is already installed."
 else
@@ -42,7 +42,7 @@ repo="repos/CanastaWiki/Canasta-CLI/git/refs/tags"
 data=$(curl ${github_api}/${repo} 2>/dev/null)
 
 refs=$(jq -r '.. | select(.ref?) | .ref' <<< "${data}")
-versions=( $(cut -d '/' -f 3 <<< "${refs}" | sort -h | tac | head -n 5) )
+mapfile -t versions < <(cut -d '/' -f 3 <<< "${refs}" | sort -h | tac | head -n 5)
 
 get_versions() {
 	for index in "${!versions[@]}"; do
@@ -52,7 +52,7 @@ get_versions() {
 
 query_version() {
 	read -r -p "Pick a version (index): " choice # Read stdin and save the value on the $choice var
-	echo ${choice}
+	echo "${choice}"
 }
 download_package() {
 	version=${versions[${1}]}
@@ -61,26 +61,15 @@ download_package() {
 		wgetOptions=$(wget --help)
 		if [[ $wgetOptions == *"show-progress"* ]]
 		then
-		    wget -q --show-progress $canastaURL
+		    wget -q --show-progress "$canastaURL"
 		else
-		    wget -q $canastaURL
+		    wget -q "$canastaURL"
 		fi
-		echo "Installing ${version} Canasta CLI"
+		echo "Installing ${version:-latest} Canasta CLI"
 		chmod u=rwx,g=xr,o=x canasta
 		sudo mv canasta /usr/local/bin/canasta
 	else
-		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/download/latest/canasta"
-                wgetOptions=$(wget --help)
-                if [[ $wgetOptions == *"show-progress"* ]]
-                then
-                    wget -q --show-progress $canastaURL
-                else
-                    wget -q $canastaURL
-                fi
-                echo "Installing latest Canasta CLI"
-                chmod u=rwx,g=xr,o=x canasta
-		sudo mv canasta /usr/local/bin/Canasta
-		#echo "Invalid version"
+		echo "Invalid version"
 	fi
 }
 
@@ -91,12 +80,12 @@ while true; do
 			break
 			;;
 		-i|--install)
-			if [[ -n ${2} ]]; then
-				download_package ${2}
+			if [[ -n "${2}" ]]; then
+				download_package "${2}"
 				shift
 			else
 				get_versions
-				download_package $(query_version)
+				download_package "$(query_version)"
 			fi
 		        break	
 			;;
