@@ -1,24 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env bash
+unset choice canastaURL
+die() { echo "$*" >&2; exit 2; }  # complain to STDERR and exit with error
+needs_arg() { if [ -z "$OPTARG" ]; then die "No arg for --$OPT option"; fi; }
 
-# Canasta CLI installer
-# Requirements Docker Engine 18.06.0+ and DockerCompose 
-
-echo "Downloading Canasta CLI latest release"
-canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
-# The show-progress param was added to wget in version 1.16 (October 2014).
-wgetOptions=$(wget --help)
-if [[ $wgetOptions == *"show-progress"* ]]
-then
-  wget -q --show-progress $canastaURL
+git --version >/dev/null 2>&1
+GIT_IS_AVAILABLE=$?
+if [ $GIT_IS_AVAILABLE -ne 0 ]; 
+then echo "Git was not found, please install before continuing.";
+     exit; 
 else
-  wget -q $canastaURL
+     echo "Git was found on the system"
 fi
 
-echo "Installing Canasta CLI"
-chmod u=rwx,g=xr,o=x canasta
-sudo mv canasta /usr/local/bin/canasta
-
-loc=$(which docker)
+loc=$(command -v docker)
 if [ -z $loc ]
 then
     echo "Docker is not installed; please follow the guide at https://docs.docker.com/engine/install/ to install it."
@@ -29,7 +23,7 @@ else
     echo "Docker appears to be installed at $loc but is not executable; please check permissions."
 fi
 
-loc=$(which docker-compose)
+loc=$(command -v docker-compose)
 if [ -z $loc ]
 then
     echo "Docker Compose is not installed; please follow the guide at https://docs.docker.com/compose/install/ to install it."
@@ -40,5 +34,81 @@ else
     echo "Docker Compose appears to be installed at $loc but is not executable; please check permissions."
 fi
 
-echo "Please make sure you have a working kubectl if you wish to use Kubernetes as an orchestrator."
-echo -e "\nUsage: sudo canasta [COMMAND] [ARGUMENTS...]"
+
+github_api="https://api.github.com"
+
+repo="repos/CanastaWiki/Canasta-CLI/git/refs/tags"
+
+data=$(curl ${github_api}/${repo} 2>/dev/null)
+
+refs=$(jq -r '.. | select(.ref?) | .ref' <<< "${data}")
+versions=( $(cut -d '/' -f 3 <<< "${refs}" | sort -h | tac | head -n 5) )
+
+get_versions() {
+	for index in "${!versions[@]}"; do
+	  echo "  $((index))) ${versions[$index]}"
+	done
+}
+
+query_version() {
+	read -r -p "Pick a version (index): " choice # Read stdin and save the value on the $choice var
+	echo ${choice}
+}
+download_package() {
+	version=${versions[${1}]}
+	if [[ -n ${version} ]]; then # Verify if the version with that index exists
+		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/download/${version}/canasta"
+		wgetOptions=$(wget --help)
+		if [[ $wgetOptions == *"show-progress"* ]]
+		then
+		    wget -q --show-progress $canastaURL
+		else
+		    wget -q $canastaURL
+		fi
+		echo "Installing ${version} Canasta CLI"
+		chmod u=rwx,g=xr,o=x canasta
+		sudo mv canasta /usr/local/bin/canasta
+	else
+		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/download/latest/canasta"
+                wgetOptions=$(wget --help)
+                if [[ $wgetOptions == *"show-progress"* ]]
+                then
+                    wget -q --show-progress $canastaURL
+                else
+                    wget -q $canastaURL
+                fi
+                echo "Installing latest Canasta CLI"
+                chmod u=rwx,g=xr,o=x canasta
+		sudo mv canasta /usr/local/bin/Canasta
+		#echo "Invalid version"
+	fi
+}
+
+while true; do
+	case "${1}" in
+		-l|--list-versions)
+			get_versions
+			break
+			;;
+		-i|--install)
+			if [[ -n ${2} ]]; then
+				download_package ${2}
+				shift
+			else
+				get_versions
+				download_package $(query_version)
+			fi
+		        break	
+			;;
+		-*)
+			die "Illegal option ${1}"
+			;;
+		*) 		
+			wget -q  --show-progress "https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
+			echo "Installing latest Canasta CLI"
+	                chmod u=rwx,g=xr,o=x canasta
+        	        sudo mv canasta /usr/local/bin/canasta
+			break
+			;;
+  esac
+done
