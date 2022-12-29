@@ -1,39 +1,23 @@
 #!/usr/bin/env bash
-unset choice canastaURL
+#unset choice canastaURL
 die() { echo "$*" >&2; exit 2; }  # complain to STDERR and exit with error
 needs_arg() { if [ -z "$OPTARG" ]; then die "No arg for --$OPT option"; fi; }
 
-git --version >/dev/null 2>&1
-GIT_IS_AVAILABLE=$?
-if [ $GIT_IS_AVAILABLE -ne 0 ]; 
-then echo "Git was not found, please install before continuing.";
-     exit; 
-else
-     echo "Git was found on the system"
-fi
+is_command_available() {
+    for cmd in "$@"; do
+        if [[ -z $(command -v ${cmd}) ]]; then
+            echo ${cmd}
+            return 1
+        fi
+    done
+}
 
-loc=$(command -v docker)
-if [ -z "$loc" ]
-then
-    echo "Docker is not installed; please follow the guide at https://docs.docker.com/engine/install/ to install it."
-elif [ -x "$loc" ]
-then
-    echo "Docker is already installed."
-else
-    echo "Docker appears to be installed at $loc but is not executable; please check permissions."
-fi
+result=$(is_command_available git docker jq docker-compose)
 
-loc=$(command -v docker-compose)
-if [ -z "$loc" ]
-then
-    echo "Docker Compose is not installed; please follow the guide at https://docs.docker.com/compose/install/ to install it."
-elif [ -x "$loc" ]
-then
-    echo "Docker Compose is already installed."
-else
-    echo "Docker Compose appears to be installed at $loc but is not executable; please check permissions."
+if [[ $? -ne 0 ]]; then
+    echo "${result} is not installed"
+    exit 1
 fi
-
 
 github_api="https://api.github.com"
 
@@ -92,7 +76,7 @@ while true; do
 		-*)
 			die "Illegal option ${1}"
 			;;
-		*) 		
+		*) 	
 			wget -q  --show-progress "https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
 			echo "Installing latest Canasta CLI"
 	                chmod u=rwx,g=xr,o=x canasta
