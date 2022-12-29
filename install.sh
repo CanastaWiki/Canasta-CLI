@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#unset choice canastaURL
+unset choice canastaURL
 die() { echo "$*" >&2; exit 2; }  # complain to STDERR and exit with error
 needs_arg() { if [ -z "$OPTARG" ]; then die "No arg for --$OPT option"; fi; }
 
@@ -39,24 +39,24 @@ query_version() {
 	echo "${choice}"
 }
 download_package() {
-	version=${versions[${1}]}
-	if [[ -n ${version} ]]; then # Verify if the version with that index exists
-		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/download/${version}/canasta"
-		wgetOptions=$(wget --help)
-		if [[ $wgetOptions == *"show-progress"* ]]
-		then
-		    wget -q --show-progress "$canastaURL"
-		else
-		    wget -q "$canastaURL"
-		fi
-		echo "Installing ${version:-latest} Canasta CLI"
-		chmod u=rwx,g=xr,o=x canasta
-		sudo mv canasta /usr/local/bin/canasta
+	if [[ $1 ]]; then
+		version=${versions[$1]}
+		if ! [[ $version ]]; then echo "Invalid version" >&2 ; exit 1; fi
+		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/download/$version/canasta"
 	else
-		echo "Invalid version"
+		version=latest
+		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
+    	fi
+	wargs=(-q)
+        if wget --help | grep -q -e --show-progress ; then
+		wargs+=(--show-progress)
 	fi
-}
-
+	echo "Downloading Canasta"
+	wget "${wargs[@]}" "$canastaURL"
+	echo "Installing ${version} Canasta CLI"
+	chmod u=rwx,g=xr,o=x canasta
+        sudo mv canasta /usr/local/bin/canasta
+ }
 while true; do
 	case "${1}" in
 		-l|--list-versions)
@@ -76,11 +76,8 @@ while true; do
 		-*)
 			die "Illegal option ${1}"
 			;;
-		*) 	
-			wget -q  --show-progress "https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
-			echo "Installing latest Canasta CLI"
-	                chmod u=rwx,g=xr,o=x canasta
-        	        sudo mv canasta /usr/local/bin/canasta
+		*)	
+			download_package
 			break
 			;;
   esac
