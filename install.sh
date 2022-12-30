@@ -39,14 +39,16 @@ query_version() {
 	echo "${choice}"
 }
 download_package() {
-        if [[ $1 -eq 0 ]]; then
-                version=latest
-                canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/$version/download/canasta"
-             else
-                version=${versions[$1]}
-                   canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/download/$version/canasta"
-        fi
-
+	if [[ $1 =~ '^[0-9]+$' ]]; then
+			version=${version_list[$1]}
+		else    
+		        version=${1:-latest}
+	fi
+	if [[ "$version" == latest ]]; then
+		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/$version/download/canasta"
+	else
+		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/download/$version/canasta"
+	fi
 	wargs=(-q)
         if wget --help | grep -q -e --show-progress ; then
 		wargs+=(--show-progress)
