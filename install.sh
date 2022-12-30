@@ -26,12 +26,12 @@ repo="repos/CanastaWiki/Canasta-CLI/git/refs/tags"
 data=$(curl ${github_api}/${repo} 2>/dev/null)
 
 refs=$(jq -r '.. | select(.ref?) | .ref' <<< "${data}")
-mapfile -t versions < <(cut -d '/' -f 3 <<< "${refs}" | sort -h | tac | head -n 5)
+mapfile -t versions < <(echo "latest";cut -d '/' -f 3 <<< "${refs}" | sort -h | tac | head -n 5)
 
 get_versions() {
 	for index in "${!versions[@]}"; do
 	  echo "  $((index))) ${versions[$index]}"
-	done
+  	done
 }
 
 query_version() {
@@ -39,14 +39,14 @@ query_version() {
 	echo "${choice}"
 }
 download_package() {
-	if [[ $1 ]]; then
-		version=${versions[$1]}
-		if ! [[ $version ]]; then echo "Invalid version" >&2 ; exit 1; fi
-		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/download/$version/canasta"
-	else
-		version=latest
-		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
-    	fi
+        if [[ $1 -eq 0 ]]; then
+                version=latest
+                canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/$version/download/canasta"
+             else
+                version=${versions[$1]}
+                   canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/download/$version/canasta"
+        fi
+
 	wargs=(-q)
         if wget --help | grep -q -e --show-progress ; then
 		wargs+=(--show-progress)
@@ -55,7 +55,7 @@ download_package() {
 	wget "${wargs[@]}" "$canastaURL"
 	echo "Installing ${version} Canasta CLI"
 	chmod u=rwx,g=xr,o=x canasta
-        sudo mv canasta /usr/local/bin/canasta
+        mv canasta /usr/local/bin/canasta
  }
 while true; do
 	case "${1}" in
