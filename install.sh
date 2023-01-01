@@ -38,17 +38,29 @@ query_version() {
 	read -r -p "Pick a version (index): " choice # Read stdin and save the value on the $choice var
 	echo "${choice}"
 }
+containsElement () {
+	local e match="$1"
+	shift
+	for e; do [[ $e == "$match" ]] && return 0; done
+	return 1
+}
 download_package() {
-	if [[ $1 =~ '^[0-9]+$' ]]; then
-			version=${version_list[$1]}
-		else    
-		        version=${1:-latest}
+	if [[ "$1" =~ ^[0-9]+$ ]]; then
+			version=${versions[$1]}
+	elif containsElement "$1" "${versions[@]}"; then
+			version=${1:-latest}
+	elif [[ -z "$1" ]]; then
+		version=latest
+	else	
+		echo "Invalid version."
+		exit
 	fi
 	if [[ "$version" == latest ]]; then
 		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/$version/download/canasta"
 	else
 		canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/download/$version/canasta"
 	fi
+
 	wargs=(-q)
         if wget --help | grep -q -e --show-progress ; then
 		wargs+=(--show-progress)
@@ -66,15 +78,17 @@ while true; do
 			break
 			;;
 		-i|--install)
-			if [[ -n "${2}" ]]; then
-				download_package "${2}"
-				shift
+			 if [[ -n "${2}" ]]; then
+                  	   		download_package "${2}"
+
 			else
 				get_versions
 				download_package "$(query_version)"
-			fi
-		        break	
-			;;
+			 fi
+			break
+
+                  	;;
+
 		-*)
 			die "Illegal option ${1}"
 			;;
