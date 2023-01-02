@@ -35,7 +35,7 @@ get_versions() {
 }
 
 query_version() {
-	read -r -p "Pick a version (index): " choice # Read stdin and save the value on the $choice var
+	read -r -p "Pick a version by index or version: " choice # Read stdin and save the value on the $choice var
 	echo "${choice}"
 }
 containsElement () {
@@ -45,7 +45,8 @@ containsElement () {
 	return 1
 }
 download_package() {
-	if [[ "$1" =~ ^[0-9]+$ ]]; then
+	if [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" < ${#versions[@]} ]]; then
+	#if [[ "$1" =~ ^[0-9]+$ ]]; then
 			version=${versions[$1]}
 	elif containsElement "$1" "${versions[@]}"; then
 			version=${1:-latest}
@@ -65,7 +66,7 @@ download_package() {
         if wget --help | grep -q -e --show-progress ; then
 		wargs+=(--show-progress)
 	fi
-	echo "Downloading Canasta"
+	echo "Downloading Canasta ${version}"
 	wget "${wargs[@]}" "$canastaURL"
 	echo "Installing ${version} Canasta CLI"
 	chmod u=rwx,g=xr,o=x canasta
@@ -98,3 +99,4 @@ while true; do
 			;;
   esac
 done
+
