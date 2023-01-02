@@ -45,7 +45,7 @@ containsElement () {
 	return 1
 }
 download_package() {
-	if [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" < ${#versions[@]} ]]; then
+	if [[ "$1" =~ ^[0-9]$ ]] && [[ "$1" < ${#versions[@]} ]]; then
 			version=${versions[$1]}
 	elif containsElement "$1" "${versions[@]}"; then
 			version=${1:-latest}
