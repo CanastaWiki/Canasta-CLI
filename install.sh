@@ -29,13 +29,14 @@ refs=$(jq -r '.. | select(.ref?) | .ref' <<< "${data}")
 mapfile -t versions < <(echo "latest";cut -d '/' -f 3 <<< "${refs}" | sort -h | tac | head -n 5)
 
 get_versions() {
+	echo "The following are the possible Canasta versions:"
 	for index in "${!versions[@]}"; do
 	  echo "  $((index))) ${versions[$index]}"
   	done
 }
 
 query_version() {
-	read -r -p "Pick a version by index or version: " choice # Read stdin and save the value on the $choice var
+	read -r -p "Pick a version using index or by name: " choice # Read stdin and save the value on the $choice var
 	echo "${choice}"
 }
 containsElement () {
