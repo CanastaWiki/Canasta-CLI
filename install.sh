@@ -15,7 +15,7 @@ is_command_available() {
 result=$(is_command_available git docker jq docker-compose)
 
 if [[ $? -ne 0 ]]; then
-    echo "${result} is not installed"
+    echo "${result} is not installed; exiting."
     exit 1
 fi
 
