@@ -93,7 +93,7 @@ func promptUserPassword(userValue, passwordValue, userPrompt, passwordPrompt str
 		return "", "", err
 	}
 	if passwordValue != "" {
-		return userValue, passwordValue, err
+		return username, passwordValue, err
 	}
 	fmt.Printf("Enter the %s (Press Enter to autogenerate the password): \n", passwordPrompt)
 	pass, err := term.ReadPassword(0)
