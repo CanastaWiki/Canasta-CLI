@@ -88,14 +88,15 @@ func prompt(value, prompt string) (string, error) {
 }
 
 func promptUserPassword(userValue, passwordValue string) (string, string, error) {
-	username, err := prompt(userValue, "admin name")
+	userPrompt, passwordPrompt := "admin name", "admin password"
+	username, err := prompt(userValue, userPrompt)
 	if err != nil {
 		return "", "", err
 	}
 	if passwordValue != "" {
 		return username, passwordValue, err
 	}
-	fmt.Printf("Enter the %s (Press Enter to autogenerate the password): \n", "admin password")
+	fmt.Printf("Enter the %s (Press Enter to autogenerate the password): \n", passwordPrompt)
 	pass, err := term.ReadPassword(0)
 	
 	if err != nil {
@@ -111,7 +112,7 @@ func promptUserPassword(userValue, passwordValue string) (string, string, error)
 		return "", "", err
 	}
 
-	fmt.Printf("Re-enter the %s: \n", "admin password")
+	fmt.Printf("Re-enter the %s: \n", passwordPrompt)
 	pass, err = term.ReadPassword(0)
 	if err != nil {
 		return "", "", err
