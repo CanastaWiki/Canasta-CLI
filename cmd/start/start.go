@@ -26,11 +26,11 @@ func NewCmdCreate() *cobra.Command {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
-			fmt.Println("Starting Canasta")
+			fmt.Println("Starting Canasta installation '" + instance.Id + "'...")
 			if err := Start(instance); err != nil {
 				logging.Fatal(err)
 			}
-			fmt.Println("Started")
+			fmt.Println("Started.")
 			return nil
 		},
 	}
