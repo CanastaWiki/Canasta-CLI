@@ -31,14 +31,14 @@ func NewCmdCreate() *cobra.Command {
 			if canastaInfo, err = mediawiki.PromptUser(canastaInfo); err != nil {
 				log.Fatal(err)
 			}
-			fmt.Println("Setting up Canasta")
+			fmt.Println("Creating Canasta installation '" + canastaInfo.Id + "'...")
 			if err = createCanasta(canastaInfo, pwd, path, orchestrator); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if keepConfig {
 					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
 				}
 				scanner := bufio.NewScanner(os.Stdin)
-				fmt.Println("A fatal error occured during the installation\nDo you want to keep the files related to it? (y/n)")
+				fmt.Println("A fatal error occured during the installation.\nDo you want to keep the files related to it? (y/n)")
 				scanner.Scan()
 				input := scanner.Text()
 				if input == "y" || input == "Y" || input == "yes" {
@@ -46,7 +46,7 @@ func NewCmdCreate() *cobra.Command {
 				}
 				canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orchestrator)
 			}
-			fmt.Println("Done")
+			fmt.Println("Done.")
 			return nil
 		},
 	}
