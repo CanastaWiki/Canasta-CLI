@@ -27,7 +27,7 @@ func PromptUser(canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables,
 	if err != nil {
 		return canastaInfo, err
 	}
-	canastaInfo.AdminName, canastaInfo.AdminPassword, err = promptUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword, "admin name", "admin password")
+	canastaInfo.AdminName, canastaInfo.AdminPassword, err = promptUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword)
 	if err != nil {
 		return canastaInfo, err
 	}
@@ -87,15 +87,15 @@ func prompt(value, prompt string) (string, error) {
 	return input, nil
 }
 
-func promptUserPassword(userValue, passwordValue, userPrompt, passwordPrompt string) (string, string, error) {
-	username, err := prompt(userValue, userPrompt)
+func promptUserPassword(userValue, passwordValue string) (string, string, error) {
+	username, err := prompt(userValue, "admin name")
 	if err != nil {
 		return "", "", err
 	}
 	if passwordValue != "" {
 		return username, passwordValue, err
 	}
-	fmt.Printf("Enter the %s (Press Enter to autogenerate the password): \n", passwordPrompt)
+	fmt.Printf("Enter the %s (Press Enter to autogenerate the password): \n", "admin password")
 	pass, err := term.ReadPassword(0)
 	
 	if err != nil {
@@ -111,7 +111,7 @@ func promptUserPassword(userValue, passwordValue, userPrompt, passwordPrompt str
 		return "", "", err
 	}
 
-	fmt.Printf("Re-enter the %s: \n", passwordPrompt)
+	fmt.Printf("Re-enter the %s: \n", "admin password")
 	pass, err = term.ReadPassword(0)
 	if err != nil {
 		return "", "", err
