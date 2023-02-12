@@ -20,12 +20,12 @@ func NewCmdCreate() *cobra.Command {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
-			fmt.Println("Stopping Canasta")
+			fmt.Println("Stopping Canasta installation '" + instance.Id + "'...")
 			err := Stop(instance)
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Println("Stopped")
+			fmt.Println("Stopped.")
 			return nil
 		},
 	}

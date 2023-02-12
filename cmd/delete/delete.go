@@ -41,7 +41,7 @@ func NewCmdCreate() *cobra.Command {
 }
 
 func Delete(instance config.Installation) error {
-	fmt.Println("Deleting Canasta")
+	fmt.Println("Deleting Canasta installation '" + instance.Id + "'...")
 	var err error
 
 	//Checking Installation existence
@@ -64,6 +64,6 @@ func Delete(instance config.Installation) error {
 	if err = config.Delete(instance.Id); err != nil {
 		return err
 	}
-	fmt.Println("Deleted Canasta")
+	fmt.Println("Deleted.")
 	return nil
 }
