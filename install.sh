@@ -18,6 +18,18 @@ echo "Installing Canasta CLI"
 chmod u=rwx,g=xr,o=x canasta
 sudo mv canasta /usr/local/bin/canasta
 
+# Testing git if installed else tell to install it
+git --version 2>&1 >/dev/null
+
+GIT_IS_AVAILABLE=$?
+
+if [ $GIT_IS_AVAILABLE -ne 0 ]; 
+then echo "Git was not found, please install before continuing.";
+     exit; 
+else
+     echo "Git was found on the system"
+fi
+
 loc=$(which docker)
 if [ -z $loc ]
 then
