@@ -41,7 +41,7 @@ func Start(path, orchestrator string) error {
 }
 
 func Stop(path, orchestrator string) error {
-	logging.Print("Stoping the containers\n")
+	logging.Print("Stopping the containers\n")
 	switch orchestrator {
 	case "docker-compose":
 		err, output := execute.Run(path, "docker-compose", "down")
