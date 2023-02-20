@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
@@ -45,12 +46,13 @@ func NewCmdCreate() *cobra.Command {
 func Upgrade(instance logging.Installation) error {
 
 	var err error
+
 	//Checking Installation existence
 	instance, err = canasta.CheckCanastaId(instance)
 	if err != nil {
 		return err
 	}
-	fmt.Print("Pulling the latest changes")
+	fmt.Print("Pulling the latest changes\n")
 	//Pulling the latest changes from github
 	if err = git.Pull(instance.Path); err != nil {
 		return err
@@ -61,6 +63,10 @@ func Upgrade(instance logging.Installation) error {
 		return err
 	}
 
-	fmt.Print("Canasta Upgraded!")
+	//Touch LocalSettings.php
+	fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
+	execute.Run(instance.Path, "touch", "config/LocalSettings.php")
+
+	fmt.Print("Canasta Upgraded!\n")
 	return nil
 }
