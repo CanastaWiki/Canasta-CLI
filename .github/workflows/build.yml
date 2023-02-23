@@ -23,3 +23,46 @@ jobs:
 
     - name: Build
       run: sh build.sh
+      
+    - name: Upload executable for job build
+      uses: actions/upload-artifact@v3
+      with:
+        name: executable
+        path: ./Canasta-CLI-Go
+        
+      
+      
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download executable
+      uses: actions/download-artifact@v3
+      with:
+        name: executable
+    
+    - name: Create Draft Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: latest
+        release_name: latest
+        draft: true
+        prerelease: false
+
+    - uses: actions/upload-release-asset@v1.0.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./Canasta-CLI-Go
+        asset_name: canasta
+        asset_content_type: application/zip
+
+    - uses: eregon/publish-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        release_id: ${{ steps.create_release.outputs.id }}
+
