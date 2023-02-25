@@ -47,7 +47,8 @@ jobs:
         patch_version=$(echo $latest_version | cut -d. -f3)
         minor_version=$(expr $minor_version + 1)
         new_version=$(echo "v$major_version.$minor_version.$patch_version")
-      
+    
+    #Publish the executable file
     - name: Publish
       uses: softprops/action-gh-release@v1
       id: publish
