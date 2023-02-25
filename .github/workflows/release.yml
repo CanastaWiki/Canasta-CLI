@@ -58,6 +58,8 @@ jobs:
         generate_release_notes: true
         append_body: true
         files: Canasta-CLI-Go
+    
+    - name: Done Publishing
       run: |
         echo "New version $new_version released at ${{ steps.publish.outputs.url }}"
         
