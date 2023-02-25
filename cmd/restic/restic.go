@@ -64,7 +64,7 @@ func checkCurrentSnapshotFolder(currentSnapshotFolder string) {
 	if _, err := os.Stat(currentSnapshotFolder); err != nil {
 		if os.IsNotExist(err) {
 			logging.Print("Creating..." + currentSnapshotFolder)
-			if err := os.Mkdir(currentSnapshotFolder, os.ModePerm); err != nil {
+			if err := os.Mkdir(currentSnapshotFolder, 0o700); err != nil {
 				logging.Fatal(err)
 			}
 		} else {
@@ -75,7 +75,7 @@ func checkCurrentSnapshotFolder(currentSnapshotFolder string) {
 		if err := os.RemoveAll(currentSnapshotFolder); err != nil {
 			logging.Fatal(err)
 		}
-		if err := os.Mkdir(currentSnapshotFolder, os.ModePerm); err != nil {
+		if err := os.Mkdir(currentSnapshotFolder, 0o700); err != nil {
 			logging.Fatal(err)
 		}
 		logging.Print("Emptied.. " + currentSnapshotFolder)
