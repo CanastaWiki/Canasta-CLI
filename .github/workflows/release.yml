@@ -1,35 +1,29 @@
-#This workflow will build and publish a release of Canasta-CLI on pushing to the 'releases' branch.
-#It also automatically grabs the current latest version and increments the minor version.
+# This workflow will build and publish a release of Canasta-CLI on pushing to the 'releases' branch.
+# It also automatically grabs the current latest version and increments the minor version.
 
-name: Go
+name: Go build
 
 on:
   push:
-    branches: [ "releases" ]
+    branches:
+      - main
 
 jobs:
-
   build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-
     - name: Set up Go
       uses: actions/setup-go@v3
       with:
         go-version: 1.19
-
     - name: Build
       run: sh build.sh
-      
     - name: Upload executable for job build
       uses: actions/upload-artifact@v3
       with:
         name: executable
         path: ./Canasta-CLI-Go
-        
-      
-      
   release:
     runs-on: ubuntu-latest
     needs: build
@@ -38,10 +32,8 @@ jobs:
       uses: actions/download-artifact@v3
       with:
         name: executable
-        
     - name: Rename executable
       run: mv Canasta-CLI-Go canasta
-      
     - name: Generate Version Tag
       id: generate
       run: |
@@ -54,8 +46,6 @@ jobs:
         new_version=$(echo "v$major_version.$minor_version.$patch_version")
         echo $new_version
         echo "new_version=$new_version" >> $GITHUB_OUTPUT
- 
-      
     - name: Publish
       uses: softprops/action-gh-release@v1
       id: publish
