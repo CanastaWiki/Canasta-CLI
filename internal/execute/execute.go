@@ -3,28 +3,23 @@ package execute
 import (
 	"bytes"
 	"fmt"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"io"
 	"os/exec"
 	"strings"
-	"sync"
+
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
 type writerWithPrint struct {
 	buf bytes.Buffer
-	mu  sync.Mutex
 }
 
 func (w *writerWithPrint) Write(p []byte) (n int, err error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	logging.Print(string(p))
 	return w.buf.Write(p)
 }
 
 func (w *writerWithPrint) String() string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	return w.buf.String()
 }
 
