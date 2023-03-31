@@ -62,22 +62,38 @@ parse_arguments() {
   done
 }
 
+validate_version() {
+  local version_to_validate="$1"
+  if [[ $version_to_validate =~ ^(([0-9]{1,3}[\.]){2}[0-9]{1,3}).* ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 choose_version() {
   if [[ -n ${INTERACTIVE-} ]]; then
     echo "-----"
     echo "Checking the Version..."
-    echo "Press ENTER for the latest version, or enter a specific version number (e.g. 1.2.0):"
 
-    read -rp "Version: " -e VERSION
+    if [[ -z ${VERSION-} ]] || ! validate_version "$VERSION"; then
+      while true; do
+        echo "Press ENTER for the latest version, or enter a specific version number (e.g. 1.2.0):"
+        read -rp "Version: " -e VERSION
 
-    if [[ $VERSION =~ ^(([0-9]{1,3}[\.]){2}[0-9]{1,3}).* ]]; then
-      echo "Installing version $VERSION."
-    elif [[ -z $VERSION ]]; then
-      VERSION="latest"
-      echo "No version specified, installing the latest version."
+        if [[ $VERSION =~ ^(([0-9]{1,3}[\.]){2}[0-9]{1,3}).* ]]; then
+          echo "Installing version $VERSION."
+          break
+        elif [[ -z $VERSION ]]; then
+          VERSION="latest"
+          echo "No version specified, installing the latest version."
+          break
+        else
+          echo "Invalid version number. Please try again."
+        fi
+      done
     else
-      echo "Invalid version number. Installing the latest version."
-      VERSION="latest"
+      echo "Version $VERSION has already been specified, proceeding with installation."
     fi
   fi
 
@@ -119,7 +135,12 @@ download_and_install() {
   fi
 
   echo "Downloading Canasta CLI version $VERSION..."
-  wget -q --show-progress "$canasta_url" -O canasta || { echo "Download failed. The version you specified might not exist."; echo "Please use '-l' or '--list' flag to see the available versions or try again."; exit 1; }
+  if ! wget -q --show-progress "$canasta_url" -O canasta; then
+    echo "Download failed. The version you specified might not exist."
+    echo "Please use '-l' or '--list' flag to see the available versions or try again."
+    rm -f canasta   # Delete the 0-byte canasta file
+    exit 1
+  fi
   echo "Download was successful; now installing Canasta CLI."
   chmod u=rwx,g=xr,o=x canasta
   sudo mv canasta /usr/local/bin/canasta
