@@ -13,9 +13,8 @@ VERSION="latest"
 
 usage() {
   cat << EOF >&2
-Usage: $PROGNAME [-i|--interactive] [-v <ver>|--version <ver>] [-l|--list]
+Usage: $PROGNAME [-v <ver>|--version <ver>] [-l|--list]
 -v <ver>, --version <ver> : install specific version
--i, --interactive          : interactive version
 -l, --list                 : list all available versions
        *                   : usage
 EOF
@@ -43,14 +42,15 @@ list_versions() {
 parse_arguments() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -i|--interactive)
-        echo "interactive mode"
-        INTERACTIVE=1
-        shift
-        ;;
       -v|--version)
-        VERSION="$2"
-        shift 2
+        if [[ -z "$2" || $2 == -* ]]; then
+          echo "No version number provided after '-v' flag."
+          VERSION=""
+          shift
+        else
+          VERSION="$2"
+          shift 2
+        fi
         ;;
       -l|--list)
         list_versions
@@ -67,51 +67,45 @@ validate_version() {
   if [[ $version_to_validate =~ ^(([0-9]{1,3}[\.]){2}[0-9]{1,3}).* ]]; then
     return 0
   else
+    echo "Invalid version number!"
     return 1
   fi
 }
 
 choose_version() {
-  if [[ -n ${INTERACTIVE-} ]]; then
-    echo "-----"
-    echo "Checking the Version..."
+  echo "-----"
+  echo "Checking the Version..."
 
-    if [[ -z ${VERSION-} ]] || ! validate_version "$VERSION"; then
-      while true; do
-        echo "Press ENTER for the latest version, or enter a specific version number (e.g. 1.2.0):"
-        read -rp "Version: " -e VERSION
+  if [[ -z ${VERSION-} ]] || ! validate_version "$VERSION"; then
+    while true; do
+      echo "Enter a valid version number (e.g. 1.2.0):"
+      read -rp "Version (ENTER for the latest version): " -e VERSION
 
-        if [[ $VERSION =~ ^(([0-9]{1,3}[\.]){2}[0-9]{1,3}).* ]]; then
-          echo "Installing version $VERSION."
-          break
-        elif [[ -z $VERSION ]]; then
-          VERSION="latest"
-          echo "No version specified, installing the latest version."
-          break
-        else
-          echo "Invalid version number. Please try again."
-        fi
-      done
-    else
-      echo "Version $VERSION has already been specified, proceeding with installation."
-    fi
-  fi
-
-  if [[ -z ${VERSION-} ]]; then
-    VERSION="latest"
-    echo "No version has been specified, latest will be used."
+      if [[ $VERSION =~ ^(([0-9]{1,3}[\.]){2}[0-9]{1,3}).* ]]; then
+        echo "Installing version $VERSION."
+        break
+      elif [[ -z $VERSION ]]; then
+        VERSION="latest"
+        echo "No version specified, installing the latest version."
+        break
+      else
+        echo "Invalid version number. Please try again."
+      fi
+    done
+  else
+    echo "Version $VERSION has already been specified, proceeding with installation."
   fi
 }
+
 
 check_dependencies() {
   local dependencies=("wget" "git" "docker" "docker-compose")
   local not_found=()
 
+  echo "Checking dependencies..."
   for dep in "${dependencies[@]}"; do
     if ! command -v "$dep" >/dev/null 2>&1; then
       not_found+=("$dep")
-    else
-      echo "Checking for presence of $dep... found."
     fi
   done
 
@@ -122,11 +116,24 @@ check_dependencies() {
     done
     echo "Please install the missing dependencies before continuing."
     exit 1
+  else
+    echo "All the required dependencies are found."
+  fi
+}
+
+check_wget_show_progress() {
+  wgetOptions=$(wget --help)
+  if [[ $wgetOptions == *"show-progress"* ]]; then
+    WGET_SHOW_PROGRESS="--show-progress"
+  else
+    WGET_SHOW_PROGRESS=""
   fi
 }
 
 download_and_install() {
   local canasta_url=""
+
+  check_wget_show_progress
 
   if [ "$VERSION" == "latest" ]; then
     canasta_url="https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
@@ -135,7 +142,7 @@ download_and_install() {
   fi
 
   echo "Downloading Canasta CLI version $VERSION..."
-  if ! wget -q --show-progress "$canasta_url" -O canasta; then
+  if ! wget -q $WGET_SHOW_PROGRESS "$canasta_url" -O canasta; then
     echo "Download failed. The version you specified might not exist."
     echo "Please use '-l' or '--list' flag to see the available versions or try again."
     rm -f canasta   # Delete the 0-byte canasta file
@@ -161,9 +168,9 @@ download_and_install() {
 }
 
 main() {
+  check_dependencies
   parse_arguments "$@"
   choose_version
-  check_dependencies
   download_and_install
   echo "Please make sure you have a working kubectl if you wish to use Kubernetes as an orchestrator."
   echo -e "\nUsage: sudo canasta [COMMAND] [ARGUMENTS...]"
