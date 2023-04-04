@@ -22,14 +22,6 @@ EOF
 }
 
 list_versions() {
-  wget --version >/dev/null 2>&1
-  WGET_IS_AVAILABLE=$?
-
-  if [ $WGET_IS_AVAILABLE -ne 0 ]; then
-    echo "Error: wget is not found. Please install wget and try again."
-    exit 1
-  fi
-
   echo "Fetching available versions..."
   releases=$(wget -qO- "https://api.github.com/repos/CanastaWiki/Canasta-CLI/releases")
   versions=$(echo "$releases" | grep -Po '"tag_name": "\K.*?(?=")')
