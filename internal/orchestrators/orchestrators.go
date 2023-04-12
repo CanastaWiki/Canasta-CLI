@@ -101,7 +101,7 @@ func DeleteContainers(path, orchestrator string) (string, error) {
 			err, output := execute.Run(path, compose.Path, "down", "-v")
 			return output, err
 		} else {
-			err, output := execute.Run(path, "docker", "down", "-v")
+			err, output := execute.Run(path, "docker", "compose", "down", "-v")
 			return output, err
 		}
 	default:
