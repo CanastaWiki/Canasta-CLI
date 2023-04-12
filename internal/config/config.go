@@ -88,6 +88,9 @@ func Add(details Installation) error {
 }
 
 func AddOrchestrator(details Orchestrator) error {
+	if existingInstallations.Orchestrators == nil {
+		existingInstallations.Orchestrators = map[string]Orchestrator{}
+	}
 	if details.Id != "docker-compose" {
 		return fmt.Errorf("orchestrator %s is not suported", details.Id)
 	}
