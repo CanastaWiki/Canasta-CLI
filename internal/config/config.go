@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"os/user"
 	"path"
 	"syscall"
@@ -19,7 +18,12 @@ type Installation struct {
 	Id, Path, Orchestrator string
 }
 
+type Orchestrator struct {
+	Id, Path string
+}
+
 type Canasta struct {
+	Orchestrators map[string]Orchestrator
 	Installations map[string]Installation
 }
 
@@ -35,6 +39,14 @@ func Exists(canastaId string) bool {
 		logging.Fatal(err)
 	}
 	return existingInstallations.Installations[canastaId].Id != ""
+}
+
+func OrchestratorExists(orchestrator string) bool {
+	err := read(&existingInstallations)
+	if err != nil {
+		logging.Fatal(err)
+	}
+	return existingInstallations.Orchestrators[orchestrator].Path != ""
 }
 
 func ListAll() {
@@ -73,6 +85,22 @@ func Add(details Installation) error {
 	}
 	err := write(existingInstallations)
 	return err
+}
+
+func AddOrchestrator(details Orchestrator) error {
+	if details.Id != "docker-compose" {
+		return fmt.Errorf("orchestrator %s is not suported", details.Id)
+	}
+	existingInstallations.Orchestrators[details.Id] = details
+	err := write(existingInstallations)
+	return err
+}
+
+func GetOrchestrator(orchestrator string) Orchestrator {
+	if OrchestratorExists(orchestrator) {
+		return existingInstallations.Orchestrators[orchestrator]
+	}
+	return Orchestrator{}
 }
 
 func Delete(canastaID string) error {
@@ -149,17 +177,12 @@ func init() {
 	directory = GetConfigDir()
 	confFile = path.Join(directory, confFile)
 
-	_, err := exec.LookPath("docker-compose")
-	if err != nil {
-		log.Fatal(fmt.Errorf("docker-compose should be installed! (%s)", err))
-	}
-
 	// Checks for the conf.json file
-	_, err = os.Stat(confFile)
+	_, err := os.Stat(confFile)
 	if os.IsNotExist(err) {
 		// Creating conf.json
 		log.Print("Creating " + confFile)
-		err := write(Canasta{Installations: map[string]Installation{}})
+		err := write(Canasta{Installations: map[string]Installation{}, Orchestrators: map[string]Orchestrator{}})
 		if err != nil {
 			log.Fatal(err)
 		}
