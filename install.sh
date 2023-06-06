@@ -44,15 +44,12 @@ else
     echo "Docker appears to be installed at $loc but is not executable; please check permissions."
 fi
 
-loc=$(which docker-compose)
-if [ -z $loc ]
+if ! docker compose  version;
 then
-    echo "Docker Compose is not installed; please follow the guide at https://docs.docker.com/compose/install/ to install it."
-elif [ -x $loc ]
-then
-    echo "Checking for presence of Docker Compose... found."
+    echo "Docker Compose is not installed; please follow the guide at https://docs.docker.com/compose/install/ to install it.
+    Alternatively, set the Compose executable path in canasta CLI using \"canasta -d PATH\""
 else
-    echo "Docker Compose appears to be installed at $loc but is not executable; please check permissions."
+    echo "Checking for presence of Docker Compose... found."
 fi
 
 echo "Please make sure you have a working kubectl if you wish to use Kubernetes as an orchestrator."

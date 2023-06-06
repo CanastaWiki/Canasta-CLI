@@ -126,7 +126,7 @@ func promptUserPassword(userValue, passwordValue string) (string, string, error)
 }
 
 func passwordCheck(admin, password string) error {
-	if len(password) <= 10 {
+	if len(password) < 10 {
 		logging.Fatal(fmt.Errorf("Password must be at least 10 characters long "))
 	} else if strings.Contains(password, admin) || strings.Contains(admin, password) {
 		logging.Fatal(fmt.Errorf("Password should not be same as admin name"))
