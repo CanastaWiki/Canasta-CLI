@@ -6,11 +6,14 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"os/user"
 	"path"
 	"syscall"
+	"text/tabwriter"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/yaml"
 	"github.com/kirsle/configdir"
 )
 
@@ -18,12 +21,7 @@ type Installation struct {
 	Id, Path, Orchestrator string
 }
 
-type Orchestrator struct {
-	Id, Path string
-}
-
 type Canasta struct {
-	Orchestrators map[string]Orchestrator
 	Installations map[string]Installation
 }
 
@@ -41,23 +39,44 @@ func Exists(canastaId string) bool {
 	return existingInstallations.Installations[canastaId].Id != ""
 }
 
-func OrchestratorExists(orchestrator string) bool {
-	err := read(&existingInstallations)
-	if err != nil {
-		logging.Fatal(err)
-	}
-	return existingInstallations.Orchestrators[orchestrator].Path != ""
-}
-
 func ListAll() {
 	err := read(&existingInstallations)
 	if err != nil {
 		logging.Fatal(err)
 	}
-	fmt.Printf("Canasta ID\tInstallation Path\t\t\t\t\tOrchestrator\n\n")
+
+	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "Canasta ID\tWiki ID(Name)\tServer Name\tServer Path\tInstallation Path\tOrchestrator")
+
 	for _, installation := range existingInstallations.Installations {
-		fmt.Printf("%s\t%s\t%s\n", installation.Id, installation.Path, installation.Orchestrator)
+		ids, serverNames, paths, err := yaml.ReadWikisYaml(installation.Path + "/config/wikis.yaml")
+		if err != nil {
+			fmt.Printf("Error reading wikis.yaml for installation ID '%s': %s\n", installation.Id, err)
+			continue
+		}
+
+		for i := range ids {
+			if i == 0 {
+				fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					installation.Id,
+					ids[i],
+					serverNames[i],
+					paths[i],
+					installation.Path,
+					installation.Orchestrator)
+			} else {
+				fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					"-",
+					ids[i],
+					serverNames[i],
+					paths[i],
+					installation.Path,
+					installation.Orchestrator)
+			}
+
+		}
 	}
+	writer.Flush()
 }
 
 func GetDetails(canastaId string) (Installation, error) {
@@ -85,25 +104,6 @@ func Add(details Installation) error {
 	}
 	err := write(existingInstallations)
 	return err
-}
-
-func AddOrchestrator(details Orchestrator) error {
-	if existingInstallations.Orchestrators == nil {
-		existingInstallations.Orchestrators = map[string]Orchestrator{}
-	}
-	if details.Id != "docker-compose" {
-		return fmt.Errorf("orchestrator %s is not suported", details.Id)
-	}
-	existingInstallations.Orchestrators[details.Id] = details
-	err := write(existingInstallations)
-	return err
-}
-
-func GetOrchestrator(orchestrator string) Orchestrator {
-	if OrchestratorExists(orchestrator) {
-		return existingInstallations.Orchestrators[orchestrator]
-	}
-	return Orchestrator{}
 }
 
 func Delete(canastaID string) error {
@@ -180,12 +180,17 @@ func init() {
 	directory = GetConfigDir()
 	confFile = path.Join(directory, confFile)
 
+	_, err := exec.LookPath("docker-compose")
+	if err != nil {
+		log.Fatal(fmt.Errorf("docker-compose should be installed! (%s)", err))
+	}
+
 	// Checks for the conf.json file
-	_, err := os.Stat(confFile)
+	_, err = os.Stat(confFile)
 	if os.IsNotExist(err) {
 		// Creating conf.json
 		log.Print("Creating " + confFile)
-		err := write(Canasta{Installations: map[string]Installation{}, Orchestrators: map[string]Orchestrator{}})
+		err := write(Canasta{Installations: map[string]Installation{}})
 		if err != nil {
 			log.Fatal(err)
 		}

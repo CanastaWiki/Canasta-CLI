@@ -1,6 +1,7 @@
 package canasta
 
 import (
+	"bufio"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -11,12 +12,11 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/yaml"
 )
 
 type CanastaVariables struct {
 	Id            string
-	WikiName      string
-	DomainName    string
 	AdminPassword string
 	AdminName     string
 }
@@ -27,13 +27,15 @@ func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 	*path += "/" + canastaId
 	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
 	repo := orchestrators.GetRepoLink(orchestrator)
-	err := git.Clone(repo, *path)
+	err := git.Cloneb(repo, *path, "CLI")
 	return err
 }
 
 //if envPath is passed as argument copies the file located at envPath to the installation directory
 //else copies .env.example to .env in the installation directory
-func CopyEnv(envPath, domainName, path, pwd string) error {
+func CopyEnv(envPath, path, pwd string) error {
+	yamlPath := path + "/config/wikis.yaml"
+
 	if envPath == "" {
 		envPath = path + "/.env.example"
 	} else {
@@ -44,12 +46,171 @@ func CopyEnv(envPath, domainName, path, pwd string) error {
 	if err != nil {
 		return fmt.Errorf(output)
 	}
-	if err := SaveEnvVariable(path+"/.env", "MW_SITE_SERVER", "https://"+domainName); err != nil {
+	_, domainNames, _, err := yaml.ReadWikisYaml(yamlPath)
+	if err != nil {
 		return err
 	}
-	if err := SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", domainName); err != nil {
+	if err := SaveEnvVariable(path+"/.env", "MW_SITE_SERVER", "http://"+domainNames[0]); err != nil {
 		return err
 	}
+	if err := SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", "http://"+domainNames[0]); err != nil {
+		return err
+	}
+	return nil
+}
+
+func CopyYaml(yamlPath, path string) error {
+	logging.Print(fmt.Sprintf("Copying %s to %s/config/wikis.yaml\n", yamlPath, path))
+	err, output := execute.Run("", "cp", yamlPath, path+"/config/wikis.yaml")
+	if err != nil {
+		return fmt.Errorf(output)
+	}
+	return nil
+}
+
+func CopySettings(path string) error {
+	yamlPath := path + "/config/wikis.yaml"
+
+	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", yamlPath, path))
+	WikiNames, _, _, err := yaml.ReadWikisYaml(yamlPath)
+	if err != nil {
+		return err
+	}
+	for i := len(WikiNames) - 1; i >= 0; i-- {
+		err, output := execute.Run("", "cp", path+"/config/LocalSettingsTemplate.php", path+fmt.Sprintf("/config/LocalSettings_%s.php", WikiNames[i]))
+		if err != nil {
+			return fmt.Errorf(output)
+		}
+	}
+	if err := RewriteSettings(path, WikiNames); err != nil {
+		return err
+	}
+	return nil
+}
+
+func CopySetting(path, name string) error {
+
+	err, output := execute.Run("", "cp", path+"/config/LocalSettingsTemplate.php", path+fmt.Sprintf("/config/LocalSettings_%s.php", name))
+	if err != nil {
+		return fmt.Errorf(output)
+	}
+	if err := RewriteSettings(path, []string{name}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func RewriteSettings(path string, WikiNames []string) error {
+	for _, name := range WikiNames {
+		filePath := path + "/config/LocalSettings_" + name + ".php"
+
+		// Read the original file
+		file, err := os.Open(filePath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		// Read file line by line
+		scanner := bufio.NewScanner(file)
+		var lines []string
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, "#$wgSitename = ;") {
+				line = "$wgSitename = \"" + name + "\";"
+			}
+			if strings.Contains(line, "#$wgMetaNamespace = ;") {
+				line = "$wgMetaNamespace = \"" + name + "\";"
+			}
+			lines = append(lines, line)
+		}
+
+		// Create/Truncate the file for writing
+		file, err = os.Create(filePath)
+		if err != nil {
+			return err
+		}
+
+		// Write back to file
+		writer := bufio.NewWriter(file)
+		for _, line := range lines {
+			_, err = fmt.Fprintln(writer, line)
+			if err != nil {
+				return err
+			}
+		}
+		if err = writer.Flush(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Function to remove duplicates from slice
+func removeDuplicates(slice []string) []string {
+	keys := make(map[string]bool)
+	list := []string{}
+
+	for _, entry := range slice {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
+}
+
+func RewriteCaddy(path string) error {
+	_, ServerNames, _, err := yaml.ReadWikisYaml(path + "/config/wikis.yaml")
+	if err != nil {
+		return err
+	}
+	filePath := path + "/config/Caddyfile"
+
+	// Remove duplicates from ServerNames
+	ServerNames = removeDuplicates(ServerNames)
+
+	// Generate the new server names line
+	var newLine strings.Builder
+	for i, name := range ServerNames {
+		if i > 0 {
+			newLine.WriteString(", ")
+		}
+		newLine.WriteString("http://")
+		newLine.WriteString(name)
+	}
+
+	// Create/Truncate the file for writing
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+
+	// Write back to file
+	writer := bufio.NewWriter(file)
+
+	// Write server names line to file
+	_, err = fmt.Fprintln(writer, newLine.String())
+	if err != nil {
+		return err
+	}
+
+	// Write empty line to file
+	_, err = fmt.Fprintln(writer, "")
+	if err != nil {
+		return err
+	}
+
+	// Write reverse proxy line to file
+	_, err = fmt.Fprintln(writer, "reverse_proxy varnish:80")
+	if err != nil {
+		return err
+	}
+
+	if err = writer.Flush(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
