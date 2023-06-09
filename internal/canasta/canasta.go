@@ -10,10 +10,10 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/yaml"
 )
 
 type CanastaVariables struct {
@@ -47,7 +47,7 @@ func CopyEnv(envPath, path, pwd string) error {
 	if err != nil {
 		return fmt.Errorf(output)
 	}
-	_, domainNames, _, err := yaml.ReadWikisYaml(yamlPath)
+	_, domainNames, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func CopySettings(path string) error {
 	yamlPath := path + "/config/wikis.yaml"
 
 	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", yamlPath, path))
-	WikiNames, _, _, err := yaml.ReadWikisYaml(yamlPath)
+	WikiNames, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func removeDuplicates(slice []string) []string {
 }
 
 func RewriteCaddy(path string) error {
-	_, ServerNames, _, err := yaml.ReadWikisYaml(path + "/config/wikis.yaml")
+	_, ServerNames, _, err := farmsettings.ReadWikisYaml(path + "/config/wikis.yaml")
 	if err != nil {
 		return err
 	}
@@ -324,22 +324,22 @@ func DeleteConfigAndContainers(keepConfig bool, installationDir, orchestrator st
 }
 
 func RemoveSettings(path, name string) error {
-    // Prepare the file path
-    filePath := filepath.Join(path, "config", fmt.Sprintf("LocalSettings_%s.php", name))
+	// Prepare the file path
+	filePath := filepath.Join(path, "config", fmt.Sprintf("LocalSettings_%s.php", name))
 
-    // Check if the file exists
-    if _, err := os.Stat(filePath); err == nil {
-        // If the file exists, remove it
-        err, output := execute.Run("", "rm", filePath)
-        if err != nil {
-            return fmt.Errorf(output)
-        }
-    } else if os.IsNotExist(err) {
-        // File does not exist, do nothing
-        return nil
-    } else {
-        // File may or may not exist. See the specific error
-        return err
-    }
-    return nil
+	// Check if the file exists
+	if _, err := os.Stat(filePath); err == nil {
+		// If the file exists, remove it
+		err, output := execute.Run("", "rm", filePath)
+		if err != nil {
+			return fmt.Errorf(output)
+		}
+	} else if os.IsNotExist(err) {
+		// File does not exist, do nothing
+		return nil
+	} else {
+		// File may or may not exist. See the specific error
+		return err
+	}
+	return nil
 }

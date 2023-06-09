@@ -12,9 +12,9 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/cmd/restart"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/yaml"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -64,7 +64,7 @@ func RemoveWiki(name string, instance config.Installation) error {
 	}
 
 	//Checking Wiki existence
-	exists, _, err := yaml.CheckWiki(instance.Path, name, "")
+	exists, _, err := farmsettings.CheckWiki(instance.Path, name, "")
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,7 @@ func RemoveWiki(name string, instance config.Installation) error {
 	}
 
 	//Remove the wiki
-	err = yaml.RemoveWiki(name, instance.Path)
+	err = farmsettings.RemoveWiki(name, instance.Path)
 	if err != nil {
 		return err
 	}

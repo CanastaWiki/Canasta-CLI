@@ -13,7 +13,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/yaml"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/kirsle/configdir"
 )
 
@@ -49,7 +49,7 @@ func ListAll() {
 	fmt.Fprintln(writer, "Canasta ID\tWiki ID(Name)\tServer Name\tServer Path\tInstallation Path\tOrchestrator")
 
 	for _, installation := range existingInstallations.Installations {
-		ids, serverNames, paths, err := yaml.ReadWikisYaml(installation.Path + "/config/wikis.yaml")
+		ids, serverNames, paths, err := farmsettings.ReadWikisYaml(installation.Path + "/config/wikis.yaml")
 		if err != nil {
 			fmt.Printf("Error reading wikis.yaml for installation ID '%s': %s\n", installation.Id, err)
 			continue

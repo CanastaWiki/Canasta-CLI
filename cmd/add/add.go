@@ -11,9 +11,9 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/cmd/stop"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/yaml"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -71,7 +71,7 @@ func AddWiki(name, domain, wikipath string, instance config.Installation) error 
 	}
 
 	//Checking Wiki existence
-	exists, pathComboExists, err := yaml.CheckWiki(instance.Path, name, wikipath)
+	exists, pathComboExists, err := farmsettings.CheckWiki(instance.Path, name, wikipath)
 	if err != nil {
 		return err
 	}
@@ -79,11 +79,11 @@ func AddWiki(name, domain, wikipath string, instance config.Installation) error 
 		return fmt.Errorf("A wiki with the name '%s' exists", name)
 	}
 	if pathComboExists {
-		return fmt.Errorf("A wiki with the same installation path '%s' in the Canasta '%s' exists", name+wikipath, instance.Id)
+		return fmt.Errorf("A wiki with the same installation path '%s' in the Canasta '%s' exists", name+": "+domain+"/"+wikipath, instance.Id)
 	}
 
 	//Add the wiki
-	err = yaml.AddWiki(name, instance.Path, domain, wikipath)
+	err = farmsettings.AddWiki(name, instance.Path, domain, wikipath)
 	if err != nil {
 		return err
 	}

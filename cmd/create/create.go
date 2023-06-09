@@ -10,9 +10,9 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/yaml"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -76,7 +76,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain
 	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
-	if err := yaml.ParseYaml(name, domain, &yamlPath); err != nil {
+	if err := farmsettings.CreateYaml(name, domain, &yamlPath); err != nil {
 		return err
 	}
 	if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path); err != nil {

@@ -1,4 +1,4 @@
-package yaml
+package farmsettings
 
 import (
 	"fmt"
@@ -18,7 +18,7 @@ type Wikis struct {
 	Wikis []Wiki `yaml:"wikis"`
 }
 
-func ParseYaml(name, domain string, path *string) error {
+func CreateYaml(name, domain string, path *string) error {
 	if *path == "" {
 		var err error
 		*path, err = GenerateWikisYaml(name, domain)

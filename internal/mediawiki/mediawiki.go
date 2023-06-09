@@ -10,9 +10,9 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/yaml"
 	"github.com/sethvargo/go-password/password"
 	"golang.org/x/term"
 )
@@ -80,7 +80,7 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 		return canastaInfo, err
 	}
 
-	WikiNames, domainNames, _, err := yaml.ReadWikisYaml(yamlPath)
+	WikiNames, domainNames, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err != nil {
 		return canastaInfo, err
 	}
