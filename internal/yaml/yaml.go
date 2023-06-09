@@ -94,63 +94,114 @@ func ReadWikisYaml(filePath string) ([]string, []string, []string, error) {
 	return ids, serverNames, paths, nil
 }
 
-func CheckWiki(path, name string) error {
+func CheckWiki(path, name, wikiPath string) (bool, bool, error) {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(path, "config", "wikis.yaml")
-	
+
 	// Read the wikis from the YAML file
-	ids, _, _, err := ReadWikisYaml(filePath)
+	ids, _, paths, err := ReadWikisYaml(filePath)
+	if err != nil {
+		return false, false, err
+	}
+
+	// Variables to hold whether the wiki name and path are found
+	nameExists := false
+	pathComboExists := false
+
+	// Check if a wiki with the given name exists
+	for i, id := range ids {
+		if id == name {
+			nameExists = true
+		}
+		if id+paths[i] == name+wikiPath {
+			pathComboExists = true
+		}
+	}
+
+	return nameExists, pathComboExists, nil
+}
+
+func AddWiki(name, path, domain, wikipath string) error {
+	// Get the absolute path to the wikis.yaml file
+	filePath := filepath.Join(path, "config", "wikis.yaml")
+
+	// Read the existing wikis from the YAML file
+	wikis := Wikis{}
+	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		return err
 	}
 
-	// Check if a wiki with the given name exists
-	for _, id := range ids {
-		if id == name {
-			return fmt.Errorf("A wiki with the name '%s' already exists", name)
-		}
+	// Unmarshal the yaml file content into wikis
+	err = yaml.Unmarshal(data, &wikis)
+	if err != nil {
+		return err
+	}
+
+	// Create a new wiki
+	newWiki := Wiki{
+		ID:  name,
+		URL: filepath.Join(domain, wikipath),
+	}
+
+	// Append the new wiki to the list of wikis
+	wikis.Wikis = append(wikis.Wikis, newWiki)
+
+	// Marshal the wikis back into YAML
+	updatedData, err := yaml.Marshal(wikis)
+	if err != nil {
+		return err
+	}
+
+	// Write the updated data back to the file
+	err = ioutil.WriteFile(filePath, updatedData, 0644)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
+func RemoveWiki(name, path string) error {
+	// Get the absolute path to the wikis.yaml file
+	filePath := filepath.Join(path, "config", "wikis.yaml")
 
-func AddWiki(name, path, domain, wikipath string) error {
-    // Get the absolute path to the wikis.yaml file
-    filePath := filepath.Join(path, "config", "wikis.yaml")
-    
-    // Read the existing wikis from the YAML file
-    wikis := Wikis{}
-    data, err := ioutil.ReadFile(filePath)
-    if err != nil {
-        return err
-    }
+	// Read the existing wikis from the YAML file
+	wikis := Wikis{}
+	data, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
 
-    // Unmarshal the yaml file content into wikis
-    err = yaml.Unmarshal(data, &wikis)
-    if err != nil {
-        return err
-    }
-  
-    // Create a new wiki
-    newWiki := Wiki{
-        ID:  name,
-        URL: filepath.Join(domain,wikipath),
-    }
-    
-    // Append the new wiki to the list of wikis
-    wikis.Wikis = append(wikis.Wikis, newWiki)
-    
-    // Marshal the wikis back into YAML
-    updatedData, err := yaml.Marshal(wikis)
-    if err != nil {
-        return err
-    }
+	// Unmarshal the yaml file content into wikis
+	err = yaml.Unmarshal(data, &wikis)
+	if err != nil {
+		return err
+	}
 
-    // Write the updated data back to the file
-    err = ioutil.WriteFile(filePath, updatedData, 0644)
-    if err != nil {
-        return err
-    }
+	// Initialize an empty slice to store the remaining wikis
+	remainingWikis := []Wiki{}
 
-    return nil
+	// Find and remove the specified wiki
+	for _, wiki := range wikis.Wikis {
+		if wiki.ID != name {
+			remainingWikis = append(remainingWikis, wiki)
+		}
+	}
+
+	// Replace the existing wikis with the remaining wikis
+	wikis.Wikis = remainingWikis
+
+	// Marshal the updated wikis back into YAML
+	updatedData, err := yaml.Marshal(wikis)
+	if err != nil {
+		return err
+	}
+
+	// Write the updated data back to the file
+	err = ioutil.WriteFile(filePath, updatedData, 0644)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

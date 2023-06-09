@@ -1,19 +1,20 @@
 package cmd
 
 import (
+	addCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/add"
 	createCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/delete"
 	extensionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/extension"
 	importCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/import"
 	listCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/list"
 	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/maintenanceUpdate"
+	removeCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/remove"
 	restartCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restart"
 	resticCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restic"
 	skinCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/skin"
 	startCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/start"
 	stopCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/stop"
 	versionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/version"
-	addCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/add"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
@@ -59,5 +60,6 @@ func init() {
 	rootCmd.AddCommand(stopCmd.NewCmdCreate())
 	rootCmd.AddCommand(versionCmd.NewCmdCreate())
 	rootCmd.AddCommand(addCmd.NewCmdCreate())
+	rootCmd.AddCommand(removeCmd.NewCmdCreate())
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }

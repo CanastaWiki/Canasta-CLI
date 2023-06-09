@@ -167,6 +167,17 @@ func InstallOne(path, name, domain, wikipath, orchestrator string) error {
 	return err
 }
 
+func RemoveDatabase(path, name, orchestrator string) error {
+	envVariables := canasta.GetEnvVariable(path + "/.env")
+	command := fmt.Sprintf("echo 'DROP DATABASE IF EXISTS %s;' | mysql -h db -u root -p'%s'", name, envVariables["MYSQL_PASSWORD"])
+	output, err := orchestrators.ExecWithError(path, orchestrator, "db", command)
+	if err != nil {
+		return fmt.Errorf("Error while dropping database '%s': %v. Output: %s", name, err, output)
+	}
+
+	return nil
+}
+
 func PromptWiki(name, domain, path, id string) (string, string, string, string, error) {
 	var err error
 	// Prompt for CanastaID if not provided

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
@@ -320,4 +321,25 @@ func DeleteConfigAndContainers(keepConfig bool, installationDir, orchestrator st
 	fmt.Println("Deleting config files")
 	orchestrators.DeleteConfig(installationDir)
 	fmt.Println("Deleted all containers and config files")
+}
+
+func RemoveSettings(path, name string) error {
+    // Prepare the file path
+    filePath := filepath.Join(path, "config", fmt.Sprintf("LocalSettings_%s.php", name))
+
+    // Check if the file exists
+    if _, err := os.Stat(filePath); err == nil {
+        // If the file exists, remove it
+        err, output := execute.Run("", "rm", filePath)
+        if err != nil {
+            return fmt.Errorf(output)
+        }
+    } else if os.IsNotExist(err) {
+        // File does not exist, do nothing
+        return nil
+    } else {
+        // File may or may not exist. See the specific error
+        return err
+    }
+    return nil
 }
