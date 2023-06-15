@@ -14,6 +14,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/prompt"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -27,7 +28,7 @@ func NewCmdCreate() *cobra.Command {
 		Short: "Add a new wiki to a Canasta instance",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			wikiName, domainName, wikiPath, instance.Id, err = mediawiki.PromptWiki(wikiName, domainName, wikiPath, instance.Id)
+			wikiName, domainName, wikiPath, instance.Id, err = prompt.PromptWiki(wikiName, domainName, wikiPath, instance.Id)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -58,6 +59,7 @@ func NewCmdCreate() *cobra.Command {
 // addWiki accepts the Canasta instance ID, the name, domain and path of the new wiki, and the initial admin info, then creates a new wiki in the instance.
 func AddWiki(name, domain, wikipath string, instance config.Installation) error {
 	var err error
+
 	//Checking Installation existence
 	instance, err = canasta.CheckCanastaId(instance)
 	if err != nil {
@@ -82,7 +84,7 @@ func AddWiki(name, domain, wikipath string, instance config.Installation) error 
 		return fmt.Errorf("A wiki with the same installation path '%s' in the Canasta '%s' exists", name+": "+domain+"/"+wikipath, instance.Id)
 	}
 
-	//Add the wiki
+	//Add the wiki in farmsettings
 	err = farmsettings.AddWiki(name, instance.Path, domain, wikipath)
 	if err != nil {
 		return err

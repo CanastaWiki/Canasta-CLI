@@ -14,31 +14,11 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/sethvargo/go-password/password"
-	"golang.org/x/term"
 )
 
 const dbServer = "db"
 const confPath = "/mediawiki/config/"
 const scriptPath = "/w"
-
-func PromptUser(name, yamlPath string, canastaInfo canasta.CanastaVariables) (string, canasta.CanastaVariables, error) {
-	var err error
-	if yamlPath == "" {
-		name, err = prompt(name, "Wiki Name")
-		if err != nil {
-			return name, canastaInfo, err
-		}
-	}
-	canastaInfo.Id, err = prompt(canastaInfo.Id, "Canasta ID")
-	if err != nil {
-		return name, canastaInfo, err
-	}
-	canastaInfo.AdminName, canastaInfo.AdminPassword, err = promptUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword)
-	if err != nil {
-		return name, canastaInfo, err
-	}
-	return name, canastaInfo, nil
-}
 
 func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
 	var err error
@@ -176,102 +156,6 @@ func RemoveDatabase(path, name, orchestrator string) error {
 	}
 
 	return nil
-}
-
-func PromptWiki(name, domain, path, id string) (string, string, string, string, error) {
-	var err error
-	// Prompt for CanastaID if not provided
-	id, err = prompt(id, "CanastaID")
-	if err != nil {
-		return name, domain, path, id, err
-	}
-
-	// Prompt for name if not provided
-	name, err = prompt(name, "wiki name")
-	if err != nil {
-		return name, domain, path, id, err
-	}
-
-	// Prompt for domain if not provided
-	domain, err = promptwithnull(domain, "domain name")
-	if err != nil {
-		return name, domain, path, id, err
-	}
-
-	// Prompt for path if not provided
-	path, err = promptwithnull(path, "wiki directory")
-	if err != nil {
-		return name, domain, path, id, err
-	}
-
-	if err != nil {
-		return name, domain, path, id, err
-	}
-
-	return name, domain, path, id, nil
-}
-
-func prompt(value, prompt string) (string, error) {
-	if value != "" {
-		return value, nil
-	}
-	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Printf("Enter %s: ", prompt)
-	scanner.Scan()
-	input := scanner.Text()
-	if input == "" {
-		logging.Fatal(fmt.Errorf("please enter a value"))
-	}
-	return input, nil
-}
-
-func promptwithnull(value, prompt string) (string, error) {
-	if value != "" {
-		return value, nil
-	}
-	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Printf("Enter %s: ", prompt)
-	scanner.Scan()
-	input := scanner.Text()
-	return input, nil
-}
-
-func promptUserPassword(userValue, passwordValue string) (string, string, error) {
-	userPrompt, passwordPrompt := "admin name", "admin password"
-	username, err := prompt(userValue, userPrompt)
-	if err != nil {
-		return "", "", err
-	}
-	if passwordValue != "" {
-		return username, passwordValue, err
-	}
-	fmt.Printf("Enter the %s (Press Enter to autogenerate the password): \n", passwordPrompt)
-	pass, err := term.ReadPassword(0)
-
-	if err != nil {
-		return "", "", err
-	}
-	password := string(pass)
-
-	if password == "" {
-		return username, password, nil
-	}
-	err = passwordCheck(username, password)
-	if err != nil {
-		return "", "", err
-	}
-
-	fmt.Printf("Re-enter the %s: \n", passwordPrompt)
-	pass, err = term.ReadPassword(0)
-	if err != nil {
-		return "", "", err
-	}
-	reEnterPassword := string(pass)
-
-	if password != reEnterPassword {
-		return "", "", fmt.Errorf("Please enter the same password")
-	}
-	return username, password, nil
 }
 
 func passwordCheck(admin, password string) error {

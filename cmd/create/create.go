@@ -13,6 +13,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/prompt"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -32,7 +33,7 @@ func NewCmdCreate() *cobra.Command {
 		Short: "Create a Canasta installation",
 		Long:  "Creates a Canasta installation using an orchestrator of your choice.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if name, canastaInfo, err = mediawiki.PromptUser(name, yamlPath, canastaInfo); err != nil {
+			if name, canastaInfo, err = prompt.PromptUser(name, yamlPath, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Println("Creating Canasta installation '" + canastaInfo.Id + "'...")
