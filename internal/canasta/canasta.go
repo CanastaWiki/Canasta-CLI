@@ -78,7 +78,22 @@ func CopySettings(path string) error {
 		return err
 	}
 	for i := len(WikiNames) - 1; i >= 0; i-- {
-		err, output := execute.Run("", "cp", path+"/config/LocalSettingsTemplate.php", path+fmt.Sprintf("/config/LocalSettings_%s.php", WikiNames[i]))
+		dirPath := path + fmt.Sprintf("/config/%s", WikiNames[i])
+		settingsPath := dirPath + "/settings"
+
+		// Create the directory if it doesn't exist
+		if err := os.MkdirAll(settingsPath, os.ModePerm); err != nil {
+			return err
+		}
+
+		// Copy LocalSettingsTemplate.php
+		err, output := execute.Run("", "cp", path+"/config/LocalSettingsTemplate.php", dirPath+"/LocalSettings.php")
+		if err != nil {
+			return fmt.Errorf(output)
+		}
+
+		// Copy config/settings/* files
+		err, output = execute.Run("", "cp", path+"/config/settings/*", settingsPath)
 		if err != nil {
 			return fmt.Errorf(output)
 		}
@@ -90,11 +105,26 @@ func CopySettings(path string) error {
 }
 
 func CopySetting(path, name string) error {
+	dirPath := path + fmt.Sprintf("/config/%s", name)
+	settingsPath := dirPath + "/settings"
 
-	err, output := execute.Run("", "cp", path+"/config/LocalSettingsTemplate.php", path+fmt.Sprintf("/config/LocalSettings_%s.php", name))
+	// Create the directory if it doesn't exist
+	if err := os.MkdirAll(settingsPath, os.ModePerm); err != nil {
+		return err
+	}
+
+	// Copy LocalSettingsTemplate.php
+	err, output := execute.Run("", "cp", "./LocalSettingsTemplate.php", dirPath+"/LocalSettings.php")
 	if err != nil {
 		return fmt.Errorf(output)
 	}
+
+	// Copy config/settings/* files
+	err, output = execute.Run("", "cp", path+"/config/settings/*", settingsPath)
+	if err != nil {
+		return fmt.Errorf(output)
+	}
+
 	if err := RewriteSettings(path, []string{name}); err != nil {
 		return err
 	}
@@ -103,7 +133,7 @@ func CopySetting(path, name string) error {
 
 func RewriteSettings(path string, WikiNames []string) error {
 	for _, name := range WikiNames {
-		filePath := path + "/config/LocalSettings_" + name + ".php"
+		filePath := path + "/config/" + name + "/LocalSettings.php"
 
 		// Read the original file
 		file, err := os.Open(filePath)
@@ -325,12 +355,12 @@ func DeleteConfigAndContainers(keepConfig bool, installationDir, orchestrator st
 
 func RemoveSettings(path, name string) error {
 	// Prepare the file path
-	filePath := filepath.Join(path, "config", fmt.Sprintf("LocalSettings_%s.php", name))
+	filePath := filepath.Join(path, "config", name)
 
 	// Check if the file exists
 	if _, err := os.Stat(filePath); err == nil {
 		// If the file exists, remove it
-		err, output := execute.Run("", "rm", filePath)
+		err, output := execute.Run("", "rm", "-rf", filePath)
 		if err != nil {
 			return fmt.Errorf(output)
 		}
@@ -341,5 +371,56 @@ func RemoveSettings(path, name string) error {
 		// File may or may not exist. See the specific error
 		return err
 	}
+	return nil
+}
+
+func MigrateToNewVersion(path string) error {
+	// Determine the path to the wikis.yaml file
+	yamlPath := filepath.Join(path, "config", "wikis.yaml")
+
+	// Check if the file already exists
+	if _, err := os.Stat(yamlPath); err == nil {
+		// File exists, assume the user is already using the new configuration
+		return nil
+	} else if !os.IsNotExist(err) {
+		// If the error is not because the file does not exist, return it
+		return err
+	}
+
+	// Open the .env file
+	envFile, err := os.Open(filepath.Join(path, ".env"))
+	if err != nil {
+		return err
+	}
+	defer envFile.Close()
+
+	// Read the environment variables from the .env file
+	envMap := make(map[string]string)
+	scanner := bufio.NewScanner(envFile)
+	name := "my_wiki"
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		splitLine := strings.SplitN(line, "=", 2)
+		if len(splitLine) != 2 {
+			continue
+		}
+		envMap[splitLine[0]] = splitLine[1]
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	// Remove the "http://" or "https://" prefix from MW_SITE_SERVER variable
+	mwSiteServer := strings.TrimPrefix(envMap["MW_SITE_SERVER"], "http://")
+	mwSiteServer = strings.TrimPrefix(mwSiteServer, "https://")
+
+	// Create the wikis.yaml file using farmsettings.GenerateWikisYaml
+	_, err = farmsettings.GenerateWikisYaml(yamlPath, name, mwSiteServer)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

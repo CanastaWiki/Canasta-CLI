@@ -3,6 +3,7 @@ package farmsettings
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -21,7 +22,7 @@ type Wikis struct {
 func CreateYaml(name, domain string, path *string) error {
 	if *path == "" {
 		var err error
-		*path, err = GenerateWikisYaml(name, domain)
+		*path, err = GenerateWikisYaml("./wikis.yaml",name, domain)
 		if err != nil {
 			return err
 		}
@@ -30,7 +31,7 @@ func CreateYaml(name, domain string, path *string) error {
 	return nil
 }
 
-func GenerateWikisYaml(name, domain string) (string, error) {
+func GenerateWikisYaml(filePath, name, domain string) (string, error) {
 	wikis := Wikis{}
 	wikis.Wikis = append(wikis.Wikis, Wiki{ID: name, URL: domain})
 
@@ -39,7 +40,6 @@ func GenerateWikisYaml(name, domain string) (string, error) {
 		return "", err
 	}
 
-	filePath := "./wikis.yaml"
 	err = ioutil.WriteFile(filePath, out, 0644)
 	if err != nil {
 		return "", err
@@ -98,6 +98,12 @@ func CheckWiki(path, name, wikiPath string) (bool, bool, error) {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(path, "config", "wikis.yaml")
 
+	// Check if the file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// File does not exist
+		return false, false, nil
+	}
+
 	// Read the wikis from the YAML file
 	ids, _, paths, err := ReadWikisYaml(filePath)
 	if err != nil {
@@ -127,14 +133,22 @@ func AddWiki(name, path, domain, wikipath string) error {
 
 	// Read the existing wikis from the YAML file
 	wikis := Wikis{}
-	data, err := ioutil.ReadFile(filePath)
-	if err != nil {
-		return err
-	}
 
-	// Unmarshal the yaml file content into wikis
-	err = yaml.Unmarshal(data, &wikis)
-	if err != nil {
+	// Check if the file exists before trying to read it
+	if _, err := os.Stat(filePath); err == nil {
+		// File exists, read it
+		data, err := ioutil.ReadFile(filePath)
+		if err != nil {
+			return err
+		}
+
+		// Unmarshal the yaml file content into wikis
+		err = yaml.Unmarshal(data, &wikis)
+		if err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		// If the error is not because the file does not exist, return it
 		return err
 	}
 
@@ -161,6 +175,7 @@ func AddWiki(name, path, domain, wikipath string) error {
 
 	return nil
 }
+
 func RemoveWiki(name, path string) error {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(path, "config", "wikis.yaml")
@@ -186,6 +201,11 @@ func RemoveWiki(name, path string) error {
 		if wiki.ID != name {
 			remainingWikis = append(remainingWikis, wiki)
 		}
+	}
+
+	// Check if all wikis were removed
+	if len(remainingWikis) == 0 {
+		return fmt.Errorf("cannot remove the last wiki in the Canasta Instance")
 	}
 
 	// Replace the existing wikis with the remaining wikis

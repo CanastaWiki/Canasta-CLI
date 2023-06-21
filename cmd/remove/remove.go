@@ -57,8 +57,14 @@ func RemoveWiki(name string, instance config.Installation) error {
 		return err
 	}
 
+	//Migrate to the new version Canasta
+	err = canasta.MigrateToNewVersion(instance.Path)
+	if err != nil {
+		return err
+	}
+
 	//Checking Running status
-	err = orchestrators.CheckRunningStatus(instance.Path, instance.Id)
+	err = orchestrators.CheckRunningStatus(instance.Path, instance.Id, instance.Orchestrator)
 	if err != nil {
 		return err
 	}
@@ -73,7 +79,7 @@ func RemoveWiki(name string, instance config.Installation) error {
 	}
 
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("This will delete the LocalSettings_" + name + ".php and the corresponding database. Continue? [y/N] ")
+	fmt.Print("This will delete the " + name + "in the Wiki farm and the corresponding database. Continue? [y/N] ")
 	text, _ := reader.ReadString('\n')
 	text = strings.ToLower(strings.TrimSpace(text))
 

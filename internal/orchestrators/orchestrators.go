@@ -3,7 +3,6 @@ package orchestrators
 import (
 	"fmt"
 	"os/exec"
-	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
@@ -155,21 +154,26 @@ func Exec(path, orchestrator, container, command string) string {
 
 }
 
-func CheckRunningStatus(path, id string) error {
-	containerName := id + "_web_1"
+func CheckRunningStatus(path, id, orchestrator string) error {
+	containerName := "web"
 
-	command := fmt.Sprintf("docker ps --filter name=%s", containerName)
-	err, output := execute.Run(path, command)
-
-	if err != nil {
-		logging.Fatal(err)
-		return err
+	switch orchestrator {
+	case "docker-compose":
+		compose := config.GetOrchestrator("docker-compose")
+		var output string
+		var err error
+		if compose.Path != "" {
+			err, output = execute.Run(path, compose.Path, "ps", "-q", containerName)
+		} else {
+			err, output = execute.Run(path, "docker", "compose", "ps", "-q", containerName)
+		}
+		if err != nil || output == "" {
+			logging.Fatal(fmt.Errorf("Container %s is not running, please start it first if you want to add a new wiki!", containerName))
+			return fmt.Errorf("Container %s is not running", containerName)
+		}
+	default:
+		logging.Fatal(fmt.Errorf("Orchestrator: %s is not available", orchestrator))
+		return fmt.Errorf("Orchestrator: %s is not available", orchestrator)
 	}
-
-	if !strings.Contains(output, containerName) {
-		logging.Fatal(fmt.Errorf("Container %s is not running, please start it first if you want to add a new wiki!", containerName))
-		return fmt.Errorf("Container %s is not running", containerName)
-	}
-
 	return nil
 }
