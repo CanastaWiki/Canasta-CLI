@@ -70,7 +70,7 @@ func RemoveWiki(name string, instance config.Installation) error {
 	}
 
 	//Checking Wiki existence
-	exists, _, err := farmsettings.CheckWiki(instance.Path, name, "")
+	exists, _, err := farmsettings.CheckWiki(instance.Path, name, "", "")
 	if err != nil {
 		return err
 	}

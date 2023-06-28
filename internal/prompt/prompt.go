@@ -12,7 +12,7 @@ import (
 func PromptUser(name, yamlPath string, canastaInfo canasta.CanastaVariables) (string, canasta.CanastaVariables, error) {
 	var err error
 	if yamlPath == "" {
-		if name, err = promptForInput(name, "Wiki Name"); err != nil {
+		if name, err = promptForInput(name, "WikiID"); err != nil {
 			return name, canastaInfo, err
 		}
 	}

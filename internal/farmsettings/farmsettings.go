@@ -11,8 +11,9 @@ import (
 )
 
 type Wiki struct {
-	ID  string `yaml:"id"`
-	URL string `yaml:"url"`
+	ID   string `yaml:"id"`
+	URL  string `yaml:"url"`
+	NAME string `yaml:"name"`
 }
 
 type Wikis struct {
@@ -22,7 +23,7 @@ type Wikis struct {
 func CreateYaml(name, domain string, path *string) error {
 	if *path == "" {
 		var err error
-		*path, err = GenerateWikisYaml("./wikis.yaml",name, domain)
+		*path, err = GenerateWikisYaml("./wikis.yaml", name, domain)
 		if err != nil {
 			return err
 		}
@@ -33,7 +34,7 @@ func CreateYaml(name, domain string, path *string) error {
 
 func GenerateWikisYaml(filePath, name, domain string) (string, error) {
 	wikis := Wikis{}
-	wikis.Wikis = append(wikis.Wikis, Wiki{ID: name, URL: domain})
+	wikis.Wikis = append(wikis.Wikis, Wiki{ID: name, URL: domain, NAME: name})
 
 	out, err := yaml.Marshal(&wikis)
 	if err != nil {
@@ -94,7 +95,7 @@ func ReadWikisYaml(filePath string) ([]string, []string, []string, error) {
 	return ids, serverNames, paths, nil
 }
 
-func CheckWiki(path, name, wikiPath string) (bool, bool, error) {
+func CheckWiki(path, name, domain, wikiPath string) (bool, bool, error) {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(path, "config", "wikis.yaml")
 
@@ -105,7 +106,7 @@ func CheckWiki(path, name, wikiPath string) (bool, bool, error) {
 	}
 
 	// Read the wikis from the YAML file
-	ids, _, paths, err := ReadWikisYaml(filePath)
+	ids, serverNames, paths, err := ReadWikisYaml(filePath)
 	if err != nil {
 		return false, false, err
 	}
@@ -119,7 +120,7 @@ func CheckWiki(path, name, wikiPath string) (bool, bool, error) {
 		if id == name {
 			nameExists = true
 		}
-		if id+paths[i] == name+wikiPath {
+		if serverNames[i]+paths[i] == domain+"/"+wikiPath {
 			pathComboExists = true
 		}
 	}
@@ -153,10 +154,7 @@ func AddWiki(name, path, domain, wikipath string) error {
 	}
 
 	// Create a new wiki
-	newWiki := Wiki{
-		ID:  name,
-		URL: filepath.Join(domain, wikipath),
-	}
+	newWiki := Wiki{ID: name, URL: filepath.Join(domain, wikipath), NAME: name}
 
 	// Append the new wiki to the list of wikis
 	wikis.Wikis = append(wikis.Wikis, newWiki)

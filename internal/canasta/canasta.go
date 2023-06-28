@@ -79,54 +79,33 @@ func CopySettings(path string) error {
 	}
 	for i := len(WikiNames) - 1; i >= 0; i-- {
 		dirPath := path + fmt.Sprintf("/config/%s", WikiNames[i])
-		settingsPath := dirPath + "/settings"
 
 		// Create the directory if it doesn't exist
-		if err := os.MkdirAll(settingsPath, os.ModePerm); err != nil {
+		if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
 			return err
 		}
 
-		// Copy LocalSettingsTemplate.php
-		err, output := execute.Run("", "cp", path+"/config/LocalSettingsTemplate.php", dirPath+"/LocalSettings.php")
+		// Copy SettingsTemplate.php
+		err, output := execute.Run("", "cp", path+"/config/SettingsTemplate.php", dirPath+"/Settings.php")
 		if err != nil {
 			return fmt.Errorf(output)
 		}
-
-		// Copy config/settings/* files
-		err, output = execute.Run("", "cp", path+"/config/settings/*", settingsPath)
-		if err != nil {
-			return fmt.Errorf(output)
-		}
-	}
-	if err := RewriteSettings(path, WikiNames); err != nil {
-		return err
 	}
 	return nil
 }
 
 func CopySetting(path, name string) error {
 	dirPath := path + fmt.Sprintf("/config/%s", name)
-	settingsPath := dirPath + "/settings"
 
 	// Create the directory if it doesn't exist
-	if err := os.MkdirAll(settingsPath, os.ModePerm); err != nil {
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
 		return err
 	}
 
-	// Copy LocalSettingsTemplate.php
-	err, output := execute.Run("", "cp", "./LocalSettingsTemplate.php", dirPath+"/LocalSettings.php")
+	// Copy SettingsTemplate.php
+	err, output := execute.Run("", "cp", path+"/config/SettingsTemplate.php", dirPath+"/Settings.php")
 	if err != nil {
 		return fmt.Errorf(output)
-	}
-
-	// Copy config/settings/* files
-	err, output = execute.Run("", "cp", path+"/config/settings/*", settingsPath)
-	if err != nil {
-		return fmt.Errorf(output)
-	}
-
-	if err := RewriteSettings(path, []string{name}); err != nil {
-		return err
 	}
 	return nil
 }

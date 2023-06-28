@@ -47,7 +47,7 @@ func NewCmdCreate() *cobra.Command {
 		log.Fatal(err)
 	}
 
-	addCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "Name of the new wiki")
+	addCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "ID of the new wiki")
 	addCmd.Flags().StringVarP(&domainName, "domain-name", "n", "", "Domain name of the new wiki")
 	addCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Path to the new wiki")
 	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
@@ -73,13 +73,13 @@ func AddWiki(name, domain, wikipath string, instance config.Installation) error 
 	}
 
 	//Checking Running status
-	err = orchestrators.CheckRunningStatus(instance.Path, instance.Id,instance.Orchestrator)
+	err = orchestrators.CheckRunningStatus(instance.Path, instance.Id, instance.Orchestrator)
 	if err != nil {
 		return err
 	}
 
 	//Checking Wiki existence
-	exists, pathComboExists, err := farmsettings.CheckWiki(instance.Path, name, wikipath)
+	exists, pathComboExists, err := farmsettings.CheckWiki(instance.Path, name, domain, wikipath)
 	if err != nil {
 		return err
 	}

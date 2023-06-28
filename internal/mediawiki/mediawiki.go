@@ -2,6 +2,7 @@ package mediawiki
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
 	envVariables := canasta.GetEnvVariable(path + "/.env")
+	settingsName := "CommonSettings.php"
 
 	command := "/wait-for-it.sh -t 60 db:3306"
 	output, err := orchestrators.ExecWithError(path, orchestrator, "web", command)
@@ -89,7 +91,12 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 		}
 		time.Sleep(time.Second)
 	}
-	err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettingsBackup.php"), filepath.Join(path, "config", "LocalSettings.php"))
+
+	if len(WikiNames) == 1 {
+		settingsName = "LocalSettings.php"
+	}
+
+	err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettingsBackup.php"), filepath.Join(path, "config", settingsName))
 	if err != nil {
 		return canastaInfo, err
 	}
@@ -108,9 +115,25 @@ func InstallOne(path, name, domain, wikipath, orchestrator string) error {
 		return fmt.Errorf(output)
 	}
 
-	err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettings.php"), filepath.Join(path, "config", "LocalSettingsBackup.php"))
-	if err != nil {
-		return err
+	localExists, _ := fileExists(filepath.Join(path, "config", "LocalSettings.php"))
+	commonExists, _ := fileExists(filepath.Join(path, "config", "CommonSettings.php"))
+
+	if !localExists && !commonExists {
+		return fmt.Errorf("Neither LocalSettings.php nor CommonSettings.php exist in the path")
+	}
+
+	if commonExists {
+		err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "CommonSettings.php"), filepath.Join(path, "config", "CommonSettingsBackup.php"))
+		if err != nil {
+			return err
+		}
+	}
+
+	if localExists {
+		err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettings.php"), filepath.Join(path, "config", "LocalSettingsBackup.php"))
+		if err != nil {
+			return err
+		}
 	}
 
 	file, err := os.Open(filepath.Join(path, ".admin-password"))
@@ -139,7 +162,22 @@ func InstallOne(path, name, domain, wikipath, orchestrator string) error {
 	if err != nil {
 		return fmt.Errorf(output)
 	}
-	err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettingsBackup.php"), filepath.Join(path, "config", "LocalSettings.php"))
+
+	if localExists {
+		err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettingsBackup.php"), filepath.Join(path, "config", "CommonSettings.php"))
+		if err != nil {
+			return err
+		}
+	}
+
+	if commonExists {
+		err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "CommonSettingsBackup.php"), filepath.Join(path, "config", "CommonSettings.php"))
+		if err != nil {
+			return err
+		}
+	}
+
+	err, _ = execute.Run(path, "rm", filepath.Join(path, "config", "LocalSettings.php"))
 	if err != nil {
 		return err
 	}
@@ -166,4 +204,15 @@ func passwordCheck(admin, password string) error {
 	}
 
 	return nil
+}
+
+func fileExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
 }
