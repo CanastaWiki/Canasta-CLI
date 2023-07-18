@@ -41,10 +41,9 @@ func NewCmdCreate() *cobra.Command {
 		log.Fatal(err)
 	}
 
-	addCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "Name of the new wiki")
+	addCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "ID of the wiki")
 	addCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Path to the new wiki")
 	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	addCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
 	return addCmd
 }
 
@@ -79,7 +78,7 @@ func RemoveWiki(name string, instance config.Installation) error {
 	}
 
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("This will delete the " + name + "in the Wiki farm and the corresponding database. Continue? [y/N] ")
+	fmt.Print("This will delete the " + name + " in the Wiki farm and the corresponding database. Continue? [y/N] ")
 	text, _ := reader.ReadString('\n')
 	text = strings.ToLower(strings.TrimSpace(text))
 

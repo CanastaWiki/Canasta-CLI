@@ -128,10 +128,13 @@ func CheckWiki(path, name, domain, wikiPath string) (bool, bool, error) {
 	return nameExists, pathComboExists, nil
 }
 
-func AddWiki(name, path, domain, wikipath string) error {
+func AddWiki(name, path, domain, wikipath, siteName string) error {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(path, "config", "wikis.yaml")
 
+	if siteName == "" {
+        siteName = name
+    }
 	// Read the existing wikis from the YAML file
 	wikis := Wikis{}
 
@@ -154,7 +157,7 @@ func AddWiki(name, path, domain, wikipath string) error {
 	}
 
 	// Create a new wiki
-	newWiki := Wiki{ID: name, URL: filepath.Join(domain, wikipath), NAME: name}
+	newWiki := Wiki{ID: name, URL: filepath.Join(domain, wikipath), NAME: siteName}
 
 	// Append the new wiki to the list of wikis
 	wikis.Wikis = append(wikis.Wikis, newWiki)

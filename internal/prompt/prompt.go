@@ -3,7 +3,9 @@ package prompt
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"golang.org/x/term"
@@ -25,21 +27,35 @@ func PromptUser(name, yamlPath string, canastaInfo canasta.CanastaVariables) (st
 	return name, canastaInfo, nil
 }
 
-func PromptWiki(name, domain, path, id string) (string, string, string, string, error) {
+func PromptWiki(name, urlString, id, siteName string) (string, string, string, string, string, error) {
 	var err error
 	if id, err = promptForInput(id, "CanastaID"); err != nil {
-		return "", "", "", "", err
+		return "", "", "", "", "", err
 	}
-	if name, err = promptForInput(name, "wiki name"); err != nil {
-		return "", "", "", "", err
+	if name, err = promptForInput(name, "wikiID"); err != nil {
+		return "", "", "", "", "", err
 	}
-	if domain, err = promptForInputWithNull(domain, "domain name"); err != nil {
-		return "", "", "", "", err
+	if siteName, err = promptForInputWithNull(siteName, "site name"); err != nil {
+		return "", "", "", "", "", err
 	}
-	if path, err = promptForInputWithNull(path, "wiki directory"); err != nil {
-		return "", "", "", "", err
+	if urlString, err = promptForInput(urlString, "URL"); err != nil {
+		return "", "", "", "", "", err
 	}
-	return name, domain, path, id, nil
+
+	// add 'http://' to urlString if no schema is present
+	if !strings.HasPrefix(urlString, "http://") && !strings.HasPrefix(urlString, "https://") {
+		urlString = "http://" + urlString
+	}
+
+	parsedUrl, err := url.Parse(urlString)
+	if err != nil {
+		return "", "", "", "", "", fmt.Errorf("failed to parse URL: %w", err)
+	}
+
+	domain := parsedUrl.Hostname()
+	path := strings.Trim(parsedUrl.Path, "/") // remove leading and trailing slashes
+
+	return name, domain, path, id, siteName, nil
 }
 
 func promptForInput(value, prompt string) (string, error) {

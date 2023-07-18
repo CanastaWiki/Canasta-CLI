@@ -7,8 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/cmd/start"
-	"github.com/CanastaWiki/Canasta-CLI-Go/cmd/stop"
+	"github.com/CanastaWiki/Canasta-CLI-Go/cmd/restart"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
@@ -22,18 +21,21 @@ func NewCmdCreate() *cobra.Command {
 	var wikiName string
 	var domainName string
 	var wikiPath string
+	var siteName string
+	var databasePath string
+	var url string
 
 	addCmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a new wiki to a Canasta instance",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			wikiName, domainName, wikiPath, instance.Id, err = prompt.PromptWiki(wikiName, domainName, wikiPath, instance.Id)
+			wikiName, domainName, wikiPath, instance.Id, siteName, err = prompt.PromptWiki(wikiName, url, instance.Id, siteName)
 			if err != nil {
 				log.Fatal(err)
 			}
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiName, instance.Id)
-			err = AddWiki(wikiName, domainName, wikiPath, instance)
+			err = AddWiki(wikiName, domainName, wikiPath, siteName, databasePath, instance)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -48,16 +50,17 @@ func NewCmdCreate() *cobra.Command {
 	}
 
 	addCmd.Flags().StringVarP(&wikiName, "wiki", "w", "", "ID of the new wiki")
-	addCmd.Flags().StringVarP(&domainName, "domain-name", "n", "", "Domain name of the new wiki")
+	addCmd.Flags().StringVarP(&url, "url", "u", "", "URL of the new wiki")
+	addCmd.Flags().StringVarP(&siteName, "site-name", "s", "", "Name of the new wiki site")
 	addCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Path to the new wiki")
 	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	addCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
-	addCmd.Flags().StringVarP(&wikiPath, "wiki-path", "d", "", "Directory path of the new wiki")
+	addCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
 	return addCmd
 }
 
 // addWiki accepts the Canasta instance ID, the name, domain and path of the new wiki, and the initial admin info, then creates a new wiki in the instance.
-func AddWiki(name, domain, wikipath string, instance config.Installation) error {
+func AddWiki(name, domain, wikipath, siteName, databasePath string, instance config.Installation) error {
 	var err error
 
 	//Checking Installation existence
@@ -91,15 +94,17 @@ func AddWiki(name, domain, wikipath string, instance config.Installation) error 
 	}
 
 	//Add the wiki in farmsettings
-	err = farmsettings.AddWiki(name, instance.Path, domain, wikipath)
+	err = farmsettings.AddWiki(name, instance.Path, domain, wikipath, siteName)
 	if err != nil {
 		return err
 	}
 
-	//Stop the Canasta Instance
-	err = stop.Stop(instance)
-	if err != nil {
-		return err
+	// Import the database if databasePath is specified
+	if databasePath != "" {
+		err = orchestrators.ImportDatabase(name, databasePath, instance)
+		if err != nil {
+			return err
+		}
 	}
 
 	//Copy the Localsettings
@@ -114,14 +119,11 @@ func AddWiki(name, domain, wikipath string, instance config.Installation) error 
 		return err
 	}
 
-	//Start the Canasta Instance
-	err = start.Start(instance)
+	err = mediawiki.InstallOne(instance.Path, name, domain, wikipath, instance.Orchestrator)
 	if err != nil {
 		return err
 	}
-
-	// //Install the corresponding Database
-	err = mediawiki.InstallOne(instance.Path, name, domain, wikipath, instance.Orchestrator)
+	err = restart.Restart(instance)
 	if err != nil {
 		return err
 	}
