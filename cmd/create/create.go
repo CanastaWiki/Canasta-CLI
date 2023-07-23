@@ -16,12 +16,13 @@ import (
 
 func NewCmdCreate() *cobra.Command {
 	var (
-		path         string
-		orchestrator string
-		pwd          string
-		err          error
-		keepConfig   bool
-		canastaInfo  canasta.CanastaVariables
+		path             string
+		orchestrator     string
+		pwd              string
+		err              error
+		keepConfig       bool
+		canastaInfo      canasta.CanastaVariables
+		overrideFilename string
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -32,7 +33,7 @@ func NewCmdCreate() *cobra.Command {
 				log.Fatal(err)
 			}
 			fmt.Println("Creating Canasta installation '" + canastaInfo.Id + "'...")
-			if err = createCanasta(canastaInfo, pwd, path, orchestrator); err != nil {
+			if err = createCanasta(canastaInfo, pwd, path, orchestrator, overrideFilename); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if keepConfig {
 					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
@@ -63,11 +64,12 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "WikiSysop", "a", "", "Initial wiki admin username")
 	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password")
 	createCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
+	createCmd.Flags().StringVarP(&overrideFilename, "override", "r", "", "Filename including path to an existing override file")
 	return createCmd
 }
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator string) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator, overrideFilename string) error {
 	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
@@ -75,6 +77,9 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator
 		return err
 	}
 	if err := canasta.CopyEnv("", canastaInfo.DomainName, path, pwd); err != nil {
+		return err
+	}
+	if err := canasta.CopyOverrideFile(overrideFilename, path, pwd); err != nil {
 		return err
 	}
 	if err := orchestrators.Start(path, orchestrator); err != nil {
