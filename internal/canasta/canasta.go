@@ -66,19 +66,6 @@ func CopyLocalSettings(localSettingsPath, path, pwd string) error {
 	return nil
 }
 
-//Copies the override file (e.g. docker-compose.override.yml) at dockerOverridePath to the installation directory
-func CopyOverrideFile(overrideFilename, path, pwd string) error {
-	if overrideFilename != "" {
-		overrideFilename = pwd + "/" + overrideFilename
-		logging.Print(fmt.Sprintf("Copying %s to %s\n", overrideFilename, path))
-		err, output := execute.Run("", "cp", overrideFilename, path)
-		if err != nil {
-			logging.Fatal(fmt.Errorf(output))
-		}
-	}
-	return nil
-}
-
 //Copies database dump from databasePath to the /_initdb/ at the installation directory
 func CopyDatabase(databasePath, path, pwd string) error {
 	if databasePath != "" {

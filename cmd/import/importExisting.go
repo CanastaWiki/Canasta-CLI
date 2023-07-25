@@ -20,7 +20,7 @@ func NewCmdCreate() *cobra.Command {
 		databasePath      string
 		localSettingsPath string
 		envPath           string
-		overrideFilename  string
+		override          bool
 		canastaId         string
 		domainName        string
 		err               error
@@ -36,7 +36,7 @@ func NewCmdCreate() *cobra.Command {
 				return err
 			}
 			fmt.Println("Importing Canasta")
-			if err := importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, overrideFilename); err != nil {
+			if err := importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, override); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if keepConfig {
 					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
@@ -66,14 +66,14 @@ func NewCmdCreate() *cobra.Command {
 	importCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
 	importCmd.Flags().StringVarP(&localSettingsPath, "localsettings", "l", "", "Path to the existing LocalSettings.php")
 	importCmd.Flags().StringVarP(&envPath, "env", "e", "", "Path to the existing .env file")
-	importCmd.Flags().StringVarP(&overrideFilename, "override", "r", "", "Filename including path to an existing override file")
+	importCmd.Flags().BoolVarP(&override, "override", "r", false, "Whether to copy override file")
 	importCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
 
 	return importCmd
 }
 
 // importCanasta copies LocalSettings.php and databasedump to create canasta from a previous mediawiki installation
-func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, overrideFilename string) error {
+func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath string, override bool) error {
 	if _, err := config.GetDetails(canastaId); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
@@ -89,8 +89,10 @@ func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath,
 	if err := canasta.CopyLocalSettings(localSettingsPath, path, pwd); err != nil {
 		return err
 	}
-	if err := canasta.CopyOverrideFile(overrideFilename, path, pwd); err != nil {
-		return err
+	if override {
+		if err := orchestrators.CopyOverrideFile(path, orchestrator, pwd); err != nil {
+			return err
+		}
 	}
 	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err

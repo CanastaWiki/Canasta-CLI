@@ -37,6 +37,22 @@ func GetRepoLink(orchestrator string) string {
 	return repo
 }
 
+func CopyOverrideFile(path, orchestrator, pwd string) error {
+	logging.Print("Starting Canasta\n")
+	switch orchestrator {
+	case "docker-compose":
+		var overrideFilename = pwd + "/docker-compose.override.yml"
+		logging.Print(fmt.Sprintf("Copying %s to %s\n", overrideFilename, path))
+		err, output := execute.Run("", "cp", overrideFilename, path)
+		if err != nil {
+			logging.Fatal(fmt.Errorf(output))
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+	}
+	return nil
+}
+
 func Start(path, orchestrator string) error {
 	logging.Print("Starting Canasta\n")
 	switch orchestrator {
