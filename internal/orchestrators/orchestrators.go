@@ -42,7 +42,7 @@ func CopyOverrideFile(path, orchestrator, sourceFilename string) error {
 	switch orchestrator {
 	case "docker-compose":
 		var overrideFilename = path + "/docker-compose.override.yml"
-		logging.Print(fmt.Sprintf("Copying %s to %s\n", overrideFilename, path))
+		logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, overrideFilename))
 		err, output := execute.Run("", "cp", sourceFilename, overrideFilename)
 		if err != nil {
 			logging.Fatal(fmt.Errorf(output))
