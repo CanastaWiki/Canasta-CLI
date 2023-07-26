@@ -79,10 +79,8 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator
 	if err := canasta.CopyEnv("", canastaInfo.DomainName, path, pwd); err != nil {
 		return err
 	}
-	if override != "" {
-		if err := orchestrators.CopyOverrideFile(path, orchestrator, override); err != nil {
-			return err
-		}
+	if err := orchestrators.CopyOverrideFile(path, orchestrator, override, pwd); err != nil {
+		return err
 	}
 	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err

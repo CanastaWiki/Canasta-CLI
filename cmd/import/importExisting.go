@@ -89,10 +89,8 @@ func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath,
 	if err := canasta.CopyLocalSettings(localSettingsPath, path, pwd); err != nil {
 		return err
 	}
-	if override != "" {
-		if err := orchestrators.CopyOverrideFile(path, orchestrator, override); err != nil {
-			return err
-		}
+	if err := orchestrators.CopyOverrideFile(path, orchestrator, override, pwd); err != nil {
+		return err
 	}
 	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err
