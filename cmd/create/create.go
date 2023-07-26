@@ -22,7 +22,7 @@ func NewCmdCreate() *cobra.Command {
 		err          error
 		keepConfig   bool
 		canastaInfo  canasta.CanastaVariables
-		override     bool
+		override     string
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -64,12 +64,12 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "WikiSysop", "a", "", "Initial wiki admin username")
 	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password")
 	createCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
-	createCmd.Flags().BoolVarP(&override, "override", "r", false, "Whether to copy override file")
+	createCmd.Flags().StringVarP(&override, "override", "r", "", "Source filename for override file to copy")
 	return createCmd
 }
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator string, override bool) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator, override string) error {
 	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
@@ -79,8 +79,8 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, orchestrator
 	if err := canasta.CopyEnv("", canastaInfo.DomainName, path, pwd); err != nil {
 		return err
 	}
-	if override {
-		if err := orchestrators.CopyOverrideFile(path, orchestrator, pwd); err != nil {
+	if override != "" {
+		if err := orchestrators.CopyOverrideFile(path, orchestrator, override); err != nil {
 			return err
 		}
 	}

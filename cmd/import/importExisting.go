@@ -20,7 +20,7 @@ func NewCmdCreate() *cobra.Command {
 		databasePath      string
 		localSettingsPath string
 		envPath           string
-		override          bool
+		override          string
 		canastaId         string
 		domainName        string
 		err               error
@@ -66,14 +66,14 @@ func NewCmdCreate() *cobra.Command {
 	importCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
 	importCmd.Flags().StringVarP(&localSettingsPath, "localsettings", "l", "", "Path to the existing LocalSettings.php")
 	importCmd.Flags().StringVarP(&envPath, "env", "e", "", "Path to the existing .env file")
-	importCmd.Flags().BoolVarP(&override, "override", "r", false, "Whether to copy override file")
+	importCmd.Flags().StringVarP(&override, "override", "r", "", "Source filename for override file to copy")
 	importCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
 
 	return importCmd
 }
 
 // importCanasta copies LocalSettings.php and databasedump to create canasta from a previous mediawiki installation
-func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath string, override bool) error {
+func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, override string) error {
 	if _, err := config.GetDetails(canastaId); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
@@ -89,8 +89,8 @@ func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath,
 	if err := canasta.CopyLocalSettings(localSettingsPath, path, pwd); err != nil {
 		return err
 	}
-	if override {
-		if err := orchestrators.CopyOverrideFile(path, orchestrator, pwd); err != nil {
+	if override != "" {
+		if err := orchestrators.CopyOverrideFile(path, orchestrator, override); err != nil {
 			return err
 		}
 	}
