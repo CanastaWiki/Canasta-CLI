@@ -66,7 +66,7 @@ func NewCmdCreate() *cobra.Command {
 	importCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
 	importCmd.Flags().StringVarP(&localSettingsPath, "localsettings", "l", "", "Path to the existing LocalSettings.php")
 	importCmd.Flags().StringVarP(&envPath, "env", "e", "", "Path to the existing .env file")
-	importCmd.Flags().StringVarP(&override, "override", "r", "", "Source filename for override file to copy")
+	importCmd.Flags().StringVarP(&override, "override", "r", "", "Name of a file to copy to docker-compose.override.yml")
 	importCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
 
 	return importCmd
