@@ -36,7 +36,7 @@ func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 func CopyEnv(envPath, domainName, path, pwd string) error {
 	if envPath == "" {
 		envPath = path + "/.env.example"
-	} else {
+	} else if !strings.HasPrefix(envPath, "/") {
 		envPath = pwd + "/" + envPath
 	}
 	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", envPath, path))
@@ -56,7 +56,9 @@ func CopyEnv(envPath, domainName, path, pwd string) error {
 //Copies the LocalSettings.php at localSettingsPath to /config at the installation directory
 func CopyLocalSettings(localSettingsPath, path, pwd string) error {
 	if localSettingsPath != "" {
-		localSettingsPath = pwd + "/" + localSettingsPath
+		if !strings.HasPrefix(localSettingsPath, "/") {
+			localSettingsPath = pwd + "/" + localSettingsPath
+		}
 		logging.Print(fmt.Sprintf("Copying %s to %s/config/LocalSettings.php\n", localSettingsPath, path))
 		err, output := execute.Run("", "cp", localSettingsPath, path+"/config/LocalSettings.php")
 		if err != nil {
