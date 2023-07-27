@@ -3,6 +3,7 @@ package orchestrators
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
@@ -42,7 +43,9 @@ func CopyOverrideFile(path, orchestrator, sourceFilename, pwd string) error {
 		logging.Print("Copying override file\n")
 		switch orchestrator {
 		case "docker-compose":
-			sourceFilename = pwd + "/" + sourceFilename
+			if !strings.HasPrefix(sourceFilename, "/") {
+				sourceFilename = pwd + "/" + sourceFilename
+			}
 			var overrideFilename = path + "/docker-compose.override.yml"
 			logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, overrideFilename))
 			err, output := execute.Run("", "cp", sourceFilename, overrideFilename)
