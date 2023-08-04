@@ -59,6 +59,29 @@ func CopyOverrideFile(path, orchestrator, sourceFilename, pwd string) error {
 	return nil
 }
 
+func CopyComposerFile(path, orchestrator, sourceFilename, pwd string) error {
+	logging.Print("Copying composer.local.json file\n")
+	switch orchestrator {
+	case "docker-compose":
+		if sourceFilename != "" {
+			if !strings.HasPrefix(sourceFilename, "/") {
+				sourceFilename = pwd + "/" + sourceFilename
+			}
+		} else {
+			sourceFilename = path + "/config/composer.local.default.json"
+		}
+		var composerFilename = path + "/config/composer.local.json"
+			logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, composerFilename))
+		err, output := execute.Run("", "cp", sourceFilename, composerFilename)
+		if err != nil {
+			logging.Fatal(fmt.Errorf(output))
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+	}
+	return nil
+}
+
 func Start(path, orchestrator string) error {
 	logging.Print("Starting Canasta\n")
 	switch orchestrator {
