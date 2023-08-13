@@ -1,6 +1,6 @@
 # Canasta CLI - Recent Enhancements & New Commands for wiki farm support
 
-We're excited to introduce a series of enhancements and new commands to the Canasta CLI, a command-line interface for managing Canasta, a Docker-based MediaWiki distribution. These changes aim to provide users with more flexibility and power in managing their MediaWiki instances and wiki farms.
+We're excited to introduce a series of enhancements and new commands to the Canasta CLI. These changes aim to provide users with more flexibility and power in managing their MediaWiki instances and wiki farms.
 
 ## Table of Contents
 - [Installation](#installation)
@@ -20,7 +20,6 @@ We're excited to introduce a series of enhancements and new commands to the Cana
 
 **Usage:**
 sudo go run canasta.go create [flags]
-**Flags:**
 - `-p, --path`: Canasta directory.
 - `-o, --orchestrator`: Orchestrator to use for installation (default: "docker-compose").
 - `-i, --id`: Canasta instance ID.
@@ -36,8 +35,9 @@ To create a wiki farm, you need to provide a YAML file with the following format
 ```yaml
 wikis:
   - id: [WIKI_ID] # Example: "mywiki1"
-    url: [WIKI_URL] # Example: "http://mywiki1.example.com"
+    url: [WIKI_URL] # Example: "mywiki1.example.com"
 ```
+sudo go run canasta.go create -f [yamlfile] # Example: "wikis.yaml
 
 ### extension
 **Description:** Manage Canasta extensions. Enhanced to target a specific wiki within the farm using the `-w` flag.
