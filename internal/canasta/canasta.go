@@ -32,8 +32,8 @@ func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 	return err
 }
 
-//if envPath is passed as argument copies the file located at envPath to the installation directory
-//else copies .env.example to .env in the installation directory
+// if envPath is passed as argument copies the file located at envPath to the installation directory
+// else copies .env.example to .env in the installation directory
 func CopyEnv(envPath, path, pwd string) error {
 	yamlPath := path + "/config/wikis.yaml"
 
@@ -224,7 +224,7 @@ func RewriteCaddy(path string) error {
 	return nil
 }
 
-//Copies the LocalSettings.php at localSettingsPath to /config at the installation directory
+// Copies the LocalSettings.php at localSettingsPath to /config at the installation directory
 func CopyLocalSettings(localSettingsPath, path, pwd string) error {
 	if localSettingsPath != "" {
 		localSettingsPath = pwd + "/" + localSettingsPath
@@ -237,7 +237,7 @@ func CopyLocalSettings(localSettingsPath, path, pwd string) error {
 	return nil
 }
 
-//Copies database dump from databasePath to the /_initdb/ at the installation directory
+// Copies database dump from databasePath to the /_initdb/ at the installation directory
 func CopyDatabase(databasePath, path, pwd string) error {
 	if databasePath != "" {
 		databasePath = pwd + "/" + databasePath
@@ -250,7 +250,7 @@ func CopyDatabase(databasePath, path, pwd string) error {
 	return nil
 }
 
-//Verifying file extension for database dump
+// Verifying file extension for database dump
 func SanityChecks(databasePath, localSettingsPath string) error {
 	if databasePath == "" {
 		return fmt.Errorf("database dump path not mentioned")
@@ -267,7 +267,7 @@ func SanityChecks(databasePath, localSettingsPath string) error {
 	return nil
 }
 
-//Make changes to the .env file at the installation directory
+// Make changes to the .env file at the installation directory
 func SaveEnvVariable(envPath, key, value string) error {
 	file, err := os.ReadFile(envPath)
 	if err != nil {
@@ -287,7 +287,7 @@ func SaveEnvVariable(envPath, key, value string) error {
 	return nil
 }
 
-//Get values saved inside the .env at the envPath
+// Get values saved inside the .env at the envPath
 func GetEnvVariable(envPath string) map[string]string {
 	EnvVariables := make(map[string]string)
 	file_data, err := os.ReadFile(envPath)
@@ -306,7 +306,7 @@ func GetEnvVariable(envPath string) map[string]string {
 	return EnvVariables
 }
 
-//Checking Installation existence
+// Checking Installation existence
 func CheckCanastaId(instance config.Installation) (config.Installation, error) {
 	var err error
 	if instance.Id != "" {
@@ -335,6 +335,27 @@ func DeleteConfigAndContainers(keepConfig bool, installationDir, orchestrator st
 func RemoveSettings(path, name string) error {
 	// Prepare the file path
 	filePath := filepath.Join(path, "config", name)
+
+	// Check if the file exists
+	if _, err := os.Stat(filePath); err == nil {
+		// If the file exists, remove it
+		err, output := execute.Run("", "rm", "-rf", filePath)
+		if err != nil {
+			return fmt.Errorf(output)
+		}
+	} else if os.IsNotExist(err) {
+		// File does not exist, do nothing
+		return nil
+	} else {
+		// File may or may not exist. See the specific error
+		return err
+	}
+	return nil
+}
+
+func RemoveImages(path, name string) error {
+	// Prepare the file path
+	filePath := filepath.Join(path, "images", name)
 
 	// Check if the file exists
 	if _, err := os.Stat(filePath); err == nil {

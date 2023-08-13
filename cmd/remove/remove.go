@@ -105,6 +105,12 @@ func RemoveWiki(name string, instance config.Installation) error {
 		return err
 	}
 
+	//Remove the Images
+	err = canasta.RemoveImages(instance.Path, name)
+	if err != nil {
+		return err
+	}
+
 	//Rewrite the Caddyfile
 	err = canasta.RewriteCaddy(instance.Path)
 	if err != nil {

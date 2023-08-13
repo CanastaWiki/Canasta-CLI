@@ -133,8 +133,8 @@ func AddWiki(name, path, domain, wikipath, siteName string) error {
 	filePath := filepath.Join(path, "config", "wikis.yaml")
 
 	if siteName == "" {
-        siteName = name
-    }
+		siteName = name
+	}
 	// Read the existing wikis from the YAML file
 	wikis := Wikis{}
 
