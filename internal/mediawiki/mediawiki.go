@@ -63,7 +63,7 @@ func Install(path, orchestrator string, canastaInfo canasta.CanastaVariables) (c
 		}
 	}
 
-	command = fmt.Sprintf("php maintenance/install.php --dbserver=%s  --confpath=%s --scriptpath=%s	--server='https://%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
+	command = fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s  --confpath=%s --scriptpath=%s	--server='https://%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
 		dbServer, confPath, scriptPath, canastaInfo.DomainName, "root", envVariables["MYSQL_PASSWORD"], canastaInfo.AdminPassword, canastaInfo.WikiName, canastaInfo.AdminName)
 
 	output, err = orchestrators.ExecWithError(path, orchestrator, "web", command)
