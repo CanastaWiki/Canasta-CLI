@@ -27,6 +27,7 @@ func NewCmdCreate() *cobra.Command {
 		err          error
 		keepConfig   bool
 		canastaInfo  canasta.CanastaVariables
+		override     string
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -37,7 +38,7 @@ func NewCmdCreate() *cobra.Command {
 				log.Fatal(err)
 			}
 			fmt.Println("Creating Canasta installation '" + canastaInfo.Id + "'...")
-			if err = createCanasta(canastaInfo, pwd, path, name, domain, yamlPath, orchestrator); err != nil {
+			if err = createCanasta(canastaInfo, pwd, path, name, domain, yamlPath, orchestrator, override); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if keepConfig {
 					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
@@ -69,11 +70,12 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password")
 	createCmd.Flags().StringVarP(&yamlPath, "yamlfile", "f", "", "Initial wiki yaml file")
 	createCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
+	createCmd.Flags().StringVarP(&override, "override", "r", "", "Name of a file to copy to docker-compose.override.yml")
 	return createCmd
 }
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain, yamlPath, orchestrator string) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain, yamlPath, orchestrator, override string) error {
 	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
@@ -93,6 +95,9 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain
 		return err
 	}
 	if err := canasta.RewriteCaddy(path); err != nil {
+		return err
+	}
+	if err := orchestrators.CopyOverrideFile(path, orchestrator, override, pwd); err != nil {
 		return err
 	}
 	if err := orchestrators.Start(path, orchestrator); err != nil {
