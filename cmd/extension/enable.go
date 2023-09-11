@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/extensionsskins"
+	"github.com/CanastaWiki/Canasta-CLI/internal/extensionsskins"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +22,7 @@ func enableCmdCreate() *cobra.Command {
 					fmt.Print(err.Error() + "\n")
 					continue
 				}
-				extensionsskins.Enable(extensionName, instance, constants)
+				extensionsskins.Enable(extensionName, wiki, instance, constants)
 			}
 			return err
 		},

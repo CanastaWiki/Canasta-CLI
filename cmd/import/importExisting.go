@@ -6,9 +6,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +25,7 @@ func NewCmdCreate() *cobra.Command {
 		domainName        string
 		err               error
 		keepConfig        bool
+		test			  bool
 	)
 
 	importCmd := &cobra.Command{
@@ -36,7 +37,7 @@ func NewCmdCreate() *cobra.Command {
 				return err
 			}
 			fmt.Println("Importing Canasta")
-			if err := importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, override); err != nil {
+			if err := importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, override, test); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if keepConfig {
 					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
@@ -68,19 +69,20 @@ func NewCmdCreate() *cobra.Command {
 	importCmd.Flags().StringVarP(&envPath, "env", "e", "", "Path to the existing .env file")
 	importCmd.Flags().StringVarP(&override, "override", "r", "", "Name of a file to copy to docker-compose.override.yml")
 	importCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
+	importCmd.Flags().BoolVarP(&test, "test", "t", false, "Use test docker compose file or not")
 
 	return importCmd
 }
 
 // importCanasta copies LocalSettings.php and databasedump to create canasta from a previous mediawiki installation
-func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, override string) error {
+func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, override string, test bool) error {
 	if _, err := config.GetDetails(canastaId); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
-	if err := canasta.CloneStackRepo(orchestrator, canastaId, &path); err != nil {
+	if err := canasta.CloneStackRepo(orchestrator, canastaId, &path, test); err != nil {
 		return err
 	}
-	if err := canasta.CopyEnv(envPath, domainName, path, pwd); err != nil {
+	if err := canasta.CopyEnv(envPath, path, pwd); err != nil {
 		return err
 	}
 	if err := canasta.CopyDatabase(databasePath, path, pwd); err != nil {
