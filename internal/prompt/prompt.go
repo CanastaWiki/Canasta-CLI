@@ -17,6 +17,9 @@ func PromptUser(name, yamlPath string, canastaInfo canasta.CanastaVariables) (st
 		if name, err = promptForInput(name, "WikiID"); err != nil {
 			return name, canastaInfo, err
 		}
+		if err = validateWikiID(name); err != nil {
+			return name, canastaInfo, err
+		}
 	}
 	if canastaInfo.Id, err = promptForInput(canastaInfo.Id, "Canasta ID"); err != nil {
 		return name, canastaInfo, err
@@ -27,19 +30,25 @@ func PromptUser(name, yamlPath string, canastaInfo canasta.CanastaVariables) (st
 	return name, canastaInfo, nil
 }
 
-func PromptWiki(name, urlString, id, siteName string) (string, string, string, string, string, error) {
+func PromptWiki(name, urlString, id, siteName, admin string) (string, string, string, string, string, string, error) {
 	var err error
 	if id, err = promptForInput(id, "CanastaID"); err != nil {
-		return "", "", "", "", "", err
+		return "", "", "", "", "", "", err
+	}
+	if err = validateWikiID(name); err != nil {
+		return "", "", "", "", "", "", err
 	}
 	if name, err = promptForInput(name, "wikiID"); err != nil {
-		return "", "", "", "", "", err
+		return "", "", "", "", "", "", err
+	}
+	if admin, err = promptForInput(admin, "admin name"); err != nil {
+		return "", "", "", "", "", "", err
 	}
 	if siteName, err = promptForInputWithNull(siteName, "site name"); err != nil {
-		return "", "", "", "", "", err
+		return "", "", "", "", "", "", err
 	}
 	if urlString, err = promptForInput(urlString, "URL"); err != nil {
-		return "", "", "", "", "", err
+		return "", "", "", "", "", "", err
 	}
 
 	// add 'http://' to urlString if no schema is present
@@ -49,13 +58,13 @@ func PromptWiki(name, urlString, id, siteName string) (string, string, string, s
 
 	parsedUrl, err := url.Parse(urlString)
 	if err != nil {
-		return "", "", "", "", "", fmt.Errorf("failed to parse URL: %w", err)
+		return "", "", "", "", "", "", fmt.Errorf("failed to parse URL: %w", err)
 	}
 
 	domain := parsedUrl.Hostname()
 	path := strings.Trim(parsedUrl.Path, "/") // remove leading and trailing slashes
 
-	return name, domain, path, id, siteName, nil
+	return name, domain, path, id, siteName, admin, nil
 }
 
 func promptForInput(value, prompt string) (string, error) {
@@ -111,6 +120,24 @@ func getAndConfirmPassword(username string) (string, string, error) {
 		return "", "", fmt.Errorf("Passwords do not match, please try again.")
 	}
 	return username, password, nil
+}
+
+func validateWikiID(id string) error {
+	// Check if the ID contains a hyphen (-)
+	if strings.Contains(id, "-") {
+		return fmt.Errorf("The character '-' is not allowed in WikiID")
+	}
+
+	// Check if the ID is one of the reserved names
+	reservedNames := []string{"settings", "images", "w", "wiki"}
+	for _, name := range reservedNames {
+		if id == name {
+			return fmt.Errorf("%s cannot be used as WikiID", id)
+		}
+	}
+
+	// If it passes the checks, return nil (no error)
+	return nil
 }
 
 func getPasswordInput() (string, error) {

@@ -56,12 +56,6 @@ func RemoveWiki(name string, instance config.Installation) error {
 		return err
 	}
 
-	//Migrate to the new version Canasta
-	err = canasta.MigrateToNewVersion(instance.Path)
-	if err != nil {
-		return err
-	}
-
 	//Checking Running status
 	err = orchestrators.CheckRunningStatus(instance.Path, instance.Id, instance.Orchestrator)
 	if err != nil {

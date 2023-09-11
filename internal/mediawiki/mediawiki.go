@@ -103,7 +103,7 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	return canastaInfo, err
 }
 
-func InstallOne(path, name, domain, wikipath, orchestrator string) error {
+func InstallOne(path, name, domain, wikipath, admin, orchestrator string) error {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
@@ -146,18 +146,8 @@ func InstallOne(path, name, domain, wikipath, orchestrator string) error {
 	scanner.Scan() // get the first line
 	AdminPassword := scanner.Text()
 
-	file, err = os.Open(filepath.Join(path, ".admin"))
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	scanner = bufio.NewScanner(file)
-	scanner.Scan() // get the first line
-	AdminName := scanner.Text()
-
-	command = fmt.Sprintf("php maintenance/install.php -skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
-		dbServer, name, confPath, scriptPath, domain, "root", envVariables["MYSQL_PASSWORD"], AdminPassword, name, AdminName)
+	command = fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
+		dbServer, name, confPath, scriptPath, domain, "root", envVariables["MYSQL_PASSWORD"], AdminPassword, name, admin)
 	output, err = orchestrators.ExecWithError(path, orchestrator, "web", command)
 	if err != nil {
 		return fmt.Errorf(output)

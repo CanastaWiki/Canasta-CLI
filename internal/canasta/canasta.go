@@ -102,11 +102,6 @@ func CopySetting(path, name string) error {
 		return err
 	}
 
-	// Copy SettingsTemplate.php
-	err, output := execute.Run("", "cp", path+"/config/SettingsTemplate.php", dirPath+"/Settings.php")
-	if err != nil {
-		return fmt.Errorf(output)
-	}
 	return nil
 }
 
@@ -187,6 +182,7 @@ func RewriteCaddy(path string) error {
 			newLine.WriteString(", ")
 		}
 		newLine.WriteString(name)
+		newLine.WriteString(":{$HTTPS_PORT}")
 	}
 
 	// Create/Truncate the file for writing
@@ -419,6 +415,12 @@ func MigrateToNewVersion(path string) error {
 
 	// Create the wikis.yaml file using farmsettings.GenerateWikisYaml
 	_, err = farmsettings.GenerateWikisYaml(yamlPath, name, mwSiteServer)
+	if err != nil {
+		return err
+	}
+
+	//Copy the Localsettings
+	err = CopySetting(path, name)
 	if err != nil {
 		return err
 	}
