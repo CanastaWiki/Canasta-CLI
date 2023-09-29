@@ -6,10 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 func takeSnapshotCmdCreate() *cobra.Command {

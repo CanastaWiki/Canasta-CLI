@@ -6,15 +6,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/extensionsskins"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/extensionsskins"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
 var (
 	instance  config.Installation
 	pwd       string
+	wiki      string
 	err       error
 	verbose   bool
 	skinCmd   *cobra.Command
@@ -37,6 +38,7 @@ func NewCmdCreate() *cobra.Command {
 	}
 	skinCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	skinCmd.PersistentFlags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
+	skinCmd.PersistentFlags().StringVarP(&wiki, "wiki", "w", "", "ID of the specific wiki within the Canasta farm")
 	skinCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 
 	skinCmd.AddCommand(listCmdCreate())

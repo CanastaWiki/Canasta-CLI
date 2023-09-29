@@ -3,8 +3,8 @@ package restic
 import (
 	"fmt"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/spf13/cobra"
 )
 

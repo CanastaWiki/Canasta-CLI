@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 var (
@@ -64,6 +64,7 @@ func Delete(instance config.Installation) error {
 	if err = config.Delete(instance.Id); err != nil {
 		return err
 	}
+
 	fmt.Println("Deleted.")
 	return nil
 }

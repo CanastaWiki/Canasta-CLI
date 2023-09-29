@@ -2,23 +2,28 @@ package cmd
 
 import (
 	"fmt"
-	createCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/create"
-	deleteCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/delete"
-	extensionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/extension"
-	importCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/import"
-	listCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/list"
-	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/maintenanceUpdate"
-	restartCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restart"
-	resticCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restic"
-	skinCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/skin"
-	startCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/start"
-	stopCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/stop"
-	versionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/version"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/spf13/cobra"
 	"path/filepath"
+
+	addCmd "github.com/CanastaWiki/Canasta-CLI/cmd/add"
+	createCmd "github.com/CanastaWiki/Canasta-CLI/cmd/create"
+	deleteCmd "github.com/CanastaWiki/Canasta-CLI/cmd/delete"
+	extensionCmd "github.com/CanastaWiki/Canasta-CLI/cmd/extension"
+	importCmd "github.com/CanastaWiki/Canasta-CLI/cmd/import"
+	listCmd "github.com/CanastaWiki/Canasta-CLI/cmd/list"
+	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI/cmd/maintenanceUpdate"
+	removeCmd "github.com/CanastaWiki/Canasta-CLI/cmd/remove"
+	restartCmd "github.com/CanastaWiki/Canasta-CLI/cmd/restart"
+	resticCmd "github.com/CanastaWiki/Canasta-CLI/cmd/restic"
+	skinCmd "github.com/CanastaWiki/Canasta-CLI/cmd/skin"
+	startCmd "github.com/CanastaWiki/Canasta-CLI/cmd/start"
+	stopCmd "github.com/CanastaWiki/Canasta-CLI/cmd/stop"
+	versionCmd "github.com/CanastaWiki/Canasta-CLI/cmd/version"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -76,7 +81,10 @@ func init() {
 	rootCmd.AddCommand(startCmd.NewCmdCreate())
 	rootCmd.AddCommand(stopCmd.NewCmdCreate())
 	rootCmd.AddCommand(versionCmd.NewCmdCreate())
+	rootCmd.AddCommand(addCmd.NewCmdCreate())
+	rootCmd.AddCommand(removeCmd.NewCmdCreate())
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
 	cobra.OnInitialize(func() {
 		if OrchestratorPath == "" {
 			orchestrators.CheckDependencies()
