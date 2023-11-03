@@ -22,17 +22,19 @@ type CanastaVariables struct {
 	AdminName     string
 }
 
-// CloneStackRepo accept the orchestrator from the cli and pass the corresponding reopository link
-// and clones the repo to a new folder in the specified path
+// CloneStackRepo() accepts the orchestrator from the CLI,
+// passes the corresponding repository link,
+// and clones the repo to a new folder in the specified path.
 func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 	*path += "/" + canastaId
 	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
 	repo := orchestrators.GetRepoLink(orchestrator)
-	err := git.Cloneb(repo, *path, "CLI")
+	err := git.Clone(repo, *path, "CLI")
 	return err
 }
 
-// if envPath is passed as argument copies the file located at envPath to the installation directory
+// if envPath is passed as argument,
+// copies the file located at envPath to the installation directory
 // else copies .env.example to .env in the installation directory
 func CopyEnv(envPath, path, pwd string) error {
 	yamlPath := path + "/config/wikis.yaml"
