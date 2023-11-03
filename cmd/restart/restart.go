@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
@@ -51,6 +52,13 @@ func Restart(instance config.Installation) error {
 			return err
 		}
 	}
+
+	//Migrate to the new version Canasta
+	err = canasta.MigrateToNewVersion(instance.Path)
+	if err != nil {
+		return err
+	}
+
 	err = orchestrators.StopAndStart(instance.Path, instance.Orchestrator)
 	return err
 }
