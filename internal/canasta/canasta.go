@@ -21,7 +21,7 @@ type CanastaVariables struct {
 	AdminName     string
 }
 
-// CloneStackRepo accept the orchestrator from the cli and pass the corresponding reopository link
+// CloneStackRepo accept the orchestrator from the cli and pass the corresponding repository link
 // and clones the repo to a new folder in the specified path
 func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 	*path += "/" + canastaId
