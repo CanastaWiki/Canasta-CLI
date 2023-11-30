@@ -39,7 +39,7 @@ func NewCmdCreate() *cobra.Command {
 	}
 	startCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
 	startCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	startCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
+	startCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
 	return startCmd
 }
 

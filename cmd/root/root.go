@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
+
 	createCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/delete"
 	extensionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/extension"
@@ -18,7 +20,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/spf13/cobra"
-	"path/filepath"
 )
 
 var (
@@ -41,7 +42,7 @@ var rootCmd = &cobra.Command{
 				logging.Fatal(err)
 			}
 			var orchestrator = config.Orchestrator{
-				Id:   "docker-compose",
+				Id:   "compose",
 				Path: OrchestratorPath}
 			err = config.AddOrchestrator(orchestrator)
 			if err != nil {
@@ -62,7 +63,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
-	rootCmd.Flags().StringVarP(&OrchestratorPath, "docker-path", "d", "", "path to docker-compose")
+	rootCmd.Flags().StringVarP(&OrchestratorPath, "docker-path", "d", "", "path to docker")
 
 	rootCmd.AddCommand(createCmd.NewCmdCreate())
 	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
