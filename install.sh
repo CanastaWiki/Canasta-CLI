@@ -44,12 +44,16 @@ else
     echo "Docker appears to be installed at $loc but is not executable; please check permissions."
 fi
 
-if ! docker compose  version;
-then
-    echo "Docker Compose is not installed; please follow the guide at https://docs.docker.com/compose/install/ to install it.
-    Alternatively, set the Compose executable path in canasta CLI using \"canasta -d PATH\""
+# Canasta only supports Compose V2
+# Since July 2023 Compose V1 stopped receiving updates. It is also no longer available in new releases of Docker Desktop.
+if ! docker compose version >/dev/null 2>&1; then
+  echo "Docker Compose V2 is not installed"
+  echo "Please follow the guide at https://docs.docker.com/compose/install/ to install it."
+  echo "It is recommended to use the official Docker repositories."
+  echo "Alternatively, set the Compose executable path in canasta CLI using \"canasta -d PATH\" but note that Compose V1 is NOT supported."
+  exit 1
 else
-    echo "Checking for presence of Docker Compose... found."
+    echo "Checking for presence of Docker Compose V2... found."
 fi
 
 echo "Please make sure you have a working kubectl if you wish to use Kubernetes as an orchestrator."
