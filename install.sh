@@ -4,24 +4,9 @@
 
 # This script downloads and installs the Canasta command-line interface (CLI), which is
 # an executable called "canasta".
-# It also checks for the presence of Git, Docker and Docker Compose, and displays a
-# warning to the user if they are not correctly installed, although it installs the CLI
-# regardless.
 
-echo "Downloading Canasta CLI latest release..."
-canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
-# The show-progress param was added to wget in version 1.16 (October 2014).
-wgetOptions=$(wget --help)
-if [[ $wgetOptions == *"show-progress"* ]]
-then
-  wget -q --show-progress $canastaURL
-else
-  wget -q $canastaURL
-fi
-
-echo "Download was successful; now installing Canasta CLI."
-chmod u=rwx,g=xr,o=x canasta
-sudo mv canasta /usr/local/bin/canasta
+# First it checks for the prerequisites of Git, Docker and Docker Compose, displaying a
+# warning to the user if they are not correctly installed; exiting the installer.
 
 # Check if Git is installed; exit if not.
 git --version 2>&1 >/dev/null
@@ -55,6 +40,21 @@ if ! docker compose version >/dev/null 2>&1; then
 else
     echo "Checking for presence of Docker Compose V2... found."
 fi
+
+echo "Downloading Canasta CLI latest release..."
+canastaURL="https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
+# The show-progress param was added to wget in version 1.16 (October 2014).
+wgetOptions=$(wget --help)
+if [[ $wgetOptions == *"show-progress"* ]]
+then
+  wget -q --show-progress $canastaURL
+else
+  wget -q $canastaURL
+fi
+
+echo "Download was successful; now installing Canasta CLI."
+chmod u=rwx,g=xr,o=x canasta
+sudo mv canasta /usr/local/bin/canasta
 
 echo "Please make sure you have a working kubectl if you wish to use Kubernetes as an orchestrator."
 echo -e "\nUsage: sudo canasta [COMMAND] [ARGUMENTS...]"
