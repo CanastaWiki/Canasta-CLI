@@ -60,7 +60,7 @@ func NewCmdCreate() *cobra.Command {
 	}
 
 	importCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta directory")
-	importCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
+	importCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
 	importCmd.Flags().StringVarP(&canastaId, "id", "i", "", "Canasta instance ID")
 	importCmd.Flags().StringVarP(&domainName, "domain-name", "n", "localhost", "Domain name")
 	importCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
