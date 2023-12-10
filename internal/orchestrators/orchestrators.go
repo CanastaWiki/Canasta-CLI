@@ -11,7 +11,7 @@ import (
 )
 
 func CheckDependencies() {
-	compose := config.GetOrchestrator("docker-compose")
+	compose := config.GetOrchestrator("compose")
 	if compose.Path != "" {
 		cmd := exec.Command(compose.Path, "version")
 		err := cmd.Run()
@@ -31,7 +31,9 @@ func GetRepoLink(orchestrator string) string {
 	var repo string
 	switch orchestrator {
 	case "docker-compose":
-		repo = "https://github.com/chl178/Canasta-DockerCompose.git"
+		repo = "https://github.com/CanastaWiki/Canasta-DockerCompose.git"
+	case "compose":
+		repo = "https://github.com/CanastaWiki/Canasta-DockerCompose.git"
 	default:
 		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
 	}
@@ -42,7 +44,7 @@ func CopyOverrideFile(path, orchestrator, sourceFilename, pwd string) error {
 	if sourceFilename != "" {
 		logging.Print("Copying override file\n")
 		switch orchestrator {
-		case "docker-compose":
+		case "compose":
 			if !strings.HasPrefix(sourceFilename, "/") {
 				sourceFilename = pwd + "/" + sourceFilename
 			}
@@ -62,8 +64,8 @@ func CopyOverrideFile(path, orchestrator, sourceFilename, pwd string) error {
 func Start(path, orchestrator string) error {
 	logging.Print("Starting Canasta\n")
 	switch orchestrator {
-	case "docker-compose":
-		compose := config.GetOrchestrator("docker-compose")
+	case "compose":
+		compose := config.GetOrchestrator("compose")
 		if compose.Path != "" {
 			err, output := execute.Run(path, compose.Path, "up", "-d")
 			if err != nil {
@@ -84,8 +86,8 @@ func Start(path, orchestrator string) error {
 func Stop(path, orchestrator string) error {
 	logging.Print("Stopping the containers\n")
 	switch orchestrator {
-	case "docker-compose":
-		compose := config.GetOrchestrator("docker-compose")
+	case "compose":
+		compose := config.GetOrchestrator("compose")
 		if compose.Path != "" {
 			err, output := execute.Run(path, compose.Path, "down")
 			if err != nil {
@@ -116,8 +118,8 @@ func StopAndStart(path, orchestrator string) error {
 
 func DeleteContainers(path, orchestrator string) (string, error) {
 	switch orchestrator {
-	case "docker-compose":
-		compose := config.GetOrchestrator("docker-compose")
+	case "compose":
+		compose := config.GetOrchestrator("compose")
 		if compose.Path != "" {
 
 			err, output := execute.Run(path, compose.Path, "down", "-v")
@@ -143,8 +145,8 @@ func ExecWithError(path, orchestrator, container, command string) (string, error
 	var err error
 
 	switch orchestrator {
-	case "docker-compose":
-		compose := config.GetOrchestrator("docker-compose")
+	case "compose":
+		compose := config.GetOrchestrator("compose")
 		if compose.Path != "" {
 
 			cmd := exec.Command(compose.Path, "exec", "-T", container, "/bin/bash", "-c", command)

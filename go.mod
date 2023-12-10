@@ -9,7 +9,7 @@ require (
 )
 
 require (
-	golang.org/x/sys v0.0.0-20210615035016-665e8c7367d1 // indirect
+	golang.org/x/sys v0.1.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 

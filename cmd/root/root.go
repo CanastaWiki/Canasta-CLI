@@ -46,7 +46,7 @@ var rootCmd = &cobra.Command{
 				logging.Fatal(err)
 			}
 			var orchestrator = config.Orchestrator{
-				Id:   "docker-compose",
+				Id:   "compose",
 				Path: OrchestratorPath}
 			err = config.AddOrchestrator(orchestrator)
 			if err != nil {
@@ -67,7 +67,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
-	rootCmd.Flags().StringVarP(&OrchestratorPath, "docker-path", "d", "", "path to docker-compose")
+	rootCmd.Flags().StringVarP(&OrchestratorPath, "docker-path", "d", "", "path to docker")
 
 	rootCmd.AddCommand(createCmd.NewCmdCreate())
 	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
