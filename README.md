@@ -19,7 +19,7 @@ We're excited to introduce a series of enhancements and new commands to the Cana
 **Description:** Creates a Canasta installation. Enhanced to support wiki farm setup with the `-f` flag.
 
 **Usage:**
-sudo go run canasta.go create [flags]
+sudo canasta create [flags]
 - `-p, --path`: Canasta directory.
 - `-o, --orchestrator`: Orchestrator to use for installation (default: "docker-compose").
 - `-i, --id`: Canasta instance ID.
@@ -31,13 +31,18 @@ sudo go run canasta.go create [flags]
 - `-k, --keep-config`: Keep the config files on installation failure.
 
 **YAML Format for Wiki Farm:**
-To create a wiki farm, you need to provide a YAML file with the following format:
+To create a wiki farm, you first need to create a YAML file with the following format:
 ```yaml
 wikis:
   - id: [WIKI_ID] # Example: "mywiki1"
     url: [WIKI_URL] # Example: "mywiki1.example.com"
 ```
-sudo go run canasta.go create -f [yamlfile] # Example: "wikis.yaml
+
+Then run the following:
+
+```bash
+sudo canasta create -f [yamlfile] # Example: "wikis.yaml"
+```
 
 ### extension
 **Description:** Manage Canasta extensions. Enhanced to target a specific wiki within the farm using the `-w` flag.
@@ -48,7 +53,9 @@ sudo go run canasta.go create -f [yamlfile] # Example: "wikis.yaml
 - `disable`: Disables specified extensions.
 
 **Usage:**
-sudo go run canasta.go extension [subcommand] [flags]
+```bash
+sudo canasta extension [subcommand] [flags]
+```
 **Flags:**
 - `-i, --id`: Specifies the Canasta instance ID.
 - `-p, --path`: Specifies the Canasta installation directory.
@@ -61,7 +68,9 @@ sudo go run canasta.go extension [subcommand] [flags]
 **Description:** Adds a new wiki to a Canasta instance.
 
 **Usage:**
-sudo go run canasta.go add [flags]
+```bash
+sudo canasta add [flags]
+```
 **Flags:**
 - `-w, --wiki`: ID of the new wiki.
 - `-u, --url`: URL of the new wiki.
@@ -75,7 +84,9 @@ sudo go run canasta.go add [flags]
 **Description:** Removes a wiki from a Canasta instance.
 
 **Usage:**
-sudo go run canasta.go remove [flags]
+```bash
+sudo canasta remove [flags]
+```
 **Flags:**
 - `-w, --wiki`: ID of the wiki to be removed.
 - `-p, --path`: Path to the wiki.
