@@ -29,7 +29,7 @@ func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 	*path += "/" + canastaId
 	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
 	repo := orchestrators.GetRepoLink(orchestrator)
-	err := git.Cloneb(repo, *path, "CLI")
+	err := git.Clone(repo, *path)
 	return err
 }
 
