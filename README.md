@@ -29,6 +29,10 @@ sudo canasta create [flags]
 - `-s, --password`: Initial wiki admin password.
 - `-f, --yamlfile`: Initial wiki yaml file for wiki farm setup.
 - `-k, --keep-config`: Keep the config files on installation failure.
+- `-r, --override`: Name of a file to copy to docker-compose.override.yml.
+- `--rootdbpass`: Prompt for the password for the root database user (default: "mediawiki").
+- `--wikidbuser`: The database user to use for normal operations (default: "root").
+- `--wikidbpass`: Prompt for the password for the database user to use for normal operations (default: "mediawiki").
 
 **YAML Format for Wiki Farm:**
 To create a wiki farm, you first need to create a YAML file with the following format:

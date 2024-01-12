@@ -11,7 +11,7 @@ import (
 	"golang.org/x/term"
 )
 
-func PromptUser(name, yamlPath string, canastaInfo canasta.CanastaVariables) (string, canasta.CanastaVariables, error) {
+func PromptUser(name, yamlPath string, rootdbpass bool, wikidbpass bool, canastaInfo canasta.CanastaVariables) (string, canasta.CanastaVariables, error) {
 	var err error
 	if yamlPath == "" {
 		if name, err = promptForInput(name, "WikiID"); err != nil {
@@ -25,6 +25,12 @@ func PromptUser(name, yamlPath string, canastaInfo canasta.CanastaVariables) (st
 		return name, canastaInfo, err
 	}
 	if canastaInfo.AdminName, canastaInfo.AdminPassword, err = promptForUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword); err != nil {
+		return name, canastaInfo, err
+	}
+	if canastaInfo.RootDBPassword, err = promptForDBPassword("root", rootdbpass); err != nil {
+		return name, canastaInfo, err
+	}
+	if canastaInfo.WikiDBPassword, err = promptForDBPassword("wiki", wikidbpass); err != nil {
 		return name, canastaInfo, err
 	}
 	return name, canastaInfo, nil
@@ -120,6 +126,34 @@ func getAndConfirmPassword(username string) (string, string, error) {
 		return "", "", fmt.Errorf("Passwords do not match, please try again.")
 	}
 	return username, password, nil
+}
+
+func promptForDBPassword(whichpass string, passflag bool) (string, error) {
+	var password = "mediawiki"
+	var err error
+	if passflag {
+		if password, err = getAndConfirmDBPassword(whichpass); err != nil {
+			return "", err
+		}
+	}
+	return password, nil
+}
+
+func getAndConfirmDBPassword(whichpass string) (string, error) {
+	fmt.Print("Enter the %s database password (Press Enter to autogenerate the password): \n", whichpass)
+	password, err := getPasswordInput()
+	if err != nil {
+		return "", err
+	}
+	if password == "" {
+		return "", nil
+	}
+	fmt.Print("Re-enter the %s database password: \n", whichpass)
+	confirmedPassword, err := getPasswordInput()
+	if err != nil || password != confirmedPassword {
+		return "", fmt.Errorf("Passwords do not match, please try again.")
+	}
+	return password, nil
 }
 
 func validateWikiID(id string) error {

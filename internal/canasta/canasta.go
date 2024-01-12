@@ -17,9 +17,12 @@ import (
 )
 
 type CanastaVariables struct {
-	Id            string
-	AdminPassword string
-	AdminName     string
+	Id             string
+	AdminPassword  string
+	AdminName      string
+	RootDBPassword string
+	WikiDBUsername string
+	WikiDBPassword string
 }
 
 // CloneStackRepo() accepts the orchestrator from the CLI,
@@ -36,7 +39,7 @@ func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 // if envPath is passed as argument,
 // copies the file located at envPath to the installation directory
 // else copies .env.example to .env in the installation directory
-func CopyEnv(envPath, path, pwd string) error {
+func CopyEnv(envPath, path, pwd, rootDBpass string) error {
 	yamlPath := path + "/config/wikis.yaml"
 
 	if envPath == "" {
@@ -58,6 +61,11 @@ func CopyEnv(envPath, path, pwd string) error {
 	}
 	if err := SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", domainNames[0]); err != nil {
 		return err
+	}
+	if rootDBpass != "" {
+		if err := SaveEnvVariable(path+"/.env", "MYSQL_ROOT_PASSWORD", rootDBpass); err != nil {
+			return err
+		}
 	}
 	return nil
 }

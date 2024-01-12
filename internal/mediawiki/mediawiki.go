@@ -14,7 +14,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/sethvargo/go-password/password"
 )
 
 const dbServer = "db"
@@ -33,22 +32,20 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	if err != nil {
 		return canastaInfo, fmt.Errorf(output)
 	}
-	if canastaInfo.AdminPassword == "" {
-		canastaInfo.AdminPassword, err = password.Generate(12, 2, 4, false, true)
-		if err != nil {
-			return canastaInfo, err
-		}
-		// Save automatically generated password to .admin-password inside the configuration folder
-		fmt.Printf("Saving password to %s/.admin-password\n", path)
-		file, err := os.Create(path + "/.admin-password")
-		if err != nil {
-			return canastaInfo, err
-		}
-		defer file.Close()
-		_, err = file.WriteString(canastaInfo.AdminPassword)
-		if err != nil {
-			return canastaInfo, err
-		}
+
+	canastaInfo.AdminPassword, err = GetAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password", canastaInfo)
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	canastaInfo.RootDBPassword, err = GetAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".admin-password", canastaInfo)
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	canastaInfo.WikiDBPassword, err = GetAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".admin-password", canastaInfo)
+	if err != nil {
+		return canastaInfo, err
 	}
 
 	fmt.Printf("Saving adminname to %s/.admin\n", path)
@@ -70,8 +67,8 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 		wikiName := WikiNames[i]
 		domainName := domainNames[i]
 
-		command := fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
-			dbServer, wikiName, confPath, scriptPath, domainName, "root", envVariables["MYSQL_PASSWORD"], canastaInfo.AdminPassword, wikiName, canastaInfo.AdminName)
+		command := fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
+			dbServer, wikiName, confPath, scriptPath, domainName, "root", canastaInfo.RootDBPassword, canastaInfo.WikiDBUsername, canastaInfo.WikiDBPassword, canastaInfo.AdminPassword, wikiName, canastaInfo.AdminName)
 
 		output, err = orchestrators.ExecWithError(path, orchestrator, "web", command)
 		if err != nil {
@@ -101,6 +98,25 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 		return canastaInfo, err
 	}
 	return canastaInfo, err
+}
+
+func GetAndSavePassword(password, path, prompt, filename string, canastaInfo canasta.CanastaVariables) (string, error) {
+	var err error
+	if password != "" {
+		return password, nil
+	}
+	password, err = password.Generate(12, 2, 4, false, true)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
+	file, err := os.Create(path + "/" + filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	_, err = file.WriteString(password)
+	return password, err
 }
 
 func InstallOne(path, name, domain, wikipath, admin, orchestrator string) error {
