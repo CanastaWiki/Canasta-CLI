@@ -14,6 +14,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/sethvargo/go-password/password"
 )
 
 const dbServer = "db"
@@ -24,7 +25,6 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
-	envVariables := canasta.GetEnvVariable(path + "/.env")
 	settingsName := "CommonSettings.php"
 
 	command := "/wait-for-it.sh -t 60 db:3306"
@@ -100,12 +100,12 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	return canastaInfo, err
 }
 
-func GetAndSavePassword(password, path, prompt, filename string, canastaInfo canasta.CanastaVariables) (string, error) {
+func GetAndSavePassword(pwd, path, prompt, filename string, canastaInfo canasta.CanastaVariables) (string, error) {
 	var err error
-	if password != "" {
-		return password, nil
+	if pwd != "" {
+		return pwd, nil
 	}
-	password, err = password.Generate(12, 2, 4, false, true)
+	pwd, err = password.Generate(12, 2, 4, false, true)
 	if err != nil {
 		return "", err
 	}
@@ -115,8 +115,8 @@ func GetAndSavePassword(password, path, prompt, filename string, canastaInfo can
 		return "", err
 	}
 	defer file.Close()
-	_, err = file.WriteString(password)
-	return password, err
+	_, err = file.WriteString(pwd)
+	return pwd, err
 }
 
 func InstallOne(path, name, domain, wikipath, admin, orchestrator string) error {
