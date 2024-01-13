@@ -14,6 +14,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/sethvargo/go-password/password"
 )
 
 type CanastaVariables struct {
@@ -63,7 +64,7 @@ func CopyEnv(envPath, path, pwd, rootDBpass string) error {
 		return err
 	}
 	if rootDBpass != "" {
-		if err := SaveEnvVariable(path+"/.env", "MYSQL_PASSWORD", rootDBpass); err != nil {
+		if err := SaveEnvVariable(path+"/.env", "MYSQL_PASSWORD", "\""+rootDBpass+"\""); err != nil {
 			return err
 		}
 	}
@@ -272,6 +273,62 @@ func SanityChecks(databasePath, localSettingsPath string) error {
 		return fmt.Errorf("make sure correct LocalSettings.php is mentioned")
 	}
 	return nil
+}
+
+func GeneratePasswords(path string, canastaInfo CanastaVariables) (CanastaVariables, error) {
+	var err error
+
+	canastaInfo.AdminPassword, err = GenerateAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	canastaInfo.RootDBPassword, err = GenerateAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	canastaInfo.WikiDBPassword, err = GenerateAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	return canastaInfo, nil
+}
+
+func GenerateAndSavePassword(pwd, path, prompt, filename string) (string, error) {
+	var err error
+	if pwd != "" {
+		return pwd, nil
+	}
+	if pwd, err = GetPasswordFromFile(path, filename); err == nil {
+		fmt.Printf("Retrieved %s password from %s/%s\n", prompt, path, filename)
+		return pwd, nil
+	}
+	pwd, err = password.Generate(12, 2, 4, false, true)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
+	file, err := os.Create(path + "/" + filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	_, err = file.WriteString(pwd)
+	return pwd, err
+}
+
+func GetPasswordFromFile(path, filename string) (string, error) {
+	file, err := os.Open(filepath.Join(path, filename))
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Scan() // get the first line
+	return scanner.Text(), nil
 }
 
 // Make changes to the .env file at the installation directory

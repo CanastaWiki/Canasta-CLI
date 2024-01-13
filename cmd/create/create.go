@@ -39,7 +39,7 @@ func NewCmdCreate() *cobra.Command {
 			if name, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
-			if canastaInfo, err = mediawiki.GeneratePasswords(path, canastaInfo); err != nil {
+			if canastaInfo, err = canasta.GeneratePasswords(path, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Println("Creating Canasta installation '" + canastaInfo.Id + "'...")

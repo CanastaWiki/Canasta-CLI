@@ -1,7 +1,6 @@
 package mediawiki
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/sethvargo/go-password/password"
 )
 
 const dbServer = "db"
@@ -122,7 +120,7 @@ func InstallOne(path, name, domain, admin, dbuser, orchestrator string) error {
 	installdbpass := envVariables["MYSQL_PASSWORD"]
 	var dbpass string
 	if dbuser != installdbuser {
-		dbpass, err = GetPasswordFromFile(path, ".wiki-db-password")
+		dbpass, err = canasta.GetPasswordFromFile(path, ".wiki-db-password")
 		if err != nil {
 			return err
 		}
@@ -130,7 +128,7 @@ func InstallOne(path, name, domain, admin, dbuser, orchestrator string) error {
 		dbpass = installdbpass
 	}
 
-	AdminPassword, err := GetPasswordFromFile(path, ".admin-password")
+	AdminPassword, err := canasta.GetPasswordFromFile(path, ".admin-password")
 	if err != nil {
 		return err
 	}
@@ -162,62 +160,6 @@ func InstallOne(path, name, domain, admin, dbuser, orchestrator string) error {
 	}
 
 	return err
-}
-
-func GeneratePasswords(path string, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
-	var err error
-
-	canastaInfo.AdminPassword, err = GenerateAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	canastaInfo.RootDBPassword, err = GenerateAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	canastaInfo.WikiDBPassword, err = GenerateAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	return canastaInfo, nil
-}
-
-func GenerateAndSavePassword(pwd, path, prompt, filename string) (string, error) {
-	var err error
-	if pwd != "" {
-		return pwd, nil
-	}
-	if pwd, err = GetPasswordFromFile(path, filename); err == nil {
-		fmt.Printf("Retrieved %s password from %s/%s\n", prompt, path, filename)
-		return pwd, nil
-	}
-	pwd, err = password.Generate(12, 2, 4, false, true)
-	if err != nil {
-		return "", err
-	}
-	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
-	file, err := os.Create(path + "/" + filename)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	_, err = file.WriteString(pwd)
-	return pwd, err
-}
-
-func GetPasswordFromFile(path, filename string) (string, error) {
-	file, err := os.Open(filepath.Join(path, filename))
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	scanner.Scan() // get the first line
-	return scanner.Text(), nil
 }
 
 func RemoveDatabase(path, name, orchestrator string) error {
