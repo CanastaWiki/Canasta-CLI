@@ -14,7 +14,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/sethvargo/go-password/password"
 )
 
 const dbServer = "db"
@@ -31,21 +30,6 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	output, err := orchestrators.ExecWithError(path, orchestrator, "web", command)
 	if err != nil {
 		return canastaInfo, fmt.Errorf(output)
-	}
-
-	canastaInfo.AdminPassword, err = GetAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	canastaInfo.RootDBPassword, err = GetAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	canastaInfo.WikiDBPassword, err = GetAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
-	if err != nil {
-		return canastaInfo, err
 	}
 
 	fmt.Printf("Saving adminname to %s/.admin\n", path)
@@ -98,25 +82,6 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 		return canastaInfo, err
 	}
 	return canastaInfo, err
-}
-
-func GetAndSavePassword(pwd, path, prompt, filename string) (string, error) {
-	var err error
-	if pwd != "" {
-		return pwd, nil
-	}
-	pwd, err = password.Generate(12, 2, 4, false, true)
-	if err != nil {
-		return "", err
-	}
-	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
-	file, err := os.Create(path + "/" + filename)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	_, err = file.WriteString(pwd)
-	return pwd, err
 }
 
 func InstallOne(path, name, domain, admin, dbuser, orchestrator string) error {

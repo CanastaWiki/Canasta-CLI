@@ -14,6 +14,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/sethvargo/go-password/password"
 )
 
 type CanastaVariables struct {
@@ -34,6 +35,46 @@ func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 	repo := orchestrators.GetRepoLink(orchestrator)
 	err := git.Clone(repo, *path)
 	return err
+}
+
+func GetPasswords(path string, canastaInfo CanastaVariables) error {
+	var err error
+
+	canastaInfo.AdminPassword, err = GetAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
+	if err != nil {
+		return err
+	}
+
+	canastaInfo.RootDBPassword, err = GetAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
+	if err != nil {
+		return err
+	}
+
+	canastaInfo.WikiDBPassword, err = GetAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func GetAndSavePassword(pwd, path, prompt, filename string) (string, error) {
+	var err error
+	if pwd != "" {
+		return pwd, nil
+	}
+	pwd, err = password.Generate(12, 2, 4, false, true)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
+	file, err := os.Create(path + "/" + filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	_, err = file.WriteString(pwd)
+	return pwd, err
 }
 
 // if envPath is passed as argument,

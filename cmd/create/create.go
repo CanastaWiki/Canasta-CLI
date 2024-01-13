@@ -93,6 +93,9 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain
 	if err := canasta.CopyYaml(yamlPath, path); err != nil {
 		return err
 	}
+	if err := canasta.GetPasswords(path, canastaInfo); err != nil {
+		return err
+	}
 	if err := canasta.CopyEnv("", path, pwd, canastaInfo.RootDBPassword); err != nil {
 		return err
 	}
