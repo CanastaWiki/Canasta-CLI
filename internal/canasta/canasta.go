@@ -63,7 +63,7 @@ func CopyEnv(envPath, path, pwd, rootDBpass string) error {
 		return err
 	}
 	if rootDBpass != "" {
-		if err := SaveEnvVariable(path+"/.env", "MYSQL_ROOT_PASSWORD", rootDBpass); err != nil {
+		if err := SaveEnvVariable(path+"/.env", "MYSQL_PASSWORD", rootDBpass); err != nil {
 			return err
 		}
 	}
