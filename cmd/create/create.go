@@ -14,7 +14,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/prompt"
-	"github.com/sethvargo/go-password/password"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -40,7 +39,7 @@ func NewCmdCreate() *cobra.Command {
 			if name, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
-			if canastaInfo, err = GeneratePasswords(path, canastaInfo); err != nil {
+			if canastaInfo, err = mediawiki.GeneratePasswords(path, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Println("Creating Canasta installation '" + canastaInfo.Id + "'...")
@@ -77,9 +76,9 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&yamlPath, "yamlfile", "f", "", "Initial wiki yaml file")
 	createCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
 	createCmd.Flags().StringVarP(&override, "override", "r", "", "Name of a file to copy to docker-compose.override.yml")
-	createCmd.Flags().BoolVar(&rootdbpass, "rootdbpass", false, "Prompt for the password for the root database user (default: \"mediawiki\")")
-	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The database user to use for normal operations (default: \"root\")")
-	createCmd.Flags().BoolVar(&wikidbpass, "wikidbpass", false, "Prompt for the password for the database user to use for normal operations (default: \"mediawiki\")")
+	createCmd.Flags().BoolVar(&rootdbpass, "rootdbpass", false, "Read root database user password from .root-db-password file or prompt for it if file does not exist  (default password: \"mediawiki\")")
+	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
+	createCmd.Flags().BoolVar(&wikidbpass, "wikidbpass", false, "Read wiki database user password from .wiki-db-password file or prompt for it if file does not exist (default password: \"mediawiki\")")
 	return createCmd
 }
 
@@ -123,44 +122,4 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain
 	}
 	fmt.Println("\033[32mIf you need mailing for this wiki, please set $wgSMTP in order to use an outside email provider; mailing will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP\033[0m")
 	return nil
-}
-
-func GeneratePasswords(path string, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
-	var err error
-
-	canastaInfo.AdminPassword, err = GenerateAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	canastaInfo.RootDBPassword, err = GenerateAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	canastaInfo.WikiDBPassword, err = GenerateAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	return canastaInfo, nil
-}
-
-func GenerateAndSavePassword(pwd, path, prompt, filename string) (string, error) {
-	var err error
-	if pwd != "" {
-		return pwd, nil
-	}
-	pwd, err = password.Generate(12, 2, 4, false, true)
-	if err != nil {
-		return "", err
-	}
-	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
-	file, err := os.Create(path + "/" + filename)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	_, err = file.WriteString(pwd)
-	return pwd, err
 }
