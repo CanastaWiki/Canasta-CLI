@@ -33,17 +33,17 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 		return canastaInfo, fmt.Errorf(output)
 	}
 
-	canastaInfo.AdminPassword, err = GetAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password", canastaInfo)
+	canastaInfo.AdminPassword, err = GetAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
 	if err != nil {
 		return canastaInfo, err
 	}
 
-	canastaInfo.RootDBPassword, err = GetAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".admin-password", canastaInfo)
+	canastaInfo.RootDBPassword, err = GetAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
 	if err != nil {
 		return canastaInfo, err
 	}
 
-	canastaInfo.WikiDBPassword, err = GetAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".admin-password", canastaInfo)
+	canastaInfo.WikiDBPassword, err = GetAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
 	if err != nil {
 		return canastaInfo, err
 	}
@@ -100,7 +100,7 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	return canastaInfo, err
 }
 
-func GetAndSavePassword(pwd, path, prompt, filename string, canastaInfo canasta.CanastaVariables) (string, error) {
+func GetAndSavePassword(pwd, path, prompt, filename string) (string, error) {
 	var err error
 	if pwd != "" {
 		return pwd, nil
@@ -119,7 +119,7 @@ func GetAndSavePassword(pwd, path, prompt, filename string, canastaInfo canasta.
 	return pwd, err
 }
 
-func InstallOne(path, name, domain, wikipath, admin, orchestrator string) error {
+func InstallOne(path, name, domain, admin, dbuser, orchestrator string) error {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
@@ -152,18 +152,25 @@ func InstallOne(path, name, domain, wikipath, admin, orchestrator string) error 
 		}
 	}
 
-	file, err := os.Open(filepath.Join(path, ".admin-password"))
+	installdbuser := "root"
+	installdbpass := envVariables["MYSQL_PASSWORD"]
+	var dbpass string
+	if dbuser != installdbuser {
+		dbpass, err = GetPasswordFromFile(path, ".wiki-db-password")
+		if err != nil {
+			return err
+		}
+	} else {
+		dbpass = installdbpass
+	}
+
+	AdminPassword, err := GetPasswordFromFile(path, ".admin-password")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
-	scanner.Scan() // get the first line
-	AdminPassword := scanner.Text()
-
-	command = fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
-		dbServer, name, confPath, scriptPath, domain, "root", envVariables["MYSQL_PASSWORD"], AdminPassword, name, admin)
+	command = fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
+		dbServer, name, confPath, scriptPath, domain, installdbuser, installdbpass, dbuser, dbpass, AdminPassword, name, admin)
 	output, err = orchestrators.ExecWithError(path, orchestrator, "web", command)
 	if err != nil {
 		return fmt.Errorf(output)
@@ -189,6 +196,18 @@ func InstallOne(path, name, domain, wikipath, admin, orchestrator string) error 
 	}
 
 	return err
+}
+
+func GetPasswordFromFile(path, filename string) (string, error) {
+	file, err := os.Open(filepath.Join(path, filename))
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Scan() // get the first line
+	return scanner.Text(), nil
 }
 
 func RemoveDatabase(path, name, orchestrator string) error {
