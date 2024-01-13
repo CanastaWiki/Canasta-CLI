@@ -14,6 +14,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/prompt"
+	"github.com/sethvargo/go-password/password"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -37,6 +38,9 @@ func NewCmdCreate() *cobra.Command {
 		Long:  "Creates a Canasta installation using an orchestrator of your choice.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo); err != nil {
+				log.Fatal(err)
+			}
+			if canastaInfo, err = GeneratePasswords(path, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Println("Creating Canasta installation '" + canastaInfo.Id + "'...")
@@ -93,9 +97,6 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain
 	if err := canasta.CopyYaml(yamlPath, path); err != nil {
 		return err
 	}
-	if err := canasta.GetPasswords(path, canastaInfo); err != nil {
-		return err
-	}
 	if err := canasta.CopyEnv("", path, pwd, canastaInfo.RootDBPassword); err != nil {
 		return err
 	}
@@ -122,4 +123,44 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain
 	}
 	fmt.Println("\033[32mIf you need mailing for this wiki, please set $wgSMTP in order to use an outside email provider; mailing will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP\033[0m")
 	return nil
+}
+
+func GeneratePasswords(path string, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
+	var err error
+
+	canastaInfo.AdminPassword, err = GenerateAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	canastaInfo.RootDBPassword, err = GenerateAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	canastaInfo.WikiDBPassword, err = GenerateAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	return canastaInfo, nil
+}
+
+func GenerateAndSavePassword(pwd, path, prompt, filename string) (string, error) {
+	var err error
+	if pwd != "" {
+		return pwd, nil
+	}
+	pwd, err = password.Generate(12, 2, 4, false, true)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
+	file, err := os.Create(path + "/" + filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	_, err = file.WriteString(pwd)
+	return pwd, err
 }
