@@ -112,7 +112,7 @@ func promptForUserPassword(username, password string) (string, string, error) {
 }
 
 func getAndConfirmPassword(username string) (string, string, error) {
-	fmt.Print("Enter the admin password (Press Enter to autogenerate the password): \n")
+	fmt.Print("Enter the admin password (Press Enter to get saved password or, if one does not exist, autogenerate a password): \n")
 	password, err := getPasswordInput()
 	if err != nil {
 		return "", "", err
@@ -140,7 +140,7 @@ func promptForDBPassword(whichpass string, passflag bool) (string, error) {
 }
 
 func getAndConfirmDBPassword(whichpass string) (string, error) {
-	fmt.Printf("Enter the %s database password (Press Enter to autogenerate the password): \n", whichpass)
+	fmt.Printf("Enter the %s database password (Press Enter to get saved password or, if one does not exist, autogenerate a password): \n", whichpass)
 	password, err := getPasswordInput()
 	if err != nil {
 		return "", err

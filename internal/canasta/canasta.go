@@ -64,7 +64,7 @@ func CopyEnv(envPath, path, pwd, rootDBpass string) error {
 		return err
 	}
 	if rootDBpass != "" {
-		if err := SaveEnvVariable(path+"/.env", "MYSQL_PASSWORD", "\""+rootDBpass+"\""); err != nil {
+		if err := SaveEnvVariable(path+"/.env", "MYSQL_PASSWORD", rootDBpass); err != nil {
 			return err
 		}
 	}
@@ -278,17 +278,17 @@ func SanityChecks(databasePath, localSettingsPath string) error {
 func GeneratePasswords(path string, canastaInfo CanastaVariables) (CanastaVariables, error) {
 	var err error
 
-	canastaInfo.AdminPassword, err = GenerateAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
+	canastaInfo.AdminPassword, err = GetOrGenerateAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
 	if err != nil {
 		return canastaInfo, err
 	}
 
-	canastaInfo.RootDBPassword, err = GenerateAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
+	canastaInfo.RootDBPassword, err = GetOrGenerateAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
 	if err != nil {
 		return canastaInfo, err
 	}
 
-	canastaInfo.WikiDBPassword, err = GenerateAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
+	canastaInfo.WikiDBPassword, err = GetOrGenerateAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
 	if err != nil {
 		return canastaInfo, err
 	}
@@ -296,7 +296,7 @@ func GeneratePasswords(path string, canastaInfo CanastaVariables) (CanastaVariab
 	return canastaInfo, nil
 }
 
-func GenerateAndSavePassword(pwd, path, prompt, filename string) (string, error) {
+func GetOrGenerateAndSavePassword(pwd, path, prompt, filename string) (string, error) {
 	var err error
 	if pwd != "" {
 		return pwd, nil
@@ -309,6 +309,9 @@ func GenerateAndSavePassword(pwd, path, prompt, filename string) (string, error)
 	if err != nil {
 		return "", err
 	}
+	// dollar signs in the root DB password break the installer
+	// https://phabricator.wikimedia.org/T355013
+	strings.ReplaceAll(pwd, "$", "#")
 	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
 	file, err := os.Create(path + "/" + filename)
 	if err != nil {
