@@ -30,9 +30,9 @@ sudo canasta create [flags]
 - `-f, --yamlfile`: Initial wiki yaml file for wiki farm setup.
 - `-k, --keep-config`: Keep the config files on installation failure.
 - `-r, --override`: Name of a file to copy to docker-compose.override.yml.
-- `--rootdbpass`: Prompt for the password for the root database user (default: "mediawiki").
-- `--wikidbuser`: The database user to use for normal operations (default: "root").
-- `--wikidbpass`: Prompt for the password for the database user to use for normal operations (default: "mediawiki").
+- `--rootdbpass`: Read root database user password from .root-db-password file or prompt for it if file does not exist (default password: "mediawiki").
+- `--wikidbuser`: The username of the wiki database user (default: "root").
+- `--wikidbpass`: Read wiki database user password from .wiki-db-password file or prompt for it if file does not exist (default password: "mediawiki").
 
 **YAML Format for Wiki Farm:**
 To create a wiki farm, you first need to create a YAML file with the following format:
@@ -83,6 +83,9 @@ sudo canasta add [flags]
 - `-i, --id`: Canasta instance ID.
 - `-o, --orchestrator`: Orchestrator to use for installation (default: "docker-compose").
 - `-d, --database`: Path to the existing database dump.
+- `-a, --admin`: Admin name of the new wiki.
+- `--wikidbuser`: The username of the wiki database user (default: "root").
+
 
 ### remove
 **Description:** Removes a wiki from a Canasta instance.
