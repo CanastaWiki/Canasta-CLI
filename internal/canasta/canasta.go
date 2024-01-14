@@ -288,9 +288,13 @@ func GeneratePasswords(path string, canastaInfo CanastaVariables) (CanastaVariab
 		return canastaInfo, err
 	}
 
-	canastaInfo.WikiDBPassword, err = GetOrGenerateAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
-	if err != nil {
-		return canastaInfo, err
+	if (canastaInfo.WikiDBUsername == "root") {
+		canastaInfo.WikiDBPassword = canastaInfo.RootDBPassword
+	} else {
+		canastaInfo.WikiDBPassword, err = GetOrGenerateAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
+		if err != nil {
+			return canastaInfo, err
+		}
 	}
 
 	return canastaInfo, nil

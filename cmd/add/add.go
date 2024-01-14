@@ -59,7 +59,7 @@ func NewCmdCreate() *cobra.Command {
 	addCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
 	addCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
 	addCmd.Flags().StringVarP(&admin, "admin", "a", "", "Admin name of the new wiki")
-	addCmd.Flags().StringVar(&wikidbuser, "wikidbuser", "root", "The database user to use for normal operations (default: \"root\")")
+	addCmd.Flags().StringVar(&wikidbuser, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 	return addCmd
 }
 
