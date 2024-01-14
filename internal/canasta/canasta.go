@@ -309,13 +309,13 @@ func GetOrGenerateAndSavePassword(pwd, path, prompt, filename string) (string, e
 		fmt.Printf("Retrieved %s password from %s/%s\n", prompt, path, filename)
 		return pwd, nil
 	}
-	pwd, err = password.Generate(12, 2, 4, false, true)
+	pwd, err = password.Generate(30, 4, 6, false, true)
 	if err != nil {
 		return "", err
 	}
 	// dollar signs in the root DB password break the installer
 	// https://phabricator.wikimedia.org/T355013
-	strings.ReplaceAll(pwd, "$", "#")
+	pwd = strings.ReplaceAll(pwd, "$", "#")
 	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
 	file, err := os.Create(path + "/" + filename)
 	if err != nil {
