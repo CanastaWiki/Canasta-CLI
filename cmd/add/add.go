@@ -25,6 +25,7 @@ func NewCmdCreate() *cobra.Command {
 	var databasePath string
 	var url string
 	var admin string
+	var wikidbuser string
 
 	addCmd := &cobra.Command{
 		Use:   "add",
@@ -36,7 +37,7 @@ func NewCmdCreate() *cobra.Command {
 				log.Fatal(err)
 			}
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiName, instance.Id)
-			err = AddWiki(wikiName, domainName, wikiPath, siteName, databasePath, admin, instance)
+			err = AddWiki(wikiName, domainName, wikiPath, siteName, databasePath, admin, wikidbuser, instance)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -58,11 +59,12 @@ func NewCmdCreate() *cobra.Command {
 	addCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
 	addCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
 	addCmd.Flags().StringVarP(&admin, "admin", "a", "", "Admin name of the new wiki")
+	addCmd.Flags().StringVar(&wikidbuser, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 	return addCmd
 }
 
 // addWiki accepts the Canasta instance ID, the name, domain and path of the new wiki, and the initial admin info, then creates a new wiki in the instance.
-func AddWiki(name, domain, wikipath, siteName, databasePath, admin string, instance config.Installation) error {
+func AddWiki(name, domain, wikipath, siteName, databasePath, admin, wikidbuser string, instance config.Installation) error {
 	var err error
 
 	//Checking Installation existence
@@ -121,7 +123,7 @@ func AddWiki(name, domain, wikipath, siteName, databasePath, admin string, insta
 		return err
 	}
 
-	err = mediawiki.InstallOne(instance.Path, name, domain, wikipath, admin,instance.Orchestrator)
+	err = mediawiki.InstallOne(instance.Path, name, domain, admin, wikidbuser, instance.Orchestrator)
 	if err != nil {
 		return err
 	}

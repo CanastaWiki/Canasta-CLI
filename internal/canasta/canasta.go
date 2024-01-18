@@ -14,12 +14,16 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/sethvargo/go-password/password"
 )
 
 type CanastaVariables struct {
-	Id            string
-	AdminPassword string
-	AdminName     string
+	Id             string
+	AdminPassword  string
+	AdminName      string
+	RootDBPassword string
+	WikiDBUsername string
+	WikiDBPassword string
 }
 
 // CloneStackRepo() accepts the orchestrator from the CLI,
@@ -36,7 +40,7 @@ func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 // if envPath is passed as argument,
 // copies the file located at envPath to the installation directory
 // else copies .env.example to .env in the installation directory
-func CopyEnv(envPath, path, pwd string) error {
+func CopyEnv(envPath, path, pwd, rootDBpass string) error {
 	yamlPath := path + "/config/wikis.yaml"
 
 	if envPath == "" {
@@ -58,6 +62,12 @@ func CopyEnv(envPath, path, pwd string) error {
 	}
 	if err := SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", domainNames[0]); err != nil {
 		return err
+	}
+	if rootDBpass != "" {
+		pass := "\"" + strings.ReplaceAll(rootDBpass, "\"", "\\\"") + "\""
+		if err := SaveEnvVariable(path+"/.env", "MYSQL_PASSWORD", pass); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -264,6 +274,69 @@ func SanityChecks(databasePath, localSettingsPath string) error {
 		return fmt.Errorf("make sure correct LocalSettings.php is mentioned")
 	}
 	return nil
+}
+
+func GeneratePasswords(path string, canastaInfo CanastaVariables) (CanastaVariables, error) {
+	var err error
+
+	canastaInfo.AdminPassword, err = GetOrGenerateAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	canastaInfo.RootDBPassword, err = GetOrGenerateAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	if (canastaInfo.WikiDBUsername == "root") {
+		canastaInfo.WikiDBPassword = canastaInfo.RootDBPassword
+	} else {
+		canastaInfo.WikiDBPassword, err = GetOrGenerateAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
+		if err != nil {
+			return canastaInfo, err
+		}
+	}
+
+	return canastaInfo, nil
+}
+
+func GetOrGenerateAndSavePassword(pwd, path, prompt, filename string) (string, error) {
+	var err error
+	if pwd != "" {
+		return pwd, nil
+	}
+	if pwd, err = GetPasswordFromFile(path, filename); err == nil {
+		fmt.Printf("Retrieved %s password from %s/%s\n", prompt, path, filename)
+		return pwd, nil
+	}
+	pwd, err = password.Generate(30, 4, 6, false, true)
+	if err != nil {
+		return "", err
+	}
+	// dollar signs in the root DB password break the installer
+	// https://phabricator.wikimedia.org/T355013
+	pwd = strings.ReplaceAll(pwd, "$", "#")
+	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
+	file, err := os.Create(path + "/" + filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	_, err = file.WriteString(pwd)
+	return pwd, err
+}
+
+func GetPasswordFromFile(path, filename string) (string, error) {
+	file, err := os.Open(filepath.Join(path, filename))
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Scan() // get the first line
+	return scanner.Text(), nil
 }
 
 // Make changes to the .env file at the installation directory

@@ -1,7 +1,6 @@
 package mediawiki
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
-	"github.com/sethvargo/go-password/password"
 )
 
 const dbServer = "db"
@@ -25,30 +23,12 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
-	envVariables := canasta.GetEnvVariable(path + "/.env")
 	settingsName := "CommonSettings.php"
 
 	command := "/wait-for-it.sh -t 60 db:3306"
 	output, err := orchestrators.ExecWithError(path, orchestrator, "web", command)
 	if err != nil {
 		return canastaInfo, fmt.Errorf(output)
-	}
-	if canastaInfo.AdminPassword == "" {
-		canastaInfo.AdminPassword, err = password.Generate(12, 2, 4, false, true)
-		if err != nil {
-			return canastaInfo, err
-		}
-		// Save automatically generated password to .admin-password inside the configuration folder
-		fmt.Printf("Saving password to %s/.admin-password\n", path)
-		file, err := os.Create(path + "/.admin-password")
-		if err != nil {
-			return canastaInfo, err
-		}
-		defer file.Close()
-		_, err = file.WriteString(canastaInfo.AdminPassword)
-		if err != nil {
-			return canastaInfo, err
-		}
 	}
 
 	fmt.Printf("Saving adminname to %s/.admin\n", path)
@@ -70,8 +50,8 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 		wikiName := WikiNames[i]
 		domainName := domainNames[i]
 
-		command := fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
-			dbServer, wikiName, confPath, scriptPath, domainName, "root", envVariables["MYSQL_PASSWORD"], canastaInfo.AdminPassword, wikiName, canastaInfo.AdminName)
+		command := fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
+			dbServer, wikiName, confPath, scriptPath, domainName, "root", canastaInfo.RootDBPassword, canastaInfo.WikiDBUsername, canastaInfo.WikiDBPassword, canastaInfo.AdminPassword, wikiName, canastaInfo.AdminName)
 
 		output, err = orchestrators.ExecWithError(path, orchestrator, "web", command)
 		if err != nil {
@@ -103,7 +83,7 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	return canastaInfo, err
 }
 
-func InstallOne(path, name, domain, wikipath, admin, orchestrator string) error {
+func InstallOne(path, name, domain, admin, dbuser, orchestrator string) error {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
@@ -136,18 +116,25 @@ func InstallOne(path, name, domain, wikipath, admin, orchestrator string) error 
 		}
 	}
 
-	file, err := os.Open(filepath.Join(path, ".admin-password"))
+	installdbuser := "root"
+	installdbpass := envVariables["MYSQL_PASSWORD"]
+	var dbpass string
+	if dbuser != installdbuser {
+		dbpass, err = canasta.GetPasswordFromFile(path, ".wiki-db-password")
+		if err != nil {
+			return err
+		}
+	} else {
+		dbpass = installdbpass
+	}
+
+	AdminPassword, err := canasta.GetPasswordFromFile(path, ".admin-password")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
-	scanner.Scan() // get the first line
-	AdminPassword := scanner.Text()
-
-	command = fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
-		dbServer, name, confPath, scriptPath, domain, "root", envVariables["MYSQL_PASSWORD"], AdminPassword, name, admin)
+	command = fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
+		dbServer, name, confPath, scriptPath, domain, installdbuser, installdbpass, dbuser, dbpass, AdminPassword, name, admin)
 	output, err = orchestrators.ExecWithError(path, orchestrator, "web", command)
 	if err != nil {
 		return fmt.Errorf(output)

@@ -28,13 +28,18 @@ func NewCmdCreate() *cobra.Command {
 		keepConfig   bool
 		canastaInfo  canasta.CanastaVariables
 		override     string
+		rootdbpass   bool
+		wikidbpass   bool
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a Canasta installation",
 		Long:  "Creates a Canasta installation using an orchestrator of your choice.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if name, canastaInfo, err = prompt.PromptUser(name, yamlPath, canastaInfo); err != nil {
+			if name, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo); err != nil {
+				log.Fatal(err)
+			}
+			if canastaInfo, err = canasta.GeneratePasswords(path, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Println("Creating Canasta installation '" + canastaInfo.Id + "'...")
@@ -71,6 +76,9 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVarP(&yamlPath, "yamlfile", "f", "", "Initial wiki yaml file")
 	createCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
 	createCmd.Flags().StringVarP(&override, "override", "r", "", "Name of a file to copy to docker-compose.override.yml")
+	createCmd.Flags().BoolVar(&rootdbpass, "rootdbpass", false, "Read root database user password from .root-db-password file or prompt for it if file does not exist  (default password: \"mediawiki\")")
+	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
+	createCmd.Flags().BoolVar(&wikidbpass, "wikidbpass", false, "Read wiki database user password from .wiki-db-password file or prompt for it if file does not exist (default password: \"mediawiki\")")
 	return createCmd
 }
 
@@ -88,7 +96,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain
 	if err := canasta.CopyYaml(yamlPath, path); err != nil {
 		return err
 	}
-	if err := canasta.CopyEnv("", path, pwd); err != nil {
+	if err := canasta.CopyEnv("", path, pwd, canastaInfo.RootDBPassword); err != nil {
 		return err
 	}
 	if err := canasta.CopySettings(path); err != nil {
