@@ -29,4 +29,4 @@ help:
 		@printf "  \e[36mlint\e[0m                     Run lint.\n"
 		@printf "\n"
 
-.PHONY: build test fmt prepare-lint lint help
+.PHONY: build prepare-lint lint help
