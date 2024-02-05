@@ -33,7 +33,7 @@ func Run(path, command string, cmdArgs ...string) (error, string) {
 			cmdArgs = append([]string{"--verbose"}, cmdArgs...)
 		}
 	}
-  
+
 	logging.Print(fmt.Sprint(command, " ", strings.Join(cmdArgs, " ")))
 	cmd := exec.Command("bash", "-c", command+" "+strings.Join(cmdArgs, " "))
 	cmd.Stdout = io.MultiWriter(outWriter)
