@@ -1,12 +1,17 @@
 package cmd
 
 import (
+	"fmt"
+	"path/filepath"
+
+	addCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/add"
 	createCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/delete"
 	extensionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/extension"
 	importCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/import"
 	listCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/list"
 	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/maintenanceUpdate"
+	removeCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/remove"
 	restartCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restart"
 	resticCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/restic"
 	skinCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/skin"
@@ -14,6 +19,7 @@ import (
 	stopCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/stop"
 	versionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/version"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 
@@ -21,7 +27,8 @@ import (
 )
 
 var (
-	verbose bool
+	verbose          bool
+	OrchestratorPath string
 )
 
 var rootCmd = &cobra.Command{
@@ -31,6 +38,23 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logging.SetVerbose(verbose)
 		logging.Print("Setting verbose")
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		if OrchestratorPath != "" {
+			OrchestratorPath, err := filepath.Abs(OrchestratorPath)
+			if err != nil {
+				logging.Fatal(err)
+			}
+			var orchestrator = config.Orchestrator{
+				Id:   "compose",
+				Path: OrchestratorPath}
+			err = config.AddOrchestrator(orchestrator)
+			if err != nil {
+				logging.Fatal(err)
+			}
+			fmt.Printf("Path to Orchestrator %s set to %s", orchestrator.Id, orchestrator.Path)
+		}
+
 	},
 }
 
@@ -42,8 +66,8 @@ func Execute() {
 }
 
 func init() {
-	orchestrators.CheckDependencies()
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	rootCmd.Flags().StringVarP(&OrchestratorPath, "docker-path", "d", "", "path to docker")
 
 	rootCmd.AddCommand(createCmd.NewCmdCreate())
 	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
@@ -57,5 +81,14 @@ func init() {
 	rootCmd.AddCommand(startCmd.NewCmdCreate())
 	rootCmd.AddCommand(stopCmd.NewCmdCreate())
 	rootCmd.AddCommand(versionCmd.NewCmdCreate())
+	rootCmd.AddCommand(addCmd.NewCmdCreate())
+	rootCmd.AddCommand(removeCmd.NewCmdCreate())
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
+	cobra.OnInitialize(func() {
+		if OrchestratorPath == "" {
+			orchestrators.CheckDependencies()
+		}
+
+	})
 }

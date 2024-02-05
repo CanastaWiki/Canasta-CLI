@@ -24,6 +24,16 @@ func (w *writerWithPrint) String() string {
 }
 
 func Run(path, command string, cmdArgs ...string) (error, string) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	isVerbose := logging.GetVerbose()
+	if isVerbose {
+		if command == "docker-compose" {
+			cmdArgs = append([]string{"--verbose"}, cmdArgs...)
+		}
+	}
+  
 	outWriter := &writerWithPrint{}
 	errWriter := &writerWithPrint{}
 
