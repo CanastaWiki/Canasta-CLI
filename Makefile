@@ -1,6 +1,6 @@
 APP_NAME="canasta"
 
-build: 
+build:
 		@go build -o ${APP_NAME} ./.
 		@go mod tidy
 		@go mod verify
@@ -13,7 +13,7 @@ lint:
 		@printf "\e[1;36m>> golangci-lint\e[0m\n"
 		@golangci-lint run ./...
 
-help: 
+help:
 		@printf "\n"
 		@printf "\e[1mUsage:\e[0m\n"
 		@printf "  make \e[36m<target>\e[0m\n"
