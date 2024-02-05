@@ -3,15 +3,29 @@ package execute
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 )
 
+type writerWithPrint struct {
+	buf bytes.Buffer
+}
+
+func (w *writerWithPrint) Write(p []byte) (n int, err error) {
+	logging.Print(string(p))
+	return w.buf.Write(p)
+}
+
+func (w *writerWithPrint) String() string {
+	return w.buf.String()
+}
+
 func Run(path, command string, cmdArgs ...string) (error, string) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	outWriter := &writerWithPrint{}
+	errWriter := &writerWithPrint{}
 
 	isVerbose := logging.GetVerbose()
 	if isVerbose {
@@ -22,8 +36,8 @@ func Run(path, command string, cmdArgs ...string) (error, string) {
 
 	logging.Print(fmt.Sprint(command, " ", strings.Join(cmdArgs, " ")))
 	cmd := exec.Command("bash", "-c", command+" "+strings.Join(cmdArgs, " "))
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = io.MultiWriter(outWriter)
+	cmd.Stderr = io.MultiWriter(errWriter)
 
 	if path != "" {
 		cmd.Dir = path
@@ -32,8 +46,9 @@ func Run(path, command string, cmdArgs ...string) (error, string) {
 	if err := cmd.Start(); err != nil {
 		logging.Fatal(err)
 	}
+
 	err := cmd.Wait()
-	output := stdout.String() + stderr.String()
-	logging.Print(output)
+	output := outWriter.String() + errWriter.String()
+
 	return err, output
 }
