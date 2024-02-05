@@ -114,6 +114,7 @@ check_dependencies() {
 }
 
 check_wget_show_progress() {
+  # The show-progress param was added to wget in version 1.16 (October 2014).
   wgetOptions=$(wget --help)
   if [[ $wgetOptions == *"show-progress"* ]]; then
     WGET_SHOW_PROGRESS="--show-progress"
