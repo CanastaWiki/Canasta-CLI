@@ -24,8 +24,8 @@ func (w *writerWithPrint) String() string {
 }
 
 func Run(path, command string, cmdArgs ...string) (error, string) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	outWriter := &writerWithPrint{}
+	errWriter := &writerWithPrint{}
 
 	isVerbose := logging.GetVerbose()
 	if isVerbose {
@@ -34,9 +34,6 @@ func Run(path, command string, cmdArgs ...string) (error, string) {
 		}
 	}
   
-	outWriter := &writerWithPrint{}
-	errWriter := &writerWithPrint{}
-
 	logging.Print(fmt.Sprint(command, " ", strings.Join(cmdArgs, " ")))
 	cmd := exec.Command("bash", "-c", command+" "+strings.Join(cmdArgs, " "))
 	cmd.Stdout = io.MultiWriter(outWriter)
