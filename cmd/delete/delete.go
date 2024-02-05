@@ -64,6 +64,7 @@ func Delete(instance config.Installation) error {
 	if err = config.Delete(instance.Id); err != nil {
 		return err
 	}
+
 	fmt.Println("Deleted.")
 	return nil
 }

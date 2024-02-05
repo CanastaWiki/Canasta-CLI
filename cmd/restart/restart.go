@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
@@ -38,7 +39,7 @@ func NewCmdCreate() *cobra.Command {
 	}
 	restartCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
 	restartCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	restartCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "docker-compose", "Orchestrator to use for installation")
+	restartCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
 	restartCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return restartCmd
 }
@@ -51,6 +52,13 @@ func Restart(instance config.Installation) error {
 			return err
 		}
 	}
+
+	//Migrate to the new version Canasta
+	err = canasta.MigrateToNewVersion(instance.Path)
+	if err != nil {
+		return err
+	}
+
 	err = orchestrators.StopAndStart(instance.Path, instance.Orchestrator)
 	return err
 }

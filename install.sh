@@ -4,9 +4,6 @@
 
 # This script downloads and installs the Canasta command-line interface (CLI), which is
 # an executable called "canasta".
-# It also checks for the presence of Git, Docker and Docker Compose, and displays a
-# warning to the user if they are not correctly installed, although it installs the CLI
-# regardless.
 
 PROGNAME=$(basename "$0")
 VERSION="latest"
@@ -91,7 +88,7 @@ choose_version() {
 
 
 check_dependencies() {
-  local dependencies=("wget" "git" "docker" "docker-compose")
+  local dependencies=("wget" "git" "docker")
   local not_found=()
 
   echo "Checking dependencies..."
@@ -100,6 +97,12 @@ check_dependencies() {
       not_found+=("$dep")
     fi
   done
+
+  # Ensure that Docker Compose V2 (i.e., "docker compose" vs. "docker-compose") is installed;
+  # Docker Compose V1 is deprecated as of July 2023.
+  if ! docker compose version >/dev/null 2>&1; then
+    not_found+=("Docker Compose V2 (see https://docs.docker.com/compose/install/)")
+  fi
 
   if [ "${#not_found[@]}" -ne 0 ]; then
     echo "The following dependencies are missing:"

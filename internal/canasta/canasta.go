@@ -1,28 +1,34 @@
 package canasta
 
 import (
+	"bufio"
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/sethvargo/go-password/password"
 )
 
 type CanastaVariables struct {
-	Id            string
-	WikiName      string
-	DomainName    string
-	AdminPassword string
-	AdminName     string
+	Id             string
+	AdminPassword  string
+	AdminName      string
+	RootDBPassword string
+	WikiDBUsername string
+	WikiDBPassword string
 }
 
-// CloneStackRepo accept the orchestrator from the cli and pass the corresponding reopository link
-// and clones the repo to a new folder in the specified path
+// CloneStackRepo() accepts the orchestrator from the CLI,
+// passes the corresponding repository link,
+// and clones the repo to a new folder in the specified path.
 func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 	*path += "/" + canastaId
 	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
@@ -31,12 +37,15 @@ func CloneStackRepo(orchestrator, canastaId string, path *string) error {
 	return err
 }
 
-//if envPath is passed as argument copies the file located at envPath to the installation directory
-//else copies .env.example to .env in the installation directory
-func CopyEnv(envPath, domainName, path, pwd string) error {
+// if envPath is passed as argument,
+// copies the file located at envPath to the installation directory
+// else copies .env.example to .env in the installation directory
+func CopyEnv(envPath, path, pwd, rootDBpass string) error {
+	yamlPath := path + "/config/wikis.yaml"
+
 	if envPath == "" {
 		envPath = path + "/.env.example"
-	} else {
+	} else if !strings.HasPrefix(envPath, "/") {
 		envPath = pwd + "/" + envPath
 	}
 	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", envPath, path))
@@ -44,19 +53,190 @@ func CopyEnv(envPath, domainName, path, pwd string) error {
 	if err != nil {
 		return fmt.Errorf(output)
 	}
-	if err := SaveEnvVariable(path+"/.env", "MW_SITE_SERVER", "https://"+domainName); err != nil {
+	_, domainNames, _, err := farmsettings.ReadWikisYaml(yamlPath)
+	if err != nil {
 		return err
 	}
-	if err := SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", domainName); err != nil {
+	if err := SaveEnvVariable(path+"/.env", "MW_SITE_SERVER", "https://"+domainNames[0]); err != nil {
 		return err
+	}
+	if err := SaveEnvVariable(path+"/.env", "MW_SITE_FQDN", domainNames[0]); err != nil {
+		return err
+	}
+	if rootDBpass != "" {
+		pass := "\"" + strings.ReplaceAll(rootDBpass, "\"", "\\\"") + "\""
+		if err := SaveEnvVariable(path+"/.env", "MYSQL_PASSWORD", pass); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-//Copies the LocalSettings.php at localSettingsPath to /config at the installation directory
+func CopyYaml(yamlPath, path string) error {
+	logging.Print(fmt.Sprintf("Copying %s to %s/config/wikis.yaml\n", yamlPath, path))
+	err, output := execute.Run("", "cp", yamlPath, path+"/config/wikis.yaml")
+	if err != nil {
+		return fmt.Errorf(output)
+	}
+	return nil
+}
+
+func CopySettings(path string) error {
+	yamlPath := path + "/config/wikis.yaml"
+
+	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", yamlPath, path))
+	WikiNames, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
+	if err != nil {
+		return err
+	}
+	for i := len(WikiNames) - 1; i >= 0; i-- {
+		dirPath := path + fmt.Sprintf("/config/%s", WikiNames[i])
+
+		// Create the directory if it doesn't exist
+		if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+			return err
+		}
+
+		// Copy SettingsTemplate.php
+		err, output := execute.Run("", "cp", path+"/config/SettingsTemplate.php", dirPath+"/Settings.php")
+		if err != nil {
+			return fmt.Errorf(output)
+		}
+	}
+	return nil
+}
+
+func CopySetting(path, name string) error {
+	dirPath := path + fmt.Sprintf("/config/%s", name)
+
+	// Create the directory if it doesn't exist
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func RewriteSettings(path string, WikiNames []string) error {
+	for _, name := range WikiNames {
+		filePath := path + "/config/" + name + "/LocalSettings.php"
+
+		// Read the original file
+		file, err := os.Open(filePath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		// Read file line by line
+		scanner := bufio.NewScanner(file)
+		var lines []string
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, "#$wgSitename = ;") {
+				line = "$wgSitename = \"" + name + "\";"
+			}
+			if strings.Contains(line, "#$wgMetaNamespace = ;") {
+				line = "$wgMetaNamespace = \"" + name + "\";"
+			}
+			lines = append(lines, line)
+		}
+
+		// Create/Truncate the file for writing
+		file, err = os.Create(filePath)
+		if err != nil {
+			return err
+		}
+
+		// Write back to file
+		writer := bufio.NewWriter(file)
+		for _, line := range lines {
+			_, err = fmt.Fprintln(writer, line)
+			if err != nil {
+				return err
+			}
+		}
+		if err = writer.Flush(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Function to remove duplicates from slice
+func removeDuplicates(slice []string) []string {
+	keys := make(map[string]bool)
+	list := []string{}
+
+	for _, entry := range slice {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
+}
+
+func RewriteCaddy(path string) error {
+	_, ServerNames, _, err := farmsettings.ReadWikisYaml(path + "/config/wikis.yaml")
+	if err != nil {
+		return err
+	}
+	filePath := path + "/config/Caddyfile"
+
+	// Remove duplicates from ServerNames
+	ServerNames = removeDuplicates(ServerNames)
+
+	// Generate the new server names line
+	var newLine strings.Builder
+	for i, name := range ServerNames {
+		if i > 0 {
+			newLine.WriteString(", ")
+		}
+		newLine.WriteString(name)
+		newLine.WriteString(":{$HTTPS_PORT}")
+	}
+
+	// Create/Truncate the file for writing
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+
+	// Write back to file
+	writer := bufio.NewWriter(file)
+
+	// Write server names line to file
+	_, err = fmt.Fprintln(writer, newLine.String())
+	if err != nil {
+		return err
+	}
+
+	// Write empty line to file
+	_, err = fmt.Fprintln(writer, "")
+	if err != nil {
+		return err
+	}
+
+	// Write reverse proxy line to file
+	_, err = fmt.Fprintln(writer, "reverse_proxy varnish:80")
+	if err != nil {
+		return err
+	}
+
+	if err = writer.Flush(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Copies the LocalSettings.php at localSettingsPath to /config at the installation directory
 func CopyLocalSettings(localSettingsPath, path, pwd string) error {
 	if localSettingsPath != "" {
-		localSettingsPath = pwd + "/" + localSettingsPath
+		if !strings.HasPrefix(localSettingsPath, "/") {
+			localSettingsPath = pwd + "/" + localSettingsPath
+		}
 		logging.Print(fmt.Sprintf("Copying %s to %s/config/LocalSettings.php\n", localSettingsPath, path))
 		err, output := execute.Run("", "cp", localSettingsPath, path+"/config/LocalSettings.php")
 		if err != nil {
@@ -66,7 +246,7 @@ func CopyLocalSettings(localSettingsPath, path, pwd string) error {
 	return nil
 }
 
-//Copies database dump from databasePath to the /_initdb/ at the installation directory
+// Copies database dump from databasePath to the /_initdb/ at the installation directory
 func CopyDatabase(databasePath, path, pwd string) error {
 	if databasePath != "" {
 		databasePath = pwd + "/" + databasePath
@@ -79,7 +259,7 @@ func CopyDatabase(databasePath, path, pwd string) error {
 	return nil
 }
 
-//Verifying file extension for database dump
+// Verifying file extension for database dump
 func SanityChecks(databasePath, localSettingsPath string) error {
 	if databasePath == "" {
 		return fmt.Errorf("database dump path not mentioned")
@@ -96,7 +276,70 @@ func SanityChecks(databasePath, localSettingsPath string) error {
 	return nil
 }
 
-//Make changes to the .env file at the installation directory
+func GeneratePasswords(path string, canastaInfo CanastaVariables) (CanastaVariables, error) {
+	var err error
+
+	canastaInfo.AdminPassword, err = GetOrGenerateAndSavePassword(canastaInfo.AdminPassword, path, "admin", ".admin-password")
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	canastaInfo.RootDBPassword, err = GetOrGenerateAndSavePassword(canastaInfo.RootDBPassword, path, "root database", ".root-db-password")
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	if (canastaInfo.WikiDBUsername == "root") {
+		canastaInfo.WikiDBPassword = canastaInfo.RootDBPassword
+	} else {
+		canastaInfo.WikiDBPassword, err = GetOrGenerateAndSavePassword(canastaInfo.WikiDBPassword, path, "wiki database", ".wiki-db-password")
+		if err != nil {
+			return canastaInfo, err
+		}
+	}
+
+	return canastaInfo, nil
+}
+
+func GetOrGenerateAndSavePassword(pwd, path, prompt, filename string) (string, error) {
+	var err error
+	if pwd != "" {
+		return pwd, nil
+	}
+	if pwd, err = GetPasswordFromFile(path, filename); err == nil {
+		fmt.Printf("Retrieved %s password from %s/%s\n", prompt, path, filename)
+		return pwd, nil
+	}
+	pwd, err = password.Generate(30, 4, 6, false, true)
+	if err != nil {
+		return "", err
+	}
+	// dollar signs in the root DB password break the installer
+	// https://phabricator.wikimedia.org/T355013
+	pwd = strings.ReplaceAll(pwd, "$", "#")
+	fmt.Printf("Saving %s password to %s/%s\n", prompt, path, filename)
+	file, err := os.Create(path + "/" + filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	_, err = file.WriteString(pwd)
+	return pwd, err
+}
+
+func GetPasswordFromFile(path, filename string) (string, error) {
+	file, err := os.Open(filepath.Join(path, filename))
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Scan() // get the first line
+	return scanner.Text(), nil
+}
+
+// Make changes to the .env file at the installation directory
 func SaveEnvVariable(envPath, key, value string) error {
 	file, err := os.ReadFile(envPath)
 	if err != nil {
@@ -116,7 +359,7 @@ func SaveEnvVariable(envPath, key, value string) error {
 	return nil
 }
 
-//Get values saved inside the .env at the envPath
+// Get values saved inside the .env at the envPath
 func GetEnvVariable(envPath string) map[string]string {
 	EnvVariables := make(map[string]string)
 	file_data, err := os.ReadFile(envPath)
@@ -135,7 +378,7 @@ func GetEnvVariable(envPath string) map[string]string {
 	return EnvVariables
 }
 
-//Checking Installation existence
+// Checking Installation existence
 func CheckCanastaId(instance config.Installation) (config.Installation, error) {
 	var err error
 	if instance.Id != "" {
@@ -159,4 +402,103 @@ func DeleteConfigAndContainers(keepConfig bool, installationDir, orchestrator st
 	fmt.Println("Deleting config files")
 	orchestrators.DeleteConfig(installationDir)
 	fmt.Println("Deleted all containers and config files")
+}
+
+func RemoveSettings(path, name string) error {
+	// Prepare the file path
+	filePath := filepath.Join(path, "config", name)
+
+	// Check if the file exists
+	if _, err := os.Stat(filePath); err == nil {
+		// If the file exists, remove it
+		err, output := execute.Run("", "rm", "-rf", filePath)
+		if err != nil {
+			return fmt.Errorf(output)
+		}
+	} else if os.IsNotExist(err) {
+		// File does not exist, do nothing
+		return nil
+	} else {
+		// File may or may not exist. See the specific error
+		return err
+	}
+	return nil
+}
+
+func RemoveImages(path, name string) error {
+	// Prepare the file path
+	filePath := filepath.Join(path, "images", name)
+
+	// Check if the file exists
+	if _, err := os.Stat(filePath); err == nil {
+		// If the file exists, remove it
+		err, output := execute.Run("", "rm", "-rf", filePath)
+		if err != nil {
+			return fmt.Errorf(output)
+		}
+	} else if os.IsNotExist(err) {
+		// File does not exist, do nothing
+		return nil
+	} else {
+		// File may or may not exist. See the specific error
+		return err
+	}
+	return nil
+}
+
+func MigrateToNewVersion(path string) error {
+	// Determine the path to the wikis.yaml file
+	yamlPath := filepath.Join(path, "config", "wikis.yaml")
+
+	// Check if the file already exists
+	if _, err := os.Stat(yamlPath); err == nil {
+		// File exists, assume the user is already using the new configuration
+		return nil
+	} else if !os.IsNotExist(err) {
+		// If the error is not because the file does not exist, return it
+		return err
+	}
+
+	// Open the .env file
+	envFile, err := os.Open(filepath.Join(path, ".env"))
+	if err != nil {
+		return err
+	}
+	defer envFile.Close()
+
+	// Read the environment variables from the .env file
+	envMap := make(map[string]string)
+	scanner := bufio.NewScanner(envFile)
+	name := "my_wiki"
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		splitLine := strings.SplitN(line, "=", 2)
+		if len(splitLine) != 2 {
+			continue
+		}
+		envMap[splitLine[0]] = splitLine[1]
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	// Remove the "http://" or "https://" prefix from MW_SITE_SERVER variable
+	mwSiteServer := strings.TrimPrefix(envMap["MW_SITE_SERVER"], "http://")
+	mwSiteServer = strings.TrimPrefix(mwSiteServer, "https://")
+
+	// Create the wikis.yaml file using farmsettings.GenerateWikisYaml
+	_, err = farmsettings.GenerateWikisYaml(yamlPath, name, mwSiteServer)
+	if err != nil {
+		return err
+	}
+
+	//Copy the Localsettings
+	err = CopySetting(path, name)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
