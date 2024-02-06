@@ -197,7 +197,7 @@ func GetConfigDir() string {
 	fi, err := os.Stat(dir)
 	if os.IsNotExist(err) {
 		log.Print(fmt.Sprintf("Creating %s\n", dir))
-		err = os.MkdirAll(dir, os.ModePerm)
+		err = os.MkdirAll(dir, 0o755)
 		if err != nil {
 			log.Fatal(err)
 		}
