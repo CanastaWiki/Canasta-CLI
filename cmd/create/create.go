@@ -14,6 +14,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/prompt"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/spinner"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -42,8 +43,10 @@ func NewCmdCreate() *cobra.Command {
 			if canastaInfo, err = canasta.GeneratePasswords(path, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
-			fmt.Println("Creating Canasta installation '" + canastaInfo.Id + "'...")
-			if err = createCanasta(canastaInfo, pwd, path, name, domain, yamlPath, orchestrator, override); err != nil {
+			description := "Creating Canasta installation '" + canastaInfo.Id + "'..."
+			_, done := spinner.New(description)
+
+			if err = createCanasta(canastaInfo, pwd, path, name, domain, yamlPath, orchestrator, override, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if keepConfig {
 					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
@@ -83,7 +86,12 @@ func NewCmdCreate() *cobra.Command {
 }
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain, yamlPath, orchestrator, override string) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain, yamlPath, orchestrator, override string, done chan struct{}) error {
+	// Pass a message to the "done" channel indicating the completion of createCanasta function.
+	// This signals the spinner to stop printing progress, regardless of success or failure.
+	defer func() {
+		done <- struct{}{}
+	}()
 	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}

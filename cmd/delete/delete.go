@@ -10,6 +10,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/spinner"
 )
 
 var (
@@ -41,7 +42,11 @@ func NewCmdCreate() *cobra.Command {
 }
 
 func Delete(instance config.Installation) error {
-	fmt.Println("Deleting Canasta installation '" + instance.Id + "'...")
+	description := "Deleting Canasta installation '" + instance.Id + "'..."
+	_, done := spinner.New(description)
+	defer func() {
+		done <- struct{}{}
+	}()
 	var err error
 
 	//Checking Installation existence
