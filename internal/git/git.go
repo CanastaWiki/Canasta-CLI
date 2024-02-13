@@ -20,3 +20,11 @@ func Cloneb(repo, path string, branch string) error {
 	}
 	return nil
 }
+
+func Pull(path string) error {
+	err, output := execute.Run(path, "git", "pull", "origin", "main")
+	if err != nil {
+		return fmt.Errorf(output)
+	}
+	return nil
+}

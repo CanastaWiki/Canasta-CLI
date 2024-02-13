@@ -17,6 +17,7 @@ import (
 	skinCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/skin"
 	startCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/start"
 	stopCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/stop"
+	upgradeCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/upgrade"
 	versionCmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/version"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
@@ -80,6 +81,7 @@ func init() {
 	rootCmd.AddCommand(skinCmd.NewCmdCreate())
 	rootCmd.AddCommand(startCmd.NewCmdCreate())
 	rootCmd.AddCommand(stopCmd.NewCmdCreate())
+	rootCmd.AddCommand(upgradeCmd.NewCmdCreate())
 	rootCmd.AddCommand(versionCmd.NewCmdCreate())
 	rootCmd.AddCommand(addCmd.NewCmdCreate())
 	rootCmd.AddCommand(removeCmd.NewCmdCreate())
