@@ -65,7 +65,7 @@ func Upgrade(instance config.Installation) error {
 
 	//Touch LocalSettings.php
 	fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
-	execute.Run(instance.Path, "touch", "/var/www/mediawiki/w/LocalSettings.php")
+	execute.Run(instance.Path, "touch", "config/LocalSettings.php")
 
 	fmt.Print("Canasta Upgraded!\n")
 	return nil
