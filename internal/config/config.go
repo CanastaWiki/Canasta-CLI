@@ -163,7 +163,6 @@ func Delete(canastaID string) error {
 }
 
 func write(details Canasta) error {
-	fmt.Println(details)
 	file, err := json.MarshalIndent(details, "", "	")
 	if err != nil {
 		logging.Fatal(err)
