@@ -125,6 +125,11 @@ func getAndConfirmPassword(username string) (string, string, error) {
 	if err != nil || password != confirmedPassword {
 		return "", "", fmt.Errorf("Passwords do not match, please try again.")
 	}
+	if len(password) < 10 {
+		return "", "", fmt.Errorf("Password must be at least 10 characters long ")
+	} else if strings.Contains(password, username) || strings.Contains(username, password) {
+		return "", "", fmt.Errorf("Password should not be similar to the username")
+	}
 	return username, password, nil
 }
 

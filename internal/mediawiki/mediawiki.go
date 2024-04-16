@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
@@ -168,16 +167,6 @@ func RemoveDatabase(path, name, orchestrator string) error {
 	output, err := orchestrators.ExecWithError(path, orchestrator, "db", command)
 	if err != nil {
 		return fmt.Errorf("Error while dropping database '%s': %v. Output: %s", name, err, output)
-	}
-
-	return nil
-}
-
-func passwordCheck(admin, password string) error {
-	if len(password) < 10 {
-		logging.Fatal(fmt.Errorf("Password must be at least 10 characters long "))
-	} else if strings.Contains(password, admin) || strings.Contains(admin, password) {
-		logging.Fatal(fmt.Errorf("Password should not be same as admin name"))
 	}
 
 	return nil
