@@ -27,7 +27,7 @@ func PromptUser(name, yamlPath string, rootdbpass bool, wikidbpass bool, canasta
 		return name, canastaInfo, err
 	}
 	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
-		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
+		log.Fatal(fmt.Errorf("Canasta ID \"" + canastaInfo.Id + "\" already exist!"))
 	}
 	if canastaInfo.AdminName, canastaInfo.AdminPassword, err = promptForUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword); err != nil {
 		return name, canastaInfo, err
