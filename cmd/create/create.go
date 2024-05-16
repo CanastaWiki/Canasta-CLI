@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
-	"regexp"
 
 	"github.com/spf13/cobra"
 
@@ -42,10 +40,6 @@ func NewCmdCreate() *cobra.Command {
 			if name, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
-			
-			// Replace spaces to underlines and remove accented and non-alphanumeric characters
-			name = strings.Replace(name, " ", "_", -1)
-			name = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(name,"")
 
 			if canastaInfo, err = canasta.GeneratePasswords(path, canastaInfo); err != nil {
 				log.Fatal(err)
