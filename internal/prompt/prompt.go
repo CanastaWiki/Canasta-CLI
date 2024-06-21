@@ -111,6 +111,15 @@ func promptForUserPassword(username, password string) (string, string, error) {
 	return username, password, nil
 }
 
+func passwordCheck(username string, password string) (error) {
+	if len(password) < 10 {
+		return fmt.Errorf("Password must be at least 10 characters long")
+	} else if strings.Contains(password, username) || strings.Contains(username, password) {
+		return fmt.Errorf("Password should not be similar to the username")
+	}
+	return nil
+}
+
 func getAndConfirmPassword(username string) (string, string, error) {
 	fmt.Print("Enter the admin password (Press Enter to get saved password or, if one does not exist, autogenerate a password): \n")
 	password, err := getPasswordInput()
@@ -124,6 +133,10 @@ func getAndConfirmPassword(username string) (string, string, error) {
 	confirmedPassword, err := getPasswordInput()
 	if err != nil || password != confirmedPassword {
 		return "", "", fmt.Errorf("Passwords do not match, please try again.")
+	}
+	passErr := passwordCheck(username, password)
+	if passErr != nil {
+		return "", "", passErr
 	}
 	return username, password, nil
 }
