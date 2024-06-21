@@ -182,8 +182,8 @@ func CheckRunningStatus(path, id, orchestrator string) error {
 	containerName := "web"
 
 	switch orchestrator {
-	case "docker-compose":
-		compose := config.GetOrchestrator("docker-compose")
+	case "compose":
+		compose := config.GetOrchestrator("compose")
 		var output string
 		var err error
 		if compose.Path != "" {
