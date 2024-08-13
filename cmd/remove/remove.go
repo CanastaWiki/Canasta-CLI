@@ -23,7 +23,7 @@ func NewCmdCreate() *cobra.Command {
 
 	addCmd := &cobra.Command{
 		Use:   "remove",
-		Short: "remove a new wiki from a Canasta instance",
+		Short: "Remove a wiki from a Canasta instance",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 			fmt.Printf("Removing wiki '%s' from Canasta instance '%s'...\n", wikiName, instance.Id)
