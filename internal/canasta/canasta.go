@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"regexp"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
@@ -90,7 +91,10 @@ func CopySettings(path string) error {
 		return err
 	}
 	for i := len(WikiNames) - 1; i >= 0; i-- {
-		dirPath := path + fmt.Sprintf("/config/%s", WikiNames[i])
+		// Replace spaces to underlines and remove accented and non-alphanumeric characters
+		name := strings.Replace(WikiNames[i], " ", "_", -1)
+		name = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(name,"")
+		dirPath := path + fmt.Sprintf("/config/%s", name)
 
 		// Create the directory if it doesn't exist
 		if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
