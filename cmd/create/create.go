@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"regexp"
 
 	"github.com/spf13/cobra"
@@ -45,8 +44,11 @@ func NewCmdCreate() *cobra.Command {
 			if canastaInfo, err = canasta.GeneratePasswords(path, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
-			canastaInfo.Id = strings.Replace(canastaInfo.Id, " ", "_", -1)
-			canastaInfo.Id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(canastaInfo.Id,"")
+			validString := regexp.MustCompile(`^[a-zA-Z0-9]+$`)
+
+			if !validString.MatchString(canastaInfo.Id) {
+				log.Fatal(fmt.Errorf("Error: CanastaID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed"))
+			}
 			description := "Creating Canasta installation '" + canastaInfo.Id + "'..."
 			_, done := spinner.New(description)
 
