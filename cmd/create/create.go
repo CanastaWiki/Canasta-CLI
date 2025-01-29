@@ -32,15 +32,18 @@ func NewCmdCreate() *cobra.Command {
 		override     string
 		rootdbpass   bool
 		wikidbpass   bool
+		mailer       bool
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a Canasta installation",
 		Long:  "Creates a Canasta installation using an orchestrator of your choice.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if name, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo); err != nil {
+			var wgsmtp map[string]interface{}
+			if name, wgsmtp, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo, mailer); err != nil {
 				log.Fatal(err)
 			}
+			wgsmtp["mailer"] = mailer
 			if canastaInfo, err = canasta.GeneratePasswords(path, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
@@ -52,7 +55,7 @@ func NewCmdCreate() *cobra.Command {
 			description := "Creating Canasta installation '" + canastaInfo.Id + "'..."
 			_, done := spinner.New(description)
 
-			if err = createCanasta(canastaInfo, pwd, path, name, domain, yamlPath, orchestrator, override, done); err != nil {
+			if err = createCanasta(canastaInfo, pwd, path, name, domain, yamlPath, orchestrator, override, wgsmtp, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if keepConfig {
 					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
@@ -88,11 +91,12 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().BoolVar(&rootdbpass, "rootdbpass", false, "Read root database user password from .root-db-password file or prompt for it if file does not exist  (default password: \"mediawiki\")")
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 	createCmd.Flags().BoolVar(&wikidbpass, "wikidbpass", false, "Read wiki database user password from .wiki-db-password file or prompt for it if file does not exist (default password: \"mediawiki\")")
+	createCmd.Flags().BoolVarP(&mailer, "mailer", "m", false, "Enable mailer setup (prompt for mailer configuration details if set)")
 	return createCmd
 }
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain, yamlPath, orchestrator, override string, done chan struct{}) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain, yamlPath, orchestrator, override string, wgsmtp map[string]interface{}, done chan struct{}) error {
 	// Pass a message to the "done" channel indicating the completion of createCanasta function.
 	// This signals the spinner to stop printing progress, regardless of success or failure.
 	defer func() {
@@ -125,7 +129,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain
 	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}
-	if _, err := mediawiki.Install(path, yamlPath, orchestrator, canastaInfo); err != nil {
+	if _, err := mediawiki.Install(path, yamlPath, orchestrator, canastaInfo, wgsmtp); err != nil {
 		return err
 	}
 	if err := config.Add(config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator}); err != nil {
