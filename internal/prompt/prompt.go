@@ -11,8 +11,9 @@ import (
 	"golang.org/x/term"
 )
 
-func PromptUser(name, yamlPath string, rootdbpass bool, wikidbpass bool, canastaInfo canasta.CanastaVariables, mailer bool) (string, map[string]interface{}, canasta.CanastaVariables, error) {
+func PromptUser(name, yamlPath string, rootdbpass bool, wikidbpass bool, canastaInfo canasta.CanastaVariables) (string, map[string]interface{}, canasta.CanastaVariables, error) {
 	var err error
+	var host, IDHost, port, username, password string
 	wgsmtp := map[string]interface{}{
 		"auth": true,
 	}
@@ -36,29 +37,26 @@ func PromptUser(name, yamlPath string, rootdbpass bool, wikidbpass bool, canasta
 	if canastaInfo.WikiDBPassword, err = promptForDBPassword("wiki", wikidbpass); err != nil {
 		return name, wgsmtp, canastaInfo, err
 	}
-	if mailer {
-		var host, IDHost, port, username, password string
-		if host, err = promptForInput(host, "Mail Host"); err != nil {
-			return name, wgsmtp, canastaInfo, err
-		}
-		wgsmtp["host"] = host
-		if IDHost, err = promptForInput(IDHost, "Mail ID Host"); err != nil {
-			return name, wgsmtp, canastaInfo, err
-		}
-		wgsmtp["IDHost"] = IDHost
-		if port, err = promptForInput(port, "Mail Port"); err != nil {
-			return name, wgsmtp, canastaInfo, err
-		}
-		wgsmtp["port"] = port
-		if username, err = promptForInput(username, "Mail Username"); err != nil {
-			return name, wgsmtp, canastaInfo, err
-		}
-		wgsmtp["username"] = username
-		if password, err = promptForInput(password, "Mail Password"); err != nil {
-			return name, wgsmtp, canastaInfo, err
-		}
-		wgsmtp["password"] = password
+	if host, err = promptForInput(host, "Mail Host"); err != nil {
+		return name, wgsmtp, canastaInfo, err
 	}
+	wgsmtp["host"] = host
+	if IDHost, err = promptForInput(IDHost, "Mail ID Host"); err != nil {
+		return name, wgsmtp, canastaInfo, err
+	}
+	wgsmtp["IDHost"] = IDHost
+	if port, err = promptForInput(port, "Mail Port"); err != nil {
+		return name, wgsmtp, canastaInfo, err
+	}
+	wgsmtp["port"] = port
+	if username, err = promptForInput(username, "Mail Username"); err != nil {
+		return name, wgsmtp, canastaInfo, err
+	}
+	wgsmtp["username"] = username
+	if password, err = promptForInput(password, "Mail Password"); err != nil {
+		return name, wgsmtp, canastaInfo, err
+	}
+	wgsmtp["password"] = password
 	return name, wgsmtp, canastaInfo, nil
 }
 

@@ -32,7 +32,6 @@ func NewCmdCreate() *cobra.Command {
 		override     string
 		rootdbpass   bool
 		wikidbpass   bool
-		mailer       bool
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -40,10 +39,9 @@ func NewCmdCreate() *cobra.Command {
 		Long:  "Creates a Canasta installation using an orchestrator of your choice.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var wgsmtp map[string]interface{}
-			if name, wgsmtp, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo, mailer); err != nil {
+			if name, wgsmtp, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
-			wgsmtp["mailer"] = mailer
 			if canastaInfo, err = canasta.GeneratePasswords(path, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
@@ -91,7 +89,6 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().BoolVar(&rootdbpass, "rootdbpass", false, "Read root database user password from .root-db-password file or prompt for it if file does not exist  (default password: \"mediawiki\")")
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 	createCmd.Flags().BoolVar(&wikidbpass, "wikidbpass", false, "Read wiki database user password from .wiki-db-password file or prompt for it if file does not exist (default password: \"mediawiki\")")
-	createCmd.Flags().BoolVarP(&mailer, "mailer", "m", false, "Enable mailer setup (prompt for mailer configuration details if set)")
 	return createCmd
 }
 

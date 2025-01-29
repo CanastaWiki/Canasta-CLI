@@ -175,13 +175,11 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	if err != nil {
 		return canastaInfo, err
 	}
-	if wgsmtp["mailer"] == true {
-		err := updatePHPArrayVariables(filepath.Join(path, "config", settingsName), "wgSMTP", wgsmtp)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-		} else {
-			fmt.Printf("Mailer details updated successfully.\n")
-		}
+	err = updatePHPArrayVariables(filepath.Join(path, "config", settingsName), "wgSMTP", wgsmtp)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+	} else {
+		fmt.Printf("Mailer details updated successfully.\n")
 	}
 	return canastaInfo, err
 }
