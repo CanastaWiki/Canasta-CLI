@@ -21,7 +21,7 @@ We're excited to introduce a series of enhancements and new commands to the Cana
 **Usage:**
 sudo canasta create [flags]
 - `-p, --path`: Canasta directory.
-- `-o, --orchestrator`: Orchestrator to use for installation (default: "docker-compose").
+- `-o, --orchestrator`: Orchestrator to use for installation (default: "compose").
 - `-i, --id`: Canasta instance ID.
 - `-w, --wiki`: Name of the wiki.
 - `-n, --domain-name`: Domain name (default: "localhost").
@@ -81,7 +81,7 @@ sudo canasta add [flags]
 - `-s, --site-name`: Name of the new wiki site.
 - `-p, --path`: Path to the new wiki.
 - `-i, --id`: Canasta instance ID.
-- `-o, --orchestrator`: Orchestrator to use for installation (default: "docker-compose").
+- `-o, --orchestrator`: Orchestrator to use for installation (default: "compose").
 - `-d, --database`: Path to the existing database dump.
 - `-a, --admin`: Admin name of the new wiki.
 - `--wikidbuser`: The username of the wiki database user (default: "root").
