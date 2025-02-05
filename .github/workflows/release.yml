@@ -20,7 +20,7 @@ jobs:
     - name: Build
       run: sh build.sh
     - name: Upload executable for job build
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: executable
         path: ./Canasta-CLI-Go
