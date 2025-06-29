@@ -1,19 +1,8 @@
-# Canasta CLI - Recent Enhancements & New Commands for wiki farm support
+#  Canasta CLI (command-line interface) tool
 
-We're excited to introduce a series of enhancements and new commands to the Canasta CLI. These changes aim to provide users with more flexibility and power in managing their MediaWiki instances and wiki farms.
+This is the official command line interface tool for the Canasta MediaWiki distribution.
 
-## Table of Contents
-- [Installation](#installation)
-- [Enhancements](#enhancements)
-  - [create](#create)
-  - [extension](#extension)
-  - [skin](#skin)
-- [New Commands](#new-commands)
-  - [add](#add)
-  - [remove](#remove)
-
-
-## Enhancements
+## Commands
 
 ### create
 **Description:** Creates a Canasta installation. Enhanced to support wiki farm setup with the `-f` flag.
@@ -65,8 +54,6 @@ sudo canasta extension [subcommand] [flags]
 - `-p, --path`: Specifies the Canasta installation directory.
 - `-w, --wiki`: Specifies the ID of a specific wiki within the Canasta farm.
 - `-v, --verbose`: Enables verbose output.
-
-## New Commands
 
 ### add
 **Description:** Adds a new wiki to a Canasta instance.
