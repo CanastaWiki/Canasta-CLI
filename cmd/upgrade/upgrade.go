@@ -57,6 +57,10 @@ func Upgrade(instance config.Installation) error {
 		return err
 	}
 
+	if err = orchestrators.Pull(instance.Path, instance.Orchestrator); err != nil {
+		return err
+	}
+
 	//Restarting the containers
 	if err = orchestrators.StopAndStart(instance.Path, instance.Orchestrator); err != nil {
 		return err
