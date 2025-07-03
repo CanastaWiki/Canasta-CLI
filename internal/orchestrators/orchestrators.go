@@ -83,6 +83,29 @@ func Start(path, orchestrator string) error {
 	return nil
 }
 
+func Pull(path, orchestrator string) error {
+	logging.Print("Pulling Canasta image\n")
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		if compose.Path != "" {
+			err, output := execute.Run(path, compose.Path, "pull")
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		} else {
+			err, output := execute.Run(path, "docker", "compose", "pull")
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+	}
+	return nil
+}
+
+
 func Stop(path, orchestrator string) error {
 	logging.Print("Stopping the containers\n")
 	switch orchestrator {
