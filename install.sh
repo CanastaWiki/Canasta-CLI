@@ -65,7 +65,7 @@ choose_version() {
   echo "-----"
   echo "Checking the version..."
 
-  if [[ -z ${VERSION-} ]] || ! validate_version "$VERSION"; then
+  if [[ -z ${VERSION-} ]] || [ $VERSION == "latest" ] || ! validate_version "$VERSION"; then
     while true; do
       read -rp "Enter a valid version number (e.g., 3.0.5), or hit ENTER for the latest version: " -e VERSION
 
