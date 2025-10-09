@@ -67,8 +67,7 @@ choose_version() {
 
   if [[ -z ${VERSION-} ]] || ! validate_version "$VERSION"; then
     while true; do
-      echo "Enter a valid version number (e.g. 1.2.0):"
-      read -rp "Version (ENTER for the latest version): " -e VERSION
+      read -rp "Enter a valid version number (e.g., 3.0.5), or hit ENTER for the latest version: " -e VERSION
 
       if [[ $VERSION =~ ^(([0-9]{1,3}[\.]){2}[0-9]{1,3}).* ]]; then
         echo "Installing version $VERSION."
