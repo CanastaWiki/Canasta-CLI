@@ -137,7 +137,7 @@ download_and_install() {
   fi
 
   echo "Downloading Canasta CLI version $VERSION..."
-  if ! wget -q $WGET_SHOW_PROGRESS "$canasta_url" -O canasta; then
+  if ! sudo wget -q $WGET_SHOW_PROGRESS "$canasta_url" -O canasta; then
     echo "Download failed. The version you specified might not exist."
     echo "Please use '-l' or '--list' flag to see the available versions or try again."
     rm -f canasta   # Delete the 0-byte canasta file
