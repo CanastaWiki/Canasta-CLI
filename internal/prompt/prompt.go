@@ -6,8 +6,10 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"log"
 
 	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
 	"golang.org/x/term"
 )
 
@@ -27,6 +29,9 @@ func PromptUser(name, yamlPath string, rootdbpass bool, wikidbpass bool, canasta
 	}
 	if canastaInfo.Id, err = promptForInput(canastaInfo.Id, "Canasta ID"); err != nil {
 		return name, wgsmtp, canastaInfo, err
+	}
+	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
+		log.Fatal(fmt.Errorf("Canasta ID \"" + canastaInfo.Id + "\" already exist!"))
 	}
 	if canastaInfo.AdminName, canastaInfo.AdminPassword, err = promptForUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword); err != nil {
 		return name, wgsmtp, canastaInfo, err
