@@ -144,7 +144,7 @@ download_and_install() {
     exit 1
   fi
   echo "Download was successful; now installing Canasta CLI."
-  chmod u=rwx,g=xr,o=x canasta
+  sudo chmod u=rwx,g=xr,o=x canasta
   sudo mv canasta /usr/local/bin/canasta
   if [ $? -ne 0 ]; then
     echo "Installation failed. Please try again."
