@@ -6,6 +6,9 @@
 *.dylib
 *.yaml
 
+# Build output directory
+build/
+
 # Test binary, built with `go test -c`
 *.test
 

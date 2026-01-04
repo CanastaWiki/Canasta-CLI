@@ -125,20 +125,64 @@ check_wget_show_progress() {
   fi
 }
 
+detect_platform() {
+  # Detect OS
+  local os=""
+  case "$(uname -s)" in
+    Linux*)
+      os="linux"
+      ;;
+    Darwin*)
+      os="darwin"
+      ;;
+    *)
+      echo "Unsupported operating system: $(uname -s)"
+      echo "Canasta CLI supports Linux and macOS only."
+      exit 1
+      ;;
+  esac
+
+  # Detect architecture
+  local arch=""
+  case "$(uname -m)" in
+    x86_64|amd64)
+      arch="amd64"
+      ;;
+    aarch64|arm64)
+      arch="arm64"
+      ;;
+    *)
+      echo "Unsupported architecture: $(uname -m)"
+      echo "Canasta CLI supports amd64 and arm64 only."
+      exit 1
+      ;;
+  esac
+
+  echo "${os}-${arch}"
+}
+
 download_and_install() {
   local canasta_url=""
+  local platform=""
+  local binary_name=""
 
   check_wget_show_progress
 
+  # Detect platform
+  platform=$(detect_platform)
+  binary_name="canasta-${platform}"
+
+  echo "Detected platform: $platform"
+
   if [ "$VERSION" == "latest" ]; then
-    canasta_url="https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
+    canasta_url="https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/${binary_name}"
   else
-    canasta_url="https://github.com/CanastaWiki/Canasta-CLI/releases/download/v${VERSION}/canasta"
+    canasta_url="https://github.com/CanastaWiki/Canasta-CLI/releases/download/v${VERSION}/${binary_name}"
   fi
 
-  echo "Downloading Canasta CLI version $VERSION..."
+  echo "Downloading Canasta CLI version $VERSION for $platform..."
   if ! sudo wget -q $WGET_SHOW_PROGRESS "$canasta_url" -O canasta; then
-    echo "Download failed. The version you specified might not exist."
+    echo "Download failed. The version you specified might not exist for your platform ($platform)."
     echo "Please use '-l' or '--list' flag to see the available versions or try again."
     rm -f canasta   # Delete the 0-byte canasta file
     exit 1
