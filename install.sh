@@ -182,10 +182,21 @@ download_and_install() {
 
   echo "Downloading Canasta CLI version $VERSION for $platform..."
   if ! sudo wget -q $WGET_SHOW_PROGRESS "$canasta_url" -O canasta; then
-    echo "Download failed. The version you specified might not exist for your platform ($platform)."
-    echo "Please use '-l' or '--list' flag to see the available versions or try again."
-    rm -f canasta   # Delete the 0-byte canasta file
-    exit 1
+    echo "Platform-specific binary not found. Trying generic binary (backward compatibility)..."
+
+    # Fall back to generic binary name for older releases
+    if [ "$VERSION" == "latest" ]; then
+      canasta_url="https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta"
+    else
+      canasta_url="https://github.com/CanastaWiki/Canasta-CLI/releases/download/v${VERSION}/canasta"
+    fi
+
+    if ! sudo wget -q $WGET_SHOW_PROGRESS "$canasta_url" -O canasta; then
+      echo "Download failed. The version you specified might not exist."
+      echo "Please use '-l' or '--list' flag to see the available versions or try again."
+      rm -f canasta   # Delete the 0-byte canasta file
+      exit 1
+    fi
   fi
   echo "Download was successful; now installing Canasta CLI."
   sudo chmod u=rwx,g=xr,o=x canasta
