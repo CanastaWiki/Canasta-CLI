@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"text/tabwriter"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/kirsle/configdir"
 )
 

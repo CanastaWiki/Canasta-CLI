@@ -1,6 +1,6 @@
 package main
 
-import cmd "github.com/CanastaWiki/Canasta-CLI-Go/cmd/root"
+import cmd "github.com/CanastaWiki/Canasta-CLI/cmd/root"
 
 func main() {
 	cmd.Execute()

@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
 func checkCmdCreate() *cobra.Command {
