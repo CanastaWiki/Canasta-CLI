@@ -2,6 +2,14 @@
 
 This is the official command line interface tool for the Canasta MediaWiki distribution.
 
+## Supported Platforms
+
+Canasta CLI supports the following platforms:
+- **Linux** (amd64, arm64)
+- **macOS** (Intel and Apple Silicon)
+
+**Windows Users:** Please use [WSL (Windows Subsystem for Linux)](https://docs.microsoft.com/en-us/windows/wsl/install) and install the Linux version. Docker Desktop on Windows already uses WSL2, so this provides the best compatibility.
+
 ## Commands
 
 ### create
