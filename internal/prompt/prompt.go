@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"golang.org/x/term"
 )
 

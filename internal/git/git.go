@@ -3,7 +3,7 @@ package git
 import (
 	"fmt"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 )
 
 func Clone(repo, path string) error {

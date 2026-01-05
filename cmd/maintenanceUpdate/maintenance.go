@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/spf13/cobra"
 )
 

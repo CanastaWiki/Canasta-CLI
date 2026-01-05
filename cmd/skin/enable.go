@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/extensionsskins"
+	"github.com/CanastaWiki/Canasta-CLI/internal/extensionsskins"
 	"github.com/spf13/cobra"
 )
 
