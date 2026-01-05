@@ -9,12 +9,12 @@ import (
 	"strings"
 	"regexp"
 
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/farmsettings"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/git"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/logging"
-	"github.com/CanastaWiki/Canasta-CLI-Go/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/git"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/sethvargo/go-password/password"
 )
 

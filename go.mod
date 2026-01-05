@@ -1,4 +1,4 @@
-module github.com/CanastaWiki/Canasta-CLI-Go
+module github.com/CanastaWiki/Canasta-CLI
 
 go 1.18
 
