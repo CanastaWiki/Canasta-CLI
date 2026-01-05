@@ -10,7 +10,7 @@
 # Get version information
 GIT_SHA=$(git rev-parse --short HEAD)
 BUILD_TIME=$(date +'%Y-%m-%d %T')
-LDFLAGS="-X 'github.com/CanastaWiki/Canasta-CLI-Go/cmd/version.sha1=${GIT_SHA}' -X 'github.com/CanastaWiki/Canasta-CLI-Go/cmd/version.buildTime=${BUILD_TIME}'"
+LDFLAGS="-X 'github.com/CanastaWiki/Canasta-CLI/cmd/version.sha1=${GIT_SHA}' -X 'github.com/CanastaWiki/Canasta-CLI/cmd/version.buildTime=${BUILD_TIME}'"
 
 # Default to current platform if GOOS/GOARCH not set
 if [ -z "$GOOS" ]; then
