@@ -153,7 +153,7 @@ detect_platform() {
       ;;
     *)
       echo "Unsupported architecture: $(uname -m)"
-      echo "Canasta CLI supports amd64 and arm64 only."
+      echo "Canasta CLI supports AMD64 (x86-64) and ARM64 (AArch64) only."
       exit 1
       ;;
   esac
