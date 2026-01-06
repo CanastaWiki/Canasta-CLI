@@ -6,9 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-	"bufio"
-	"regexp"
-	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
@@ -21,100 +18,7 @@ const dbServer = "db"
 const confPath = "/mediawiki/config/"
 const scriptPath = "/w"
 
-func updatePHPArrayVariables(filePath, variableName string, updates map[string] interface{}) error {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to open file: %v", err)
-	}
-	defer file.Close()
-
-	var lines []string
-	insideArray := false
-	arrayFound := false
-	updatedKeys := make(map[string]bool)
-	arrayStartRegex := regexp.MustCompile(`^\s*\$` + regexp.QuoteMeta(variableName) + `\s*=\s*\[`)
-	arrayKeyRegex := func(key string) *regexp.Regexp {
-		return regexp.MustCompile(`^\s*['"]?` + regexp.QuoteMeta(key) + `['"]?\s*=>`)
-	}
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if arrayStartRegex.MatchString(line) {
-			insideArray = true
-			arrayFound = true
-		}
-
-		if insideArray {
-			for key, newValue := range updates {
-				if arrayKeyRegex(key).MatchString(line) {
-					line = fmt.Sprintf("    '%s' => %s,", key, formatPHPValue(newValue))
-					updatedKeys[key] = true
-				}
-			}
-
-			if strings.TrimSpace(line) == "];" {
-				insideArray = false
-				for key, newValue := range updates {
-					if !updatedKeys[key] {
-						if len(lines) > 0 && !strings.HasSuffix(strings.TrimSpace(lines[len(lines)-1]), ",") {
-							lines[len(lines)-1] += ","
-						}
-						lines = append(lines, fmt.Sprintf("    '%s' => %s,", key, formatPHPValue(newValue)))
-						updatedKeys[key] = true
-					}
-				}
-				line = "];"
-			}
-		}
-
-		lines = append(lines, line)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("failed to read file: %v", err)
-	}
-
-	if !arrayFound {
-		lines = append(lines, fmt.Sprintf("$%s = [", variableName))
-		for key, newValue := range updates {
-			lines = append(lines, fmt.Sprintf("    '%s' => %s,", key, formatPHPValue(newValue)))
-		}
-		lines[len(lines)-1] = strings.TrimSuffix(lines[len(lines)-1], ",") + "\n];"
-	}
-
-	file, err = os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to open file for writing: %v", err)
-	}
-	defer file.Close()
-
-	writer := bufio.NewWriter(file)
-	for _, line := range lines {
-		_, err := writer.WriteString(line + "\n")
-		if err != nil {
-			return fmt.Errorf("failed to write to file: %v", err)
-		}
-	}
-	return writer.Flush()
-}
-
-func formatPHPValue(value interface{}) string {
-	switch v := value.(type) {
-	case string:
-		return fmt.Sprintf("'%s'", v)
-	case bool:
-		if v {
-			return "true"
-		}
-		return "false"
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}
-
-func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVariables, wgsmtp map[string]interface{}) (canasta.CanastaVariables, error) {
+func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
@@ -174,12 +78,6 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettingsBackup.php"), filepath.Join(path, "config", settingsName))
 	if err != nil {
 		return canastaInfo, err
-	}
-	err = updatePHPArrayVariables(filepath.Join(path, "config", settingsName), "wgSMTP", wgsmtp)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-	} else {
-		fmt.Printf("Mailer details updated successfully.\n")
 	}
 	return canastaInfo, err
 }

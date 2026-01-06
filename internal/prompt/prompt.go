@@ -11,53 +11,29 @@ import (
 	"golang.org/x/term"
 )
 
-func PromptUser(name, yamlPath string, rootdbpass bool, wikidbpass bool, canastaInfo canasta.CanastaVariables) (string, map[string]interface{}, canasta.CanastaVariables, error) {
+func PromptUser(name, yamlPath string, rootdbpass bool, wikidbpass bool, canastaInfo canasta.CanastaVariables) (string, canasta.CanastaVariables, error) {
 	var err error
-	var host, IDHost, port, username, password string
-	wgsmtp := map[string]interface{}{
-		"auth": true,
-	}
 	if yamlPath == "" {
 		if name, err = promptForInput(name, "WikiID"); err != nil {
-			return name, wgsmtp, canastaInfo, err
+			return name, canastaInfo, err
 		}
 		if err = validateWikiID(name); err != nil {
-			return name, wgsmtp, canastaInfo, err
+			return name, canastaInfo, err
 		}
 	}
 	if canastaInfo.Id, err = promptForInput(canastaInfo.Id, "Canasta ID"); err != nil {
-		return name, wgsmtp, canastaInfo, err
+		return name, canastaInfo, err
 	}
 	if canastaInfo.AdminName, canastaInfo.AdminPassword, err = promptForUserPassword(canastaInfo.AdminName, canastaInfo.AdminPassword); err != nil {
-		return name, wgsmtp, canastaInfo, err
+		return name, canastaInfo, err
 	}
 	if canastaInfo.RootDBPassword, err = promptForDBPassword("root", rootdbpass); err != nil {
-		return name, wgsmtp, canastaInfo, err
+		return name, canastaInfo, err
 	}
 	if canastaInfo.WikiDBPassword, err = promptForDBPassword("wiki", wikidbpass); err != nil {
-		return name, wgsmtp, canastaInfo, err
+		return name, canastaInfo, err
 	}
-	if host, err = promptForInput(host, "Mail Host"); err != nil {
-		return name, wgsmtp, canastaInfo, err
-	}
-	wgsmtp["host"] = host
-	if IDHost, err = promptForInput(IDHost, "Mail ID Host"); err != nil {
-		return name, wgsmtp, canastaInfo, err
-	}
-	wgsmtp["IDHost"] = IDHost
-	if port, err = promptForInput(port, "Mail Port"); err != nil {
-		return name, wgsmtp, canastaInfo, err
-	}
-	wgsmtp["port"] = port
-	if username, err = promptForInput(username, "Mail Username"); err != nil {
-		return name, wgsmtp, canastaInfo, err
-	}
-	wgsmtp["username"] = username
-	if password, err = promptForInput(password, "Mail Password"); err != nil {
-		return name, wgsmtp, canastaInfo, err
-	}
-	wgsmtp["password"] = password
-	return name, wgsmtp, canastaInfo, nil
+	return name, canastaInfo, nil
 }
 
 func PromptWiki(name, urlString, id, siteName, admin string) (string, string, string, string, string, string, error) {
