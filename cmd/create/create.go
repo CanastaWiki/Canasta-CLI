@@ -134,6 +134,6 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain
 	if err := orchestrators.StopAndStart(path, orchestrator); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("\033[32mIf you need email enabled for this wiki, please set $wgSMTP; email will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP\033[0m")
+	fmt.Println("\033[32mIf you need email enabled for this wiki, please set $wgSMTP; email will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP for options.\033[0m")
 	return nil
 }
