@@ -38,8 +38,7 @@ func NewCmdCreate() *cobra.Command {
 		Short: "Create a Canasta installation",
 		Long:  "Creates a Canasta installation using an orchestrator of your choice.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var wgsmtp map[string]interface{}
-			if name, wgsmtp, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo); err != nil {
+			if name, canastaInfo, err = prompt.PromptUser(name, yamlPath, rootdbpass, wikidbpass, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
 			if canastaInfo, err = canasta.GeneratePasswords(path, canastaInfo); err != nil {
@@ -53,7 +52,7 @@ func NewCmdCreate() *cobra.Command {
 			description := "Creating Canasta installation '" + canastaInfo.Id + "'..."
 			_, done := spinner.New(description)
 
-			if err = createCanasta(canastaInfo, pwd, path, name, domain, yamlPath, orchestrator, override, wgsmtp, done); err != nil {
+			if err = createCanasta(canastaInfo, pwd, path, name, domain, yamlPath, orchestrator, override, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if keepConfig {
 					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
@@ -93,7 +92,7 @@ func NewCmdCreate() *cobra.Command {
 }
 
 // importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain, yamlPath, orchestrator, override string, wgsmtp map[string]interface{}, done chan struct{}) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain, yamlPath, orchestrator, override string, done chan struct{}) error {
 	// Pass a message to the "done" channel indicating the completion of createCanasta function.
 	// This signals the spinner to stop printing progress, regardless of success or failure.
 	defer func() {
@@ -126,7 +125,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, pwd, path, name, domain
 	if err := orchestrators.Start(path, orchestrator); err != nil {
 		return err
 	}
-	if _, err := mediawiki.Install(path, yamlPath, orchestrator, canastaInfo, wgsmtp); err != nil {
+	if _, err := mediawiki.Install(path, yamlPath, orchestrator, canastaInfo); err != nil {
 		return err
 	}
 	if err := config.Add(config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator}); err != nil {
