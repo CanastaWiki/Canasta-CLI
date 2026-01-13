@@ -58,7 +58,7 @@ func ListAll() {
 	}
 
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "Canasta ID\tWiki ID(Name)\tServer Name\tServer Path\tInstallation Path\tOrchestrator")
+	fmt.Fprintln(writer, "Canasta ID\tWiki ID\tServer Name\tServer Path\tInstallation Path\tOrchestrator")
 
 	for _, installation := range existingInstallations.Installations {
 		if _, err := os.Stat(installation.Path + "/config/wikis.yaml"); os.IsNotExist(err) {
@@ -110,14 +110,14 @@ func GetDetails(canastaId string) (Installation, error) {
 	return Installation{}, fmt.Errorf("Canasta installation with the ID doesn't exist")
 }
 
-func GetCanastaId(path string) (string, error) {
+func GetCanastaId(installPath string) (string, error) {
 	var canastaId string
 	for _, installations := range existingInstallations.Installations {
-		if installations.Path == path {
+		if installations.Path == installPath {
 			return installations.Id, nil
 		}
 	}
-	return canastaId, fmt.Errorf("No canasta installations exist at %s", path)
+	return canastaId, fmt.Errorf("No canasta installations exist at %s", installPath)
 }
 
 func Add(details Installation) error {

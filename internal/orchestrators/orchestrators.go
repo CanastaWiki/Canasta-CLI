@@ -40,15 +40,15 @@ func GetRepoLink(orchestrator string) string {
 	return repo
 }
 
-func CopyOverrideFile(path, orchestrator, sourceFilename, pwd string) error {
+func CopyOverrideFile(installPath, orchestrator, sourceFilename, workingDir string) error {
 	if sourceFilename != "" {
 		logging.Print("Copying override file\n")
 		switch orchestrator {
 		case "compose":
 			if !strings.HasPrefix(sourceFilename, "/") {
-				sourceFilename = pwd + "/" + sourceFilename
+				sourceFilename = workingDir + "/" + sourceFilename
 			}
-			var overrideFilename = path + "/docker-compose.override.yml"
+			var overrideFilename = installPath + "/docker-compose.override.yml"
 			logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, overrideFilename))
 			err, output := execute.Run("", "cp", sourceFilename, overrideFilename)
 			if err != nil {
@@ -61,18 +61,18 @@ func CopyOverrideFile(path, orchestrator, sourceFilename, pwd string) error {
 	return nil
 }
 
-func Start(path, orchestrator string) error {
+func Start(installPath, orchestrator string) error {
 	logging.Print("Starting Canasta\n")
 	switch orchestrator {
 	case "compose":
 		compose := config.GetOrchestrator("compose")
 		if compose.Path != "" {
-			err, output := execute.Run(path, compose.Path, "up", "-d")
+			err, output := execute.Run(installPath, compose.Path, "up", "-d")
 			if err != nil {
 				return fmt.Errorf(output)
 			}
 		} else {
-			err, output := execute.Run(path, "docker", "compose", "up", "-d")
+			err, output := execute.Run(installPath, "docker", "compose", "up", "-d")
 			if err != nil {
 				return fmt.Errorf(output)
 			}
@@ -83,18 +83,18 @@ func Start(path, orchestrator string) error {
 	return nil
 }
 
-func Pull(path, orchestrator string) error {
+func Pull(installPath, orchestrator string) error {
 	logging.Print("Pulling Canasta image\n")
 	switch orchestrator {
 	case "compose":
 		compose := config.GetOrchestrator("compose")
 		if compose.Path != "" {
-			err, output := execute.Run(path, compose.Path, "pull")
+			err, output := execute.Run(installPath, compose.Path, "pull")
 			if err != nil {
 				return fmt.Errorf(output)
 			}
 		} else {
-			err, output := execute.Run(path, "docker", "compose", "pull")
+			err, output := execute.Run(installPath, "docker", "compose", "pull")
 			if err != nil {
 				return fmt.Errorf(output)
 			}
@@ -106,19 +106,19 @@ func Pull(path, orchestrator string) error {
 }
 
 
-func Stop(path, orchestrator string) error {
+func Stop(installPath, orchestrator string) error {
 	logging.Print("Stopping the containers\n")
 	switch orchestrator {
 	case "compose":
 		compose := config.GetOrchestrator("compose")
 		if compose.Path != "" {
-			err, output := execute.Run(path, compose.Path, "down")
+			err, output := execute.Run(installPath, compose.Path, "down")
 			if err != nil {
 				return fmt.Errorf(output)
 
 			}
 		} else {
-			err, output := execute.Run(path, "docker", "compose", "down")
+			err, output := execute.Run(installPath, "docker", "compose", "down")
 			if err != nil {
 				return fmt.Errorf(output)
 			}
@@ -129,26 +129,26 @@ func Stop(path, orchestrator string) error {
 	return nil
 }
 
-func StopAndStart(path, orchestrator string) error {
-	if err := Stop(path, orchestrator); err != nil {
+func StopAndStart(installPath, orchestrator string) error {
+	if err := Stop(installPath, orchestrator); err != nil {
 		return err
 	}
-	if err := Start(path, orchestrator); err != nil {
+	if err := Start(installPath, orchestrator); err != nil {
 		return err
 	}
 	return nil
 }
 
-func DeleteContainers(path, orchestrator string) (string, error) {
+func DeleteContainers(installPath, orchestrator string) (string, error) {
 	switch orchestrator {
 	case "compose":
 		compose := config.GetOrchestrator("compose")
 		if compose.Path != "" {
 
-			err, output := execute.Run(path, compose.Path, "down", "-v")
+			err, output := execute.Run(installPath, compose.Path, "down", "-v")
 			return output, err
 		} else {
-			err, output := execute.Run(path, "docker", "compose", "down", "-v")
+			err, output := execute.Run(installPath, "docker", "compose", "down", "-v")
 			return output, err
 		}
 	default:
@@ -157,13 +157,13 @@ func DeleteContainers(path, orchestrator string) (string, error) {
 	return "", nil
 }
 
-func DeleteConfig(path string) (string, error) {
+func DeleteConfig(installPath string) (string, error) {
 	//Deleting the installation folder
-	err, output := execute.Run("", "rm", "-rf", path)
+	err, output := execute.Run("", "rm", "-rf", installPath)
 	return output, err
 }
 
-func ExecWithError(path, orchestrator, container, command string) (string, error) {
+func ExecWithError(installPath, orchestrator, container, command string) (string, error) {
 	var outputByte []byte
 	var err error
 
@@ -173,14 +173,14 @@ func ExecWithError(path, orchestrator, container, command string) (string, error
 		if compose.Path != "" {
 
 			cmd := exec.Command(compose.Path, "exec", "-T", container, "/bin/bash", "-c", command)
-			if path != "" {
-				cmd.Dir = path
+			if installPath != "" {
+				cmd.Dir = installPath
 			}
 			outputByte, err = cmd.CombinedOutput()
 		} else {
 			cmd := exec.Command("docker", "compose", "exec", "-T", container, "/bin/bash", "-c", command)
-			if path != "" {
-				cmd.Dir = path
+			if installPath != "" {
+				cmd.Dir = installPath
 			}
 			outputByte, err = cmd.CombinedOutput()
 		}
@@ -192,8 +192,8 @@ func ExecWithError(path, orchestrator, container, command string) (string, error
 	return output, err
 }
 
-func Exec(path, orchestrator, container, command string) string {
-	output, err := ExecWithError(path, orchestrator, container, command)
+func Exec(installPath, orchestrator, container, command string) string {
+	output, err := ExecWithError(installPath, orchestrator, container, command)
 	if err != nil {
 		logging.Fatal(fmt.Errorf(output))
 	}
@@ -201,7 +201,7 @@ func Exec(path, orchestrator, container, command string) string {
 
 }
 
-func CheckRunningStatus(path, id, orchestrator string) error {
+func CheckRunningStatus(installPath, canastaID, orchestrator string) error {
 	containerName := "web"
 
 	switch orchestrator {
@@ -210,12 +210,12 @@ func CheckRunningStatus(path, id, orchestrator string) error {
 		var output string
 		var err error
 		if compose.Path != "" {
-			err, output = execute.Run(path, compose.Path, "ps", "-q", containerName)
+			err, output = execute.Run(installPath, compose.Path, "ps", "-q", containerName)
 		} else {
-			err, output = execute.Run(path, "docker", "compose", "ps", "-q", containerName)
+			err, output = execute.Run(installPath, "docker", "compose", "ps", "-q", containerName)
 		}
 		if err != nil || output == "" {
-			logging.Fatal(fmt.Errorf("Container %s is not running, please start it first if you want to add a new wiki!", containerName))
+			logging.Fatal(fmt.Errorf("Container %s is not running in Canasta instance '%s', please start it first!", containerName, canastaID))
 			return fmt.Errorf("Container %s is not running", containerName)
 		}
 	default:
@@ -225,7 +225,7 @@ func CheckRunningStatus(path, id, orchestrator string) error {
 	return nil
 }
 
-func ExportDatabase(path, orchestrator, wikiName, outputFilePath string) error {
+func ExportDatabase(installPath, orchestrator, wikiID, outputFilePath string) error {
 	// MySQL user, password and container name
 	// Replace with your actual MySQL username and password and MySQL container name
 	mysqlUser := "root"
@@ -233,9 +233,9 @@ func ExportDatabase(path, orchestrator, wikiName, outputFilePath string) error {
 	mysqlContainerName := "db" // adjust as per your setup
 
 	// Constructing mysqldump command
-	dumpCommand := fmt.Sprintf("mysqldump -u %s -p%s %s > /tmp/%s.sql", mysqlUser, mysqlPassword, wikiName, wikiName)
+	dumpCommand := fmt.Sprintf("mysqldump -u %s -p%s %s > /tmp/%s.sql", mysqlUser, mysqlPassword, wikiID, wikiID)
 	// Executing mysqldump command inside the MySQL container
-	_, err := ExecWithError(path, orchestrator, mysqlContainerName, dumpCommand)
+	_, err := ExecWithError(installPath, orchestrator, mysqlContainerName, dumpCommand)
 	if err != nil {
 		return fmt.Errorf("Failed to execute mysqldump command: %v", err)
 	}
@@ -244,7 +244,7 @@ func ExportDatabase(path, orchestrator, wikiName, outputFilePath string) error {
 	// We need to copy it from the container to the host machine.
 
 	// Constructing docker cp command
-	copyCommand := fmt.Sprintf("docker cp %s:/tmp/%s.sql %s", mysqlContainerName, wikiName, outputFilePath)
+	copyCommand := fmt.Sprintf("docker cp %s:/tmp/%s.sql %s", mysqlContainerName, wikiID, outputFilePath)
 
 	// Executing docker cp command on the host machine
 	err, output := execute.Run("", "/bin/bash", "-c", copyCommand)
@@ -253,10 +253,10 @@ func ExportDatabase(path, orchestrator, wikiName, outputFilePath string) error {
 	}
 
 	// Construct the remove command to delete the .sql file from the container
-	removeCommand := fmt.Sprintf("rm /tmp/%s.sql", wikiName)
+	removeCommand := fmt.Sprintf("rm /tmp/%s.sql", wikiID)
 
 	// Execute the remove command
-	_, err = ExecWithError(path, orchestrator, mysqlContainerName, removeCommand)
+	_, err = ExecWithError(installPath, orchestrator, mysqlContainerName, removeCommand)
 	if err != nil {
 		logging.Fatal(fmt.Errorf("Failed to remove .sql file from container: %w", err))
 	}

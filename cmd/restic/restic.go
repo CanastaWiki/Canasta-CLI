@@ -13,7 +13,7 @@ import (
 
 var (
 	instance      config.Installation
-	pwd           string
+	workingDir           string
 	err           error
 	verbose       bool
 	resticCmd     *cobra.Command
@@ -49,11 +49,11 @@ func NewCmdCreate() *cobra.Command {
 	resticCmd.AddCommand(checkCmdCreate())
 	resticCmd.AddCommand(diffCmdCreate())
 
-	if pwd, err = os.Getwd(); err != nil {
+	if workingDir, err = os.Getwd(); err != nil {
 		log.Fatal(err)
 	}
 	resticCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	resticCmd.PersistentFlags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
+	resticCmd.PersistentFlags().StringVarP(&instance.Path, "path", "p", workingDir, "Canasta installation directory")
 	resticCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return resticCmd
 

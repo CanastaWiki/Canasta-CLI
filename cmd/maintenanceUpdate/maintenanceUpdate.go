@@ -26,7 +26,7 @@ func updateCmdCreate() *cobra.Command {
 		},
 	}
 
-	if pwd, err = os.Getwd(); err != nil {
+	if workingDir, err = os.Getwd(); err != nil {
 		log.Fatal(err)
 	}
 	return updateCmd

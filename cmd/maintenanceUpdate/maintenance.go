@@ -10,7 +10,7 @@ import (
 
 var (
 	instance config.Installation
-	pwd      string
+	workingDir      string
 	err      error
 )
 
@@ -22,11 +22,11 @@ func NewCmdCreate() *cobra.Command {
 
 	maintenanceCmd.AddCommand(updateCmdCreate())
 	maintenanceCmd.AddCommand(scriptCmdCreate())
-	if pwd, err = os.Getwd(); err != nil {
+	if workingDir, err = os.Getwd(); err != nil {
 		log.Fatal(err)
 	}
 
 	maintenanceCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	maintenanceCmd.PersistentFlags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
+	maintenanceCmd.PersistentFlags().StringVarP(&instance.Path, "path", "p", workingDir, "Canasta installation directory")
 	return maintenanceCmd
 }

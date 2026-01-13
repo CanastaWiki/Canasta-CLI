@@ -33,11 +33,11 @@ func NewCmdCreate() *cobra.Command {
 			return nil
 		},
 	}
-	pwd, err := os.Getwd()
+	workingDir, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
-	restartCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
+	restartCmd.Flags().StringVarP(&instance.Path, "path", "p", workingDir, "Canasta installation directory")
 	restartCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	restartCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
 	restartCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")

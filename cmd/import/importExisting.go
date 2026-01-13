@@ -1,7 +1,6 @@
 package importExisting
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"os"
@@ -14,7 +13,7 @@ import (
 
 func NewCmdCreate() *cobra.Command {
 	var (
-		pwd               string
+		workingDir               string
 		path              string
 		orchestrator      string
 		databasePath      string
@@ -36,30 +35,24 @@ func NewCmdCreate() *cobra.Command {
 				return err
 			}
 			fmt.Println("Importing Canasta")
-			if err := importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, override); err != nil {
+			if err := importCanasta(workingDir, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, override); err != nil {
 				fmt.Print(err.Error(), "\n")
-				if keepConfig {
-					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
+				if !keepConfig {
+					canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaId, orchestrator)
+					log.Fatal(fmt.Errorf("Import failed and files were cleaned up"))
 				}
-				scanner := bufio.NewScanner(os.Stdin)
-				fmt.Println("A fatal error occured during the installation\nDo you want to keep the files related to it? (y/n)")
-				scanner.Scan()
-				input := scanner.Text()
-				if input == "y" || input == "Y" || input == "yes" {
-					log.Fatal(fmt.Errorf("Keeping all the containers and config files\nExiting"))
-				}
-				canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaId, orchestrator)
+				log.Fatal(fmt.Errorf("Import failed. Keeping all the containers and config files\nExiting"))
 			}
 			fmt.Println("Done")
 			return nil
 		},
 	}
 
-	if pwd, err = os.Getwd(); err != nil {
+	if workingDir, err = os.Getwd(); err != nil {
 		log.Fatal(err)
 	}
 
-	importCmd.Flags().StringVarP(&path, "path", "p", pwd, "Canasta directory")
+	importCmd.Flags().StringVarP(&path, "path", "p", workingDir, "Canasta directory")
 	importCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
 	importCmd.Flags().StringVarP(&canastaId, "id", "i", "", "Canasta instance ID")
 	importCmd.Flags().StringVarP(&domainName, "domain-name", "n", "localhost", "Domain name")
@@ -73,23 +66,23 @@ func NewCmdCreate() *cobra.Command {
 }
 
 // importCanasta copies LocalSettings.php and databasedump to create canasta from a previous mediawiki installation
-func importCanasta(pwd, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, override string) error {
+func importCanasta(workingDir, canastaId, domainName, path, orchestrator, databasePath, localSettingsPath, envPath, override string) error {
 	if _, err := config.GetDetails(canastaId); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
 	if err := canasta.CloneStackRepo(orchestrator, canastaId, &path); err != nil {
 		return err
 	}
-	if err := canasta.CopyEnv(envPath, path, pwd, ""); err != nil {
+	if err := canasta.CopyEnvFile(envPath, path, workingDir); err != nil {
 		return err
 	}
-	if err := canasta.CopyDatabase(databasePath, path, pwd); err != nil {
+	if err := canasta.CopyDatabase(databasePath, path, workingDir); err != nil {
 		return err
 	}
-	if err := canasta.CopyLocalSettings(localSettingsPath, path, pwd); err != nil {
+	if err := canasta.CopyLocalSettings(localSettingsPath, path, workingDir); err != nil {
 		return err
 	}
-	if err := orchestrators.CopyOverrideFile(path, orchestrator, override, pwd); err != nil {
+	if err := orchestrators.CopyOverrideFile(path, orchestrator, override, workingDir); err != nil {
 		return err
 	}
 	if err := orchestrators.Start(path, orchestrator); err != nil {

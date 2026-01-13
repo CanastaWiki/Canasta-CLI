@@ -20,16 +20,18 @@ sudo canasta create [flags]
 - `-p, --path`: Canasta directory.
 - `-o, --orchestrator`: Orchestrator to use for installation (default: "compose").
 - `-i, --id`: Canasta instance ID.
-- `-w, --wiki`: Name of the wiki.
+- `-w, --wiki`: ID of the wiki.
+- `-t, --site-name`: Display name of the wiki (optional, defaults to wiki ID).
 - `-n, --domain-name`: Domain name (default: "localhost").
-- `-a, --WikiSysop`: Initial wiki admin username.
-- `-s, --password`: Initial wiki admin password.
+- `-a, --admin`: Initial wiki admin username (required).
+- `-s, --password`: Initial wiki admin password (if not provided, auto-generates and saves to config/admin-password_{wikiid}).
 - `-f, --yamlfile`: Initial wiki yaml file for wiki farm setup.
 - `-k, --keep-config`: Keep the config files on installation failure.
 - `-r, --override`: Name of a file to copy to docker-compose.override.yml.
-- `--rootdbpass`: Read root database user password from .root-db-password file or prompt for it if file does not exist (default password: "mediawiki").
+- `-e, --envfile`: Path to .env file with password overrides (merged with .env.example).
+- `--rootdbpass`: Root database password (if not provided, auto-generates and saves to .env).
 - `--wikidbuser`: The username of the wiki database user (default: "root").
-- `--wikidbpass`: Read wiki database user password from .wiki-db-password file or prompt for it if file does not exist (default password: "mediawiki").
+- `--wikidbpass`: Wiki database password (if not provided, auto-generates and saves to .env).
 
 **YAML Format for Wiki Farm:**
 To create a wiki farm, you first need to create a YAML file with the following format:
@@ -71,14 +73,15 @@ sudo canasta extension [subcommand] [flags]
 sudo canasta add [flags]
 ```
 **Flags:**
-- `-w, --wiki`: ID of the new wiki.
-- `-u, --url`: URL of the new wiki.
-- `-s, --site-name`: Name of the new wiki site.
+- `-w, --wiki`: ID of the new wiki (required).
+- `-u, --url`: URL of the new wiki in domain/path format (e.g., 'localhost/wiki2' or 'example.com/mywiki'; required).
+- `-t, --site-name`: Display name of the wiki (optional, defaults to wiki ID).
 - `-p, --path`: Path to the new wiki.
-- `-i, --id`: Canasta instance ID.
+- `-i, --id`: Canasta instance ID (required).
 - `-o, --orchestrator`: Orchestrator to use for installation (default: "compose").
 - `-d, --database`: Path to the existing database dump.
-- `-a, --admin`: Admin name of the new wiki.
+- `-a, --admin`: Admin name of the new wiki (required).
+- `-s, --password`: Admin password for the new wiki (if not provided, auto-generates and saves to config/admin-password_{wikiid}).
 - `--wikidbuser`: The username of the wiki database user (default: "root").
 
 
