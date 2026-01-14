@@ -8,15 +8,14 @@ build:
 		@./build.sh
 		@go mod tidy
 		@go mod verify
-		@ln -sf ${OUTPUT} ${APP_NAME}
+		@sudo cp ${OUTPUT} /usr/local/bin/${APP_NAME}
 		@echo "Build complete: ${OUTPUT}"
-		@echo "Symlink created: ./${APP_NAME} -> ${OUTPUT}"
-		@echo "To run the CLI, use \033[0;32m./${APP_NAME}\033[0m or \033[0;32m${OUTPUT}\033[0m"
+		@echo "Installed to: /usr/local/bin/${APP_NAME}"
+		@echo "To run the CLI, use \033[0;32m${APP_NAME}\033[0m"
 
 clean:
 		@echo "Cleaning build artifacts..."
 		@rm -rf build/
-		@rm -f ${APP_NAME}
 		@echo "Clean complete."
 
 prepare-lint:

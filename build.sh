@@ -27,6 +27,4 @@ mkdir -p build
 # Output filename
 OUTPUT="build/canasta-${GOOS}-${GOARCH}"
 
-echo "Building Canasta CLI for ${GOOS}/${GOARCH}..."
 go build -ldflags="${LDFLAGS}" -o "${OUTPUT}"
-echo "Build complete: ${OUTPUT}"

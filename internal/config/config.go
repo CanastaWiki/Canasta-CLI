@@ -35,12 +35,12 @@ var (
 	existingInstallations Canasta
 )
 
-func Exists(canastaId string) bool {
+func Exists(canastaID string) bool {
 	err := read(&existingInstallations)
 	if err != nil {
 		logging.Fatal(err)
 	}
-	return existingInstallations.Installations[canastaId].Id != ""
+	return existingInstallations.Installations[canastaID].Id != ""
 }
 
 func OrchestratorExists(orchestrator string) bool {
@@ -103,21 +103,21 @@ func ListAll() {
 	writer.Flush()
 }
 
-func GetDetails(canastaId string) (Installation, error) {
-	if Exists(canastaId) {
-		return existingInstallations.Installations[canastaId], nil
+func GetDetails(canastaID string) (Installation, error) {
+	if Exists(canastaID) {
+		return existingInstallations.Installations[canastaID], nil
 	}
 	return Installation{}, fmt.Errorf("Canasta installation with the ID doesn't exist")
 }
 
-func GetCanastaId(installPath string) (string, error) {
-	var canastaId string
+func GetCanastaID(installPath string) (string, error) {
+	var canastaID string
 	for _, installations := range existingInstallations.Installations {
 		if installations.Path == installPath {
 			return installations.Id, nil
 		}
 	}
-	return canastaId, fmt.Errorf("No canasta installations exist at %s", installPath)
+	return canastaID, fmt.Errorf("No canasta installations exist at %s", installPath)
 }
 
 func Add(details Installation) error {

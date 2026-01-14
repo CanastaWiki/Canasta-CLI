@@ -102,7 +102,7 @@ func NewCmdCreate() *cobra.Command {
 			}
 
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.Id)
-			err = AddWiki(wikiID, domainName, wikiPath, siteName, databasePath, admin, adminPassword, wikidbuser, workingDir, instance)
+			err = AddWiki(instance, wikiID, siteName, domainName, wikiPath, databasePath, admin, adminPassword, wikidbuser, workingDir)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -131,8 +131,8 @@ func NewCmdCreate() *cobra.Command {
 	return addCmd
 }
 
-// AddWiki accepts the Canasta instance ID, the wiki ID, domain and path of the new wiki, and the initial admin info, then creates a new wiki in the instance.
-func AddWiki(id, domain, wikipath, siteName, databasePath, admin, adminPassword, wikidbuser, workingDir string, instance config.Installation) error {
+// AddWiki accepts the Canasta instance info, wiki ID, site name, domain and path of the new wiki, database info, and the initial admin info, then creates a new wiki in the Canasta instance.
+func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, databasePath, admin, adminPassword, wikidbuser, workingDir string) error {
 	var err error
 
 	//Checking Installation existence
@@ -154,12 +154,12 @@ func AddWiki(id, domain, wikipath, siteName, databasePath, admin, adminPassword,
 	}
 
 	//Checking Wiki existence
-	idExists, err := farmsettings.WikiIDExists(instance.Path, id)
+	wikiIDExists, err := farmsettings.WikiIDExists(instance.Path, wikiID)
 	if err != nil {
 		return err
 	}
-	if idExists {
-		return fmt.Errorf("A wiki with the ID '%s' exists", id)
+	if wikiIDExists {
+		return fmt.Errorf("A wiki with the ID '%s' exists", wikiID)
 	}
 
 	urlExists, err := farmsettings.WikiUrlExists(instance.Path, domain, wikipath)
@@ -167,31 +167,31 @@ func AddWiki(id, domain, wikipath, siteName, databasePath, admin, adminPassword,
 		return err
 	}
 	if urlExists {
-		return fmt.Errorf("A wiki with the same installation path '%s' in the Canasta '%s' exists", id+": "+domain+"/"+wikipath, instance.Id)
+		return fmt.Errorf("A wiki with the same installation path '%s' in the Canasta instance '%s' exists", wikiID+": "+domain+"/"+wikipath, instance.Id)
 	}
 
 	// Import the database if databasePath is specified
 	if databasePath != "" {
-		err = orchestrators.ImportDatabase(id, databasePath, instance)
+		err = orchestrators.ImportDatabase(wikiID, databasePath, instance)
 		if err != nil {
 			return err
 		}
 	}
 
 	//Copy the Localsettings
-	err = canasta.CopySetting(instance.Path, id)
+	err = canasta.CopySetting(instance.Path, wikiID)
 	if err != nil {
 		return err
 	}
 
 	// Run MediaWiki installer - must succeed before modifying wikis.yaml
-	err = mediawiki.InstallOne(instance.Path, id, domain, admin, adminPassword, wikidbuser, workingDir, instance.Orchestrator)
+	err = mediawiki.InstallOne(instance.Path, wikiID, domain, admin, adminPassword, wikidbuser, workingDir, instance.Orchestrator)
 	if err != nil {
 		return err
 	}
 
 	//Add the wiki in farmsettings (only after successful installation)
-	err = farmsettings.AddWiki(id, instance.Path, domain, wikipath, siteName)
+	err = farmsettings.AddWiki(wikiID, instance.Path, domain, wikipath, siteName)
 	if err != nil {
 		return err
 	}
@@ -206,7 +206,7 @@ func AddWiki(id, domain, wikipath, siteName, databasePath, admin, adminPassword,
 		return err
 	}
 
-	fmt.Println("Successfully added wiki '" + id + "' in Canasta instance '" + instance.Id + "'...")
+	fmt.Println("Successfully added wiki '" + wikiID + "' in Canasta instance '" + instance.Id + "'...")
 
 	return nil
 }

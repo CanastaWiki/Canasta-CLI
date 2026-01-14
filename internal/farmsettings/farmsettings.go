@@ -20,18 +20,18 @@ type Wikis struct {
 	Wikis []Wiki `yaml:"wikis"`
 }
 
-// ValidateWikiID validates that a wiki ID doesn't contain invalid characters or reserved names
-func ValidateWikiID(id string) error {
-	// Check if the ID contains a hyphen (-)
-	if strings.Contains(id, "-") {
-		return fmt.Errorf("The character '-' is not allowed in WikiID")
+// ValidateWikiID validates that wikiID doesn't contain invalid characters or reserved names
+func ValidateWikiID(wikiID string) error {
+	// Check if wikiID contains a hyphen (-)
+	if strings.Contains(wikiID, "-") {
+		return fmt.Errorf("The character '-' is not allowed in wikiID")
 	}
 
-	// Check if the ID is one of the reserved names
+	// Check if wikiID is one of the reserved names
 	reservedNames := []string{"settings", "images", "w", "wiki"}
 	for _, name := range reservedNames {
-		if id == name {
-			return fmt.Errorf("%s cannot be used as WikiID", id)
+		if wikiID == name {
+			return fmt.Errorf("%s cannot be used as wikiID", wikiID)
 		}
 	}
 
@@ -39,10 +39,10 @@ func ValidateWikiID(id string) error {
 	return nil
 }
 
-func CreateYaml(id, domain, siteName string, path *string) error {
+func CreateYaml(wikiID, domain, siteName string, path *string) error {
 	if *path == "" {
 		var err error
-		*path, err = GenerateWikisYaml("./wikis.yaml", id, domain, siteName)
+		*path, err = GenerateWikisYaml("./wikis.yaml", wikiID, domain, siteName)
 		if err != nil {
 			return err
 		}
@@ -51,12 +51,12 @@ func CreateYaml(id, domain, siteName string, path *string) error {
 	return nil
 }
 
-func GenerateWikisYaml(filePath, id, domain, siteName string) (string, error) {
+func GenerateWikisYaml(filePath, wikiID, domain, siteName string) (string, error) {
 	if siteName == "" {
-		siteName = id
+		siteName = wikiID
 	}
 	wikis := Wikis{}
-	wikis.Wikis = append(wikis.Wikis, Wiki{ID: id, URL: domain, NAME: siteName})
+	wikis.Wikis = append(wikis.Wikis, Wiki{ID: wikiID, URL: domain, NAME: siteName})
 
 	out, err := yaml.Marshal(&wikis)
 	if err != nil {
@@ -140,8 +140,8 @@ func ReadWikisYamlWithNames(filePath string) ([]Wiki, error) {
 	return wikis.Wikis, nil
 }
 
-// WikiIDExists checks if a wiki with the given ID exists in the installation
-func WikiIDExists(installPath, id string) (bool, error) {
+// WikiIDExists checks if a wiki with the given wikiID exists in the installation
+func WikiIDExists(installPath, wikiID string) (bool, error) {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 
@@ -157,9 +157,9 @@ func WikiIDExists(installPath, id string) (bool, error) {
 		return false, err
 	}
 
-	// Check if a wiki with the given ID exists
-	for _, wikiID := range ids {
-		if wikiID == id {
+	// Check if a wiki with the given wikiID exists
+	for _, id := range ids {
+		if id == wikiID {
 			return true, nil
 		}
 	}
@@ -195,12 +195,12 @@ func WikiUrlExists(installPath, domain, wikiPath string) (bool, error) {
 	return false, nil
 }
 
-func AddWiki(id, installPath, domain, wikiPath, siteName string) error {
+func AddWiki(wikiID, installPath, domain, wikiPath, siteName string) error {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 
 	if siteName == "" {
-		siteName = id
+		siteName = wikiID
 	}
 	// Read the existing wikis from the YAML file
 	wikis := Wikis{}
@@ -224,7 +224,7 @@ func AddWiki(id, installPath, domain, wikiPath, siteName string) error {
 	}
 
 	// Create a new wiki
-	newWiki := Wiki{ID: id, URL: filepath.Join(domain, wikiPath), NAME: siteName}
+	newWiki := Wiki{ID: wikiID, URL: filepath.Join(domain, wikiPath), NAME: siteName}
 
 	// Append the new wiki to the list of wikis
 	wikis.Wikis = append(wikis.Wikis, newWiki)
@@ -244,7 +244,7 @@ func AddWiki(id, installPath, domain, wikiPath, siteName string) error {
 	return nil
 }
 
-func RemoveWiki(id, installPath string) error {
+func RemoveWiki(wikiID, installPath string) error {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 
@@ -266,7 +266,7 @@ func RemoveWiki(id, installPath string) error {
 
 	// Find and remove the specified wiki
 	for _, wiki := range wikis.Wikis {
-		if wiki.ID != id {
+		if wiki.ID != wikiID {
 			remainingWikis = append(remainingWikis, wiki)
 		}
 	}

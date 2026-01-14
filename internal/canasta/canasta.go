@@ -475,7 +475,7 @@ func CheckCanastaId(instance config.Installation) (config.Installation, error) {
 			return instance, err
 		}
 	} else {
-		if instance.Id, err = config.GetCanastaId(instance.Path); err != nil {
+		if instance.Id, err = config.GetCanastaID(instance.Path); err != nil {
 			return instance, err
 		}
 		if instance, err = config.GetDetails(instance.Id); err != nil {

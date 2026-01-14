@@ -47,10 +47,10 @@ func NewCmdCreate() *cobra.Command {
 				}
 			}
 
-			// Validate Canasta ID format
+			// Validate Canasta instance ID format
 			validString := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$`)
 			if !validString.MatchString(canastaInfo.Id) {
-				log.Fatal(fmt.Errorf("Error: CanastaID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed"))
+				log.Fatal(fmt.Errorf("Error: Canasta instance ID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed"))
 			}
 
 			// Generate passwords (auto-gen if not provided via flags)
@@ -101,7 +101,7 @@ func NewCmdCreate() *cobra.Command {
 	return createCmd
 }
 
-// importCanasta accepts all the keyword arguments and create a installation of the latest Canasta.
+// createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
 func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile string, done chan struct{}) error {
 	// Pass a message to the "done" channel indicating the completion of createCanasta function.
 	// This signals the spinner to stop printing progress, regardless of success or failure.

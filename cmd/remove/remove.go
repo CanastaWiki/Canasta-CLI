@@ -27,7 +27,7 @@ func NewCmdCreate() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 			fmt.Printf("Removing wiki '%s' from Canasta instance '%s'...\n", wikiID, instance.Id)
-			err = RemoveWiki(wikiID, instance)
+			err = RemoveWiki(instance, wikiID)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -47,8 +47,8 @@ func NewCmdCreate() *cobra.Command {
 	return addCmd
 }
 
-// RemoveWiki removes a wiki with the given ID from a Canasta instance
-func RemoveWiki(id string, instance config.Installation) error {
+// RemoveWiki removes a wiki with the given wikiID from a Canasta instance
+func RemoveWiki(instance config.Installation, wikiID string) error {
 	var err error
 	//Checking Installation existence
 	instance, err = canasta.CheckCanastaId(instance)
@@ -63,16 +63,16 @@ func RemoveWiki(id string, instance config.Installation) error {
 	}
 
 	//Checking Wiki existence
-	exists, err := farmsettings.WikiIDExists(instance.Path, id)
+	exists, err := farmsettings.WikiIDExists(instance.Path, wikiID)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		return fmt.Errorf("A wiki with the ID '%s' does not exist", id)
+		return fmt.Errorf("A wiki with the ID '%s' does not exist", wikiID)
 	}
 
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("This will delete the " + id + " in the Wiki farm and the corresponding database. Continue? [y/N] ")
+	fmt.Print("This will delete the wiki " + wikiID + " in the Canasta instance " + instance.Id + " and the corresponding database. Continue? [y/N] ")
 	text, _ := reader.ReadString('\n')
 	text = strings.ToLower(strings.TrimSpace(text))
 
@@ -82,25 +82,25 @@ func RemoveWiki(id string, instance config.Installation) error {
 	}
 
 	//Remove the wiki
-	err = farmsettings.RemoveWiki(id, instance.Path)
+	err = farmsettings.RemoveWiki(wikiID, instance.Path)
 	if err != nil {
 		return err
 	}
 
 	//Install the corresponding Database
-	err = mediawiki.RemoveDatabase(instance.Path, id, instance.Orchestrator)
+	err = mediawiki.RemoveDatabase(instance.Path, wikiID, instance.Orchestrator)
 	if err != nil {
 		return err
 	}
 
 	//Remove the Localsettings
-	err = canasta.RemoveSettings(instance.Path, id)
+	err = canasta.RemoveSettings(instance.Path, wikiID)
 	if err != nil {
 		return err
 	}
 
 	//Remove the Images
-	err = canasta.RemoveImages(instance.Path, id)
+	err = canasta.RemoveImages(instance.Path, wikiID)
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func RemoveWiki(id string, instance config.Installation) error {
 		return err
 	}
 
-	fmt.Println("Successfully removed wiki '" + id + "' from Canasta instance '" + instance.Id + "'...")
+	fmt.Println("Successfully removed wiki " + wikiID + " from Canasta instance " + instance.Id + ".")
 
 	return nil
 }
