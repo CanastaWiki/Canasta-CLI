@@ -117,7 +117,7 @@ func GetCanastaID(installPath string) (string, error) {
 			return installations.Id, nil
 		}
 	}
-	return canastaID, fmt.Errorf("No canasta installations exist at %s", installPath)
+	return canastaID, fmt.Errorf("No Canasta installations exist at %s", installPath)
 }
 
 func Add(details Installation) error {
