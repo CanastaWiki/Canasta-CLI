@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	pwd      string
+	workingDir      string
 	err      error
 	instance config.Installation
 )
@@ -33,11 +33,11 @@ func NewCmdCreate() *cobra.Command {
 			return nil
 		},
 	}
-	if pwd, err = os.Getwd(); err != nil {
+	if workingDir, err = os.Getwd(); err != nil {
 		log.Fatal(err)
 	}
 
-	upgradeCmd.Flags().StringVarP(&instance.Path, "path", "p", pwd, "Canasta installation directory")
+	upgradeCmd.Flags().StringVarP(&instance.Path, "path", "p", workingDir, "Canasta installation directory")
 	upgradeCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	return upgradeCmd
 }

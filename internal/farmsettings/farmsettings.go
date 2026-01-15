@@ -20,10 +20,29 @@ type Wikis struct {
 	Wikis []Wiki `yaml:"wikis"`
 }
 
-func CreateYaml(name, domain string, path *string) error {
+// ValidateWikiID validates that wikiID doesn't contain invalid characters or reserved names
+func ValidateWikiID(wikiID string) error {
+	// Check if wikiID contains a hyphen (-)
+	if strings.Contains(wikiID, "-") {
+		return fmt.Errorf("The character '-' is not allowed in wikiID")
+	}
+
+	// Check if wikiID is one of the reserved names
+	reservedNames := []string{"settings", "images", "w", "wiki"}
+	for _, name := range reservedNames {
+		if wikiID == name {
+			return fmt.Errorf("%s cannot be used as wikiID", wikiID)
+		}
+	}
+
+	// If it passes the checks, return nil (no error)
+	return nil
+}
+
+func CreateYaml(wikiID, domain, siteName string, path *string) error {
 	if *path == "" {
 		var err error
-		*path, err = GenerateWikisYaml("./wikis.yaml", name, domain)
+		*path, err = GenerateWikisYaml("./wikis.yaml", wikiID, domain, siteName)
 		if err != nil {
 			return err
 		}
@@ -32,9 +51,12 @@ func CreateYaml(name, domain string, path *string) error {
 	return nil
 }
 
-func GenerateWikisYaml(filePath, name, domain string) (string, error) {
+func GenerateWikisYaml(filePath, wikiID, domain, siteName string) (string, error) {
+	if siteName == "" {
+		siteName = wikiID
+	}
 	wikis := Wikis{}
-	wikis.Wikis = append(wikis.Wikis, Wiki{ID: name, URL: domain, NAME: name})
+	wikis.Wikis = append(wikis.Wikis, Wiki{ID: wikiID, URL: domain, NAME: siteName})
 
 	out, err := yaml.Marshal(&wikis)
 	if err != nil {
@@ -95,45 +117,90 @@ func ReadWikisYaml(filePath string) ([]string, []string, []string, error) {
 	return ids, serverNames, paths, nil
 }
 
-func CheckWiki(path, name, domain, wikiPath string) (bool, bool, error) {
+// ReadWikisYamlWithNames reads the wikis.yaml file and returns the full Wiki structs with IDs, URLs, and site names
+func ReadWikisYamlWithNames(filePath string) ([]Wiki, error) {
+	// Read the YAML file
+	data, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the YAML data into a Wikis struct
+	wikis := Wikis{}
+	err = yaml.Unmarshal(data, &wikis)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if any wikis exist
+	if len(wikis.Wikis) == 0 {
+		return nil, fmt.Errorf("no wikis found in the YAML file")
+	}
+
+	return wikis.Wikis, nil
+}
+
+// WikiIDExists checks if a wiki with the given wikiID exists in the installation
+func WikiIDExists(installPath, wikiID string) (bool, error) {
 	// Get the absolute path to the wikis.yaml file
-	filePath := filepath.Join(path, "config", "wikis.yaml")
+	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 
 	// Check if the file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		// File does not exist
-		return false, false, nil
+		return false, nil
 	}
 
 	// Read the wikis from the YAML file
-	ids, serverNames, paths, err := ReadWikisYaml(filePath)
+	ids, _, _, err := ReadWikisYaml(filePath)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
 
-	// Variables to hold whether the wiki name and path are found
-	nameExists := false
-	pathComboExists := false
-
-	// Check if a wiki with the given name exists
-	for i, id := range ids {
-		if id == name {
-			nameExists = true
-		}
-		if serverNames[i]+paths[i] == domain+"/"+wikiPath {
-			pathComboExists = true
+	// Check if a wiki with the given wikiID exists
+	for _, id := range ids {
+		if id == wikiID {
+			return true, nil
 		}
 	}
 
-	return nameExists, pathComboExists, nil
+	return false, nil
 }
 
-func AddWiki(name, path, domain, wikipath, siteName string) error {
+// WikiUrlExists checks if a wiki with the given URL (domain/path combo) exists in the installation
+func WikiUrlExists(installPath, domain, wikiPath string) (bool, error) {
 	// Get the absolute path to the wikis.yaml file
-	filePath := filepath.Join(path, "config", "wikis.yaml")
+	filePath := filepath.Join(installPath, "config", "wikis.yaml")
+
+	// Check if the file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// File does not exist
+		return false, nil
+	}
+
+	// Read the wikis from the YAML file
+	_, serverNames, paths, err := ReadWikisYaml(filePath)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if a wiki with the given URL exists
+	targetUrl := domain + "/" + wikiPath
+	for i := range serverNames {
+		if serverNames[i]+paths[i] == targetUrl {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func AddWiki(wikiID, installPath, domain, wikiPath, siteName string) error {
+	// Get the absolute path to the wikis.yaml file
+	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 
 	if siteName == "" {
-		siteName = name
+		siteName = wikiID
 	}
 	// Read the existing wikis from the YAML file
 	wikis := Wikis{}
@@ -157,7 +224,7 @@ func AddWiki(name, path, domain, wikipath, siteName string) error {
 	}
 
 	// Create a new wiki
-	newWiki := Wiki{ID: name, URL: filepath.Join(domain, wikipath), NAME: siteName}
+	newWiki := Wiki{ID: wikiID, URL: filepath.Join(domain, wikiPath), NAME: siteName}
 
 	// Append the new wiki to the list of wikis
 	wikis.Wikis = append(wikis.Wikis, newWiki)
@@ -177,9 +244,9 @@ func AddWiki(name, path, domain, wikipath, siteName string) error {
 	return nil
 }
 
-func RemoveWiki(name, path string) error {
+func RemoveWiki(wikiID, installPath string) error {
 	// Get the absolute path to the wikis.yaml file
-	filePath := filepath.Join(path, "config", "wikis.yaml")
+	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 
 	// Read the existing wikis from the YAML file
 	wikis := Wikis{}
@@ -199,7 +266,7 @@ func RemoveWiki(name, path string) error {
 
 	// Find and remove the specified wiki
 	for _, wiki := range wikis.Wikis {
-		if wiki.ID != name {
+		if wiki.ID != wikiID {
 			remainingWikis = append(remainingWikis, wiki)
 		}
 	}
