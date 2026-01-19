@@ -31,35 +31,15 @@ This will:
 
 ## Using a Different Canasta Image
 
-### At creation time (recommended)
-
 Specify the image tag directly with the `--dev` flag:
 
 ```bash
 canasta create -i mydev -w mywiki -a admin --dev dev-branch
 ```
 
-### After creation
-
-Edit the `.env` file in your installation directory:
-
-```env
-CANASTA_IMAGE_TAG=dev-branch
-```
-
-Then rebuild the xdebug image:
-
-```bash
-cd /path/to/installation
-docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.dev.yml build
-docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.dev.yml up -d
-```
-
 ### Available Image Tags
 
 - `latest` - Latest stable release (default)
-- `dev` - Development branch
-- Specific versions like `1.39`, `1.40`, etc.
 - Any tag from [ghcr.io/canastawiki/canasta](https://github.com/CanastaWiki/Canasta/pkgs/container/canasta)
 
 ## IDE Setup
@@ -85,24 +65,6 @@ Configuration files are automatically created in the `.idea/` directory. To star
 4. Click the **phone/listen icon** in the toolbar (or **Run** → **Start Listening for PHP Debug Connections**)
 5. Set breakpoints in files under `mediawiki-code/`
 6. Access your wiki in the browser - PHPStorm will break at your breakpoints
-
-#### Manual Configuration (if needed)
-
-If the auto-created configuration doesn't work, verify these settings:
-
-**Server Configuration** (Settings → PHP → Servers):
-- **Name**: `canasta-dev`
-- **Host**: `localhost`
-- **Port**: `80` (important: use 80, not your external HTTPS port)
-- **Debugger**: `Xdebug`
-- **Use path mappings**: Checked
-- **Path mapping**: `mediawiki-code` → `/var/www/mediawiki`
-
-**Debug Settings** (Settings → PHP → Debug):
-- **Debug port**: `9003`
-- **Can accept external connections**: Checked
-
-**Note**: Use port 80 in the server configuration because Xdebug reports the container's internal port, not the external Docker-mapped port.
 
 ## Bypassing Varnish Cache
 
@@ -147,10 +109,6 @@ wikis:
 
 This is required because the wiki farm configuration uses the URL to match incoming requests and construct `$wgServer`.
 
-> **Note**: Non-standard port support requires these upstream changes:
-> - [CanastaWiki/Canasta-DockerCompose#72](https://github.com/CanastaWiki/Canasta-DockerCompose/pull/72) - Makes HTTP_PORT configurable
-> - [CanastaWiki/CanastaBase#52](https://github.com/CanastaWiki/CanastaBase/pull/52) - Includes port in `$wgServer` for wiki farms
-
 ## Directory Structure
 
 After creating a dev mode installation:
@@ -183,23 +141,6 @@ installation/
         └── ...
 ```
 
-## Xdebug Configuration
-
-The default Xdebug configuration (`config/xdebug.ini`):
-
-```ini
-xdebug.mode=debug
-xdebug.start_with_request=yes
-xdebug.client_host=host.docker.internal
-xdebug.client_port=9003
-xdebug.log=/var/log/mediawiki/php-xdebug.log
-```
-
-- **mode=debug**: Enables step debugging
-- **start_with_request=yes**: Automatically connects to IDE on every request
-- **client_host=host.docker.internal**: Docker's hostname for the host machine
-- **client_port=9003**: Standard Xdebug 3 port
-
 ## Troubleshooting
 
 ### Breakpoints not hitting
@@ -217,10 +158,6 @@ xdebug.log=/var/log/mediawiki/php-xdebug.log
 If you see "Cannot bind file" errors, your path mappings are incorrect. Ensure:
 - Local path: `/path/to/installation/mediawiki-code`
 - Remote path: `/var/www/mediawiki`
-
-### Container startup hangs
-
-The Xdebug configuration only applies to PHP-FPM (web requests), not CLI scripts. If you modified the configuration to also mount to CLI (`/etc/php/8.1/cli/conf.d/`), startup scripts may hang waiting for a debugger connection.
 
 ## Starting and Stopping
 
