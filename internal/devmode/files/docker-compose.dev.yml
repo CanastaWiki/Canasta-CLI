@@ -1,0 +1,14 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: ./Dockerfile.xdebug
+      args:
+        IMAGE_TAG: ${CANASTA_IMAGE_TAG:-latest}
+    image: canasta-xdebug:${CANASTA_IMAGE_TAG:-latest}
+    volumes:
+      - ${DEV_CODE_PATH:-./mediawiki-code}:/var/www/mediawiki
+      - ./config/xdebug.ini:/etc/php/8.1/fpm/conf.d/99-xdebug.ini:ro
+    environment:
+      XDEBUG_MODE: debug
+      XDEBUG_CONFIG: client_host=host.docker.internal client_port=9003

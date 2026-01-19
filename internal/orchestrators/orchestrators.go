@@ -300,3 +300,159 @@ func ImportDatabase(databaseName, databasePath string, instance config.Installat
 
 	return nil
 }
+
+// CreateContainer creates a container without starting it (docker compose create)
+func CreateContainer(installPath, orchestrator, container string) error {
+	logging.Print(fmt.Sprintf("Creating container %s\n", container))
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		if compose.Path != "" {
+			err, output := execute.Run(installPath, compose.Path, "create", container)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		} else {
+			err, output := execute.Run(installPath, "docker", "compose", "create", container)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+	}
+	return nil
+}
+
+// CopyFromContainer copies files from a container to the host (docker compose cp)
+func CopyFromContainer(installPath, orchestrator, container, src, dst string) error {
+	logging.Print(fmt.Sprintf("Copying from %s:%s to %s\n", container, src, dst))
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		if compose.Path != "" {
+			err, output := execute.Run(installPath, compose.Path, "cp", "-a", container+":"+src, dst)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		} else {
+			err, output := execute.Run(installPath, "docker", "compose", "cp", "-a", container+":"+src, dst)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+	}
+	return nil
+}
+
+// RemoveContainer removes a stopped container (docker compose rm -f)
+func RemoveContainer(installPath, orchestrator, container string) error {
+	logging.Print(fmt.Sprintf("Removing container %s\n", container))
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		if compose.Path != "" {
+			err, output := execute.Run(installPath, compose.Path, "rm", "-f", container)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		} else {
+			err, output := execute.Run(installPath, "docker", "compose", "rm", "-f", container)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+	}
+	return nil
+}
+
+// BuildWithFiles builds using multiple compose files (docker compose -f f1 -f f2 build)
+func BuildWithFiles(installPath, orchestrator string, files ...string) error {
+	logging.Print("Building with compose files\n")
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		args := []string{}
+		for _, f := range files {
+			args = append(args, "-f", f)
+		}
+		args = append(args, "build")
+		if compose.Path != "" {
+			err, output := execute.Run(installPath, compose.Path, args...)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		} else {
+			allArgs := append([]string{"compose"}, args...)
+			err, output := execute.Run(installPath, "docker", allArgs...)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+	}
+	return nil
+}
+
+// StartWithFiles starts using multiple compose files (docker compose -f f1 -f f2 up -d)
+func StartWithFiles(installPath, orchestrator string, files ...string) error {
+	logging.Print("Starting with compose files\n")
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		args := []string{}
+		for _, f := range files {
+			args = append(args, "-f", f)
+		}
+		args = append(args, "up", "-d")
+		if compose.Path != "" {
+			err, output := execute.Run(installPath, compose.Path, args...)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		} else {
+			allArgs := append([]string{"compose"}, args...)
+			err, output := execute.Run(installPath, "docker", allArgs...)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+	}
+	return nil
+}
+
+// StopWithFiles stops using multiple compose files (docker compose -f f1 -f f2 down)
+func StopWithFiles(installPath, orchestrator string, files ...string) error {
+	logging.Print("Stopping with compose files\n")
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		args := []string{}
+		for _, f := range files {
+			args = append(args, "-f", f)
+		}
+		args = append(args, "down")
+		if compose.Path != "" {
+			err, output := execute.Run(installPath, compose.Path, args...)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		} else {
+			allArgs := append([]string{"compose"}, args...)
+			err, output := execute.Run(installPath, "docker", allArgs...)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+	}
+	return nil
+}

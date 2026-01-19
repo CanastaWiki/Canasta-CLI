@@ -17,7 +17,10 @@ import (
 )
 
 type Installation struct {
-	Id, Path, Orchestrator string
+	Id           string `json:"id"`
+	Path         string `json:"path"`
+	Orchestrator string `json:"orchestrator"`
+	DevMode      bool   `json:"devMode,omitempty"`
 }
 
 type Orchestrator struct {

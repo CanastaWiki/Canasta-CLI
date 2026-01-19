@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
@@ -49,8 +50,14 @@ func Start(instance config.Installation) error {
 			logging.Fatal(err)
 		}
 	}
-	if err = orchestrators.Start(instance.Path, instance.Orchestrator); err != nil {
-		logging.Fatal(err)
+	if instance.DevMode {
+		if err = devmode.StartDev(instance.Path, instance.Orchestrator); err != nil {
+			logging.Fatal(err)
+		}
+	} else {
+		if err = orchestrators.Start(instance.Path, instance.Orchestrator); err != nil {
+			logging.Fatal(err)
+		}
 	}
 	return err
 }

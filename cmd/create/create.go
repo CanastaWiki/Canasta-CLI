@@ -11,6 +11,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
@@ -31,6 +32,7 @@ func NewCmdCreate() *cobra.Command {
 		canastaInfo  canasta.CanastaVariables
 		override     string
 		envFile      string
+		devImageTag  string // empty = no dev mode, "latest" = default, or custom tag
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -59,9 +61,13 @@ func NewCmdCreate() *cobra.Command {
 			}
 
 			description := "Creating Canasta installation '" + canastaInfo.Id + "'..."
+			devModeEnabled := devImageTag != ""
+			if devModeEnabled {
+				description = "Creating Canasta installation '" + canastaInfo.Id + "' with dev mode..."
+			}
 			_, done := spinner.New(description)
 
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile, done); err != nil {
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile, devModeEnabled, devImageTag, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
 					canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orchestrator)
@@ -93,6 +99,8 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBPassword, "wikidbpass", "", "Wiki database password (if not provided, auto-generates and saves to .env). Tip: Use --wikidbpass \"$WIKI_DB_PASS\" to avoid exposing password in shell history")
 	createCmd.Flags().StringVarP(&envFile, "envfile", "e", "", "Path to .env file with password overrides (merged with .env.example)")
+	createCmd.Flags().StringVarP(&devImageTag, "dev", "D", "", "Enable development mode with xdebug and code extraction. Optionally specify image tag (default: latest)")
+	createCmd.Flags().Lookup("dev").NoOptDefVal = "latest" // --dev without value uses "latest"
 
 	// Mark required flags
 	createCmd.MarkFlagRequired("id")
@@ -102,7 +110,7 @@ func NewCmdCreate() *cobra.Command {
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile string, done chan struct{}) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile string, devModeEnabled bool, devImageTag string, done chan struct{}) error {
 	// Pass a message to the "done" channel indicating the completion of createCanasta function.
 	// This signals the spinner to stop printing progress, regardless of success or failure.
 	defer func() {
@@ -141,18 +149,45 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := orchestrators.CopyOverrideFile(path, orchestrator, override, workingDir); err != nil {
 		return err
 	}
-	if err := orchestrators.Start(path, orchestrator); err != nil {
-		return err
+
+	// Dev mode: extract code and build xdebug image before starting
+	if devModeEnabled {
+		if err := devmode.SetupFullDevMode(path, orchestrator, devImageTag); err != nil {
+			return err
+		}
+		// Start with dev compose files
+		if err := devmode.StartDev(path, orchestrator); err != nil {
+			return err
+		}
+	} else {
+		if err := orchestrators.Start(path, orchestrator); err != nil {
+			return err
+		}
 	}
+
 	if _, err := mediawiki.Install(path, yamlPath, orchestrator, canastaInfo); err != nil {
 		return err
 	}
-	if err := config.Add(config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator}); err != nil {
+	if err := config.Add(config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled}); err != nil {
 		return err
 	}
-	if err := orchestrators.StopAndStart(path, orchestrator); err != nil {
-		log.Fatal(err)
+
+	// Restart to apply all settings
+	if devModeEnabled {
+		if err := devmode.StopDev(path, orchestrator); err != nil {
+			log.Fatal(err)
+		}
+		if err := devmode.StartDev(path, orchestrator); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("\033[32mDevelopment mode enabled. Edit files in mediawiki-code/ - changes appear immediately.\033[0m")
+		fmt.Println("\033[32mVSCode: Open the installation directory, install PHP Debug extension, and start 'Listen for Xdebug'.\033[0m")
+	} else {
+		if err := orchestrators.StopAndStart(path, orchestrator); err != nil {
+			log.Fatal(err)
+		}
 	}
+
 	fmt.Println("\033[32mIf you need email enabled for this wiki, please set $wgSMTP; email will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP for options.\033[0m")
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
@@ -59,6 +60,13 @@ func Restart(instance config.Installation) error {
 		return err
 	}
 
-	err = orchestrators.StopAndStart(instance.Path, instance.Orchestrator)
+	if instance.DevMode {
+		if err = devmode.StopDev(instance.Path, instance.Orchestrator); err != nil {
+			return err
+		}
+		err = devmode.StartDev(instance.Path, instance.Orchestrator)
+	} else {
+		err = orchestrators.StopAndStart(instance.Path, instance.Orchestrator)
+	}
 	return err
 }

@@ -1,0 +1,8 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Listen for Xdebug" type="PhpRemoteDebugRunConfigurationType" factoryName="PHP Remote Debug">
+    <option name="serverName" value="canasta-dev" />
+    <option name="ide_key" value="" />
+    <option name="sessionId" value="" />
+    <method v="2" />
+  </configuration>
+</component>

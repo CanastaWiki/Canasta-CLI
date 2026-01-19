@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PhpProjectServersManager">
+    <servers>
+      <server name="canasta-dev" host="localhost" port="80" use_path_mappings="true">
+        <path_mappings>
+          <mapping local-root="$PROJECT_DIR$/mediawiki-code" remote-root="/var/www/mediawiki" />
+        </path_mappings>
+      </server>
+    </servers>
+  </component>
+</project>
