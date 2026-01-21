@@ -4,7 +4,7 @@
     <servers>
       <server name="canasta-dev" host="localhost" port="80" use_path_mappings="true">
         <path_mappings>
-          <mapping local-root="$PROJECT_DIR$/mediawiki-code" remote-root="/var/www/mediawiki" />
+          <mapping local-root="$PROJECT_DIR$/mediawiki-code" remote-root="/var/www/mediawiki/w" />
         </path_mappings>
       </server>
     </servers>

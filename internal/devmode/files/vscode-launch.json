@@ -7,7 +7,7 @@
       "request": "launch",
       "port": 9003,
       "pathMappings": {
-        "/var/www/mediawiki": "${workspaceFolder}/mediawiki-code"
+        "/var/www/mediawiki/w": "${workspaceFolder}/mediawiki-code"
       }
     }
   ]

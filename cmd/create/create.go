@@ -155,14 +155,12 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		if err := devmode.SetupFullDevMode(path, orchestrator, devImageTag); err != nil {
 			return err
 		}
-		// Start with dev compose files
-		if err := devmode.StartDev(path, orchestrator); err != nil {
-			return err
-		}
-	} else {
-		if err := orchestrators.Start(path, orchestrator); err != nil {
-			return err
-		}
+	}
+
+	// Always start without dev mode for installation to avoid xdebug interference
+	// (xdebug can cause hangs if a debugger is listening during install.php)
+	if err := orchestrators.Start(path, orchestrator); err != nil {
+		return err
 	}
 
 	if _, err := mediawiki.Install(path, yamlPath, orchestrator, canastaInfo); err != nil {
@@ -173,17 +171,20 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	}
 
 	// Restart to apply all settings
+	// Stop containers (started without dev mode)
+	if err := orchestrators.Stop(path, orchestrator); err != nil {
+		log.Fatal(err)
+	}
+
 	if devModeEnabled {
-		if err := devmode.StopDev(path, orchestrator); err != nil {
-			log.Fatal(err)
-		}
+		// Start with dev mode (xdebug enabled) now that installation is complete
 		if err := devmode.StartDev(path, orchestrator); err != nil {
 			log.Fatal(err)
 		}
 		fmt.Println("\033[32mDevelopment mode enabled. Edit files in mediawiki-code/ - changes appear immediately.\033[0m")
 		fmt.Println("\033[32mVSCode: Open the installation directory, install PHP Debug extension, and start 'Listen for Xdebug'.\033[0m")
 	} else {
-		if err := orchestrators.StopAndStart(path, orchestrator); err != nil {
+		if err := orchestrators.Start(path, orchestrator); err != nil {
 			log.Fatal(err)
 		}
 	}

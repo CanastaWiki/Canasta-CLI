@@ -4,8 +4,11 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
@@ -88,14 +91,19 @@ func CreateDevModeFiles(installPath string) error {
 }
 
 // ExtractMediaWikiCode extracts code from the web container for live editing
-func ExtractMediaWikiCode(installPath, orchestrator string) error {
+// Uses raw docker commands (not docker compose) to avoid bind mount validation issues
+func ExtractMediaWikiCode(installPath, orchestrator, imageTag string) error {
 	codeDir := filepath.Join(installPath, CodeDir)
 
 	logging.Print("Extracting MediaWiki code for live editing...\n")
 
-	// Create temporary container to extract code from
-	if err := orchestrators.CreateContainer(installPath, orchestrator, "web"); err != nil {
-		return fmt.Errorf("failed to create web container: %w", err)
+	// Determine the image to use
+	image := fmt.Sprintf("ghcr.io/canastawiki/canasta:%s", imageTag)
+
+	// Pull the image first
+	logging.Print(fmt.Sprintf("Pulling image %s...\n", image))
+	if err, output := execute.Run("", "docker", "pull", image); err != nil {
+		return fmt.Errorf("failed to pull image: %s", output)
 	}
 
 	// Create the destination directory
@@ -103,17 +111,38 @@ func ExtractMediaWikiCode(installPath, orchestrator string) error {
 		return fmt.Errorf("failed to create code directory: %w", err)
 	}
 
-	// Copy code from container to host
-	// Using /var/www/mediawiki/. to copy contents (not the directory itself)
-	if err := orchestrators.CopyFromContainer(installPath, orchestrator, "web", "/var/www/mediawiki/.", codeDir); err != nil {
-		// Clean up on failure
-		orchestrators.RemoveContainer(installPath, orchestrator, "web")
-		return fmt.Errorf("failed to copy code from container: %w", err)
+	// Start a container and run the symlinks script to create extension/skin symlinks
+	// (normally /create-symlinks.sh runs as part of the entrypoint, but we bypass it with sleep)
+	containerName := "canasta-code-extract-temp"
+	logging.Print("Starting temporary container for code extraction...\n")
+	if err, output := execute.Run("", "docker", "run", "-d", "--name", containerName, image, "sleep", "infinity"); err != nil {
+		return fmt.Errorf("failed to start temporary container: %s", output)
+	}
+
+	// Run the symlinks script to create extensions/ and skins/ symlinks
+	logging.Print("Creating extension and skin symlinks...\n")
+	if err, output := execute.Run("", "docker", "exec", containerName, "/create-symlinks.sh"); err != nil {
+		execute.Run("", "docker", "rm", "-f", containerName)
+		return fmt.Errorf("failed to create symlinks: %s", output)
+	}
+
+	// Copy code from container to host using tar to dereference symlinks recursively
+	// (docker cp -L only follows top-level symlinks, not recursive ones)
+	// Extensions/skins are symlinked to canasta-extensions/canasta-skins
+	// Note: Can't use execute.Run here because it wraps commands in bash -c which breaks pipes
+	logging.Print(fmt.Sprintf("Copying MediaWiki code to %s...\n", codeDir))
+	tarCmd := fmt.Sprintf("docker exec %s tar -chf - -C /var/www/mediawiki/w . | tar -xf - -C %s", containerName, codeDir)
+	cmd := exec.Command("bash", "-c", tarCmd)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		// Clean up container on failure
+		execute.Run("", "docker", "rm", "-f", containerName)
+		return fmt.Errorf("failed to copy code from container: %s (output: %s)", err, string(output))
 	}
 
 	// Remove the temporary container
-	if err := orchestrators.RemoveContainer(installPath, orchestrator, "web"); err != nil {
-		return fmt.Errorf("failed to remove temporary container: %w", err)
+	logging.Print("Removing temporary container...\n")
+	if err, output := execute.Run("", "docker", "rm", "-f", containerName); err != nil {
+		return fmt.Errorf("failed to remove temporary container: %s", output)
 	}
 
 	logging.Print(fmt.Sprintf("MediaWiki code extracted to %s\n", codeDir))
@@ -205,25 +234,57 @@ func StopDev(installPath, orchestrator string) error {
 	return orchestrators.StopWithFiles(installPath, orchestrator, files...)
 }
 
+// PatchCaddyfileForDevMode modifies the Caddyfile to bypass Varnish cache
+// This routes requests directly to the web container for debugging
+func PatchCaddyfileForDevMode(installPath string) error {
+	caddyfilePath := filepath.Join(installPath, "config", "Caddyfile")
+
+	content, err := os.ReadFile(caddyfilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read Caddyfile: %w", err)
+	}
+
+	// Replace varnish:80 with web:80 to bypass cache
+	oldLine := "reverse_proxy varnish:80"
+	newLine := "# Bypass Varnish cache for debugging - route directly to web\nreverse_proxy web:80"
+
+	newContent := strings.Replace(string(content), oldLine, newLine, 1)
+
+	if err := os.WriteFile(caddyfilePath, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("failed to write Caddyfile: %w", err)
+	}
+
+	logging.Print("Caddyfile patched to bypass Varnish cache\n")
+	return nil
+}
+
 // SetupFullDevMode performs the complete dev mode setup:
-// 1. Create dev mode files (Dockerfile.xdebug, docker-compose.dev.yml, xdebug.ini)
-// 2. Extract code from container
+// 1. Extract code from container (must happen before creating docker-compose.dev.yml)
+// 2. Create dev mode files (Dockerfile.xdebug, docker-compose.dev.yml, xdebug.ini)
 // 3. Setup environment (.env, VSCode config)
-// 4. Build xdebug image
+// 4. Patch Caddyfile to bypass Varnish
+// 5. Build xdebug image
 // imageTag specifies the Canasta image tag to use (e.g., "latest", "dev", "1.39")
 func SetupFullDevMode(installPath, orchestrator, imageTag string) error {
-	// Create all the dev mode files first
-	if err := CreateDevModeFiles(installPath); err != nil {
+	// Extract MediaWiki code FIRST, before creating docker-compose.dev.yml
+	// (docker-compose.dev.yml mounts ./mediawiki-code which must exist)
+	// Uses raw docker commands to avoid docker-compose bind mount validation
+	if err := ExtractMediaWikiCode(installPath, orchestrator, imageTag); err != nil {
 		return err
 	}
 
-	// Extract MediaWiki code
-	if err := ExtractMediaWikiCode(installPath, orchestrator); err != nil {
+	// Create dev mode files (now that mediawiki-code directory exists)
+	if err := CreateDevModeFiles(installPath); err != nil {
 		return err
 	}
 
 	// Setup dev environment (.env, VSCode config)
 	if err := SetupDevEnvironment(installPath, imageTag); err != nil {
+		return err
+	}
+
+	// Patch Caddyfile to bypass Varnish cache for debugging
+	if err := PatchCaddyfileForDevMode(installPath); err != nil {
 		return err
 	}
 
