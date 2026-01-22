@@ -14,13 +14,11 @@ import (
 )
 
 const (
-	DevComposeFile      = "docker-compose.dev.yml"
-	MainComposeFile     = "docker-compose.yml"
-	OverrideComposeFile = "docker-compose.override.yml"
-	CodeDir             = "mediawiki-code"
-	VSCodeDir           = ".vscode"
-	PHPStormDir         = ".idea"
-	PHPStormRunConfDir  = ".idea/runConfigurations"
+	DevComposeFile     = "docker-compose.dev.yml"
+	CodeDir            = "mediawiki-code"
+	VSCodeDir          = ".vscode"
+	PHPStormDir        = ".idea"
+	PHPStormRunConfDir = ".idea/runConfigurations"
 )
 
 // Embed the dev mode files at compile time
@@ -47,22 +45,6 @@ var phpstormRunConfig string
 //
 //go:embed files/*
 var embeddedFiles embed.FS
-
-// GetComposeFiles returns the list of compose files needed for dev mode
-// It checks if docker-compose.override.yml exists and includes it
-func GetComposeFiles(installPath string) []string {
-	files := []string{MainComposeFile}
-
-	// Include override file if it exists (contains port mappings)
-	overridePath := filepath.Join(installPath, OverrideComposeFile)
-	if _, err := os.Stat(overridePath); err == nil {
-		files = append(files, OverrideComposeFile)
-	}
-
-	// Dev compose file goes last to override settings
-	files = append(files, DevComposeFile)
-	return files
-}
 
 // CreateDevModeFiles creates all the xdebug-related files in the installation directory
 func CreateDevModeFiles(installPath string) error {
@@ -92,8 +74,19 @@ func CreateDevModeFiles(installPath string) error {
 
 // ExtractMediaWikiCode extracts code from the web container for live editing
 // Uses raw docker commands (not docker compose) to avoid bind mount validation issues
+// If the code directory already exists with content, it skips extraction and returns true
 func ExtractMediaWikiCode(installPath, orchestrator, imageTag string) error {
 	codeDir := filepath.Join(installPath, CodeDir)
+
+	// Check if mediawiki-code directory already exists with content
+	if info, err := os.Stat(codeDir); err == nil && info.IsDir() {
+		entries, err := os.ReadDir(codeDir)
+		if err == nil && len(entries) > 0 {
+			logging.Print(fmt.Sprintf("WARNING: %s already exists and contains files.\n", codeDir))
+			logging.Print("Skipping code extraction. To regenerate, delete this directory and restart with --dev.\n")
+			return nil
+		}
+	}
 
 	logging.Print("Extracting MediaWiki code for live editing...\n")
 
@@ -211,27 +204,13 @@ func SetupDevEnvironment(installPath, imageTag string) error {
 func BuildXdebugImage(installPath, orchestrator string) error {
 	logging.Print("Building xdebug-enabled image...\n")
 
-	files := GetComposeFiles(installPath)
+	files := orchestrators.GetDevComposeFiles(installPath)
 	if err := orchestrators.BuildWithFiles(installPath, orchestrator, files...); err != nil {
 		return fmt.Errorf("failed to build xdebug image: %w", err)
 	}
 
 	logging.Print("Xdebug image built successfully\n")
 	return nil
-}
-
-// StartDev starts the installation in dev mode
-func StartDev(installPath, orchestrator string) error {
-	logging.Print("Starting in development mode...\n")
-	files := GetComposeFiles(installPath)
-	return orchestrators.StartWithFiles(installPath, orchestrator, files...)
-}
-
-// StopDev stops the installation in dev mode
-func StopDev(installPath, orchestrator string) error {
-	logging.Print("Stopping development mode...\n")
-	files := GetComposeFiles(installPath)
-	return orchestrators.StopWithFiles(installPath, orchestrator, files...)
 }
 
 // PatchCaddyfileForDevMode modifies the Caddyfile to bypass Varnish cache
@@ -294,5 +273,65 @@ func SetupFullDevMode(installPath, orchestrator, imageTag string) error {
 	}
 
 	logging.Print(fmt.Sprintf("Using Canasta image tag: %s\n", imageTag))
+	return nil
+}
+
+// IsDevModeSetup checks if dev mode files exist in the installation
+func IsDevModeSetup(installPath string) bool {
+	devComposePath := filepath.Join(installPath, DevComposeFile)
+	dockerfilePath := filepath.Join(installPath, "Dockerfile.xdebug")
+
+	_, err1 := os.Stat(devComposePath)
+	_, err2 := os.Stat(dockerfilePath)
+
+	return err1 == nil && err2 == nil
+}
+
+// EnableDevMode enables dev mode on an existing installation
+// If dev mode is already set up, it just ensures Caddyfile is patched
+// imageTag specifies the Canasta image tag to use (e.g., "latest", "dev", "1.39")
+func EnableDevMode(installPath, orchestrator, imageTag string) error {
+	if IsDevModeSetup(installPath) {
+		logging.Print("Dev mode files already exist.\n")
+		// Just ensure Caddyfile is patched for debugging
+		if err := PatchCaddyfileForDevMode(installPath); err != nil {
+			// Don't fail if Caddyfile is already patched
+			logging.Print(fmt.Sprintf("Note: %v\n", err))
+		}
+		return nil
+	}
+
+	// Full dev mode setup needed
+	logging.Print("Setting up dev mode for existing installation...\n")
+	return SetupFullDevMode(installPath, orchestrator, imageTag)
+}
+
+// DisableDevMode restores the installation to non-dev mode
+// This patches Caddyfile to use Varnish again
+func DisableDevMode(installPath string) error {
+	caddyfilePath := filepath.Join(installPath, "config", "Caddyfile")
+
+	content, err := os.ReadFile(caddyfilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read Caddyfile: %w", err)
+	}
+
+	// Replace web:80 back to varnish:80
+	oldLine := "# Bypass Varnish cache for debugging - route directly to web\nreverse_proxy web:80"
+	newLine := "reverse_proxy varnish:80"
+
+	newContent := strings.Replace(string(content), oldLine, newLine, 1)
+
+	// Also handle case where comment might not be there
+	if newContent == string(content) {
+		oldLine = "reverse_proxy web:80"
+		newContent = strings.Replace(string(content), oldLine, newLine, 1)
+	}
+
+	if err := os.WriteFile(caddyfilePath, []byte(newContent), 0644); err != nil {
+		return fmt.Errorf("failed to write Caddyfile: %w", err)
+	}
+
+	logging.Print("Caddyfile restored to use Varnish cache\n")
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/cmd/restart"
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
@@ -148,7 +149,7 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 	}
 
 	//Checking Running status
-	err = orchestrators.CheckRunningStatus(instance.Path, instance.Id, instance.Orchestrator)
+	err = orchestrators.CheckRunningStatus(instance)
 	if err != nil {
 		return err
 	}
@@ -201,7 +202,16 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 	if err != nil {
 		return err
 	}
-	err = restart.Restart(instance)
+
+	// If dev mode is enabled, re-patch Caddyfile to bypass Varnish
+	if instance.DevMode {
+		err = devmode.PatchCaddyfileForDevMode(instance.Path)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = restart.Restart(instance, false, false, "")
 	if err != nil {
 		return err
 	}

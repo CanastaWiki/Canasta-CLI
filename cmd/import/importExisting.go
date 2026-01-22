@@ -85,10 +85,11 @@ func importCanasta(workingDir, canastaID, domainName, path, orchestrator, databa
 	if err := orchestrators.CopyOverrideFile(path, orchestrator, override, workingDir); err != nil {
 		return err
 	}
-	if err := orchestrators.Start(path, orchestrator); err != nil {
+	instance := config.Installation{Id: canastaID, Path: path, Orchestrator: orchestrator}
+	if err := orchestrators.Start(instance); err != nil {
 		return err
 	}
-	if err := config.Add(config.Installation{Id: canastaID, Path: path, Orchestrator: orchestrator}); err != nil {
+	if err := config.Add(instance); err != nil {
 		return err
 	}
 	return nil

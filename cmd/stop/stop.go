@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -48,10 +47,6 @@ func Stop(instance config.Installation) error {
 			return err
 		}
 	}
-	if instance.DevMode {
-		err = devmode.StopDev(instance.Path, instance.Orchestrator)
-	} else {
-		err = orchestrators.Stop(instance.Path, instance.Orchestrator)
-	}
-	return err
+	// orchestrators.Stop handles dev mode automatically
+	return orchestrators.Stop(instance)
 }

@@ -159,34 +159,33 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 
 	// Always start without dev mode for installation to avoid xdebug interference
 	// (xdebug can cause hangs if a debugger is listening during install.php)
-	if err := orchestrators.Start(path, orchestrator); err != nil {
+	if err := orchestrators.StartWithoutDevMode(path, orchestrator); err != nil {
 		return err
 	}
 
 	if _, err := mediawiki.Install(path, yamlPath, orchestrator, canastaInfo); err != nil {
 		return err
 	}
-	if err := config.Add(config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled}); err != nil {
+
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled}
+	if err := config.Add(instance); err != nil {
 		return err
 	}
 
 	// Restart to apply all settings
 	// Stop containers (started without dev mode)
-	if err := orchestrators.Stop(path, orchestrator); err != nil {
+	if err := orchestrators.StopWithoutDevMode(path, orchestrator); err != nil {
+		log.Fatal(err)
+	}
+
+	// Start with appropriate mode (orchestrators.Start handles dev mode automatically)
+	if err := orchestrators.Start(instance); err != nil {
 		log.Fatal(err)
 	}
 
 	if devModeEnabled {
-		// Start with dev mode (xdebug enabled) now that installation is complete
-		if err := devmode.StartDev(path, orchestrator); err != nil {
-			log.Fatal(err)
-		}
 		fmt.Println("\033[32mDevelopment mode enabled. Edit files in mediawiki-code/ - changes appear immediately.\033[0m")
 		fmt.Println("\033[32mVSCode: Open the installation directory, install PHP Debug extension, and start 'Listen for Xdebug'.\033[0m")
-	} else {
-		if err := orchestrators.Start(path, orchestrator); err != nil {
-			log.Fatal(err)
-		}
 	}
 
 	fmt.Println("\033[32mIf you need email enabled for this wiki, please set $wgSMTP; email will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP for options.\033[0m")

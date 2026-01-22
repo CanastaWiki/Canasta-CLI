@@ -2,12 +2,20 @@ package orchestrators
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+)
+
+const (
+	devComposeFile      = "docker-compose.dev.yml"
+	mainComposeFile     = "docker-compose.yml"
+	overrideComposeFile = "docker-compose.override.yml"
 )
 
 func CheckDependencies() {
@@ -25,6 +33,22 @@ func CheckDependencies() {
 			logging.Fatal(fmt.Errorf("docker compose should be installed! (%s) \n", err))
 		}
 	}
+}
+
+// GetDevComposeFiles returns the list of compose files needed for dev mode
+// It checks if docker-compose.override.yml exists and includes it
+func GetDevComposeFiles(installPath string) []string {
+	files := []string{mainComposeFile}
+
+	// Include override file if it exists (contains port mappings)
+	overridePath := filepath.Join(installPath, overrideComposeFile)
+	if _, err := os.Stat(overridePath); err == nil {
+		files = append(files, overrideComposeFile)
+	}
+
+	// Dev compose file goes last to override settings
+	files = append(files, devComposeFile)
+	return files
 }
 
 func GetRepoLink(orchestrator string) string {
@@ -61,7 +85,24 @@ func CopyOverrideFile(installPath, orchestrator, sourceFilename, workingDir stri
 	return nil
 }
 
-func Start(installPath, orchestrator string) error {
+// Start starts containers, automatically using dev mode compose files if DevMode is enabled
+func Start(instance config.Installation) error {
+	if instance.DevMode {
+		logging.Print("Starting Canasta in dev mode\n")
+		files := GetDevComposeFiles(instance.Path)
+		return StartWithFiles(instance.Path, instance.Orchestrator, files...)
+	}
+	return startSimple(instance.Path, instance.Orchestrator)
+}
+
+// StartWithoutDevMode forces non-dev mode start, used during installation
+// when we need to run install.php without xdebug interference
+func StartWithoutDevMode(installPath, orchestrator string) error {
+	return startSimple(installPath, orchestrator)
+}
+
+// startSimple starts containers using the default compose file(s)
+func startSimple(installPath, orchestrator string) error {
 	logging.Print("Starting Canasta\n")
 	switch orchestrator {
 	case "compose":
@@ -106,7 +147,23 @@ func Pull(installPath, orchestrator string) error {
 }
 
 
-func Stop(installPath, orchestrator string) error {
+// Stop stops containers, automatically using dev mode compose files if DevMode is enabled
+func Stop(instance config.Installation) error {
+	if instance.DevMode {
+		logging.Print("Stopping Canasta (dev mode)\n")
+		files := GetDevComposeFiles(instance.Path)
+		return StopWithFiles(instance.Path, instance.Orchestrator, files...)
+	}
+	return stopSimple(instance.Path, instance.Orchestrator)
+}
+
+// StopWithoutDevMode forces non-dev mode stop, used during installation
+func StopWithoutDevMode(installPath, orchestrator string) error {
+	return stopSimple(installPath, orchestrator)
+}
+
+// stopSimple stops containers using the default compose file(s)
+func stopSimple(installPath, orchestrator string) error {
 	logging.Print("Stopping the containers\n")
 	switch orchestrator {
 	case "compose":
@@ -129,11 +186,12 @@ func Stop(installPath, orchestrator string) error {
 	return nil
 }
 
-func StopAndStart(installPath, orchestrator string) error {
-	if err := Stop(installPath, orchestrator); err != nil {
+// StopAndStart stops and starts containers, respecting dev mode setting
+func StopAndStart(instance config.Installation) error {
+	if err := Stop(instance); err != nil {
 		return err
 	}
-	if err := Start(installPath, orchestrator); err != nil {
+	if err := Start(instance); err != nil {
 		return err
 	}
 	return nil
@@ -201,26 +259,27 @@ func Exec(installPath, orchestrator, container, command string) string {
 
 }
 
-func CheckRunningStatus(installPath, canastaID, orchestrator string) error {
+// CheckRunningStatus checks if the web container is running
+func CheckRunningStatus(instance config.Installation) error {
 	containerName := "web"
 
-	switch orchestrator {
+	switch instance.Orchestrator {
 	case "compose":
 		compose := config.GetOrchestrator("compose")
 		var output string
 		var err error
 		if compose.Path != "" {
-			err, output = execute.Run(installPath, compose.Path, "ps", "-q", containerName)
+			err, output = execute.Run(instance.Path, compose.Path, "ps", "-q", containerName)
 		} else {
-			err, output = execute.Run(installPath, "docker", "compose", "ps", "-q", containerName)
+			err, output = execute.Run(instance.Path, "docker", "compose", "ps", "-q", containerName)
 		}
 		if err != nil || output == "" {
-			logging.Fatal(fmt.Errorf("Container %s is not running in Canasta instance '%s', please start it first!", containerName, canastaID))
+			logging.Fatal(fmt.Errorf("Container %s is not running in Canasta instance '%s', please start it first!", containerName, instance.Id))
 			return fmt.Errorf("Container %s is not running", containerName)
 		}
 	default:
-		logging.Fatal(fmt.Errorf("Orchestrator: %s is not available", orchestrator))
-		return fmt.Errorf("Orchestrator: %s is not available", orchestrator)
+		logging.Fatal(fmt.Errorf("Orchestrator: %s is not available", instance.Orchestrator))
+		return fmt.Errorf("Orchestrator: %s is not available", instance.Orchestrator)
 	}
 	return nil
 }

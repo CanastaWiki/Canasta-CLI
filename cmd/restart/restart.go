@@ -17,6 +17,9 @@ import (
 func NewCmdCreate() *cobra.Command {
 	var instance config.Installation
 	var verbose bool
+	var devModeFlag bool
+	var noDevFlag bool
+	var devImageTag string
 	var restartCmd = &cobra.Command{
 		Use:   "restart",
 		Short: "Restart the Canasta installation",
@@ -26,7 +29,7 @@ func NewCmdCreate() *cobra.Command {
 				instance.Id = args[0]
 			}
 			fmt.Println("Restarting Canasta installation '" + instance.Id + "'...")
-			err := Restart(instance)
+			err := Restart(instance, devModeFlag, noDevFlag, devImageTag)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -42,10 +45,13 @@ func NewCmdCreate() *cobra.Command {
 	restartCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	restartCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
 	restartCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
+	restartCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Restart in development mode with Xdebug")
+	restartCmd.Flags().BoolVar(&noDevFlag, "no-dev", false, "Restart without development mode (disable dev mode)")
+	restartCmd.Flags().StringVar(&devImageTag, "dev-tag", "latest", "Canasta image tag to use for dev mode")
 	return restartCmd
 }
 
-func Restart(instance config.Installation) error {
+func Restart(instance config.Installation, enableDev, disableDev bool, imageTag string) error {
 	var err error
 	if instance.Id != "" {
 		instance, err = config.GetDetails(instance.Id)
@@ -54,19 +60,44 @@ func Restart(instance config.Installation) error {
 		}
 	}
 
-	//Migrate to the new version Canasta
-	err = canasta.MigrateToNewVersion(instance.Path)
-	if err != nil {
+	// Handle --dev and --no-dev flags
+	if enableDev && disableDev {
+		return fmt.Errorf("cannot specify both --dev and --no-dev")
+	}
+
+	// Migrate to the new version Canasta
+	if err = canasta.MigrateToNewVersion(instance.Path); err != nil {
 		return err
 	}
 
-	if instance.DevMode {
-		if err = devmode.StopDev(instance.Path, instance.Orchestrator); err != nil {
+	// Stop containers (orchestrators.Stop handles dev mode automatically)
+	if err = orchestrators.Stop(instance); err != nil {
+		return err
+	}
+
+	// Handle dev mode enable/disable
+	if enableDev {
+		if err = devmode.EnableDevMode(instance.Path, instance.Orchestrator, imageTag); err != nil {
 			return err
 		}
-		err = devmode.StartDev(instance.Path, instance.Orchestrator)
-	} else {
-		err = orchestrators.StopAndStart(instance.Path, instance.Orchestrator)
+		instance.DevMode = true
+		if instance.Id != "" {
+			if err = config.Update(instance); err != nil {
+				logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
+			}
+		}
+	} else if disableDev {
+		if err = devmode.DisableDevMode(instance.Path); err != nil {
+			logging.Print(fmt.Sprintf("Warning: could not disable dev mode: %v\n", err))
+		}
+		instance.DevMode = false
+		if instance.Id != "" {
+			if err = config.Update(instance); err != nil {
+				logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
+			}
+		}
 	}
-	return err
+
+	// Start containers (orchestrators.Start handles dev mode automatically)
+	return orchestrators.Start(instance)
 }

@@ -165,6 +165,15 @@ func Delete(canastaID string) error {
 	return nil
 }
 
+// Update updates an existing installation's configuration
+func Update(details Installation) error {
+	if !Exists(details.Id) {
+		return fmt.Errorf("Canasta installation with ID '%s' doesn't exist", details.Id)
+	}
+	existingInstallations.Installations[details.Id] = details
+	return write(existingInstallations)
+}
+
 func write(details Canasta) error {
 	file, err := json.MarshalIndent(details, "", "	")
 	if err != nil {
