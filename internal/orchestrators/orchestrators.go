@@ -87,19 +87,15 @@ func CopyOverrideFile(installPath, orchestrator, sourceFilename, workingDir stri
 
 // Start starts containers, automatically using dev mode compose files if DevMode is enabled
 func Start(instance config.Installation) error {
+	var files []string
 	if instance.DevMode {
 		logging.Print("Starting Canasta in dev mode\n")
-		files := GetDevComposeFiles(instance.Path)
-		return start(instance.Path, instance.Orchestrator, files...)
+		files = GetDevComposeFiles(instance.Path)
+	} else {
+		logging.Print("Starting Canasta\n")
 	}
-	return start(instance.Path, instance.Orchestrator)
-}
 
-// start is the internal function that starts containers. If files are provided, uses those
-// compose files explicitly; otherwise uses default compose file discovery.
-func start(installPath, orchestrator string, files ...string) error {
-	logging.Print("Starting Canasta\n")
-	switch orchestrator {
+	switch instance.Orchestrator {
 	case "compose":
 		compose := config.GetOrchestrator("compose")
 		var args []string
@@ -108,19 +104,19 @@ func start(installPath, orchestrator string, files ...string) error {
 		}
 		args = append(args, "up", "-d")
 		if compose.Path != "" {
-			err, output := execute.Run(installPath, compose.Path, args...)
+			err, output := execute.Run(instance.Path, compose.Path, args...)
 			if err != nil {
 				return fmt.Errorf(output)
 			}
 		} else {
 			allArgs := append([]string{"compose"}, args...)
-			err, output := execute.Run(installPath, "docker", allArgs...)
+			err, output := execute.Run(instance.Path, "docker", allArgs...)
 			if err != nil {
 				return fmt.Errorf(output)
 			}
 		}
 	default:
-		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", instance.Orchestrator))
 	}
 	return nil
 }
@@ -150,12 +146,38 @@ func Pull(installPath, orchestrator string) error {
 
 // Stop stops containers, automatically using dev mode compose files if DevMode is enabled
 func Stop(instance config.Installation) error {
+	var files []string
 	if instance.DevMode {
 		logging.Print("Stopping Canasta (dev mode)\n")
-		files := GetDevComposeFiles(instance.Path)
-		return stop(instance.Path, instance.Orchestrator, files...)
+		files = GetDevComposeFiles(instance.Path)
+	} else {
+		logging.Print("Stopping the containers\n")
 	}
-	return stop(instance.Path, instance.Orchestrator)
+
+	switch instance.Orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		var args []string
+		for _, f := range files {
+			args = append(args, "-f", f)
+		}
+		args = append(args, "down")
+		if compose.Path != "" {
+			err, output := execute.Run(instance.Path, compose.Path, args...)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		} else {
+			allArgs := append([]string{"compose"}, args...)
+			err, output := execute.Run(instance.Path, "docker", allArgs...)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", instance.Orchestrator))
+	}
+	return nil
 }
 
 // Build builds images using the specified compose files
@@ -169,36 +191,6 @@ func Build(installPath, orchestrator string, files ...string) error {
 			args = append(args, "-f", f)
 		}
 		args = append(args, "build")
-		if compose.Path != "" {
-			err, output := execute.Run(installPath, compose.Path, args...)
-			if err != nil {
-				return fmt.Errorf(output)
-			}
-		} else {
-			allArgs := append([]string{"compose"}, args...)
-			err, output := execute.Run(installPath, "docker", allArgs...)
-			if err != nil {
-				return fmt.Errorf(output)
-			}
-		}
-	default:
-		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
-	}
-	return nil
-}
-
-// stop is the internal function that stops containers. If files are provided, uses those
-// compose files explicitly; otherwise uses default compose file discovery.
-func stop(installPath, orchestrator string, files ...string) error {
-	logging.Print("Stopping the containers\n")
-	switch orchestrator {
-	case "compose":
-		compose := config.GetOrchestrator("compose")
-		var args []string
-		for _, f := range files {
-			args = append(args, "-f", f)
-		}
-		args = append(args, "down")
 		if compose.Path != "" {
 			err, output := execute.Run(installPath, compose.Path, args...)
 			if err != nil {
