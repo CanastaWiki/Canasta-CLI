@@ -92,17 +92,11 @@ func Start(instance config.Installation) error {
 		files := GetDevComposeFiles(instance.Path)
 		return StartWithFiles(instance.Path, instance.Orchestrator, files...)
 	}
-	return startSimple(instance.Path, instance.Orchestrator)
+	return StartSimple(instance.Path, instance.Orchestrator)
 }
 
-// StartWithoutDevMode forces non-dev mode start, used during installation
-// when we need to run install.php without xdebug interference
-func StartWithoutDevMode(installPath, orchestrator string) error {
-	return startSimple(installPath, orchestrator)
-}
-
-// startSimple starts containers using the default compose file(s)
-func startSimple(installPath, orchestrator string) error {
+// StartSimple starts containers using the default compose file(s)
+func StartSimple(installPath, orchestrator string) error {
 	logging.Print("Starting Canasta\n")
 	switch orchestrator {
 	case "compose":
@@ -154,16 +148,11 @@ func Stop(instance config.Installation) error {
 		files := GetDevComposeFiles(instance.Path)
 		return StopWithFiles(instance.Path, instance.Orchestrator, files...)
 	}
-	return stopSimple(instance.Path, instance.Orchestrator)
+	return StopSimple(instance.Path, instance.Orchestrator)
 }
 
-// StopWithoutDevMode forces non-dev mode stop, used during installation
-func StopWithoutDevMode(installPath, orchestrator string) error {
-	return stopSimple(installPath, orchestrator)
-}
-
-// stopSimple stops containers using the default compose file(s)
-func stopSimple(installPath, orchestrator string) error {
+// StopSimple stops containers using the default compose file(s)
+func StopSimple(installPath, orchestrator string) error {
 	logging.Print("Stopping the containers\n")
 	switch orchestrator {
 	case "compose":
