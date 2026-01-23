@@ -1,7 +1,7 @@
 package devmode
 
 import (
-	"embed"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -40,11 +40,6 @@ var phpstormServerConfig string
 //go:embed files/phpstorm/Listen_for_Xdebug.xml
 var phpstormRunConfig string
 
-// For future use if we need to embed multiple files or directories
-//
-//go:embed files/*
-var embeddedFiles embed.FS
-
 // CreateDevModeFiles creates all the xdebug-related files in the installation directory
 func CreateDevModeFiles(installPath string) error {
 	logging.Print("Creating development mode files...\n")
@@ -74,7 +69,7 @@ func CreateDevModeFiles(installPath string) error {
 // ExtractMediaWikiCode extracts code from the web container for live editing
 // Uses raw docker commands (not docker compose) to avoid bind mount validation issues
 // If the code directory already exists with content, it skips extraction and returns true
-func ExtractMediaWikiCode(installPath, orchestrator, imageTag string) error {
+func ExtractMediaWikiCode(installPath, imageTag string) error {
 	codeDir := filepath.Join(installPath, CodeDir)
 
 	// Check if mediawiki-code directory already exists with content
@@ -222,7 +217,7 @@ func SetupFullDevMode(installPath, orchestrator, imageTag string) error {
 	// Extract MediaWiki code FIRST, before creating docker-compose.dev.yml
 	// (docker-compose.dev.yml mounts ./mediawiki-code which must exist)
 	// Uses raw docker commands to avoid docker-compose bind mount validation
-	if err := ExtractMediaWikiCode(installPath, orchestrator, imageTag); err != nil {
+	if err := ExtractMediaWikiCode(installPath, imageTag); err != nil {
 		return err
 	}
 
