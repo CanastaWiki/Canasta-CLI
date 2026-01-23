@@ -12,7 +12,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/cmd/restart"
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
@@ -110,14 +109,6 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 	err = canasta.RewriteCaddy(instance.Path)
 	if err != nil {
 		return err
-	}
-
-	// If dev mode is enabled, re-patch Caddyfile to bypass Varnish
-	if instance.DevMode {
-		err = devmode.PatchCaddyfileForDevMode(instance.Path)
-		if err != nil {
-			return err
-		}
 	}
 
 	//Restart the Canasta Instance

@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -213,36 +212,11 @@ func BuildXdebugImage(installPath, orchestrator string) error {
 	return nil
 }
 
-// PatchCaddyfileForDevMode modifies the Caddyfile to bypass Varnish cache
-// This routes requests directly to the web container for debugging
-func PatchCaddyfileForDevMode(installPath string) error {
-	caddyfilePath := filepath.Join(installPath, "config", "Caddyfile")
-
-	content, err := os.ReadFile(caddyfilePath)
-	if err != nil {
-		return fmt.Errorf("failed to read Caddyfile: %w", err)
-	}
-
-	// Replace varnish:80 with web:80 to bypass cache
-	oldLine := "reverse_proxy varnish:80"
-	newLine := "# Bypass Varnish cache for debugging - route directly to web\nreverse_proxy web:80"
-
-	newContent := strings.Replace(string(content), oldLine, newLine, 1)
-
-	if err := os.WriteFile(caddyfilePath, []byte(newContent), 0644); err != nil {
-		return fmt.Errorf("failed to write Caddyfile: %w", err)
-	}
-
-	logging.Print("Caddyfile patched to bypass Varnish cache\n")
-	return nil
-}
-
 // SetupFullDevMode performs the complete dev mode setup:
 // 1. Extract code from container (must happen before creating docker-compose.dev.yml)
 // 2. Create dev mode files (Dockerfile.xdebug, docker-compose.dev.yml, xdebug.ini)
 // 3. Setup environment (.env, VSCode config)
-// 4. Patch Caddyfile to bypass Varnish
-// 5. Build xdebug image
+// 4. Build xdebug image
 // imageTag specifies the Canasta image tag to use (e.g., "latest", "dev", "1.39")
 func SetupFullDevMode(installPath, orchestrator, imageTag string) error {
 	// Extract MediaWiki code FIRST, before creating docker-compose.dev.yml
@@ -259,11 +233,6 @@ func SetupFullDevMode(installPath, orchestrator, imageTag string) error {
 
 	// Setup dev environment (.env, VSCode config)
 	if err := SetupDevEnvironment(installPath, imageTag); err != nil {
-		return err
-	}
-
-	// Patch Caddyfile to bypass Varnish cache for debugging
-	if err := PatchCaddyfileForDevMode(installPath); err != nil {
 		return err
 	}
 
@@ -288,16 +257,11 @@ func IsDevModeSetup(installPath string) bool {
 }
 
 // EnableDevMode enables dev mode on an existing installation
-// If dev mode is already set up, it just ensures Caddyfile is patched
+// If dev mode is already set up, it returns immediately
 // imageTag specifies the Canasta image tag to use (e.g., "latest", "dev", "1.39")
 func EnableDevMode(installPath, orchestrator, imageTag string) error {
 	if IsDevModeSetup(installPath) {
 		logging.Print("Dev mode files already exist.\n")
-		// Just ensure Caddyfile is patched for debugging
-		if err := PatchCaddyfileForDevMode(installPath); err != nil {
-			// Don't fail if Caddyfile is already patched
-			logging.Print(fmt.Sprintf("Note: %v\n", err))
-		}
 		return nil
 	}
 
@@ -306,32 +270,3 @@ func EnableDevMode(installPath, orchestrator, imageTag string) error {
 	return SetupFullDevMode(installPath, orchestrator, imageTag)
 }
 
-// DisableDevMode restores the installation to non-dev mode
-// This patches Caddyfile to use Varnish again
-func DisableDevMode(installPath string) error {
-	caddyfilePath := filepath.Join(installPath, "config", "Caddyfile")
-
-	content, err := os.ReadFile(caddyfilePath)
-	if err != nil {
-		return fmt.Errorf("failed to read Caddyfile: %w", err)
-	}
-
-	// Replace web:80 back to varnish:80
-	oldLine := "# Bypass Varnish cache for debugging - route directly to web\nreverse_proxy web:80"
-	newLine := "reverse_proxy varnish:80"
-
-	newContent := strings.Replace(string(content), oldLine, newLine, 1)
-
-	// Also handle case where comment might not be there
-	if newContent == string(content) {
-		oldLine = "reverse_proxy web:80"
-		newContent = strings.Replace(string(content), oldLine, newLine, 1)
-	}
-
-	if err := os.WriteFile(caddyfilePath, []byte(newContent), 0644); err != nil {
-		return fmt.Errorf("failed to write Caddyfile: %w", err)
-	}
-
-	logging.Print("Caddyfile restored to use Varnish cache\n")
-	return nil
-}

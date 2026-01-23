@@ -74,10 +74,7 @@ func Start(instance config.Installation, enableDev, disableDev bool, imageTag st
 			}
 		}
 	} else if disableDev {
-		// Disable dev mode
-		if err = devmode.DisableDevMode(instance.Path); err != nil {
-			logging.Print(fmt.Sprintf("Warning: could not disable dev mode: %v\n", err))
-		}
+		// Disable dev mode - just update the config flag
 		instance.DevMode = false
 		if instance.Id != "" {
 			if err = config.Update(instance); err != nil {
