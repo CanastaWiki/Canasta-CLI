@@ -159,7 +159,8 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 
 	// Always start without dev mode for installation to avoid xdebug interference
 	// (xdebug can cause hangs if a debugger is listening during install.php)
-	if err := orchestrators.StartSimple(path, orchestrator); err != nil {
+	tempInstance := config.Installation{Path: path, Orchestrator: orchestrator, DevMode: false}
+	if err := orchestrators.Start(tempInstance); err != nil {
 		return err
 	}
 
@@ -174,7 +175,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 
 	// Restart to apply all settings
 	// Stop containers (started without dev mode)
-	if err := orchestrators.StopSimple(path, orchestrator); err != nil {
+	if err := orchestrators.Stop(tempInstance); err != nil {
 		log.Fatal(err)
 	}
 

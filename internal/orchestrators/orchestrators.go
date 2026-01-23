@@ -90,24 +90,31 @@ func Start(instance config.Installation) error {
 	if instance.DevMode {
 		logging.Print("Starting Canasta in dev mode\n")
 		files := GetDevComposeFiles(instance.Path)
-		return StartWithFiles(instance.Path, instance.Orchestrator, files...)
+		return start(instance.Path, instance.Orchestrator, files...)
 	}
-	return StartSimple(instance.Path, instance.Orchestrator)
+	return start(instance.Path, instance.Orchestrator)
 }
 
-// StartSimple starts containers using the default compose file(s)
-func StartSimple(installPath, orchestrator string) error {
+// start is the internal function that starts containers. If files are provided, uses those
+// compose files explicitly; otherwise uses default compose file discovery.
+func start(installPath, orchestrator string, files ...string) error {
 	logging.Print("Starting Canasta\n")
 	switch orchestrator {
 	case "compose":
 		compose := config.GetOrchestrator("compose")
+		var args []string
+		for _, f := range files {
+			args = append(args, "-f", f)
+		}
+		args = append(args, "up", "-d")
 		if compose.Path != "" {
-			err, output := execute.Run(installPath, compose.Path, "up", "-d")
+			err, output := execute.Run(installPath, compose.Path, args...)
 			if err != nil {
 				return fmt.Errorf(output)
 			}
 		} else {
-			err, output := execute.Run(installPath, "docker", "compose", "up", "-d")
+			allArgs := append([]string{"compose"}, args...)
+			err, output := execute.Run(installPath, "docker", allArgs...)
 			if err != nil {
 				return fmt.Errorf(output)
 			}
@@ -146,25 +153,60 @@ func Stop(instance config.Installation) error {
 	if instance.DevMode {
 		logging.Print("Stopping Canasta (dev mode)\n")
 		files := GetDevComposeFiles(instance.Path)
-		return StopWithFiles(instance.Path, instance.Orchestrator, files...)
+		return stop(instance.Path, instance.Orchestrator, files...)
 	}
-	return StopSimple(instance.Path, instance.Orchestrator)
+	return stop(instance.Path, instance.Orchestrator)
 }
 
-// StopSimple stops containers using the default compose file(s)
-func StopSimple(installPath, orchestrator string) error {
+// Build builds images using the specified compose files
+func Build(installPath, orchestrator string, files ...string) error {
+	logging.Print("Building images\n")
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		var args []string
+		for _, f := range files {
+			args = append(args, "-f", f)
+		}
+		args = append(args, "build")
+		if compose.Path != "" {
+			err, output := execute.Run(installPath, compose.Path, args...)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		} else {
+			allArgs := append([]string{"compose"}, args...)
+			err, output := execute.Run(installPath, "docker", allArgs...)
+			if err != nil {
+				return fmt.Errorf(output)
+			}
+		}
+	default:
+		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
+	}
+	return nil
+}
+
+// stop is the internal function that stops containers. If files are provided, uses those
+// compose files explicitly; otherwise uses default compose file discovery.
+func stop(installPath, orchestrator string, files ...string) error {
 	logging.Print("Stopping the containers\n")
 	switch orchestrator {
 	case "compose":
 		compose := config.GetOrchestrator("compose")
+		var args []string
+		for _, f := range files {
+			args = append(args, "-f", f)
+		}
+		args = append(args, "down")
 		if compose.Path != "" {
-			err, output := execute.Run(installPath, compose.Path, "down")
+			err, output := execute.Run(installPath, compose.Path, args...)
 			if err != nil {
 				return fmt.Errorf(output)
-
 			}
 		} else {
-			err, output := execute.Run(installPath, "docker", "compose", "down")
+			allArgs := append([]string{"compose"}, args...)
+			err, output := execute.Run(installPath, "docker", allArgs...)
 			if err != nil {
 				return fmt.Errorf(output)
 			}
@@ -349,89 +391,3 @@ func ImportDatabase(databaseName, databasePath string, instance config.Installat
 	return nil
 }
 
-// BuildWithFiles builds using multiple compose files (docker compose -f f1 -f f2 build)
-func BuildWithFiles(installPath, orchestrator string, files ...string) error {
-	logging.Print("Building with compose files\n")
-	switch orchestrator {
-	case "compose":
-		compose := config.GetOrchestrator("compose")
-		args := []string{}
-		for _, f := range files {
-			args = append(args, "-f", f)
-		}
-		args = append(args, "build")
-		if compose.Path != "" {
-			err, output := execute.Run(installPath, compose.Path, args...)
-			if err != nil {
-				return fmt.Errorf(output)
-			}
-		} else {
-			allArgs := append([]string{"compose"}, args...)
-			err, output := execute.Run(installPath, "docker", allArgs...)
-			if err != nil {
-				return fmt.Errorf(output)
-			}
-		}
-	default:
-		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
-	}
-	return nil
-}
-
-// StartWithFiles starts using multiple compose files (docker compose -f f1 -f f2 up -d)
-func StartWithFiles(installPath, orchestrator string, files ...string) error {
-	logging.Print("Starting with compose files\n")
-	switch orchestrator {
-	case "compose":
-		compose := config.GetOrchestrator("compose")
-		args := []string{}
-		for _, f := range files {
-			args = append(args, "-f", f)
-		}
-		args = append(args, "up", "-d")
-		if compose.Path != "" {
-			err, output := execute.Run(installPath, compose.Path, args...)
-			if err != nil {
-				return fmt.Errorf(output)
-			}
-		} else {
-			allArgs := append([]string{"compose"}, args...)
-			err, output := execute.Run(installPath, "docker", allArgs...)
-			if err != nil {
-				return fmt.Errorf(output)
-			}
-		}
-	default:
-		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
-	}
-	return nil
-}
-
-// StopWithFiles stops using multiple compose files (docker compose -f f1 -f f2 down)
-func StopWithFiles(installPath, orchestrator string, files ...string) error {
-	logging.Print("Stopping with compose files\n")
-	switch orchestrator {
-	case "compose":
-		compose := config.GetOrchestrator("compose")
-		args := []string{}
-		for _, f := range files {
-			args = append(args, "-f", f)
-		}
-		args = append(args, "down")
-		if compose.Path != "" {
-			err, output := execute.Run(installPath, compose.Path, args...)
-			if err != nil {
-				return fmt.Errorf(output)
-			}
-		} else {
-			allArgs := append([]string{"compose"}, args...)
-			err, output := execute.Run(installPath, "docker", allArgs...)
-			if err != nil {
-				return fmt.Errorf(output)
-			}
-		}
-	default:
-		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestrator))
-	}
-	return nil
-}

@@ -199,7 +199,7 @@ func BuildXdebugImage(installPath, orchestrator string) error {
 	logging.Print("Building xdebug-enabled image...\n")
 
 	files := orchestrators.GetDevComposeFiles(installPath)
-	if err := orchestrators.BuildWithFiles(installPath, orchestrator, files...); err != nil {
+	if err := orchestrators.Build(installPath, orchestrator, files...); err != nil {
 		return fmt.Errorf("failed to build xdebug image: %w", err)
 	}
 
