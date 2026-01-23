@@ -269,6 +269,11 @@ func RewriteCaddy(installPath string) error {
 		if i > 0 {
 			newLine.WriteString(", ")
 		}
+		// Strip any port from server name (e.g., "localhost:8443" -> "localhost")
+		// since we append :{$HTTPS_PORT} which refers to the container's internal port
+		if colonIdx := strings.LastIndex(serverName, ":"); colonIdx != -1 {
+			serverName = serverName[:colonIdx]
+		}
 		newLine.WriteString(serverName)
 		newLine.WriteString(":{$HTTPS_PORT}")
 	}
