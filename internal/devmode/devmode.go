@@ -117,12 +117,11 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 		return fmt.Errorf("failed to create symlinks: %s", output)
 	}
 
-	// Copy code from container to host using tar to dereference symlinks recursively
-	// (docker cp -L only follows top-level symlinks, not recursive ones)
-	// Extensions/skins are symlinked to canasta-extensions/canasta-skins
+	// Copy code from container to host, preserving symlinks
+	// CanastaBase uses relative symlinks (../canasta-extensions/X, ../user-extensions/X)
 	// Note: Can't use execute.Run here because it wraps commands in bash -c which breaks pipes
 	logging.Print(fmt.Sprintf("Copying MediaWiki code to %s...\n", codeDir))
-	tarCmd := fmt.Sprintf("docker exec %s tar -chf - -C /var/www/mediawiki/w . | tar -xf - -C %s", containerName, codeDir)
+	tarCmd := fmt.Sprintf("docker exec %s tar -cf - -C /var/www/mediawiki/w . | tar -xf - -C %s", containerName, codeDir)
 	cmd := exec.Command("bash", "-c", tarCmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Clean up container on failure
@@ -136,7 +135,85 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 		return fmt.Errorf("failed to remove temporary container: %s", output)
 	}
 
+	// Consolidate user extensions/skins into mediawiki-code
+	// The extracted code has user-extensions/ and user-skins/ directories
+	// We copy any existing user extensions from installPath/extensions/ into mediawiki-code/user-extensions/
+	// Then replace installPath/extensions/ with a symlink to mediawiki-code/user-extensions/
+	// This ensures:
+	//   1. Symlinks in extensions/ (e.g., CommentStreams -> ../user-extensions/CommentStreams) resolve correctly
+	//   2. Users can edit in either extensions/ or mediawiki-code/user-extensions/ (they're the same)
+	//   3. IDE path mappings are simple: mediawiki-code/ <-> /var/www/mediawiki/w/
+	logging.Print("Consolidating user extensions into mediawiki-code...\n")
+	if err := consolidateUserDir(installPath, codeDir, "extensions", "user-extensions"); err != nil {
+		return fmt.Errorf("failed to consolidate extensions: %w", err)
+	}
+	if err := consolidateUserDir(installPath, codeDir, "skins", "user-skins"); err != nil {
+		return fmt.Errorf("failed to consolidate skins: %w", err)
+	}
+
 	logging.Print(fmt.Sprintf("MediaWiki code extracted to %s\n", codeDir))
+	return nil
+}
+
+// consolidateUserDir copies user extensions/skins from installPath/dirName to codeDir/userDirName
+// then replaces installPath/dirName with a symlink to codeDir/userDirName
+// dirName is "extensions" or "skins", userDirName is "user-extensions" or "user-skins"
+func consolidateUserDir(installPath, codeDir, dirName, userDirName string) error {
+	sourceDir := filepath.Join(installPath, dirName)
+	targetDir := filepath.Join(codeDir, userDirName)
+
+	// Ensure target directory exists (should exist from extraction)
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("failed to create %s directory: %w", userDirName, err)
+	}
+
+	// Check if source is already a symlink (dev mode already set up)
+	if info, err := os.Lstat(sourceDir); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		logging.Print(fmt.Sprintf("  %s/ is already a symlink, skipping consolidation\n", dirName))
+		return nil
+	}
+
+	// Copy contents from source to target (if source exists and has content)
+	if info, err := os.Stat(sourceDir); err == nil && info.IsDir() {
+		entries, err := os.ReadDir(sourceDir)
+		if err != nil {
+			return fmt.Errorf("failed to read %s directory: %w", dirName, err)
+		}
+
+		for _, entry := range entries {
+			srcPath := filepath.Join(sourceDir, entry.Name())
+			dstPath := filepath.Join(targetDir, entry.Name())
+
+			// Remove existing destination if it exists (extensions/ takes precedence)
+			if _, err := os.Stat(dstPath); err == nil {
+				logging.Print(fmt.Sprintf("  Replacing %s in %s with version from %s/\n", entry.Name(), userDirName, dirName))
+				if err := os.RemoveAll(dstPath); err != nil {
+					return fmt.Errorf("failed to remove existing %s: %w", entry.Name(), err)
+				}
+			} else {
+				logging.Print(fmt.Sprintf("  Copying %s to %s...\n", entry.Name(), userDirName))
+			}
+
+			// Copy directory recursively using cp -r
+			if err, output := execute.Run("", "cp", "-r", srcPath, dstPath); err != nil {
+				return fmt.Errorf("failed to copy %s: %s", entry.Name(), output)
+			}
+		}
+
+		// Remove the original directory
+		if err := os.RemoveAll(sourceDir); err != nil {
+			return fmt.Errorf("failed to remove original %s directory: %w", dirName, err)
+		}
+	}
+
+	// Create symlink: installPath/extensions -> mediawiki-code/user-extensions
+	// Use relative path so it works regardless of absolute path
+	relTarget := filepath.Join(CodeDir, userDirName)
+	logging.Print(fmt.Sprintf("  Creating symlink %s -> %s\n", dirName, relTarget))
+	if err := os.Symlink(relTarget, sourceDir); err != nil {
+		return fmt.Errorf("failed to create %s symlink: %w", dirName, err)
+	}
+
 	return nil
 }
 
@@ -257,11 +334,19 @@ func IsDevModeSetup(installPath string) bool {
 }
 
 // EnableDevMode enables dev mode on an existing installation
-// If dev mode is already set up, it returns immediately
+// If dev mode files exist but symlinks need to be restored, it handles that
 // baseImage is the full Canasta image name (e.g., "ghcr.io/canastawiki/canasta:latest" or "canasta:local")
 func EnableDevMode(installPath, orchestrator, baseImage string) error {
+	codeDir := filepath.Join(installPath, CodeDir)
+
 	if IsDevModeSetup(installPath) {
 		logging.Print("Dev mode files already exist.\n")
+
+		// Even if dev mode files exist, we need to ensure symlinks are set up
+		// (they may have been converted back to real directories by --no-dev)
+		if err := ensureDevModeSymlinks(installPath, codeDir); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -270,3 +355,91 @@ func EnableDevMode(installPath, orchestrator, baseImage string) error {
 	return SetupFullDevMode(installPath, orchestrator, baseImage)
 }
 
+// ensureDevModeSymlinks ensures extensions/ and skins/ are symlinks to mediawiki-code/
+// This is needed when re-enabling dev mode after it was disabled with --no-dev
+func ensureDevModeSymlinks(installPath, codeDir string) error {
+	// Check if extensions/ is already a symlink
+	extPath := filepath.Join(installPath, "extensions")
+	if info, err := os.Lstat(extPath); err == nil && info.Mode()&os.ModeSymlink == 0 {
+		// It's a real directory, need to consolidate
+		logging.Print("Restoring dev mode symlinks...\n")
+		if err := consolidateUserDir(installPath, codeDir, "extensions", "user-extensions"); err != nil {
+			return fmt.Errorf("failed to consolidate extensions: %w", err)
+		}
+		if err := consolidateUserDir(installPath, codeDir, "skins", "user-skins"); err != nil {
+			return fmt.Errorf("failed to consolidate skins: %w", err)
+		}
+	}
+	return nil
+}
+
+// DisableDevMode disables dev mode on an installation
+// This reverses the symlinks created by EnableDevMode, restoring extensions/ and skins/
+// as real directories with their contents copied from mediawiki-code/
+func DisableDevMode(installPath string) error {
+	logging.Print("Disabling dev mode...\n")
+
+	// Restore extensions/ and skins/ from symlinks to real directories
+	if err := restoreUserDir(installPath, "extensions", "user-extensions"); err != nil {
+		return fmt.Errorf("failed to restore extensions: %w", err)
+	}
+	if err := restoreUserDir(installPath, "skins", "user-skins"); err != nil {
+		return fmt.Errorf("failed to restore skins: %w", err)
+	}
+
+	logging.Print("Dev mode disabled. User extensions/skins restored to their original directories.\n")
+	logging.Print("Note: mediawiki-code/ directory is preserved. Delete it manually if no longer needed.\n")
+	return nil
+}
+
+// restoreUserDir restores installPath/dirName from a symlink back to a real directory
+// by copying contents from codeDir/userDirName
+func restoreUserDir(installPath, dirName, userDirName string) error {
+	symlinkPath := filepath.Join(installPath, dirName)
+	sourceDir := filepath.Join(installPath, CodeDir, userDirName)
+
+	// Check if it's actually a symlink
+	info, err := os.Lstat(symlinkPath)
+	if err != nil {
+		// Directory doesn't exist, create empty one
+		logging.Print(fmt.Sprintf("  %s/ doesn't exist, creating empty directory\n", dirName))
+		return os.MkdirAll(symlinkPath, 0755)
+	}
+
+	if info.Mode()&os.ModeSymlink == 0 {
+		// Not a symlink, nothing to do
+		logging.Print(fmt.Sprintf("  %s/ is already a real directory\n", dirName))
+		return nil
+	}
+
+	// Remove the symlink
+	logging.Print(fmt.Sprintf("  Removing %s symlink...\n", dirName))
+	if err := os.Remove(symlinkPath); err != nil {
+		return fmt.Errorf("failed to remove symlink: %w", err)
+	}
+
+	// Create new directory
+	if err := os.MkdirAll(symlinkPath, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Copy contents from mediawiki-code/user-extensions (if it exists)
+	if _, err := os.Stat(sourceDir); err == nil {
+		entries, err := os.ReadDir(sourceDir)
+		if err != nil {
+			return fmt.Errorf("failed to read source directory: %w", err)
+		}
+
+		for _, entry := range entries {
+			srcPath := filepath.Join(sourceDir, entry.Name())
+			dstPath := filepath.Join(symlinkPath, entry.Name())
+
+			logging.Print(fmt.Sprintf("  Copying %s to %s/...\n", entry.Name(), dirName))
+			if err, output := execute.Run("", "cp", "-r", srcPath, dstPath); err != nil {
+				return fmt.Errorf("failed to copy %s: %s", entry.Name(), output)
+			}
+		}
+	}
+
+	return nil
+}

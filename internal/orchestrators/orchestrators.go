@@ -89,7 +89,7 @@ func CopyOverrideFile(installPath, orchestrator, sourceFilename, workingDir stri
 func Start(instance config.Installation) error {
 	var files []string
 	if instance.DevMode {
-		logging.Print("Starting Canasta in dev mode\n")
+		fmt.Println("Dev mode enabled (Xdebug active)")
 		files = GetDevComposeFiles(instance.Path)
 	} else {
 		logging.Print("Starting Canasta\n")

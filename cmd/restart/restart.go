@@ -27,8 +27,12 @@ func NewCmdCreate() *cobra.Command {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
-			fmt.Println("Restarting Canasta installation '" + instance.Id + "'...")
-			err := Restart(instance, devModeFlag, noDevFlag)
+			resolvedInstance, err := canasta.CheckCanastaId(instance)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println("Restarting Canasta installation '" + resolvedInstance.Id + "'...")
+			err = Restart(resolvedInstance, devModeFlag, noDevFlag)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -50,20 +54,13 @@ func NewCmdCreate() *cobra.Command {
 }
 
 func Restart(instance config.Installation, enableDev, disableDev bool) error {
-	var err error
-	if instance.Id != "" {
-		instance, err = config.GetDetails(instance.Id)
-		if err != nil {
-			return err
-		}
-	}
-
 	// Handle --dev and --no-dev flags
 	if enableDev && disableDev {
 		return fmt.Errorf("cannot specify both --dev and --no-dev")
 	}
 
 	// Migrate to the new version Canasta
+	var err error
 	if err = canasta.MigrateToNewVersion(instance.Path); err != nil {
 		return err
 	}
@@ -87,7 +84,10 @@ func Restart(instance config.Installation, enableDev, disableDev bool) error {
 			}
 		}
 	} else if disableDev {
-		// Disable dev mode - just update the config flag
+		// Disable dev mode - restore extensions/skins as real directories
+		if err = devmode.DisableDevMode(instance.Path); err != nil {
+			return err
+		}
 		instance.DevMode = false
 		if instance.Id != "" {
 			if err = config.Update(instance); err != nil {

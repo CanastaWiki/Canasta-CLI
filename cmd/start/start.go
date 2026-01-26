@@ -30,8 +30,12 @@ func NewCmdCreate() *cobra.Command {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
-			fmt.Println("Starting Canasta installation '" + instance.Id + "'...")
-			if err := Start(instance, devModeFlag, noDevFlag); err != nil {
+			resolvedInstance, err := canasta.CheckCanastaId(instance)
+			if err != nil {
+				logging.Fatal(err)
+			}
+			fmt.Println("Starting Canasta installation '" + resolvedInstance.Id + "'...")
+			if err := Start(resolvedInstance, devModeFlag, noDevFlag); err != nil {
 				logging.Fatal(err)
 			}
 			fmt.Println("Started.")
@@ -50,17 +54,12 @@ func NewCmdCreate() *cobra.Command {
 }
 
 func Start(instance config.Installation, enableDev, disableDev bool) error {
-	if instance.Id != "" {
-		if instance, err = config.GetDetails(instance.Id); err != nil {
-			logging.Fatal(err)
-		}
-	}
-
 	// Handle --dev and --no-dev flags
 	if enableDev && disableDev {
 		return fmt.Errorf("cannot specify both --dev and --no-dev")
 	}
 
+	var err error
 	if enableDev {
 		// Enable dev mode using default registry image
 		baseImage := canasta.GetDefaultImage()
@@ -74,7 +73,10 @@ func Start(instance config.Installation, enableDev, disableDev bool) error {
 			}
 		}
 	} else if disableDev {
-		// Disable dev mode - just update the config flag
+		// Disable dev mode - restore extensions/skins as real directories
+		if err = devmode.DisableDevMode(instance.Path); err != nil {
+			return err
+		}
 		instance.DevMode = false
 		if instance.Id != "" {
 			if err = config.Update(instance); err != nil {
