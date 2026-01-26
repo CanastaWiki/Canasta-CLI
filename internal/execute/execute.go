@@ -29,7 +29,7 @@ func Run(path, command string, cmdArgs ...string) (error, string) {
 
 	isVerbose := logging.GetVerbose()
 	if isVerbose {
-		if command == "docker-compose" {
+		if command == "docker" && len(cmdArgs) > 0 && cmdArgs[0] == "compose" {
 			cmdArgs = append([]string{"--verbose"}, cmdArgs...)
 		}
 	}
