@@ -19,7 +19,6 @@ func NewCmdCreate() *cobra.Command {
 	var verbose bool
 	var devModeFlag bool
 	var noDevFlag bool
-	var devImageTag string
 	var restartCmd = &cobra.Command{
 		Use:   "restart",
 		Short: "Restart the Canasta installation",
@@ -29,7 +28,7 @@ func NewCmdCreate() *cobra.Command {
 				instance.Id = args[0]
 			}
 			fmt.Println("Restarting Canasta installation '" + instance.Id + "'...")
-			err := Restart(instance, devModeFlag, noDevFlag, devImageTag)
+			err := Restart(instance, devModeFlag, noDevFlag)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -47,11 +46,10 @@ func NewCmdCreate() *cobra.Command {
 	restartCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	restartCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Restart in development mode with Xdebug")
 	restartCmd.Flags().BoolVar(&noDevFlag, "no-dev", false, "Restart without development mode (disable dev mode)")
-	restartCmd.Flags().StringVar(&devImageTag, "dev-tag", "latest", "Canasta image tag to use for dev mode")
 	return restartCmd
 }
 
-func Restart(instance config.Installation, enableDev, disableDev bool, imageTag string) error {
+func Restart(instance config.Installation, enableDev, disableDev bool) error {
 	var err error
 	if instance.Id != "" {
 		instance, err = config.GetDetails(instance.Id)
@@ -77,7 +75,9 @@ func Restart(instance config.Installation, enableDev, disableDev bool, imageTag 
 
 	// Handle dev mode enable/disable
 	if enableDev {
-		if err = devmode.EnableDevMode(instance.Path, instance.Orchestrator, imageTag); err != nil {
+		// Enable dev mode using default registry image
+		baseImage := canasta.GetDefaultImage()
+		if err = devmode.EnableDevMode(instance.Path, instance.Orchestrator, baseImage); err != nil {
 			return err
 		}
 		instance.DevMode = true

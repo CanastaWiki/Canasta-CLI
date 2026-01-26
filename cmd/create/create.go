@@ -13,6 +13,8 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/imagebuild"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
@@ -20,19 +22,21 @@ import (
 
 func NewCmdCreate() *cobra.Command {
 	var (
-		path         string
-		orchestrator string
-		workingDir   string
-		wikiID       string
-		siteName     string
-		domain       string
-		yamlPath     string
-		err          error
-		keepConfig   bool
-		canastaInfo  canasta.CanastaVariables
-		override     string
-		envFile      string
-		devImageTag  string // empty = no dev mode, "latest" = default, or custom tag
+		path          string
+		orchestrator  string
+		workingDir    string
+		wikiID        string
+		siteName      string
+		domain        string
+		yamlPath      string
+		err           error
+		keepConfig    bool
+		canastaInfo   canasta.CanastaVariables
+		override      string
+		envFile       string
+		devModeFlag   bool   // enable dev mode
+		devTag        string // registry image tag for dev mode
+		buildFromPath string // path to build Canasta from source
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -55,19 +59,23 @@ func NewCmdCreate() *cobra.Command {
 				log.Fatal(fmt.Errorf("Error: Canasta instance ID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed"))
 			}
 
+			// Validate --dev-tag and --build-from are mutually exclusive
+			if devTag != "latest" && buildFromPath != "" {
+				log.Fatal(fmt.Errorf("Error: --dev-tag and --build-from are mutually exclusive"))
+			}
+
 			// Generate passwords (auto-gen if not provided via flags)
 			if canastaInfo, err = canasta.GeneratePasswords(workingDir, canastaInfo); err != nil {
 				log.Fatal(err)
 			}
 
 			description := "Creating Canasta installation '" + canastaInfo.Id + "'..."
-			devModeEnabled := devImageTag != ""
-			if devModeEnabled {
+			if devModeFlag {
 				description = "Creating Canasta installation '" + canastaInfo.Id + "' with dev mode..."
 			}
 			_, done := spinner.New(description)
 
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile, devModeEnabled, devImageTag, done); err != nil {
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile, devModeFlag, devTag, buildFromPath, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
 					canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orchestrator)
@@ -99,8 +107,9 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBPassword, "wikidbpass", "", "Wiki database password (if not provided, auto-generates and saves to .env). Tip: Use --wikidbpass \"$WIKI_DB_PASS\" to avoid exposing password in shell history")
 	createCmd.Flags().StringVarP(&envFile, "envfile", "e", "", "Path to .env file with password overrides (merged with .env.example)")
-	createCmd.Flags().StringVarP(&devImageTag, "dev", "D", "", "Enable development mode with xdebug and code extraction. Optionally specify image tag (default: latest)")
-	createCmd.Flags().Lookup("dev").NoOptDefVal = "latest" // --dev without value uses "latest"
+	createCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Enable development mode with Xdebug and code extraction")
+	createCmd.Flags().StringVar(&devTag, "dev-tag", "latest", "Canasta image tag to use (e.g., latest, dev-branch)")
+	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build Canasta image from local source directory (expects Canasta/, optionally CanastaBase/)")
 
 	// Mark required flags
 	createCmd.MarkFlagRequired("id")
@@ -110,7 +119,7 @@ func NewCmdCreate() *cobra.Command {
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile string, devModeEnabled bool, devImageTag string, done chan struct{}) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile string, devModeEnabled bool, devTag, buildFromPath string, done chan struct{}) error {
 	// Pass a message to the "done" channel indicating the completion of createCanasta function.
 	// This signals the spinner to stop printing progress, regardless of success or failure.
 	defer func() {
@@ -119,8 +128,24 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
+
+	// Determine the base image to use
+	var baseImage string
+	if buildFromPath != "" {
+		// Build Canasta (and optionally CanastaBase) from source
+		logging.Print("Building Canasta from local source...\n")
+		builtImage, err := imagebuild.BuildFromSource(buildFromPath)
+		if err != nil {
+			return fmt.Errorf("failed to build from source: %w", err)
+		}
+		baseImage = builtImage
+	} else {
+		// Use registry image with specified tag
+		baseImage = canasta.GetImageWithTag(devTag)
+	}
+
 	// Clone the stack repository first to create the installation directory
-	if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path); err != nil {
+	if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path, buildFromPath); err != nil {
 		return err
 	}
 
@@ -140,6 +165,12 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := canasta.CreateEnvFile(envFile, path, workingDir, canastaInfo.RootDBPassword, canastaInfo.WikiDBPassword); err != nil {
 		return err
 	}
+	// Set CANASTA_IMAGE in .env for local builds so docker-compose uses the locally built image
+	if buildFromPath != "" {
+		if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", baseImage); err != nil {
+			return err
+		}
+	}
 	if err := canasta.CopySettings(path); err != nil {
 		return err
 	}
@@ -152,7 +183,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 
 	// Dev mode: extract code and build xdebug image before starting
 	if devModeEnabled {
-		if err := devmode.SetupFullDevMode(path, orchestrator, devImageTag); err != nil {
+		if err := devmode.SetupFullDevMode(path, orchestrator, baseImage); err != nil {
 			return err
 		}
 	}

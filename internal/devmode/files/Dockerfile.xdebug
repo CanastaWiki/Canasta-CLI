@@ -1,7 +1,7 @@
-ARG IMAGE_TAG=latest
+ARG BASE_IMAGE=ghcr.io/canastawiki/canasta:latest
 
 # --- Stage 1: build xdebug.so ---
-FROM ghcr.io/canastawiki/canasta:${IMAGE_TAG} AS builder
+FROM ${BASE_IMAGE} AS builder
 
 RUN apt-get update && apt-get install -y \
     php8.1-dev autoconf build-essential php-pear \
@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
  && cp "$(php -r 'echo ini_get("extension_dir");')/xdebug.so" /xdebug-out/
 
 # --- Stage 2: final image ---
-FROM ghcr.io/canastawiki/canasta:${IMAGE_TAG}
+FROM ${BASE_IMAGE}
 
 # Copy compiled xdebug.so into the final container
 COPY --from=builder /xdebug-out/xdebug.so /tmp/xdebug.so

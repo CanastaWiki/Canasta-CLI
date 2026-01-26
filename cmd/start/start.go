@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -19,7 +20,6 @@ var (
 	err         error
 	devModeFlag bool
 	noDevFlag   bool
-	devImageTag string
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -31,7 +31,7 @@ func NewCmdCreate() *cobra.Command {
 				instance.Id = args[0]
 			}
 			fmt.Println("Starting Canasta installation '" + instance.Id + "'...")
-			if err := Start(instance, devModeFlag, noDevFlag, devImageTag); err != nil {
+			if err := Start(instance, devModeFlag, noDevFlag); err != nil {
 				logging.Fatal(err)
 			}
 			fmt.Println("Started.")
@@ -46,11 +46,10 @@ func NewCmdCreate() *cobra.Command {
 	startCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
 	startCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Start in development mode with Xdebug")
 	startCmd.Flags().BoolVar(&noDevFlag, "no-dev", false, "Start without development mode (disable dev mode)")
-	startCmd.Flags().StringVar(&devImageTag, "dev-tag", "latest", "Canasta image tag to use for dev mode")
 	return startCmd
 }
 
-func Start(instance config.Installation, enableDev, disableDev bool, imageTag string) error {
+func Start(instance config.Installation, enableDev, disableDev bool) error {
 	if instance.Id != "" {
 		if instance, err = config.GetDetails(instance.Id); err != nil {
 			logging.Fatal(err)
@@ -63,8 +62,9 @@ func Start(instance config.Installation, enableDev, disableDev bool, imageTag st
 	}
 
 	if enableDev {
-		// Enable dev mode
-		if err = devmode.EnableDevMode(instance.Path, instance.Orchestrator, imageTag); err != nil {
+		// Enable dev mode using default registry image
+		baseImage := canasta.GetDefaultImage()
+		if err = devmode.EnableDevMode(instance.Path, instance.Orchestrator, baseImage); err != nil {
 			return err
 		}
 		instance.DevMode = true

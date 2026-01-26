@@ -27,11 +27,51 @@ type CanastaVariables struct {
 	WikiDBPassword string
 }
 
+const (
+	// DefaultImageRegistry is the container registry for Canasta images
+	DefaultImageRegistry = "ghcr.io/canastawiki"
+	// DefaultImageName is the name of the Canasta image
+	DefaultImageName = "canasta"
+	// DefaultImageTag is the default tag to use for the Canasta image
+	DefaultImageTag = "latest"
+)
+
+// GetDefaultImage returns the full default Canasta image reference
+func GetDefaultImage() string {
+	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, DefaultImageTag)
+}
+
+// GetImageWithTag returns the Canasta image reference with the specified tag
+func GetImageWithTag(tag string) string {
+	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, tag)
+}
+
 // CloneStackRepo() accepts the orchestrator from the CLI,
 // passes the corresponding repository link,
 // and clones the repo to a new folder in the specified path.
-func CloneStackRepo(orchestrator, canastaId string, path *string) error {
+// If localSourcePath is provided and contains a Canasta-DockerCompose directory, it copies from there instead.
+func CloneStackRepo(orchestrator, canastaId string, path *string, localSourcePath string) error {
 	*path += "/" + canastaId
+
+	// Check if local Canasta-DockerCompose exists (only when building from source)
+	if localSourcePath != "" {
+		localDockerComposePath := filepath.Join(localSourcePath, "Canasta-DockerCompose")
+		if info, err := os.Stat(localDockerComposePath); err == nil && info.IsDir() {
+			logging.Print(fmt.Sprintf("Copying local Canasta-DockerCompose from %s to %s\n", localDockerComposePath, *path))
+			// Create target directory
+			if err := os.MkdirAll(*path, 0755); err != nil {
+				return fmt.Errorf("failed to create directory: %w", err)
+			}
+			// Copy contents (trailing /. copies contents, not the directory itself)
+			err, output := execute.Run("", "cp", "-r", localDockerComposePath+"/.", *path)
+			if err != nil {
+				return fmt.Errorf("failed to copy local Canasta-DockerCompose: %s", output)
+			}
+			return nil
+		}
+	}
+
+	// Fall back to cloning from GitHub
 	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
 	repo := orchestrators.GetRepoLink(orchestrator)
 	err := git.Clone(repo, *path)
@@ -429,6 +469,7 @@ func SavePasswordToFile(directory, filename, password string) error {
 
 
 // Make changes to the .env file at the installation directory
+// If the key exists, it updates the value; if not, it appends the key=value pair
 func SaveEnvVariable(envPath, key, value string) error {
 	file, err := os.ReadFile(envPath)
 	if err != nil {
@@ -436,10 +477,17 @@ func SaveEnvVariable(envPath, key, value string) error {
 	}
 	data := string(file)
 	list := strings.Split(data, "\n")
+	found := false
 	for index, line := range list {
-		if strings.Contains(line, key) {
+		if strings.HasPrefix(line, key+"=") {
 			list[index] = fmt.Sprintf("%s=%s", key, value)
+			found = true
+			break
 		}
+	}
+	if !found {
+		// Append new key=value pair
+		list = append(list, fmt.Sprintf("%s=%s", key, value))
 	}
 	lines := strings.Join(list, "\n")
 	if err := ioutil.WriteFile(envPath, []byte(lines), 0644); err != nil {

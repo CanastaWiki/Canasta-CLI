@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -69,7 +70,8 @@ func CreateDevModeFiles(installPath string) error {
 // ExtractMediaWikiCode extracts code from the web container for live editing
 // Uses raw docker commands (not docker compose) to avoid bind mount validation issues
 // If the code directory already exists with content, it skips extraction and returns true
-func ExtractMediaWikiCode(installPath, imageTag string) error {
+// baseImage is the full image name (e.g., "ghcr.io/canastawiki/canasta:latest" or "canasta:local")
+func ExtractMediaWikiCode(installPath, baseImage string) error {
 	codeDir := filepath.Join(installPath, CodeDir)
 
 	// Check if mediawiki-code directory already exists with content
@@ -84,13 +86,15 @@ func ExtractMediaWikiCode(installPath, imageTag string) error {
 
 	logging.Print("Extracting MediaWiki code for live editing...\n")
 
-	// Determine the image to use
-	image := fmt.Sprintf("ghcr.io/canastawiki/canasta:%s", imageTag)
-
-	// Pull the image first
-	logging.Print(fmt.Sprintf("Pulling image %s...\n", image))
-	if err, output := execute.Run("", "docker", "pull", image); err != nil {
-		return fmt.Errorf("failed to pull image: %s", output)
+	// Pull the image if it's from a registry (contains a slash)
+	// Local images (e.g., "canasta:local") don't need pulling
+	if strings.Contains(baseImage, "/") {
+		logging.Print(fmt.Sprintf("Pulling image %s...\n", baseImage))
+		if err, output := execute.Run("", "docker", "pull", baseImage); err != nil {
+			return fmt.Errorf("failed to pull image: %s", output)
+		}
+	} else {
+		logging.Print(fmt.Sprintf("Using local image %s...\n", baseImage))
 	}
 
 	// Create the destination directory
@@ -102,7 +106,7 @@ func ExtractMediaWikiCode(installPath, imageTag string) error {
 	// (normally /create-symlinks.sh runs as part of the entrypoint, but we bypass it with sleep)
 	containerName := "canasta-code-extract-temp"
 	logging.Print("Starting temporary container for code extraction...\n")
-	if err, output := execute.Run("", "docker", "run", "-d", "--name", containerName, image, "sleep", "infinity"); err != nil {
+	if err, output := execute.Run("", "docker", "run", "-d", "--name", containerName, baseImage, "sleep", "infinity"); err != nil {
 		return fmt.Errorf("failed to start temporary container: %s", output)
 	}
 
@@ -137,10 +141,11 @@ func ExtractMediaWikiCode(installPath, imageTag string) error {
 }
 
 // SetupDevEnvironment configures .env and creates IDE configs (VSCode and PHPStorm)
-func SetupDevEnvironment(installPath, imageTag string) error {
+// baseImage is the full image name (e.g., "ghcr.io/canastawiki/canasta:latest" or "canasta:local")
+func SetupDevEnvironment(installPath, baseImage string) error {
 	logging.Print("Setting up development environment...\n")
 
-	// Update .env file to set DEV_CODE_PATH and CANASTA_IMAGE_TAG
+	// Update .env file to set DEV_CODE_PATH and CANASTA_IMAGE
 	envPath := filepath.Join(installPath, ".env")
 	envContent, err := os.ReadFile(envPath)
 	if err != nil {
@@ -148,7 +153,7 @@ func SetupDevEnvironment(installPath, imageTag string) error {
 	}
 
 	// Append dev settings to .env
-	devSettings := fmt.Sprintf("\n# Development mode settings\nDEV_CODE_PATH=./mediawiki-code\nCANASTA_IMAGE_TAG=%s\n", imageTag)
+	devSettings := fmt.Sprintf("\n# Development mode settings\nDEV_CODE_PATH=./mediawiki-code\nCANASTA_IMAGE=%s\n", baseImage)
 	envContent = append(envContent, []byte(devSettings)...)
 	if err := os.WriteFile(envPath, envContent, 0644); err != nil {
 		return fmt.Errorf("failed to update .env file: %w", err)
@@ -212,12 +217,12 @@ func BuildXdebugImage(installPath, orchestrator string) error {
 // 2. Create dev mode files (Dockerfile.xdebug, docker-compose.dev.yml, xdebug.ini)
 // 3. Setup environment (.env, VSCode config)
 // 4. Build xdebug image
-// imageTag specifies the Canasta image tag to use (e.g., "latest", "dev", "1.39")
-func SetupFullDevMode(installPath, orchestrator, imageTag string) error {
+// baseImage is the full Canasta image name (e.g., "ghcr.io/canastawiki/canasta:latest" or "canasta:local")
+func SetupFullDevMode(installPath, orchestrator, baseImage string) error {
 	// Extract MediaWiki code FIRST, before creating docker-compose.dev.yml
 	// (docker-compose.dev.yml mounts ./mediawiki-code which must exist)
 	// Uses raw docker commands to avoid docker-compose bind mount validation
-	if err := ExtractMediaWikiCode(installPath, imageTag); err != nil {
+	if err := ExtractMediaWikiCode(installPath, baseImage); err != nil {
 		return err
 	}
 
@@ -227,7 +232,7 @@ func SetupFullDevMode(installPath, orchestrator, imageTag string) error {
 	}
 
 	// Setup dev environment (.env, VSCode config)
-	if err := SetupDevEnvironment(installPath, imageTag); err != nil {
+	if err := SetupDevEnvironment(installPath, baseImage); err != nil {
 		return err
 	}
 
@@ -236,7 +241,7 @@ func SetupFullDevMode(installPath, orchestrator, imageTag string) error {
 		return err
 	}
 
-	logging.Print(fmt.Sprintf("Using Canasta image tag: %s\n", imageTag))
+	logging.Print(fmt.Sprintf("Using Canasta base image: %s\n", baseImage))
 	return nil
 }
 
@@ -253,8 +258,8 @@ func IsDevModeSetup(installPath string) bool {
 
 // EnableDevMode enables dev mode on an existing installation
 // If dev mode is already set up, it returns immediately
-// imageTag specifies the Canasta image tag to use (e.g., "latest", "dev", "1.39")
-func EnableDevMode(installPath, orchestrator, imageTag string) error {
+// baseImage is the full Canasta image name (e.g., "ghcr.io/canastawiki/canasta:latest" or "canasta:local")
+func EnableDevMode(installPath, orchestrator, baseImage string) error {
 	if IsDevModeSetup(installPath) {
 		logging.Print("Dev mode files already exist.\n")
 		return nil
@@ -262,6 +267,6 @@ func EnableDevMode(installPath, orchestrator, imageTag string) error {
 
 	// Full dev mode setup needed
 	logging.Print("Setting up dev mode for existing installation...\n")
-	return SetupFullDevMode(installPath, orchestrator, imageTag)
+	return SetupFullDevMode(installPath, orchestrator, baseImage)
 }
 
