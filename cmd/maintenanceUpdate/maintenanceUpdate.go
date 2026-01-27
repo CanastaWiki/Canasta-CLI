@@ -2,8 +2,6 @@ package maintenance
 
 import (
 	"fmt"
-	"log"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -26,9 +24,6 @@ func updateCmdCreate() *cobra.Command {
 		},
 	}
 
-	if workingDir, err = os.Getwd(); err != nil {
-		log.Fatal(err)
-	}
 	return updateCmd
 }
 

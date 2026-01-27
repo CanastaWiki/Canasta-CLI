@@ -36,13 +36,7 @@ func NewCmdCreate() *cobra.Command {
 		},
 	}
 
-	workingDir, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	addCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki")
-	addCmd.Flags().StringVarP(&instance.Path, "path", "p", workingDir, "Path to the new wiki")
 	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	return addCmd
 }

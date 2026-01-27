@@ -64,11 +64,6 @@ func NewCmdCreate() *cobra.Command {
 	var adminPassword string
 	var wikidbuser string
 
-	workingDir, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	addCmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a new wiki to a Canasta instance",
@@ -101,6 +96,11 @@ func NewCmdCreate() *cobra.Command {
 				fmt.Printf("Generated admin password for wiki '%s'\n", wikiID)
 			}
 
+			workingDir, err := os.Getwd()
+			if err != nil {
+				log.Fatal(err)
+			}
+
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.Id)
 			err = AddWiki(instance, wikiID, siteName, domainName, wikiPath, databasePath, admin, adminPassword, wikidbuser, workingDir)
 			if err != nil {
@@ -114,9 +114,7 @@ func NewCmdCreate() *cobra.Command {
 	addCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the new wiki")
 	addCmd.Flags().StringVarP(&url, "url", "u", "", "URL of the new wiki (domain/path format, e.g., 'localhost/wiki2' or 'example.com/mywiki'; do not include protocol/scheme)")
 	addCmd.Flags().StringVarP(&siteName, "site-name", "t", "", "Display name of the wiki (optional, defaults to wiki ID)")
-	addCmd.Flags().StringVarP(&instance.Path, "path", "p", workingDir, "Path to the new wiki")
 	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	addCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
 	addCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
 	addCmd.Flags().StringVarP(&admin, "admin", "a", "", "Admin name of the new wiki")
 	addCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Admin password for the new wiki (if not provided, auto-generates and saves to config/admin-password_{wikiid})")

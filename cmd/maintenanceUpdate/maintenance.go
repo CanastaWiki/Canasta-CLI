@@ -1,16 +1,12 @@
 package maintenance
 
 import (
-	"log"
-	"os"
-
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/spf13/cobra"
 )
 
 var (
 	instance config.Installation
-	workingDir      string
 	err      error
 )
 
@@ -22,11 +18,7 @@ func NewCmdCreate() *cobra.Command {
 
 	maintenanceCmd.AddCommand(updateCmdCreate())
 	maintenanceCmd.AddCommand(scriptCmdCreate())
-	if workingDir, err = os.Getwd(); err != nil {
-		log.Fatal(err)
-	}
 
 	maintenanceCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	maintenanceCmd.PersistentFlags().StringVarP(&instance.Path, "path", "p", workingDir, "Canasta installation directory")
 	return maintenanceCmd
 }
