@@ -69,6 +69,20 @@ func NewCmdCreate() *cobra.Command {
 				log.Fatal(err)
 			}
 
+			// If no domain was explicitly provided and an env file specifies a
+			// non-standard HTTPS port, append the port to the default domain
+			// so that wikis.yaml is generated with the correct URL.
+			if !cmd.Flags().Changed("domain-name") && envFile != "" {
+				envFilePath := envFile
+				if !filepath.IsAbs(envFilePath) {
+					envFilePath = filepath.Join(workingDir, envFilePath)
+				}
+				envVars := canasta.GetEnvVariable(envFilePath)
+				if port, ok := envVars["HTTPS_PORT"]; ok && port != "443" && port != "" {
+					domain = domain + ":" + port
+				}
+			}
+
 			description := "Creating Canasta installation '" + canastaInfo.Id + "'..."
 			if devModeFlag {
 				description = "Creating Canasta installation '" + canastaInfo.Id + "' with dev mode..."
