@@ -70,7 +70,7 @@ func importCanasta(workingDir, canastaID, domainName, path, orchestrator, databa
 	if _, err := config.GetDetails(canastaID); err == nil {
 		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
 	}
-	if err := canasta.CloneStackRepo(orchestrator, canastaID, &path); err != nil {
+	if err := canasta.CloneStackRepo(orchestrator, canastaID, &path, ""); err != nil {
 		return err
 	}
 	if err := canasta.CopyEnvFile(envPath, path, workingDir); err != nil {
@@ -85,10 +85,11 @@ func importCanasta(workingDir, canastaID, domainName, path, orchestrator, databa
 	if err := orchestrators.CopyOverrideFile(path, orchestrator, override, workingDir); err != nil {
 		return err
 	}
-	if err := orchestrators.Start(path, orchestrator); err != nil {
+	instance := config.Installation{Id: canastaID, Path: path, Orchestrator: orchestrator}
+	if err := orchestrators.Start(instance); err != nil {
 		return err
 	}
-	if err := config.Add(config.Installation{Id: canastaID, Path: path, Orchestrator: orchestrator}); err != nil {
+	if err := config.Add(instance); err != nil {
 		return err
 	}
 	return nil

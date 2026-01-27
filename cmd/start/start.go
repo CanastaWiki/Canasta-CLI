@@ -7,15 +7,19 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 var (
-	instance config.Installation
-	workingDir      string
-	err      error
+	instance    config.Installation
+	workingDir  string
+	err         error
+	devModeFlag bool
+	noDevFlag   bool
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -26,8 +30,12 @@ func NewCmdCreate() *cobra.Command {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
-			fmt.Println("Starting Canasta installation '" + instance.Id + "'...")
-			if err := Start(instance); err != nil {
+			resolvedInstance, err := canasta.CheckCanastaId(instance)
+			if err != nil {
+				logging.Fatal(err)
+			}
+			fmt.Println("Starting Canasta installation '" + resolvedInstance.Id + "'...")
+			if err := Start(resolvedInstance, devModeFlag, noDevFlag); err != nil {
 				logging.Fatal(err)
 			}
 			fmt.Println("Started.")
@@ -40,17 +48,43 @@ func NewCmdCreate() *cobra.Command {
 	startCmd.Flags().StringVarP(&instance.Path, "path", "p", workingDir, "Canasta installation directory")
 	startCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	startCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
+	startCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Start in development mode with Xdebug")
+	startCmd.Flags().BoolVar(&noDevFlag, "no-dev", false, "Start without development mode (disable dev mode)")
 	return startCmd
 }
 
-func Start(instance config.Installation) error {
-	if instance.Id != "" {
-		if instance, err = config.GetDetails(instance.Id); err != nil {
-			logging.Fatal(err)
+func Start(instance config.Installation, enableDev, disableDev bool) error {
+	// Handle --dev and --no-dev flags
+	if enableDev && disableDev {
+		return fmt.Errorf("cannot specify both --dev and --no-dev")
+	}
+
+	var err error
+	if enableDev {
+		// Enable dev mode using default registry image
+		baseImage := canasta.GetDefaultImage()
+		if err = devmode.EnableDevMode(instance.Path, instance.Orchestrator, baseImage); err != nil {
+			return err
+		}
+		instance.DevMode = true
+		if instance.Id != "" {
+			if err = config.Update(instance); err != nil {
+				logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
+			}
+		}
+	} else if disableDev {
+		// Disable dev mode - restore extensions/skins as real directories
+		if err = devmode.DisableDevMode(instance.Path); err != nil {
+			return err
+		}
+		instance.DevMode = false
+		if instance.Id != "" {
+			if err = config.Update(instance); err != nil {
+				logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
+			}
 		}
 	}
-	if err = orchestrators.Start(instance.Path, instance.Orchestrator); err != nil {
-		logging.Fatal(err)
-	}
-	return err
+
+	// Start containers - orchestrators.Start handles dev mode automatically
+	return orchestrators.Start(instance)
 }

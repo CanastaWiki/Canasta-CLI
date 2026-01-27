@@ -62,7 +62,7 @@ func Upgrade(instance config.Installation) error {
 	}
 
 	//Restarting the containers
-	if err = orchestrators.StopAndStart(instance.Path, instance.Orchestrator); err != nil {
+	if err = orchestrators.StopAndStart(instance); err != nil {
 		return err
 	}
 

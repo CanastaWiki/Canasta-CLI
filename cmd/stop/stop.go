@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
@@ -20,8 +21,12 @@ func NewCmdCreate() *cobra.Command {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
-			fmt.Println("Stopping Canasta installation '" + instance.Id + "'...")
-			err := Stop(instance)
+			resolvedInstance, err := canasta.CheckCanastaId(instance)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println("Stopping Canasta installation '" + resolvedInstance.Id + "'...")
+			err = Stop(resolvedInstance)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -40,13 +45,6 @@ func NewCmdCreate() *cobra.Command {
 }
 
 func Stop(instance config.Installation) error {
-	var err error
-	if instance.Id != "" {
-		instance, err = config.GetDetails(instance.Id)
-		if err != nil {
-			return err
-		}
-	}
-	err = orchestrators.Stop(instance.Path, instance.Orchestrator)
-	return err
+	// orchestrators.Stop handles dev mode automatically
+	return orchestrators.Stop(instance)
 }

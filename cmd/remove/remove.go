@@ -57,7 +57,7 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 	}
 
 	//Checking Running status
-	err = orchestrators.CheckRunningStatus(instance.Path, instance.Id, instance.Orchestrator)
+	err = orchestrators.CheckRunningStatus(instance)
 	if err != nil {
 		return err
 	}
@@ -111,8 +111,8 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 		return err
 	}
 
-	//Stop the Canasta Instance
-	err = restart.Restart(instance)
+	//Restart the Canasta Instance
+	err = restart.Restart(instance, false, false)
 	if err != nil {
 		return err
 	}

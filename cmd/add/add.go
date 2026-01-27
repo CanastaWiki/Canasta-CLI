@@ -148,7 +148,7 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 	}
 
 	//Checking Running status
-	err = orchestrators.CheckRunningStatus(instance.Path, instance.Id, instance.Orchestrator)
+	err = orchestrators.CheckRunningStatus(instance)
 	if err != nil {
 		return err
 	}
@@ -201,7 +201,8 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 	if err != nil {
 		return err
 	}
-	err = restart.Restart(instance)
+
+	err = restart.Restart(instance, false, false)
 	if err != nil {
 		return err
 	}

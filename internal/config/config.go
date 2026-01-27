@@ -17,7 +17,10 @@ import (
 )
 
 type Installation struct {
-	Id, Path, Orchestrator string
+	Id           string `json:"id"`
+	Path         string `json:"path"`
+	Orchestrator string `json:"orchestrator"`
+	DevMode      bool   `json:"devMode,omitempty"`
 }
 
 type Orchestrator struct {
@@ -160,6 +163,15 @@ func Delete(canastaID string) error {
 	}
 
 	return nil
+}
+
+// Update updates an existing installation's configuration
+func Update(details Installation) error {
+	if !Exists(details.Id) {
+		return fmt.Errorf("Canasta installation with ID '%s' doesn't exist", details.Id)
+	}
+	existingInstallations.Installations[details.Id] = details
+	return write(existingInstallations)
 }
 
 func write(details Canasta) error {
