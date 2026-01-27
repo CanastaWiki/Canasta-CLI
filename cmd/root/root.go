@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-	"path/filepath"
-
 	addCmd "github.com/CanastaWiki/Canasta-CLI/cmd/add"
 	createCmd "github.com/CanastaWiki/Canasta-CLI/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI/cmd/delete"
@@ -27,10 +24,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	verbose          bool
-	OrchestratorPath string
-)
+var verbose bool
 
 var rootCmd = &cobra.Command{
 	Use:   "canasta",
@@ -41,21 +35,7 @@ var rootCmd = &cobra.Command{
 		logging.Print("Setting verbose")
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		if OrchestratorPath != "" {
-			OrchestratorPath, err := filepath.Abs(OrchestratorPath)
-			if err != nil {
-				logging.Fatal(err)
-			}
-			var orchestrator = config.Orchestrator{
-				Id:   "compose",
-				Path: OrchestratorPath}
-			err = config.AddOrchestrator(orchestrator)
-			if err != nil {
-				logging.Fatal(err)
-			}
-			fmt.Printf("Path to Orchestrator %s set to %s", orchestrator.Id, orchestrator.Path)
-		}
-
+		cmd.Help()
 	},
 }
 
@@ -68,7 +48,6 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
-	rootCmd.Flags().StringVarP(&OrchestratorPath, "docker-path", "d", "", "path to docker")
 
 	rootCmd.AddCommand(createCmd.NewCmdCreate())
 	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
@@ -87,10 +66,17 @@ func init() {
 	rootCmd.AddCommand(removeCmd.NewCmdCreate())
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
-	cobra.OnInitialize(func() {
-		if OrchestratorPath == "" {
-			orchestrators.CheckDependencies()
+	// Add config file location to help output
+	defaultHelp := rootCmd.HelpFunc()
+	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		defaultHelp(cmd, args)
+		if cmd == rootCmd {
+			configDir := config.GetConfigDir()
+			cmd.Printf("\nConfig file: %s/conf.json\n", configDir)
 		}
+	})
 
+	cobra.OnInitialize(func() {
+		orchestrators.CheckDependencies()
 	})
 }

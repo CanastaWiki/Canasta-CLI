@@ -3,7 +3,6 @@ package stop
 import (
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -34,13 +33,7 @@ func NewCmdCreate() *cobra.Command {
 			return nil
 		},
 	}
-	workingDir, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-	stopCmd.Flags().StringVarP(&instance.Path, "path", "p", workingDir, "Canasta installation directory")
 	stopCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	stopCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
 	return stopCmd
 }
 

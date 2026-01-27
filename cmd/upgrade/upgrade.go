@@ -2,8 +2,6 @@ package upgrade
 
 import (
 	"fmt"
-	"log"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -13,11 +11,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var (
-	workingDir      string
-	err      error
-	instance config.Installation
-)
+var instance config.Installation
 
 func NewCmdCreate() *cobra.Command {
 	var upgradeCmd = &cobra.Command{
@@ -33,11 +27,6 @@ func NewCmdCreate() *cobra.Command {
 			return nil
 		},
 	}
-	if workingDir, err = os.Getwd(); err != nil {
-		log.Fatal(err)
-	}
-
-	upgradeCmd.Flags().StringVarP(&instance.Path, "path", "p", workingDir, "Canasta installation directory")
 	upgradeCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	return upgradeCmd
 }
