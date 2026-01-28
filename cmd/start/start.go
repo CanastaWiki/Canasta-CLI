@@ -2,8 +2,6 @@ package start
 
 import (
 	"fmt"
-	"log"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -16,8 +14,6 @@ import (
 
 var (
 	instance    config.Installation
-	workingDir  string
-	err         error
 	devModeFlag bool
 	noDevFlag   bool
 )
@@ -42,12 +38,7 @@ func NewCmdCreate() *cobra.Command {
 			return nil
 		},
 	}
-	if workingDir, err = os.Getwd(); err != nil {
-		log.Fatal(err)
-	}
-	startCmd.Flags().StringVarP(&instance.Path, "path", "p", workingDir, "Canasta installation directory")
 	startCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	startCmd.Flags().StringVarP(&instance.Orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
 	startCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Start in development mode with Xdebug")
 	startCmd.Flags().BoolVar(&noDevFlag, "no-dev", false, "Start without development mode (disable dev mode)")
 	return startCmd

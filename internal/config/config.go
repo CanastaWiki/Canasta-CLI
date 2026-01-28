@@ -193,7 +193,6 @@ func read(details *Canasta) error {
 
 func GetConfigDir() string {
 	dir := configdir.LocalConfig("canasta")
-	exists := false
 
 	// Checks if this is running as root
 	currentUser, err := user.Current()
@@ -208,26 +207,20 @@ func GetConfigDir() string {
 
 	fi, err := os.Stat(dir)
 	if os.IsNotExist(err) {
-		log.Print(fmt.Sprintf("Creating %s\n", dir))
 		err = os.MkdirAll(dir, 0o755)
 		if err != nil {
 			log.Fatal(err)
 		}
-		exists = true
 	} else if err != nil {
 		msg := fmt.Sprintf("error statting %s (%s)", dir, err)
-		log.Print(msg)
+		log.Fatal(msg)
 	} else {
 		mode := fi.Mode()
-		if mode.IsDir() {
-			exists = true
+		if !mode.IsDir() {
+			log.Fatalf("%s exists but is not a directory", dir)
 		}
 	}
 
-	if exists {
-		msg := fmt.Sprintf("Using %s for configuration...", dir)
-		log.Print(msg)
-	}
 	return dir
 }
 
@@ -239,14 +232,12 @@ func init() {
 	_, err := os.Stat(confFile)
 	if os.IsNotExist(err) {
 		// Creating conf.json
-		log.Print("Creating " + confFile)
 		err := write(Canasta{Installations: map[string]Installation{}, Orchestrators: map[string]Orchestrator{}})
 		if err != nil {
 			log.Fatal(err)
 		}
 	} else if err != nil {
-		msg := fmt.Sprintf("error statting %s (%s)", confFile, err)
-		log.Print(msg)
+		log.Fatalf("error statting %s (%s)", confFile, err)
 	}
 
 	// Check if the file is writable/has enough permissions

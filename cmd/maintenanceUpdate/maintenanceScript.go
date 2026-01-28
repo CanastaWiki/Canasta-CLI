@@ -2,8 +2,6 @@ package maintenance
 
 import (
 	"fmt"
-	"log"
-	"os"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
@@ -28,9 +26,6 @@ func scriptCmdCreate() *cobra.Command {
 		},
 	}
 
-	if workingDir, err = os.Getwd(); err != nil {
-		log.Fatal(err)
-	}
 	return scriptCmd
 }
 
