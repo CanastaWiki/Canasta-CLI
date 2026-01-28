@@ -307,79 +307,110 @@ func CheckRunningStatus(instance config.Installation) error {
 	return nil
 }
 
-func ExportDatabase(installPath, orchestrator, wikiID, outputFilePath string) error {
-	// MySQL user, password and container name
-	// Replace with your actual MySQL username and password and MySQL container name
-	mysqlUser := "root"
-	mysqlPassword := "mediawiki"
-	mysqlContainerName := "db" // adjust as per your setup
-
-	// Constructing mysqldump command
-	dumpCommand := fmt.Sprintf("mysqldump -u %s -p%s %s > /tmp/%s.sql", mysqlUser, mysqlPassword, wikiID, wikiID)
-	// Executing mysqldump command inside the MySQL container
-	_, err := ExecWithError(installPath, orchestrator, mysqlContainerName, dumpCommand)
-	if err != nil {
-		return fmt.Errorf("Failed to execute mysqldump command: %v", err)
-	}
-
-	// After executing the mysqldump command, the dump file is inside the container.
-	// We need to copy it from the container to the host machine.
-
-	// Constructing docker cp command
-	copyCommand := fmt.Sprintf("docker cp %s:/tmp/%s.sql %s", mysqlContainerName, wikiID, outputFilePath)
-
-	// Executing docker cp command on the host machine
-	err, output := execute.Run("", "/bin/bash", "-c", copyCommand)
-	if err != nil {
-		return fmt.Errorf("Failed to copy the dump file from the container: %s", output)
-	}
-
-	// Construct the remove command to delete the .sql file from the container
-	removeCommand := fmt.Sprintf("rm /tmp/%s.sql", wikiID)
-
-	// Execute the remove command
-	_, err = ExecWithError(installPath, orchestrator, mysqlContainerName, removeCommand)
-	if err != nil {
-		logging.Fatal(fmt.Errorf("Failed to remove .sql file from container: %w", err))
-	}
-
-	return nil
-}
-
-func ImportDatabase(databaseName, databasePath string, instance config.Installation) error {
+func ImportDatabase(databaseName, databasePath, dbPassword string, instance config.Installation) error {
 	dbUser := "root"
-	dbPassword := "mediawiki"
-
-	// Copy the .sql file into the db container
-	copyCmdStr := fmt.Sprintf("docker cp %s db:/tmp/%s.sql", databasePath, databaseName)
-	_, err := exec.Command("/bin/bash", "-c", copyCmdStr).Output()
-	if err != nil {
-		return fmt.Errorf("error copying .sql file to container: %w", err)
+	if dbPassword == "" {
+		dbPassword = "mediawiki" // default password
 	}
 
-	// Ensure the temporary .sql file is removed after the function returns
+	// Escape single quotes in password for shell safety (replace ' with '\'' for bash single-quoted strings)
+	escapedPassword := strings.ReplaceAll(dbPassword, "'", "'\\''")
+
+	// Determine if the file is compressed
+	isCompressed := strings.HasSuffix(databasePath, ".sql.gz")
+
+	// Determine the filename in the container
+	var containerFile string
+	if isCompressed {
+		containerFile = fmt.Sprintf("/tmp/%s.sql.gz", databaseName)
+	} else {
+		containerFile = fmt.Sprintf("/tmp/%s.sql", databaseName)
+	}
+
+	// Copy the database file into the db container using docker compose cp
+	err := CopyToContainer(instance.Path, instance.Orchestrator, "db", databasePath, containerFile)
+	if err != nil {
+		return fmt.Errorf("error copying database file to container: %w", err)
+	}
+
+	// Ensure the temporary file is removed after the function returns
 	defer func() {
-		rmCmdStr := fmt.Sprintf("rm /tmp/%s.sql", databaseName)
-		_, err := ExecWithError(instance.Path, instance.Orchestrator, "db", rmCmdStr)
-		if err != nil {
-			logging.Fatal(fmt.Errorf("error removing .sql file from container: %w", err))
-		}
+		rmCmdStr := fmt.Sprintf("rm -f /tmp/%s.sql /tmp/%s.sql.gz", databaseName, databaseName)
+		_, _ = ExecWithError(instance.Path, instance.Orchestrator, "db", rmCmdStr)
 	}()
 
+	// If compressed, decompress the file
+	if isCompressed {
+		decompressCmd := fmt.Sprintf("gunzip -f %s", containerFile)
+		_, err = ExecWithError(instance.Path, instance.Orchestrator, "db", decompressCmd)
+		if err != nil {
+			return fmt.Errorf("error decompressing database file: %w", err)
+		}
+	}
+
 	// Run the mysql command to create the new database
-	createCmdStr := fmt.Sprintf("mysql -u%s -p%s -e 'CREATE DATABASE IF NOT EXISTS %s'", dbUser, dbPassword, databaseName)
+	// Use single quotes around password to prevent shell interpretation of special characters
+	createCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p'%s' -e 'CREATE DATABASE IF NOT EXISTS %s'", dbUser, escapedPassword, databaseName)
 	_, err = ExecWithError(instance.Path, instance.Orchestrator, "db", createCmdStr)
 	if err != nil {
 		return fmt.Errorf("error creating database: %w", err)
 	}
 
 	// Run the mysql command to import the .sql file into the new database
-	importCmdStr := fmt.Sprintf("mysql -u%s -p%s %s < /tmp/%s.sql", dbUser, dbPassword, databaseName, databaseName)
+	importCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p'%s' %s < /tmp/%s.sql", dbUser, escapedPassword, databaseName, databaseName)
 	_, err = ExecWithError(instance.Path, instance.Orchestrator, "db", importCmdStr)
 	if err != nil {
 		return fmt.Errorf("error importing database: %w", err)
 	}
 
 	return nil
+}
+
+// CopyFromContainer copies a file from a container to the host
+func CopyFromContainer(installPath, orchestrator, container, containerPath, hostPath string) error {
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		var cmd *exec.Cmd
+		if compose.Path != "" {
+			cmd = exec.Command(compose.Path, "cp", container+":"+containerPath, hostPath)
+		} else {
+			cmd = exec.Command("docker", "compose", "cp", container+":"+containerPath, hostPath)
+		}
+		if installPath != "" {
+			cmd.Dir = installPath
+		}
+		outputByte, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to copy from container: %s - %w", string(outputByte), err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("orchestrator: %s is not available", orchestrator)
+	}
+}
+
+// CopyToContainer copies a file from the host to a container
+func CopyToContainer(installPath, orchestrator, container, hostPath, containerPath string) error {
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		var cmd *exec.Cmd
+		if compose.Path != "" {
+			cmd = exec.Command(compose.Path, "cp", hostPath, container+":"+containerPath)
+		} else {
+			cmd = exec.Command("docker", "compose", "cp", hostPath, container+":"+containerPath)
+		}
+		if installPath != "" {
+			cmd.Dir = installPath
+		}
+		outputByte, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to copy to container: %s - %w", string(outputByte), err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("orchestrator: %s is not available", orchestrator)
+	}
 }
 
