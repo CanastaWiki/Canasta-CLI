@@ -90,7 +90,7 @@ func NewCmdCreate() *cobra.Command {
 			if err != nil {
 				log.Fatal(fmt.Errorf("failed to parse URL: %w", err))
 			}
-			domainName = parsedUrl.Hostname()
+			domainName = parsedUrl.Host
 			wikiPath = strings.Trim(parsedUrl.Path, "/")
 
 			// Generate admin password if not provided
