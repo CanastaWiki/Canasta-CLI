@@ -3,6 +3,7 @@ package restart
 import (
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -18,6 +19,13 @@ func NewCmdCreate() *cobra.Command {
 	var verbose bool
 	var devModeFlag bool
 	var noDevFlag bool
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	instance.Path = workingDir
+
 	var restartCmd = &cobra.Command{
 		Use:   "restart",
 		Short: "Restart the Canasta installation",

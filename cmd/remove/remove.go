@@ -21,6 +21,12 @@ func NewCmdCreate() *cobra.Command {
 	var instance config.Installation
 	var wikiID string
 
+	workingDir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	instance.Path = workingDir
+
 	addCmd := &cobra.Command{
 		Use:   "remove",
 		Short: "Remove a wiki from a Canasta instance",

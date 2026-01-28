@@ -3,6 +3,7 @@ package stop
 import (
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -13,6 +14,12 @@ import (
 
 func NewCmdCreate() *cobra.Command {
 	var instance config.Installation
+	workingDir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	instance.Path = workingDir
+
 	var stopCmd = &cobra.Command{
 		Use:   "stop",
 		Short: "Shuts down the Canasta installation",
