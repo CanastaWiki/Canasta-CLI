@@ -1,6 +1,9 @@
 package skin
 
 import (
+	"log"
+	"os"
+
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
@@ -19,6 +22,12 @@ var (
 )
 
 func NewCmdCreate() *cobra.Command {
+	workingDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		log.Fatal(wdErr)
+	}
+	instance.Path = workingDir
+
 	skinCmd = &cobra.Command{
 		Use:   "skin",
 		Short: "Manage Canasta skins",

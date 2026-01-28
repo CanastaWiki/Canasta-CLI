@@ -1,6 +1,9 @@
 package extension
 
 import (
+	"log"
+	"os"
+
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
@@ -19,6 +22,12 @@ var (
 )
 
 func NewCmdCreate() *cobra.Command {
+	workingDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		log.Fatal(wdErr)
+	}
+	instance.Path = workingDir
+
 	extensionCmd = &cobra.Command{
 		Use:   "extension",
 		Short: "Manage Canasta extensions",

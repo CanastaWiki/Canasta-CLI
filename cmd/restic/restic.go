@@ -1,6 +1,7 @@
 package restic
 
 import (
+	"log"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -20,6 +21,12 @@ var (
 )
 
 func NewCmdCreate() *cobra.Command {
+	workingDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		log.Fatal(wdErr)
+	}
+	instance.Path = workingDir
+
 	resticCmd = &cobra.Command{
 		Use:   "restic",
 		Short: "Use restic to backup and restore Canasta",

@@ -2,6 +2,8 @@ package upgrade
 
 import (
 	"fmt"
+	"log"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +16,12 @@ import (
 var instance config.Installation
 
 func NewCmdCreate() *cobra.Command {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	instance.Path = workingDir
+
 	var upgradeCmd = &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade a Canasta installation to the latest version",

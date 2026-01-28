@@ -2,6 +2,8 @@ package start
 
 import (
 	"fmt"
+	"log"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -19,6 +21,12 @@ var (
 )
 
 func NewCmdCreate() *cobra.Command {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	instance.Path = workingDir
+
 	var startCmd = &cobra.Command{
 		Use:   "start",
 		Short: "Start the Canasta installation",

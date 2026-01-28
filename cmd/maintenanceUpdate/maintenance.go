@@ -1,6 +1,9 @@
 package maintenance
 
 import (
+	"log"
+	"os"
+
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -11,6 +14,12 @@ var (
 )
 
 func NewCmdCreate() *cobra.Command {
+	workingDir, wdErr := os.Getwd()
+	if wdErr != nil {
+		log.Fatal(wdErr)
+	}
+	instance.Path = workingDir
+
 	maintenanceCmd := &cobra.Command{
 		Use:   "maintenance",
 		Short: "Use to run update and other maintenance scripts",

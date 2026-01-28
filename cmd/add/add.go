@@ -64,6 +64,12 @@ func NewCmdCreate() *cobra.Command {
 	var adminPassword string
 	var wikidbuser string
 
+	workingDir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	instance.Path = workingDir
+
 	addCmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a new wiki to a Canasta instance",
@@ -96,11 +102,6 @@ func NewCmdCreate() *cobra.Command {
 				fmt.Printf("Generated admin password for wiki '%s'\n", wikiID)
 			}
 
-			workingDir, err := os.Getwd()
-			if err != nil {
-				log.Fatal(err)
-			}
-
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.Id)
 			err = AddWiki(instance, wikiID, siteName, domainName, wikiPath, databasePath, admin, adminPassword, wikidbuser, workingDir)
 			if err != nil {
@@ -123,7 +124,6 @@ func NewCmdCreate() *cobra.Command {
 	// Mark required flags
 	addCmd.MarkFlagRequired("wiki")
 	addCmd.MarkFlagRequired("url")
-	addCmd.MarkFlagRequired("id")
 	addCmd.MarkFlagRequired("admin")
 
 	return addCmd
