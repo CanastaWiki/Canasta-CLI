@@ -1,4 +1,4 @@
-package dump
+package export
 
 import (
 	"fmt"
@@ -19,9 +19,9 @@ func NewCmdCreate() *cobra.Command {
 	var wikiID string
 	var outputPath string
 
-	dumpCmd := &cobra.Command{
-		Use:   "dump",
-		Short: "Dump the database of a wiki in a Canasta instance",
+	exportCmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export the database of a wiki in a Canasta instance",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 
@@ -50,11 +50,11 @@ func NewCmdCreate() *cobra.Command {
 				outputPath = wikiID + ".sql"
 			}
 
-			fmt.Printf("Dumping database for wiki '%s'...\n", wikiID)
-			if err := dumpDatabase(instance, wikiID, outputPath); err != nil {
+			fmt.Printf("Exporting database for wiki '%s'...\n", wikiID)
+			if err := exportDatabase(instance, wikiID, outputPath); err != nil {
 				log.Fatal(err)
 			}
-			fmt.Printf("Database dumped to %s\n", outputPath)
+			fmt.Printf("Database exported to %s\n", outputPath)
 			return nil
 		},
 	}
@@ -65,16 +65,16 @@ func NewCmdCreate() *cobra.Command {
 	}
 	instance.Path = workingDir
 
-	dumpCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	dumpCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to dump")
-	dumpCmd.Flags().StringVarP(&outputPath, "file", "f", "", "Output file path (default: <wikiID>.sql)")
+	exportCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	exportCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to export")
+	exportCmd.Flags().StringVarP(&outputPath, "file", "f", "", "Output file path (default: <wikiID>.sql)")
 
-	dumpCmd.MarkFlagRequired("wiki")
+	exportCmd.MarkFlagRequired("wiki")
 
-	return dumpCmd
+	return exportCmd
 }
 
-func dumpDatabase(instance config.Installation, wikiID, outputPath string) error {
+func exportDatabase(instance config.Installation, wikiID, outputPath string) error {
 	// Read the database password from .env
 	envVariables := canasta.GetEnvVariable(instance.Path + "/.env")
 	dbPassword := envVariables["MYSQL_PASSWORD"]
@@ -91,7 +91,7 @@ func dumpDatabase(instance config.Installation, wikiID, outputPath string) error
 	dumpCmd := fmt.Sprintf("mysqldump --no-defaults -u root -p'%s' %s > %s", escapedPassword, wikiID, tempFile)
 	output, err := orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "db", dumpCmd)
 	if err != nil {
-		return fmt.Errorf("failed to dump database: %s", output)
+		return fmt.Errorf("failed to export database: %s", output)
 	}
 
 	// Compress the dump if the output filename ends in .gz
@@ -100,7 +100,7 @@ func dumpDatabase(instance config.Installation, wikiID, outputPath string) error
 		gzipCmd := fmt.Sprintf("gzip -f %s", tempFile)
 		output, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "db", gzipCmd)
 		if err != nil {
-			return fmt.Errorf("failed to compress dump file: %s", output)
+			return fmt.Errorf("failed to compress export file: %s", output)
 		}
 		copyFile = tempFile + ".gz"
 	}
@@ -108,7 +108,7 @@ func dumpDatabase(instance config.Installation, wikiID, outputPath string) error
 	// Copy the dump file from the container to the host
 	err = orchestrators.CopyFromContainer(instance.Path, instance.Orchestrator, "db", copyFile, outputPath)
 	if err != nil {
-		return fmt.Errorf("failed to copy dump file from container: %w", err)
+		return fmt.Errorf("failed to copy export file from container: %w", err)
 	}
 
 	// Clean up temp files in the container

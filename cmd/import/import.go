@@ -1,4 +1,4 @@
-package refresh
+package importcmd
 
 import (
 	"fmt"
@@ -20,9 +20,13 @@ func NewCmdCreate() *cobra.Command {
 	var databasePath string
 	var settingsPath string
 
-	refreshCmd := &cobra.Command{
-		Use:   "refresh",
-		Short: "Re-import a database into an existing wiki",
+	importCmd := &cobra.Command{
+		Use:   "import",
+		Short: "Import a database into an existing wiki",
+		Long: `Import a database dump into an existing wiki, replacing its current database.
+
+To create a new wiki from a database dump, use the --database flag with
+'canasta create' or 'canasta add' instead.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 
@@ -56,8 +60,8 @@ func NewCmdCreate() *cobra.Command {
 				log.Fatal(err)
 			}
 
-			fmt.Printf("Refreshing wiki '%s' in Canasta instance '%s'...\n", wikiID, instance.Id)
-			if err := refreshWiki(instance, wikiID, databasePath, settingsPath, workingDir); err != nil {
+			fmt.Printf("Importing database into wiki '%s' in Canasta instance '%s'...\n", wikiID, instance.Id)
+			if err := importDatabase(instance, wikiID, databasePath, settingsPath, workingDir); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Println("Done.")
@@ -71,18 +75,18 @@ func NewCmdCreate() *cobra.Command {
 	}
 	instance.Path = workingDir
 
-	refreshCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	refreshCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to refresh")
-	refreshCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to SQL dump file (.sql or .sql.gz)")
-	refreshCmd.Flags().StringVarP(&settingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to replace the existing one")
+	importCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	importCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to import into")
+	importCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to SQL dump file (.sql or .sql.gz)")
+	importCmd.Flags().StringVarP(&settingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to replace the existing one")
 
-	refreshCmd.MarkFlagRequired("wiki")
-	refreshCmd.MarkFlagRequired("database")
+	importCmd.MarkFlagRequired("wiki")
+	importCmd.MarkFlagRequired("database")
 
-	return refreshCmd
+	return importCmd
 }
 
-func refreshWiki(instance config.Installation, wikiID, databasePath, settingsPath, workingDir string) error {
+func importDatabase(instance config.Installation, wikiID, databasePath, settingsPath, workingDir string) error {
 	// Read database password from .env
 	envVariables := canasta.GetEnvVariable(instance.Path + "/.env")
 	dbPassword := envVariables["MYSQL_PASSWORD"]
