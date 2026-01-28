@@ -37,6 +37,9 @@ func NewCmdCreate() *cobra.Command {
 		devModeFlag   bool   // enable dev mode
 		devTag        string // registry image tag for dev mode
 		buildFromPath string // path to build Canasta from source
+		databasePath       string // path to existing database dump
+		wikiSettingsPath   string // path to existing per-wiki Settings.php
+		globalSettingsPath string // path to existing global settings file
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -64,9 +67,23 @@ func NewCmdCreate() *cobra.Command {
 				log.Fatal(fmt.Errorf("Error: --dev-tag and --build-from are mutually exclusive"))
 			}
 
-			// Generate passwords (auto-gen if not provided via flags)
-			if canastaInfo, err = canasta.GeneratePasswords(workingDir, canastaInfo); err != nil {
-				log.Fatal(err)
+			// Validate database path if provided
+			if databasePath != "" {
+				if err := canasta.ValidateDatabasePath(databasePath); err != nil {
+					log.Fatal(err)
+				}
+			}
+
+			// Validate --admin is required when --database is not provided
+			if databasePath == "" && canastaInfo.AdminName == "" {
+				log.Fatal(fmt.Errorf("Error: --admin flag is required when --database is not provided"))
+			}
+
+			// Generate passwords only if not importing (when importing, we skip install.php)
+			if databasePath == "" {
+				if canastaInfo, err = canasta.GeneratePasswords(workingDir, canastaInfo); err != nil {
+					log.Fatal(err)
+				}
 			}
 
 			// If no domain was explicitly provided and an env file specifies a
@@ -89,7 +106,7 @@ func NewCmdCreate() *cobra.Command {
 			}
 			_, done := spinner.New(description)
 
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile, devModeFlag, devTag, buildFromPath, done); err != nil {
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
 					canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orchestrator)
@@ -124,16 +141,18 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Enable development mode with Xdebug and code extraction")
 	createCmd.Flags().StringVar(&devTag, "dev-tag", "latest", "Canasta image tag to use (e.g., latest, dev-branch)")
 	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build Canasta image from local source directory (expects Canasta/, optionally CanastaBase/)")
+	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
+	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to use instead of SettingsTemplate.php (only used with --database)")
+	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/ (filename preserved)")
 
 	// Mark required flags
 	createCmd.MarkFlagRequired("id")
-	createCmd.MarkFlagRequired("admin")
 
 	return createCmd
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile string, devModeEnabled bool, devTag, buildFromPath string, done chan struct{}) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile string, devModeEnabled bool, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath string, done chan struct{}) error {
 	// Pass a message to the "done" channel indicating the completion of createCanasta function.
 	// This signals the spinner to stop printing progress, regardless of success or failure.
 	defer func() {
@@ -188,6 +207,18 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := canasta.CopySettings(path); err != nil {
 		return err
 	}
+	// If custom per-wiki settings file provided, overwrite the Settings.php for this wiki
+	if wikiSettingsPath != "" && wikiID != "" {
+		if err := canasta.CopyWikiSettingFile(path, wikiID, wikiSettingsPath, workingDir); err != nil {
+			return err
+		}
+	}
+	// If custom global settings file provided, copy to config/settings/
+	if globalSettingsPath != "" {
+		if err := canasta.CopyGlobalSettingFile(path, globalSettingsPath, workingDir); err != nil {
+			return err
+		}
+	}
 	if err := canasta.RewriteCaddy(path); err != nil {
 		return err
 	}
@@ -209,8 +240,19 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		return err
 	}
 
-	if _, err := mediawiki.Install(path, yamlPath, orchestrator, canastaInfo); err != nil {
-		return err
+	// If database path is provided, import the database instead of running install.php
+	if databasePath != "" {
+		logging.Print("Importing database instead of running install.php\n")
+		envVariables := canasta.GetEnvVariable(path + "/.env")
+		dbPassword := envVariables["MYSQL_PASSWORD"]
+		if err := orchestrators.ImportDatabase(wikiID, databasePath, dbPassword, tempInstance); err != nil {
+			return err
+		}
+	} else {
+		// Run MediaWiki installer
+		if _, err := mediawiki.Install(path, yamlPath, orchestrator, canastaInfo); err != nil {
+			return err
+		}
 	}
 
 	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled}

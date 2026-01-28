@@ -1,0 +1,119 @@
+package dump
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+)
+
+func NewCmdCreate() *cobra.Command {
+	var instance config.Installation
+	var wikiID string
+	var outputPath string
+
+	dumpCmd := &cobra.Command{
+		Use:   "dump",
+		Short: "Dump the database of a wiki in a Canasta instance",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var err error
+
+			instance, err = canasta.CheckCanastaId(instance)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Check containers are running
+			err = orchestrators.CheckRunningStatus(instance)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Verify the wiki exists
+			exists, err := farmsettings.WikiIDExists(instance.Path, wikiID)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if !exists {
+				log.Fatal(fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.Id))
+			}
+
+			// Default output path
+			if outputPath == "" {
+				outputPath = wikiID + ".sql"
+			}
+
+			fmt.Printf("Dumping database for wiki '%s'...\n", wikiID)
+			if err := dumpDatabase(instance, wikiID, outputPath); err != nil {
+				log.Fatal(err)
+			}
+			fmt.Printf("Database dumped to %s\n", outputPath)
+			return nil
+		},
+	}
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	instance.Path = workingDir
+
+	dumpCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	dumpCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to dump")
+	dumpCmd.Flags().StringVarP(&outputPath, "file", "f", "", "Output file path (default: <wikiID>.sql)")
+
+	dumpCmd.MarkFlagRequired("wiki")
+
+	return dumpCmd
+}
+
+func dumpDatabase(instance config.Installation, wikiID, outputPath string) error {
+	// Read the database password from .env
+	envVariables := canasta.GetEnvVariable(instance.Path + "/.env")
+	dbPassword := envVariables["MYSQL_PASSWORD"]
+	if dbPassword == "" {
+		dbPassword = "mediawiki"
+	}
+
+	// Escape single quotes in password for shell safety
+	escapedPassword := strings.ReplaceAll(dbPassword, "'", "'\\''")
+
+	tempFile := fmt.Sprintf("/tmp/%s.sql", wikiID)
+
+	// Run mysqldump inside the db container (no --databases flag to avoid USE statements)
+	dumpCmd := fmt.Sprintf("mysqldump --no-defaults -u root -p'%s' %s > %s", escapedPassword, wikiID, tempFile)
+	output, err := orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "db", dumpCmd)
+	if err != nil {
+		return fmt.Errorf("failed to dump database: %s", output)
+	}
+
+	// Compress the dump if the output filename ends in .gz
+	copyFile := tempFile
+	if strings.HasSuffix(outputPath, ".gz") {
+		gzipCmd := fmt.Sprintf("gzip -f %s", tempFile)
+		output, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "db", gzipCmd)
+		if err != nil {
+			return fmt.Errorf("failed to compress dump file: %s", output)
+		}
+		copyFile = tempFile + ".gz"
+	}
+
+	// Copy the dump file from the container to the host
+	err = orchestrators.CopyFromContainer(instance.Path, instance.Orchestrator, "db", copyFile, outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to copy dump file from container: %w", err)
+	}
+
+	// Clean up temp files in the container
+	rmCmd := fmt.Sprintf("rm -f %s %s.gz", tempFile, tempFile)
+	_, _ = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "db", rmCmd)
+
+	return nil
+}

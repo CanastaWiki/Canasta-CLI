@@ -59,6 +59,7 @@ func NewCmdCreate() *cobra.Command {
 	var wikiPath string
 	var siteName string
 	var databasePath string
+	var wikiSettingsPath string
 	var url string
 	var admin string
 	var adminPassword string
@@ -87,8 +88,20 @@ func NewCmdCreate() *cobra.Command {
 			domainName = parsedUrl.Hostname()
 			wikiPath = strings.Trim(parsedUrl.Path, "/")
 
-			// Generate admin password if not provided
-			if adminPassword == "" {
+			// Validate database path if provided
+			if databasePath != "" {
+				if err := canasta.ValidateDatabasePath(databasePath); err != nil {
+					log.Fatal(err)
+				}
+			}
+
+			// Validate --admin is required when --database is not provided
+			if databasePath == "" && admin == "" {
+				log.Fatal(fmt.Errorf("Error: --admin flag is required when --database is not provided"))
+			}
+
+			// Generate admin password only if not importing and admin is provided
+			if databasePath == "" && adminPassword == "" {
 				adminPassword, err = canasta.GeneratePassword("admin")
 				if err != nil {
 					log.Fatal(err)
@@ -102,7 +115,7 @@ func NewCmdCreate() *cobra.Command {
 			}
 
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.Id)
-			err = AddWiki(instance, wikiID, siteName, domainName, wikiPath, databasePath, admin, adminPassword, wikidbuser, workingDir)
+			err = AddWiki(instance, wikiID, siteName, domainName, wikiPath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -115,7 +128,8 @@ func NewCmdCreate() *cobra.Command {
 	addCmd.Flags().StringVarP(&url, "url", "u", "", "URL of the new wiki (domain/path format, e.g., 'localhost/wiki2' or 'example.com/mywiki'; do not include protocol/scheme)")
 	addCmd.Flags().StringVarP(&siteName, "site-name", "t", "", "Display name of the wiki (optional, defaults to wiki ID)")
 	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	addCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to the existing database dump")
+	addCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
+	addCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to use instead of SettingsTemplate.php (only used with --database)")
 	addCmd.Flags().StringVarP(&admin, "admin", "a", "", "Admin name of the new wiki")
 	addCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Admin password for the new wiki (if not provided, auto-generates and saves to config/admin-password_{wikiid})")
 	addCmd.Flags().StringVar(&wikidbuser, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
@@ -124,13 +138,12 @@ func NewCmdCreate() *cobra.Command {
 	addCmd.MarkFlagRequired("wiki")
 	addCmd.MarkFlagRequired("url")
 	addCmd.MarkFlagRequired("id")
-	addCmd.MarkFlagRequired("admin")
 
 	return addCmd
 }
 
 // AddWiki accepts the Canasta instance info, wiki ID, site name, domain and path of the new wiki, database info, and the initial admin info, then creates a new wiki in the Canasta instance.
-func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, databasePath, admin, adminPassword, wikidbuser, workingDir string) error {
+func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir string) error {
 	var err error
 
 	//Checking Installation existence
@@ -170,22 +183,33 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 
 	// Import the database if databasePath is specified
 	if databasePath != "" {
-		err = orchestrators.ImportDatabase(wikiID, databasePath, instance)
+		envVariables := canasta.GetEnvVariable(instance.Path + "/.env")
+		dbPassword := envVariables["MYSQL_PASSWORD"]
+		err = orchestrators.ImportDatabase(wikiID, databasePath, dbPassword, instance)
 		if err != nil {
 			return err
 		}
 	}
 
-	//Copy the Localsettings
-	err = canasta.CopySetting(instance.Path, wikiID)
-	if err != nil {
-		return err
+	// Copy Settings.php - use custom file if provided, otherwise use template
+	if wikiSettingsPath != "" {
+		err = canasta.CopyWikiSettingFile(instance.Path, wikiID, wikiSettingsPath, workingDir)
+		if err != nil {
+			return err
+		}
+	} else {
+		err = canasta.CopySetting(instance.Path, wikiID)
+		if err != nil {
+			return err
+		}
 	}
 
-	// Run MediaWiki installer - must succeed before modifying wikis.yaml
-	err = mediawiki.InstallOne(instance.Path, wikiID, domain, admin, adminPassword, wikidbuser, workingDir, instance.Orchestrator)
-	if err != nil {
-		return err
+	// Run MediaWiki installer only if not importing a database
+	if databasePath == "" {
+		err = mediawiki.InstallOne(instance.Path, wikiID, domain, admin, adminPassword, wikidbuser, workingDir, instance.Orchestrator)
+		if err != nil {
+			return err
+		}
 	}
 
 	//Add the wiki in farmsettings (only after successful installation)

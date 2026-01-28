@@ -140,25 +140,6 @@ func CreateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 	return nil
 }
 
-// CopyEnvFile copies an existing .env file to the installation directory
-// Used by the import command when importing an existing MediaWiki installation
-func CopyEnvFile(envPath, installPath, workingDir string) error {
-	// Determine source path
-	if envPath == "" {
-		envPath = installPath + "/.env.example"
-	} else if !strings.HasPrefix(envPath, "/") {
-		envPath = workingDir + "/" + envPath
-	}
-
-	// Copy the env file
-	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", envPath, installPath))
-	err, output := execute.Run("", "cp", envPath, installPath+"/.env")
-	if err != nil {
-		return fmt.Errorf(output)
-	}
-
-	return nil
-}
 
 func CopyYaml(yamlPath, installPath string) error {
 	logging.Print(fmt.Sprintf("Copying %s to %s/config/wikis.yaml\n", yamlPath, installPath))
@@ -211,6 +192,70 @@ func CopySetting(installPath, id string) error {
 		return fmt.Errorf(output)
 	}
 
+	return nil
+}
+
+// CopyWikiSettingFile copies a user-provided Settings.php file to the wiki's config directory
+// Used when importing a wiki with a custom Settings.php instead of SettingsTemplate.php
+func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir string) error {
+	// Make path absolute if it's relative
+	if !strings.HasPrefix(settingsFilePath, "/") {
+		settingsFilePath = workingDir + "/" + settingsFilePath
+	}
+
+	// Normalize wikiID (replace spaces with underscores, remove non-alphanumeric)
+	id := strings.Replace(wikiID, " ", "_", -1)
+	id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
+	dirPath := installPath + fmt.Sprintf("/config/%s", id)
+
+	// Create the directory if it doesn't exist
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+		return err
+	}
+
+	// Copy the provided file as Settings.php
+	logging.Print(fmt.Sprintf("Copying %s to %s/Settings.php\n", settingsFilePath, dirPath))
+	err, output := execute.Run("", "cp", settingsFilePath, dirPath+"/Settings.php")
+	if err != nil {
+		return fmt.Errorf(output)
+	}
+
+	return nil
+}
+
+// CopyGlobalSettingFile copies a user-provided settings file to config/settings/ directory
+// The original filename is preserved
+func CopyGlobalSettingFile(installPath, settingsFilePath, workingDir string) error {
+	// Make path absolute if it's relative
+	if !strings.HasPrefix(settingsFilePath, "/") {
+		settingsFilePath = workingDir + "/" + settingsFilePath
+	}
+
+	// Get the original filename
+	filename := filepath.Base(settingsFilePath)
+	dirPath := filepath.Join(installPath, "config", "settings")
+
+	// Create the directory if it doesn't exist
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+		return err
+	}
+
+	// Copy the provided file preserving its name
+	destPath := filepath.Join(dirPath, filename)
+	logging.Print(fmt.Sprintf("Copying %s to %s\n", settingsFilePath, destPath))
+	err, output := execute.Run("", "cp", settingsFilePath, destPath)
+	if err != nil {
+		return fmt.Errorf(output)
+	}
+
+	return nil
+}
+
+// ValidateDatabasePath validates that the database file path has a valid extension (.sql or .sql.gz)
+func ValidateDatabasePath(path string) error {
+	if !strings.HasSuffix(path, ".sql") && !strings.HasSuffix(path, ".sql.gz") {
+		return fmt.Errorf("database dump must have .sql or .sql.gz extension")
+	}
 	return nil
 }
 
@@ -349,51 +394,6 @@ func RewriteCaddy(installPath string) error {
 		return err
 	}
 
-	return nil
-}
-
-// Copies the LocalSettings.php at localSettingsPath to /config at the installation directory
-func CopyLocalSettings(localSettingsPath, installPath, workingDir string) error {
-	if localSettingsPath != "" {
-		if !strings.HasPrefix(localSettingsPath, "/") {
-			localSettingsPath = workingDir + "/" + localSettingsPath
-		}
-		logging.Print(fmt.Sprintf("Copying %s to %s/config/LocalSettings.php\n", localSettingsPath, installPath))
-		err, output := execute.Run("", "cp", localSettingsPath, installPath+"/config/LocalSettings.php")
-		if err != nil {
-			logging.Fatal(fmt.Errorf(output))
-		}
-	}
-	return nil
-}
-
-// Copies database dump from databasePath to the /_initdb/ at the installation directory
-func CopyDatabase(databasePath, installPath, workingDir string) error {
-	if databasePath != "" {
-		databasePath = workingDir + "/" + databasePath
-		logging.Print(fmt.Sprintf("Copying %s to %s/_initdb\n", databasePath, installPath))
-		err, output := execute.Run("", "cp", databasePath, installPath+"/_initdb/")
-		if err != nil {
-			logging.Fatal(fmt.Errorf(output))
-		}
-	}
-	return nil
-}
-
-// Verifying file extension for database dump
-func SanityChecks(databasePath, localSettingsPath string) error {
-	if databasePath == "" {
-		return fmt.Errorf("database dump path not mentioned")
-	}
-	if localSettingsPath == "" {
-		return fmt.Errorf("localsettings.php path not mentioned")
-	}
-	if !strings.HasSuffix(databasePath, ".sql") && !strings.HasSuffix(databasePath, ".sql.gz") {
-		return fmt.Errorf("mysqldump is of invalid file type")
-	}
-	if !strings.HasSuffix(localSettingsPath, ".php") {
-		return fmt.Errorf("make sure correct LocalSettings.php is mentioned")
-	}
 	return nil
 }
 
