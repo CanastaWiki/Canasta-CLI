@@ -56,10 +56,14 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 		return err
 	}
 
-	//Checking Running status
-	err = orchestrators.CheckRunningStatus(instance)
-	if err != nil {
-		return err
+	// Ensure containers are running (starts them if needed)
+	// Needed for database removal and image cleanup on Linux
+	containersRunning := true
+	if err = orchestrators.EnsureRunning(instance); err != nil {
+		containersRunning = false
+		fmt.Println("Warning: could not start containers.")
+		fmt.Println("Database may not be removed and some image files may be orphaned.")
+		fmt.Println("These may require manual removal.")
 	}
 
 	//Checking Wiki existence
@@ -87,10 +91,12 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 		return err
 	}
 
-	//Install the corresponding Database
-	err = mediawiki.RemoveDatabase(instance.Path, wikiID, instance.Orchestrator)
-	if err != nil {
-		return err
+	// Remove the corresponding Database (requires running container)
+	if containersRunning {
+		err = mediawiki.RemoveDatabase(instance.Path, wikiID, instance.Orchestrator)
+		if err != nil {
+			return err
+		}
 	}
 
 	//Remove the Localsettings
@@ -99,7 +105,10 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 		return err
 	}
 
-	//Remove the Images
+	// Remove the Images (from inside container first to handle www-data ownership on Linux)
+	if containersRunning {
+		orchestrators.CleanupImages(instance.Path, instance.Orchestrator, wikiID)
+	}
 	err = canasta.RemoveImages(instance.Path, wikiID)
 	if err != nil {
 		return err

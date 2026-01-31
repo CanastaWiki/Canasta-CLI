@@ -9,6 +9,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 )
@@ -51,6 +52,18 @@ func Delete(instance config.Installation) error {
 	instance, err = canasta.CheckCanastaId(instance)
 	if err != nil {
 		return err
+	}
+
+	// Ensure containers are running so we can clean up images from inside
+	// (needed on Linux where container-created files are owned by www-data)
+	if err := orchestrators.EnsureRunning(instance); err != nil {
+		fmt.Println("Warning: could not start containers for image cleanup.")
+		fmt.Println("Some image files may be orphaned and require manual removal with sudo.")
+	} else {
+		// Clean up images from inside the container before stopping
+		if err := orchestrators.CleanupImages(instance.Path, instance.Orchestrator, ""); err != nil {
+			logging.Print(fmt.Sprintf("Warning: could not clean up images: %v\n", err))
+		}
 	}
 
 	//Stopping and deleting Contianers and it's volumes

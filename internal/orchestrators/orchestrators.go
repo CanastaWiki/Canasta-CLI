@@ -220,6 +220,23 @@ func StopAndStart(instance config.Installation) error {
 	return nil
 }
 
+// CleanupImages removes images from inside the container before host-side deletion.
+// This is necessary on Linux where container-created files (owned by www-data) retain
+// their container UID on the host and cannot be deleted without sudo.
+// If wikiID is empty, removes all images (images/*). Otherwise removes images/{wikiID}.
+func CleanupImages(installPath, orchestrator, wikiID string) error {
+	var cleanupCmd string
+	if wikiID == "" {
+		// Use find to delete all files including hidden files (dotfiles)
+		// The glob * doesn't match dotfiles like .htaccess
+		cleanupCmd = "find /mediawiki/images -mindepth 1 -delete"
+	} else {
+		cleanupCmd = fmt.Sprintf("rm -rf /mediawiki/images/%s", wikiID)
+	}
+	_, err := ExecWithError(installPath, orchestrator, "web", cleanupCmd)
+	return err
+}
+
 func DeleteContainers(installPath, orchestrator string) (string, error) {
 	switch orchestrator {
 	case "compose":
@@ -297,12 +314,22 @@ func CheckRunningStatus(instance config.Installation) error {
 			err, output = execute.Run(instance.Path, "docker", "compose", "ps", "-q", containerName)
 		}
 		if err != nil || output == "" {
-			logging.Fatal(fmt.Errorf("Container %s is not running in Canasta instance '%s', please start it first!", containerName, instance.Id))
 			return fmt.Errorf("Container %s is not running", containerName)
 		}
 	default:
-		logging.Fatal(fmt.Errorf("Orchestrator: %s is not available", instance.Orchestrator))
 		return fmt.Errorf("Orchestrator: %s is not available", instance.Orchestrator)
+	}
+	return nil
+}
+
+// EnsureRunning checks if containers are running and starts them if not.
+// Returns nil if containers are running (or were successfully started).
+func EnsureRunning(instance config.Installation) error {
+	if err := CheckRunningStatus(instance); err != nil {
+		logging.Print("Containers not running, starting them...\n")
+		if err := Start(instance); err != nil {
+			return fmt.Errorf("failed to start containers: %w", err)
+		}
 	}
 	return nil
 }
