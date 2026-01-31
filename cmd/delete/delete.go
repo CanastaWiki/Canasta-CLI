@@ -53,6 +53,10 @@ func Delete(instance config.Installation) error {
 		return err
 	}
 
+	// Clean up mounted directories from inside the container before stopping
+	// This handles files owned by www-data that can't be deleted from the host on Linux
+	orchestrators.CleanupMountedDirs(instance.Path, instance.Orchestrator)
+
 	//Stopping and deleting Contianers and it's volumes
 	if _, err := orchestrators.DeleteContainers(instance.Path, instance.Orchestrator); err != nil {
 		return err

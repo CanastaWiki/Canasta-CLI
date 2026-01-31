@@ -220,6 +220,21 @@ func StopAndStart(instance config.Installation) error {
 	return nil
 }
 
+// CleanupMountedDirs removes contents of directories that may have different ownership
+// (e.g., www-data) from inside the container before deletion. This is necessary on Linux
+// where container-created files retain their container UID on the host.
+func CleanupMountedDirs(installPath, orchestrator string) error {
+	// Clean up the images directory from inside the web container
+	// The web container runs as root and can remove www-data owned files
+	cleanupCmd := "rm -rf /mediawiki/images/*"
+	_, err := ExecWithError(installPath, orchestrator, "web", cleanupCmd)
+	if err != nil {
+		// Log but don't fail - container might not be running
+		logging.Print(fmt.Sprintf("Warning: could not clean up mounted directories: %v\n", err))
+	}
+	return nil
+}
+
 func DeleteContainers(installPath, orchestrator string) (string, error) {
 	switch orchestrator {
 	case "compose":
