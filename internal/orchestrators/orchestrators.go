@@ -220,25 +220,18 @@ func StopAndStart(instance config.Installation) error {
 	return nil
 }
 
-// CleanupMountedDirs removes contents of directories that may have different ownership
-// (e.g., www-data) from inside the container before deletion. This is necessary on Linux
-// where container-created files retain their container UID on the host.
-func CleanupMountedDirs(installPath, orchestrator string) error {
-	// Clean up the images directory from inside the web container
-	// The web container runs as root and can remove www-data owned files
-	cleanupCmd := "rm -rf /mediawiki/images/*"
-	_, err := ExecWithError(installPath, orchestrator, "web", cleanupCmd)
-	if err != nil {
-		// Log but don't fail - container might not be running
-		logging.Print(fmt.Sprintf("Warning: could not clean up mounted directories: %v\n", err))
+// CleanupImages removes images from inside the container before host-side deletion.
+// This is necessary on Linux where container-created files (owned by www-data) retain
+// their container UID on the host and cannot be deleted without sudo.
+// If wikiID is empty, removes all images (images/*). Otherwise removes images/{wikiID}.
+func CleanupImages(installPath, orchestrator, wikiID string) error {
+	var path string
+	if wikiID == "" {
+		path = "/mediawiki/images/*"
+	} else {
+		path = fmt.Sprintf("/mediawiki/images/%s", wikiID)
 	}
-	return nil
-}
-
-// CleanupWikiImages removes a specific wiki's images directory from inside the container.
-// This is necessary on Linux where container-created files retain their container UID.
-func CleanupWikiImages(installPath, orchestrator, wikiID string) error {
-	cleanupCmd := fmt.Sprintf("rm -rf /mediawiki/images/%s", wikiID)
+	cleanupCmd := fmt.Sprintf("rm -rf %s", path)
 	_, err := ExecWithError(installPath, orchestrator, "web", cleanupCmd)
 	return err
 }
@@ -320,12 +313,22 @@ func CheckRunningStatus(instance config.Installation) error {
 			err, output = execute.Run(instance.Path, "docker", "compose", "ps", "-q", containerName)
 		}
 		if err != nil || output == "" {
-			logging.Fatal(fmt.Errorf("Container %s is not running in Canasta instance '%s', please start it first!", containerName, instance.Id))
 			return fmt.Errorf("Container %s is not running", containerName)
 		}
 	default:
-		logging.Fatal(fmt.Errorf("Orchestrator: %s is not available", instance.Orchestrator))
 		return fmt.Errorf("Orchestrator: %s is not available", instance.Orchestrator)
+	}
+	return nil
+}
+
+// EnsureRunning checks if containers are running and starts them if not.
+// Returns nil if containers are running (or were successfully started).
+func EnsureRunning(instance config.Installation) error {
+	if err := CheckRunningStatus(instance); err != nil {
+		logging.Print("Containers not running, starting them...\n")
+		if err := Start(instance); err != nil {
+			return fmt.Errorf("failed to start containers: %w", err)
+		}
 	}
 	return nil
 }
