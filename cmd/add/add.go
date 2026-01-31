@@ -135,10 +135,9 @@ func NewCmdCreate() *cobra.Command {
 	addCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Admin password for the new wiki (if not provided, auto-generates and saves to config/admin-password_{wikiid})")
 	addCmd.Flags().StringVar(&wikidbuser, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 
-	// Mark required flags
+	// Mark required flags (admin is validated at runtime based on whether --database is provided)
 	addCmd.MarkFlagRequired("wiki")
 	addCmd.MarkFlagRequired("url")
-	addCmd.MarkFlagRequired("admin")
 
 	return addCmd
 }
