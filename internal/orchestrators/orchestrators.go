@@ -235,6 +235,14 @@ func CleanupMountedDirs(installPath, orchestrator string) error {
 	return nil
 }
 
+// CleanupWikiImages removes a specific wiki's images directory from inside the container.
+// This is necessary on Linux where container-created files retain their container UID.
+func CleanupWikiImages(installPath, orchestrator, wikiID string) error {
+	cleanupCmd := fmt.Sprintf("rm -rf /mediawiki/images/%s", wikiID)
+	_, err := ExecWithError(installPath, orchestrator, "web", cleanupCmd)
+	return err
+}
+
 func DeleteContainers(installPath, orchestrator string) (string, error) {
 	switch orchestrator {
 	case "compose":

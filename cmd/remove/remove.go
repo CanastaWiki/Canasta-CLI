@@ -99,7 +99,8 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 		return err
 	}
 
-	//Remove the Images
+	//Remove the Images (from inside container first to handle www-data ownership on Linux)
+	orchestrators.CleanupWikiImages(instance.Path, instance.Orchestrator, wikiID)
 	err = canasta.RemoveImages(instance.Path, wikiID)
 	if err != nil {
 		return err
