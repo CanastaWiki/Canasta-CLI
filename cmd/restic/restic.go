@@ -38,7 +38,8 @@ func NewCmdCreate() *cobra.Command {
 			}
 			envPath := instance.Path + "/.env"
 			EnvVariables := canasta.GetEnvVariable(envPath)
-			commandArgs = append(make([]string, 0), "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "restic/restic", "-r", "s3:"+EnvVariables["AWS_S3_API"]+"/"+EnvVariables["AWS_S3_BUCKET"])
+			repoURL := getRepoURL(EnvVariables)
+			commandArgs = append(make([]string, 0), "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "restic/restic", "-r", repoURL)
 
 			return nil
 		},
@@ -58,6 +59,16 @@ func NewCmdCreate() *cobra.Command {
 	resticCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return resticCmd
 
+}
+
+func getRepoURL(env map[string]string) string {
+	if val, ok := env["RESTIC_REPOSITORY"]; ok && val != "" {
+		return val
+	}
+	if val, ok := env["RESTIC_REPO"]; ok && val != "" {
+		return val
+	}
+	return "s3:" + env["AWS_S3_API"] + "/" + env["AWS_S3_BUCKET"]
 }
 
 func checkCurrentSnapshotFolder(currentSnapshotFolder string) {
