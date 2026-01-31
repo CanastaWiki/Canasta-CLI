@@ -46,7 +46,8 @@ func takeSnapshot(tag string) {
 	logging.Print("Copy folders and files completed.")
 
 	hostname, _ := os.Hostname()
-	err, output = execute.Run(instance.Path, "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "-v", currentSnapshotFolder+":/currentsnapshot/", "restic/restic", "-r", "s3:"+EnvVariables["AWS_S3_API"]+"/"+EnvVariables["AWS_S3_BUCKET"], "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
+	repoURL := getRepoURL(EnvVariables)
+	err, output = execute.Run(instance.Path, "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "-v", currentSnapshotFolder+":/currentsnapshot/", "restic/restic", "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
 	if err != nil {
 		logging.Fatal(fmt.Errorf(output))
 	}

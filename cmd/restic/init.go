@@ -27,7 +27,7 @@ func initCmdCreate() *cobra.Command {
 }
 
 func initRestic() {
-	fmt.Println("Initializing Restic repo in S3")
+	fmt.Println("Initializing Restic repo")
 	commandArgs = append(commandArgs, "init")
 	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	if err != nil {
