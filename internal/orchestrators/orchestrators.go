@@ -225,13 +225,14 @@ func StopAndStart(instance config.Installation) error {
 // their container UID on the host and cannot be deleted without sudo.
 // If wikiID is empty, removes all images (images/*). Otherwise removes images/{wikiID}.
 func CleanupImages(installPath, orchestrator, wikiID string) error {
-	var path string
+	var cleanupCmd string
 	if wikiID == "" {
-		path = "/mediawiki/images/*"
+		// Use find to delete all files including hidden files (dotfiles)
+		// The glob * doesn't match dotfiles like .htaccess
+		cleanupCmd = "find /mediawiki/images -mindepth 1 -delete"
 	} else {
-		path = fmt.Sprintf("/mediawiki/images/%s", wikiID)
+		cleanupCmd = fmt.Sprintf("rm -rf /mediawiki/images/%s", wikiID)
 	}
-	cleanupCmd := fmt.Sprintf("rm -rf %s", path)
 	_, err := ExecWithError(installPath, orchestrator, "web", cleanupCmd)
 	return err
 }
