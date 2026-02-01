@@ -243,6 +243,13 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	// If database path is provided, import the database instead of running install.php
 	if databasePath != "" {
 		logging.Print("Importing database instead of running install.php\n")
+
+		// Wait for database to be ready
+		command := "/wait-for-it.sh -t 60 db:3306"
+		if _, err := orchestrators.ExecWithError(path, orchestrator, "web", command); err != nil {
+			return fmt.Errorf("database not ready: %w", err)
+		}
+
 		envVariables := canasta.GetEnvVariable(path + "/.env")
 		dbPassword := envVariables["MYSQL_PASSWORD"]
 		if err := orchestrators.ImportDatabase(wikiID, databasePath, dbPassword, tempInstance); err != nil {
