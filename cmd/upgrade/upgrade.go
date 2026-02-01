@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI/cmd/migrate"
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/git"
@@ -70,5 +71,13 @@ func Upgrade(instance config.Installation) error {
 		return err
 	}
 	fmt.Print("Canasta Upgraded!\n")
+
+	// Check if installation uses legacy config structure
+	hasLegacy, err := migrate.HasLegacyStructure(instance.Path)
+	if err == nil && hasLegacy {
+		fmt.Print("\nNote: Your installation uses the legacy config structure.\n")
+		fmt.Print("Run 'canasta migrate' to migrate to the new structure.\n")
+	}
+
 	return nil
 }
