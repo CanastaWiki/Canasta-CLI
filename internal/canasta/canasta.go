@@ -2,6 +2,8 @@ package canasta
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -161,43 +163,83 @@ func CopyYaml(yamlPath, installPath string) error {
 func CopySettings(installPath string) error {
 	yamlPath := installPath + "/config/wikis.yaml"
 
-	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", yamlPath, installPath))
+	logging.Print(fmt.Sprintf("Copying settings from wikis.yaml at %s\n", yamlPath))
 	WikiIDs, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err != nil {
 		return err
 	}
+
+	// Create config/settings/wikis directory if it doesn't exist
+	wikisDir := filepath.Join(installPath, "config", "settings", "wikis")
+	if err := os.MkdirAll(wikisDir, os.ModePerm); err != nil {
+		return err
+	}
+
 	for i := len(WikiIDs) - 1; i >= 0; i-- {
 		// Replace spaces to underlines and remove accented and non-alphanumeric characters
 		id := strings.Replace(WikiIDs[i], " ", "_", -1)
 		id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id,"")
-		dirPath := installPath + fmt.Sprintf("/config/%s", id)
+		dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
 		// Create the directory if it doesn't exist
 		if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
 			return err
 		}
 
-		// Copy SettingsTemplate.php
-		err, output := execute.Run("", "cp", installPath+"/config/SettingsTemplate.php", dirPath+"/Settings.php")
+		// Copy SettingsTemplate.php and replace {WIKI_ID} placeholder
+		templatePath := filepath.Join(installPath, "config", "SettingsTemplate.php")
+		destPath := filepath.Join(dirPath, "Settings.php")
+
+		// Read template
+		templateBytes, err := os.ReadFile(templatePath)
 		if err != nil {
-			return fmt.Errorf(output)
+			return fmt.Errorf("failed to read SettingsTemplate.php: %w", err)
+		}
+
+		// Replace placeholder with actual wiki ID
+		content := strings.ReplaceAll(string(templateBytes), "{WIKI_ID}", id)
+
+		// Write to destination
+		if err := os.WriteFile(destPath, []byte(content), 0644); err != nil {
+			return fmt.Errorf("failed to write Settings.php for %s: %w", id, err)
 		}
 	}
+
+	// Create config/settings/global directory if it doesn't exist
+	globalSettingsDir := filepath.Join(installPath, "config", "settings", "global")
+	if err := os.MkdirAll(globalSettingsDir, os.ModePerm); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func CopySetting(installPath, id string) error {
-	dirPath := installPath + fmt.Sprintf("/config/%s", id)
+	// Normalize wiki ID
+	normalizedId := strings.Replace(id, " ", "_", -1)
+	normalizedId = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(normalizedId, "")
+
+	dirPath := filepath.Join(installPath, "config", "settings", "wikis", normalizedId)
 
 	// Create the directory if it doesn't exist
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
 		return err
 	}
 
-	// Copy SettingsTemplate.php to Settings.php
-	err, output := execute.Run("", "cp", installPath+"/config/SettingsTemplate.php", dirPath+"/Settings.php")
+	// Read template
+	templatePath := filepath.Join(installPath, "config", "SettingsTemplate.php")
+	templateBytes, err := os.ReadFile(templatePath)
 	if err != nil {
-		return fmt.Errorf(output)
+		return fmt.Errorf("failed to read SettingsTemplate.php: %w", err)
+	}
+
+	// Replace placeholder with actual wiki ID
+	content := strings.ReplaceAll(string(templateBytes), "{WIKI_ID}", normalizedId)
+
+	// Write to destination
+	destPath := filepath.Join(dirPath, "Settings.php")
+	if err := os.WriteFile(destPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write Settings.php: %w", err)
 	}
 
 	return nil
@@ -214,7 +256,7 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 	// Normalize wikiID (replace spaces with underscores, remove non-alphanumeric)
 	id := strings.Replace(wikiID, " ", "_", -1)
 	id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
-	dirPath := installPath + fmt.Sprintf("/config/%s", id)
+	dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
 	// Create the directory if it doesn't exist
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
@@ -222,8 +264,9 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 	}
 
 	// Copy the provided file as Settings.php
-	logging.Print(fmt.Sprintf("Copying %s to %s/Settings.php\n", settingsFilePath, dirPath))
-	err, output := execute.Run("", "cp", settingsFilePath, dirPath+"/Settings.php")
+	destPath := filepath.Join(dirPath, "Settings.php")
+	logging.Print(fmt.Sprintf("Copying %s to %s\n", settingsFilePath, destPath))
+	err, output := execute.Run("", "cp", settingsFilePath, destPath)
 	if err != nil {
 		return fmt.Errorf(output)
 	}
@@ -231,7 +274,7 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 	return nil
 }
 
-// CopyGlobalSettingFile copies a user-provided settings file to config/settings/ directory
+// CopyGlobalSettingFile copies a user-provided settings file to config/settings/global/ directory
 // The original filename is preserved
 func CopyGlobalSettingFile(installPath, settingsFilePath, workingDir string) error {
 	// Make path absolute if it's relative
@@ -241,7 +284,7 @@ func CopyGlobalSettingFile(installPath, settingsFilePath, workingDir string) err
 
 	// Get the original filename
 	filename := filepath.Base(settingsFilePath)
-	dirPath := filepath.Join(installPath, "config", "settings")
+	dirPath := filepath.Join(installPath, "config", "settings", "global")
 
 	// Create the directory if it doesn't exist
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
@@ -267,6 +310,27 @@ func ValidateDatabasePath(path string) error {
 	return nil
 }
 
+// generateSecretKey generates a random 64-character hex string for $wgSecretKey
+func generateSecretKey() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// GenerateAndSaveSecretKey generates a secret key and saves it to .env as MW_SECRET_KEY
+// This is used for all installations - both fresh installs and database imports
+func GenerateAndSaveSecretKey(installPath string) error {
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		return fmt.Errorf("failed to generate secret key: %w", err)
+	}
+
+	logging.Print("Generating MW_SECRET_KEY and saving to .env\n")
+	return SaveEnvVariable(installPath+"/.env", "MW_SECRET_KEY", secretKey)
+}
+
 func RewriteSettings(installPath string, WikiIDs []string) error {
 	// Read wikis.yaml to get mapping of ID to site name
 	yamlPath := installPath + "/config/wikis.yaml"
@@ -288,7 +352,11 @@ func RewriteSettings(installPath string, WikiIDs []string) error {
 			}
 		}
 
-		filePath := installPath + "/config/" + id + "/LocalSettings.php"
+		// Check new path first, fall back to legacy path
+		filePath := filepath.Join(installPath, "config", "settings", "wikis", id, "LocalSettings.php")
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			filePath = filepath.Join(installPath, "config", id, "LocalSettings.php")
+		}
 
 		// Read the original file
 		file, err := os.Open(filePath)
@@ -576,21 +644,24 @@ func DeleteConfigAndContainers(keepConfig bool, installationDir, orchestrator st
 }
 
 func RemoveSettings(installPath, id string) error {
-	// Prepare the file path
-	filePath := filepath.Join(installPath, "config", id)
-
-	// Check if the file exists
-	if _, err := os.Stat(filePath); err == nil {
-		// If the file exists, remove it
-		err, output := execute.Run("", "rm", "-rf", filePath)
+	// Check new path first (config/settings/wikis/<id>)
+	newPath := filepath.Join(installPath, "config", "settings", "wikis", id)
+	if _, err := os.Stat(newPath); err == nil {
+		err, output := execute.Run("", "rm", "-rf", newPath)
 		if err != nil {
 			return fmt.Errorf(output)
 		}
-	} else if os.IsNotExist(err) {
-		// File does not exist, do nothing
 		return nil
-	} else {
-		// File may or may not exist. See the specific error
+	}
+
+	// Check legacy path (config/<id>)
+	legacyPath := filepath.Join(installPath, "config", id)
+	if _, err := os.Stat(legacyPath); err == nil {
+		err, output := execute.Run("", "rm", "-rf", legacyPath)
+		if err != nil {
+			return fmt.Errorf(output)
+		}
+	} else if !os.IsNotExist(err) {
 		return err
 	}
 	return nil
@@ -667,7 +738,13 @@ func MigrateToNewVersion(installPath string) error {
 		return err
 	}
 
-	//Copy the Localsettings
+	// Create config/settings/wikis directory
+	wikisDir := filepath.Join(installPath, "config", "settings", "wikis")
+	if err := os.MkdirAll(wikisDir, os.ModePerm); err != nil {
+		return err
+	}
+
+	// Copy the settings using the new path structure
 	err = CopySetting(installPath, id)
 	if err != nil {
 		return err

@@ -148,7 +148,7 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build Canasta image from local source directory (expects Canasta/, optionally CanastaBase/)")
 	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
 	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to use instead of SettingsTemplate.php (only used with --database)")
-	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/ (filename preserved)")
+	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
 
 	// Mark required flags
 	createCmd.MarkFlagRequired("id")
@@ -258,6 +258,10 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		envVariables := canasta.GetEnvVariable(path + "/.env")
 		dbPassword := envVariables["MYSQL_PASSWORD"]
 		if err := orchestrators.ImportDatabase(wikiID, databasePath, dbPassword, tempInstance); err != nil {
+			return err
+		}
+		// Generate secret key and save to .env (DB password already in .env)
+		if err := canasta.GenerateAndSaveSecretKey(path); err != nil {
 			return err
 		}
 	} else {

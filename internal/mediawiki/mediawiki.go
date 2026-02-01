@@ -22,7 +22,6 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
-	settingsName := "CommonSettings.php"
 
 	command := "/wait-for-it.sh -t 60 db:3306"
 	output, err := orchestrators.ExecWithError(path, orchestrator, "web", command)
@@ -53,29 +52,21 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 			return canastaInfo, err
 		}
 
+		// Remove the installer-generated LocalSettings.php (we'll generate our own minimal one)
 		time.Sleep(time.Second)
-		if i == 0 {
-			err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettings.php"), filepath.Join(path, "config", "LocalSettingsBackup.php"))
-			if err != nil {
-				return canastaInfo, err
-			}
-		} else {
-			err, _ = execute.Run(path, "rm", filepath.Join(path, "config", "LocalSettings.php"))
-			if err != nil {
-				return canastaInfo, err
-			}
+		err, _ = execute.Run(path, "rm", "-f", filepath.Join(path, "config", "LocalSettings.php"))
+		if err != nil {
+			return canastaInfo, err
 		}
 		time.Sleep(time.Second)
 	}
 
-	if len(WikiIDs) == 1 {
-		settingsName = "LocalSettings.php"
-	}
-
-	err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettingsBackup.php"), filepath.Join(path, "config", settingsName))
-	if err != nil {
+	// Generate secret key and save to .env (DB password already in .env)
+	// No config/LocalSettings.php is created - CanastaDefaultSettings.php reads from env vars
+	if err := canasta.GenerateAndSaveSecretKey(path); err != nil {
 		return canastaInfo, err
 	}
+
 	return canastaInfo, err
 }
 
