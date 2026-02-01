@@ -84,9 +84,14 @@ func NewCmdCreate() *cobra.Command {
 				log.Fatal(fmt.Errorf("Error: --admin flag is required when --database is not provided"))
 			}
 
-			// Generate passwords only if not importing (when importing, we skip install.php)
+			// Always generate database passwords
+			if canastaInfo, err = canasta.GenerateDBPasswords(canastaInfo); err != nil {
+				log.Fatal(err)
+			}
+
+			// Generate admin password only if not importing (when importing, we skip install.php)
 			if databasePath == "" {
-				if canastaInfo, err = canasta.GeneratePasswords(workingDir, canastaInfo); err != nil {
+				if canastaInfo, err = canasta.GenerateAdminPassword(canastaInfo); err != nil {
 					log.Fatal(err)
 				}
 			}

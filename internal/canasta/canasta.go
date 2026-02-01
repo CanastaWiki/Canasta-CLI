@@ -499,21 +499,14 @@ func warnIfProblematicPassword(varName, value string) {
 	}
 }
 
-func GeneratePasswords(workingDir string, canastaInfo CanastaVariables) (CanastaVariables, error) {
+// GenerateDBPasswords generates database passwords (root and wiki DB).
+// This should always be called, even when importing a database.
+func GenerateDBPasswords(canastaInfo CanastaVariables) (CanastaVariables, error) {
 	var err error
 
 	gen, err := safePasswordGenerator()
 	if err != nil {
 		return canastaInfo, err
-	}
-
-	// Admin password: flag → auto-generate (saved to config/admin-password_{wikiid} later)
-	if canastaInfo.AdminPassword == "" {
-		canastaInfo.AdminPassword, err = gen.Generate(30, 4, 6, false, true)
-		if err != nil {
-			return canastaInfo, err
-		}
-		fmt.Printf("Generated admin password\n")
 	}
 
 	// Root DB password: flag → auto-generate (per-farm, saved to .env only)
@@ -536,6 +529,46 @@ func GeneratePasswords(workingDir string, canastaInfo CanastaVariables) (Canasta
 			}
 			fmt.Printf("Generated wiki database password (will be saved to .env)\n")
 		}
+	}
+
+	return canastaInfo, nil
+}
+
+// GenerateAdminPassword generates an admin password if not provided.
+// This should only be called when NOT importing a database (i.e., running install.php).
+func GenerateAdminPassword(canastaInfo CanastaVariables) (CanastaVariables, error) {
+	var err error
+
+	gen, err := safePasswordGenerator()
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	// Admin password: flag → auto-generate (saved to config/admin-password_{wikiid} later)
+	if canastaInfo.AdminPassword == "" {
+		canastaInfo.AdminPassword, err = gen.Generate(30, 4, 6, false, true)
+		if err != nil {
+			return canastaInfo, err
+		}
+		fmt.Printf("Generated admin password\n")
+	}
+
+	return canastaInfo, nil
+}
+
+// GeneratePasswords generates all passwords (admin and database).
+// For backward compatibility - calls both GenerateAdminPassword and GenerateDBPasswords.
+func GeneratePasswords(workingDir string, canastaInfo CanastaVariables) (CanastaVariables, error) {
+	var err error
+
+	canastaInfo, err = GenerateAdminPassword(canastaInfo)
+	if err != nil {
+		return canastaInfo, err
+	}
+
+	canastaInfo, err = GenerateDBPasswords(canastaInfo)
+	if err != nil {
+		return canastaInfo, err
 	}
 
 	return canastaInfo, nil
