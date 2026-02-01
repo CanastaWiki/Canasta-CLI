@@ -74,6 +74,11 @@ func NewCmdCreate() *cobra.Command {
 				}
 			}
 
+			// Resolve relative database path to absolute (relative to working directory)
+			if databasePath != "" && !filepath.IsAbs(databasePath) {
+				databasePath = filepath.Join(workingDir, databasePath)
+			}
+
 			// Validate --admin is required when --database is not provided
 			if databasePath == "" && canastaInfo.AdminName == "" {
 				log.Fatal(fmt.Errorf("Error: --admin flag is required when --database is not provided"))
