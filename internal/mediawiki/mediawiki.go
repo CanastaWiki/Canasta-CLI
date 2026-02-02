@@ -14,15 +14,21 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-const dbServer = "db"
-const confPath = "/mediawiki/config/"
-const scriptPath = "/w"
+const (
+	dbServer             = "db"
+	confPath             = "/mediawiki/config/"
+	scriptPath           = "/w"
+	localSettingsFile    = "LocalSettings.php"
+	commonSettingsFile   = "CommonSettings.php"
+	localSettingsBackup  = "LocalSettingsBackup.php"
+	commonSettingsBackup = "CommonSettingsBackup.php"
+)
 
 func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
-	settingsName := "CommonSettings.php"
+	settingsName := commonSettingsFile
 
 	command := "/wait-for-it.sh -t 60 db:3306"
 	output, err := orchestrators.ExecWithError(path, orchestrator, "web", command)
@@ -55,12 +61,12 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 
 		time.Sleep(time.Second)
 		if i == 0 {
-			err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettings.php"), filepath.Join(path, "config", "LocalSettingsBackup.php"))
+			err, _ = execute.Run(path, "mv", filepath.Join(path, "config", localSettingsFile), filepath.Join(path, "config", localSettingsBackup))
 			if err != nil {
 				return canastaInfo, err
 			}
 		} else {
-			err, _ = execute.Run(path, "rm", filepath.Join(path, "config", "LocalSettings.php"))
+			err, _ = execute.Run(path, "rm", filepath.Join(path, "config", localSettingsFile))
 			if err != nil {
 				return canastaInfo, err
 			}
@@ -69,10 +75,10 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	}
 
 	if len(WikiIDs) == 1 {
-		settingsName = "LocalSettings.php"
+		settingsName = localSettingsFile
 	}
 
-	err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettingsBackup.php"), filepath.Join(path, "config", settingsName))
+	err, _ = execute.Run(path, "mv", filepath.Join(path, "config", localSettingsBackup), filepath.Join(path, "config", settingsName))
 	if err != nil {
 		return canastaInfo, err
 	}
@@ -91,8 +97,8 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		return fmt.Errorf(output)
 	}
 
-	localExists, _ := fileExists(filepath.Join(installPath, "config", "LocalSettings.php"))
-	commonExists, _ := fileExists(filepath.Join(installPath, "config", "CommonSettings.php"))
+	localExists, _ := fileExists(filepath.Join(installPath, "config", localSettingsFile))
+	commonExists, _ := fileExists(filepath.Join(installPath, "config", commonSettingsFile))
 	wikisYamlExists, _ := fileExists(filepath.Join(installPath, "config", "wikis.yaml"))
 
 	if !localExists && !commonExists && !wikisYamlExists {
@@ -110,27 +116,27 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		// doesn't think the wiki is already configured
 	} else if commonExists {
 		// Farm already exists with CommonSettings.php - preserve it
-		originalSettingsFile = "CommonSettings.php"
+		originalSettingsFile = commonSettingsFile
 		// Backup the file
-		err, _ = execute.Run(installPath, "cp", filepath.Join(installPath, "config", "CommonSettings.php"), filepath.Join(installPath, "config", "CommonSettingsBackup.php"))
+		err, _ = execute.Run(installPath, "cp", filepath.Join(installPath, "config", commonSettingsFile), filepath.Join(installPath, "config", commonSettingsBackup))
 		if err != nil {
 			return err
 		}
 		// Remove the original so installer doesn't see it
-		err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", "CommonSettings.php"))
+		err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", commonSettingsFile))
 		if err != nil {
 			return err
 		}
 	} else if localExists {
 		// Converting from single wiki (LocalSettings.php) to farm
-		originalSettingsFile = "LocalSettings.php"
+		originalSettingsFile = localSettingsFile
 		// Backup the file
-		err, _ = execute.Run(installPath, "cp", filepath.Join(installPath, "config", "LocalSettings.php"), filepath.Join(installPath, "config", "LocalSettingsBackup.php"))
+		err, _ = execute.Run(installPath, "cp", filepath.Join(installPath, "config", localSettingsFile), filepath.Join(installPath, "config", localSettingsBackup))
 		if err != nil {
 			return err
 		}
 		// Remove the original so installer doesn't see it
-		err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", "LocalSettings.php"))
+		err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", localSettingsFile))
 		if err != nil {
 			return err
 		}
@@ -174,22 +180,22 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	// Restore the original settings file as CommonSettings.php (legacy architecture only)
 	if useNewArchitecture {
 		// New architecture: nothing to restore
-	} else if originalSettingsFile == "CommonSettings.php" {
+	} else if originalSettingsFile == commonSettingsFile {
 		// Farm already existed, restore CommonSettings.php from backup
-		err, _ = execute.Run(installPath, "mv", filepath.Join(installPath, "config", "CommonSettingsBackup.php"), filepath.Join(installPath, "config", "CommonSettings.php"))
+		err, _ = execute.Run(installPath, "mv", filepath.Join(installPath, "config", commonSettingsBackup), filepath.Join(installPath, "config", commonSettingsFile))
 		if err != nil {
 			return err
 		}
-	} else if originalSettingsFile == "LocalSettings.php" {
+	} else if originalSettingsFile == localSettingsFile {
 		// Converting single wiki to farm: rename backup to CommonSettings.php
-		err, _ = execute.Run(installPath, "mv", filepath.Join(installPath, "config", "LocalSettingsBackup.php"), filepath.Join(installPath, "config", "CommonSettings.php"))
+		err, _ = execute.Run(installPath, "mv", filepath.Join(installPath, "config", localSettingsBackup), filepath.Join(installPath, "config", commonSettingsFile))
 		if err != nil {
 			return err
 		}
 	}
 
 	// Always remove the newly generated LocalSettings.php (not needed in farm)
-	err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", "LocalSettings.php"))
+	err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", localSettingsFile))
 	if err != nil {
 		return err
 	}
