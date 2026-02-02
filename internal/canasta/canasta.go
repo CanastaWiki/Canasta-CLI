@@ -102,6 +102,14 @@ func CreateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 		// Read custom env file
 		customEnv := GetEnvVariable(customEnvPath)
 
+		// Check for problematic characters in password fields
+		if pw, ok := customEnv["MYSQL_PASSWORD"]; ok {
+			warnIfProblematicPassword("MYSQL_PASSWORD", pw)
+		}
+		if pw, ok := customEnv["WIKI_DB_PASSWORD"]; ok {
+			warnIfProblematicPassword("WIKI_DB_PASSWORD", pw)
+		}
+
 		// Apply each override to .env
 		for key, value := range customEnv {
 			if err := SaveEnvVariable(installPath+"/.env", key, value); err != nil {
@@ -123,16 +131,16 @@ func CreateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 	}
 
 	// Step 4: Apply DB passwords (command-line flags take precedence)
+	// Note: Don't wrap in quotes - docker-compose includes quotes as part of the value,
+	// causing a mismatch with the CLI which strips quotes when reading.
 	if rootDBpass != "" {
-		pass := "\"" + strings.ReplaceAll(rootDBpass, "\"", "\\\"") + "\""
-		if err := SaveEnvVariable(installPath+"/.env", "MYSQL_PASSWORD", pass); err != nil {
+		if err := SaveEnvVariable(installPath+"/.env", "MYSQL_PASSWORD", rootDBpass); err != nil {
 			return err
 		}
 	}
 
 	if wikiDBpass != "" {
-		pass := "\"" + strings.ReplaceAll(wikiDBpass, "\"", "\\\"") + "\""
-		if err := SaveEnvVariable(installPath+"/.env", "WIKI_DB_PASSWORD", pass); err != nil {
+		if err := SaveEnvVariable(installPath+"/.env", "WIKI_DB_PASSWORD", wikiDBpass); err != nil {
 			return err
 		}
 	}
@@ -397,30 +405,55 @@ func RewriteCaddy(installPath string) error {
 	return nil
 }
 
+// safePasswordGenerator creates a password generator with symbols that are safe
+// for use in .env files and shell commands. Avoids: = # $ " ' ` \ ! & | ; < > etc.
+func safePasswordGenerator() (*password.Generator, error) {
+	return password.NewGenerator(&password.GeneratorInput{
+		Symbols: "@%^-_+.,:",
+	})
+}
+
+// problematicPasswordChars are characters that may cause issues in .env files or shell commands
+const problematicPasswordChars = "=#$\"'`\\!&|;<>"
+
+// warnIfProblematicPassword checks if a password contains characters that may cause issues
+// and prints a warning if so.
+func warnIfProblematicPassword(varName, value string) {
+	var found []string
+	for _, char := range problematicPasswordChars {
+		if strings.ContainsRune(value, char) {
+			found = append(found, string(char))
+		}
+	}
+	if len(found) > 0 {
+		fmt.Printf("Warning: %s contains characters that may cause issues: %s\n", varName, strings.Join(found, " "))
+		fmt.Printf("  Consider using only alphanumeric characters and safe symbols: @%%^-_+.,:\n")
+	}
+}
+
 func GeneratePasswords(workingDir string, canastaInfo CanastaVariables) (CanastaVariables, error) {
 	var err error
 
+	gen, err := safePasswordGenerator()
+	if err != nil {
+		return canastaInfo, err
+	}
+
 	// Admin password: flag → auto-generate (saved to config/admin-password_{wikiid} later)
 	if canastaInfo.AdminPassword == "" {
-		canastaInfo.AdminPassword, err = password.Generate(30, 4, 6, false, true)
+		canastaInfo.AdminPassword, err = gen.Generate(30, 4, 6, false, true)
 		if err != nil {
 			return canastaInfo, err
 		}
-		// dollar signs in the password break the installer
-		// https://phabricator.wikimedia.org/T355013
-		canastaInfo.AdminPassword = strings.ReplaceAll(canastaInfo.AdminPassword, "$", "#")
 		fmt.Printf("Generated admin password\n")
 	}
 
 	// Root DB password: flag → auto-generate (per-farm, saved to .env only)
 	if canastaInfo.RootDBPassword == "" {
-		canastaInfo.RootDBPassword, err = password.Generate(30, 4, 6, false, true)
+		canastaInfo.RootDBPassword, err = gen.Generate(30, 4, 6, false, true)
 		if err != nil {
 			return canastaInfo, err
 		}
-		// dollar signs in the root DB password break the installer
-		// https://phabricator.wikimedia.org/T355013
-		canastaInfo.RootDBPassword = strings.ReplaceAll(canastaInfo.RootDBPassword, "$", "#")
 		fmt.Printf("Generated root database password (will be saved to .env)\n")
 	}
 
@@ -429,12 +462,10 @@ func GeneratePasswords(workingDir string, canastaInfo CanastaVariables) (Canasta
 		canastaInfo.WikiDBPassword = canastaInfo.RootDBPassword
 	} else {
 		if canastaInfo.WikiDBPassword == "" {
-			canastaInfo.WikiDBPassword, err = password.Generate(30, 4, 6, false, true)
+			canastaInfo.WikiDBPassword, err = gen.Generate(30, 4, 6, false, true)
 			if err != nil {
 				return canastaInfo, err
 			}
-			// dollar signs in the wiki DB password break the installer
-			canastaInfo.WikiDBPassword = strings.ReplaceAll(canastaInfo.WikiDBPassword, "$", "#")
 			fmt.Printf("Generated wiki database password (will be saved to .env)\n")
 		}
 	}
@@ -444,14 +475,11 @@ func GeneratePasswords(workingDir string, canastaInfo CanastaVariables) (Canasta
 
 // GeneratePassword generates a random password for the specified purpose
 func GeneratePassword(purpose string) (string, error) {
-	generatedPassword, err := password.Generate(30, 4, 6, false, true)
+	gen, err := safePasswordGenerator()
 	if err != nil {
 		return "", err
 	}
-	// dollar signs in passwords break the installer
-	// https://phabricator.wikimedia.org/T355013
-	generatedPassword = strings.ReplaceAll(generatedPassword, "$", "#")
-	return generatedPassword, nil
+	return gen.Generate(30, 4, 6, false, true)
 }
 
 // SavePasswordToFile saves a password to a file in the specified directory
@@ -506,7 +534,8 @@ func GetEnvVariable(envPath string) map[string]string {
 	data := strings.TrimSuffix(string(file_data), "\n")
 	variable_list := strings.Split(data, "\n")
 	for _, variable := range variable_list {
-		list := strings.Split(variable, "=")
+		// Use SplitN to only split on first "=" - values may contain "=" characters
+		list := strings.SplitN(variable, "=", 2)
 		if len(list) < 2 {
 			continue
 		}
