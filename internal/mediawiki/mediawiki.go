@@ -22,6 +22,7 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
+	settingsName := "CommonSettings.php"
 
 	command := "/wait-for-it.sh -t 60 db:3306"
 	output, err := orchestrators.ExecWithError(path, orchestrator, "web", command)
@@ -52,21 +53,29 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 			return canastaInfo, err
 		}
 
-		// Remove the installer-generated LocalSettings.php (we'll generate our own minimal one)
 		time.Sleep(time.Second)
-		err, _ = execute.Run(path, "rm", "-f", filepath.Join(path, "config", "LocalSettings.php"))
-		if err != nil {
-			return canastaInfo, err
+		if i == 0 {
+			err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettings.php"), filepath.Join(path, "config", "LocalSettingsBackup.php"))
+			if err != nil {
+				return canastaInfo, err
+			}
+		} else {
+			err, _ = execute.Run(path, "rm", filepath.Join(path, "config", "LocalSettings.php"))
+			if err != nil {
+				return canastaInfo, err
+			}
 		}
 		time.Sleep(time.Second)
 	}
 
-	// Generate secret key and save to .env (DB password already in .env)
-	// No config/LocalSettings.php is created - CanastaDefaultSettings.php reads from env vars
-	if err := canasta.GenerateAndSaveSecretKey(path); err != nil {
-		return canastaInfo, err
+	if len(WikiIDs) == 1 {
+		settingsName = "LocalSettings.php"
 	}
 
+	err, _ = execute.Run(path, "mv", filepath.Join(path, "config", "LocalSettingsBackup.php"), filepath.Join(path, "config", settingsName))
+	if err != nil {
+		return canastaInfo, err
+	}
 	return canastaInfo, err
 }
 
@@ -84,14 +93,22 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 
 	localExists, _ := fileExists(filepath.Join(installPath, "config", "LocalSettings.php"))
 	commonExists, _ := fileExists(filepath.Join(installPath, "config", "CommonSettings.php"))
+	wikisYamlExists, _ := fileExists(filepath.Join(installPath, "config", "wikis.yaml"))
 
-	if !localExists && !commonExists {
-		return fmt.Errorf("Neither LocalSettings.php nor CommonSettings.php exist in the path")
+	if !localExists && !commonExists && !wikisYamlExists {
+		return fmt.Errorf("No valid configuration found (wikis.yaml, LocalSettings.php, or CommonSettings.php)")
 	}
 
-	// Track which settings file we're preserving
+	// New architecture uses wikis.yaml without config/LocalSettings.php
+	useNewArchitecture := wikisYamlExists && !localExists && !commonExists
+
+	// Track which settings file we're preserving (legacy architecture only)
 	var originalSettingsFile string
-	if commonExists {
+	if useNewArchitecture {
+		// New architecture: no config files to backup/remove
+		// We'll unset MW_SECRET_KEY when running install.php so CanastaDefaultSettings.php
+		// doesn't think the wiki is already configured
+	} else if commonExists {
 		// Farm already exists with CommonSettings.php - preserve it
 		originalSettingsFile = "CommonSettings.php"
 		// Backup the file
@@ -133,8 +150,15 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	}
 
 	// Use admin password (should have been generated/provided by caller)
-	command = fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
-		dbServer, id, confPath, scriptPath, domain, installdbuser, installdbpass, dbuser, dbpass, adminPassword, id, admin)
+	// For new architecture, unset MW_SECRET_KEY so CanastaDefaultSettings.php doesn't think wiki is configured
+	var installCmd string
+	if useNewArchitecture {
+		installCmd = "env -u MW_SECRET_KEY php maintenance/install.php"
+	} else {
+		installCmd = "php maintenance/install.php"
+	}
+	command = fmt.Sprintf("%s --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
+		installCmd, dbServer, id, confPath, scriptPath, domain, installdbuser, installdbpass, dbuser, dbpass, adminPassword, id, admin)
 	output, err = orchestrators.ExecWithError(installPath, orchestrator, "web", command)
 	if err != nil {
 		return fmt.Errorf(output)
@@ -147,8 +171,10 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		return err
 	}
 
-	// Restore the original settings file as CommonSettings.php
-	if originalSettingsFile == "CommonSettings.php" {
+	// Restore the original settings file as CommonSettings.php (legacy architecture only)
+	if useNewArchitecture {
+		// New architecture: nothing to restore
+	} else if originalSettingsFile == "CommonSettings.php" {
 		// Farm already existed, restore CommonSettings.php from backup
 		err, _ = execute.Run(installPath, "mv", filepath.Join(installPath, "config", "CommonSettingsBackup.php"), filepath.Join(installPath, "config", "CommonSettings.php"))
 		if err != nil {
