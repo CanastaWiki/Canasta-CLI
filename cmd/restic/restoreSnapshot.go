@@ -51,7 +51,8 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) {
 	checkCurrentSnapshotFolder(currentSnapshotFolder)
 
 	logging.Print("Restoring snapshot to /currentsnapshot")
-	command := fmt.Sprintf("docker run --rm -i --env-file %s/.env -v %s:/currentsnapshot restic/restic -r s3:%s/%s restore %s --target /currentsnapshot", instance.Path, currentSnapshotFolder, EnvVariables["AWS_S3_API"], EnvVariables["AWS_S3_BUCKET"], snapshotId)
+	repoURL := getRepoURL(EnvVariables)
+	command := fmt.Sprintf("docker run --rm -i --env-file %s/.env -v %s:/currentsnapshot restic/restic -r %s restore %s --target /currentsnapshot", instance.Path, currentSnapshotFolder, repoURL, snapshotId)
 	commandArgs := strings.Fields(command)
 	err, output := execute.Run("", "sudo", commandArgs...)
 	if err != nil {
