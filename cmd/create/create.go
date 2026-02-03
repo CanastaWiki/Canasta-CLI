@@ -152,7 +152,7 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVar(&devTag, "dev-tag", "latest", "Canasta image tag to use (e.g., latest, dev-branch)")
 	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build Canasta image from local source directory (expects Canasta/, optionally CanastaBase/)")
 	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
-	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to use instead of SettingsTemplate.php (only used with --database)")
+	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to Settings.php to copy to config/settings/wikis/<wiki_id>/ (only used with --database)")
 	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
 
 	// Mark required flags

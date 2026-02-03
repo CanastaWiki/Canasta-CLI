@@ -3,13 +3,14 @@ package canasta
 import (
 	"bufio"
 	"crypto/rand"
+	_ "embed"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 	"regexp"
+	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
@@ -42,6 +43,14 @@ const (
 func GetDefaultImage() string {
 	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, DefaultImageTag)
 }
+
+// Embed README files for settings directories
+//
+//go:embed files/global-settings-README
+var globalSettingsREADME string
+
+//go:embed files/wiki-settings-README
+var wikiSettingsREADME string
 
 // GetImageWithTag returns the Canasta image reference with the specified tag
 func GetImageWithTag(tag string) string {
@@ -186,22 +195,11 @@ func CopySettings(installPath string) error {
 			return err
 		}
 
-		// Copy SettingsTemplate.php and replace {WIKI_ID} placeholder
-		templatePath := filepath.Join(installPath, "config", "SettingsTemplate.php")
-		destPath := filepath.Join(dirPath, "Settings.php")
-
-		// Read template
-		templateBytes, err := os.ReadFile(templatePath)
-		if err != nil {
-			return fmt.Errorf("failed to read SettingsTemplate.php: %w", err)
-		}
-
-		// Replace placeholder with actual wiki ID
-		content := strings.ReplaceAll(string(templateBytes), "{WIKI_ID}", id)
-
-		// Write to destination
-		if err := os.WriteFile(destPath, []byte(content), 0644); err != nil {
-			return fmt.Errorf("failed to write Settings.php for %s: %w", id, err)
+		// Write README with wiki ID
+		readmePath := filepath.Join(dirPath, "README")
+		content := strings.ReplaceAll(wikiSettingsREADME, "{WIKI_ID}", id)
+		if err := os.WriteFile(readmePath, []byte(content), 0644); err != nil {
+			return fmt.Errorf("failed to write README for %s: %w", id, err)
 		}
 	}
 
@@ -209,6 +207,12 @@ func CopySettings(installPath string) error {
 	globalSettingsDir := filepath.Join(installPath, "config", "settings", "global")
 	if err := os.MkdirAll(globalSettingsDir, os.ModePerm); err != nil {
 		return err
+	}
+
+	// Write global README
+	globalReadmePath := filepath.Join(globalSettingsDir, "README")
+	if err := os.WriteFile(globalReadmePath, []byte(globalSettingsREADME), 0644); err != nil {
+		return fmt.Errorf("failed to write global README: %w", err)
 	}
 
 	return nil
@@ -226,27 +230,18 @@ func CopySetting(installPath, id string) error {
 		return err
 	}
 
-	// Read template
-	templatePath := filepath.Join(installPath, "config", "SettingsTemplate.php")
-	templateBytes, err := os.ReadFile(templatePath)
-	if err != nil {
-		return fmt.Errorf("failed to read SettingsTemplate.php: %w", err)
-	}
-
-	// Replace placeholder with actual wiki ID
-	content := strings.ReplaceAll(string(templateBytes), "{WIKI_ID}", normalizedId)
-
-	// Write to destination
-	destPath := filepath.Join(dirPath, "Settings.php")
-	if err := os.WriteFile(destPath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("failed to write Settings.php: %w", err)
+	// Write README with wiki ID
+	readmePath := filepath.Join(dirPath, "README")
+	content := strings.ReplaceAll(wikiSettingsREADME, "{WIKI_ID}", normalizedId)
+	if err := os.WriteFile(readmePath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write README: %w", err)
 	}
 
 	return nil
 }
 
 // CopyWikiSettingFile copies a user-provided Settings.php file to the wiki's config directory
-// Used when importing a wiki with a custom Settings.php instead of SettingsTemplate.php
+// Used when importing a wiki with a custom Settings.php
 func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir string) error {
 	// Make path absolute if it's relative
 	if !strings.HasPrefix(settingsFilePath, "/") {

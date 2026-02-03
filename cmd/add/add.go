@@ -130,7 +130,7 @@ func NewCmdCreate() *cobra.Command {
 	addCmd.Flags().StringVarP(&siteName, "site-name", "t", "", "Display name of the wiki (optional, defaults to wiki ID)")
 	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	addCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
-	addCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to use instead of SettingsTemplate.php (only used with --database)")
+	addCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to Settings.php to copy to config/settings/wikis/<wiki_id>/ (only used with --database)")
 	addCmd.Flags().StringVarP(&admin, "admin", "a", "", "Admin name of the new wiki")
 	addCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Admin password for the new wiki (if not provided, auto-generates and saves to config/admin-password_{wikiid})")
 	addCmd.Flags().StringVar(&wikidbuser, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
