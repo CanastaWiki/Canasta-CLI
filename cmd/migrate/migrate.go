@@ -178,6 +178,30 @@ func Migrate(instance config.Installation, dryRun bool) error {
 		}
 	}
 
+	// Ensure Vector.php includes $wgDefaultSkin if it exists
+	vectorPath := filepath.Join(globalPath, "Vector.php")
+	if _, err := os.Stat(vectorPath); err == nil {
+		content, err := os.ReadFile(vectorPath)
+		if err != nil {
+			return fmt.Errorf("failed to read Vector.php: %w", err)
+		}
+		if !strings.Contains(string(content), "wgDefaultSkin") {
+			fmt.Println("  Adding $wgDefaultSkin to Vector.php")
+			if !dryRun {
+				newContent := strings.Replace(
+					string(content),
+					"wfLoadSkin( 'Vector' );",
+					"$wgDefaultSkin = \"vector-2022\";\nwfLoadSkin( 'Vector' );",
+					1,
+				)
+				if err := os.WriteFile(vectorPath, []byte(newContent), 0644); err != nil {
+					return fmt.Errorf("failed to update Vector.php: %w", err)
+				}
+			}
+			migratedAny = true
+		}
+	}
+
 	if !migratedAny {
 		fmt.Println("No files need to be migrated.")
 	} else if dryRun {
