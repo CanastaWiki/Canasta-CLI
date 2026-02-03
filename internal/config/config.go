@@ -106,6 +106,14 @@ func ListAll() {
 	writer.Flush()
 }
 
+func GetAll() map[string]Installation {
+	err := read(&existingInstallations)
+	if err != nil {
+		logging.Fatal(err)
+	}
+	return existingInstallations.Installations
+}
+
 func GetDetails(canastaID string) (Installation, error) {
 	if Exists(canastaID) {
 		return existingInstallations.Installations[canastaID], nil

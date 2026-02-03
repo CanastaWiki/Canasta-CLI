@@ -12,6 +12,7 @@ import (
 	removeCmd "github.com/CanastaWiki/Canasta-CLI/cmd/remove"
 	restartCmd "github.com/CanastaWiki/Canasta-CLI/cmd/restart"
 	resticCmd "github.com/CanastaWiki/Canasta-CLI/cmd/restic"
+	selfupdateCmd "github.com/CanastaWiki/Canasta-CLI/cmd/selfupdate"
 	skinCmd "github.com/CanastaWiki/Canasta-CLI/cmd/skin"
 	startCmd "github.com/CanastaWiki/Canasta-CLI/cmd/start"
 	stopCmd "github.com/CanastaWiki/Canasta-CLI/cmd/stop"
@@ -71,6 +72,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd.NewCmdCreate())
 	rootCmd.AddCommand(addCmd.NewCmdCreate())
 	rootCmd.AddCommand(removeCmd.NewCmdCreate())
+	rootCmd.AddCommand(selfupdateCmd.NewCmdCreate())
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	// Add config file location to help output

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,6 +22,7 @@ import (
 
 var instance config.Installation
 var dryRun bool
+var upgradeAll bool
 
 func NewCmdCreate() *cobra.Command {
 	workingDir, err := os.Getwd()
@@ -33,6 +35,12 @@ func NewCmdCreate() *cobra.Command {
 		Use:   "upgrade",
 		Short: "Upgrade a Canasta installation to the latest version",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if upgradeAll && instance.Id != "" {
+				return fmt.Errorf("cannot use --all with --id")
+			}
+			if upgradeAll {
+				return upgradeAllInstances(dryRun)
+			}
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
@@ -44,7 +52,42 @@ func NewCmdCreate() *cobra.Command {
 	}
 	upgradeCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	upgradeCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would change without applying")
+	upgradeCmd.Flags().BoolVar(&upgradeAll, "all", false, "Upgrade all registered Canasta instances")
 	return upgradeCmd
+}
+
+func upgradeAllInstances(dryRun bool) error {
+	installations := config.GetAll()
+	if len(installations) == 0 {
+		fmt.Println("No registered installations found")
+		return nil
+	}
+
+	// Sort by ID for deterministic output
+	ids := make([]string, 0, len(installations))
+	for id := range installations {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	var failedIDs []string
+	for _, id := range ids {
+		inst := installations[id]
+		fmt.Printf("\n=== Upgrading instance '%s' ===\n", id)
+		if err := Upgrade(inst, dryRun); err != nil {
+			fmt.Printf("Error upgrading '%s': %s\n", id, err)
+			failedIDs = append(failedIDs, id)
+		}
+	}
+
+	succeeded := len(ids) - len(failedIDs)
+	fmt.Printf("\nUpgraded %d/%d instances successfully\n", succeeded, len(ids))
+
+	if len(failedIDs) > 0 {
+		return fmt.Errorf("failed to upgrade: %s", strings.Join(failedIDs, ", "))
+	}
+
+	return nil
 }
 
 func Upgrade(instance config.Installation, dryRun bool) error {
