@@ -24,9 +24,7 @@ Canasta CLI is a powerful tool that allows you to create, manage, and maintain m
 
 ```bash
 # Install Canasta CLI
-curl -L https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta-linux-amd64 -o canasta
-chmod +x canasta
-sudo mv canasta /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/install.sh | sudo bash
 
 # Create a new Canasta installation
 sudo canasta create -i my-wiki -w wiki1 -a admin -n localhost
