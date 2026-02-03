@@ -1,19 +1,26 @@
 package upgrade
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 var instance config.Installation
+var dryRun bool
 
 func NewCmdCreate() *cobra.Command {
 	workingDir, err := os.Getwd()
@@ -29,46 +36,300 @@ func NewCmdCreate() *cobra.Command {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
-			if err := Upgrade(instance); err != nil {
+			if err := Upgrade(instance, dryRun); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
 	upgradeCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	upgradeCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would change without applying")
 	return upgradeCmd
 }
 
-func Upgrade(instance config.Installation) error {
-
+func Upgrade(instance config.Installation, dryRun bool) error {
 	var err error
 
-	//Checking Installation existence
+	// Check installation existence
 	instance, err = canasta.CheckCanastaId(instance)
 	if err != nil {
 		return err
 	}
-	fmt.Print("Pulling the latest changes\n")
-	//Pulling the latest changes from github
-	if err = git.Pull(instance.Path); err != nil {
+
+	if dryRun {
+		fmt.Println("Dry run mode - showing what would change without applying")
+	}
+
+	if !dryRun {
+		fmt.Print("Pulling the latest changes\n")
+		// Pull the latest changes from GitHub
+		if err = git.Pull(instance.Path); err != nil {
+			return err
+		}
+
+		if err = orchestrators.Pull(instance.Path, instance.Orchestrator); err != nil {
+			return err
+		}
+	}
+
+	// Run migration steps (before restart so config is correct when containers come up)
+	if err = runMigration(instance.Path, dryRun); err != nil {
 		return err
 	}
 
-	if err = orchestrators.Pull(instance.Path, instance.Orchestrator); err != nil {
-		return err
+	if !dryRun {
+		// Restart the containers
+		if err = orchestrators.StopAndStart(instance); err != nil {
+			return err
+		}
+
+		// Touch LocalSettings.php to flush cache
+		fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
+		_, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", "touch LocalSettings.php")
+		if err != nil {
+			return err
+		}
+		fmt.Print("Canasta Upgraded!\n")
 	}
 
-	//Restarting the containers
-	if err = orchestrators.StopAndStart(instance); err != nil {
-		return err
-	}
+	return nil
+}
 
-	//Touch LocalSettings.php
-	fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
-	_, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", "touch LocalSettings.php")
+// runMigration orchestrates all migration steps
+func runMigration(installPath string, dryRun bool) error {
+	fmt.Println("Checking for config migrations...")
+
+	changed := false
+
+	// Step 1: Extract or generate MW_SECRET_KEY
+	keyChanged, err := extractSecretKey(installPath, dryRun)
 	if err != nil {
 		return err
 	}
-	fmt.Print("Canasta Upgraded!\n")
+	if keyChanged {
+		changed = true
+	}
+
+	// Step 2: Migrate directory structure
+	dirChanged, err := migrateDirectoryStructure(installPath, dryRun)
+	if err != nil {
+		return err
+	}
+	if dirChanged {
+		changed = true
+	}
+
+	// Step 3: Fix Vector.php default skin
+	vectorChanged, err := fixVectorDefaultSkin(installPath, dryRun)
+	if err != nil {
+		return err
+	}
+	if vectorChanged {
+		changed = true
+	}
+
+	if !changed {
+		fmt.Println("No migrations needed.")
+	} else if dryRun {
+		fmt.Println("Run 'canasta upgrade' without --dry-run to apply these changes.")
+	} else {
+		fmt.Println("Migrations applied.")
+	}
+
 	return nil
+}
+
+// extractSecretKey extracts $wgSecretKey from PHP config files into .env as MW_SECRET_KEY,
+// or generates a new one if not found
+func extractSecretKey(installPath string, dryRun bool) (bool, error) {
+	envPath := filepath.Join(installPath, ".env")
+
+	// Check if MW_SECRET_KEY is already set in .env
+	envVars := canasta.GetEnvVariable(envPath)
+	if val, ok := envVars["MW_SECRET_KEY"]; ok && val != "" {
+		fmt.Println("  MW_SECRET_KEY already set in .env, skipping extraction")
+		return false, nil
+	}
+
+	// Search for $wgSecretKey in PHP config files
+	phpFiles := []string{
+		filepath.Join(installPath, "config", "LocalSettings.php"),
+		filepath.Join(installPath, "config", "CommonSettings.php"),
+	}
+
+	// Also search per-wiki LocalSettings.php (where install.php writes $wgSecretKey)
+	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
+	wikiIDs, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
+	if err == nil {
+		for _, wikiID := range wikiIDs {
+			id := strings.Replace(wikiID, " ", "_", -1)
+			id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
+			// Check new path first, fall back to legacy (same pattern as canasta.go)
+			newPath := filepath.Join(installPath, "config", "settings", "wikis", id, "LocalSettings.php")
+			legacyPath := filepath.Join(installPath, "config", id, "LocalSettings.php")
+			if _, err := os.Stat(newPath); err == nil {
+				phpFiles = append(phpFiles, newPath)
+			} else {
+				phpFiles = append(phpFiles, legacyPath)
+			}
+		}
+	}
+
+	secretKeyRegex := regexp.MustCompile(`\$wgSecretKey\s*=\s*["']([a-f0-9]+)["']`)
+
+	for _, phpFile := range phpFiles {
+		content, err := os.ReadFile(phpFile)
+		if err != nil {
+			continue // File doesn't exist, try next
+		}
+
+		matches := secretKeyRegex.FindSubmatch(content)
+		if matches != nil {
+			secretKey := string(matches[1])
+			filename := filepath.Base(phpFile)
+			if dryRun {
+				fmt.Printf("  Would extract MW_SECRET_KEY from %s to .env\n", filename)
+			} else {
+				if err := canasta.SaveEnvVariable(envPath, "MW_SECRET_KEY", secretKey); err != nil {
+					return false, fmt.Errorf("failed to save MW_SECRET_KEY to .env: %w", err)
+				}
+				fmt.Printf("  Extracted MW_SECRET_KEY from %s to .env\n", filename)
+			}
+			return true, nil
+		}
+	}
+
+	// No secret key found in any PHP file — generate a new one
+	keyBytes := make([]byte, 32)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return false, fmt.Errorf("failed to generate secret key: %w", err)
+	}
+	secretKey := hex.EncodeToString(keyBytes)
+
+	if dryRun {
+		fmt.Println("  Would generate new MW_SECRET_KEY in .env")
+	} else {
+		if err := canasta.SaveEnvVariable(envPath, "MW_SECRET_KEY", secretKey); err != nil {
+			return false, fmt.Errorf("failed to save MW_SECRET_KEY to .env: %w", err)
+		}
+		fmt.Println("  Generated new MW_SECRET_KEY in .env")
+	}
+
+	return true, nil
+}
+
+// migrateDirectoryStructure moves legacy config directories to the new structure:
+//   - config/<wiki_id>/ → config/settings/wikis/<wiki_id>/
+//   - config/settings/*.php → config/settings/global/*.php
+func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
+	changed := false
+
+	// Migrate per-wiki settings
+	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
+	wikiIDs, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
+	if err != nil {
+		// No wikis.yaml means nothing to migrate
+		return false, nil
+	}
+
+	for _, wikiID := range wikiIDs {
+		// Normalize wikiID (same as in canasta.go)
+		id := strings.Replace(wikiID, " ", "_", -1)
+		id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
+
+		legacyPath := filepath.Join(installPath, "config", id)
+		newPath := filepath.Join(installPath, "config", "settings", "wikis", id)
+
+		// Check if legacy path exists and new path doesn't
+		if info, err := os.Stat(legacyPath); err == nil && info.IsDir() {
+			if _, err := os.Stat(newPath); os.IsNotExist(err) {
+				if dryRun {
+					fmt.Printf("  Would move %s -> %s\n", legacyPath, newPath)
+				} else {
+					fmt.Printf("  Moving %s -> %s\n", legacyPath, newPath)
+					// Create parent directory
+					if err := os.MkdirAll(filepath.Dir(newPath), os.ModePerm); err != nil {
+						return false, fmt.Errorf("failed to create directory: %w", err)
+					}
+					// Move directory
+					if err := os.Rename(legacyPath, newPath); err != nil {
+						return false, fmt.Errorf("failed to move %s: %w", legacyPath, err)
+					}
+				}
+				changed = true
+			}
+		}
+	}
+
+	// Migrate global settings
+	settingsPath := filepath.Join(installPath, "config", "settings")
+	globalPath := filepath.Join(settingsPath, "global")
+
+	entries, err := os.ReadDir(settingsPath)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".php") {
+				legacyFile := filepath.Join(settingsPath, entry.Name())
+				newFile := filepath.Join(globalPath, entry.Name())
+
+				// Check if file doesn't exist in global/
+				if _, err := os.Stat(newFile); os.IsNotExist(err) {
+					if dryRun {
+						fmt.Printf("  Would move %s -> %s\n", legacyFile, newFile)
+					} else {
+						fmt.Printf("  Moving %s -> %s\n", legacyFile, newFile)
+						// Create global directory if needed
+						if err := os.MkdirAll(globalPath, os.ModePerm); err != nil {
+							return false, fmt.Errorf("failed to create directory: %w", err)
+						}
+						// Move file
+						if err := os.Rename(legacyFile, newFile); err != nil {
+							return false, fmt.Errorf("failed to move %s: %w", legacyFile, err)
+						}
+					}
+					changed = true
+				}
+			}
+		}
+	}
+
+	return changed, nil
+}
+
+// fixVectorDefaultSkin ensures Vector.php includes $wgDefaultSkin if it exists
+func fixVectorDefaultSkin(installPath string, dryRun bool) (bool, error) {
+	// Check both names: legacy "Vector.php" and current "30-Vector.php" (after git pull)
+	vectorPath := filepath.Join(installPath, "config", "settings", "global", "Vector.php")
+	if _, err := os.Stat(vectorPath); err != nil {
+		vectorPath = filepath.Join(installPath, "config", "settings", "global", "30-Vector.php")
+		if _, err := os.Stat(vectorPath); err != nil {
+			return false, nil // Neither file exists, nothing to fix
+		}
+	}
+
+	content, err := os.ReadFile(vectorPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read Vector.php: %w", err)
+	}
+
+	if strings.Contains(string(content), "wgDefaultSkin") {
+		return false, nil // Already has $wgDefaultSkin
+	}
+
+	if dryRun {
+		fmt.Println("  Would add $wgDefaultSkin to Vector.php")
+	} else {
+		fmt.Println("  Adding $wgDefaultSkin to Vector.php")
+		newContent := strings.Replace(
+			string(content),
+			"wfLoadSkin( 'Vector' );",
+			"$wgDefaultSkin = \"vector-2022\";\nwfLoadSkin( 'Vector' );",
+			1,
+		)
+		if err := os.WriteFile(vectorPath, []byte(newContent), 0644); err != nil {
+			return false, fmt.Errorf("failed to update Vector.php: %w", err)
+		}
+	}
+
+	return true, nil
 }
