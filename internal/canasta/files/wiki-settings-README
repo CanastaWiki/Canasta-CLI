@@ -1,0 +1,40 @@
+# Per-Wiki Settings Directory: {WIKI_ID}
+
+This directory contains PHP configuration files specific to this wiki.
+Files are loaded automatically in alphabetical order, AFTER global settings.
+
+## File Naming Convention
+
+Use two-digit numeric prefixes (00-99) to control load order. For example:
+
+    00-first.php   # Loaded first (within this wiki's directory)
+    50-logo.php    # Loaded in the middle
+    99-final.php   # Loaded last (final overrides)
+
+## What to Configure Here
+
+- Wiki-specific $wgLanguageCode
+- Wiki-specific $wgLogo
+- Wiki-specific extensions or skins (wfLoadExtension, wfLoadSkin)
+- Any setting that should differ from global defaults
+
+## Variables Set Automatically
+
+Do NOT set these here (they are configured automatically from wikis.yaml):
+
+- $wgDBname
+- $wgServer
+- $wgSitename
+- $wgMetaNamespace
+
+## Global Settings
+
+For settings that apply to ALL wikis, add files to:
+
+    config/settings/global/
+
+## Notes
+
+- All .php files in this directory are loaded automatically
+- Per-wiki settings override global settings with the same variable
+- Files without the .php extension (like this README) are ignored

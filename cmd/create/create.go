@@ -84,9 +84,14 @@ func NewCmdCreate() *cobra.Command {
 				log.Fatal(fmt.Errorf("Error: --admin flag is required when --database is not provided"))
 			}
 
-			// Generate passwords only if not importing (when importing, we skip install.php)
+			// Always generate database passwords
+			if canastaInfo, err = canasta.GenerateDBPasswords(canastaInfo); err != nil {
+				log.Fatal(err)
+			}
+
+			// Generate admin password only if not importing (when importing, we skip install.php)
 			if databasePath == "" {
-				if canastaInfo, err = canasta.GeneratePasswords(workingDir, canastaInfo); err != nil {
+				if canastaInfo, err = canasta.GenerateAdminPassword(canastaInfo); err != nil {
 					log.Fatal(err)
 				}
 			}
@@ -147,8 +152,8 @@ func NewCmdCreate() *cobra.Command {
 	createCmd.Flags().StringVar(&devTag, "dev-tag", "latest", "Canasta image tag to use (e.g., latest, dev-branch)")
 	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build Canasta image from local source directory (expects Canasta/, optionally CanastaBase/)")
 	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
-	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to use instead of SettingsTemplate.php (only used with --database)")
-	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/ (filename preserved)")
+	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
+	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
 
 	// Mark required flags
 	createCmd.MarkFlagRequired("id")
@@ -258,6 +263,10 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		envVariables := canasta.GetEnvVariable(path + "/.env")
 		dbPassword := envVariables["MYSQL_PASSWORD"]
 		if err := orchestrators.ImportDatabase(wikiID, databasePath, dbPassword, tempInstance); err != nil {
+			return err
+		}
+		// Generate secret key and save to .env (DB password already in .env)
+		if err := canasta.GenerateAndSaveSecretKey(path); err != nil {
 			return err
 		}
 	} else {
