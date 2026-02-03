@@ -54,6 +54,7 @@ func NewCmdCreate() *cobra.Command {
 	resticCmd.AddCommand(listFilesCmdCreate())
 	resticCmd.AddCommand(checkCmdCreate())
 	resticCmd.AddCommand(diffCmdCreate())
+	resticCmd.AddCommand(scheduleCmdCreate())
 
 	resticCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	resticCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
