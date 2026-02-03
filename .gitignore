@@ -4,7 +4,10 @@
 *.dll
 *.so
 *.dylib
+
+# YAML files (except mkdocs.yml)
 *.yaml
+!mkdocs.yml
 
 # Build output directory
 build/
@@ -23,3 +26,9 @@ build/
 *~
 .#*
 \#*#
+
+# MkDocs generated site
+site/
+
+# Auto-generated CLI documentation (regenerated on build)
+docs/cli/*.md

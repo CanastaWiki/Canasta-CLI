@@ -47,6 +47,11 @@ func Execute() {
 	}
 }
 
+// GetRootCmd returns the root command for documentation generation
+func GetRootCmd() *cobra.Command {
+	return rootCmd
+}
+
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 
