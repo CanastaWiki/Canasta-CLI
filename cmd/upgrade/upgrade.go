@@ -157,6 +157,24 @@ func extractSecretKey(installPath string, dryRun bool) (bool, error) {
 		filepath.Join(installPath, "config", "CommonSettings.php"),
 	}
 
+	// Also search per-wiki LocalSettings.php (where install.php writes $wgSecretKey)
+	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
+	wikiIDs, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
+	if err == nil {
+		for _, wikiID := range wikiIDs {
+			id := strings.Replace(wikiID, " ", "_", -1)
+			id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
+			// Check new path first, fall back to legacy (same pattern as canasta.go)
+			newPath := filepath.Join(installPath, "config", "settings", "wikis", id, "LocalSettings.php")
+			legacyPath := filepath.Join(installPath, "config", id, "LocalSettings.php")
+			if _, err := os.Stat(newPath); err == nil {
+				phpFiles = append(phpFiles, newPath)
+			} else {
+				phpFiles = append(phpFiles, legacyPath)
+			}
+		}
+	}
+
 	secretKeyRegex := regexp.MustCompile(`\$wgSecretKey\s*=\s*["']([a-f0-9]+)["']`)
 
 	for _, phpFile := range phpFiles {
@@ -280,9 +298,13 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 
 // fixVectorDefaultSkin ensures Vector.php includes $wgDefaultSkin if it exists
 func fixVectorDefaultSkin(installPath string, dryRun bool) (bool, error) {
+	// Check both names: legacy "Vector.php" and current "30-Vector.php" (after git pull)
 	vectorPath := filepath.Join(installPath, "config", "settings", "global", "Vector.php")
 	if _, err := os.Stat(vectorPath); err != nil {
-		return false, nil // File doesn't exist, nothing to fix
+		vectorPath = filepath.Join(installPath, "config", "settings", "global", "30-Vector.php")
+		if _, err := os.Stat(vectorPath); err != nil {
+			return false, nil // Neither file exists, nothing to fix
+		}
 	}
 
 	content, err := os.ReadFile(vectorPath)
