@@ -1,4 +1,4 @@
-# This workflow will build and publish a release of Canasta-CLI on pushing to the 'releases' branch.
+# This workflow will build and publish a release of Canasta-CLI on pushing to the 'main' branch.
 # It also automatically grabs the current latest version and increments the minor version.
 
 name: Go build
@@ -9,8 +9,26 @@ on:
       - main
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.generate.outputs.new_version }}
+    steps:
+    - name: Generate Version Tag
+      id: generate
+      run: |
+        latest_version_raw="$(curl -s https://api.github.com/repos/${{ github.repository }}/releases | grep -m 1 "html_url" | rev | cut -d/  -f1 | rev  )"
+        latest_version="${latest_version_raw%??}"
+        major_version=$(echo $latest_version | cut -d. -f1 | cut -dv -f2)
+        minor_version=$(echo $latest_version | cut -d. -f2)
+        patch_version=$(echo $latest_version | cut -d. -f3)
+        minor_version=$(expr $minor_version + 1)
+        new_version=$(echo "v$major_version.$minor_version.$patch_version")
+        echo $new_version
+        echo "new_version=$new_version" >> $GITHUB_OUTPUT
   build:
     runs-on: ubuntu-latest
+    needs: version
     strategy:
       matrix:
         include:
@@ -32,6 +50,7 @@ jobs:
       env:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
+        VERSION: ${{ needs.version.outputs.new_version }}
       run: sh build.sh
     - name: Upload executable
       uses: actions/upload-artifact@v4
@@ -40,31 +59,19 @@ jobs:
         path: ./build/canasta-${{ matrix.goos }}-${{ matrix.goarch }}
   release:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [version, build]
     steps:
     - name: Download executables
       uses: actions/download-artifact@v4
       with:
         path: ./build
         merge-multiple: true
-    - name: Generate Version Tag
-      id: generate
-      run: |
-        latest_version_raw="$(curl -s https://api.github.com/repos/${{ github.repository }}/releases | grep -m 1 "html_url" | rev | cut -d/  -f1 | rev  )"
-        latest_version="${latest_version_raw%??}"
-        major_version=$(echo $latest_version | cut -d. -f1 | cut -dv -f2)
-        minor_version=$(echo $latest_version | cut -d. -f2)
-        patch_version=$(echo $latest_version | cut -d. -f3)
-        minor_version=$(expr $minor_version + 1)
-        new_version=$(echo "v$major_version.$minor_version.$patch_version")
-        echo $new_version
-        echo "new_version=$new_version" >> $GITHUB_OUTPUT
     - name: Publish
       uses: softprops/action-gh-release@v1
       id: publish
       with:
         draft: false
-        tag_name: ${{ steps.generate.outputs.new_version }}
+        tag_name: ${{ needs.version.outputs.new_version }}
         fail_on_unmatched_files: true
         generate_release_notes: true
         append_body: true

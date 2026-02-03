@@ -7,13 +7,17 @@
 
 PROGNAME=$(basename "$0")
 VERSION="latest"
+TARGET="/usr/local/bin/canasta"
+SKIP_CHECKS=false
 
 usage() {
   cat << EOF >&2
-Usage: $PROGNAME [-v <ver>|--version <ver>] [-l|--list]
--v <ver>, --version <ver> : install specific version
--l, --list                 : list all available versions
-       *                   : usage
+Usage: $PROGNAME [-v <ver>|--version <ver>] [-l|--list] [-t <path>|--target <path>] [-s|--skip-checks]
+-v <ver>, --version <ver>   : install specific version
+-l, --list                  : list all available versions
+-t <path>, --target <path>  : install binary to <path> (default: /usr/local/bin/canasta)
+-s, --skip-checks           : skip dependency checks (git, docker, docker compose)
+       *                    : usage
 EOF
   exit 1
 }
@@ -43,6 +47,14 @@ parse_arguments() {
         ;;
       -l|--list)
         list_versions
+        ;;
+      -t|--target)
+        TARGET="$2"
+        shift 2
+        ;;
+      -s|--skip-checks)
+        SKIP_CHECKS=true
+        shift
         ;;
       *)
         usage
@@ -200,7 +212,7 @@ download_and_install() {
   fi
   echo "Download was successful; now installing Canasta CLI."
   sudo chmod u=rwx,g=xr,o=x canasta
-  sudo mv canasta /usr/local/bin/canasta
+  sudo mv canasta "$TARGET"
   if [ $? -ne 0 ]; then
     echo "Installation failed. Please try again."
 
@@ -218,11 +230,15 @@ download_and_install() {
 }
 
 main() {
-  check_dependencies
   parse_arguments "$@"
+  if [ "$SKIP_CHECKS" = false ]; then
+    check_dependencies
+  fi
   choose_version
   download_and_install
-  echo "Please make sure you have a working kubectl if you wish to use Kubernetes as an orchestrator."
-  echo -e "\nUsage: sudo canasta [COMMAND] [ARGUMENTS...]"
+  if [ "$SKIP_CHECKS" = false ]; then
+    echo "Please make sure you have a working kubectl if you wish to use Kubernetes as an orchestrator."
+    echo -e "\nUsage: sudo canasta [COMMAND] [ARGUMENTS...]"
+  fi
 }
 main "$@"
