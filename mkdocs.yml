@@ -1,0 +1,88 @@
+site_name: Canasta CLI Documentation
+site_description: Official documentation for the Canasta CLI tool
+site_url: https://canastawiki.github.io/Canasta-CLI/
+repo_url: https://github.com/CanastaWiki/Canasta-CLI
+repo_name: CanastaWiki/Canasta-CLI
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - CLI Reference:
+    - Overview: cli/canasta.md
+    - Commands:
+      - create: cli/canasta_create.md
+      - delete: cli/canasta_delete.md
+      - add: cli/canasta_add.md
+      - remove: cli/canasta_remove.md
+      - start: cli/canasta_start.md
+      - stop: cli/canasta_stop.md
+      - restart: cli/canasta_restart.md
+      - list: cli/canasta_list.md
+      - import: cli/canasta_import.md
+      - export: cli/canasta_export.md
+      - upgrade: cli/canasta_upgrade.md
+      - version: cli/canasta_version.md
+    - extension:
+      - Overview: cli/canasta_extension.md
+      - list: cli/canasta_extension_list.md
+      - enable: cli/canasta_extension_enable.md
+      - disable: cli/canasta_extension_disable.md
+    - skin:
+      - Overview: cli/canasta_skin.md
+      - list: cli/canasta_skin_list.md
+      - enable: cli/canasta_skin_enable.md
+      - disable: cli/canasta_skin_disable.md
+    - maintenance:
+      - Overview: cli/canasta_maintenance.md
+      - update: cli/canasta_maintenance_update.md
+      - script: cli/canasta_maintenance_script.md
+    - restic:
+      - Overview: cli/canasta_restic.md
+      - init: cli/canasta_restic_init.md
+      - view: cli/canasta_restic_view.md
+      - take-snapshot: cli/canasta_restic_take-snapshot.md
+      - restore: cli/canasta_restic_restore.md
+      - forget: cli/canasta_restic_forget.md
+      - list: cli/canasta_restic_list.md
+      - check: cli/canasta_restic_check.md
+      - diff: cli/canasta_restic_diff.md
+      - unlock: cli/canasta_restic_unlock.md
+      - schedule: cli/canasta_restic_schedule.md
