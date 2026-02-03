@@ -46,11 +46,11 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Guides:
-    - Wiki Farms: cli/wiki-farms.md
-    - Development Mode: cli/devmode.md
-    - Backup and Restore: cli/backup.md
-    - Best Practices: cli/best-practices.md
-    - Troubleshooting: cli/troubleshooting.md
+    - Wiki Farms: guide/wiki-farms.md
+    - Development Mode: guide/devmode.md
+    - Backup and Restore: guide/backup.md
+    - Best Practices: guide/best-practices.md
+    - Troubleshooting: guide/troubleshooting.md
   - CLI Reference:
     - Overview: cli/canasta.md
     - Commands:
