@@ -6,12 +6,18 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"runtime"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/cmd/version"
+)
+
+const (
+	githubAPIURL = "https://api.github.com/repos/CanastaWiki/Canasta-CLI/releases/latest"
+	installShURL = "https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/install.sh"
 )
 
 type githubRelease struct {
@@ -33,71 +39,22 @@ func runSelfUpdate() error {
 	currentVersion := version.Version
 
 	// Fetch latest release info from GitHub
-	resp, err := http.Get("https://api.github.com/repos/CanastaWiki/Canasta-CLI/releases/latest")
+	latestVersion, err := getLatestVersion()
 	if err != nil {
-		return fmt.Errorf("failed to check for updates: %w\nPlease check your network connectivity", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to check for updates: GitHub API returned status %d", resp.StatusCode)
+		return err
 	}
 
-	var release githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return fmt.Errorf("failed to parse release info: %w", err)
-	}
-
-	latestVersion := release.TagName
+	fmt.Printf("Current version: %s\n", displayVersion(currentVersion))
+	fmt.Printf("Latest version:  %s\n", latestVersion)
 
 	if currentVersion == "" {
-		fmt.Println("Warning: running a dev build, cannot verify current version")
+		fmt.Println("Warning: running a dev build; proceeding with update to latest release.")
 	} else if currentVersion == latestVersion {
 		fmt.Printf("Already up to date (%s)\n", currentVersion)
 		return nil
 	}
 
-	// Detect platform
-	goos := runtime.GOOS
-	goarch := runtime.GOARCH
-
-	// Construct download URL
-	downloadURL := fmt.Sprintf(
-		"https://github.com/CanastaWiki/Canasta-CLI/releases/download/%s/canasta-%s-%s",
-		latestVersion, goos, goarch,
-	)
-
-	fmt.Printf("Downloading %s for %s/%s...\n", latestVersion, goos, goarch)
-
-	// Download to temp file
-	dlResp, err := http.Get(downloadURL)
-	if err != nil {
-		return fmt.Errorf("failed to download update: %w\nPlease check your network connectivity", err)
-	}
-	defer dlResp.Body.Close()
-
-	if dlResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download update: server returned status %d", dlResp.StatusCode)
-	}
-
-	tmpFile, err := os.CreateTemp("", "canasta-update-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := io.Copy(tmpFile, dlResp.Body); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to write update: %w", err)
-	}
-	tmpFile.Close()
-
-	if err := os.Chmod(tmpPath, 0755); err != nil {
-		return fmt.Errorf("failed to set permissions: %w", err)
-	}
-
-	// Find current binary path (resolve symlinks)
+	// Determine the path of the currently running binary
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to determine current binary path: %w", err)
@@ -107,9 +64,38 @@ func runSelfUpdate() error {
 		return fmt.Errorf("failed to resolve binary path: %w", err)
 	}
 
-	// Replace current binary
-	if err := os.Rename(tmpPath, execPath); err != nil {
-		return fmt.Errorf("failed to replace binary: %w\nYou may need to run this command with sudo", err)
+	// Download install.sh to a temp file
+	tmpFile, err := os.CreateTemp("", "canasta-install-*.sh")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	resp, err := http.Get(installShURL)
+	if err != nil {
+		return fmt.Errorf("failed to download install script: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download install script: HTTP %d", resp.StatusCode)
+	}
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		return fmt.Errorf("failed to write install script: %w", err)
+	}
+	tmpFile.Close()
+
+	// Strip "v" prefix for install.sh: "v1.58.0" -> "1.58.0"
+	ver := strings.TrimPrefix(latestVersion, "v")
+
+	// Run install.sh with flags to perform the update
+	cmd := exec.Command("bash", tmpFile.Name(), "-v", ver, "-t", execPath, "--skip-checks")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("update failed: %w", err)
 	}
 
 	if currentVersion != "" {
@@ -119,4 +105,34 @@ func runSelfUpdate() error {
 	}
 
 	return nil
+}
+
+func getLatestVersion() (string, error) {
+	resp, err := http.Get(githubAPIURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to check for updates: %w\nPlease check your network connectivity", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to check for updates: GitHub API returned status %d", resp.StatusCode)
+	}
+
+	var release githubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", fmt.Errorf("failed to parse release info: %w", err)
+	}
+
+	if release.TagName == "" {
+		return "", fmt.Errorf("no tag_name found in latest release")
+	}
+
+	return release.TagName, nil
+}
+
+func displayVersion(v string) string {
+	if v == "" {
+		return "dev"
+	}
+	return v
 }
