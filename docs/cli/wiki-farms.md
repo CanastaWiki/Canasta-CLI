@@ -13,7 +13,7 @@ With the Canasta CLI, you can:
 - **Manage extensions and skins** for specific wikis using the `-w` flag with the `canasta extension` and `canasta skin` commands
 - **Delete** a Canasta installation and all wikis that it hosts using the `canasta delete` command
 
-See the [CLI Reference](cli/canasta.md) for detailed flag and usage information for each command.
+See the [CLI Reference](canasta.md) for detailed flag and usage information for each command.
 
 ## URL schemes
 

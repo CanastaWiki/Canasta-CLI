@@ -18,4 +18,4 @@ RESTIC_PASSWORD=your-restic-password
 sudo canasta restic init -i mywiki
 ```
 
-Once set up, see the [CLI Reference](cli/canasta_restic.md) for the full list of restic subcommands, flags, and usage examples.
+Once set up, see the [CLI Reference](canasta_restic.md) for the full list of restic subcommands, flags, and usage examples.
