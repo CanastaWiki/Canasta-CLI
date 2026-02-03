@@ -45,6 +45,12 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Installation: installation.md
+  - Guides:
+    - Wiki Farms: wiki-farms.md
+    - Development Mode: devmode.md
+    - Backup and Restore: backup.md
+    - Best Practices: best-practices.md
+    - Troubleshooting: troubleshooting.md
   - CLI Reference:
     - Overview: cli/canasta.md
     - Commands:

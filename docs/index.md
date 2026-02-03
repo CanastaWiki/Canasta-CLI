@@ -36,3 +36,11 @@ sudo canasta create -i my-wiki -w wiki1 -a admin -n localhost
 
 - [Installation Guide](installation.md) - Detailed installation instructions
 - [CLI Reference](cli/canasta.md) - Complete command documentation
+
+### Guides
+
+- [Wiki Farms](wiki-farms.md) - Wiki farm concepts, URL schemes, configuration files, and examples
+- [Development Mode](devmode.md) - Live code editing and Xdebug debugging
+- [Backup and Restore](backup.md) - Setting up backups with restic
+- [Best Practices](best-practices.md) - Security considerations and best practices
+- [Troubleshooting](troubleshooting.md) - Common issues and debugging
