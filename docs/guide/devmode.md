@@ -91,6 +91,21 @@ canasta create -i mydev -w mywiki -n localhost -a admin --dev --build-from ~/can
 
 **Note:** `--dev-tag` and `--build-from` are mutually exclusive since `--build-from` builds its own image.
 
+### Switching back to upstream images
+
+When you use `--build-from`, the CLI sets `CANASTA_IMAGE=canasta:local` in the installation's `.env` file so Docker Compose uses the locally-built image. This means:
+
+- `canasta upgrade` will **not** pull newer upstream images — the installation stays on the local build
+- `docker compose pull` will silently skip the web service since `canasta:local` is not in any registry
+
+To switch back to the upstream Canasta image:
+
+1. Remove the `CANASTA_IMAGE` line from `.env` (or set it to the desired upstream image, e.g. `CANASTA_IMAGE=ghcr.io/canastawiki/canasta:latest`)
+2. Pull the upstream image and restart:
+   ```bash
+   canasta upgrade -i myinstance
+   ```
+
 ---
 
 ## Enabling dev mode on existing installations
