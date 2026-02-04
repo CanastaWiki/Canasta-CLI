@@ -1,143 +1,206 @@
 # Wiki farms
 
-A wiki farm allows you to run multiple wikis within the same Canasta installation. All wikis in a farm share the same MediaWiki software, but each wiki has its own database and image directory and can enable different extensions and skins.
+## What is a wiki farm?
 
-With the Canasta CLI, you can:
+A wiki farm is a single Canasta installation that hosts multiple wikis. All wikis in a farm share the same MediaWiki software, Docker containers, and Caddy reverse proxy, but each wiki has its own:
 
-- **Create** a new Canasta installation with an initial wiki using the `canasta create` command
-- **Add** additional wikis to an existing installation using the `canasta add` command
-- **Export** a wiki database using the `canasta export` command
-- **Import** a database into an existing wiki using the `canasta import` command
-- **Remove** wikis from an installation using the `canasta remove` command
-- **List** all installations and their wikis using the `canasta list` command
-- **Manage extensions and skins** for specific wikis using the `-w` flag with the `canasta extension` and `canasta skin` commands
-- **Delete** a Canasta installation and all wikis that it hosts using the `canasta delete` command
+- **Database** — a separate MySQL database named after the wiki ID
+- **Image directory** — uploaded files are stored per-wiki
+- **Settings** — each wiki can have its own PHP settings files and can enable different extensions and skins
+- **Admin account** — each wiki gets its own admin user and password
 
-See the [CLI Reference](../cli/canasta.md) for detailed flag and usage information for each command.
+This makes wiki farms useful when you want to run several related wikis without the overhead of separate Docker stacks for each one.
 
-## URL schemes
-
-Wikis in a farm can be accessed using different URL schemes:
-
-- **Path-based**: Multiple wikis share the same domain with different paths (e.g., `example.com`, `example.com/wiki2`, `example.com/docs`)
-- **Subdomain-based**: Each wiki uses a different subdomain (e.g., `wiki.example.com`, `docs.example.com`)
-- **Mixed**: A combination of paths and subdomains
-
-Subdomain-based routing requires that the subdomains are configured correctly in DNS to point to your Canasta server. Caddy handles SSL/HTTPS automatically for all configured domains.
+Even a single-wiki Canasta installation uses the same underlying farm architecture — it is simply a farm with one wiki.
 
 ---
 
-## Global flags
+## How URLs work
 
-```
-Flags:
-  -h, --help                 Help for canasta
-  -v, --verbose              Verbose output
-```
+Each wiki in a farm is identified by its URL, which determines how users reach it. The URL is set when you create or add a wiki and is stored in `config/wikis.yaml`.
 
-Most commands accept the `-i, --id` flag to identify a Canasta installation by the name you gave when creating it. If you run commands from within the Canasta installation directory, the `-i` flag is not required.
+### Path-based wikis
 
-## Getting help
-
-Running `canasta` with no arguments displays the full command listing and the location of the config file. For help with a specific command, use:
+Multiple wikis share the same domain, distinguished by URL path. The first wiki in the farm is created with `canasta create` and gets the root path. Additional wikis are added with `canasta add` using a `domain/path` URL:
 
 ```bash
-canasta [command] --help
+# Create the farm with the first wiki at the root
+sudo canasta create -i myfarm -w mainwiki -n example.com -a admin
+
+# Add a second wiki at example.com/docs
+sudo canasta add -i myfarm -w docs -u example.com/docs -a admin
+
+# Add a third wiki at example.com/internal
+sudo canasta add -i myfarm -w internal -u example.com/internal -a admin
 ```
 
-For example:
+Users access these at `https://example.com`, `https://example.com/docs`, and `https://example.com/internal`.
+
+### Subdomain-based wikis
+
+Each wiki uses a different subdomain. This requires DNS records pointing each subdomain to your Canasta server. Caddy handles SSL/HTTPS automatically for all configured domains.
+
 ```bash
-canasta create --help
+sudo canasta create -i myfarm -w mainwiki -n wiki.example.com -a admin
+sudo canasta add -i myfarm -w docs -u docs.example.com -a admin
+sudo canasta add -i myfarm -w community -u community.example.com -a admin
+```
+
+### Mixed
+
+You can combine both approaches:
+
+```bash
+sudo canasta create -i myfarm -w mainwiki -n example.com -a admin
+sudo canasta add -i myfarm -w docs -u example.com/docs -a admin
+sudo canasta add -i myfarm -w community -u community.example.com -a admin
 ```
 
 ---
 
-## Configuration files
+## Managing a wiki farm
 
-Canasta installations have this structure:
+### Viewing wikis
+
+```bash
+sudo canasta list
+```
+
+Example output:
+
+```
+Canasta ID  Wiki ID  Server Name  Server Path  Installation Path       Orchestrator
+myfarm      mainwiki example.com  /            /home/user/myfarm       compose
+myfarm      docs     example.com  /docs        /home/user/myfarm       compose
+myfarm      community community.example.com / /home/user/myfarm       compose
+```
+
+### Per-wiki extension and skin management
+
+Use the `-w` flag to target a specific wiki:
+
+```bash
+sudo canasta extension enable SemanticMediaWiki -i myfarm -w docs
+sudo canasta skin enable CologneBlue -i myfarm -w community
+```
+
+Without `-w`, the command applies to all wikis in the farm.
+
+### Removing a wiki
+
+```bash
+sudo canasta remove -i myfarm -w community
+```
+
+This deletes the wiki's database and configuration. You will be prompted for confirmation.
+
+### Deleting the entire farm
+
+```bash
+sudo canasta delete -i myfarm
+```
+
+This stops and removes all containers, volumes, and configuration files.
+
+See the [CLI Reference](../cli/canasta.md) for the full list of commands and flags.
+
+---
+
+## Installation directory structure
+
+After creating a Canasta installation, the directory contains:
+
 ```
 {installation-path}/
-  .env                           # Environment variables
-  docker-compose.yml             # Docker Compose configuration
-  docker-compose.override.yml    # Optional custom overrides
-  config/
-    wikis.yaml                   # Wiki farm configuration
-    Caddyfile                    # Generated reverse proxy config
-    SettingsTemplate.php         # Template for wiki settings
-    admin-password_{wiki-id}     # Generated admin password per wiki
-    {wiki-id}/
-      Settings.php               # Wiki-specific settings
-      LocalSettings.php          # Generated MediaWiki settings
+├── .env                           # Environment variables (domain, DB passwords, secret key)
+├── docker-compose.yml             # Docker Compose configuration
+├── docker-compose.override.yml    # Optional custom overrides
+├── config/
+│   ├── wikis.yaml                 # Wiki farm definition (IDs, URLs, display names)
+│   ├── Caddyfile                  # Generated reverse proxy config
+│   ├── admin-password_{wiki-id}   # Generated admin password per wiki
+│   └── settings/
+│       ├── global/                # PHP settings loaded for all wikis
+│       │   └── *.php
+│       └── wikis/
+│           └── {wiki-id}/         # PHP settings loaded for a specific wiki
+│               └── Settings.php
+├── extensions/                    # User extensions
+└── skins/                        # User skins
 ```
+
+### wikis.yaml
+
+This file defines all wikis in the farm:
+
+```yaml
+wikis:
+- id: mainwiki
+  url: example.com
+  name: Main Wiki
+- id: docs
+  url: example.com/docs
+  name: Documentation
+- id: community
+  url: community.example.com
+  name: Community Wiki
+```
+
+The `url` field uses `domain/path` format without the protocol. The Caddyfile is regenerated from this file whenever wikis are added or removed.
+
+### Settings
+
+Settings files are loaded in alphabetical order:
+
+- **Global settings** (`config/settings/global/*.php`) — loaded for every wiki in the farm
+- **Per-wiki settings** (`config/settings/wikis/{wiki-id}/*.php`) — loaded only for that wiki
+
+This lets you configure shared behavior globally while customizing individual wikis.
+
+---
 
 ## conf.json
 
-The CLI maintains a registry of installations in a `conf.json` file. The location depends on the operating system and whether running as root:
+The CLI maintains a registry of all installations in a `conf.json` file. The location depends on the platform:
 
 - **Linux (root)**: `/etc/canasta/conf.json`
 - **Linux (non-root)**: `~/.config/canasta/conf.json`
 - **macOS**: `~/Library/Application Support/canasta/conf.json`
 
-Example structure:
+Example:
+
 ```json
 {
   "Orchestrators": {},
   "Installations": {
-    "wiki1": {
-      "Id": "wiki1",
-      "Path": "/home/user/wiki1",
-      "Orchestrator": "compose"
-    },
-    "wiki2": {
-      "Id": "wiki2",
-      "Path": "/home/user/canasta/wiki2",
+    "myfarm": {
+      "Id": "myfarm",
+      "Path": "/home/user/myfarm",
       "Orchestrator": "compose"
     }
   }
 }
 ```
 
----
-
-## Wiki farm example
-
-This example demonstrates creating a wiki farm with multiple wikis using different URL schemes.
-
-**1. Create the initial installation with the first wiki:**
-```bash
-sudo canasta create -i myfarm -w mainwiki -n example.com -a admin
-```
-
-**2. Add a wiki using a path on the same domain:**
-```bash
-sudo canasta add -i myfarm -w docs -u example.com/docs -t "Documentation Wiki" -a admin
-```
-
-**3. Add a wiki using a subdomain:**
-```bash
-sudo canasta add -i myfarm -w community -u community.example.com -a admin
-```
-
-**4. View all wikis in the farm:**
-```bash
-sudo canasta list
-```
-
-**5. Manage extensions for a specific wiki:**
-```bash
-sudo canasta extension enable SemanticMediaWiki -i myfarm -w docs
-```
-
-**6. Remove a wiki from the farm:**
-```bash
-sudo canasta remove -i myfarm -w community
-```
+Most commands accept the `-i, --id` flag to identify an installation by name. If you run commands from within the installation directory, the `-i` flag is not required.
 
 ---
 
 ## Running on non-standard ports
 
-By default, Canasta uses ports 80 (HTTP) and 443 (HTTPS). If you need to run on different ports (e.g., to run multiple Canasta installations on the same server), you must pass an env file with the port settings using the `-e` flag and include the port in the domain name with `-n`.
+By default, Canasta uses ports 80 (HTTP) and 443 (HTTPS). To use different ports — for example, to run multiple Canasta installations on the same server — set port variables in the `.env` file and include the port in the domain name.
+
+For a new installation, pass an env file with port settings:
+
+Create a file called `custom.env`:
+```env
+HTTP_PORT=8080
+HTTPS_PORT=8443
+```
+
+```bash
+sudo canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
+```
 
 For an existing installation, edit `.env` to set the ports, update `config/wikis.yaml` to include the port in the URL, and restart:
 
@@ -157,29 +220,14 @@ wikis:
 sudo canasta restart -i myinstance
 ```
 
-### Example: Two wiki farms on the same server
+### Example: two installations on the same server
 
-To run two separate Canasta installations on the same server, the second installation must use different ports.
-
-**1. Create the first wiki farm (uses default ports 80/443):**
 ```bash
+# First installation uses default ports (80/443)
 sudo canasta create -i production -w mainwiki -n localhost -a admin
-sudo canasta add -i production -w docs -u localhost/docs -a admin
+
+# Second installation uses custom ports
+sudo canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
 ```
 
-**2. Create an .env file for the second farm with non-standard ports:**
-
-Create a file called `staging.env`:
-```env
-HTTP_PORT=8080
-HTTPS_PORT=8443
-```
-
-**3. Create the second wiki farm using the custom .env file and port in domain name:**
-```bash
-sudo canasta create -i staging -w testwiki -n localhost:8443 -a admin -e staging.env
-```
-
-Now you can access:
-- First farm: `https://localhost` and `https://localhost/docs`
-- Second farm: `https://localhost:8443`
+Access them at `https://localhost` and `https://localhost:8443`.

@@ -254,12 +254,16 @@ installation/
 │   └── runConfigurations/
 │       └── Listen_for_Xdebug.xml  # PHPStorm run configuration
 ├── config/
-│   ├── LocalSettings.php     # User's LocalSettings.php (loaded by Canasta)
 │   ├── wikis.yaml            # Wiki farm configuration
-│   ├── xdebug.ini            # Xdebug configuration
 │   ├── Caddyfile             # Reverse proxy configuration
-│   └── <wikiid>/             # Per-wiki settings directory
-│       └── Settings.php
+│   ├── xdebug.ini            # Xdebug configuration
+│   ├── admin-password_{wikiid}  # Generated admin password per wiki
+│   └── settings/
+│       ├── global/           # PHP settings loaded for all wikis
+│       │   └── *.php
+│       └── wikis/
+│           └── {wikiid}/     # PHP settings loaded for a specific wiki
+│               └── Settings.php
 ├── docker-compose.yml
 ├── docker-compose.override.yml
 ├── docker-compose.dev.yml    # Dev mode compose overlay

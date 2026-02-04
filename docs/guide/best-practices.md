@@ -83,10 +83,12 @@ Email functionality is **not enabled by default**. To enable email for your wiki
 ### Wiki ID naming rules
 
 Wiki IDs must follow these rules:
-- Only alphanumeric characters, hyphens (`-`), and underscores (`_`) are allowed
-- Must start and end with an alphanumeric character
-- No spaces or special characters
+- Only alphanumeric characters and underscores (`_`) are allowed
+- Hyphens (`-`) are **not** allowed (they are allowed in installation IDs, but not wiki IDs)
+- The following names are reserved and cannot be used: `settings`, `images`, `w`, `wiki`
 
-Valid examples: `mywiki`, `my-wiki`, `wiki_1`, `MyWiki2024`
+Valid examples: `mywiki`, `wiki_1`, `MyWiki2024`, `docs`
 
-Invalid examples: `my wiki`, `-mywiki`, `wiki!`, `mywiki-`
+Invalid examples: `my-wiki`, `my wiki`, `wiki!`, `settings`
+
+**Note:** Installation IDs (the `-i` flag) have different rules — they allow hyphens and underscores, must start and end with an alphanumeric character, and have no reserved names.
