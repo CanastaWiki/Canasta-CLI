@@ -91,7 +91,7 @@ func runMaintenanceUpdate(instance config.Installation, wikiID string) {
 
 	fmt.Printf("Running update.php%s...\n", wikiMsg)
 	if err := orchestrators.ExecStreaming(instance.Path, instance.Orchestrator, "web",
-		"php maintenance/update.php"+wikiFlag); err != nil {
+		"php maintenance/update.php --quick"+wikiFlag); err != nil {
 		log.Fatalf("update.php failed%s: %v", wikiMsg, err)
 	}
 
