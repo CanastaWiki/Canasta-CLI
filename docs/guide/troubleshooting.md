@@ -87,6 +87,11 @@ docker compose exec web bash
 - Verify the domain/URL configuration in `config/wikis.yaml`
 - Check container logs for errors: `docker compose logs web`
 
+**Wiki not accessible on non-standard ports**
+- When using non-standard ports, the port must be included in the URL you use to access the wiki in your browser (e.g., `https://localhost:8443`, not `https://localhost`)
+- The port must also appear in the URL in `config/wikis.yaml` (e.g., `localhost:8443` or `localhost:8443/wiki2`)
+- This applies to both path-based and subdomain-based wikis
+
 **Permission denied errors**
 - Ensure your user has Docker access (see above)
 - Ensure the installation directory has proper ownership
