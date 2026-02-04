@@ -92,6 +92,12 @@ docker compose exec web bash
 - The port must also appear in the URL in `config/wikis.yaml` (e.g., `localhost:8443` or `localhost:8443/wiki2`)
 - This applies to both path-based and subdomain-based wikis
 
+**SSL/TLS errors when running behind a reverse proxy or load balancer**
+- If your server is already behind something that terminates SSL (e.g. Cloudflare, nginx, a cloud load balancer), Caddy's automatic HTTPS will conflict with it. Add the following to `config/Caddyfile.custom` to disable it:
+  ```
+  auto_https off
+  ```
+
 **Permission denied errors**
 - Ensure your user has Docker access (see above)
 - Ensure the installation directory has proper ownership
