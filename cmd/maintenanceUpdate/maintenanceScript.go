@@ -2,10 +2,10 @@ package maintenance
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/spf13/cobra"
 )
@@ -17,29 +17,39 @@ func scriptCmdCreate() *cobra.Command {
 		Short: "Run maintenance scripts",
 		Long: `Run an arbitrary MediaWiki maintenance script inside the web container.
 The script name is relative to the maintenance/ directory. Any additional
-arguments are passed directly to the PHP script.`,
+arguments are passed directly to the PHP script.
+
+Use --wiki to target a specific wiki in a farm.`,
 		Example: `  # Run rebuildrecentchanges.php
   canasta maintenance script "rebuildrecentchanges.php" -i myinstance
 
   # Run a script with arguments
-  canasta maintenance script "importDump.php /path/to/dump.xml" -i myinstance`,
-		Args:  cobra.ExactArgs(1),
+  canasta maintenance script "importDump.php /path/to/dump.xml" -i myinstance
+
+  # Run a script for a specific wiki in a farm
+  canasta maintenance script "rebuildrecentchanges.php" -i myinstance --wiki=docs`,
+		Args: cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			instance, err = canasta.CheckCanastaId(instance)
 			return err
 		},
 		Run: func(cmd *cobra.Command, args []string) {
-			logging.SetVerbose(true)
-			runMaintenanceScript(instance, args[0])
+			runMaintenanceScript(instance, args[0], wiki)
 		},
 	}
 
 	return scriptCmd
 }
 
-func runMaintenanceScript(instance config.Installation, script string) {
+func runMaintenanceScript(instance config.Installation, script string, wiki string) {
+	wikiFlag := ""
+	if wiki != "" {
+		wikiFlag = " --wiki=" + wiki
+	}
 	fmt.Println("Running maintenance script " + script)
-	orchestrators.Exec(instance.Path, instance.Orchestrator, "web", "php maintenance/"+script)
+	if err := orchestrators.ExecStreaming(instance.Path, instance.Orchestrator, "web",
+		"php maintenance/"+script+wikiFlag); err != nil {
+		log.Fatalf("maintenance script failed: %v", err)
+	}
 	fmt.Println("Completed running maintenance script")
-
 }

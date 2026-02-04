@@ -10,6 +10,8 @@ import (
 
 var (
 	instance config.Installation
+	wiki     string
+	all      bool
 	err      error
 )
 
@@ -32,5 +34,7 @@ runJobs.php, and SMW rebuildData.php) or execute arbitrary maintenance scripts.`
 	maintenanceCmd.AddCommand(scriptCmdCreate())
 
 	maintenanceCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	maintenanceCmd.PersistentFlags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on")
+	maintenanceCmd.PersistentFlags().BoolVar(&all, "all", false, "Run for all wikis in the farm")
 	return maintenanceCmd
 }

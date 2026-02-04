@@ -299,6 +299,32 @@ func Exec(installPath, orchestrator, container, command string) string {
 
 }
 
+// ExecStreaming runs a command in a container with stdout/stderr piped
+// directly to the terminal, providing real-time output for long-running commands.
+func ExecStreaming(installPath, orchestrator, container, command string) error {
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+		var cmd *exec.Cmd
+		if compose.Path != "" {
+			cmd = exec.Command(compose.Path, "exec", "-T", container, "/bin/bash", "-c", command)
+		} else {
+			cmd = exec.Command("docker", "compose", "exec", "-T", container, "/bin/bash", "-c", command)
+		}
+		if installPath != "" {
+			cmd.Dir = installPath
+		}
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("command failed: %w", err)
+		}
+	default:
+		return fmt.Errorf("orchestrator: %s is not available", orchestrator)
+	}
+	return nil
+}
+
 // CheckRunningStatus checks if the web container is running
 func CheckRunningStatus(instance config.Installation) error {
 	containerName := "web"
