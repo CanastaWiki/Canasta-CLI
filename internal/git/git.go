@@ -119,28 +119,33 @@ func FetchAndCheckout(path string, dryRun bool) error {
 				fmt.Printf("  %s\n", file)
 			}
 		}
+		// Collect all denylist files from both sources, deduplicated
+		seen := make(map[string]bool)
+		var allSkipped []string
+		for _, file := range skippedFiles {
+			if !seen[file] {
+				allSkipped = append(allSkipped, file)
+				seen[file] = true
+			}
+		}
+		for _, file := range locallyModified {
+			if !seen[file] {
+				allSkipped = append(allSkipped, file)
+				seen[file] = true
+			}
+		}
+		// Split by whether the file actually exists on disk
 		var preservedFiles []string
 		var absentFiles []string
-		for _, file := range skippedFiles {
+		for _, file := range allSkipped {
 			if _, err := os.Stat(filepath.Join(path, file)); err == nil {
 				preservedFiles = append(preservedFiles, file)
 			} else {
 				absentFiles = append(absentFiles, file)
 			}
 		}
-		// Add locally modified denylist files that aren't already in preservedFiles
-		seen := make(map[string]bool)
-		for _, file := range preservedFiles {
-			seen[file] = true
-		}
-		for _, file := range locallyModified {
-			if !seen[file] {
-				preservedFiles = append(preservedFiles, file)
-				seen[file] = true
-			}
-		}
 		if len(preservedFiles) > 0 {
-			fmt.Println("Files with local modifications that would be preserved:")
+			fmt.Println("Files with local changes that would be preserved:")
 			for _, file := range preservedFiles {
 				fmt.Printf("  %s\n", file)
 			}
