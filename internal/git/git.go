@@ -84,7 +84,24 @@ func FetchAndCheckout(path string, dryRun bool) error {
 		}
 	}
 
-	if len(filesToUpdate) == 0 && len(filesToRemove) == 0 && len(skippedFiles) == 0 {
+	// Get denylist files with uncommitted local modifications (working tree vs HEAD).
+	// These won't appear in the HEAD vs origin/main diff if the committed versions match.
+	err, output = execute.Run(path, "git", "diff", "--name-only", "HEAD")
+	if err != nil {
+		return fmt.Errorf(output)
+	}
+
+	var locallyModified []string
+	for _, file := range strings.Split(strings.TrimSpace(output), "\n") {
+		if file == "" {
+			continue
+		}
+		if isSkipped(file) {
+			locallyModified = append(locallyModified, file)
+		}
+	}
+
+	if len(filesToUpdate) == 0 && len(filesToRemove) == 0 && len(skippedFiles) == 0 && len(locallyModified) == 0 {
 		fmt.Println("Repo is up to date with origin/main.")
 		return nil
 	}
@@ -111,8 +128,19 @@ func FetchAndCheckout(path string, dryRun bool) error {
 				absentFiles = append(absentFiles, file)
 			}
 		}
+		// Add locally modified denylist files that aren't already in preservedFiles
+		seen := make(map[string]bool)
+		for _, file := range preservedFiles {
+			seen[file] = true
+		}
+		for _, file := range locallyModified {
+			if !seen[file] {
+				preservedFiles = append(preservedFiles, file)
+				seen[file] = true
+			}
+		}
 		if len(preservedFiles) > 0 {
-			fmt.Println("Files that differ from upstream but will be preserved locally:")
+			fmt.Println("Files with local modifications that will be preserved:")
 			for _, file := range preservedFiles {
 				fmt.Printf("  %s\n", file)
 			}
