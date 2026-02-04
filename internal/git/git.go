@@ -166,11 +166,10 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 	}
 
 	// Remove files that were deleted in origin/main
-	if len(filesToRemove) > 0 {
-		args := append([]string{"rm", "--"}, filesToRemove...)
-		err, output = execute.Run(path, "git", args...)
-		if err != nil {
-			return false, fmt.Errorf(output)
+	for _, file := range filesToRemove {
+		filePath := filepath.Join(path, file)
+		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+			return false, fmt.Errorf("failed to remove %s: %w", file, err)
 		}
 	}
 
