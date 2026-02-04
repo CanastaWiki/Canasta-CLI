@@ -10,6 +10,7 @@
   - [Enabling multiple at once](#enabling-multiple-at-once)
 - [Disabling extensions and skins](#disabling-extensions-and-skins)
 - [Adding extensions not bundled with Canasta](#adding-extensions-not-bundled-with-canasta)
+  - [Composer dependencies](#composer-dependencies)
 - [How it works under the hood](#how-it-works-under-the-hood)
 - [Important notes](#important-notes)
 
@@ -122,6 +123,24 @@ canasta restart -i myinstance
 ```
 
 User extensions are not shown by `canasta extension list` and cannot be managed with `enable`/`disable`. They are loaded by the settings files you create.
+
+### Composer dependencies
+
+If a non-bundled extension requires Composer packages, add a reference to the extension's `composer.json` in `config/composer.local.json`:
+
+```json
+{
+	"extra": {
+		"merge-plugin": {
+			"include": [
+				"user-extensions/SomeExtension/composer.json"
+			]
+		}
+	}
+}
+```
+
+**Note:** Only the `extra.merge-plugin` section is used. The `require` section of `composer.local.json` is ignored — you cannot install new extensions via Composer, only their dependencies.
 
 ---
 

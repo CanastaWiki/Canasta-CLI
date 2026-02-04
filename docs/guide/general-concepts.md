@@ -7,6 +7,10 @@ This page covers foundational concepts that apply to all Canasta installations, 
 - [Installation IDs](#installation-ids)
 - [Wiki IDs](#wiki-ids)
 - [Installation directory structure](#installation-directory-structure)
+- [Importing an existing wiki](#importing-an-existing-wiki)
+- [Maintenance scripts](#maintenance-scripts)
+  - [Automatic maintenance](#automatic-maintenance)
+  - [Running scripts manually](#running-scripts-manually)
 - [conf.json](#confjson)
 - [Running on non-standard ports](#running-on-non-standard-ports)
 
@@ -116,6 +120,53 @@ This lets you configure shared behavior globally while customizing individual wi
 - **Database passwords** are saved to the `.env` file (`MYSQL_PASSWORD` for root, `WIKI_DB_PASSWORD` for the wiki user)
 
 If not specified at creation time, passwords are auto-generated (30 characters with digits and symbols).
+
+---
+
+## Importing an existing wiki
+
+To migrate an existing MediaWiki installation into Canasta, prepare a database dump (`.sql` or `.sql.gz` file) and pass it with the `-d` flag:
+
+```bash
+canasta create -i mywiki -w main -n localhost -d ./backup.sql.gz -a admin
+```
+
+You can also provide a custom LocalSettings.php and an environment file with password overrides:
+
+```bash
+canasta create -i mywiki -w main -n localhost -d ./backup.sql.gz -l ./LocalSettings.php -e ./custom.env -a admin
+```
+
+To import a database into an additional wiki in an existing installation, use `canasta add` with the `--database` flag:
+
+```bash
+canasta add -i mywiki -w docs -u example.com/docs -d ./docs-backup.sql.gz -a admin
+```
+
+See the [CLI Reference](../cli/canasta_create.md) for the full list of flags.
+
+---
+
+## Maintenance scripts
+
+MediaWiki includes over 200 [maintenance scripts](https://www.mediawiki.org/wiki/Manual:Maintenance_scripts) for tasks like changing passwords, importing images, and managing the database.
+
+### Automatic maintenance
+
+You generally do not need to run maintenance scripts manually:
+
+- **`update.php`** runs automatically during container startup. If you need to run it, simply restart the installation with `canasta restart`.
+- **`runJobs.php`** runs automatically in the background for the entire life of the container.
+
+### Running scripts manually
+
+To run a maintenance script, use `canasta maintenance script`. Wrap the script name and any arguments in quotes so they are passed as a single argument:
+
+```bash
+canasta maintenance script "createAndPromote.php WikiSysop MyPassword --bureaucrat --sysop" -i mywiki
+```
+
+See the [CLI Reference](../cli/canasta_maintenance.md) for more details.
 
 ---
 
