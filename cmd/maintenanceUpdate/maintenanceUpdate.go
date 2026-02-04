@@ -104,17 +104,16 @@ func runMaintenanceUpdate(instance config.Installation, wikiID string) {
 	}
 
 	if !skipSMW {
-		smwCheck := fmt.Sprintf(
-			`php maintenance/eval.php%s --expression="echo defined('SMW_VERSION') ? 'yes' : 'no';"`,
-			wikiFlag)
-		smwOutput, smwErr := orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", smwCheck)
-		if smwErr != nil || !strings.Contains(smwOutput, "yes") {
-			fmt.Printf("Semantic MediaWiki not enabled%s, skipping rebuildData.php\n", wikiMsg)
+		const rebuildScript = "extensions/SemanticMediaWiki/maintenance/rebuildData.php"
+		checkCmd := fmt.Sprintf("test -f %s && echo exists", rebuildScript)
+		checkOutput, _ := orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", checkCmd)
+		if !strings.Contains(checkOutput, "exists") {
+			fmt.Printf("Semantic MediaWiki not installed%s, skipping rebuildData.php\n", wikiMsg)
 		} else {
 			fmt.Printf("Running rebuildData.php%s...\n", wikiMsg)
 			if err := orchestrators.ExecStreaming(instance.Path, instance.Orchestrator, "web",
-				"php extensions/SemanticMediaWiki/maintenance/rebuildData.php"+wikiFlag); err != nil {
-				log.Fatalf("rebuildData.php failed%s: %v", wikiMsg, err)
+				"php "+rebuildScript+wikiFlag); err != nil {
+				fmt.Printf("rebuildData.php failed%s: %v\n", wikiMsg, err)
 			}
 		}
 	}
