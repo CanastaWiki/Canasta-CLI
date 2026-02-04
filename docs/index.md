@@ -37,7 +37,8 @@ sudo canasta create -i my-wiki -w wiki1 -a admin -n localhost
 
 ### Guides
 
-- [Wiki Farms](guide/wiki-farms.md) - Wiki farm concepts, URL schemes, configuration files, and examples
+- [General Concepts](guide/general-concepts.md) - Installation IDs, wiki IDs, directory structure, settings, and configuration
+- [Wiki Farms](guide/wiki-farms.md) - Running multiple wikis in one installation
 - [Development Mode](guide/devmode.md) - Live code editing and Xdebug debugging
 - [Backup and Restore](guide/backup.md) - Setting up backups with restic
 - [Best Practices](guide/best-practices.md) - Security considerations and best practices

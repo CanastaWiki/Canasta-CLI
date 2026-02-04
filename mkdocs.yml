@@ -46,6 +46,7 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Guides:
+    - General Concepts: guide/general-concepts.md
     - Wiki Farms: guide/wiki-farms.md
     - Development Mode: guide/devmode.md
     - Backup and Restore: guide/backup.md
