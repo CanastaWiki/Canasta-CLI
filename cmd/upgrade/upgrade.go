@@ -116,7 +116,8 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	fmt.Println("Checking for repo changes...")
-	if err = git.FetchAndCheckout(instance.Path, dryRun); err != nil {
+	repoChanged, err := git.FetchAndCheckout(instance.Path, dryRun)
+	if err != nil {
 		return err
 	}
 
@@ -127,30 +128,39 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Run migration steps (before restart so config is correct when containers come up)
-	if err = runMigration(instance.Path, dryRun); err != nil {
+	migrationsNeeded, err := runMigration(instance.Path, dryRun)
+	if err != nil {
 		return err
 	}
 
-	if !dryRun {
-		// Restart the containers
-		if err = orchestrators.StopAndStart(instance); err != nil {
-			return err
+	if dryRun {
+		fmt.Println()
+		if repoChanged || migrationsNeeded {
+			fmt.Println("Run 'canasta upgrade' to apply these changes.")
+		} else {
+			fmt.Println("Installation is up to date. No upgrade needed.")
 		}
-
-		// Touch LocalSettings.php to flush cache
-		fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
-		_, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", "touch LocalSettings.php")
-		if err != nil {
-			return err
-		}
-		fmt.Print("Canasta Upgraded!\n")
+		return nil
 	}
+
+	// Restart the containers
+	if err = orchestrators.StopAndStart(instance); err != nil {
+		return err
+	}
+
+	// Touch LocalSettings.php to flush cache
+	fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
+	_, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", "touch LocalSettings.php")
+	if err != nil {
+		return err
+	}
+	fmt.Print("Canasta Upgraded!\n")
 
 	return nil
 }
 
 // runMigration orchestrates all migration steps
-func runMigration(installPath string, dryRun bool) error {
+func runMigration(installPath string, dryRun bool) (bool, error) {
 	fmt.Println("Checking for config migrations...")
 
 	changed := false
@@ -158,7 +168,7 @@ func runMigration(installPath string, dryRun bool) error {
 	// Step 1: Extract or generate MW_SECRET_KEY
 	keyChanged, err := extractSecretKey(installPath, dryRun)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if keyChanged {
 		changed = true
@@ -167,7 +177,7 @@ func runMigration(installPath string, dryRun bool) error {
 	// Step 2: Migrate directory structure
 	dirChanged, err := migrateDirectoryStructure(installPath, dryRun)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if dirChanged {
 		changed = true
@@ -176,7 +186,7 @@ func runMigration(installPath string, dryRun bool) error {
 	// Step 3: Fix Vector.php default skin
 	vectorChanged, err := fixVectorDefaultSkin(installPath, dryRun)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if vectorChanged {
 		changed = true
@@ -185,12 +195,12 @@ func runMigration(installPath string, dryRun bool) error {
 	if !changed {
 		fmt.Println("No config migrations needed.")
 	} else if dryRun {
-		fmt.Println("Run 'canasta upgrade' without --dry-run to apply these changes.")
+		fmt.Println("Config migrations would be applied.")
 	} else {
 		fmt.Println("Migrations applied.")
 	}
 
-	return nil
+	return changed, nil
 }
 
 // extractSecretKey extracts $wgSecretKey from PHP config files into .env as MW_SECRET_KEY,

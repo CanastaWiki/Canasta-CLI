@@ -40,17 +40,17 @@ func Cloneb(repo, path string, branch string) error {
 // origin/main, skipping user-modifiable files listed in skipPaths. This avoids
 // merge conflicts when local commits diverge from upstream and preserves any
 // files the user has customized or deleted.
-func FetchAndCheckout(path string, dryRun bool) error {
+func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 	// Fetch latest from origin
 	err, output := execute.Run(path, "git", "fetch", "origin")
 	if err != nil {
-		return fmt.Errorf(output)
+		return false, fmt.Errorf(output)
 	}
 
 	// Get files that are added or modified in origin/main (safe to checkout)
 	err, output = execute.Run(path, "git", "diff", "--diff-filter=d", "--name-only", "HEAD", "origin/main")
 	if err != nil {
-		return fmt.Errorf(output)
+		return false, fmt.Errorf(output)
 	}
 
 	var filesToUpdate []string
@@ -69,7 +69,7 @@ func FetchAndCheckout(path string, dryRun bool) error {
 	// Get files that were deleted in origin/main
 	err, output = execute.Run(path, "git", "diff", "--diff-filter=D", "--name-only", "HEAD", "origin/main")
 	if err != nil {
-		return fmt.Errorf(output)
+		return false, fmt.Errorf(output)
 	}
 
 	var filesToRemove []string
@@ -86,7 +86,7 @@ func FetchAndCheckout(path string, dryRun bool) error {
 	// These won't appear in the HEAD vs origin/main diff if the committed versions match.
 	err, output = execute.Run(path, "git", "diff", "--name-only", "HEAD")
 	if err != nil {
-		return fmt.Errorf(output)
+		return false, fmt.Errorf(output)
 	}
 
 	var locallyModified []string
@@ -101,7 +101,7 @@ func FetchAndCheckout(path string, dryRun bool) error {
 
 	if len(filesToUpdate) == 0 && len(filesToRemove) == 0 && len(skippedExistUpstream) == 0 && len(locallyModified) == 0 {
 		fmt.Println("Repo is up to date with origin/main.")
-		return nil
+		return false, nil
 	}
 
 	if dryRun {
@@ -153,7 +153,7 @@ func FetchAndCheckout(path string, dryRun bool) error {
 				fmt.Printf("  %s\n", file)
 			}
 		}
-		return nil
+		return len(filesToUpdate) > 0 || len(filesToRemove) > 0, nil
 	}
 
 	// Checkout files that exist in origin/main
@@ -161,7 +161,7 @@ func FetchAndCheckout(path string, dryRun bool) error {
 		args := append([]string{"checkout", "origin/main", "--"}, filesToUpdate...)
 		err, output = execute.Run(path, "git", args...)
 		if err != nil {
-			return fmt.Errorf(output)
+			return false, fmt.Errorf(output)
 		}
 	}
 
@@ -170,11 +170,11 @@ func FetchAndCheckout(path string, dryRun bool) error {
 		args := append([]string{"rm", "--"}, filesToRemove...)
 		err, output = execute.Run(path, "git", args...)
 		if err != nil {
-			return fmt.Errorf(output)
+			return false, fmt.Errorf(output)
 		}
 	}
 
-	return nil
+	return true, nil
 }
 
 // isSkipped returns true if the file matches any entry in skipPaths.
