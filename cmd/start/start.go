@@ -30,6 +30,17 @@ func NewCmdCreate() *cobra.Command {
 	var startCmd = &cobra.Command{
 		Use:   "start",
 		Short: "Start the Canasta installation",
+		Long: `Start the Docker containers for a Canasta installation. If the installation
+was created with development mode, it starts with Xdebug enabled by default.
+Use --dev to enable or --no-dev to disable development mode at start time.`,
+		Example: `  # Start an installation by ID
+  canasta start -i myinstance
+
+  # Start with development mode enabled
+  canasta start -i myinstance -D
+
+  # Start with development mode disabled
+  canasta start -i myinstance --no-dev`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]

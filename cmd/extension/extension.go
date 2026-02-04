@@ -31,6 +31,9 @@ func NewCmdCreate() *cobra.Command {
 	extensionCmd = &cobra.Command{
 		Use:   "extension",
 		Short: "Manage Canasta extensions",
+		Long: `Manage MediaWiki extensions in a Canasta installation. Subcommands allow you
+to list all available extensions, and enable or disable them globally or for
+a specific wiki in a farm.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			instance, err = canasta.CheckCanastaId(instance)

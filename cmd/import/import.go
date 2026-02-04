@@ -24,9 +24,15 @@ func NewCmdCreate() *cobra.Command {
 		Use:   "import",
 		Short: "Import a database into an existing wiki",
 		Long: `Import a database dump into an existing wiki, replacing its current database.
+The instance must be running. Supported formats are .sql and .sql.gz files.
 
 To create a new wiki from a database dump, use the --database flag with
 'canasta create' or 'canasta add' instead.`,
+		Example: `  # Import a SQL dump into a wiki
+  canasta import -i myinstance -w main -d /path/to/dump.sql
+
+  # Import a gzipped dump and replace the wiki's Settings.php
+  canasta import -i myinstance -w main -d /path/to/dump.sql.gz -l /path/to/Settings.php`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 

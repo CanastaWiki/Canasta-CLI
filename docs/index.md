@@ -24,15 +24,23 @@ Canasta CLI is a powerful tool that allows you to create, manage, and maintain m
 
 ```bash
 # Install Canasta CLI
-curl -L https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta-linux-amd64 -o canasta
-chmod +x canasta
-sudo mv canasta /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/install.sh | sudo bash
 
 # Create a new Canasta installation
-sudo canasta create -i my-wiki -w wiki1 -a admin -n localhost
+canasta create -i myinstance -w wiki1 -a admin -n localhost
 ```
 
 ## Next Steps
 
 - [Installation Guide](installation.md) - Detailed installation instructions
 - [CLI Reference](cli/canasta.md) - Complete command documentation
+
+### Guides
+
+- [General Concepts](guide/general-concepts.md) - Installation IDs, wiki IDs, directory structure, settings, and configuration
+- [Wiki Farms](guide/wiki-farms.md) - Running multiple wikis in one installation
+- [Extensions and Skins](guide/extensions-and-skins.md) - Enabling, disabling, and adding extensions and skins
+- [Development Mode](guide/devmode.md) - Live code editing and Xdebug debugging
+- [Backup and Restore](guide/backup.md) - Setting up backups with restic
+- [Best Practices](guide/best-practices.md) - Security considerations and best practices
+- [Troubleshooting](guide/troubleshooting.md) - Common issues and debugging

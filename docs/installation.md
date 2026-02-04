@@ -1,57 +1,49 @@
 # Installation
 
-This guide covers how to install Canasta CLI on your system.
+This guide covers installing and uninstalling the Canasta command line interface (CLI).
+
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Install](#install)
+- [Verify installation](#verify-installation)
+- [Updating](#updating)
+- [Uninstall](#uninstall)
+- [Post-installation notes](#post-installation-notes)
+
+---
 
 ## Prerequisites
 
-- **Docker** and **Docker Compose** must be installed and running
-- **Root/sudo access** for most operations
+Before using the Canasta CLI, you must have both Docker Engine and Docker Compose installed.
 
-## Quick Install (Linux/macOS)
+### Windows and macOS
 
-Run the automated installer:
+Docker Compose is included in [Docker Desktop](https://www.docker.com/products/docker-desktop) for Windows and macOS.
+
+### Linux
+
+Linux is the most-tested and preferred OS environment as the host for Canasta. Installing the requirements is fast and easy to do on common Linux distributions such as Debian, Ubuntu, Red Hat, and CentOS. While you can get up and running with all the Docker requirements by installing Docker Desktop on Linux, if you are using a 'server environment' (no GUI), the recommended way to install is to **uninstall** any distribution-specific software and [install Docker software using the Docker repositories](https://docs.docker.com/compose/install/linux/#install-using-the-repository). (The link is the install guide for Docker Compose which will also install the Docker Engine.)
+
+Essentially, preparing your Linux server to be a Canasta host by installing the Docker suite of software includes something like
+`sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` once you've
+added the Docker repositories to your system.
+
+On Linux, you also need Docker access for your user account. Add your user to the `docker` group, then log out and log back in:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+## Install
+
+Run the automated installer (Linux/macOS):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/install.sh | sudo bash
 ```
 
-## Manual Installation
-
-### Linux (AMD64)
-
-```bash
-curl -L https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta-linux-amd64 -o canasta
-chmod +x canasta
-sudo mv canasta /usr/local/bin/
-```
-
-### Linux (ARM64)
-
-```bash
-curl -L https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta-linux-arm64 -o canasta
-chmod +x canasta
-sudo mv canasta /usr/local/bin/
-```
-
-### macOS (Intel)
-
-```bash
-curl -L https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta-darwin-amd64 -o canasta
-chmod +x canasta
-sudo mv canasta /usr/local/bin/
-```
-
-### macOS (Apple Silicon)
-
-```bash
-curl -L https://github.com/CanastaWiki/Canasta-CLI/releases/latest/download/canasta-darwin-arm64 -o canasta
-chmod +x canasta
-sudo mv canasta /usr/local/bin/
-```
-
-### Windows
-
-Use [WSL (Windows Subsystem for Linux)](https://docs.microsoft.com/en-us/windows/wsl/install) and install the Linux version.
+On Windows, use [WSL (Windows Subsystem for Linux)](https://docs.microsoft.com/en-us/windows/wsl/install) and run the installer inside your WSL distribution.
 
 ## Verify Installation
 
@@ -61,4 +53,32 @@ canasta version
 
 ## Updating
 
-To update Canasta CLI, simply re-run the installation command or download the latest release.
+To update to the latest version:
+
+```bash
+canasta self-update
+```
+
+Alternatively, re-run the installation command.
+
+## Uninstall
+
+First, delete any Canasta installations using `canasta delete` for each one.
+
+Then remove the CLI binary and its configuration directory:
+
+```bash
+sudo rm /usr/local/bin/canasta
+```
+
+The configuration directory location depends on your platform:
+
+- **Linux (root)**: `sudo rm -r /etc/canasta`
+- **Linux (non-root)**: `rm -r ~/.config/canasta`
+- **macOS**: `rm -r ~/Library/Application\ Support/canasta`
+
+## Post-installation notes
+
+### Email configuration
+
+Email functionality is **not enabled by default**. To enable email for your wiki, you must configure the `$wgSMTP` setting in your wiki's settings file. See the [MediaWiki SMTP documentation](https://www.mediawiki.org/wiki/Manual:$wgSMTP) for configuration options.

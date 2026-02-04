@@ -24,6 +24,15 @@ func restoreSnapshotCmdCreate() *cobra.Command {
 	restoreSnapshotCmd := &cobra.Command{
 		Use:   "restore",
 		Short: "Restore restic snapshot",
+		Long: `Restore a Canasta installation from a Restic snapshot. By default, a safety
+snapshot is taken before restoring. The restore replaces configuration files,
+extensions, images, skins, and the database with the contents of the
+specified snapshot.`,
+		Example: `  # Restore a snapshot by ID
+  canasta restic restore -i myinstance -s abc123
+
+  # Restore without taking a safety snapshot first
+  canasta restic restore -i myinstance -s abc123 -r`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 
 			restoreSnapshot(snapshotId, skipBeforeSnapshot)

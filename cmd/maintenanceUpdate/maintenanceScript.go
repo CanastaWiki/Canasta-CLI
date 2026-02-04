@@ -15,6 +15,14 @@ func scriptCmdCreate() *cobra.Command {
 	scriptCmd := &cobra.Command{
 		Use:   `script "[scriptname.php] [args]"`,
 		Short: "Run maintenance scripts",
+		Long: `Run an arbitrary MediaWiki maintenance script inside the web container.
+The script name is relative to the maintenance/ directory. Any additional
+arguments are passed directly to the PHP script.`,
+		Example: `  # Run rebuildrecentchanges.php
+  canasta maintenance script "rebuildrecentchanges.php" -i myinstance
+
+  # Run a script with arguments
+  canasta maintenance script "importDump.php /path/to/dump.xml" -i myinstance`,
 		Args:  cobra.ExactArgs(1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			instance, err = canasta.CheckCanastaId(instance)

@@ -30,6 +30,12 @@ func NewCmdCreate() *cobra.Command {
 	addCmd := &cobra.Command{
 		Use:   "remove",
 		Short: "Remove a wiki from a Canasta instance",
+		Long: `Remove a wiki from an existing Canasta installation. This deletes the wiki's
+database, settings files, uploaded images, and its entry in wikis.yaml, then
+regenerates the Caddyfile and restarts the instance. You will be prompted
+for confirmation before any data is deleted.`,
+		Example: `  # Remove a wiki by ID
+  canasta remove -i myinstance -w docs`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 			fmt.Printf("Removing wiki '%s' from Canasta instance '%s'...\n", wikiID, instance.Id)

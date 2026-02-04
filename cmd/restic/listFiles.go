@@ -13,7 +13,10 @@ func listFilesCmdCreate() *cobra.Command {
 
 	listFilesCmd := &cobra.Command{
 		Use:   "list",
-		Short: "List files in a snapshost",
+		Short: "List files in a snapshot",
+		Long: `List all files contained in a specific Restic snapshot. This is useful
+for inspecting what was backed up before performing a restore.`,
+		Example: `  canasta restic list -i myinstance -t abc123`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if tag == "" && args[0] == "" {
 				return fmt.Errorf("You must provide a restic snapshot tag")

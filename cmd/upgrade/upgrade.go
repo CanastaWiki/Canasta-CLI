@@ -34,6 +34,18 @@ func NewCmdCreate() *cobra.Command {
 	var upgradeCmd = &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade a Canasta installation to the latest version",
+		Long: `Upgrade a Canasta installation by pulling the latest Docker Compose stack
+and container images, running any necessary configuration migrations, and
+restarting the containers. Use --dry-run to preview migrations without
+applying them, or --all to upgrade every registered installation.`,
+		Example: `  # Upgrade a single installation
+  canasta upgrade -i myinstance
+
+  # Preview what would change without applying
+  canasta upgrade -i myinstance --dry-run
+
+  # Upgrade all registered installations
+  canasta upgrade --all`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if upgradeAll && instance.Id != "" {
 				return fmt.Errorf("cannot use --all with --id")

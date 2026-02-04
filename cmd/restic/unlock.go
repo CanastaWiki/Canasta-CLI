@@ -14,6 +14,9 @@ func unlockCmdCreate() *cobra.Command {
 	unlockCmd := &cobra.Command{
 		Use:   "unlock",
 		Short: "Remove locks other processes created",
+		Long: `Remove stale lock files from the Restic repository. Use this if a previous
+backup operation was interrupted and left the repository in a locked state.`,
+		Example: `  canasta restic unlock -i myinstance`,
 		Run: func(cmd *cobra.Command, args []string) {
 			unlock()
 		},

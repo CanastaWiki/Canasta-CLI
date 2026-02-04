@@ -14,6 +14,14 @@ func scheduleCmdCreate() *cobra.Command {
 	scheduleCmd := &cobra.Command{
 		Use:   "schedule [cron expression]",
 		Short: "Schedule a recurring backup",
+		Long: `Schedule recurring Restic backups using a cron expression. This adds or
+updates a crontab entry that runs 'canasta restic take-snapshot' on the
+specified schedule. Backup output is logged to /var/log/canasta-backup.log.`,
+		Example: `  # Schedule daily backups at 2:00 AM
+  canasta restic schedule -i myinstance "0 2 * * *"
+
+  # Schedule hourly backups
+  canasta restic schedule -i myinstance "0 * * * *"`,
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return scheduleBackup(strings.Join(args, " "))

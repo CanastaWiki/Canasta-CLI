@@ -26,6 +26,11 @@ func NewCmdCreate() *cobra.Command {
 	var deleteCmd = &cobra.Command{
 		Use:   "delete",
 		Short: "Delete a Canasta installation",
+		Long: `Permanently delete a Canasta installation. This stops and removes all
+Docker containers and volumes, deletes all configuration files and data,
+and removes the installation from the Canasta registry.`,
+		Example: `  # Delete an installation by ID
+  canasta delete -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
