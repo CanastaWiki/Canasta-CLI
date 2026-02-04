@@ -183,7 +183,7 @@ func runMigration(installPath string, dryRun bool) error {
 	}
 
 	if !changed {
-		fmt.Println("No migrations needed.")
+		fmt.Println("No config migrations needed.")
 	} else if dryRun {
 		fmt.Println("Run 'canasta upgrade' without --dry-run to apply these changes.")
 	} else {
