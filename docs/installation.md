@@ -53,18 +53,29 @@ canasta version
 
 ## Updating
 
-To update Canasta CLI, simply re-run the installation command or download the latest release.
+To update to the latest version:
+
+```bash
+canasta self-update
+```
+
+Alternatively, re-run the installation command.
 
 ## Uninstall
 
-To uninstall the Canasta CLI:
+First, delete any Canasta installations using `canasta delete` for each one.
+
+Then remove the CLI binary and its configuration directory:
 
 ```bash
 sudo rm /usr/local/bin/canasta
-sudo rm -r /etc/canasta
 ```
 
-**Note:** This only removes the CLI. To delete Canasta installations, use `canasta delete` for each installation first.
+The configuration directory location depends on your platform:
+
+- **Linux (root)**: `sudo rm -r /etc/canasta`
+- **Linux (non-root)**: `rm -r ~/.config/canasta`
+- **macOS**: `rm -r ~/Library/Application\ Support/canasta`
 
 ## Post-installation notes
 

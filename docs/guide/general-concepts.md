@@ -21,15 +21,15 @@ This page covers foundational concepts that apply to all Canasta installations, 
 Every Canasta installation has an **installation ID** — a name you choose when creating it with the `-i` flag:
 
 ```bash
-canasta create -i mywiki -w main -n localhost -a admin
+canasta create -i my-wiki -w main -n localhost -a admin
 ```
 
 The installation ID is used to refer to the installation in all subsequent commands:
 
 ```bash
-canasta start -i mywiki
-canasta extension list -i mywiki
-canasta upgrade -i mywiki
+canasta start -i my-wiki
+canasta extension list -i my-wiki
+canasta upgrade -i my-wiki
 ```
 
 If you run a command from within the installation directory, the `-i` flag is not required.
@@ -43,7 +43,7 @@ Installation IDs must start and end with an alphanumeric character and may conta
 Every wiki in a Canasta installation has a **wiki ID** — a short identifier set with the `-w` flag when creating or adding a wiki:
 
 ```bash
-canasta create -i mywiki -w main -n localhost -a admin
+canasta create -i my-wiki -w main -n localhost -a admin
 ```
 
 Even a single-wiki installation requires a wiki ID. The wiki ID is used as:
@@ -128,19 +128,21 @@ If not specified at creation time, passwords are auto-generated (30 characters w
 To migrate an existing MediaWiki installation into Canasta, prepare a database dump (`.sql` or `.sql.gz` file) and pass it with the `-d` flag:
 
 ```bash
-canasta create -i mywiki -w main -n localhost -d ./backup.sql.gz -a admin
+canasta create -i my-wiki -w main -n localhost -d ./backup.sql.gz -a admin
 ```
 
-You can also provide a custom LocalSettings.php and an environment file with password overrides:
+You can also provide a per-wiki settings file and an environment file with password overrides:
 
 ```bash
-canasta create -i mywiki -w main -n localhost -d ./backup.sql.gz -l ./LocalSettings.php -e ./custom.env -a admin
+canasta create -i my-wiki -w main -n localhost -d ./backup.sql.gz -l ./my-settings.php -e ./custom.env -a admin
 ```
+
+The `-l` flag (`--wiki-settings`) copies the specified file to `config/settings/wikis/{wiki-id}/`, preserving the filename. Use it to bring over custom settings from an existing wiki.
 
 To import a database into an additional wiki in an existing installation, use `canasta add` with the `--database` flag:
 
 ```bash
-canasta add -i mywiki -w docs -u example.com/docs -d ./docs-backup.sql.gz -a admin
+canasta add -i my-wiki -w docs -u example.com/docs -d ./docs-backup.sql.gz -a admin
 ```
 
 See the [CLI Reference](../cli/canasta_create.md) for the full list of flags.
@@ -163,7 +165,7 @@ You generally do not need to run maintenance scripts manually:
 To run a maintenance script, use `canasta maintenance script`. Wrap the script name and any arguments in quotes so they are passed as a single argument:
 
 ```bash
-canasta maintenance script "createAndPromote.php WikiSysop MyPassword --bureaucrat --sysop" -i mywiki
+canasta maintenance script "createAndPromote.php WikiSysop MyPassword --bureaucrat --sysop" -i myinstance
 ```
 
 See the [CLI Reference](../cli/canasta_maintenance.md) for more details.
@@ -184,9 +186,9 @@ Example:
 {
   "Orchestrators": {},
   "Installations": {
-    "mywiki": {
-      "Id": "mywiki",
-      "Path": "/home/user/mywiki",
+    "my-wiki": {
+      "Id": "my-wiki",
+      "Path": "/home/user/my-wiki",
       "Orchestrator": "compose"
     }
   }

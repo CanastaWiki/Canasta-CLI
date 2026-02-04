@@ -37,10 +37,10 @@ Development mode enables live code editing and step debugging with Xdebug for Ca
 
 ```bash
 # Use the default (latest) Canasta image
-canasta create -i mydev -w mywiki -a admin --dev
+canasta create -i mydev -w mywiki -n localhost -a admin --dev
 
 # Or specify a specific Canasta image tag
-canasta create -i mydev -w mywiki -a admin --dev --dev-tag dev-branch
+canasta create -i mydev -w mywiki -n localhost -a admin --dev --dev-tag dev-branch
 ```
 
 The `--dev` flag enables development mode with Xdebug. Use `--dev-tag` to specify which Canasta image tag to use:
@@ -66,7 +66,7 @@ This will:
 For testing changes to Canasta or CanastaBase before they're published, you can build from local source repositories:
 
 ```bash
-canasta create -i mydev -w mywiki -a admin --build-from ~/canasta-repos
+canasta create -i mydev -w mywiki -n localhost -a admin --build-from ~/canasta-repos
 ```
 
 The `--build-from` flag expects a directory containing:
@@ -86,7 +86,7 @@ This will:
 You can combine `--build-from` with `--dev` to build from source and enable Xdebug:
 
 ```bash
-canasta create -i mydev -w mywiki -a admin --dev --build-from ~/canasta-repos
+canasta create -i mydev -w mywiki -n localhost -a admin --dev --build-from ~/canasta-repos
 ```
 
 **Note:** `--dev-tag` and `--build-from` are mutually exclusive since `--build-from` builds its own image.

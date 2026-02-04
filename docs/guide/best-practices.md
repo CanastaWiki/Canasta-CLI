@@ -25,7 +25,7 @@ This page covers security considerations and best practices for managing Canasta
 - Ensure proper file permissions on the installation directory to restrict access to these files
 - Consider using environment variables when passing passwords on the command line to avoid exposing them in shell history:
   ```bash
-  canasta create -i mywiki -w main -a admin --rootdbpass "$ROOT_DB_PASS"
+  canasta create -i my-wiki -w main -a admin --rootdbpass "$ROOT_DB_PASS"
   ```
 
 ### Docker access
@@ -62,13 +62,19 @@ The only step that requires `sudo` is installing the CLI binary to `/usr/local/b
 
 1. Take a backup:
    ```bash
-   canasta restic take-snapshot -t "pre-upgrade-$(date +%Y%m%d)" -i mywiki
+   canasta restic take-snapshot -t "pre-upgrade-$(date +%Y%m%d)" -i my-wiki
    ```
 2. Review the Canasta release notes for any breaking changes
 3. Run the upgrade:
    ```bash
-   canasta upgrade -i mywiki
+   canasta upgrade -i my-wiki
    ```
+
+To upgrade all installations at once:
+
+```bash
+canasta upgrade --all
+```
 
 ### Managing multiple installations
 
