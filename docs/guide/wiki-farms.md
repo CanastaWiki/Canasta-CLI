@@ -25,13 +25,13 @@ Multiple wikis share the same domain, distinguished by URL path. The first wiki 
 
 ```bash
 # Create the farm with the first wiki at the root
-sudo canasta create -i myfarm -w mainwiki -n example.com -a admin
+canasta create -i myfarm -w mainwiki -n example.com -a admin
 
 # Add a second wiki at example.com/docs
-sudo canasta add -i myfarm -w docs -u example.com/docs -a admin
+canasta add -i myfarm -w docs -u example.com/docs -a admin
 
 # Add a third wiki at example.com/internal
-sudo canasta add -i myfarm -w internal -u example.com/internal -a admin
+canasta add -i myfarm -w internal -u example.com/internal -a admin
 ```
 
 Users access these at `https://example.com`, `https://example.com/docs`, and `https://example.com/internal`.
@@ -41,9 +41,9 @@ Users access these at `https://example.com`, `https://example.com/docs`, and `ht
 Each wiki uses a different subdomain. This requires DNS records pointing each subdomain to your Canasta server. Caddy handles SSL/HTTPS automatically for all configured domains.
 
 ```bash
-sudo canasta create -i myfarm -w mainwiki -n wiki.example.com -a admin
-sudo canasta add -i myfarm -w docs -u docs.example.com -a admin
-sudo canasta add -i myfarm -w community -u community.example.com -a admin
+canasta create -i myfarm -w mainwiki -n wiki.example.com -a admin
+canasta add -i myfarm -w docs -u docs.example.com -a admin
+canasta add -i myfarm -w community -u community.example.com -a admin
 ```
 
 ### Mixed
@@ -51,9 +51,9 @@ sudo canasta add -i myfarm -w community -u community.example.com -a admin
 You can combine both approaches:
 
 ```bash
-sudo canasta create -i myfarm -w mainwiki -n example.com -a admin
-sudo canasta add -i myfarm -w docs -u example.com/docs -a admin
-sudo canasta add -i myfarm -w community -u community.example.com -a admin
+canasta create -i myfarm -w mainwiki -n example.com -a admin
+canasta add -i myfarm -w docs -u example.com/docs -a admin
+canasta add -i myfarm -w community -u community.example.com -a admin
 ```
 
 ---
@@ -63,7 +63,7 @@ sudo canasta add -i myfarm -w community -u community.example.com -a admin
 ### Viewing wikis
 
 ```bash
-sudo canasta list
+canasta list
 ```
 
 Example output:
@@ -80,8 +80,8 @@ myfarm      community community.example.com / /home/user/myfarm       compose
 Use the `-w` flag to target a specific wiki:
 
 ```bash
-sudo canasta extension enable SemanticMediaWiki -i myfarm -w docs
-sudo canasta skin enable CologneBlue -i myfarm -w community
+canasta extension enable SemanticMediaWiki -i myfarm -w docs
+canasta skin enable CologneBlue -i myfarm -w community
 ```
 
 Without `-w`, the command applies to all wikis in the farm.
@@ -89,7 +89,7 @@ Without `-w`, the command applies to all wikis in the farm.
 ### Removing a wiki
 
 ```bash
-sudo canasta remove -i myfarm -w community
+canasta remove -i myfarm -w community
 ```
 
 This deletes the wiki's database and configuration. You will be prompted for confirmation.
@@ -97,7 +97,7 @@ This deletes the wiki's database and configuration. You will be prompted for con
 ### Deleting the entire farm
 
 ```bash
-sudo canasta delete -i myfarm
+canasta delete -i myfarm
 ```
 
 This stops and removes all containers, volumes, and configuration files.

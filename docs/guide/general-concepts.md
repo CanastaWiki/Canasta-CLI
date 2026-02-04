@@ -9,15 +9,15 @@ This page covers foundational concepts that apply to all Canasta installations, 
 Every Canasta installation has an **installation ID** — a name you choose when creating it with the `-i` flag:
 
 ```bash
-sudo canasta create -i mywiki -w main -n localhost -a admin
+canasta create -i mywiki -w main -n localhost -a admin
 ```
 
 The installation ID is used to refer to the installation in all subsequent commands:
 
 ```bash
-sudo canasta start -i mywiki
-sudo canasta extension list -i mywiki
-sudo canasta upgrade -i mywiki
+canasta start -i mywiki
+canasta extension list -i mywiki
+canasta upgrade -i mywiki
 ```
 
 If you run a command from within the installation directory, the `-i` flag is not required.
@@ -31,7 +31,7 @@ Installation IDs must start and end with an alphanumeric character and may conta
 Every wiki in a Canasta installation has a **wiki ID** — a short identifier set with the `-w` flag when creating or adding a wiki:
 
 ```bash
-sudo canasta create -i mywiki -w main -n localhost -a admin
+canasta create -i mywiki -w main -n localhost -a admin
 ```
 
 Even a single-wiki installation requires a wiki ID. The wiki ID is used as:
@@ -149,7 +149,7 @@ HTTPS_PORT=8443
 ```
 
 ```bash
-sudo canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
+canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
 ```
 
 For an existing installation, edit `.env` to set the ports, update `config/wikis.yaml` to include the port in the URL, and restart:
@@ -167,17 +167,17 @@ wikis:
 ```
 
 ```bash
-sudo canasta restart -i myinstance
+canasta restart -i myinstance
 ```
 
 ### Example: two installations on the same server
 
 ```bash
 # First installation uses default ports (80/443)
-sudo canasta create -i production -w mainwiki -n localhost -a admin
+canasta create -i production -w mainwiki -n localhost -a admin
 
 # Second installation uses custom ports
-sudo canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
+canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
 ```
 
 Access them at `https://localhost` and `https://localhost:8443`.

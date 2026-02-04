@@ -15,7 +15,7 @@ RESTIC_PASSWORD=your-restic-password
 
 2. Initialize the restic repository:
 ```bash
-sudo canasta restic init -i mywiki
+canasta restic init -i mywiki
 ```
 
 Once set up, see the [CLI Reference](../cli/canasta_restic.md) for the full list of restic subcommands, flags, and usage examples.

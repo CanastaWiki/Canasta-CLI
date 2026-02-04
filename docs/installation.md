@@ -18,7 +18,11 @@ Essentially, preparing your Linux server to be a Canasta host by installing the 
 `sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` once you've
 added the Docker repositories to your system.
 
-You also need **root/sudo access** for most CLI operations.
+On Linux, you also need Docker access for your user account. Add your user to the `docker` group, then log out and log back in:
+
+```bash
+sudo usermod -aG docker $USER
+```
 
 ## Quick Install (Linux/macOS)
 
@@ -86,3 +90,9 @@ sudo rm -r /etc/canasta
 ```
 
 **Note:** This only removes the CLI. To delete Canasta installations, use `canasta delete` for each installation first.
+
+## Post-installation notes
+
+### Email configuration
+
+Email functionality is **not enabled by default**. To enable email for your wiki, you must configure the `$wgSMTP` setting in your wiki's settings file. See the [MediaWiki SMTP documentation](https://www.mediawiki.org/wiki/Manual:$wgSMTP) for configuration options.
