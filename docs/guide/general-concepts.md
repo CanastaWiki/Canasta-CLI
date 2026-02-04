@@ -10,6 +10,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
 - [Importing an existing wiki](#importing-an-existing-wiki)
 - [Maintenance scripts](#maintenance-scripts)
   - [Automatic maintenance](#automatic-maintenance)
+  - [Running the update sequence](#running-the-update-sequence)
   - [Running scripts manually](#running-scripts-manually)
 - [conf.json](#confjson)
 - [Running on non-standard ports](#running-on-non-standard-ports)
@@ -160,12 +161,42 @@ You generally do not need to run maintenance scripts manually:
 - **`update.php`** runs automatically during container startup. If you need to run it, simply restart the installation with `canasta restart`.
 - **`runJobs.php`** runs automatically in the background for the entire life of the container.
 
+### Running the update sequence
+
+Use `canasta maintenance update` to run the standard update sequence: `update.php`, `runJobs.php`, and (if Semantic MediaWiki is installed) `rebuildData.php`. Each script runs separately with its output streamed in real time.
+
+```bash
+canasta maintenance update -i myinstance
+```
+
+In a wiki farm, use `--wiki` to target a specific wiki or `--all` to run on every wiki:
+
+```bash
+canasta maintenance update -i myinstance --wiki=docs
+canasta maintenance update -i myinstance --all
+```
+
+If the installation has only one wiki, it is selected automatically. If there are multiple wikis and neither `--wiki` nor `--all` is specified, the command will error with guidance.
+
+Use `--skip-jobs` and `--skip-smw` to skip individual steps:
+
+```bash
+# Run only update.php
+canasta maintenance update -i myinstance --skip-jobs --skip-smw
+```
+
 ### Running scripts manually
 
-To run a maintenance script, use `canasta maintenance script`. Wrap the script name and any arguments in quotes so they are passed as a single argument:
+To run an arbitrary maintenance script, use `canasta maintenance script`. Wrap the script name and any arguments in quotes so they are passed as a single argument:
 
 ```bash
 canasta maintenance script "createAndPromote.php WikiSysop MyPassword --bureaucrat --sysop" -i myinstance
+```
+
+Use `--wiki` to target a specific wiki in a farm:
+
+```bash
+canasta maintenance script "rebuildrecentchanges.php" -i myinstance --wiki=docs
 ```
 
 See the [CLI Reference](../cli/canasta_maintenance.md) for more details.
