@@ -84,7 +84,7 @@ docker compose exec web bash
 
 **Wiki not accessible after creation**
 - Check that containers are running: `docker compose ps`
-- Verify the domain/URL configuration in your `.env` file
+- Verify the domain/URL configuration in `config/wikis.yaml`
 - Check container logs for errors: `docker compose logs web`
 
 **Permission denied errors**
