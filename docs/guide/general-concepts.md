@@ -2,6 +2,14 @@
 
 This page covers foundational concepts that apply to all Canasta installations, whether hosting a single wiki or a [wiki farm](wiki-farms.md).
 
+## Contents
+
+- [Installation IDs](#installation-ids)
+- [Wiki IDs](#wiki-ids)
+- [Installation directory structure](#installation-directory-structure)
+- [conf.json](#confjson)
+- [Running on non-standard ports](#running-on-non-standard-ports)
+
 ---
 
 ## Installation IDs

@@ -2,6 +2,18 @@
 
 This page covers security considerations and best practices for managing Canasta installations.
 
+## Contents
+
+- [Security considerations](#security-considerations)
+  - [Password storage](#password-storage)
+  - [Docker access](#docker-access)
+  - [Network exposure](#network-exposure)
+- [Operations](#operations)
+  - [Backups](#backups)
+  - [Before upgrading](#before-upgrading)
+  - [Managing multiple installations](#managing-multiple-installations)
+  - [Wiki ID naming rules](#wiki-id-naming-rules)
+
 ---
 
 ## Security considerations

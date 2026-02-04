@@ -13,6 +13,11 @@ This makes wiki farms useful when you want to run several related wikis without 
 
 Even a single-wiki Canasta installation uses the same underlying architecture — it is simply a farm with one wiki. See [General concepts](general-concepts.md) for details on installation structure, wiki IDs, settings, and other topics that apply to all installations.
 
+## Contents
+
+- [How wiki farm URLs work](#how-wiki-farm-urls-work)
+- [Managing a wiki farm](#managing-a-wiki-farm)
+
 ---
 
 ## How wiki farm URLs work
