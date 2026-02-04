@@ -117,29 +117,28 @@ func FetchAndCheckout(path string, dryRun bool) error {
 				fmt.Printf("  %s\n", file)
 			}
 		}
-		// Collect denylist files that exist upstream, plus locally modified ones, deduplicated
 		seen := make(map[string]bool)
-		var allSkipped []string
-		for _, file := range skippedExistUpstream {
-			if !seen[file] {
-				allSkipped = append(allSkipped, file)
-				seen[file] = true
-			}
-		}
-		for _, file := range locallyModified {
-			if !seen[file] {
-				allSkipped = append(allSkipped, file)
-				seen[file] = true
-			}
-		}
-		// Split by whether the file actually exists on disk
 		var preservedFiles []string
 		var absentFiles []string
-		for _, file := range allSkipped {
-			if _, err := os.Stat(filepath.Join(path, file)); err == nil {
-				preservedFiles = append(preservedFiles, file)
-			} else {
-				absentFiles = append(absentFiles, file)
+		// Files that exist in origin/main: split into preserved (on disk) or absent
+		for _, file := range skippedExistUpstream {
+			if !seen[file] {
+				seen[file] = true
+				if _, err := os.Stat(filepath.Join(path, file)); err == nil {
+					preservedFiles = append(preservedFiles, file)
+				} else {
+					absentFiles = append(absentFiles, file)
+				}
+			}
+		}
+		// Locally modified denylist files: only add to preserved if on disk
+		// (don't add to absent — if they don't exist upstream they'd never be restored)
+		for _, file := range locallyModified {
+			if !seen[file] {
+				seen[file] = true
+				if _, err := os.Stat(filepath.Join(path, file)); err == nil {
+					preservedFiles = append(preservedFiles, file)
+				}
 			}
 		}
 		if len(preservedFiles) > 0 {
