@@ -52,6 +52,9 @@ var globalSettingsREADME string
 //go:embed files/wiki-settings-README
 var wikiSettingsREADME string
 
+//go:embed files/Caddyfile.custom
+var caddyfileCustomDefault string
+
 // GetImageWithTag returns the Canasta image reference with the specified tag
 func GetImageWithTag(tag string) string {
 	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, tag)
@@ -506,18 +509,7 @@ func CreateCaddyfileCustom(installPath string) error {
 		return nil
 	}
 
-	content := `# Custom Caddy configuration for this Canasta installation.
-# This file is imported by the auto-generated Caddyfile and is
-# not overwritten when wikis are added or removed.
-#
-# Add your custom Caddy directives below. For example:
-#   header X-Frame-Options "SAMEORIGIN"
-#   header X-Content-Type-Options "nosniff"
-#
-# See https://caddyserver.com/docs/caddyfile/directives for available directives.
-`
-
-	return os.WriteFile(filePath, []byte(content), 0644)
+	return os.WriteFile(filePath, []byte(caddyfileCustomDefault), 0644)
 }
 
 // safePasswordGenerator creates a password generator with symbols that are safe
