@@ -48,6 +48,7 @@ nav:
   - Guides:
     - General Concepts: guide/general-concepts.md
     - Wiki Farms: guide/wiki-farms.md
+    - Extensions and Skins: guide/extensions-and-skins.md
     - Development Mode: guide/devmode.md
     - Backup and Restore: guide/backup.md
     - Best Practices: guide/best-practices.md
