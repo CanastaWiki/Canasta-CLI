@@ -31,7 +31,9 @@ var verbose bool
 var rootCmd = &cobra.Command{
 	Use:   "canasta",
 	Short: "A CLI tool for Canasta installations.",
-	Long:  `A CLI tool to create, import, start, stop and backup multiple Canasta installations`,
+	Long: `Canasta CLI manages Canasta MediaWiki installations using Docker Compose.
+It supports creating, importing, starting, stopping, upgrading, and backing up
+multiple Canasta instances, including wiki farms with multiple wikis per instance.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logging.SetVerbose(verbose)
 		logging.Print("Setting verbose")

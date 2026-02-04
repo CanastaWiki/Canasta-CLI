@@ -18,6 +18,10 @@ func diffCmdCreate() *cobra.Command {
 	diffCmd := &cobra.Command{
 		Use:   "diff",
 		Short: "Show difference between two snapshots",
+		Long: `Show the differences between two Restic snapshots. This compares the file
+contents and metadata of both snapshots, displaying added, removed, and
+modified files.`,
+		Example: `  canasta restic diff -i myinstance --tag1 abc123 --tag2 def456`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			diff()
 			return nil

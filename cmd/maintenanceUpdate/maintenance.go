@@ -23,6 +23,9 @@ func NewCmdCreate() *cobra.Command {
 	maintenanceCmd := &cobra.Command{
 		Use:   "maintenance",
 		Short: "Use to run update and other maintenance scripts",
+		Long: `Run MediaWiki maintenance operations on a Canasta installation. This command
+group provides subcommands to run the standard update jobs (update.php,
+runJobs.php, and SMW rebuildData.php) or execute arbitrary maintenance scripts.`,
 	}
 
 	maintenanceCmd.AddCommand(updateCmdCreate())

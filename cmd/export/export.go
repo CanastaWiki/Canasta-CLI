@@ -22,6 +22,17 @@ func NewCmdCreate() *cobra.Command {
 	exportCmd := &cobra.Command{
 		Use:   "export",
 		Short: "Export the database of a wiki in a Canasta instance",
+		Long: `Export a wiki's database as a SQL dump file. The instance must be running.
+By default the dump is saved to <wikiID>.sql in the current directory.
+Use a .gz extension on the output path to get a gzip-compressed dump.`,
+		Example: `  # Export a wiki's database to the default file
+  canasta export -i myinstance -w main
+
+  # Export to a specific file
+  canasta export -i myinstance -w main -f /backups/main-backup.sql
+
+  # Export as gzipped SQL
+  canasta export -i myinstance -w main -f /backups/main-backup.sql.gz`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 

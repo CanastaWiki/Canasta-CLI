@@ -18,6 +18,9 @@ func NewCmdCreate() *cobra.Command {
 	var versionCmd = &cobra.Command{
 		Use:   "version",
 		Short: "Show the Canasta version",
+		Long: `Display the Canasta CLI version, git commit hash, and build timestamp.
+Shows "dev" if the binary was built without version information.`,
+		Example: `  canasta version`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			v := Version
 			if v == "" {

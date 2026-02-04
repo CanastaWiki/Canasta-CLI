@@ -14,6 +14,9 @@ func checkCmdCreate() *cobra.Command {
 	checkCmd := &cobra.Command{
 		Use:   "check",
 		Short: "Check restic snapshots",
+		Long: `Verify the integrity of the Restic backup repository and its data. This
+checks for errors in the repository structure and snapshot data.`,
+		Example: `  canasta restic check -i myinstance`,
 		Run: func(cmd *cobra.Command, args []string) {
 			check()
 		},

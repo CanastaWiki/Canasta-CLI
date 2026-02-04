@@ -74,6 +74,18 @@ func NewCmdCreate() *cobra.Command {
 	addCmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a new wiki to a Canasta instance",
+		Long: `Add a new wiki to an existing Canasta installation, creating a wiki farm.
+The new wiki is registered in wikis.yaml, the Caddyfile is regenerated,
+and the MediaWiki installer runs for the new wiki. You can also import
+an existing database dump instead of running the installer.`,
+		Example: `  # Add a wiki accessible at localhost/docs
+  canasta add -i myinstance -w docs -u localhost/docs -a admin
+
+  # Add a wiki on a different domain
+  canasta add -i myinstance -w blog -u blog.example.com -a admin
+
+  # Add a wiki with an existing database dump
+  canasta add -i myinstance -w docs -u localhost/docs -d /path/to/dump.sql`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 

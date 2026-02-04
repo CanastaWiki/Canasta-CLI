@@ -28,6 +28,9 @@ func NewCmdCreate() *cobra.Command {
 	var selfUpdateCmd = &cobra.Command{
 		Use:   "self-update",
 		Short: "Update the Canasta CLI to the latest version",
+		Long: `Check for a newer Canasta CLI release on GitHub and install it, replacing
+the current binary. If already up to date, no changes are made.`,
+		Example: `  canasta self-update`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSelfUpdate()
 		},

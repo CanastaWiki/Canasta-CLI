@@ -44,7 +44,18 @@ func NewCmdCreate() *cobra.Command {
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a Canasta installation",
-		Long:  "Creates a Canasta installation using an orchestrator of your choice.",
+		Long: `Create a new Canasta MediaWiki installation. This clones the Docker Compose
+stack, generates configuration files, starts the containers, and runs the
+MediaWiki installer. You can optionally import an existing database dump
+instead of running the installer, or enable development mode with Xdebug.`,
+		Example: `  # Create a basic single-wiki installation
+  canasta create -i myinstance -w main -a admin -n example.com
+
+  # Create with an existing database dump
+  canasta create -i myinstance -w main -d /path/to/dump.sql -n example.com
+
+  # Create with development mode enabled
+  canasta create -i myinstance -w main -a admin -n localhost -D`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate wiki ID if yamlPath not provided
 			if yamlPath == "" {

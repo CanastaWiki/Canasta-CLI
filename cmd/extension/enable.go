@@ -13,6 +13,17 @@ func enableCmdCreate() *cobra.Command {
 	enableCmd := &cobra.Command{
 		Use:   "enable EXTENSION1,EXTENSION2,...",
 		Short: "Enable a Canasta extension",
+		Long: `Enable one or more Canasta extensions by name. Multiple extensions can be
+specified as a comma-separated list. Use the --wiki flag to enable an
+extension for a specific wiki only.`,
+		Example: `  # Enable a single extension
+  canasta extension enable VisualEditor -i myinstance
+
+  # Enable multiple extensions at once
+  canasta extension enable VisualEditor,Cite,ParserFunctions -i myinstance
+
+  # Enable an extension for a specific wiki
+  canasta extension enable VisualEditor -i myinstance -w docs`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			extensions := strings.Split(args[0], ",")

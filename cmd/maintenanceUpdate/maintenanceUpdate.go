@@ -15,6 +15,10 @@ func updateCmdCreate() *cobra.Command {
 	updateCmd := &cobra.Command{
 		Use:   "update",
 		Short: "Run maintenance update jobs",
+		Long: `Run the standard MediaWiki maintenance update sequence: update.php,
+runJobs.php, and Semantic MediaWiki's rebuildData.php. This is typically
+needed after upgrading MediaWiki or enabling new extensions.`,
+		Example: `  canasta maintenance update -i myinstance`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			instance, err = canasta.CheckCanastaId(instance)
 			return err

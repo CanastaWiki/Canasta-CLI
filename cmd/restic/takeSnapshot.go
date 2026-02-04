@@ -17,6 +17,12 @@ func takeSnapshotCmdCreate() *cobra.Command {
 	takeSnapshotCmd := &cobra.Command{
 		Use:   "take-snapshot",
 		Short: "Take restic snapshots",
+		Long: `Take a new backup snapshot of the Canasta installation. This dumps the
+database, copies configuration files, extensions, images, and skins into
+a staging directory, then uploads the snapshot to the Restic repository
+with the specified tag.`,
+		Example: `  # Take a snapshot with a descriptive tag
+  canasta restic take-snapshot -i myinstance -t before-upgrade`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			takeSnapshot(tag)

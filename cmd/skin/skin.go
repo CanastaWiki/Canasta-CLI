@@ -31,6 +31,9 @@ func NewCmdCreate() *cobra.Command {
 	skinCmd = &cobra.Command{
 		Use:   "skin",
 		Short: "Manage Canasta skins",
+		Long: `Manage MediaWiki skins in a Canasta installation. Subcommands allow you
+to list all available skins, and enable or disable them globally or for
+a specific wiki in a farm.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			instance, err = canasta.CheckCanastaId(instance)

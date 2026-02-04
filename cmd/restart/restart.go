@@ -29,6 +29,14 @@ func NewCmdCreate() *cobra.Command {
 	var restartCmd = &cobra.Command{
 		Use:   "restart",
 		Short: "Restart the Canasta installation",
+		Long: `Restart a Canasta installation by stopping and then starting all Docker
+containers. Any pending configuration migrations are applied during the
+restart. Use --dev or --no-dev to change the development mode setting.`,
+		Example: `  # Restart an installation by ID
+  canasta restart -i myinstance
+
+  # Restart and enable development mode
+  canasta restart -i myinstance -D`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			if instance.Id == "" && len(args) > 0 {

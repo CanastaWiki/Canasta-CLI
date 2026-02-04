@@ -30,6 +30,10 @@ func NewCmdCreate() *cobra.Command {
 	resticCmd = &cobra.Command{
 		Use:   "restic",
 		Short: "Use restic to backup and restore Canasta",
+		Long: `Manage backups of a Canasta installation using Restic. Subcommands allow you
+to initialize a backup repository, take and restore snapshots, view and compare
+snapshots, and schedule recurring backups. Requires RESTIC_REPOSITORY (or
+AWS S3 settings) and RESTIC_PASSWORD to be configured in the installation's .env file.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			instance, err = canasta.CheckCanastaId(instance)

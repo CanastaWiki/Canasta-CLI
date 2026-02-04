@@ -13,6 +13,14 @@ func disableCmdCreate() *cobra.Command {
 	disableCmd := &cobra.Command{
 		Use:   "disable EXTENSION1,EXTENSION2,...",
 		Short: "Disable a Canasta extension",
+		Long: `Disable one or more Canasta extensions by name. Multiple extensions can be
+specified as a comma-separated list. Use the --wiki flag to disable an
+extension for a specific wiki only.`,
+		Example: `  # Disable a single extension
+  canasta extension disable VisualEditor -i myinstance
+
+  # Disable an extension for a specific wiki
+  canasta extension disable VisualEditor -i myinstance -w docs`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			extensions := strings.Split(args[0], ",")

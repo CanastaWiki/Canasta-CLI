@@ -23,6 +23,10 @@ func NewCmdCreate() *cobra.Command {
 	var stopCmd = &cobra.Command{
 		Use:   "stop",
 		Short: "Shuts down the Canasta installation",
+		Long: `Stop all Docker containers for a Canasta installation. The containers
+are stopped gracefully, preserving all data in Docker volumes.`,
+		Example: `  # Stop an installation by ID
+  canasta stop -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
