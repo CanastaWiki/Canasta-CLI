@@ -1,5 +1,20 @@
 # Wiki farms
 
+## Contents
+
+- [What is a wiki farm?](#what-is-a-wiki-farm)
+- [How wiki farm URLs work](#how-wiki-farm-urls-work)
+  - [Path-based wikis](#path-based-wikis)
+  - [Subdomain-based wikis](#subdomain-based-wikis)
+  - [Mixed](#mixed)
+- [Managing a wiki farm](#managing-a-wiki-farm)
+  - [Viewing wikis](#viewing-wikis)
+  - [Per-wiki extension and skin management](#per-wiki-extension-and-skin-management)
+  - [Removing a wiki](#removing-a-wiki)
+  - [Deleting the entire farm](#deleting-the-entire-farm)
+
+---
+
 ## What is a wiki farm?
 
 A wiki farm is a single Canasta installation that hosts multiple wikis. All wikis in a farm share the same MediaWiki software, Docker containers, Caddy reverse proxy, and can share global PHP settings, extensions, and skins. At the same time, each wiki has its own:
@@ -12,11 +27,6 @@ A wiki farm is a single Canasta installation that hosts multiple wikis. All wiki
 This makes wiki farms useful when you want to run several related wikis without the overhead of separate Docker stacks for each one, while still being able to configure each wiki individually where needed.
 
 Even a single-wiki Canasta installation uses the same underlying architecture — it is simply a farm with one wiki. See [General concepts](general-concepts.md) for details on installation structure, wiki IDs, settings, and other topics that apply to all installations.
-
-## Contents
-
-- [How wiki farm URLs work](#how-wiki-farm-urls-work)
-- [Managing a wiki farm](#managing-a-wiki-farm)
 
 ---
 
