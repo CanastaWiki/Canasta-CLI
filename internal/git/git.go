@@ -2,6 +2,8 @@ package git
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
@@ -100,9 +102,24 @@ func FetchAndCheckout(path string, dryRun bool) error {
 				fmt.Printf("  %s\n", file)
 			}
 		}
-		if len(skippedFiles) > 0 {
-			fmt.Println("Files that differ from upstream but will be preserved locally (if they exist):")
-			for _, file := range skippedFiles {
+		var preservedFiles []string
+		var absentFiles []string
+		for _, file := range skippedFiles {
+			if _, err := os.Stat(filepath.Join(path, file)); err == nil {
+				preservedFiles = append(preservedFiles, file)
+			} else {
+				absentFiles = append(absentFiles, file)
+			}
+		}
+		if len(preservedFiles) > 0 {
+			fmt.Println("Files that differ from upstream but will be preserved locally:")
+			for _, file := range preservedFiles {
+				fmt.Printf("  %s\n", file)
+			}
+		}
+		if len(absentFiles) > 0 {
+			fmt.Println("Files absent locally that will not be restored from upstream:")
+			for _, file := range absentFiles {
 				fmt.Printf("  %s\n", file)
 			}
 		}
