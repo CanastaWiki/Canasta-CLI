@@ -63,7 +63,7 @@ After creating a Canasta installation, the directory contains:
 │       │   └── *.php
 │       └── wikis/
 │           └── {wiki-id}/         # PHP settings loaded for a specific wiki
-│               └── Settings.php
+│               └── *.php
 ├── extensions/                    # User extensions
 └── skins/                        # User skins
 ```

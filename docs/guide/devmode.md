@@ -263,7 +263,7 @@ installation/
 │       │   └── *.php
 │       └── wikis/
 │           └── {wikiid}/     # PHP settings loaded for a specific wiki
-│               └── Settings.php
+│               └── *.php
 ├── docker-compose.yml
 ├── docker-compose.override.yml
 ├── docker-compose.dev.yml    # Dev mode compose overlay
