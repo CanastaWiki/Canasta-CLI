@@ -2,6 +2,17 @@
 
 This guide covers installing and uninstalling the Canasta command line interface (CLI).
 
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Install](#install)
+- [Verify installation](#verify-installation)
+- [Updating](#updating)
+- [Uninstall](#uninstall)
+- [Post-installation notes](#post-installation-notes)
+
+---
+
 ## Prerequisites
 
 Before using the Canasta CLI, you must have both Docker Engine and Docker Compose installed.
