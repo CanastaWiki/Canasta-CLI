@@ -195,7 +195,7 @@ func runMigration(installPath string, dryRun bool) (bool, error) {
 	// Step 4: Create Caddyfile.custom and update Caddyfile with import directive
 	caddyChanged, err := createCaddyfileCustom(installPath, dryRun)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if caddyChanged {
 		changed = true
