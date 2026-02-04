@@ -140,13 +140,13 @@ func FetchAndCheckout(path string, dryRun bool) error {
 			}
 		}
 		if len(preservedFiles) > 0 {
-			fmt.Println("Files with local modifications that will be preserved:")
+			fmt.Println("Files with local modifications that would be preserved:")
 			for _, file := range preservedFiles {
 				fmt.Printf("  %s\n", file)
 			}
 		}
 		if len(absentFiles) > 0 {
-			fmt.Println("Files absent locally that will not be restored from upstream:")
+			fmt.Println("Files absent locally that would not be restored from upstream:")
 			for _, file := range absentFiles {
 				fmt.Printf("  %s\n", file)
 			}
