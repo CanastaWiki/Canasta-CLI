@@ -38,7 +38,7 @@ func Cloneb(repo, path string, branch string) error {
 // origin/main, skipping user-modifiable files listed in skipPaths. This avoids
 // merge conflicts when local commits diverge from upstream and preserves any
 // files the user has customized or deleted.
-func FetchAndCheckout(path string) error {
+func FetchAndCheckout(path string, dryRun bool) error {
 	// Fetch latest from origin
 	err, output := execute.Run(path, "git", "fetch", "origin")
 	if err != nil {
@@ -53,16 +53,36 @@ func FetchAndCheckout(path string) error {
 
 	// Filter out denied paths
 	var filesToUpdate []string
+	var skippedFiles []string
 	for _, file := range strings.Split(strings.TrimSpace(output), "\n") {
 		if file == "" {
 			continue
 		}
-		if !isSkipped(file) {
+		if isSkipped(file) {
+			skippedFiles = append(skippedFiles, file)
+		} else {
 			filesToUpdate = append(filesToUpdate, file)
 		}
 	}
 
-	if len(filesToUpdate) == 0 {
+	if len(filesToUpdate) == 0 && len(skippedFiles) == 0 {
+		fmt.Println("Repo is up to date with origin/main.")
+		return nil
+	}
+
+	if dryRun {
+		if len(filesToUpdate) > 0 {
+			fmt.Println("Files that would be updated from upstream:")
+			for _, file := range filesToUpdate {
+				fmt.Printf("  %s\n", file)
+			}
+		}
+		if len(skippedFiles) > 0 {
+			fmt.Println("Files that differ from upstream but will be preserved locally:")
+			for _, file := range skippedFiles {
+				fmt.Printf("  %s\n", file)
+			}
+		}
 		return nil
 	}
 

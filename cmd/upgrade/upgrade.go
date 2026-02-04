@@ -115,13 +115,12 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		fmt.Println("Dry run mode - showing what would change without applying")
 	}
 
-	if !dryRun {
-		fmt.Print("Pulling the latest changes\n")
-		// Pull the latest changes from GitHub
-		if err = git.FetchAndCheckout(instance.Path); err != nil {
-			return err
-		}
+	fmt.Println("Checking for repo changes...")
+	if err = git.FetchAndCheckout(instance.Path, dryRun); err != nil {
+		return err
+	}
 
+	if !dryRun {
 		if err = orchestrators.Pull(instance.Path, instance.Orchestrator); err != nil {
 			return err
 		}
