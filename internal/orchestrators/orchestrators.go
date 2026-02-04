@@ -127,12 +127,12 @@ func Pull(installPath, orchestrator string) error {
 	case "compose":
 		compose := config.GetOrchestrator("compose")
 		if compose.Path != "" {
-			err, output := execute.Run(installPath, compose.Path, "pull", "--ignore-buildable")
+			err, output := execute.Run(installPath, compose.Path, "pull", "--ignore-buildable", "--ignore-pull-failures")
 			if err != nil {
 				return fmt.Errorf(output)
 			}
 		} else {
-			err, output := execute.Run(installPath, "docker", "compose", "pull", "--ignore-buildable")
+			err, output := execute.Run(installPath, "docker", "compose", "pull", "--ignore-buildable", "--ignore-pull-failures")
 			if err != nil {
 				return fmt.Errorf(output)
 			}
