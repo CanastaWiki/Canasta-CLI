@@ -118,7 +118,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	if !dryRun {
 		fmt.Print("Pulling the latest changes\n")
 		// Pull the latest changes from GitHub
-		if err = git.Pull(instance.Path); err != nil {
+		if err = git.FetchAndCheckout(instance.Path); err != nil {
 			return err
 		}
 
