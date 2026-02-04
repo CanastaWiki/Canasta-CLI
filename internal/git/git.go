@@ -101,7 +101,7 @@ func FetchAndCheckout(path string, dryRun bool) error {
 			}
 		}
 		if len(skippedFiles) > 0 {
-			fmt.Println("Files that differ from upstream but will be preserved locally:")
+			fmt.Println("Files that differ from upstream but will be preserved locally (if they exist):")
 			for _, file := range skippedFiles {
 				fmt.Printf("  %s\n", file)
 			}
