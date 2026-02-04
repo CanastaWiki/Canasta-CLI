@@ -54,13 +54,13 @@ func FetchAndCheckout(path string, dryRun bool) error {
 	}
 
 	var filesToUpdate []string
-	var skippedFiles []string
+	var skippedExistUpstream []string // denylist files that exist in origin/main
 	for _, file := range strings.Split(strings.TrimSpace(output), "\n") {
 		if file == "" {
 			continue
 		}
 		if isSkipped(file) {
-			skippedFiles = append(skippedFiles, file)
+			skippedExistUpstream = append(skippedExistUpstream, file)
 		} else {
 			filesToUpdate = append(filesToUpdate, file)
 		}
@@ -77,9 +77,7 @@ func FetchAndCheckout(path string, dryRun bool) error {
 		if file == "" {
 			continue
 		}
-		if isSkipped(file) {
-			skippedFiles = append(skippedFiles, file)
-		} else {
+		if !isSkipped(file) {
 			filesToRemove = append(filesToRemove, file)
 		}
 	}
@@ -101,7 +99,7 @@ func FetchAndCheckout(path string, dryRun bool) error {
 		}
 	}
 
-	if len(filesToUpdate) == 0 && len(filesToRemove) == 0 && len(skippedFiles) == 0 && len(locallyModified) == 0 {
+	if len(filesToUpdate) == 0 && len(filesToRemove) == 0 && len(skippedExistUpstream) == 0 && len(locallyModified) == 0 {
 		fmt.Println("Repo is up to date with origin/main.")
 		return nil
 	}
@@ -119,10 +117,10 @@ func FetchAndCheckout(path string, dryRun bool) error {
 				fmt.Printf("  %s\n", file)
 			}
 		}
-		// Collect all denylist files from both sources, deduplicated
+		// Collect denylist files that exist upstream, plus locally modified ones, deduplicated
 		seen := make(map[string]bool)
 		var allSkipped []string
-		for _, file := range skippedFiles {
+		for _, file := range skippedExistUpstream {
 			if !seen[file] {
 				allSkipped = append(allSkipped, file)
 				seen[file] = true
