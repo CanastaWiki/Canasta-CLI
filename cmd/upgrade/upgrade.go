@@ -183,6 +183,15 @@ func runMigration(installPath string, dryRun bool) error {
 		changed = true
 	}
 
+	// Step 4: Create Caddyfile.custom and update Caddyfile with import directive
+	caddyChanged, err := createCaddyfileCustom(installPath, dryRun)
+	if err != nil {
+		return err
+	}
+	if caddyChanged {
+		changed = true
+	}
+
 	if !changed {
 		fmt.Println("No migrations needed.")
 	} else if dryRun {
@@ -349,6 +358,33 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 	}
 
 	return changed, nil
+}
+
+// createCaddyfileCustom creates Caddyfile.custom if it doesn't exist and rewrites
+// the Caddyfile to include the import directive for custom configuration
+func createCaddyfileCustom(installPath string, dryRun bool) (bool, error) {
+	customPath := filepath.Join(installPath, "config", "Caddyfile.custom")
+
+	// Check if Caddyfile.custom already exists
+	if _, err := os.Stat(customPath); err == nil {
+		return false, nil
+	}
+
+	if dryRun {
+		fmt.Println("  Would create config/Caddyfile.custom")
+		fmt.Println("  Would update config/Caddyfile with import directive")
+	} else {
+		fmt.Println("  Creating config/Caddyfile.custom")
+		if err := canasta.CreateCaddyfileCustom(installPath); err != nil {
+			return false, fmt.Errorf("failed to create Caddyfile.custom: %w", err)
+		}
+		fmt.Println("  Updating config/Caddyfile with import directive")
+		if err := canasta.RewriteCaddy(installPath); err != nil {
+			return false, fmt.Errorf("failed to rewrite Caddyfile: %w", err)
+		}
+	}
+
+	return true, nil
 }
 
 // fixVectorDefaultSkin ensures Vector.php includes $wgDefaultSkin if it exists
