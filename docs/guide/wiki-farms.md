@@ -15,7 +15,27 @@ Even a single-wiki Canasta installation uses the same underlying farm architectu
 
 ---
 
-## How URLs work
+## Wiki IDs
+
+Every wiki in a Canasta installation has a **wiki ID** — a short identifier used to refer to it in CLI commands, configuration files, and directory names. You set the wiki ID when creating or adding a wiki with the `-w` flag:
+
+```bash
+sudo canasta create -i myfarm -w mainwiki -n example.com -a admin
+sudo canasta add -i myfarm -w docs -u example.com/docs -a admin
+```
+
+The wiki ID is used as:
+
+- The MySQL database name for that wiki
+- The directory name under `config/settings/wikis/`
+- The suffix in the admin password file (`config/admin-password_{wikiid}`)
+- The value passed to `-w` in commands like `canasta extension`, `canasta remove`, and `canasta export`
+
+Wiki IDs may contain only alphanumeric characters and underscores. Hyphens are not allowed. The names `settings`, `images`, `w`, and `wiki` are reserved. See [Wiki ID naming rules](best-practices.md#wiki-id-naming-rules) for details.
+
+---
+
+## How wiki farm URLs work
 
 Each wiki in a farm is identified by its URL, which determines how users reach it. The URL is set when you create or add a wiki and is stored in `config/wikis.yaml`.
 
