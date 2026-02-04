@@ -68,7 +68,8 @@ After creating a Canasta installation, the directory contains:
 ├── docker-compose.override.yml    # Optional custom overrides
 ├── config/
 │   ├── wikis.yaml                 # Wiki definition (IDs, URLs, display names)
-│   ├── Caddyfile                  # Generated reverse proxy config
+│   ├── Caddyfile                  # Generated reverse proxy config (do not edit)
+│   ├── Caddyfile.custom           # User customizations for Caddy
 │   ├── admin-password_{wiki-id}   # Generated admin password per wiki
 │   └── settings/
 │       ├── global/                # PHP settings loaded for all wikis
@@ -104,6 +105,19 @@ wikis:
 ```
 
 The `url` field uses `domain/path` format without the protocol. The Caddyfile is regenerated from this file whenever wikis are added or removed.
+
+### Caddyfile and Caddyfile.custom
+
+Canasta uses [Caddy](https://caddyserver.com/) as its reverse proxy. The `config/Caddyfile` is auto-generated from `wikis.yaml` and is overwritten whenever wikis are added or removed — do not edit it directly.
+
+To add custom Caddy directives, edit `config/Caddyfile.custom`. This file is imported by the generated Caddyfile and is never overwritten. For example:
+
+```
+header X-Frame-Options "SAMEORIGIN"
+header X-Content-Type-Options "nosniff"
+```
+
+See the [Caddy documentation](https://caddyserver.com/docs/caddyfile/directives) for available directives.
 
 ### Settings
 

@@ -255,7 +255,8 @@ installation/
 │       └── Listen_for_Xdebug.xml  # PHPStorm run configuration
 ├── config/
 │   ├── wikis.yaml            # Wiki farm configuration
-│   ├── Caddyfile             # Reverse proxy configuration
+│   ├── Caddyfile             # Generated reverse proxy config (do not edit)
+│   ├── Caddyfile.custom      # User customizations for Caddy
 │   ├── xdebug.ini            # Xdebug configuration
 │   ├── admin-password_{wikiid}  # Generated admin password per wiki
 │   └── settings/
