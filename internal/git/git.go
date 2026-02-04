@@ -173,6 +173,13 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 		}
 	}
 
+	// Move HEAD and index to origin/main so future diffs reflect the updated state.
+	// Working tree is left as-is (denylist files keep their local changes).
+	err, output = execute.Run(path, "git", "reset", "origin/main")
+	if err != nil {
+		return false, fmt.Errorf(output)
+	}
+
 	return true, nil
 }
 
