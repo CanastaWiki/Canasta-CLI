@@ -16,7 +16,7 @@ Canasta CLI supports the following platforms:
 **Description:** Creates a Canasta installation. Enhanced to support wiki farm setup with the `-f` flag.
 
 **Usage:**
-sudo canasta create [flags]
+canasta create [flags]
 - `-p, --path`: Canasta directory.
 - `-o, --orchestrator`: Orchestrator to use for installation (default: "compose").
 - `-i, --id`: Canasta instance ID.
@@ -44,7 +44,7 @@ wikis:
 Then run the following:
 
 ```bash
-sudo canasta create -f [yamlfile] # Example: "wikis.yaml"
+canasta create -f [yamlfile] # Example: "wikis.yaml"
 ```
 
 ### extension
@@ -57,7 +57,7 @@ sudo canasta create -f [yamlfile] # Example: "wikis.yaml"
 
 **Usage:**
 ```bash
-sudo canasta extension [subcommand] [flags]
+canasta extension [subcommand] [flags]
 ```
 **Flags:**
 - `-i, --id`: Specifies the Canasta instance ID.
@@ -70,7 +70,7 @@ sudo canasta extension [subcommand] [flags]
 
 **Usage:**
 ```bash
-sudo canasta add [flags]
+canasta add [flags]
 ```
 **Flags:**
 - `-w, --wiki`: ID of the new wiki (required).
@@ -90,7 +90,7 @@ sudo canasta add [flags]
 
 **Usage:**
 ```bash
-sudo canasta remove [flags]
+canasta remove [flags]
 ```
 **Flags:**
 - `-w, --wiki`: ID of the wiki to be removed.

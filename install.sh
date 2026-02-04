@@ -238,7 +238,7 @@ main() {
   download_and_install
   if [ "$SKIP_CHECKS" = false ]; then
     echo "Please make sure you have a working kubectl if you wish to use Kubernetes as an orchestrator."
-    echo -e "\nUsage: sudo canasta [COMMAND] [ARGUMENTS...]"
+    echo -e "\nUsage: canasta [COMMAND] [ARGUMENTS...]"
   fi
 }
 main "$@"
