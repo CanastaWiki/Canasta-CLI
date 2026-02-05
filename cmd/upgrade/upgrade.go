@@ -398,13 +398,9 @@ func createCaddyfileCustom(installPath string, dryRun bool) (bool, error) {
 
 // fixVectorDefaultSkin ensures Vector.php includes $wgDefaultSkin if it exists
 func fixVectorDefaultSkin(installPath string, dryRun bool) (bool, error) {
-	// Check both names: legacy "Vector.php" and current "30-Vector.php" (after git pull)
 	vectorPath := filepath.Join(installPath, "config", "settings", "global", "Vector.php")
 	if _, err := os.Stat(vectorPath); err != nil {
-		vectorPath = filepath.Join(installPath, "config", "settings", "global", "30-Vector.php")
-		if _, err := os.Stat(vectorPath); err != nil {
-			return false, nil // Neither file exists, nothing to fix
-		}
+		return false, nil // File doesn't exist, nothing to fix
 	}
 
 	content, err := os.ReadFile(vectorPath)

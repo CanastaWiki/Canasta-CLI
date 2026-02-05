@@ -1,17 +1,22 @@
 # Global Settings Directory
 
 This directory contains PHP configuration files that apply to ALL wikis in your
-Canasta installation. Files are loaded automatically in alphabetical order.
+Canasta installation. Files are loaded automatically in lexicographic order.
 
-## File Naming Convention
+## Load Order
 
-Use two-digit numeric prefixes (00-99) to control load order. For example:
+All .php files in this directory are loaded automatically in lexicographic order.
+You can optionally use numeric prefixes to control load order:
 
-    00-first.php               # Loaded first
-    30-Vector.php              # Loaded early (default skin configuration)
-    50-extensions.php          # Loaded in the middle
-    90-CanastaFooterIcon.php   # Loaded late (footer icons)
-    99-final.php               # Loaded last (final overrides)
+    10-MySkin.php
+    50-Extensions.php
+    90-Footer.php
+
+But plain names work fine:
+
+    Vector.php
+    CanastaFooterIcon.php
+    MyExtensions.php
 
 ## What to Configure Here
 

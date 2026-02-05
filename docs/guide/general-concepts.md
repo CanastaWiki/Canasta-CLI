@@ -122,7 +122,7 @@ See the [Caddy documentation](https://caddyserver.com/docs/caddyfile/directives)
 
 ### Settings
 
-Settings files are PHP files placed in the settings directories and loaded in alphabetical order:
+Settings files are PHP files placed in the settings directories and loaded in lexicographic order:
 
 - **Global settings** (`config/settings/global/*.php`) — loaded for every wiki
 - **Per-wiki settings** (`config/settings/wikis/{wiki-id}/*.php`) — loaded only for that wiki
