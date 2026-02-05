@@ -51,12 +51,12 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Guides:
-    - General Concepts: guide/general-concepts.md
-    - Wiki Farms: guide/wiki-farms.md
-    - Extensions and Skins: guide/extensions-and-skins.md
-    - Development Mode: guide/devmode.md
-    - Backup and Restore: guide/backup.md
-    - Best Practices: guide/best-practices.md
+    - General concepts: guide/general-concepts.md
+    - Wiki farms: guide/wiki-farms.md
+    - Extensions and skins: guide/extensions-and-skins.md
+    - Development mode: guide/devmode.md
+    - Backup and restore: guide/backup.md
+    - Best practices: guide/best-practices.md
     - Troubleshooting: guide/troubleshooting.md
   - CLI Reference:
     - Overview: cli/canasta.md
