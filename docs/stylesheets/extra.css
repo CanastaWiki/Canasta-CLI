@@ -1,9 +1,6 @@
 [data-md-color-scheme="default"] {
   --md-primary-fg-color: #666666;
   --md-accent-fg-color: #b2dc0a;
-  .md-typeset table:not([class]) th {
-    background: #eeffcc;
-  }
 }
 
 [data-md-color-scheme="slate"] {
@@ -16,4 +13,7 @@ h2 {
 }
 .md-typeset hr {
   border: none; /* Since there are already green lines to demarcate a new section, we should take out the other lines. */
+}
+[data-md-color-scheme="default"] .md-typeset table:not([class]) th {
+  background: #eeffcc;
 }
