@@ -11,3 +11,6 @@
 h2 {
   border-bottom: 1px solid #ccff00;
 }
+.md-typeset hr {
+  border: none; /* If there are already green lines, we should take out the other lines. */
+}
