@@ -17,3 +17,6 @@ h2 {
 [data-md-color-scheme="default"] .md-typeset table:not([class]) th {
   background: #eeffcc;
 }
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) th {
+  background: #3a4801;
+}
