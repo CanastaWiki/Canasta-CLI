@@ -30,17 +30,17 @@ curl -fsSL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/instal
 canasta create -i myinstance -w wiki1 -a admin -n localhost
 ```
 
-## Next Steps
+## Next steps
 
-- [Installation Guide](installation.md) - Detailed installation instructions
-- [CLI Reference](cli/canasta.md) - Complete command documentation
+- [Installation guide](installation.md) - Detailed installation instructions
+- [CLI reference](cli/canasta.md) - Complete command documentation
 
 ### Guides
 
-- [General Concepts](guide/general-concepts.md) - Installation IDs, wiki IDs, directory structure, settings, and configuration
-- [Wiki Farms](guide/wiki-farms.md) - Running multiple wikis in one installation
-- [Extensions and Skins](guide/extensions-and-skins.md) - Enabling, disabling, and adding extensions and skins
-- [Development Mode](guide/devmode.md) - Live code editing and Xdebug debugging
-- [Backup and Restore](guide/backup.md) - Setting up backups with restic
-- [Best Practices](guide/best-practices.md) - Security considerations and best practices
+- [General concepts](guide/general-concepts.md) - Installation IDs, wiki IDs, directory structure, settings, and configuration
+- [Wiki farms](guide/wiki-farms.md) - Running multiple wikis in one installation
+- [Extensions and skins](guide/extensions-and-skins.md) - Enabling, disabling, and adding extensions and skins
+- [Development mode](guide/devmode.md) - Live code editing and Xdebug debugging
+- [Backup and restore](guide/backup.md) - Setting up backups with restic
+- [Best practices](guide/best-practices.md) - Security considerations and best practices
 - [Troubleshooting](guide/troubleshooting.md) - Common issues and debugging
