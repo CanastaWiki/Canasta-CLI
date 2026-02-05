@@ -1,15 +1,21 @@
 # Per-Wiki Settings Directory: {WIKI_ID}
 
 This directory contains PHP configuration files specific to this wiki.
-Files are loaded automatically in alphabetical order, AFTER global settings.
+Files are loaded automatically in lexicographic order, AFTER global settings.
 
-## File Naming Convention
+## Load Order
 
-Use two-digit numeric prefixes (00-99) to control load order. For example:
+All .php files in this directory are loaded automatically in lexicographic order.
+You can optionally use numeric prefixes to control load order:
 
-    00-first.php   # Loaded first (within this wiki's directory)
+    10-first.php   # Loaded first (within this wiki's directory)
     50-logo.php    # Loaded in the middle
-    99-final.php   # Loaded last (final overrides)
+    90-final.php   # Loaded last (final overrides)
+
+But plain names work fine:
+
+    Logo.php
+    Permissions.php
 
 ## What to Configure Here
 
