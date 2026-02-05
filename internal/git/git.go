@@ -100,8 +100,34 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 	}
 
 	if len(filesToUpdate) == 0 && len(filesToRemove) == 0 && len(skippedExistUpstream) == 0 && len(locallyModified) == 0 {
-		fmt.Println("Repo is up to date with origin/main.")
+		fmt.Println("Configuration files are up to date.")
 		return false, nil
+	}
+
+	// Categorize preserved and absent files (used for output in both modes)
+	seen := make(map[string]bool)
+	var preservedFiles []string
+	var absentFiles []string
+	// Files that exist in origin/main: split into preserved (on disk) or absent
+	for _, file := range skippedExistUpstream {
+		if !seen[file] {
+			seen[file] = true
+			if _, err := os.Stat(filepath.Join(path, file)); err == nil {
+				preservedFiles = append(preservedFiles, file)
+			} else {
+				absentFiles = append(absentFiles, file)
+			}
+		}
+	}
+	// Locally modified denylist files: only add to preserved if on disk
+	// (don't add to absent — if they don't exist upstream they'd never be restored)
+	for _, file := range locallyModified {
+		if !seen[file] {
+			seen[file] = true
+			if _, err := os.Stat(filepath.Join(path, file)); err == nil {
+				preservedFiles = append(preservedFiles, file)
+			}
+		}
 	}
 
 	if dryRun {
@@ -115,30 +141,6 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 			fmt.Println("Files that would be removed (deleted upstream):")
 			for _, file := range filesToRemove {
 				fmt.Printf("  %s\n", file)
-			}
-		}
-		seen := make(map[string]bool)
-		var preservedFiles []string
-		var absentFiles []string
-		// Files that exist in origin/main: split into preserved (on disk) or absent
-		for _, file := range skippedExistUpstream {
-			if !seen[file] {
-				seen[file] = true
-				if _, err := os.Stat(filepath.Join(path, file)); err == nil {
-					preservedFiles = append(preservedFiles, file)
-				} else {
-					absentFiles = append(absentFiles, file)
-				}
-			}
-		}
-		// Locally modified denylist files: only add to preserved if on disk
-		// (don't add to absent — if they don't exist upstream they'd never be restored)
-		for _, file := range locallyModified {
-			if !seen[file] {
-				seen[file] = true
-				if _, err := os.Stat(filepath.Join(path, file)); err == nil {
-					preservedFiles = append(preservedFiles, file)
-				}
 			}
 		}
 		if len(preservedFiles) > 0 {
@@ -163,13 +165,37 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf(output)
 		}
+		fmt.Println("Files updated from upstream:")
+		for _, file := range filesToUpdate {
+			fmt.Printf("  %s\n", file)
+		}
 	}
 
 	// Remove files that were deleted in origin/main
-	for _, file := range filesToRemove {
-		filePath := filepath.Join(path, file)
-		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
-			return false, fmt.Errorf("failed to remove %s: %w", file, err)
+	if len(filesToRemove) > 0 {
+		for _, file := range filesToRemove {
+			filePath := filepath.Join(path, file)
+			if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+				return false, fmt.Errorf("failed to remove %s: %w", file, err)
+			}
+		}
+		fmt.Println("Files removed (deleted upstream):")
+		for _, file := range filesToRemove {
+			fmt.Printf("  %s\n", file)
+		}
+	}
+
+	// Print preserved and absent files
+	if len(preservedFiles) > 0 {
+		fmt.Println("Files with local changes preserved:")
+		for _, file := range preservedFiles {
+			fmt.Printf("  %s\n", file)
+		}
+	}
+	if len(absentFiles) > 0 {
+		fmt.Println("Files absent locally not restored from upstream:")
+		for _, file := range absentFiles {
+			fmt.Printf("  %s\n", file)
 		}
 	}
 

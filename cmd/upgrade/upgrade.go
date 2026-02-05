@@ -115,15 +115,27 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		fmt.Println("Dry run mode - showing what would change without applying")
 	}
 
-	fmt.Println("Checking for repo changes...")
+	fmt.Println("Checking for configuration file updates...")
 	repoChanged, err := git.FetchAndCheckout(instance.Path, dryRun)
 	if err != nil {
 		return err
 	}
 
+	var imagesUpdated bool
 	if !dryRun {
-		if err = orchestrators.Pull(instance.Path, instance.Orchestrator); err != nil {
+		fmt.Println("Pulling Canasta container images...")
+		report, err := orchestrators.PullWithReport(instance.Path, instance.Orchestrator)
+		if err != nil {
 			return err
+		}
+		if len(report.UpdatedImages) > 0 {
+			imagesUpdated = true
+			fmt.Println("Container images updated:")
+			for _, img := range report.UpdatedImages {
+				fmt.Printf("  %s (%s)\n", img.Service, img.Image)
+			}
+		} else {
+			fmt.Println("Container images are up to date.")
 		}
 	}
 
@@ -154,7 +166,14 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Print("Canasta Upgraded!\n")
+
+	// Print summary
+	fmt.Println()
+	if repoChanged || migrationsNeeded || imagesUpdated {
+		fmt.Println("Canasta upgraded successfully!")
+	} else {
+		fmt.Println("Installation was already up to date. Containers restarted.")
+	}
 
 	return nil
 }
@@ -220,7 +239,6 @@ func extractSecretKey(installPath string, dryRun bool) (bool, error) {
 	// Check if MW_SECRET_KEY is already set in .env
 	envVars := canasta.GetEnvVariable(envPath)
 	if val, ok := envVars["MW_SECRET_KEY"]; ok && val != "" {
-		fmt.Println("  MW_SECRET_KEY already set in .env, skipping extraction")
 		return false, nil
 	}
 

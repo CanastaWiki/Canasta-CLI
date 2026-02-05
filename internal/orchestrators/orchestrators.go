@@ -143,6 +143,146 @@ func Pull(installPath, orchestrator string) error {
 	return nil
 }
 
+// ImageInfo holds information about a Docker image
+type ImageInfo struct {
+	Service   string
+	Image     string
+	ID        string
+	CreatedAt string
+}
+
+// ImageUpdateReport describes what changed during a pull
+type ImageUpdateReport struct {
+	UpdatedImages   []ImageInfo // Images that were updated
+	UnchangedImages []ImageInfo // Images that remained the same
+}
+
+// PullWithReport pulls images and reports which ones were updated
+func PullWithReport(installPath, orchestrator string) (*ImageUpdateReport, error) {
+	report := &ImageUpdateReport{}
+
+	switch orchestrator {
+	case "compose":
+		compose := config.GetOrchestrator("compose")
+
+		// Get image info before pull
+		beforeImages, err := getComposeImages(installPath, compose)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get images before pull: %w", err)
+		}
+
+		// Run pull
+		if compose.Path != "" {
+			err, output := execute.Run(installPath, compose.Path, "pull", "--ignore-buildable", "--ignore-pull-failures")
+			if err != nil {
+				return nil, fmt.Errorf(output)
+			}
+		} else {
+			err, output := execute.Run(installPath, "docker", "compose", "pull", "--ignore-buildable", "--ignore-pull-failures")
+			if err != nil {
+				return nil, fmt.Errorf(output)
+			}
+		}
+
+		// Get image info after pull
+		afterImages, err := getComposeImages(installPath, compose)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get images after pull: %w", err)
+		}
+
+		// Compare before and after
+		for service, after := range afterImages {
+			before, existed := beforeImages[service]
+			if !existed {
+				// New service added
+				report.UpdatedImages = append(report.UpdatedImages, after)
+			} else if before.ID != after.ID {
+				// Image was updated
+				report.UpdatedImages = append(report.UpdatedImages, after)
+			} else {
+				// Image unchanged
+				report.UnchangedImages = append(report.UnchangedImages, after)
+			}
+		}
+
+	default:
+		return nil, fmt.Errorf("orchestrator: %s is not available", orchestrator)
+	}
+
+	return report, nil
+}
+
+// getComposeImages returns a map of service name to ImageInfo
+func getComposeImages(installPath string, compose config.Orchestrator) (map[string]ImageInfo, error) {
+	images := make(map[string]ImageInfo)
+
+	// Use docker compose images to get service/image/id info
+	// Format: CONTAINER  REPOSITORY  TAG  IMAGE ID  SIZE
+	var output string
+	var err error
+	if compose.Path != "" {
+		err, output = execute.Run(installPath, compose.Path, "images")
+	} else {
+		err, output = execute.Run(installPath, "docker", "compose", "images")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to run docker compose images: %s", output)
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	headerFound := false
+	for _, line := range lines {
+		// Skip empty lines and warning/log messages
+		if line == "" || strings.HasPrefix(line, "time=") || strings.Contains(line, "level=") {
+			continue
+		}
+
+		// Skip header line (CONTAINER  REPOSITORY  TAG  IMAGE ID  SIZE)
+		if strings.HasPrefix(line, "CONTAINER") {
+			headerFound = true
+			continue
+		}
+
+		// Only parse lines after the header
+		if !headerFound {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) >= 4 {
+			// Fields: CONTAINER  REPOSITORY  TAG  IMAGE_ID  SIZE
+			// Extract service name from container name (project_service_1 -> service)
+			containerName := fields[0]
+			parts := strings.Split(containerName, "-")
+			var service string
+			if len(parts) >= 2 {
+				// Modern format: project-service-1, extract service name
+				service = strings.Join(parts[1:len(parts)-1], "-")
+			} else {
+				// Try underscore format: project_service_1
+				parts = strings.Split(containerName, "_")
+				if len(parts) >= 2 {
+					service = strings.Join(parts[1:len(parts)-1], "_")
+				} else {
+					service = containerName
+				}
+			}
+
+			imageRepo := fields[1]
+			imageTag := fields[2]
+			imageID := fields[3]
+
+			images[service] = ImageInfo{
+				Service: service,
+				Image:   imageRepo + ":" + imageTag,
+				ID:      imageID,
+			}
+		}
+	}
+
+	return images, nil
+}
+
 
 // Stop stops containers, automatically using dev mode compose files if DevMode is enabled
 func Stop(instance config.Installation) error {

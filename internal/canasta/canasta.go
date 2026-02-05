@@ -317,16 +317,23 @@ func generateSecretKey() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// GenerateAndSaveSecretKey generates a secret key and saves it to .env as MW_SECRET_KEY
-// This is used for all installations - both fresh installs and database imports
+// GenerateAndSaveSecretKey generates a secret key and saves it to .env as MW_SECRET_KEY,
+// unless MW_SECRET_KEY is already set (e.g. provided by the user via -e flag).
 func GenerateAndSaveSecretKey(installPath string) error {
+	envPath := installPath + "/.env"
+	envVars := GetEnvVariable(envPath)
+	if val, ok := envVars["MW_SECRET_KEY"]; ok && val != "" {
+		logging.Print("MW_SECRET_KEY already set in .env, skipping generation\n")
+		return nil
+	}
+
 	secretKey, err := generateSecretKey()
 	if err != nil {
 		return fmt.Errorf("failed to generate secret key: %w", err)
 	}
 
 	logging.Print("Generating MW_SECRET_KEY and saving to .env\n")
-	return SaveEnvVariable(installPath+"/.env", "MW_SECRET_KEY", secretKey)
+	return SaveEnvVariable(envPath, "MW_SECRET_KEY", secretKey)
 }
 
 func RewriteSettings(installPath string, WikiIDs []string) error {
