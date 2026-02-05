@@ -6,6 +6,7 @@ repo_name: CanastaWiki/Canasta-CLI
 
 theme:
   name: material
+  favicon: img/favicon.ico
   palette:
     - scheme: default
       primary: grey
