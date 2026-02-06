@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
@@ -28,7 +29,6 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
-	settingsName := commonSettingsFile
 
 	command := "/wait-for-it.sh -t 60 db:3306"
 	output, err := orchestrators.ExecWithError(path, orchestrator, "web", command)
@@ -44,7 +44,8 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 		wikiID := WikiIDs[i]
 		domainName := domainNames[i]
 
-		command := fmt.Sprintf("php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
+		// Unset MW_SECRET_KEY so CanastaDefaultSettings.php doesn't think wiki is already configured
+		command := fmt.Sprintf("env -u MW_SECRET_KEY php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
 			dbServer, wikiID, confPath, scriptPath, domainName, "root", canastaInfo.RootDBPassword, canastaInfo.WikiDBUsername, canastaInfo.WikiDBPassword, canastaInfo.AdminPassword, wikiID, canastaInfo.AdminName)
 
 		output, err = orchestrators.ExecWithError(path, orchestrator, "web", command)
@@ -60,29 +61,49 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 		}
 
 		time.Sleep(time.Second)
+
+		// For the first wiki, ensure MW_SECRET_KEY is in .env
 		if i == 0 {
-			err, _ = execute.Run(path, "mv", filepath.Join(path, "config", localSettingsFile), filepath.Join(path, "config", localSettingsBackup))
-			if err != nil {
-				return canastaInfo, err
-			}
-		} else {
-			err, _ = execute.Run(path, "rm", filepath.Join(path, "config", localSettingsFile))
-			if err != nil {
-				return canastaInfo, err
+			envPath := filepath.Join(path, ".env")
+			envVars := canasta.GetEnvVariable(envPath)
+			if val, ok := envVars["MW_SECRET_KEY"]; ok && val != "" {
+				logging.Print("MW_SECRET_KEY already set in .env, skipping extraction\n")
+			} else {
+				localSettingsPath := filepath.Join(path, "config", localSettingsFile)
+				content, err := os.ReadFile(localSettingsPath)
+				if err != nil {
+					return canastaInfo, fmt.Errorf("failed to read LocalSettings.php: %w", err)
+				}
+
+				secretKeyRegex := regexp.MustCompile(`\$wgSecretKey\s*=\s*["']([0-9a-fA-F]+)["']`)
+				matches := secretKeyRegex.FindSubmatch(content)
+				if matches == nil {
+					return canastaInfo, fmt.Errorf("could not find $wgSecretKey in LocalSettings.php")
+				}
+				secretKey := string(matches[1])
+
+				if err := canasta.SaveEnvVariable(envPath, "MW_SECRET_KEY", secretKey); err != nil {
+					return canastaInfo, fmt.Errorf("failed to save MW_SECRET_KEY to .env: %w", err)
+				}
+				logging.Print("Extracted MW_SECRET_KEY from LocalSettings.php to .env\n")
 			}
 		}
+
+		// Delete the installer-generated LocalSettings.php. The installer creates a LocalSettings.php
+		// for each wiki, but they are identical except for $wgSecretKey. We only need to extract the
+		// secret key from the first wiki's file (done above when i == 0), after which all these
+		// generated files are unnecessary—Canasta uses its own LocalSettings.php that reads
+		// MW_SECRET_KEY from the environment.
+		var rmOutput string
+		err, rmOutput = execute.Run(path, "rm", filepath.Join(path, "config", localSettingsFile))
+		if err != nil {
+			return canastaInfo, fmt.Errorf("failed to remove LocalSettings.php: %w: %s", err, rmOutput)
+		}
+
 		time.Sleep(time.Second)
 	}
 
-	if len(WikiIDs) == 1 {
-		settingsName = localSettingsFile
-	}
-
-	err, _ = execute.Run(path, "mv", filepath.Join(path, "config", localSettingsBackup), filepath.Join(path, "config", settingsName))
-	if err != nil {
-		return canastaInfo, err
-	}
-	return canastaInfo, err
+	return canastaInfo, nil
 }
 
 func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDir, orchestrator string) error {
