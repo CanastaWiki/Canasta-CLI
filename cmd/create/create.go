@@ -249,10 +249,13 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			return err
 		}
 	}
-	if err := canasta.RewriteCaddy(path); err != nil {
+	if err := canasta.CreateCaddyfileCustom(path); err != nil {
 		return err
 	}
-	if err := canasta.CreateCaddyfileCustom(path); err != nil {
+	if err := canasta.CreateCaddyfileGlobal(path); err != nil {
+		return err
+	}
+	if err := canasta.RewriteCaddy(path); err != nil {
 		return err
 	}
 	if err := orchestrators.CopyOverrideFile(path, orchestrator, override, workingDir); err != nil {

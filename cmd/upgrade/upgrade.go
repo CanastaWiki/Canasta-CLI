@@ -387,25 +387,41 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 	return changed, nil
 }
 
-// createCaddyfileCustom creates Caddyfile.custom if it doesn't exist and rewrites
-// the Caddyfile to include the import directive for custom configuration
+// createCaddyfileCustom creates Caddyfile.custom and Caddyfile.global if they don't exist
+// and rewrites the Caddyfile to include the import directives
 func createCaddyfileCustom(installPath string, dryRun bool) (bool, error) {
 	customPath := filepath.Join(installPath, "config", "Caddyfile.custom")
+	globalPath := filepath.Join(installPath, "config", "Caddyfile.global")
 
-	// Check if Caddyfile.custom already exists
-	if _, err := os.Stat(customPath); err == nil {
+	// Check if both files already exist
+	_, customErr := os.Stat(customPath)
+	_, globalErr := os.Stat(globalPath)
+	if customErr == nil && globalErr == nil {
 		return false, nil
 	}
 
 	if dryRun {
-		fmt.Println("  Would create config/Caddyfile.custom")
-		fmt.Println("  Would update config/Caddyfile with import directive")
-	} else {
-		fmt.Println("  Creating config/Caddyfile.custom")
-		if err := canasta.CreateCaddyfileCustom(installPath); err != nil {
-			return false, fmt.Errorf("failed to create Caddyfile.custom: %w", err)
+		if customErr != nil {
+			fmt.Println("  Would create config/Caddyfile.custom")
 		}
-		fmt.Println("  Updating config/Caddyfile with import directive")
+		if globalErr != nil {
+			fmt.Println("  Would create config/Caddyfile.global")
+		}
+		fmt.Println("  Would update config/Caddyfile with import directives")
+	} else {
+		if customErr != nil {
+			fmt.Println("  Creating config/Caddyfile.custom")
+			if err := canasta.CreateCaddyfileCustom(installPath); err != nil {
+				return false, fmt.Errorf("failed to create Caddyfile.custom: %w", err)
+			}
+		}
+		if globalErr != nil {
+			fmt.Println("  Creating config/Caddyfile.global")
+			if err := canasta.CreateCaddyfileGlobal(installPath); err != nil {
+				return false, fmt.Errorf("failed to create Caddyfile.global: %w", err)
+			}
+		}
+		fmt.Println("  Updating config/Caddyfile with import directives")
 		if err := canasta.RewriteCaddy(installPath); err != nil {
 			return false, fmt.Errorf("failed to rewrite Caddyfile: %w", err)
 		}
