@@ -12,7 +12,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
   - [Automatic maintenance](#automatic-maintenance)
   - [Running the update sequence](#running-the-update-sequence)
   - [Running scripts manually](#running-scripts-manually)
-- [conf.json](#confjson)
+- [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy)
 - [Running on non-standard ports](#running-on-non-standard-ports)
 
 ---
@@ -70,7 +70,8 @@ After creating a Canasta installation, the directory contains:
 ├── config/
 │   ├── wikis.yaml                 # Wiki definition (IDs, URLs, display names)
 │   ├── Caddyfile                  # Generated reverse proxy config (do not edit)
-│   ├── Caddyfile.custom           # User customizations for Caddy
+│   ├── Caddyfile.custom           # User customizations for Caddy site block
+│   ├── Caddyfile.global           # User customizations for Caddy global options
 │   ├── admin-password_{wiki-id}   # Generated admin password per wiki
 │   └── settings/
 │       ├── global/                # PHP settings loaded for all wikis
@@ -80,6 +81,29 @@ After creating a Canasta installation, the directory contains:
 │               └── *.php
 ├── extensions/                    # User extensions
 └── skins/                        # User skins
+```
+
+### conf.json
+
+The CLI maintains a registry of all installations in a `conf.json` file. The location depends on the platform:
+
+- **Linux (root)**: `/etc/canasta/conf.json`
+- **Linux (non-root)**: `~/.config/canasta/conf.json`
+- **macOS**: `~/Library/Application Support/canasta/conf.json`
+
+Example:
+
+```json
+{
+  "Orchestrators": {},
+  "Installations": {
+    "myinstance": {
+      "Id": "myinstance",
+      "Path": "/home/user/myinstance",
+      "Orchestrator": "compose"
+    }
+  }
+}
 ```
 
 ### wikis.yaml
@@ -107,11 +131,13 @@ wikis:
 
 The `url` field uses `domain/path` format without the protocol. The Caddyfile is regenerated from this file whenever wikis are added or removed.
 
-### Caddyfile and Caddyfile.custom
+### Caddyfile, Caddyfile.custom, and Caddyfile.global
 
 Canasta uses [Caddy](https://caddyserver.com/) as its reverse proxy. The `config/Caddyfile` is auto-generated from `wikis.yaml` and is overwritten whenever wikis are added or removed — do not edit it directly.
 
-To add custom Caddy directives, edit `config/Caddyfile.custom`. This file is imported by the generated Caddyfile and is never overwritten. For example:
+To add custom Caddy directives for the site block (headers, rewrites, etc.), edit `config/Caddyfile.custom`. To add global Caddy options, edit `config/Caddyfile.global`. Both files are imported by the generated Caddyfile and are never overwritten.
+
+Example `Caddyfile.custom`:
 
 ```
 header X-Frame-Options "SAMEORIGIN"
@@ -119,6 +145,8 @@ header X-Content-Type-Options "nosniff"
 ```
 
 See the [Caddy documentation](https://caddyserver.com/docs/caddyfile/directives) for available directives.
+
+If deploying behind an external reverse proxy that handles SSL termination, see [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy).
 
 ### Settings
 
@@ -217,28 +245,28 @@ See the [CLI Reference](../cli/canasta_maintenance.md) for more details.
 
 ---
 
-## conf.json
+## Deploying behind a reverse proxy
 
-The CLI maintains a registry of all installations in a `conf.json` file. The location depends on the platform:
+When running Canasta behind an external reverse proxy that handles SSL termination (such as nginx, a cloud load balancer, or Cloudflare), you must disable Caddy's automatic HTTPS handling. Otherwise, Caddy may attempt to redirect requests or provision certificates, causing redirect loops or certificate errors.
 
-- **Linux (root)**: `/etc/canasta/conf.json`
-- **Linux (non-root)**: `~/.config/canasta/conf.json`
-- **macOS**: `~/Library/Application Support/canasta/conf.json`
+To configure this, create an env file with the `CADDY_AUTO_HTTPS` setting:
 
-Example:
-
-```json
-{
-  "Orchestrators": {},
-  "Installations": {
-    "myinstance": {
-      "Id": "myinstance",
-      "Path": "/home/user/myinstance",
-      "Orchestrator": "compose"
-    }
-  }
-}
+```env
+CADDY_AUTO_HTTPS=off
 ```
+
+Pass this file when creating the installation:
+
+```bash
+canasta create -i myinstance -w main -n example.com -a admin -e custom.env
+```
+
+This generates a Caddyfile with:
+
+- `auto_https off` in the global options block (disables automatic certificate provisioning)
+- `header_up Host {host}` in the reverse proxy directive (preserves the original Host header through the proxy chain)
+
+For an existing installation, add `CADDY_AUTO_HTTPS=off` to the `.env` file and run `canasta upgrade` to regenerate the Caddyfile.
 
 ---
 
