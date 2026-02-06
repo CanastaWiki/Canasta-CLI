@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/compatibility"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
@@ -89,10 +90,24 @@ func CloneStackRepo(orchestrator, canastaId string, path *string, localSourcePat
 	}
 
 	// Fall back to cloning from GitHub
-	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
 	repo := orchestrators.GetRepoLink(orchestrator)
-	err := git.Clone(repo, *path)
-	return err
+	
+	// Get the tag to clone from compatibility manifest
+	tag, err := compatibility.GetOrchestratorTag(orchestrator)
+	if err != nil {
+		// If we can't get the tag from manifest, fall back to regular clone (main branch)
+		logging.Print(fmt.Sprintf("Warning: Could not read compatibility manifest (%s), using default branch\n", err))
+		logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s\n", orchestrator, *path))
+		return git.Clone(repo, *path)
+	}
+	
+	if tag == "main" {
+		logging.Print(fmt.Sprintf("Cloning the %s stack repo (main branch) to %s\n", orchestrator, *path))
+	} else {
+		logging.Print(fmt.Sprintf("Cloning the %s stack repo (tag: %s) to %s\n", orchestrator, tag, *path))
+	}
+	
+	return git.CloneWithTag(repo, *path, tag)
 }
 
 // CreateEnvFile creates the .env file for a new Canasta installation

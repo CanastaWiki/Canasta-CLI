@@ -28,6 +28,21 @@ func Clone(repo, path string) error {
 	return nil
 }
 
+// CloneWithTag clones a repository and checks out a specific tag or branch
+func CloneWithTag(repo, path, tag string) error {
+	// If tag is "main" or empty, just do a regular clone
+	if tag == "" || tag == "main" {
+		return Clone(repo, path)
+	}
+	
+	// Clone with specific branch/tag
+	err, output := execute.Run("", "git", "clone", "-b", tag, repo, path)
+	if err != nil {
+		return fmt.Errorf(output)
+	}
+	return nil
+}
+
 func Cloneb(repo, path string, branch string) error {
 	err, output := execute.Run("", "git", "clone", "-b", branch, repo, path)
 	if err != nil {
@@ -37,24 +52,29 @@ func Cloneb(repo, path string, branch string) error {
 }
 
 // FetchAndCheckout fetches from origin and selectively checks out files from
-// origin/main, skipping user-modifiable files listed in skipPaths. This avoids
-// merge conflicts when local commits diverge from upstream and preserves any
+// the specified ref (tag or branch), skipping user-modifiable files listed in skipPaths.
+// This avoids merge conflicts when local commits diverge from upstream and preserves any
 // files the user has customized or deleted.
 func FetchAndCheckout(path string, dryRun bool) (bool, error) {
+	return FetchAndCheckoutRef(path, "origin/main", dryRun)
+}
+
+// FetchAndCheckoutRef is like FetchAndCheckout but allows specifying a ref
+func FetchAndCheckoutRef(path, ref string, dryRun bool) (bool, error) {
 	// Fetch latest from origin
 	err, output := execute.Run(path, "git", "fetch", "origin")
 	if err != nil {
 		return false, fmt.Errorf(output)
 	}
 
-	// Get files that are added or modified in origin/main (safe to checkout)
-	err, output = execute.Run(path, "git", "diff", "--diff-filter=d", "--name-only", "HEAD", "origin/main")
+	// Get files that are added or modified in ref (safe to checkout)
+	err, output = execute.Run(path, "git", "diff", "--diff-filter=d", "--name-only", "HEAD", ref)
 	if err != nil {
 		return false, fmt.Errorf(output)
 	}
 
 	var filesToUpdate []string
-	var skippedExistUpstream []string // denylist files that exist in origin/main
+	var skippedExistUpstream []string // denylist files that exist in ref
 	for _, file := range strings.Split(strings.TrimSpace(output), "\n") {
 		if file == "" {
 			continue
@@ -66,8 +86,8 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 		}
 	}
 
-	// Get files that were deleted in origin/main
-	err, output = execute.Run(path, "git", "diff", "--diff-filter=D", "--name-only", "HEAD", "origin/main")
+	// Get files that were deleted in ref
+	err, output = execute.Run(path, "git", "diff", "--diff-filter=D", "--name-only", "HEAD", ref)
 	if err != nil {
 		return false, fmt.Errorf(output)
 	}
@@ -83,7 +103,7 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 	}
 
 	// Get denylist files with uncommitted local modifications (working tree vs HEAD).
-	// These won't appear in the HEAD vs origin/main diff if the committed versions match.
+	// These won't appear in the HEAD vs ref diff if the committed versions match.
 	err, output = execute.Run(path, "git", "diff", "--name-only", "HEAD")
 	if err != nil {
 		return false, fmt.Errorf(output)
@@ -108,7 +128,7 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 	seen := make(map[string]bool)
 	var preservedFiles []string
 	var absentFiles []string
-	// Files that exist in origin/main: split into preserved (on disk) or absent
+	// Files that exist in ref: split into preserved (on disk) or absent
 	for _, file := range skippedExistUpstream {
 		if !seen[file] {
 			seen[file] = true
@@ -158,9 +178,9 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 		return len(filesToUpdate) > 0 || len(filesToRemove) > 0, nil
 	}
 
-	// Checkout files that exist in origin/main
+	// Checkout files that exist in ref
 	if len(filesToUpdate) > 0 {
-		args := append([]string{"checkout", "origin/main", "--"}, filesToUpdate...)
+		args := append([]string{"checkout", ref, "--"}, filesToUpdate...)
 		err, output = execute.Run(path, "git", args...)
 		if err != nil {
 			return false, fmt.Errorf(output)
@@ -171,7 +191,7 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 		}
 	}
 
-	// Remove files that were deleted in origin/main
+	// Remove files that were deleted in ref
 	if len(filesToRemove) > 0 {
 		for _, file := range filesToRemove {
 			filePath := filepath.Join(path, file)
@@ -199,9 +219,9 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 		}
 	}
 
-	// Move HEAD and index to origin/main so future diffs reflect the updated state.
+	// Move HEAD and index to ref so future diffs reflect the updated state.
 	// Working tree is left as-is (denylist files keep their local changes).
-	err, output = execute.Run(path, "git", "reset", "origin/main")
+	err, output = execute.Run(path, "git", "reset", ref)
 	if err != nil {
 		return false, fmt.Errorf(output)
 	}

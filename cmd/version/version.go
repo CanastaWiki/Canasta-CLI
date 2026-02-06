@@ -14,6 +14,14 @@ var (
 	buildTime string
 )
 
+// GetVersion returns the current CLI version, or "dev" if not set
+func GetVersion() string {
+	if Version == "" {
+		return "dev"
+	}
+	return Version
+}
+
 func NewCmdCreate() *cobra.Command {
 	var versionCmd = &cobra.Command{
 		Use:   "version",

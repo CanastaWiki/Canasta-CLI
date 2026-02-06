@@ -9,7 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI/cmd/version"
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/compatibility"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
@@ -204,6 +206,13 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	} else {
 		// Use registry image with specified tag
+		// If devTag is "latest", try to use compatibility manifest tag instead
+		if devTag == "latest" {
+			if compatTag, err := compatibility.GetImageTag(); err == nil && compatTag != "" {
+				devTag = compatTag
+				logging.Print(fmt.Sprintf("Using image tag from compatibility manifest: %s\n", devTag))
+			}
+		}
 		baseImage = canasta.GetImageWithTag(devTag)
 	}
 
@@ -228,11 +237,9 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := canasta.CreateEnvFile(envFile, path, workingDir, canastaInfo.RootDBPassword, canastaInfo.WikiDBPassword); err != nil {
 		return err
 	}
-	// Set CANASTA_IMAGE in .env for local builds so docker-compose uses the locally built image
-	if buildFromPath != "" {
-		if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", baseImage); err != nil {
-			return err
-		}
+	// Set CANASTA_IMAGE in .env to pin the image version
+	if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", baseImage); err != nil {
+		return err
 	}
 	if err := canasta.CopySettings(path); err != nil {
 		return err
@@ -302,7 +309,13 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled}
+	instance := config.Installation{
+		Id:           canastaInfo.Id,
+		Path:         path,
+		Orchestrator: orchestrator,
+		DevMode:      devModeEnabled,
+		CliVersion:   version.GetVersion(),
+	}
 	if err := config.Add(instance); err != nil {
 		return err
 	}
