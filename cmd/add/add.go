@@ -11,6 +11,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/cmd/restart"
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/compatibility"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
@@ -161,6 +162,11 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 	//Checking Installation existence
 	instance, err = canasta.CheckCanastaId(instance)
 	if err != nil {
+		return err
+	}
+
+	// Check version compatibility (strict check for destructive command)
+	if err := compatibility.CheckCompatibilityStrict(instance); err != nil {
 		return err
 	}
 

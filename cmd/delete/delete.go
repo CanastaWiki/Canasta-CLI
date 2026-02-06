@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/compatibility"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
@@ -56,6 +57,11 @@ func Delete(instance config.Installation) error {
 	//Checking Installation existence
 	instance, err = canasta.CheckCanastaId(instance)
 	if err != nil {
+		return err
+	}
+
+	// Check version compatibility (strict check for destructive command)
+	if err := compatibility.CheckCompatibilityStrict(instance); err != nil {
 		return err
 	}
 
