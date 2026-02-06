@@ -2,8 +2,11 @@
 # This file is imported inside the global options block of the
 # auto-generated Caddyfile and is not overwritten by the CLI.
 #
-# Add global Caddy directives below. For example, to disable
-# automatic HTTPS (when SSL is terminated by an upstream proxy):
-#   auto_https off
+# Note: The auto_https directive is managed automatically based on the
+# CADDY_AUTO_HTTPS environment variable in .env. Do not set it here.
+#
+# Add other global Caddy options below. For example:
+#   debug
+#   email admin@example.com
 #
 # See https://caddyserver.com/docs/caddyfile/options for available options.
