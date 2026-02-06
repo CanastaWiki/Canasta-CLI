@@ -145,10 +145,9 @@ func Pull(installPath, orchestrator string) error {
 
 // ImageInfo holds information about a Docker image
 type ImageInfo struct {
-	Service   string
-	Image     string
-	ID        string
-	CreatedAt string
+	Service string
+	Image   string
+	ID      string
 }
 
 // ImageUpdateReport describes what changed during a pull
@@ -255,17 +254,28 @@ func getComposeImages(installPath string, compose config.Orchestrator) (map[stri
 			containerName := fields[0]
 			parts := strings.Split(containerName, "-")
 			var service string
-			if len(parts) >= 2 {
+			if len(parts) >= 3 {
 				// Modern format: project-service-1, extract service name
 				service = strings.Join(parts[1:len(parts)-1], "-")
+			} else if len(parts) == 2 {
+				// Edge case like project-1: use the first part as service name
+				service = parts[0]
 			} else {
 				// Try underscore format: project_service_1
 				parts = strings.Split(containerName, "_")
-				if len(parts) >= 2 {
+				if len(parts) >= 3 {
 					service = strings.Join(parts[1:len(parts)-1], "_")
+				} else if len(parts) == 2 {
+					// Edge case like project_1: use the first part as service name
+					service = parts[0]
 				} else {
 					service = containerName
 				}
+			}
+
+			// Skip entries with empty service names to avoid map key collisions
+			if service == "" {
+				continue
 			}
 
 			imageRepo := fields[1]

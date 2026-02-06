@@ -75,7 +75,7 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 					return canastaInfo, fmt.Errorf("failed to read LocalSettings.php: %w", err)
 				}
 
-				secretKeyRegex := regexp.MustCompile(`\$wgSecretKey\s*=\s*["']([a-f0-9]+)["']`)
+				secretKeyRegex := regexp.MustCompile(`\$wgSecretKey\s*=\s*["']([0-9a-fA-F]+)["']`)
 				matches := secretKeyRegex.FindSubmatch(content)
 				if matches == nil {
 					return canastaInfo, fmt.Errorf("could not find $wgSecretKey in LocalSettings.php")
@@ -89,10 +89,13 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 			}
 		}
 
-		// Delete the installer-generated LocalSettings.php (not needed with new architecture)
-		err, _ = execute.Run(path, "rm", filepath.Join(path, "config", localSettingsFile))
+		// Delete the installer-generated LocalSettings.php (not needed with new architecture).
+		// This runs for all wikis in the loop, but MW_SECRET_KEY extraction only happens for the
+		// first wiki (i == 0) since all wikis in a farm share the same secret key.
+		var rmOutput string
+		err, rmOutput = execute.Run(path, "rm", filepath.Join(path, "config", localSettingsFile))
 		if err != nil {
-			return canastaInfo, err
+			return canastaInfo, fmt.Errorf("failed to remove LocalSettings.php: %w: %s", err, rmOutput)
 		}
 
 		time.Sleep(time.Second)
