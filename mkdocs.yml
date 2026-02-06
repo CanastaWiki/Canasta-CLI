@@ -6,7 +6,7 @@ repo_name: CanastaWiki/Canasta-CLI
 
 theme:
   name: material
-  favicon: img/canasta-cli-logo.png
+  favicon: img/canasta-cli-favicon.png
   logo: img/canasta-logo-white.png
   palette:
     - scheme: default
