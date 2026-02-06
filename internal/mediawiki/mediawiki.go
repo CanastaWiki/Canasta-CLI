@@ -89,9 +89,11 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 			}
 		}
 
-		// Delete the installer-generated LocalSettings.php (not needed with new architecture).
-		// This runs for all wikis in the loop, but MW_SECRET_KEY extraction only happens for the
-		// first wiki (i == 0) since all wikis in a farm share the same secret key.
+		// Delete the installer-generated LocalSettings.php. The installer creates a LocalSettings.php
+		// for each wiki, but they are identical except for $wgSecretKey. We only need to extract the
+		// secret key from the first wiki's file (done above when i == 0), after which all these
+		// generated files are unnecessary—Canasta uses its own LocalSettings.php that reads
+		// MW_SECRET_KEY from the environment.
 		var rmOutput string
 		err, rmOutput = execute.Run(path, "rm", filepath.Join(path, "config", localSettingsFile))
 		if err != nil {
