@@ -8,7 +8,10 @@
   --md-accent-fg-color: #ccff00;
 }
 
-h2 {
+[data-md-color-scheme="default"] h2 {
+  border-bottom: 2px solid #ccff00;
+}
+[data-md-color-scheme="slate"] h2 {
   border-bottom: 1px solid #ccff00;
 }
 .md-typeset hr {
