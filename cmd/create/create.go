@@ -186,13 +186,22 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	// Determine the base image to use
 	var baseImage string
 	if buildFromPath != "" {
-		// Build Canasta (and optionally CanastaBase) from source
-		logging.Print("Building Canasta from local source...\n")
-		builtImage, err := imagebuild.BuildFromSource(buildFromPath)
-		if err != nil {
-			return fmt.Errorf("failed to build from source: %w", err)
+		// Check if local Canasta repo exists for building
+		canastaPath := filepath.Join(buildFromPath, "Canasta")
+		if _, err := os.Stat(canastaPath); err == nil {
+			// Build Canasta (and optionally CanastaBase) from source
+			logging.Print("Building Canasta from local source...\n")
+			builtImage, err := imagebuild.BuildFromSource(buildFromPath)
+			if err != nil {
+				return fmt.Errorf("failed to build from source: %w", err)
+			}
+			baseImage = builtImage
+		} else {
+			// No local Canasta repo, use registry image
+			// (buildFromPath may still have Canasta-DockerCompose for CloneStackRepo)
+			logging.Print("No local Canasta repo found, using registry image\n")
+			baseImage = canasta.GetImageWithTag(devTag)
 		}
-		baseImage = builtImage
 	} else {
 		// Use registry image with specified tag
 		baseImage = canasta.GetImageWithTag(devTag)
