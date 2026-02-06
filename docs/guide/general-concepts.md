@@ -247,7 +247,7 @@ See the [CLI Reference](../cli/canasta_maintenance.md) for more details.
 
 ## Deploying behind a reverse proxy
 
-When running Canasta behind an external reverse proxy that handles SSL termination (such as nginx, a cloud load balancer, or Cloudflare), you must disable Caddy's automatic HTTPS handling. Otherwise, Caddy may attempt to redirect requests or provision certificates, causing redirect loops or certificate errors.
+When running Canasta behind an external reverse proxy that terminates SSL and forwards requests to Canasta over HTTP (such as nginx, a cloud load balancer, or Cloudflare in "Flexible SSL" mode), you must disable Caddy's automatic HTTPS handling. Otherwise, Caddy may attempt to redirect requests or provision certificates, causing redirect loops or certificate errors.
 
 To configure this, create an env file with the `CADDY_AUTO_HTTPS` setting:
 
