@@ -369,32 +369,20 @@ When you re-enable dev mode (`canasta restart --dev`) after having disabled it:
 
 ## Log locations
 
-All commands should be run from the installation directory.
+For general log file locations (MediaWiki debug log, Apache error log, etc.), see [Troubleshooting: Log file locations](troubleshooting.md#log-file-locations).
 
-### Enabling the MediaWiki debug log
+### Xdebug log
 
-The MediaWiki debug log is the most useful log for debugging application issues. To enable it, add this to a settings file (e.g., `config/settings/global/Debug.php`):
-
-```php
-<?php
-$wgDebugLogFile = '/var/log/mediawiki/debug.log';
-```
-
-Then restart the container and tail the log:
+In dev mode, Xdebug writes connection attempts to its own log file:
 
 ```bash
-canasta restart -i myinstance
-docker compose exec web tail -f /var/log/mediawiki/debug.log
+docker compose exec web tail -f /var/log/mediawiki/php-xdebug.log
 ```
 
-### Log file locations
-
-| Log | Description | Command |
-|-----|-------------|---------|
-| MediaWiki debug | Application debug log (requires config above) | `docker compose exec web tail -f /var/log/mediawiki/debug.log` |
-| Apache error | PHP errors and Apache warnings | `docker compose exec web tail -f /var/log/apache2/error_log.current` |
-| Apache access | HTTP request log | `docker compose exec web tail -f /var/log/apache2/access_log.current` |
-| Xdebug | Debug connection attempts (dev mode only) | `docker compose exec web tail -f /var/log/mediawiki/php-xdebug.log` |
+This log is useful for diagnosing why breakpoints aren't being hit:
+- "Trigger value not found" — Cookie not set or not being sent
+- "Could not connect to debugging client" — IDE not listening
+- "Connecting to configured address" — Working correctly
 
 ---
 
