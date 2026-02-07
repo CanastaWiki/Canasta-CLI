@@ -18,6 +18,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
+	"github.com/CanastaWiki/Canasta-CLI/internal/system"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -57,6 +58,10 @@ instead of running the installer, or enable development mode with Xdebug.`,
   # Create with development mode enabled
   canasta create -i myinstance -w main -a admin -n localhost -D`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Check if the system has at least 2GB of memory
+			if err := system.CheckMemoryInGB(2); err != nil {
+				log.Fatal(err)
+			}
 			// Validate wiki ID if yamlPath not provided
 			if yamlPath == "" {
 				if wikiID == "" {
