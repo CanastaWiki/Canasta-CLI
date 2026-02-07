@@ -120,7 +120,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	// Get the orchestrator tag from compatibility manifest
 	orchestratorRef, err := compatibility.GetOrchestratorTag(instance.Orchestrator)
 	if err != nil {
-		fmt.Printf("Warning: Could not read orchestrator tag from compatibility manifest (%s), using default\n", err)
+		fmt.Printf("Warning: could not read orchestrator tag from compatibility manifest (%s), using default (origin/main)\n", err)
 		orchestratorRef = "origin/main"
 	} else {
 		if orchestratorRef == "main" {

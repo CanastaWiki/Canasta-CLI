@@ -3,6 +3,7 @@ package compatibility
 import (
 	_ "embed"
 	"fmt"
+	"sync"
 
 	"gopkg.in/yaml.v2"
 )
@@ -28,19 +29,24 @@ type Manifest struct {
 	Image         ImageConfig                   `yaml:"image"`
 }
 
-var manifest *Manifest
+var (
+	manifest *Manifest
+	once     sync.Once
+	initErr  error
+)
 
 // GetManifest returns the parsed compatibility manifest
 func GetManifest() (*Manifest, error) {
-	if manifest != nil {
-		return manifest, nil
+	once.Do(func() {
+		manifest = &Manifest{}
+		if err := yaml.Unmarshal(compatibilityYAML, manifest); err != nil {
+			initErr = fmt.Errorf("failed to parse compatibility manifest: %w", err)
+		}
+	})
+	
+	if initErr != nil {
+		return nil, initErr
 	}
-
-	manifest = &Manifest{}
-	if err := yaml.Unmarshal(compatibilityYAML, manifest); err != nil {
-		return nil, fmt.Errorf("failed to parse compatibility manifest: %w", err)
-	}
-
 	return manifest, nil
 }
 

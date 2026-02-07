@@ -211,6 +211,8 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			if compatTag, err := compatibility.GetImageTag(); err == nil {
 				devTag = compatTag
 				logging.Print(fmt.Sprintf("Using image tag from compatibility manifest: %s\n", devTag))
+			} else {
+				logging.Print(fmt.Sprintf("warning: could not read image tag from compatibility manifest (%s), using latest\n", err))
 			}
 		}
 		baseImage = canasta.GetImageWithTag(devTag)
