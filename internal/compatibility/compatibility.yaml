@@ -1,0 +1,22 @@
+# Canasta CLI Compatibility Manifest
+#
+# This file defines version compatibility between the CLI and its dependencies.
+# It specifies which versions of Canasta-DockerCompose and the Canasta Docker
+# image should be used with this CLI version.
+
+orchestrators:
+  compose:
+    # Repository URL for Docker Compose stack
+    repo: "https://github.com/CanastaWiki/Canasta-DockerCompose.git"
+    # Minimum required version (for future use)
+    minVersion: "v1.0.0"
+    # Specific tag/commit to clone or checkout during create/upgrade
+    # Use "main" for the main branch, or a specific tag like "v1.2.0"
+    tag: "main"
+
+# Docker image configuration
+image:
+  # Default image tag to use when creating new instances
+  # This should be a specific version tag (e.g., "1.57.0") for reproducibility
+  # Use "latest" only during active development
+  tag: "latest"
