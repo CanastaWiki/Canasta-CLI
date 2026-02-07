@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/compatibility"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -63,6 +64,12 @@ restart. Use --dev or --no-dev to change the development mode setting.`,
 }
 
 func Restart(instance config.Installation, enableDev, disableDev bool) error {
+	// Check version compatibility (warning for non-destructive command)
+	if warning := compatibility.CheckCompatibility(instance); warning != "" {
+		fmt.Println(warning)
+		fmt.Println()
+	}
+
 	// Handle --dev and --no-dev flags
 	if enableDev && disableDev {
 		return fmt.Errorf("cannot specify both --dev and --no-dev")

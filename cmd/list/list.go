@@ -1,8 +1,11 @@
 package list
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/compatibility"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 )
 
@@ -27,5 +30,19 @@ ID, path, and orchestrator as recorded in the Canasta configuration file.`,
 
 func List(instance config.Installation) error {
 	config.ListAll()
+	
+	// Check for version mismatches and warn
+	installations := config.GetAll()
+	hasWarnings := false
+	for _, inst := range installations {
+		if warning := compatibility.CheckCompatibility(inst); warning != "" {
+			if !hasWarnings {
+				fmt.Println()
+				hasWarnings = true
+			}
+			fmt.Println(warning)
+		}
+	}
+	
 	return nil
 }

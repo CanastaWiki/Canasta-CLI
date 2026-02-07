@@ -5,9 +5,10 @@
 *.so
 *.dylib
 
-# YAML files (except mkdocs.yml)
+# YAML files (except mkdocs.yml and compatibility manifests)
 *.yaml
 !mkdocs.yml
+!internal/compatibility/compatibility.yaml
 
 # Build output directory
 build/

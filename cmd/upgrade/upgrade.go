@@ -13,7 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI/cmd/version"
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/compatibility"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/git"
@@ -115,14 +117,45 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		fmt.Println("Dry run mode - showing what would change without applying")
 	}
 
+	// Get the orchestrator tag from compatibility manifest
+	orchestratorRef, err := compatibility.GetOrchestratorTag(instance.Orchestrator)
+	if err != nil {
+		fmt.Printf("Warning: could not read orchestrator tag from compatibility manifest (%s), using default (origin/main)\n", err)
+		orchestratorRef = "origin/main"
+	} else {
+		if orchestratorRef == "main" {
+			// For main branch, use origin/main
+			orchestratorRef = "origin/main"
+		}
+		// For specific tags (e.g., "v1.2.0"), git fetch will fetch the tag
+		// and we can reference it directly without the "origin/" prefix
+		// Tags are global across remotes, unlike branches
+	}
+
 	fmt.Println("Checking for configuration file updates...")
-	repoChanged, err := git.FetchAndCheckout(instance.Path, dryRun)
+	repoChanged, err := git.FetchAndCheckoutRef(instance.Path, orchestratorRef, dryRun)
 	if err != nil {
 		return err
 	}
 
 	var imagesUpdated bool
+	var imageTag string
 	if !dryRun {
+		// Get image tag from compatibility manifest
+		imageTag, err = compatibility.GetImageTag()
+		if err != nil {
+			fmt.Printf("Warning: Could not read image tag from compatibility manifest (%s), using current value\n", err)
+		} else {
+			// Update CANASTA_IMAGE in .env with the pinned version
+			envPath := filepath.Join(instance.Path, ".env")
+			expectedImage := canasta.GetImageWithTag(imageTag)
+			if err := canasta.SaveEnvVariable(envPath, "CANASTA_IMAGE", expectedImage); err != nil {
+				fmt.Printf("Warning: Could not update CANASTA_IMAGE in .env: %s\n", err)
+			} else {
+				fmt.Printf("Set CANASTA_IMAGE=%s in .env\n", expectedImage)
+			}
+		}
+
 		fmt.Println("Pulling Canasta container images...")
 		report, err := orchestrators.PullWithReport(instance.Path, instance.Orchestrator)
 		if err != nil {
@@ -153,6 +186,13 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 			fmt.Println("Installation is up to date. No upgrade needed.")
 		}
 		return nil
+	}
+
+	// Update the CLI version in the config (after dry-run check, but before restart)
+	// This ensures the version is recorded even if no changes were detected
+	instance.CliVersion = version.GetVersion()
+	if err := config.Update(instance); err != nil {
+		fmt.Printf("Warning: Could not update CLI version in config: %s\n", err)
 	}
 
 	// Restart the containers

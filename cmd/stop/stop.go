@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/compatibility"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
@@ -49,6 +50,12 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 }
 
 func Stop(instance config.Installation) error {
+	// Check version compatibility (warning for non-destructive command)
+	if warning := compatibility.CheckCompatibility(instance); warning != "" {
+		fmt.Println(warning)
+		fmt.Println()
+	}
+
 	// orchestrators.Stop handles dev mode automatically
 	return orchestrators.Stop(instance)
 }
