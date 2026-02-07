@@ -371,13 +371,30 @@ When you re-enable dev mode (`canasta restart --dev`) after having disabled it:
 
 All commands should be run from the installation directory.
 
+### Enabling the MediaWiki debug log
+
+The MediaWiki debug log is the most useful log for debugging application issues. To enable it, add this to a settings file (e.g., `config/settings/global/Debug.php`):
+
+```php
+<?php
+$wgDebugLogFile = '/var/log/mediawiki/debug.log';
+```
+
+Then restart the container and tail the log:
+
+```bash
+canasta restart -i myinstance
+docker compose exec web tail -f /var/log/mediawiki/debug.log
+```
+
+### Log file locations
+
 | Log | Description | Command |
 |-----|-------------|---------|
-| Xdebug | Debug connection attempts | `docker compose exec web tail -f /var/log/mediawiki/php-xdebug.log` |
-| PHP-FPM | PHP errors and warnings | `docker compose exec web tail -f /var/log/php8.1-fpm.log` |
-| MediaWiki debug | Application debug log | `docker compose exec web tail -f /var/log/mediawiki/debug.log` |
-
-**Note**: The MediaWiki debug log requires `$wgDebugLogFile = '/var/log/mediawiki/debug.log';` in your LocalSettings.php.
+| MediaWiki debug | Application debug log (requires config above) | `docker compose exec web tail -f /var/log/mediawiki/debug.log` |
+| Apache error | PHP errors and Apache warnings | `docker compose exec web tail -f /var/log/apache2/error_log.current` |
+| Apache access | HTTP request log | `docker compose exec web tail -f /var/log/apache2/access_log.current` |
+| Xdebug | Debug connection attempts (dev mode only) | `docker compose exec web tail -f /var/log/mediawiki/php-xdebug.log` |
 
 ---
 

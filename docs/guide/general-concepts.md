@@ -7,6 +7,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
 - [Installation IDs](#installation-ids)
 - [Wiki IDs](#wiki-ids)
 - [Installation directory structure](#installation-directory-structure)
+- [Configuring logos](#configuring-logos)
 - [Importing an existing wiki](#importing-an-existing-wiki)
 - [Maintenance scripts](#maintenance-scripts)
   - [Automatic maintenance](#automatic-maintenance)
@@ -80,7 +81,9 @@ After creating a Canasta installation, the directory contains:
 │           └── {wiki-id}/         # PHP settings loaded for a specific wiki
 │               └── *.php
 ├── extensions/                    # User extensions
-└── skins/                        # User skins
+├── skins/                         # User skins
+│   └── logos/                     # Public logos (optional, see Configuring logos)
+└── images/                        # Uploaded files
 ```
 
 ### conf.json
@@ -163,6 +166,71 @@ This lets you configure shared behavior globally while customizing individual wi
 - **Database passwords** are saved to the `.env` file (`MYSQL_PASSWORD` for root, `WIKI_DB_PASSWORD` for the wiki user)
 
 If not specified at creation time, passwords are auto-generated (30 characters with digits and symbols).
+
+---
+
+## Configuring logos
+
+MediaWiki uses the `$wgLogos` configuration variable to set the wiki logo. See the [MediaWiki documentation](https://www.mediawiki.org/wiki/Manual:$wgLogos) for details on logo sizes and formats.
+
+There are two approaches to configuring logos in Canasta, depending on whether you want the logo to follow wiki permissions or be publicly accessible.
+
+### Option 1: Upload via MediaWiki (recommended)
+
+Upload your logo through MediaWiki's `Special:Upload` page, then reference it in a settings file:
+
+```php
+<?php
+# config/settings/wikis/{wiki-id}/Logo.php
+
+$wgLogos = [
+    '1x' => $wgUploadPath . '/Logo.png',
+];
+```
+
+This approach:
+
+- **Follows wiki permissions** — on public wikis, anyone can see the logo; on private wikis, only logged-in users can see it
+- **Works for wiki farms** — each wiki uploads its own logo
+- **Persists across upgrades** — uploaded files are stored in the `images/` directory
+
+Use this option for most wikis, including fully private wikis where the logo should not be visible to logged-out users.
+
+### Option 2: Static file in skins directory
+
+For private wikis that need a publicly accessible logo (for example, to show branding on the login page), place the logo in the `skins/logos/` directory:
+
+```bash
+mkdir -p skins/logos
+cp /path/to/logo.png skins/logos/{wiki-id}.png
+```
+
+Then configure it in a per-wiki settings file:
+
+```php
+<?php
+# config/settings/wikis/{wiki-id}/Logo.php
+
+$wgLogos = [
+    '1x' => "/w/user-skins/logos/{$wgDBname}.png",
+];
+```
+
+This approach:
+
+- **Bypasses wiki permissions** — the logo is always publicly accessible
+- **Works for wiki farms** — each wiki has its own `{wiki-id}.png` file
+- **Persists across upgrades** — the `skins/` directory is a mounted volume
+
+Use this option only when you need a visible logo on private wikis.
+
+### Summary
+
+| Scenario | Solution |
+|----------|----------|
+| Public wiki | Upload via MediaWiki |
+| Private wiki, logo hidden from logged-out users | Upload via MediaWiki |
+| Private wiki, logo visible on login page | Static file in `skins/logos/` |
 
 ---
 
