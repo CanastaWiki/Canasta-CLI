@@ -96,7 +96,7 @@ func CloneStackRepo(orchestrator, canastaId string, path *string, localSourcePat
 	tag, err := compatibility.GetOrchestratorTag(orchestrator)
 	if err != nil {
 		// If we can't get the tag from manifest, fall back to regular clone (main branch)
-		logging.Print(fmt.Sprintf("Warning: Could not read compatibility manifest (%s), using default branch\n", err))
+		logging.Print(fmt.Sprintf("warning: could not read compatibility manifest (%s), using default branch\n", err))
 		logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s\n", orchestrator, *path))
 		return git.Clone(repo, *path)
 	}

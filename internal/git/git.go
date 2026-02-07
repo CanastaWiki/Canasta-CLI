@@ -38,7 +38,7 @@ func CloneWithTag(repo, path, tag string) error {
 	// Clone with specific branch/tag
 	err, output := execute.Run("", "git", "clone", "-b", tag, repo, path)
 	if err != nil {
-		return fmt.Errorf(output)
+		return fmt.Errorf("failed to clone repository with tag %s: %s", tag, output)
 	}
 	return nil
 }

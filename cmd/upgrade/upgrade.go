@@ -118,21 +118,22 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Get the orchestrator tag from compatibility manifest
-	orchestratorTag, err := compatibility.GetOrchestratorTag(instance.Orchestrator)
+	orchestratorRef, err := compatibility.GetOrchestratorTag(instance.Orchestrator)
 	if err != nil {
 		fmt.Printf("Warning: Could not read orchestrator tag from compatibility manifest (%s), using default\n", err)
-		orchestratorTag = "origin/main"
+		orchestratorRef = "origin/main"
 	} else {
-		if orchestratorTag == "main" {
-			orchestratorTag = "origin/main"
-		} else {
-			// For tags, we need to fetch tags and use the tag directly
-			orchestratorTag = "origin/" + orchestratorTag
+		if orchestratorRef == "main" {
+			// For main branch, use origin/main
+			orchestratorRef = "origin/main"
 		}
+		// For specific tags (e.g., "v1.2.0"), git fetch will fetch the tag
+		// and we can reference it directly without the "origin/" prefix
+		// Tags are global across remotes, unlike branches
 	}
 
 	fmt.Println("Checking for configuration file updates...")
-	repoChanged, err := git.FetchAndCheckoutRef(instance.Path, orchestratorTag, dryRun)
+	repoChanged, err := git.FetchAndCheckoutRef(instance.Path, orchestratorRef, dryRun)
 	if err != nil {
 		return err
 	}
@@ -187,7 +188,8 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return nil
 	}
 
-	// Update the CLI version in the config
+	// Update the CLI version in the config (after dry-run check, but before restart)
+	// This ensures the version is recorded even if no changes were detected
 	instance.CliVersion = version.GetVersion()
 	if err := config.Update(instance); err != nil {
 		fmt.Printf("Warning: Could not update CLI version in config: %s\n", err)

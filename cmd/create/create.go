@@ -208,7 +208,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		// Use registry image with specified tag
 		// If devTag is "latest", try to use compatibility manifest tag instead
 		if devTag == "latest" {
-			if compatTag, err := compatibility.GetImageTag(); err == nil && compatTag != "" {
+			if compatTag, err := compatibility.GetImageTag(); err == nil {
 				devTag = compatTag
 				logging.Print(fmt.Sprintf("Using image tag from compatibility manifest: %s\n", devTag))
 			}
