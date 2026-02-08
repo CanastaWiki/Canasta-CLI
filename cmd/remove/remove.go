@@ -120,6 +120,15 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 		return err
 	}
 
+	// Remove the Public Assets (from inside container first to handle www-data ownership on Linux)
+	if containersRunning {
+		orchestrators.CleanupPublicAssets(instance.Path, instance.Orchestrator, wikiID)
+	}
+	err = canasta.RemovePublicAssets(instance.Path, wikiID)
+	if err != nil {
+		return err
+	}
+
 	//Rewrite the Caddyfile
 	err = canasta.RewriteCaddy(instance.Path)
 	if err != nil {
