@@ -37,7 +37,8 @@ func CheckAndUpdate() (bool, error) {
 	}
 
 	if currentVersion == "" {
-		fmt.Println("Warning: running a dev build; proceeding with update to latest release.")
+		fmt.Println("Skipping CLI update: running a dev build.")
+		return true, nil
 	} else if currentVersion == latestVersion {
 		fmt.Printf("CLI is up to date (%s)\n", currentVersion)
 		return true, nil
