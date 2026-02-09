@@ -67,7 +67,8 @@ func GetImageWithTag(tag string) string {
 // passes the corresponding repository link,
 // and clones the repo to a new folder in the specified path.
 // If localSourcePath is provided and contains a Canasta-DockerCompose directory, it copies from there instead.
-func CloneStackRepo(orchestrator, canastaId string, path *string, localSourcePath string) error {
+// Returns true if a local Canasta-DockerCompose was used, false if cloned from GitHub.
+func CloneStackRepo(orchestrator, canastaId string, path *string, localSourcePath string) (bool, error) {
 	*path += "/" + canastaId
 
 	// Check if local Canasta-DockerCompose exists (only when building from source)
@@ -77,14 +78,14 @@ func CloneStackRepo(orchestrator, canastaId string, path *string, localSourcePat
 			logging.Print(fmt.Sprintf("Copying local Canasta-DockerCompose from %s to %s\n", localDockerComposePath, *path))
 			// Create target directory
 			if err := os.MkdirAll(*path, 0755); err != nil {
-				return fmt.Errorf("failed to create directory: %w", err)
+				return false, fmt.Errorf("failed to create directory: %w", err)
 			}
 			// Copy contents (trailing /. copies contents, not the directory itself)
 			err, output := execute.Run("", "cp", "-r", localDockerComposePath+"/.", *path)
 			if err != nil {
-				return fmt.Errorf("failed to copy local Canasta-DockerCompose: %s", output)
+				return false, fmt.Errorf("failed to copy local Canasta-DockerCompose: %s", output)
 			}
-			return nil
+			return true, nil
 		}
 	}
 
@@ -92,7 +93,7 @@ func CloneStackRepo(orchestrator, canastaId string, path *string, localSourcePat
 	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
 	repo := orchestrators.GetRepoLink(orchestrator)
 	err := git.Clone(repo, *path)
-	return err
+	return false, err
 }
 
 // CreateEnvFile creates the .env file for a new Canasta installation

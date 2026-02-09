@@ -135,10 +135,16 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		fmt.Println("Dry run mode - showing what would change without applying")
 	}
 
-	fmt.Println("Checking for configuration file updates...")
-	repoChanged, err := git.FetchAndCheckout(instance.Path, dryRun)
-	if err != nil {
-		return err
+	// Check if this uses a local stack (created with --build-from using local Canasta-DockerCompose)
+	var repoChanged bool
+	if instance.LocalStack {
+		fmt.Println("Skipping config update: this instance uses a local Canasta-DockerCompose.")
+	} else {
+		fmt.Println("Checking for configuration file updates...")
+		repoChanged, err = git.FetchAndCheckout(instance.Path, dryRun)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Check if this is a locally-built image (created with --build-from)
@@ -150,8 +156,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 
 	if !dryRun {
 		if isLocalBuild {
-			fmt.Println("Skipping image pull: this instance uses a locally-built image (--build-from).")
-			fmt.Println("To update, recreate the instance.")
+			fmt.Println("Skipping image pull: this instance uses a locally-built image.")
 		} else {
 			fmt.Println("Pulling Canasta container images...")
 			report, err := orchestrators.PullWithReport(instance.Path, instance.Orchestrator)
@@ -202,6 +207,8 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	fmt.Println()
 	if repoChanged || migrationsNeeded || imagesUpdated {
 		fmt.Println("Canasta upgraded successfully!")
+	} else if instance.LocalStack || isLocalBuild {
+		fmt.Println("This is a local development instance. To update, recreate the instance.")
 	} else {
 		fmt.Println("Installation was already up to date. Containers restarted.")
 	}
