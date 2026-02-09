@@ -151,7 +151,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	if !dryRun {
 		if isLocalBuild {
 			fmt.Println("Skipping image pull: this instance uses a locally-built image (--build-from).")
-			fmt.Println("To update, rebuild the image and recreate the instance.")
+			fmt.Println("To update, recreate the instance.")
 		} else {
 			fmt.Println("Pulling Canasta container images...")
 			report, err := orchestrators.PullWithReport(instance.Path, instance.Orchestrator)
