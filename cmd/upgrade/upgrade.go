@@ -194,6 +194,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	// Only restart if something changed
 	if repoChanged || migrationsNeeded || imagesUpdated {
 		// Restart the containers
+		fmt.Println("Restarting containers...")
 		if err = orchestrators.StopAndStart(instance); err != nil {
 			return err
 		}
