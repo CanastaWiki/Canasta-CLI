@@ -790,6 +790,27 @@ func RemoveImages(installPath, id string) error {
 	return nil
 }
 
+func RemovePublicAssets(installPath, id string) error {
+	// Prepare the file path
+	filePath := filepath.Join(installPath, "public_assets", id)
+
+	// Check if the file exists
+	if _, err := os.Stat(filePath); err == nil {
+		// If the file exists, remove it
+		err, output := execute.Run("", "rm", "-rf", filePath)
+		if err != nil {
+			return fmt.Errorf(output)
+		}
+	} else if os.IsNotExist(err) {
+		// File does not exist, do nothing
+		return nil
+	} else {
+		// File may or may not exist. See the specific error
+		return err
+	}
+	return nil
+}
+
 func MigrateToNewVersion(installPath string) error {
 	// Determine the path to the wikis.yaml file
 	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")

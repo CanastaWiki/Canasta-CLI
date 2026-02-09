@@ -387,6 +387,21 @@ func CleanupImages(installPath, orchestrator, wikiID string) error {
 	return err
 }
 
+// CleanupPublicAssets removes public assets files from inside the container.
+// On Linux, files created by the container are owned by www-data (UID 33) which maps to
+// their container UID on the host and cannot be deleted without sudo.
+// If wikiID is empty, removes all public_assets (public_assets/*). Otherwise removes public_assets/{wikiID}.
+func CleanupPublicAssets(installPath, orchestrator, wikiID string) error {
+	var cleanupCmd string
+	if wikiID == "" {
+		cleanupCmd = "find /mediawiki/public_assets -mindepth 1 -delete"
+	} else {
+		cleanupCmd = fmt.Sprintf("rm -rf /mediawiki/public_assets/%s", wikiID)
+	}
+	_, err := ExecWithError(installPath, orchestrator, "web", cleanupCmd)
+	return err
+}
+
 func DeleteContainers(installPath, orchestrator string) (string, error) {
 	switch orchestrator {
 	case "compose":

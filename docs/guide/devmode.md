@@ -369,15 +369,20 @@ When you re-enable dev mode (`canasta restart --dev`) after having disabled it:
 
 ## Log locations
 
-All commands should be run from the installation directory.
+For general log file locations (MediaWiki debug log, Apache error log, etc.), see [Troubleshooting: Log file locations](troubleshooting.md#log-file-locations).
 
-| Log | Description | Command |
-|-----|-------------|---------|
-| Xdebug | Debug connection attempts | `docker compose exec web tail -f /var/log/mediawiki/php-xdebug.log` |
-| PHP-FPM | PHP errors and warnings | `docker compose exec web tail -f /var/log/php8.1-fpm.log` |
-| MediaWiki debug | Application debug log | `docker compose exec web tail -f /var/log/mediawiki/debug.log` |
+### Xdebug log
 
-**Note**: The MediaWiki debug log requires `$wgDebugLogFile = '/var/log/mediawiki/debug.log';` in your LocalSettings.php.
+In dev mode, Xdebug writes connection attempts to its own log file:
+
+```bash
+docker compose exec web tail -f /var/log/mediawiki/php-xdebug.log
+```
+
+This log is useful for diagnosing why breakpoints aren't being hit:
+- "Trigger value not found" — Cookie not set or not being sent
+- "Could not connect to debugging client" — IDE not listening
+- "Connecting to configured address" — Working correctly
 
 ---
 
