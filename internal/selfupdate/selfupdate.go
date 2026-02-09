@@ -6,11 +6,9 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/spf13/cobra"
+	"syscall"
 
 	"github.com/CanastaWiki/Canasta-CLI/cmd/version"
 )
@@ -24,49 +22,51 @@ type githubRelease struct {
 	TagName string `json:"tag_name"`
 }
 
-func NewCmdCreate() *cobra.Command {
-	var selfUpdateCmd = &cobra.Command{
-		Use:   "self-update",
-		Short: "Update the Canasta CLI to the latest version",
-		Long: `Check for a newer Canasta CLI release on GitHub and install it, replacing
-the current binary. If already up to date, no changes are made.`,
-		Example: `  canasta self-update`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSelfUpdate()
-		},
-	}
-	return selfUpdateCmd
-}
-
-func runSelfUpdate() error {
+// CheckAndUpdate checks for a newer CLI version and updates if available.
+// If an update is performed, it re-execs the current process with the new binary.
+// Returns true if already up-to-date (caller should continue), or doesn't return
+// if re-exec happens.
+func CheckAndUpdate() (bool, error) {
 	currentVersion := version.Version
 
-	// Fetch latest release info from GitHub
+	fmt.Println("Checking for CLI updates...")
+
 	latestVersion, err := getLatestVersion()
 	if err != nil {
-		return err
+		return false, err
 	}
-
-	fmt.Printf("Current version: %s\n", displayVersion(currentVersion))
-	fmt.Printf("Latest version:  %s\n", latestVersion)
 
 	if currentVersion == "" {
 		fmt.Println("Warning: running a dev build; proceeding with update to latest release.")
 	} else if currentVersion == latestVersion {
-		fmt.Printf("Already up to date (%s)\n", currentVersion)
-		return nil
+		fmt.Printf("CLI is up to date (%s)\n", currentVersion)
+		return true, nil
 	}
+
+	fmt.Printf("Updating CLI from %s to %s...\n", displayVersion(currentVersion), latestVersion)
 
 	// Determine the path of the currently running binary
 	execPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("failed to determine current binary path: %w", err)
+		return false, fmt.Errorf("failed to determine current binary path: %w", err)
 	}
 	execPath, err = filepath.EvalSymlinks(execPath)
 	if err != nil {
-		return fmt.Errorf("failed to resolve binary path: %w", err)
+		return false, fmt.Errorf("failed to resolve binary path: %w", err)
 	}
 
+	// Download and run install.sh to update the binary
+	if err := downloadAndInstall(latestVersion, execPath); err != nil {
+		return false, err
+	}
+
+	fmt.Printf("CLI updated to %s. Continuing with upgrade...\n\n", latestVersion)
+
+	// Re-exec with the new binary, passing the same arguments
+	return false, reexec(execPath)
+}
+
+func downloadAndInstall(latestVersion, execPath string) error {
 	// Download install.sh to a temp file
 	tmpFile, err := os.CreateTemp("", "canasta-install-*.sh")
 	if err != nil {
@@ -93,21 +93,54 @@ func runSelfUpdate() error {
 	ver := strings.TrimPrefix(latestVersion, "v")
 
 	// Run install.sh with flags to perform the update
-	cmd := exec.Command("bash", tmpFile.Name(), "-v", ver, "-t", execPath, "--skip-checks")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("update failed: %w", err)
+	// We use a subprocess here rather than exec because we need to continue after
+	bashPath, err := findBash()
+	if err != nil {
+		return err
 	}
 
-	if currentVersion != "" {
-		fmt.Printf("Updated Canasta CLI from %s to %s\n", currentVersion, latestVersion)
-	} else {
-		fmt.Printf("Updated Canasta CLI to %s\n", latestVersion)
+	// Use os/exec to run the install script
+	cmd := &syscall.ProcAttr{
+		Dir:   "",
+		Env:   os.Environ(),
+		Files: []uintptr{os.Stdin.Fd(), os.Stdout.Fd(), os.Stderr.Fd()},
+	}
+
+	pid, err := syscall.ForkExec(bashPath, []string{"bash", tmpFile.Name(), "-v", ver, "-t", execPath, "--skip-checks"}, cmd)
+	if err != nil {
+		return fmt.Errorf("failed to run install script: %w", err)
+	}
+
+	// Wait for the install script to complete
+	var ws syscall.WaitStatus
+	_, err = syscall.Wait4(pid, &ws, 0, nil)
+	if err != nil {
+		return fmt.Errorf("failed waiting for install script: %w", err)
+	}
+
+	if !ws.Exited() || ws.ExitStatus() != 0 {
+		return fmt.Errorf("install script failed with status %d", ws.ExitStatus())
 	}
 
 	return nil
+}
+
+func reexec(execPath string) error {
+	// Re-exec with the same arguments
+	args := os.Args
+
+	// Use syscall.Exec to replace this process with the new binary
+	return syscall.Exec(execPath, args, os.Environ())
+}
+
+func findBash() (string, error) {
+	paths := []string{"/bin/bash", "/usr/bin/bash", "/usr/local/bin/bash"}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("bash not found")
 }
 
 func getLatestVersion() (string, error) {

@@ -53,13 +53,13 @@ canasta version
 
 ## Updating
 
-To update to the latest version:
+The CLI automatically updates itself when you run `canasta upgrade`. This ensures you always have the latest CLI version when upgrading your Canasta instances.
+
+To manually update the CLI without upgrading any instances, re-run the installation command:
 
 ```bash
-canasta self-update
+curl -fsSL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/install.sh | sudo bash
 ```
-
-Alternatively, re-run the installation command.
 
 ## Uninstall
 

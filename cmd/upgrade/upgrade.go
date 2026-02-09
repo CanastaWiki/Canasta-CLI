@@ -18,11 +18,13 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI/internal/selfupdate"
 )
 
 var instance config.Installation
 var dryRun bool
 var upgradeAll bool
+var skipCLIUpdate bool
 
 func NewCmdCreate() *cobra.Command {
 	workingDir, err := os.Getwd()
@@ -36,8 +38,13 @@ func NewCmdCreate() *cobra.Command {
 		Short: "Upgrade a Canasta installation to the latest version",
 		Long: `Upgrade a Canasta installation by pulling the latest Docker Compose stack
 and container images, running any necessary configuration migrations, and
-restarting the containers. Use --dry-run to preview migrations without
-applying them, or --all to upgrade every registered installation.`,
+restarting the containers.
+
+The CLI itself is also updated to the latest version before upgrading instances.
+Use --skip-cli-update to skip the CLI update if needed.
+
+Use --dry-run to preview migrations without applying them, or --all to upgrade
+every registered installation.`,
 		Example: `  # Upgrade a single installation
   canasta upgrade -i myinstance
 
@@ -45,11 +52,23 @@ applying them, or --all to upgrade every registered installation.`,
   canasta upgrade -i myinstance --dry-run
 
   # Upgrade all registered installations
-  canasta upgrade --all`,
+  canasta upgrade --all
+
+  # Upgrade without updating the CLI
+  canasta upgrade -i myinstance --skip-cli-update`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if upgradeAll && instance.Id != "" {
 				return fmt.Errorf("cannot use --all with --id")
 			}
+
+			// Check for CLI updates first (unless skipped or dry-run)
+			if !skipCLIUpdate && !dryRun {
+				if _, err := selfupdate.CheckAndUpdate(); err != nil {
+					return fmt.Errorf("CLI update failed: %w", err)
+				}
+				fmt.Println()
+			}
+
 			if upgradeAll {
 				return upgradeAllInstances(dryRun)
 			}
@@ -65,6 +84,7 @@ applying them, or --all to upgrade every registered installation.`,
 	upgradeCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	upgradeCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would change without applying")
 	upgradeCmd.Flags().BoolVar(&upgradeAll, "all", false, "Upgrade all registered Canasta instances")
+	upgradeCmd.Flags().BoolVar(&skipCLIUpdate, "skip-cli-update", false, "Skip updating the CLI itself")
 	return upgradeCmd
 }
 
