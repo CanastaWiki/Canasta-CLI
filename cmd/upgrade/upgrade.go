@@ -141,21 +141,32 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
+	// Check if this is a locally-built image (created with --build-from)
 	var imagesUpdated bool
+	envPath := filepath.Join(instance.Path, ".env")
+	envVars := canasta.GetEnvVariable(envPath)
+	canastaImage := envVars["CANASTA_IMAGE"]
+	isLocalBuild := strings.HasPrefix(canastaImage, "canasta:local")
+
 	if !dryRun {
-		fmt.Println("Pulling Canasta container images...")
-		report, err := orchestrators.PullWithReport(instance.Path, instance.Orchestrator)
-		if err != nil {
-			return err
-		}
-		if len(report.UpdatedImages) > 0 {
-			imagesUpdated = true
-			fmt.Println("Container images updated:")
-			for _, img := range report.UpdatedImages {
-				fmt.Printf("  %s (%s)\n", img.Service, img.Image)
-			}
+		if isLocalBuild {
+			fmt.Println("Skipping image pull: this instance uses a locally-built image (--build-from).")
+			fmt.Println("To update, rebuild the image and recreate the instance.")
 		} else {
-			fmt.Println("Container images are up to date.")
+			fmt.Println("Pulling Canasta container images...")
+			report, err := orchestrators.PullWithReport(instance.Path, instance.Orchestrator)
+			if err != nil {
+				return err
+			}
+			if len(report.UpdatedImages) > 0 {
+				imagesUpdated = true
+				fmt.Println("Container images updated:")
+				for _, img := range report.UpdatedImages {
+					fmt.Printf("  %s (%s)\n", img.Service, img.Image)
+				}
+			} else {
+				fmt.Println("Container images are up to date.")
+			}
 		}
 	}
 
