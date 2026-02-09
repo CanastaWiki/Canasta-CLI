@@ -191,26 +191,28 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return nil
 	}
 
-	// Restart the containers
-	if err = orchestrators.StopAndStart(instance); err != nil {
-		return err
-	}
-
-	// Touch LocalSettings.php to flush cache
-	fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
-	_, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", "touch LocalSettings.php")
-	if err != nil {
-		return err
-	}
-
-	// Print summary
-	fmt.Println()
+	// Only restart if something changed
 	if repoChanged || migrationsNeeded || imagesUpdated {
+		// Restart the containers
+		if err = orchestrators.StopAndStart(instance); err != nil {
+			return err
+		}
+
+		// Touch LocalSettings.php to flush cache
+		fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
+		_, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", "touch LocalSettings.php")
+		if err != nil {
+			return err
+		}
+
+		fmt.Println()
 		fmt.Println("Canasta upgraded successfully!")
 	} else if instance.LocalStack || isLocalBuild {
+		fmt.Println()
 		fmt.Println("This is a local development instance. To update, recreate the instance.")
 	} else {
-		fmt.Println("Installation was already up to date. Containers restarted.")
+		fmt.Println()
+		fmt.Println("Installation is already up to date.")
 	}
 
 	return nil
