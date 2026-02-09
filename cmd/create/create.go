@@ -213,7 +213,8 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	}
 
 	// Clone the stack repository first to create the installation directory
-	if err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path, buildFromPath); err != nil {
+	localStack, err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path, buildFromPath)
+	if err != nil {
 		return err
 	}
 
@@ -307,7 +308,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled}
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, LocalStack: localStack}
 	if err := config.Add(instance); err != nil {
 		return err
 	}

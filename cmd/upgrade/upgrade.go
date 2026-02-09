@@ -18,11 +18,13 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI/internal/selfupdate"
 )
 
 var instance config.Installation
 var dryRun bool
 var upgradeAll bool
+var skipCLIUpdate bool
 
 func NewCmdCreate() *cobra.Command {
 	workingDir, err := os.Getwd()
@@ -36,8 +38,13 @@ func NewCmdCreate() *cobra.Command {
 		Short: "Upgrade a Canasta installation to the latest version",
 		Long: `Upgrade a Canasta installation by pulling the latest Docker Compose stack
 and container images, running any necessary configuration migrations, and
-restarting the containers. Use --dry-run to preview migrations without
-applying them, or --all to upgrade every registered installation.`,
+restarting the containers.
+
+The CLI itself is also updated to the latest version before upgrading instances.
+Use --skip-cli-update to skip the CLI update if needed.
+
+Use --dry-run to preview migrations without applying them, or --all to upgrade
+every registered installation.`,
 		Example: `  # Upgrade a single installation
   canasta upgrade -i myinstance
 
@@ -45,11 +52,23 @@ applying them, or --all to upgrade every registered installation.`,
   canasta upgrade -i myinstance --dry-run
 
   # Upgrade all registered installations
-  canasta upgrade --all`,
+  canasta upgrade --all
+
+  # Upgrade without updating the CLI
+  canasta upgrade -i myinstance --skip-cli-update`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if upgradeAll && instance.Id != "" {
 				return fmt.Errorf("cannot use --all with --id")
 			}
+
+			// Check for CLI updates first (unless skipped or dry-run)
+			if !skipCLIUpdate && !dryRun {
+				if _, err := selfupdate.CheckAndUpdate(); err != nil {
+					return fmt.Errorf("CLI update failed: %w", err)
+				}
+				fmt.Println()
+			}
+
 			if upgradeAll {
 				return upgradeAllInstances(dryRun)
 			}
@@ -65,6 +84,7 @@ applying them, or --all to upgrade every registered installation.`,
 	upgradeCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	upgradeCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would change without applying")
 	upgradeCmd.Flags().BoolVar(&upgradeAll, "all", false, "Upgrade all registered Canasta instances")
+	upgradeCmd.Flags().BoolVar(&skipCLIUpdate, "skip-cli-update", false, "Skip updating the CLI itself")
 	return upgradeCmd
 }
 
@@ -115,27 +135,43 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		fmt.Println("Dry run mode - showing what would change without applying")
 	}
 
-	fmt.Println("Checking for configuration file updates...")
-	repoChanged, err := git.FetchAndCheckout(instance.Path, dryRun)
-	if err != nil {
-		return err
-	}
-
-	var imagesUpdated bool
-	if !dryRun {
-		fmt.Println("Pulling Canasta container images...")
-		report, err := orchestrators.PullWithReport(instance.Path, instance.Orchestrator)
+	// Check if this uses a local stack (created with --build-from using local Canasta-DockerCompose)
+	var repoChanged bool
+	if instance.LocalStack {
+		fmt.Println("Skipping config update: this instance uses a local Canasta-DockerCompose.")
+	} else {
+		fmt.Println("Checking for configuration file updates...")
+		repoChanged, err = git.FetchAndCheckout(instance.Path, dryRun)
 		if err != nil {
 			return err
 		}
-		if len(report.UpdatedImages) > 0 {
-			imagesUpdated = true
-			fmt.Println("Container images updated:")
-			for _, img := range report.UpdatedImages {
-				fmt.Printf("  %s (%s)\n", img.Service, img.Image)
-			}
+	}
+
+	// Check if this is a locally-built image (created with --build-from)
+	var imagesUpdated bool
+	envPath := filepath.Join(instance.Path, ".env")
+	envVars := canasta.GetEnvVariable(envPath)
+	canastaImage := envVars["CANASTA_IMAGE"]
+	isLocalBuild := strings.HasPrefix(canastaImage, "canasta:local")
+
+	if !dryRun {
+		if isLocalBuild {
+			fmt.Println("Skipping image pull: this instance uses a locally-built image.")
 		} else {
-			fmt.Println("Container images are up to date.")
+			fmt.Println("Pulling Canasta container images...")
+			report, err := orchestrators.PullWithReport(instance.Path, instance.Orchestrator)
+			if err != nil {
+				return err
+			}
+			if len(report.UpdatedImages) > 0 {
+				imagesUpdated = true
+				fmt.Println("Container images updated:")
+				for _, img := range report.UpdatedImages {
+					fmt.Printf("  %s (%s)\n", img.Service, img.Image)
+				}
+			} else {
+				fmt.Println("Container images are up to date.")
+			}
 		}
 	}
 
@@ -155,24 +191,29 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return nil
 	}
 
-	// Restart the containers
-	if err = orchestrators.StopAndStart(instance); err != nil {
-		return err
-	}
-
-	// Touch LocalSettings.php to flush cache
-	fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
-	_, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", "touch LocalSettings.php")
-	if err != nil {
-		return err
-	}
-
-	// Print summary
-	fmt.Println()
+	// Only restart if something changed
 	if repoChanged || migrationsNeeded || imagesUpdated {
+		// Restart the containers
+		fmt.Println("Restarting containers...")
+		if err = orchestrators.StopAndStart(instance); err != nil {
+			return err
+		}
+
+		// Touch LocalSettings.php to flush cache
+		fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
+		_, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", "touch LocalSettings.php")
+		if err != nil {
+			return err
+		}
+
+		fmt.Println()
 		fmt.Println("Canasta upgraded successfully!")
+	} else if instance.LocalStack || isLocalBuild {
+		fmt.Println()
+		fmt.Println("This is a local development instance. To update, recreate the instance.")
 	} else {
-		fmt.Println("Installation was already up to date. Containers restarted.")
+		fmt.Println()
+		fmt.Println("Installation is already up to date.")
 	}
 
 	return nil

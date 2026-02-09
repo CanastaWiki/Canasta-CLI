@@ -73,7 +73,6 @@ nav:
       - export: cli/canasta_export.md
       - upgrade: cli/canasta_upgrade.md
       - version: cli/canasta_version.md
-      - self-update: cli/canasta_self-update.md
     - extension:
       - Overview: cli/canasta_extension.md
       - list: cli/canasta_extension_list.md
