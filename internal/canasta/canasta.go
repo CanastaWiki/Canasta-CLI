@@ -504,6 +504,9 @@ func RewriteCaddy(installPath string) error {
 	} else {
 		writeLine("    reverse_proxy varnish:80")
 	}
+	writeLine("    log {")
+	writeLine("        output file /var/log/caddy/access.log")
+	writeLine("    }")
 	writeLine("}")
 
 	if writeErr != nil {
