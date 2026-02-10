@@ -69,10 +69,6 @@ func Delete(instance config.Installation) error {
 		if err := orchestrators.CleanupImages(instance.Path, instance.Orchestrator, ""); err != nil {
 			logging.Print(fmt.Sprintf("Warning: could not clean up images: %v\n", err))
 		}
-		// Clean up public_assets from inside the container before stopping
-		if err := orchestrators.CleanupPublicAssets(instance.Path, instance.Orchestrator, ""); err != nil {
-			logging.Print(fmt.Sprintf("Warning: could not clean up public_assets: %v\n", err))
-		}
 	}
 
 	//Stopping and deleting Contianers and it's volumes
