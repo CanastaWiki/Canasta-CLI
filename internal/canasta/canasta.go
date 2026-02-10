@@ -431,6 +431,9 @@ func RewriteCaddy(installPath string) error {
 	writeLine(siteAddress.String() + " {")
 	writeLine("    import /etc/caddy/Caddyfile.site")
 	writeLine("    reverse_proxy varnish:80")
+	writeLine("    log {")
+	writeLine("        output file /var/log/caddy/access.log")
+	writeLine("    }")
 	writeLine("}")
 
 	if writeErr != nil {
