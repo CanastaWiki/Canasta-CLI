@@ -12,7 +12,7 @@ Canasta CLI is a powerful tool that allows you to create, manage, and maintain m
 - **Importing** and exporting wiki data
 - **Upgrading** existing installations
 
-## Supported Platforms
+## Supported platforms
 
 | Platform | Architectures |
 |----------|--------------|
@@ -20,7 +20,7 @@ Canasta CLI is a powerful tool that allows you to create, manage, and maintain m
 | macOS | Intel (AMD64), Apple Silicon (ARM64) |
 | Windows | Use [WSL](https://docs.microsoft.com/en-us/windows/wsl/install) with Linux version |
 
-## Quick Start
+## Quick start
 
 ```bash
 # Install Canasta CLI
