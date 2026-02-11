@@ -68,7 +68,7 @@ func GetImageWithTag(tag string) string {
 // and clones the repo to a new folder in the specified path.
 // If localSourcePath is provided and contains a Canasta-DockerCompose directory, it copies from there instead.
 // Returns true if a local Canasta-DockerCompose was used, false if cloned from GitHub.
-func CloneStackRepo(orchestrator, canastaId string, path *string, localSourcePath string) (bool, error) {
+func CloneStackRepo(orch orchestrators.Orchestrator, canastaId string, path *string, localSourcePath string) (bool, error) {
 	*path += "/" + canastaId
 
 	// Check if local Canasta-DockerCompose exists (only when building from source)
@@ -90,8 +90,8 @@ func CloneStackRepo(orchestrator, canastaId string, path *string, localSourcePat
 	}
 
 	// Fall back to cloning from GitHub
-	logging.Print(fmt.Sprintf("Cloning the %s stack repo to %s \n", orchestrator, *path))
-	repo := orchestrators.GetRepoLink(orchestrator)
+	repo := orch.GetRepoLink()
+	logging.Print(fmt.Sprintf("Cloning the stack repo to %s \n", *path))
 	err := git.Clone(repo, *path)
 	return false, err
 }
@@ -669,9 +669,9 @@ func CheckCanastaId(instance config.Installation) (config.Installation, error) {
 	return instance, nil
 }
 
-func DeleteConfigAndContainers(keepConfig bool, installationDir, orchestrator string) {
+func DeleteConfigAndContainers(keepConfig bool, installationDir string, orch orchestrators.Orchestrator) {
 	fmt.Println("Removing containers")
-	orchestrators.DeleteContainers(installationDir, orchestrator)
+	orch.Destroy(installationDir)
 	fmt.Println("Deleting config files")
 	orchestrators.DeleteConfig(installationDir)
 	fmt.Println("Deleted all containers and config files")

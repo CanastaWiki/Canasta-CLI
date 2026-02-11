@@ -10,10 +10,12 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/extensionsskins"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 var (
 	instance     config.Installation
+	orch         orchestrators.Orchestrator
 	wiki         string
 	err          error
 	verbose      bool
@@ -40,6 +42,7 @@ a specific wiki in a farm.`,
 			if err != nil {
 				return err
 			}
+			orch = orchestrators.New(instance.Orchestrator)
 			return nil
 		},
 	}

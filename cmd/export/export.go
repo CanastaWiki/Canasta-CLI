@@ -42,7 +42,8 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 			}
 
 			// Check containers are running
-			err = orchestrators.CheckRunningStatus(instance)
+			orch := orchestrators.New(instance.Orchestrator)
+			err = orch.CheckRunningStatus(instance)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -86,6 +87,8 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 }
 
 func exportDatabase(instance config.Installation, wikiID, outputPath string) error {
+	orch := orchestrators.New(instance.Orchestrator)
+
 	// Read the database password from .env
 	envVariables := canasta.GetEnvVariable(instance.Path + "/.env")
 	dbPassword := envVariables["MYSQL_PASSWORD"]
@@ -100,7 +103,7 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 
 	// Run mysqldump inside the db container (no --databases flag to avoid USE statements)
 	dumpCmd := fmt.Sprintf("mysqldump --no-defaults -u root -p'%s' %s > %s", escapedPassword, wikiID, tempFile)
-	output, err := orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "db", dumpCmd)
+	output, err := orch.ExecWithError(instance.Path, "db", dumpCmd)
 	if err != nil {
 		return fmt.Errorf("failed to export database: %s", output)
 	}
@@ -109,7 +112,7 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 	copyFile := tempFile
 	if strings.HasSuffix(outputPath, ".gz") {
 		gzipCmd := fmt.Sprintf("gzip -f %s", tempFile)
-		output, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "db", gzipCmd)
+		output, err = orch.ExecWithError(instance.Path, "db", gzipCmd)
 		if err != nil {
 			return fmt.Errorf("failed to compress export file: %s", output)
 		}
@@ -117,14 +120,14 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 	}
 
 	// Copy the dump file from the container to the host
-	err = orchestrators.CopyFromContainer(instance.Path, instance.Orchestrator, "db", copyFile, outputPath)
+	err = orch.CopyFrom(instance.Path, "db", copyFile, outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to copy export file from container: %w", err)
 	}
 
 	// Clean up temp files in the container
 	rmCmd := fmt.Sprintf("rm -f %s %s.gz", tempFile, tempFile)
-	_, _ = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "db", rmCmd)
+	_, _ = orch.ExecWithError(instance.Path, "db", rmCmd)
 
 	return nil
 }

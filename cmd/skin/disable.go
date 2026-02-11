@@ -25,12 +25,12 @@ specific wiki only.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			skins := strings.Split(args[0], ",")
 			for _, skin := range skins {
-				skinName, err := extensionsskins.CheckEnabled(skin, wiki, instance, constants)
+				skinName, err := extensionsskins.CheckEnabled(skin, wiki, instance, orch, constants)
 				if err != nil {
 					fmt.Print(err.Error() + "\n")
 					continue
 				}
-				extensionsskins.Disable(skinName, wiki, instance, constants)
+				extensionsskins.Disable(skinName, wiki, instance, orch, constants)
 			}
 			return err
 		},

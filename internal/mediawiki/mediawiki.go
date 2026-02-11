@@ -25,13 +25,13 @@ const (
 	commonSettingsBackup = "CommonSettingsBackup.php"
 )
 
-func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
+func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
 
 	command := "/wait-for-it.sh -t 60 db:3306"
-	output, err := orchestrators.ExecWithError(path, orchestrator, "web", command)
+	output, err := orch.ExecWithError(path, "web", command)
 	if err != nil {
 		return canastaInfo, fmt.Errorf(output)
 	}
@@ -48,7 +48,7 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 		command := fmt.Sprintf("env -u MW_SECRET_KEY php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
 			dbServer, wikiID, confPath, scriptPath, domainName, "root", canastaInfo.RootDBPassword, canastaInfo.WikiDBUsername, canastaInfo.WikiDBPassword, canastaInfo.AdminPassword, wikiID, canastaInfo.AdminName)
 
-		output, err = orchestrators.ExecWithError(path, orchestrator, "web", command)
+		output, err = orch.ExecWithError(path, "web", command)
 		if err != nil {
 			return canastaInfo, fmt.Errorf(output)
 		}
@@ -106,14 +106,14 @@ func Install(path, yamlPath, orchestrator string, canastaInfo canasta.CanastaVar
 	return canastaInfo, nil
 }
 
-func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDir, orchestrator string) error {
+func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDir string, orch orchestrators.Orchestrator) error {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
 	envVariables := canasta.GetEnvVariable(installPath + "/.env")
 
 	command := "/wait-for-it.sh -t 60 db:3306"
-	output, err := orchestrators.ExecWithError(installPath, orchestrator, "web", command)
+	output, err := orch.ExecWithError(installPath, "web", command)
 	if err != nil {
 		return fmt.Errorf(output)
 	}
@@ -186,7 +186,7 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	}
 	command = fmt.Sprintf("%s --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
 		installCmd, dbServer, id, confPath, scriptPath, domain, installdbuser, installdbpass, dbuser, dbpass, adminPassword, id, admin)
-	output, err = orchestrators.ExecWithError(installPath, orchestrator, "web", command)
+	output, err = orch.ExecWithError(installPath, "web", command)
 	if err != nil {
 		return fmt.Errorf(output)
 	}
@@ -224,10 +224,10 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	return err
 }
 
-func RemoveDatabase(installPath, id, orchestrator string) error {
+func RemoveDatabase(installPath, id string, orch orchestrators.Orchestrator) error {
 	envVariables := canasta.GetEnvVariable(installPath + "/.env")
 	command := fmt.Sprintf("echo 'DROP DATABASE IF EXISTS %s;' | mysql -h db -u root -p'%s'", id, envVariables["MYSQL_PASSWORD"])
-	output, err := orchestrators.ExecWithError(installPath, orchestrator, "db", command)
+	output, err := orch.ExecWithError(installPath, "db", command)
 	if err != nil {
 		return fmt.Errorf("Error while dropping database '%s': %v. Output: %s", id, err, output)
 	}

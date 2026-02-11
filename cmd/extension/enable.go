@@ -28,12 +28,12 @@ extension for a specific wiki only.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			extensions := strings.Split(args[0], ",")
 			for _, extension := range extensions {
-				extensionName, err := extensionsskins.CheckInstalled(extension, instance, constants)
+				extensionName, err := extensionsskins.CheckInstalled(extension, instance, orch, constants)
 				if err != nil {
 					fmt.Print(err.Error() + "\n")
 					continue
 				}
-				extensionsskins.Enable(extensionName, wiki, instance, constants)
+				extensionsskins.Enable(extensionName, wiki, instance, orch, constants)
 			}
 			return err
 		},

@@ -13,6 +13,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
@@ -62,10 +63,17 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 		return err
 	}
 
+	orch := orchestrators.New(instance.Orchestrator)
+
 	// Ensure containers are running (starts them if needed)
 	// Needed for database removal and image cleanup on Linux
 	containersRunning := true
-	if err = orchestrators.EnsureRunning(instance); err != nil {
+	ensureErr := orch.CheckRunningStatus(instance)
+	if ensureErr != nil {
+		logging.Print("Containers not running, starting them...\n")
+		ensureErr = orch.Start(instance)
+	}
+	if ensureErr != nil {
 		containersRunning = false
 		fmt.Println("Warning: could not start containers.")
 		fmt.Println("Database may not be removed and some image files may be orphaned.")
@@ -99,7 +107,7 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 
 	// Remove the corresponding Database (requires running container)
 	if containersRunning {
-		err = mediawiki.RemoveDatabase(instance.Path, wikiID, instance.Orchestrator)
+		err = mediawiki.RemoveDatabase(instance.Path, wikiID, orch)
 		if err != nil {
 			return err
 		}
@@ -113,7 +121,8 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 
 	// Remove the Images (from inside container first to handle www-data ownership on Linux)
 	if containersRunning {
-		orchestrators.CleanupImages(instance.Path, instance.Orchestrator, wikiID)
+		cleanupCmd := fmt.Sprintf("rm -rf /mediawiki/images/%s", wikiID)
+		orch.ExecWithError(instance.Path, "web", cleanupCmd)
 	}
 	err = canasta.RemoveImages(instance.Path, wikiID)
 	if err != nil {

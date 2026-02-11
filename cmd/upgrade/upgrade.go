@@ -131,6 +131,8 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
+	orch := orchestrators.New(instance.Orchestrator)
+
 	if dryRun {
 		fmt.Println("Dry run mode - showing what would change without applying")
 	}
@@ -159,7 +161,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 			fmt.Println("Skipping image pull: this instance uses a locally-built image.")
 		} else {
 			fmt.Println("Pulling Canasta container images...")
-			report, err := orchestrators.PullWithReport(instance.Path, instance.Orchestrator)
+			report, err := orch.Update(instance.Path)
 			if err != nil {
 				return err
 			}
@@ -195,13 +197,16 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	if repoChanged || migrationsNeeded || imagesUpdated {
 		// Restart the containers
 		fmt.Println("Restarting containers...")
-		if err = orchestrators.StopAndStart(instance); err != nil {
+		if err = orch.Stop(instance); err != nil {
+			return err
+		}
+		if err = orch.Start(instance); err != nil {
 			return err
 		}
 
 		// Touch LocalSettings.php to flush cache
 		fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
-		_, err = orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", "touch LocalSettings.php")
+		_, err = orch.ExecWithError(instance.Path, "web", "touch LocalSettings.php")
 		if err != nil {
 			return err
 		}

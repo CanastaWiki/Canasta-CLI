@@ -42,7 +42,8 @@ To create a new wiki from a database dump, use the --database flag with
 			}
 
 			// Check containers are running
-			err = orchestrators.CheckRunningStatus(instance)
+			orch := orchestrators.New(instance.Orchestrator)
+			err = orch.CheckRunningStatus(instance)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -67,7 +68,7 @@ To create a new wiki from a database dump, use the --database flag with
 			}
 
 			fmt.Printf("Importing database into wiki '%s' in Canasta instance '%s'...\n", wikiID, instance.Id)
-			if err := importDatabase(instance, wikiID, databasePath, settingsPath, workingDir); err != nil {
+			if err := importDatabase(orch, instance, wikiID, databasePath, settingsPath, workingDir); err != nil {
 				log.Fatal(err)
 			}
 			fmt.Println("Done.")
@@ -92,13 +93,13 @@ To create a new wiki from a database dump, use the --database flag with
 	return importCmd
 }
 
-func importDatabase(instance config.Installation, wikiID, databasePath, settingsPath, workingDir string) error {
+func importDatabase(orch orchestrators.Orchestrator, instance config.Installation, wikiID, databasePath, settingsPath, workingDir string) error {
 	// Read database password from .env
 	envVariables := canasta.GetEnvVariable(instance.Path + "/.env")
 	dbPassword := envVariables["MYSQL_PASSWORD"]
 
 	// Import the database
-	err := orchestrators.ImportDatabase(wikiID, databasePath, dbPassword, instance)
+	err := orchestrators.ImportDatabase(orch, wikiID, databasePath, dbPassword, instance)
 	if err != nil {
 		return err
 	}

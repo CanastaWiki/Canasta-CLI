@@ -276,12 +276,18 @@ func SetupDevEnvironment(installPath, baseImage string) error {
 	return nil
 }
 
-// BuildXdebugImage builds the xdebug-enabled image
-func BuildXdebugImage(installPath, orchestrator string) error {
+// BuildXdebugImage builds the xdebug-enabled image.
+// Dev mode requires Docker Compose for Build and GetDevFiles.
+func BuildXdebugImage(installPath string, orch orchestrators.Orchestrator) error {
+	compose, ok := orch.(*orchestrators.ComposeOrchestrator)
+	if !ok {
+		return fmt.Errorf("dev mode is only supported with Docker Compose")
+	}
+
 	logging.Print("Building xdebug-enabled image...\n")
 
-	files := orchestrators.GetDevComposeFiles(installPath)
-	if err := orchestrators.Build(installPath, orchestrator, files...); err != nil {
+	files := compose.GetDevFiles(installPath)
+	if err := compose.Build(installPath, files...); err != nil {
 		return fmt.Errorf("failed to build xdebug image: %w", err)
 	}
 
@@ -295,7 +301,7 @@ func BuildXdebugImage(installPath, orchestrator string) error {
 // 3. Setup environment (.env, VSCode config)
 // 4. Build xdebug image
 // baseImage is the full Canasta image name (e.g., "ghcr.io/canastawiki/canasta:latest" or "canasta:local")
-func SetupFullDevMode(installPath, orchestrator, baseImage string) error {
+func SetupFullDevMode(installPath string, orch orchestrators.Orchestrator, baseImage string) error {
 	// Extract MediaWiki code FIRST, before creating docker-compose.dev.yml
 	// (docker-compose.dev.yml mounts ./mediawiki-code which must exist)
 	// Uses raw docker commands to avoid docker-compose bind mount validation
@@ -314,7 +320,7 @@ func SetupFullDevMode(installPath, orchestrator, baseImage string) error {
 	}
 
 	// Build xdebug image
-	if err := BuildXdebugImage(installPath, orchestrator); err != nil {
+	if err := BuildXdebugImage(installPath, orch); err != nil {
 		return err
 	}
 
@@ -336,7 +342,7 @@ func IsDevModeSetup(installPath string) bool {
 // EnableDevMode enables dev mode on an existing installation
 // If dev mode files exist but symlinks need to be restored, it handles that
 // baseImage is the full Canasta image name (e.g., "ghcr.io/canastawiki/canasta:latest" or "canasta:local")
-func EnableDevMode(installPath, orchestrator, baseImage string) error {
+func EnableDevMode(installPath string, orch orchestrators.Orchestrator, baseImage string) error {
 	codeDir := filepath.Join(installPath, CodeDir)
 
 	if IsDevModeSetup(installPath) {
@@ -352,7 +358,7 @@ func EnableDevMode(installPath, orchestrator, baseImage string) error {
 
 	// Full dev mode setup needed
 	logging.Print("Setting up dev mode for existing installation...\n")
-	return SetupFullDevMode(installPath, orchestrator, baseImage)
+	return SetupFullDevMode(installPath, orch, baseImage)
 }
 
 // ensureDevModeSymlinks ensures extensions/ and skins/ are symlinks to mediawiki-code/
