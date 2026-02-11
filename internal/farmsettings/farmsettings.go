@@ -39,18 +39,6 @@ func ValidateWikiID(wikiID string) error {
 	return nil
 }
 
-func CreateYaml(wikiID, domain, siteName string, path *string) error {
-	if *path == "" {
-		var err error
-		*path, err = GenerateWikisYaml("./wikis.yaml", wikiID, domain, siteName)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func GenerateWikisYaml(filePath, wikiID, domain, siteName string) (string, error) {
 	if siteName == "" {
 		siteName = wikiID
@@ -115,29 +103,6 @@ func ReadWikisYaml(filePath string) ([]string, []string, []string, error) {
 	}
 
 	return ids, serverNames, paths, nil
-}
-
-// ReadWikisYamlWithNames reads the wikis.yaml file and returns the full Wiki structs with IDs, URLs, and site names
-func ReadWikisYamlWithNames(filePath string) ([]Wiki, error) {
-	// Read the YAML file
-	data, err := ioutil.ReadFile(filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	// Parse the YAML data into a Wikis struct
-	wikis := Wikis{}
-	err = yaml.Unmarshal(data, &wikis)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check if any wikis exist
-	if len(wikis.Wikis) == 0 {
-		return nil, fmt.Errorf("no wikis found in the YAML file")
-	}
-
-	return wikis.Wikis, nil
 }
 
 // WikiIDExists checks if a wiki with the given wikiID exists in the installation
