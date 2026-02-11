@@ -29,10 +29,11 @@ But plain names work fine:
 
 Do NOT set these here (they are configured automatically from wikis.yaml):
 
-- $wgDBname
-- $wgServer
-- $wgSitename
-- $wgMetaNamespace
+- $wgDBname — set to the wiki ID
+- $wgServer — set from the wiki's URL
+- $wgSitename — set from the wiki's "name" field (defaults to wiki ID)
+- $wgMetaNamespace — derived from display name with spaces replaced by underscores
+  (can be overridden in per-wiki settings)
 
 ## Per-Wiki Overrides
 

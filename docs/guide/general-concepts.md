@@ -134,6 +134,29 @@ wikis:
 
 The `url` field uses `domain/path` format without the protocol. The Caddyfile is regenerated from this file whenever wikis are added or removed.
 
+#### Changing a wiki's display name
+
+The `name` field in `wikis.yaml` controls the wiki's display name (`$wgSitename` in MediaWiki). It defaults to the wiki ID if not set. The name is initially set with the `-t` (`--site-name`) flag of `canasta create` or `canasta add`:
+
+```bash
+canasta create -i myinstance -w docs -n example.com -a admin -t "Project Documentation"
+```
+
+To change it later, edit the `name` field directly in `config/wikis.yaml`:
+
+```yaml
+wikis:
+- id: docs
+  url: example.com/docs
+  name: Project Documentation
+```
+
+The change takes effect immediately — no restart is needed.
+
+Do not set `$wgSitename` in PHP settings files — it is configured automatically from `wikis.yaml`.
+
+`$wgMetaNamespace` provides an alias for the Project namespace (the `Project:` prefix always works as well). It is derived from the display name with spaces replaced by underscores. For example, a wiki named "Project Documentation" will get the alias `Project_Documentation:`. If you need a different alias, you can override `$wgMetaNamespace` in a per-wiki settings file (use underscores instead of spaces).
+
 ### Caddyfile, Caddyfile.custom, and Caddyfile.global
 
 Canasta uses [Caddy](https://caddyserver.com/) as its reverse proxy. The `config/Caddyfile` is auto-generated from `wikis.yaml` and is overwritten whenever wikis are added or removed — do not edit it directly.

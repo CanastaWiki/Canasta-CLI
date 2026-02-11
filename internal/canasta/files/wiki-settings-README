@@ -26,12 +26,14 @@ But plain names work fine:
 
 ## Variables Set Automatically
 
-Do NOT set these here (they are configured automatically from wikis.yaml):
+Do NOT set these here unless you need to override the default:
 
-- $wgDBname
-- $wgServer
-- $wgSitename
-- $wgMetaNamespace
+- $wgDBname — set to the wiki ID (do NOT override)
+- $wgServer — set from the wiki's URL (do NOT override)
+- $wgSitename — set from the wiki's "name" field in wikis.yaml (do NOT override;
+  change the "name" field in wikis.yaml instead)
+- $wgMetaNamespace — derived from the display name with spaces replaced by
+  underscores; override here if you want a different Project namespace name
 
 ## Global Settings
 
