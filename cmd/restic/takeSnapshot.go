@@ -18,9 +18,10 @@ func takeSnapshotCmdCreate() *cobra.Command {
 		Use:   "take-snapshot",
 		Short: "Take restic snapshots",
 		Long: `Take a new backup snapshot of the Canasta installation. This dumps the
-database, copies configuration files, extensions, images, and skins into
-a staging directory, then uploads the snapshot to the Restic repository
-with the specified tag.`,
+database, copies configuration files, extensions, images, skins, and
+public_assets into a staging directory, along with .env,
+docker-compose.override.yml, and my.cnf (if present), then uploads the
+snapshot to the Restic repository with the specified tag.`,
 		Example: `  # Take a snapshot with a descriptive tag
   canasta restic take-snapshot -i myinstance -t before-upgrade`,
 		Args:  cobra.ExactArgs(1),
@@ -56,9 +57,19 @@ func takeSnapshot(tag string) error {
 	}
 	logging.Print("mysqldump mediawiki completed")
 
-	err, output := execute.Run(instance.Path, "sudo", "cp", "--preserve=links,mode,ownership,timestamps", "-r", "config", "extensions", "images", "skins", currentSnapshotFolder)
+	err, output := execute.Run(instance.Path, "sudo", "cp", "--preserve=links,mode,ownership,timestamps", "-r", "config", "extensions", "images", "skins", "public_assets", currentSnapshotFolder)
 	if err != nil {
 		return fmt.Errorf("%s", output)
+	}
+
+	// Copy optional root-level files if they exist.
+	for _, file := range []string{".env", "docker-compose.override.yml", "my.cnf"} {
+		if _, statErr := os.Stat(instance.Path + "/" + file); statErr == nil {
+			err, output = execute.Run(instance.Path, "sudo", "cp", "--preserve=links,mode,ownership,timestamps", file, currentSnapshotFolder)
+			if err != nil {
+				logging.Fatal(fmt.Errorf("%s", output))
+			}
+		}
 	}
 	logging.Print("Copy folders and files completed.")
 
