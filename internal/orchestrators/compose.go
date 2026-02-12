@@ -22,13 +22,15 @@ const (
 type ComposeOrchestrator struct{}
 
 // getCompose returns the configured compose orchestrator path.
-func (c *ComposeOrchestrator) getCompose() config.Orchestrator {
-	orch, _ := config.GetOrchestrator("compose")
-	return orch
+func (c *ComposeOrchestrator) getCompose() (config.Orchestrator, error) {
+	return config.GetOrchestrator("compose")
 }
 
 func (c *ComposeOrchestrator) CheckDependencies() error {
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return err
+	}
 	if compose.Path != "" {
 		cmd := exec.Command(compose.Path, "version")
 		if err := cmd.Run(); err != nil {
@@ -72,7 +74,10 @@ func (c *ComposeOrchestrator) Start(instance config.Installation) error {
 		logging.Print("Starting Canasta\n")
 	}
 
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return err
+	}
 	var args []string
 	for _, f := range files {
 		args = append(args, "-f", f)
@@ -102,7 +107,10 @@ func (c *ComposeOrchestrator) Stop(instance config.Installation) error {
 		logging.Print("Stopping the containers\n")
 	}
 
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return err
+	}
 	var args []string
 	for _, f := range files {
 		args = append(args, "-f", f)
@@ -125,7 +133,10 @@ func (c *ComposeOrchestrator) Stop(instance config.Installation) error {
 
 func (c *ComposeOrchestrator) Pull(installPath string) error {
 	logging.Print("Pulling Canasta image\n")
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return err
+	}
 	if compose.Path != "" {
 		err, output := execute.Run(installPath, compose.Path, "pull", "--ignore-buildable", "--ignore-pull-failures")
 		if err != nil {
@@ -142,7 +153,10 @@ func (c *ComposeOrchestrator) Pull(installPath string) error {
 
 func (c *ComposeOrchestrator) Update(installPath string) (*UpdateReport, error) {
 	report := &UpdateReport{}
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return nil, err
+	}
 
 	// Get image info before pull
 	beforeImages, err := getComposeImages(installPath, compose)
@@ -186,7 +200,10 @@ func (c *ComposeOrchestrator) Update(installPath string) (*UpdateReport, error) 
 
 func (c *ComposeOrchestrator) Build(installPath string, files ...string) error {
 	logging.Print("Building images\n")
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return err
+	}
 	var args []string
 	for _, f := range files {
 		args = append(args, "-f", f)
@@ -208,7 +225,10 @@ func (c *ComposeOrchestrator) Build(installPath string, files ...string) error {
 }
 
 func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return "", err
+	}
 	if compose.Path != "" {
 		err, output := execute.Run(installPath, compose.Path, "down", "-v")
 		return output, err
@@ -218,7 +238,10 @@ func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
 }
 
 func (c *ComposeOrchestrator) ExecWithError(installPath, service, command string) (string, error) {
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return "", err
+	}
 	var cmd *exec.Cmd
 	if compose.Path != "" {
 		cmd = exec.Command(compose.Path, "exec", "-T", service, "/bin/bash", "-c", command)
@@ -235,7 +258,10 @@ func (c *ComposeOrchestrator) ExecWithError(installPath, service, command string
 }
 
 func (c *ComposeOrchestrator) ExecStreaming(installPath, service, command string) error {
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return err
+	}
 	var cmd *exec.Cmd
 	if compose.Path != "" {
 		cmd = exec.Command(compose.Path, "exec", "-T", service, "/bin/bash", "-c", command)
@@ -255,9 +281,11 @@ func (c *ComposeOrchestrator) ExecStreaming(installPath, service, command string
 
 func (c *ComposeOrchestrator) CheckRunningStatus(instance config.Installation) error {
 	containerName := "web"
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return err
+	}
 	var output string
-	var err error
 	if compose.Path != "" {
 		err, output = execute.Run(instance.Path, compose.Path, "ps", "-q", containerName)
 	} else {
@@ -270,7 +298,10 @@ func (c *ComposeOrchestrator) CheckRunningStatus(instance config.Installation) e
 }
 
 func (c *ComposeOrchestrator) CopyFrom(installPath, service, containerPath, hostPath string) error {
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return err
+	}
 	var cmd *exec.Cmd
 	if compose.Path != "" {
 		cmd = exec.Command(compose.Path, "cp", service+":"+containerPath, hostPath)
@@ -288,7 +319,10 @@ func (c *ComposeOrchestrator) CopyFrom(installPath, service, containerPath, host
 }
 
 func (c *ComposeOrchestrator) CopyTo(installPath, service, hostPath, containerPath string) error {
-	compose := c.getCompose()
+	compose, err := c.getCompose()
+	if err != nil {
+		return err
+	}
 	var cmd *exec.Cmd
 	if compose.Path != "" {
 		cmd = exec.Command(compose.Path, "cp", hostPath, service+":"+containerPath)
