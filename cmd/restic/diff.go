@@ -29,8 +29,8 @@ modified files.`,
 	}
 	diffCmd.Flags().StringVar(&tag1, "tag1", "", "Restic snapshot ID (required)")
 	diffCmd.Flags().StringVar(&tag2, "tag2", "", "Restic snapshot ID (required)")
-	diffCmd.MarkFlagRequired("tag1")
-	diffCmd.MarkFlagRequired("tag2")
+	_ = diffCmd.MarkFlagRequired("tag1")
+	_ = diffCmd.MarkFlagRequired("tag2")
 	return diffCmd
 }
 
@@ -38,7 +38,7 @@ func diff() {
 	commandArgs = append(commandArgs, "diff", tag1, tag2)
 	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf(output))
+		logging.Fatal(fmt.Errorf("%s", output))
 	} else {
 		fmt.Print(output)
 	}

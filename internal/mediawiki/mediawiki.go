@@ -33,7 +33,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 	command := "/wait-for-it.sh -t 60 db:3306"
 	output, err := orch.ExecWithError(path, "web", command)
 	if err != nil {
-		return canastaInfo, fmt.Errorf(output)
+		return canastaInfo, fmt.Errorf("%s", output)
 	}
 
 	WikiIDs, domainNames, _, err := farmsettings.ReadWikisYaml(yamlPath)
@@ -50,7 +50,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 
 		output, err = orch.ExecWithError(path, "web", command)
 		if err != nil {
-			return canastaInfo, fmt.Errorf(output)
+			return canastaInfo, fmt.Errorf("%s", output)
 		}
 
 		// Save admin password to config/admin-password_{wikiid}
@@ -115,7 +115,7 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	command := "/wait-for-it.sh -t 60 db:3306"
 	output, err := orch.ExecWithError(installPath, "web", command)
 	if err != nil {
-		return fmt.Errorf(output)
+		return fmt.Errorf("%s", output)
 	}
 
 	localExists, _ := fileExists(filepath.Join(installPath, "config", localSettingsFile))
@@ -188,7 +188,7 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		installCmd, dbServer, id, confPath, scriptPath, domain, installdbuser, installdbpass, dbuser, dbpass, adminPassword, id, admin)
 	output, err = orch.ExecWithError(installPath, "web", command)
 	if err != nil {
-		return fmt.Errorf(output)
+		return fmt.Errorf("%s", output)
 	}
 
 	// Save admin password to config/admin-password_{wikiid}

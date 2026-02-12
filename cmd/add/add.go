@@ -148,8 +148,8 @@ an existing database dump instead of running the installer.`,
 	addCmd.Flags().StringVar(&wikidbuser, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 
 	// Mark required flags (admin is validated at runtime based on whether --database is provided)
-	addCmd.MarkFlagRequired("wiki")
-	addCmd.MarkFlagRequired("url")
+	_ = addCmd.MarkFlagRequired("wiki")
+	_ = addCmd.MarkFlagRequired("url")
 
 	return addCmd
 }

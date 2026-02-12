@@ -87,8 +87,8 @@ To create a new wiki from a database dump, use the --database flag with
 	importCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to SQL dump file (.sql or .sql.gz)")
 	importCmd.Flags().StringVarP(&settingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to replace the existing one")
 
-	importCmd.MarkFlagRequired("wiki")
-	importCmd.MarkFlagRequired("database")
+	_ = importCmd.MarkFlagRequired("wiki")
+	_ = importCmd.MarkFlagRequired("database")
 
 	return importCmd
 }

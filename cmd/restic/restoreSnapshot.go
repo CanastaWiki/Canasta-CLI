@@ -42,7 +42,7 @@ specified snapshot.`,
 
 	restoreSnapshotCmd.Flags().StringVarP(&snapshotId, "snapshot-id", "s", "", "Restic snapshot ID (required)")
 	restoreSnapshotCmd.Flags().BoolVarP(&skipBeforeSnapshot, "skip-before-restore-snapshot", "r", false, "Skips taking snapshot before restore")
-	restoreSnapshotCmd.MarkFlagRequired("snapshot-id")
+	_ = restoreSnapshotCmd.MarkFlagRequired("snapshot-id")
 	return restoreSnapshotCmd
 }
 
@@ -65,7 +65,7 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) {
 	commandArgs := strings.Fields(command)
 	err, output := execute.Run("", "sudo", commandArgs...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf(output))
+		logging.Fatal(fmt.Errorf("%s", output))
 	}
 	logging.Print("Copying files....")
 	folders := [...]string{"/config", "/extensions", "/images", "/skins"}

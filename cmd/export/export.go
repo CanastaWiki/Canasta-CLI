@@ -81,7 +81,7 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 	exportCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to export")
 	exportCmd.Flags().StringVarP(&outputPath, "file", "f", "", "Output file path (default: <wikiID>.sql)")
 
-	exportCmd.MarkFlagRequired("wiki")
+	_ = exportCmd.MarkFlagRequired("wiki")
 
 	return exportCmd
 }

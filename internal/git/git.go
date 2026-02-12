@@ -23,7 +23,7 @@ var skipPaths = []string{
 func Clone(repo, path string) error {
 	err, output := execute.Run("", "git", "clone", repo, path)
 	if err != nil {
-		return fmt.Errorf(output)
+		return fmt.Errorf("%s", output)
 	}
 	return nil
 }
@@ -31,7 +31,7 @@ func Clone(repo, path string) error {
 func Cloneb(repo, path string, branch string) error {
 	err, output := execute.Run("", "git", "clone", "-b", branch, repo, path)
 	if err != nil {
-		return fmt.Errorf(output)
+		return fmt.Errorf("%s", output)
 	}
 	return nil
 }
@@ -44,13 +44,13 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 	// Fetch latest from origin
 	err, output := execute.Run(path, "git", "fetch", "origin")
 	if err != nil {
-		return false, fmt.Errorf(output)
+		return false, fmt.Errorf("%s", output)
 	}
 
 	// Get files that are added or modified in origin/main (safe to checkout)
 	err, output = execute.Run(path, "git", "diff", "--diff-filter=d", "--name-only", "HEAD", "origin/main")
 	if err != nil {
-		return false, fmt.Errorf(output)
+		return false, fmt.Errorf("%s", output)
 	}
 
 	var filesToUpdate []string
@@ -69,7 +69,7 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 	// Get files that were deleted in origin/main
 	err, output = execute.Run(path, "git", "diff", "--diff-filter=D", "--name-only", "HEAD", "origin/main")
 	if err != nil {
-		return false, fmt.Errorf(output)
+		return false, fmt.Errorf("%s", output)
 	}
 
 	var filesToRemove []string
@@ -86,7 +86,7 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 	// These won't appear in the HEAD vs origin/main diff if the committed versions match.
 	err, output = execute.Run(path, "git", "diff", "--name-only", "HEAD")
 	if err != nil {
-		return false, fmt.Errorf(output)
+		return false, fmt.Errorf("%s", output)
 	}
 
 	var locallyModified []string
@@ -163,7 +163,7 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 		args := append([]string{"checkout", "origin/main", "--"}, filesToUpdate...)
 		err, output = execute.Run(path, "git", args...)
 		if err != nil {
-			return false, fmt.Errorf(output)
+			return false, fmt.Errorf("%s", output)
 		}
 		fmt.Println("Files updated from upstream:")
 		for _, file := range filesToUpdate {
@@ -203,7 +203,7 @@ func FetchAndCheckout(path string, dryRun bool) (bool, error) {
 	// Working tree is left as-is (denylist files keep their local changes).
 	err, output = execute.Run(path, "git", "reset", "origin/main")
 	if err != nil {
-		return false, fmt.Errorf(output)
+		return false, fmt.Errorf("%s", output)
 	}
 
 	return true, nil

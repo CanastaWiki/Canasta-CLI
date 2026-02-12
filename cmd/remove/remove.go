@@ -122,7 +122,7 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 	// Remove the Images (from inside container first to handle www-data ownership on Linux)
 	if containersRunning {
 		cleanupCmd := fmt.Sprintf("rm -rf /mediawiki/images/%s", wikiID)
-		orch.ExecWithError(instance.Path, "web", cleanupCmd)
+		_, _ = orch.ExecWithError(instance.Path, "web", cleanupCmd)
 	}
 	err = canasta.RemoveImages(instance.Path, wikiID)
 	if err != nil {

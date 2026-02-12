@@ -35,7 +35,7 @@ func initRestic() {
 	commandArgs = append(commandArgs, "init")
 	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf(output))
+		logging.Fatal(fmt.Errorf("%s", output))
 	} else {
 		fmt.Print(output)
 	}

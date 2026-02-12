@@ -107,7 +107,7 @@ func CreateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", examplePath, installPath))
 	err, output := execute.Run("", "cp", examplePath, installPath+"/.env")
 	if err != nil {
-		return fmt.Errorf(output)
+		return fmt.Errorf("%s", output)
 	}
 
 	// Step 2: If custom env file provided, merge its values
@@ -171,7 +171,7 @@ func CopyYaml(yamlPath, installPath string) error {
 	logging.Print(fmt.Sprintf("Copying %s to %s/config/wikis.yaml\n", yamlPath, installPath))
 	err, output := execute.Run("", "cp", yamlPath, installPath+"/config/wikis.yaml")
 	if err != nil {
-		return fmt.Errorf(output)
+		return fmt.Errorf("%s", output)
 	}
 	return nil
 }
@@ -270,7 +270,7 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", settingsFilePath, destPath))
 	err, output := execute.Run("", "cp", settingsFilePath, destPath)
 	if err != nil {
-		return fmt.Errorf(output)
+		return fmt.Errorf("%s", output)
 	}
 
 	return nil
@@ -298,7 +298,7 @@ func CopyGlobalSettingFile(installPath, settingsFilePath, workingDir string) err
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", settingsFilePath, destPath))
 	err, output := execute.Run("", "cp", settingsFilePath, destPath)
 	if err != nil {
-		return fmt.Errorf(output)
+		return fmt.Errorf("%s", output)
 	}
 
 	return nil
@@ -671,9 +671,9 @@ func CheckCanastaId(instance config.Installation) (config.Installation, error) {
 
 func DeleteConfigAndContainers(keepConfig bool, installationDir string, orch orchestrators.Orchestrator) {
 	fmt.Println("Removing containers")
-	orch.Destroy(installationDir)
+	_, _ = orch.Destroy(installationDir)
 	fmt.Println("Deleting config files")
-	orchestrators.DeleteConfig(installationDir)
+	_, _ = orchestrators.DeleteConfig(installationDir)
 	fmt.Println("Deleted all containers and config files")
 }
 
@@ -683,7 +683,7 @@ func RemoveSettings(installPath, id string) error {
 	if _, err := os.Stat(newPath); err == nil {
 		err, output := execute.Run("", "rm", "-rf", newPath)
 		if err != nil {
-			return fmt.Errorf(output)
+			return fmt.Errorf("%s", output)
 		}
 		return nil
 	}
@@ -693,7 +693,7 @@ func RemoveSettings(installPath, id string) error {
 	if _, err := os.Stat(legacyPath); err == nil {
 		err, output := execute.Run("", "rm", "-rf", legacyPath)
 		if err != nil {
-			return fmt.Errorf(output)
+			return fmt.Errorf("%s", output)
 		}
 	} else if !os.IsNotExist(err) {
 		return err
@@ -710,7 +710,7 @@ func RemoveImages(installPath, id string) error {
 		// If the file exists, remove it
 		err, output := execute.Run("", "rm", "-rf", filePath)
 		if err != nil {
-			return fmt.Errorf(output)
+			return fmt.Errorf("%s", output)
 		}
 	} else if os.IsNotExist(err) {
 		// File does not exist, do nothing
@@ -731,7 +731,7 @@ func RemovePublicAssets(installPath, id string) error {
 		// If the file exists, remove it
 		err, output := execute.Run("", "rm", "-rf", filePath)
 		if err != nil {
-			return fmt.Errorf(output)
+			return fmt.Errorf("%s", output)
 		}
 	} else if os.IsNotExist(err) {
 		// File does not exist, do nothing

@@ -173,7 +173,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
 
 	// Mark required flags
-	createCmd.MarkFlagRequired("id")
+	_ = createCmd.MarkFlagRequired("id")
 
 	return createCmd
 }

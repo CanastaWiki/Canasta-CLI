@@ -28,7 +28,7 @@ func unlock() {
 	commandArgs = append(commandArgs, "unlock")
 	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf(output))
+		logging.Fatal(fmt.Errorf("%s", output))
 	}
 	fmt.Print(output)
 }
