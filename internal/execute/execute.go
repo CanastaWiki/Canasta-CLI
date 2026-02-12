@@ -23,7 +23,17 @@ func (w *writerWithPrint) String() string {
 	return w.buf.String()
 }
 
-func Run(path, command string, cmdArgs ...string) (error, string) {
+// RunFunc is the signature for the command execution function.
+type RunFunc func(path, command string, cmdArgs ...string) (error, string)
+
+// Run is the package-level function variable for executing commands.
+// Tests can replace this with a mock implementation.
+var Run RunFunc = defaultRun
+
+// ResetForTesting restores Run to the default implementation.
+func ResetForTesting() { Run = defaultRun }
+
+func defaultRun(path, command string, cmdArgs ...string) (error, string) {
 	outWriter := &writerWithPrint{}
 	errWriter := &writerWithPrint{}
 
