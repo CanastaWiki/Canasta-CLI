@@ -3,6 +3,7 @@ package upgrade
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -498,14 +499,32 @@ func createCaddyfileCustom(installPath string, dryRun bool) (bool, error) {
 }
 
 // createComposerLocal creates config/composer.local.json with default merge-plugin
-// globs if it doesn't already exist
+// globs if it doesn't exist, or replaces it if it has an empty include array
+// (from the old Canasta-DockerCompose template).
 func createComposerLocal(installPath string, dryRun bool) (bool, error) {
 	composerPath := filepath.Join(installPath, "config", "composer.local.json")
 
 	if _, err := os.Stat(composerPath); err == nil {
-		return false, nil // Already exists
+		// File exists — check if it has an empty merge-plugin include array
+		if !hasEmptyMergePluginInclude(composerPath) {
+			return false, nil // Has content, leave it alone
+		}
+		// Old empty template — replace it
+		if dryRun {
+			fmt.Println("  Would replace config/composer.local.json (empty merge-plugin include) with default globs")
+		} else {
+			fmt.Println("  Replacing config/composer.local.json (empty merge-plugin include) with default globs")
+			if err := os.Remove(composerPath); err != nil {
+				return false, fmt.Errorf("failed to remove old composer.local.json: %w", err)
+			}
+			if err := canasta.CreateDefaultComposerLocal(installPath); err != nil {
+				return false, fmt.Errorf("failed to create composer.local.json: %w", err)
+			}
+		}
+		return true, nil
 	}
 
+	// File doesn't exist — create it
 	if dryRun {
 		fmt.Println("  Would create config/composer.local.json with default merge-plugin globs")
 	} else {
@@ -516,6 +535,26 @@ func createComposerLocal(installPath string, dryRun bool) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// hasEmptyMergePluginInclude checks if a composer.local.json has an empty
+// merge-plugin include array (the old Canasta-DockerCompose template).
+func hasEmptyMergePluginInclude(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var parsed struct {
+		Extra struct {
+			MergePlugin struct {
+				Include []string `json:"include"`
+			} `json:"merge-plugin"`
+		} `json:"extra"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return false
+	}
+	return len(parsed.Extra.MergePlugin.Include) == 0
 }
 
 // fixVectorDefaultSkin ensures Vector.php includes $wgDefaultSkin if it exists
