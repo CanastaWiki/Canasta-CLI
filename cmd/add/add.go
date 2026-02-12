@@ -164,6 +164,8 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 		return err
 	}
 
+	orch := orchestrators.New(instance.Orchestrator)
+
 	//Migrate to the new version Canasta
 	err = canasta.MigrateToNewVersion(instance.Path)
 	if err != nil {
@@ -171,7 +173,7 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 	}
 
 	//Checking Running status
-	err = orchestrators.CheckRunningStatus(instance)
+	err = orch.CheckRunningStatus(instance)
 	if err != nil {
 		return err
 	}
@@ -197,7 +199,7 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 	if databasePath != "" {
 		envVariables := canasta.GetEnvVariable(instance.Path + "/.env")
 		dbPassword := envVariables["MYSQL_PASSWORD"]
-		err = orchestrators.ImportDatabase(wikiID, databasePath, dbPassword, instance)
+		err = orchestrators.ImportDatabase(orch, wikiID, databasePath, dbPassword, instance)
 		if err != nil {
 			return err
 		}
@@ -218,7 +220,7 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 
 	// Run MediaWiki installer only if not importing a database
 	if databasePath == "" {
-		err = mediawiki.InstallOne(instance.Path, wikiID, domain, admin, adminPassword, wikidbuser, workingDir, instance.Orchestrator)
+		err = mediawiki.InstallOne(instance.Path, wikiID, domain, admin, adminPassword, wikidbuser, workingDir, orch)
 		if err != nil {
 			return err
 		}

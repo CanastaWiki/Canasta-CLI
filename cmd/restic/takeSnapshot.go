@@ -36,13 +36,17 @@ with the specified tag.`,
 
 func takeSnapshot(tag string) {
 	fmt.Printf("Taking snapshot '%s'...\n", tag)
+	orch := orchestrators.New(instance.Orchestrator)
 	envPath := instance.Path + "/.env"
 	EnvVariables := canasta.GetEnvVariable(envPath)
 	currentSnapshotFolder := instance.Path + "/currentsnapshot"
 
 	checkCurrentSnapshotFolder(currentSnapshotFolder)
 
-	orchestrators.Exec(instance.Path, instance.Orchestrator, "web", fmt.Sprintf("mysqldump -h db -u root -p%s --databases %s > %s", EnvVariables["MYSQL_PASSWORD"], EnvVariables["WG_DB_NAME"], mysqldumpPath))
+	_, err := orch.ExecWithError(instance.Path, "web", fmt.Sprintf("mysqldump -h db -u root -p%s --databases %s > %s", EnvVariables["MYSQL_PASSWORD"], EnvVariables["WG_DB_NAME"], mysqldumpPath))
+	if err != nil {
+		logging.Fatal(fmt.Errorf("mysqldump failed: %w", err))
+	}
 	logging.Print("mysqldump mediawiki completed")
 
 	err, output := execute.Run(instance.Path, "sudo", "cp", "--preserve=links,mode,ownership,timestamps", "-r", "config", "extensions", "images", "skins", currentSnapshotFolder)

@@ -49,6 +49,6 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 }
 
 func Stop(instance config.Installation) error {
-	// orchestrators.Stop handles dev mode automatically
-	return orchestrators.Stop(instance)
+	orch := orchestrators.New(instance.Orchestrator)
+	return orch.Stop(instance)
 }

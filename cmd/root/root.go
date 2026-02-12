@@ -86,6 +86,9 @@ func init() {
 	})
 
 	cobra.OnInitialize(func() {
-		orchestrators.CheckDependencies()
+		orch := orchestrators.New("compose")
+		if err := orch.CheckDependencies(); err != nil {
+			logging.Fatal(err)
+		}
 	})
 }

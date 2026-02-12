@@ -80,6 +80,8 @@ func getWikiIDs(instance config.Installation) []string {
 }
 
 func runMaintenanceUpdate(instance config.Installation, wikiID string) {
+	orch := orchestrators.New(instance.Orchestrator)
+
 	wikiFlag := ""
 	if wikiID != "" {
 		wikiFlag = " --wiki=" + wikiID
@@ -90,14 +92,14 @@ func runMaintenanceUpdate(instance config.Installation, wikiID string) {
 	}
 
 	fmt.Printf("Running update.php%s...\n", wikiMsg)
-	if err := orchestrators.ExecStreaming(instance.Path, instance.Orchestrator, "web",
+	if err := orch.ExecStreaming(instance.Path, "web",
 		"php maintenance/update.php --quick"+wikiFlag); err != nil {
 		log.Fatalf("update.php failed%s: %v", wikiMsg, err)
 	}
 
 	if !skipJobs {
 		fmt.Printf("Running runJobs.php%s...\n", wikiMsg)
-		if err := orchestrators.ExecStreaming(instance.Path, instance.Orchestrator, "web",
+		if err := orch.ExecStreaming(instance.Path, "web",
 			"php maintenance/runJobs.php"+wikiFlag); err != nil {
 			log.Fatalf("runJobs.php failed%s: %v", wikiMsg, err)
 		}
@@ -106,12 +108,12 @@ func runMaintenanceUpdate(instance config.Installation, wikiID string) {
 	if !skipSMW {
 		const rebuildScript = "extensions/SemanticMediaWiki/maintenance/rebuildData.php"
 		checkCmd := fmt.Sprintf("test -f %s && echo exists", rebuildScript)
-		checkOutput, _ := orchestrators.ExecWithError(instance.Path, instance.Orchestrator, "web", checkCmd)
+		checkOutput, _ := orch.ExecWithError(instance.Path, "web", checkCmd)
 		if !strings.Contains(checkOutput, "exists") {
 			fmt.Printf("Semantic MediaWiki not installed%s, skipping rebuildData.php\n", wikiMsg)
 		} else {
 			fmt.Printf("Running rebuildData.php%s...\n", wikiMsg)
-			if err := orchestrators.ExecStreaming(instance.Path, instance.Orchestrator, "web",
+			if err := orch.ExecStreaming(instance.Path, "web",
 				"php "+rebuildScript+wikiFlag); err != nil {
 				fmt.Printf("rebuildData.php failed%s: %v\n", wikiMsg, err)
 			}

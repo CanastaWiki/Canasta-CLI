@@ -132,10 +132,11 @@ instead of running the installer, or enable development mode with Xdebug.`,
 			}
 			_, done := spinner.New(description)
 
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath, done); err != nil {
+			orch := orchestrators.New(orchestrator)
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
-					canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orchestrator)
+					canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orch)
 					log.Fatal(fmt.Errorf("Installation failed and files were cleaned up"))
 				}
 				log.Fatal(fmt.Errorf("Installation failed. Keeping all the containers and config files\nExiting"))
@@ -178,7 +179,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath, orchestrator, override, envFile string, devModeEnabled bool, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath string, done chan struct{}) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile string, devModeEnabled bool, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath string, done chan struct{}) error {
 	// Pass a message to the "done" channel indicating the completion of createCanasta function.
 	// This signals the spinner to stop printing progress, regardless of success or failure.
 	defer func() {
@@ -213,7 +214,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	}
 
 	// Clone the stack repository first to create the installation directory
-	localStack, err := canasta.CloneStackRepo(orchestrator, canastaInfo.Id, &path, buildFromPath)
+	localStack, err := canasta.CloneStackRepo(orch, canastaInfo.Id, &path, buildFromPath)
 	if err != nil {
 		return err
 	}
@@ -264,13 +265,19 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := canasta.RewriteCaddy(path); err != nil {
 		return err
 	}
-	if err := orchestrators.CopyOverrideFile(path, orchestrator, override, workingDir); err != nil {
-		return err
+	if override != "" {
+		compose, ok := orch.(*orchestrators.ComposeOrchestrator)
+		if !ok {
+			return fmt.Errorf("--override is only supported with Docker Compose")
+		}
+		if err := compose.CopyOverrideFile(path, override, workingDir); err != nil {
+			return err
+		}
 	}
 
 	// Dev mode: extract code and build xdebug image before starting
 	if devModeEnabled {
-		if err := devmode.SetupFullDevMode(path, orchestrator, baseImage); err != nil {
+		if err := devmode.SetupFullDevMode(path, orch, baseImage); err != nil {
 			return err
 		}
 	}
@@ -278,7 +285,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	// Always start without dev mode for installation to avoid xdebug interference
 	// (xdebug can cause hangs if a debugger is listening during install.php)
 	tempInstance := config.Installation{Path: path, Orchestrator: orchestrator, DevMode: false}
-	if err := orchestrators.Start(tempInstance); err != nil {
+	if err := orch.Start(tempInstance); err != nil {
 		return err
 	}
 
@@ -288,13 +295,13 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 
 		// Wait for database to be ready
 		command := "/wait-for-it.sh -t 60 db:3306"
-		if _, err := orchestrators.ExecWithError(path, orchestrator, "web", command); err != nil {
+		if _, err := orch.ExecWithError(path, "web", command); err != nil {
 			return fmt.Errorf("database not ready: %w", err)
 		}
 
 		envVariables := canasta.GetEnvVariable(path + "/.env")
 		dbPassword := envVariables["MYSQL_PASSWORD"]
-		if err := orchestrators.ImportDatabase(wikiID, databasePath, dbPassword, tempInstance); err != nil {
+		if err := orchestrators.ImportDatabase(orch, wikiID, databasePath, dbPassword, tempInstance); err != nil {
 			return err
 		}
 		// Generate secret key and save to .env (DB password already in .env)
@@ -303,7 +310,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	} else {
 		// Run MediaWiki installer
-		if _, err := mediawiki.Install(path, yamlPath, orchestrator, canastaInfo); err != nil {
+		if _, err := mediawiki.Install(path, yamlPath, orch, canastaInfo); err != nil {
 			return err
 		}
 	}
@@ -315,12 +322,12 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 
 	// Restart to apply all settings
 	// Stop containers (started without dev mode)
-	if err := orchestrators.Stop(tempInstance); err != nil {
+	if err := orch.Stop(tempInstance); err != nil {
 		log.Fatal(err)
 	}
 
-	// Start with appropriate mode (orchestrators.Start handles dev mode automatically)
-	if err := orchestrators.Start(instance); err != nil {
+	// Start with appropriate mode
+	if err := orch.Start(instance); err != nil {
 		log.Fatal(err)
 	}
 

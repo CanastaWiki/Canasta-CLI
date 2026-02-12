@@ -42,12 +42,14 @@ Use --wiki to target a specific wiki in a farm.`,
 }
 
 func runMaintenanceScript(instance config.Installation, script string, wiki string) {
+	orch := orchestrators.New(instance.Orchestrator)
+
 	wikiFlag := ""
 	if wiki != "" {
 		wikiFlag = " --wiki=" + wiki
 	}
 	fmt.Println("Running maintenance script " + script)
-	if err := orchestrators.ExecStreaming(instance.Path, instance.Orchestrator, "web",
+	if err := orch.ExecStreaming(instance.Path, "web",
 		"php maintenance/"+script+wikiFlag); err != nil {
 		log.Fatalf("maintenance script failed: %v", err)
 	}

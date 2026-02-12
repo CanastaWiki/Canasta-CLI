@@ -14,7 +14,7 @@ func listCmdCreate() *cobra.Command {
 is shown with its enabled/disabled status.`,
 		Example: `  canasta extension list -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			extensionsskins.List(instance, constants)
+			extensionsskins.List(instance, orch, constants)
 			return err
 		},
 	}

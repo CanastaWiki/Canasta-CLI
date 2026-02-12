@@ -69,11 +69,13 @@ func Start(instance config.Installation, enableDev, disableDev bool) error {
 		return fmt.Errorf("cannot specify both --dev and --no-dev")
 	}
 
+	orch := orchestrators.New(instance.Orchestrator)
+
 	var err error
 	if enableDev {
 		// Enable dev mode using default registry image
 		baseImage := canasta.GetDefaultImage()
-		if err = devmode.EnableDevMode(instance.Path, instance.Orchestrator, baseImage); err != nil {
+		if err = devmode.EnableDevMode(instance.Path, orch, baseImage); err != nil {
 			return err
 		}
 		instance.DevMode = true
@@ -95,6 +97,6 @@ func Start(instance config.Installation, enableDev, disableDev bool) error {
 		}
 	}
 
-	// Start containers - orchestrators.Start handles dev mode automatically
-	return orchestrators.Start(instance)
+	// Start containers
+	return orch.Start(instance)
 }

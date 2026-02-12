@@ -82,7 +82,11 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) {
 	logging.Print("Copied files...")
 
 	logging.Print("Restoring database...")
+	orch := orchestrators.New(instance.Orchestrator)
 	command = fmt.Sprintf("mysql -h db -u root -p%s %s < /mediawiki/config/db.sql", EnvVariables["MYSQL_PASSWORD"], EnvVariables["WG_DB_NAME"])
-	orchestrators.Exec(instance.Path, instance.Orchestrator, "web", command)
+	_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
+	if restoreErr != nil {
+		logging.Fatal(fmt.Errorf("database restore failed: %w", restoreErr))
+	}
 	logging.Print("Restored database...")
 }
