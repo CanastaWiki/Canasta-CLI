@@ -275,6 +275,15 @@ func runMigration(installPath string, dryRun bool) (bool, error) {
 		changed = true
 	}
 
+	// Step 5: Create default composer.local.json if missing
+	composerChanged, err := createComposerLocal(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if composerChanged {
+		changed = true
+	}
+
 	if !changed {
 		fmt.Println("No config migrations needed.")
 	} else if dryRun {
@@ -482,6 +491,27 @@ func createCaddyfileCustom(installPath string, dryRun bool) (bool, error) {
 		fmt.Println("  Updating config/Caddyfile with import directives")
 		if err := canasta.RewriteCaddy(installPath); err != nil {
 			return false, fmt.Errorf("failed to rewrite Caddyfile: %w", err)
+		}
+	}
+
+	return true, nil
+}
+
+// createComposerLocal creates config/composer.local.json with default merge-plugin
+// globs if it doesn't already exist
+func createComposerLocal(installPath string, dryRun bool) (bool, error) {
+	composerPath := filepath.Join(installPath, "config", "composer.local.json")
+
+	if _, err := os.Stat(composerPath); err == nil {
+		return false, nil // Already exists
+	}
+
+	if dryRun {
+		fmt.Println("  Would create config/composer.local.json with default merge-plugin globs")
+	} else {
+		fmt.Println("  Creating config/composer.local.json with default merge-plugin globs")
+		if err := canasta.CreateDefaultComposerLocal(installPath); err != nil {
+			return false, fmt.Errorf("failed to create composer.local.json: %w", err)
 		}
 	}
 
