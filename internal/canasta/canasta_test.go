@@ -103,7 +103,7 @@ func TestGeneratePasswords(t *testing.T) {
 		AdminName: "admin",
 	}
 
-	result, err := GeneratePasswords("/tmp", info)
+	result, err := GeneratePasswords(t.TempDir(), info)
 	if err != nil {
 		t.Fatalf("GeneratePasswords() error = %v", err)
 	}
@@ -140,7 +140,7 @@ func TestGeneratePasswordsPreserveExisting(t *testing.T) {
 		WikiDBPassword: "mywikipass",
 	}
 
-	result, err := GeneratePasswords("/tmp", info)
+	result, err := GeneratePasswords(t.TempDir(), info)
 	if err != nil {
 		t.Fatalf("GeneratePasswords() error = %v", err)
 	}
@@ -211,7 +211,10 @@ func TestGenerateSecretKey(t *testing.T) {
 	}
 
 	// Verify uniqueness
-	key2, _ := generateSecretKey()
+	key2, err2 := generateSecretKey()
+	if err2 != nil {
+		t.Fatalf("generateSecretKey() second call error = %v", err2)
+	}
 	if key == key2 {
 		t.Error("expected different keys on successive calls")
 	}
