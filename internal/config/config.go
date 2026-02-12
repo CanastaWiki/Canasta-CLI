@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/user"
 	"path"
+	"sync"
 	"syscall"
 	"text/tabwriter"
 
@@ -33,12 +33,74 @@ type Canasta struct {
 }
 
 var (
-	directory             string = "/etc/canasta"
-	confFile              string = "conf.json"
+	directory             string
+	confFile              string
 	existingInstallations Canasta
+	initOnce              sync.Once
+	initErr               error
+	configDirOverride     string
 )
 
+func ensureInitialized() error {
+	initOnce.Do(func() {
+		var dir string
+		var err error
+		if configDirOverride != "" {
+			dir = configDirOverride
+		} else {
+			dir, err = GetConfigDir()
+			if err != nil {
+				initErr = err
+				return
+			}
+		}
+		directory = dir
+		confFile = path.Join(directory, "conf.json")
+
+		// Check for the conf.json file
+		_, err = os.Stat(confFile)
+		if os.IsNotExist(err) {
+			// Creating conf.json
+			if err := write(Canasta{Installations: map[string]Installation{}, Orchestrators: map[string]Orchestrator{}}); err != nil {
+				initErr = err
+				return
+			}
+		} else if err != nil {
+			initErr = fmt.Errorf("error statting %s (%s)", confFile, err)
+			return
+		}
+
+		// Check if the file is writable/has enough permissions
+		if err = syscall.Access(confFile, syscall.O_RDWR); err != nil {
+			initErr = err
+			return
+		}
+
+		// Update the existingInstallations list
+		if err := read(&existingInstallations); err != nil {
+			initErr = err
+			return
+		}
+	})
+	return initErr
+}
+
+// ResetForTesting resets package state so tests can use a custom config directory.
+// After calling this, the next call to any public function will re-initialize
+// using the provided directory instead of the system config directory.
+func ResetForTesting(dir string) {
+	initOnce = sync.Once{}
+	initErr = nil
+	configDirOverride = dir
+	directory = ""
+	confFile = ""
+	existingInstallations = Canasta{}
+}
+
 func Exists(canastaID string) (bool, error) {
+	if err := ensureInitialized(); err != nil {
+		return false, err
+	}
 	err := read(&existingInstallations)
 	if err != nil {
 		return false, err
@@ -47,6 +109,9 @@ func Exists(canastaID string) (bool, error) {
 }
 
 func OrchestratorExists(orchestrator string) (bool, error) {
+	if err := ensureInitialized(); err != nil {
+		return false, err
+	}
 	err := read(&existingInstallations)
 	if err != nil {
 		return false, err
@@ -55,6 +120,9 @@ func OrchestratorExists(orchestrator string) (bool, error) {
 }
 
 func ListAll() error {
+	if err := ensureInitialized(); err != nil {
+		return err
+	}
 	err := read(&existingInstallations)
 	if err != nil {
 		return err
@@ -108,6 +176,9 @@ func ListAll() error {
 }
 
 func GetAll() (map[string]Installation, error) {
+	if err := ensureInitialized(); err != nil {
+		return nil, err
+	}
 	err := read(&existingInstallations)
 	if err != nil {
 		return nil, err
@@ -116,6 +187,9 @@ func GetAll() (map[string]Installation, error) {
 }
 
 func GetDetails(canastaID string) (Installation, error) {
+	if err := ensureInitialized(); err != nil {
+		return Installation{}, err
+	}
 	exists, err := Exists(canastaID)
 	if err != nil {
 		return Installation{}, err
@@ -127,6 +201,9 @@ func GetDetails(canastaID string) (Installation, error) {
 }
 
 func GetCanastaID(installPath string) (string, error) {
+	if err := ensureInitialized(); err != nil {
+		return "", err
+	}
 	var canastaID string
 	for _, installations := range existingInstallations.Installations {
 		if installations.Path == installPath {
@@ -137,6 +214,9 @@ func GetCanastaID(installPath string) (string, error) {
 }
 
 func Add(details Installation) error {
+	if err := ensureInitialized(); err != nil {
+		return err
+	}
 	exists, err := Exists(details.Id)
 	if err != nil {
 		return err
@@ -149,6 +229,9 @@ func Add(details Installation) error {
 }
 
 func AddOrchestrator(details Orchestrator) error {
+	if err := ensureInitialized(); err != nil {
+		return err
+	}
 	if existingInstallations.Orchestrators == nil {
 		existingInstallations.Orchestrators = map[string]Orchestrator{}
 	}
@@ -161,6 +244,9 @@ func AddOrchestrator(details Orchestrator) error {
 }
 
 func GetOrchestrator(orchestrator string) (Orchestrator, error) {
+	if err := ensureInitialized(); err != nil {
+		return Orchestrator{}, err
+	}
 	exists, err := OrchestratorExists(orchestrator)
 	if err != nil {
 		return Orchestrator{}, err
@@ -172,6 +258,9 @@ func GetOrchestrator(orchestrator string) (Orchestrator, error) {
 }
 
 func Delete(canastaID string) error {
+	if err := ensureInitialized(); err != nil {
+		return err
+	}
 	exists, err := Exists(canastaID)
 	if err != nil {
 		return err
@@ -185,6 +274,9 @@ func Delete(canastaID string) error {
 
 // Update updates an existing installation's configuration
 func Update(details Installation) error {
+	if err := ensureInitialized(); err != nil {
+		return err
+	}
 	exists, err := Exists(details.Id)
 	if err != nil {
 		return err
@@ -222,7 +314,7 @@ func GetConfigDir() (string, error) {
 	}
 
 	if currentUser.Username == "root" {
-		dir = directory
+		dir = "/etc/canasta"
 	}
 
 	fi, err := os.Stat(dir)
@@ -243,32 +335,3 @@ func GetConfigDir() (string, error) {
 	return dir, nil
 }
 
-func init() {
-	var err error
-	directory, err = GetConfigDir()
-	if err != nil {
-		log.Fatal(err)
-	}
-	confFile = path.Join(directory, confFile)
-
-	// Checks for the conf.json file
-	_, err = os.Stat(confFile)
-	if os.IsNotExist(err) {
-		// Creating conf.json
-		if err := write(Canasta{Installations: map[string]Installation{}, Orchestrators: map[string]Orchestrator{}}); err != nil {
-			log.Fatal(err)
-		}
-	} else if err != nil {
-		log.Fatalf("error statting %s (%s)", confFile, err)
-	}
-
-	// Check if the file is writable/has enough permissions
-	if err = syscall.Access(confFile, syscall.O_RDWR); err != nil {
-		log.Fatal(err)
-	}
-
-	// Update the existingInstallations list
-	if err := read(&existingInstallations); err != nil {
-		log.Fatal(err)
-	}
-}
