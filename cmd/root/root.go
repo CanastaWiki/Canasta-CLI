@@ -80,13 +80,20 @@ func init() {
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		defaultHelp(cmd, args)
 		if cmd == rootCmd {
-			configDir := config.GetConfigDir()
-			cmd.Printf("\nConfig file: %s/conf.json\n", configDir)
+			configDir, err := config.GetConfigDir()
+			if err != nil {
+				cmd.Printf("\nConfig file: (error: %s)\n", err)
+			} else {
+				cmd.Printf("\nConfig file: %s/conf.json\n", configDir)
+			}
 		}
 	})
 
 	cobra.OnInitialize(func() {
-		orch := orchestrators.New("compose")
+		orch, err := orchestrators.New("compose")
+		if err != nil {
+			logging.Fatal(err)
+		}
 		if err := orch.CheckDependencies(); err != nil {
 			logging.Fatal(err)
 		}

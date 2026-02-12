@@ -41,7 +41,10 @@ AWS S3 settings) and RESTIC_PASSWORD to be configured in the installation's .env
 				return err
 			}
 			envPath := instance.Path + "/.env"
-			EnvVariables := canasta.GetEnvVariable(envPath)
+			EnvVariables, envErr := canasta.GetEnvVariable(envPath)
+			if envErr != nil {
+				return envErr
+			}
 			repoURL := getRepoURL(EnvVariables)
 			commandArgs = append(make([]string, 0), "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "restic/restic", "-r", repoURL)
 
@@ -76,25 +79,25 @@ func getRepoURL(env map[string]string) string {
 	return "s3:" + env["AWS_S3_API"] + "/" + env["AWS_S3_BUCKET"]
 }
 
-func checkCurrentSnapshotFolder(currentSnapshotFolder string) {
-
+func checkCurrentSnapshotFolder(currentSnapshotFolder string) error {
 	if _, err := os.Stat(currentSnapshotFolder); err != nil {
 		if os.IsNotExist(err) {
 			logging.Print("Creating..." + currentSnapshotFolder)
 			if err := os.Mkdir(currentSnapshotFolder, 0o700); err != nil {
-				logging.Fatal(err)
+				return err
 			}
 		} else {
-			logging.Fatal(err)
+			return err
 		}
 	} else {
 		logging.Print("Emptying... " + currentSnapshotFolder)
 		if err := os.RemoveAll(currentSnapshotFolder); err != nil {
-			logging.Fatal(err)
+			return err
 		}
 		if err := os.Mkdir(currentSnapshotFolder, 0o700); err != nil {
-			logging.Fatal(err)
+			return err
 		}
 		logging.Print("Emptied.. " + currentSnapshotFolder)
 	}
+	return nil
 }

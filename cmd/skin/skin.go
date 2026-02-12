@@ -42,8 +42,8 @@ a specific wiki in a farm.`,
 			if err != nil {
 				return err
 			}
-			orch = orchestrators.New(instance.Orchestrator)
-			return nil
+			orch, err = orchestrators.New(instance.Orchestrator)
+			return err
 		},
 	}
 

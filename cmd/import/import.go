@@ -38,38 +38,41 @@ To create a new wiki from a database dump, use the --database flag with
 
 			instance, err = canasta.CheckCanastaId(instance)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			// Check containers are running
-			orch := orchestrators.New(instance.Orchestrator)
+			orch, err := orchestrators.New(instance.Orchestrator)
+			if err != nil {
+				return err
+			}
 			err = orch.CheckRunningStatus(instance)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			// Verify the wiki exists
 			exists, err := farmsettings.WikiIDExists(instance.Path, wikiID)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			if !exists {
-				log.Fatal(fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.Id))
+				return fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.Id)
 			}
 
 			// Validate database path
 			if err := canasta.ValidateDatabasePath(databasePath); err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			workingDir, err := os.Getwd()
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			fmt.Printf("Importing database into wiki '%s' in Canasta instance '%s'...\n", wikiID, instance.Id)
 			if err := importDatabase(orch, instance, wikiID, databasePath, settingsPath, workingDir); err != nil {
-				log.Fatal(err)
+				return err
 			}
 			fmt.Println("Done.")
 			return nil
@@ -95,11 +98,14 @@ To create a new wiki from a database dump, use the --database flag with
 
 func importDatabase(orch orchestrators.Orchestrator, instance config.Installation, wikiID, databasePath, settingsPath, workingDir string) error {
 	// Read database password from .env
-	envVariables := canasta.GetEnvVariable(instance.Path + "/.env")
+	envVariables, err := canasta.GetEnvVariable(instance.Path + "/.env")
+	if err != nil {
+		return err
+	}
 	dbPassword := envVariables["MYSQL_PASSWORD"]
 
 	// Import the database
-	err := orchestrators.ImportDatabase(orch, wikiID, databasePath, dbPassword, instance)
+	err = orchestrators.ImportDatabase(orch, wikiID, databasePath, dbPassword, instance)
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,6 @@ package maintenance
 
 import (
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 
@@ -42,25 +41,38 @@ automatically.`,
 			instance, err = canasta.CheckCanastaId(instance)
 			return err
 		},
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if wiki != "" && all {
-				log.Fatal("cannot use --wiki with --all")
+				return fmt.Errorf("cannot use --wiki with --all")
 			}
 			if all {
-				wikiIDs := getWikiIDs(instance)
+				wikiIDs, err := getWikiIDs(instance)
+				if err != nil {
+					return err
+				}
 				for _, id := range wikiIDs {
-					runMaintenanceUpdate(instance, id)
+					if err := runMaintenanceUpdate(instance, id); err != nil {
+						return err
+					}
 				}
 			} else if wiki != "" {
-				runMaintenanceUpdate(instance, wiki)
+				if err := runMaintenanceUpdate(instance, wiki); err != nil {
+					return err
+				}
 			} else {
-				wikiIDs := getWikiIDs(instance)
+				wikiIDs, err := getWikiIDs(instance)
+				if err != nil {
+					return err
+				}
 				if len(wikiIDs) == 1 {
-					runMaintenanceUpdate(instance, wikiIDs[0])
+					if err := runMaintenanceUpdate(instance, wikiIDs[0]); err != nil {
+						return err
+					}
 				} else {
-					log.Fatal("multiple wikis found; use --wiki=<id> or --all")
+					return fmt.Errorf("multiple wikis found; use --wiki=<id> or --all")
 				}
 			}
+			return nil
 		},
 	}
 
@@ -70,17 +82,20 @@ automatically.`,
 	return updateCmd
 }
 
-func getWikiIDs(instance config.Installation) []string {
+func getWikiIDs(instance config.Installation) ([]string, error) {
 	yamlPath := filepath.Join(instance.Path, "config", "wikis.yaml")
 	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err != nil {
-		log.Fatalf("failed to read wikis.yaml: %v", err)
+		return nil, fmt.Errorf("failed to read wikis.yaml: %v", err)
 	}
-	return ids
+	return ids, nil
 }
 
-func runMaintenanceUpdate(instance config.Installation, wikiID string) {
-	orch := orchestrators.New(instance.Orchestrator)
+func runMaintenanceUpdate(instance config.Installation, wikiID string) error {
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 
 	wikiFlag := ""
 	if wikiID != "" {
@@ -94,14 +109,14 @@ func runMaintenanceUpdate(instance config.Installation, wikiID string) {
 	fmt.Printf("Running update.php%s...\n", wikiMsg)
 	if err := orch.ExecStreaming(instance.Path, "web",
 		"php maintenance/update.php --quick"+wikiFlag); err != nil {
-		log.Fatalf("update.php failed%s: %v", wikiMsg, err)
+		return fmt.Errorf("update.php failed%s: %v", wikiMsg, err)
 	}
 
 	if !skipJobs {
 		fmt.Printf("Running runJobs.php%s...\n", wikiMsg)
 		if err := orch.ExecStreaming(instance.Path, "web",
 			"php maintenance/runJobs.php"+wikiFlag); err != nil {
-			log.Fatalf("runJobs.php failed%s: %v", wikiMsg, err)
+			return fmt.Errorf("runJobs.php failed%s: %v", wikiMsg, err)
 		}
 	}
 
@@ -121,4 +136,5 @@ func runMaintenanceUpdate(instance config.Installation, wikiID string) {
 	}
 
 	fmt.Printf("Completed maintenance%s\n", wikiMsg)
+	return nil
 }

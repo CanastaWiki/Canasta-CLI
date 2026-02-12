@@ -12,7 +12,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/kirsle/configdir"
 )
 
@@ -39,26 +38,26 @@ var (
 	existingInstallations Canasta
 )
 
-func Exists(canastaID string) bool {
+func Exists(canastaID string) (bool, error) {
 	err := read(&existingInstallations)
 	if err != nil {
-		logging.Fatal(err)
+		return false, err
 	}
-	return existingInstallations.Installations[canastaID].Id != ""
+	return existingInstallations.Installations[canastaID].Id != "", nil
 }
 
-func OrchestratorExists(orchestrator string) bool {
+func OrchestratorExists(orchestrator string) (bool, error) {
 	err := read(&existingInstallations)
 	if err != nil {
-		logging.Fatal(err)
+		return false, err
 	}
-	return existingInstallations.Orchestrators[orchestrator].Path != ""
+	return existingInstallations.Orchestrators[orchestrator].Path != "", nil
 }
 
-func ListAll() {
+func ListAll() error {
 	err := read(&existingInstallations)
 	if err != nil {
-		logging.Fatal(err)
+		return err
 	}
 
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -105,18 +104,23 @@ func ListAll() {
 		}
 	}
 	writer.Flush()
+	return nil
 }
 
-func GetAll() map[string]Installation {
+func GetAll() (map[string]Installation, error) {
 	err := read(&existingInstallations)
 	if err != nil {
-		logging.Fatal(err)
+		return nil, err
 	}
-	return existingInstallations.Installations
+	return existingInstallations.Installations, nil
 }
 
 func GetDetails(canastaID string) (Installation, error) {
-	if Exists(canastaID) {
+	exists, err := Exists(canastaID)
+	if err != nil {
+		return Installation{}, err
+	}
+	if exists {
 		return existingInstallations.Installations[canastaID], nil
 	}
 	return Installation{}, fmt.Errorf("Canasta installation with the ID doesn't exist")
@@ -133,13 +137,15 @@ func GetCanastaID(installPath string) (string, error) {
 }
 
 func Add(details Installation) error {
-	if Exists(details.Id) {
-		return fmt.Errorf("Canasta ID is already used for another installation")
-	} else {
-		existingInstallations.Installations[details.Id] = details
+	exists, err := Exists(details.Id)
+	if err != nil {
+		return err
 	}
-	err := write(existingInstallations)
-	return err
+	if exists {
+		return fmt.Errorf("Canasta ID is already used for another installation")
+	}
+	existingInstallations.Installations[details.Id] = details
+	return write(existingInstallations)
 }
 
 func AddOrchestrator(details Orchestrator) error {
@@ -154,29 +160,36 @@ func AddOrchestrator(details Orchestrator) error {
 	return err
 }
 
-func GetOrchestrator(orchestrator string) Orchestrator {
-	if OrchestratorExists(orchestrator) {
-		return existingInstallations.Orchestrators[orchestrator]
+func GetOrchestrator(orchestrator string) (Orchestrator, error) {
+	exists, err := OrchestratorExists(orchestrator)
+	if err != nil {
+		return Orchestrator{}, err
 	}
-	return Orchestrator{}
+	if exists {
+		return existingInstallations.Orchestrators[orchestrator], nil
+	}
+	return Orchestrator{}, nil
 }
 
 func Delete(canastaID string) error {
-	if Exists(canastaID) {
-		delete(existingInstallations.Installations, canastaID)
-	} else {
-		logging.Fatal(fmt.Errorf("Canasta installation with the ID doesn't exist"))
+	exists, err := Exists(canastaID)
+	if err != nil {
+		return err
 	}
-	if err := write(existingInstallations); err != nil {
-		logging.Fatal(err)
+	if !exists {
+		return fmt.Errorf("Canasta installation with the ID doesn't exist")
 	}
-
-	return nil
+	delete(existingInstallations.Installations, canastaID)
+	return write(existingInstallations)
 }
 
 // Update updates an existing installation's configuration
 func Update(details Installation) error {
-	if !Exists(details.Id) {
+	exists, err := Exists(details.Id)
+	if err != nil {
+		return err
+	}
+	if !exists {
 		return fmt.Errorf("Canasta installation with ID '%s' doesn't exist", details.Id)
 	}
 	existingInstallations.Installations[details.Id] = details
@@ -186,7 +199,7 @@ func Update(details Installation) error {
 func write(details Canasta) error {
 	file, err := json.MarshalIndent(details, "", "	")
 	if err != nil {
-		logging.Fatal(err)
+		return err
 	}
 	return ioutil.WriteFile(confFile, file, 0644)
 }
@@ -194,20 +207,18 @@ func write(details Canasta) error {
 func read(details *Canasta) error {
 	data, err := os.ReadFile(confFile)
 	if err != nil {
-		logging.Fatal(err)
+		return err
 	}
-	err = json.Unmarshal(data, details)
-	return err
+	return json.Unmarshal(data, details)
 }
 
-func GetConfigDir() string {
+func GetConfigDir() (string, error) {
 	dir := configdir.LocalConfig("canasta")
 
 	// Checks if this is running as root
 	currentUser, err := user.Current()
 	if err != nil {
-		errReport := fmt.Errorf("Unable to get the current user: %s", err)
-		log.Fatal(errReport)
+		return "", fmt.Errorf("Unable to get the current user: %s", err)
 	}
 
 	if currentUser.Username == "root" {
@@ -218,31 +229,33 @@ func GetConfigDir() string {
 	if os.IsNotExist(err) {
 		err = os.MkdirAll(dir, 0o755)
 		if err != nil {
-			log.Fatal(err)
+			return "", err
 		}
 	} else if err != nil {
-		msg := fmt.Sprintf("error statting %s (%s)", dir, err)
-		log.Fatal(msg)
+		return "", fmt.Errorf("error statting %s (%s)", dir, err)
 	} else {
 		mode := fi.Mode()
 		if !mode.IsDir() {
-			log.Fatalf("%s exists but is not a directory", dir)
+			return "", fmt.Errorf("%s exists but is not a directory", dir)
 		}
 	}
 
-	return dir
+	return dir, nil
 }
 
 func init() {
-	directory = GetConfigDir()
+	var err error
+	directory, err = GetConfigDir()
+	if err != nil {
+		log.Fatal(err)
+	}
 	confFile = path.Join(directory, confFile)
 
 	// Checks for the conf.json file
-	_, err := os.Stat(confFile)
+	_, err = os.Stat(confFile)
 	if os.IsNotExist(err) {
 		// Creating conf.json
-		err := write(Canasta{Installations: map[string]Installation{}, Orchestrators: map[string]Orchestrator{}})
-		if err != nil {
+		if err := write(Canasta{Installations: map[string]Installation{}, Orchestrators: map[string]Orchestrator{}}); err != nil {
 			log.Fatal(err)
 		}
 	} else if err != nil {
@@ -258,5 +271,4 @@ func init() {
 	if err := read(&existingInstallations); err != nil {
 		log.Fatal(err)
 	}
-
 }

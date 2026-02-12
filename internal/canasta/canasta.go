@@ -118,7 +118,10 @@ func CreateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 		logging.Print(fmt.Sprintf("Merging overrides from %s into %s/.env\n", customEnvPath, installPath))
 
 		// Read custom env file
-		customEnv := GetEnvVariable(customEnvPath)
+		customEnv, err := GetEnvVariable(customEnvPath)
+		if err != nil {
+			return err
+		}
 
 		// Check for problematic characters in password fields
 		if pw, ok := customEnv["MYSQL_PASSWORD"]; ok {
@@ -325,7 +328,10 @@ func generateSecretKey() (string, error) {
 // unless MW_SECRET_KEY is already set (e.g. provided by the user via -e flag).
 func GenerateAndSaveSecretKey(installPath string) error {
 	envPath := installPath + "/.env"
-	envVars := GetEnvVariable(envPath)
+	envVars, err := GetEnvVariable(envPath)
+	if err != nil {
+		return err
+	}
 	if val, ok := envVars["MW_SECRET_KEY"]; ok && val != "" {
 		logging.Print("MW_SECRET_KEY already set in .env, skipping generation\n")
 		return nil
@@ -363,7 +369,10 @@ func RewriteCaddy(installPath string) error {
 
 	// Check if CADDY_AUTO_HTTPS is set to "off" in .env
 	envPath := installPath + "/.env"
-	envVars := GetEnvVariable(envPath)
+	envVars, err := GetEnvVariable(envPath)
+	if err != nil {
+		return err
+	}
 	sslTermination := strings.ToLower(envVars["CADDY_AUTO_HTTPS"]) == "off"
 
 	// Remove duplicates from ServerNames
@@ -627,11 +636,11 @@ func SaveEnvVariable(envPath, key, value string) error {
 }
 
 // Get values saved inside the .env at the envPath
-func GetEnvVariable(envPath string) map[string]string {
+func GetEnvVariable(envPath string) (map[string]string, error) {
 	EnvVariables := make(map[string]string)
 	file_data, err := os.ReadFile(envPath)
 	if err != nil {
-		logging.Fatal(err)
+		return nil, err
 	}
 	data := strings.TrimSuffix(string(file_data), "\n")
 	variable_list := strings.Split(data, "\n")
@@ -648,7 +657,7 @@ func GetEnvVariable(envPath string) map[string]string {
 		}
 		EnvVariables[list[0]] = value
 	}
-	return EnvVariables
+	return EnvVariables, nil
 }
 
 // Checking Installation existence

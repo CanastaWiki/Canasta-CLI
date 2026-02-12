@@ -23,7 +23,8 @@ type ComposeOrchestrator struct{}
 
 // getCompose returns the configured compose orchestrator path.
 func (c *ComposeOrchestrator) getCompose() config.Orchestrator {
-	return config.GetOrchestrator("compose")
+	orch, _ := config.GetOrchestrator("compose")
+	return orch
 }
 
 func (c *ComposeOrchestrator) CheckDependencies() error {
@@ -314,7 +315,7 @@ func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename, work
 		logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, overrideFilename))
 		err, output := execute.Run("", "cp", sourceFilename, overrideFilename)
 		if err != nil {
-			logging.Fatal(fmt.Errorf("%s", output))
+			return fmt.Errorf("%s", output)
 		}
 	}
 	return nil

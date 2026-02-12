@@ -44,7 +44,7 @@ func Run(path, command string, cmdArgs ...string) (error, string) {
 	}
 
 	if err := cmd.Start(); err != nil {
-		logging.Fatal(err)
+		return err, ""
 	}
 
 	err := cmd.Wait()

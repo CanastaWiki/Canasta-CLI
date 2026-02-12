@@ -47,13 +47,13 @@ func DeleteConfig(installPath string) (string, error) {
 	return output, err
 }
 
-// Exec runs a command in a service container and fatals on error.
-func Exec(orch Orchestrator, installPath, service, command string) string {
+// Exec runs a command in a service container and returns an error on failure.
+func Exec(orch Orchestrator, installPath, service, command string) (string, error) {
 	output, err := orch.ExecWithError(installPath, service, command)
 	if err != nil {
-		logging.Fatal(fmt.Errorf("%s", output))
+		return output, fmt.Errorf("%s", output)
 	}
-	return output
+	return output, nil
 }
 
 // StopAndStart stops and then starts the containers for an installation.

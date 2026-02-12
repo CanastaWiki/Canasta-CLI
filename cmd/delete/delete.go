@@ -59,7 +59,10 @@ func Delete(instance config.Installation) error {
 		return err
 	}
 
-	orch := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 
 	// Ensure containers are running so we can clean up images from inside
 	// (needed on Linux where container-created files are owned by www-data)

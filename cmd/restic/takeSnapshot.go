@@ -25,8 +25,7 @@ with the specified tag.`,
   canasta restic take-snapshot -i myinstance -t before-upgrade`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			takeSnapshot(tag)
-			return nil
+			return takeSnapshot(tag)
 		},
 	}
 
@@ -34,24 +33,32 @@ with the specified tag.`,
 	return takeSnapshotCmd
 }
 
-func takeSnapshot(tag string) {
+func takeSnapshot(tag string) error {
 	fmt.Printf("Taking snapshot '%s'...\n", tag)
-	orch := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 	envPath := instance.Path + "/.env"
-	EnvVariables := canasta.GetEnvVariable(envPath)
+	EnvVariables, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		return err
+	}
 	currentSnapshotFolder := instance.Path + "/currentsnapshot"
 
-	checkCurrentSnapshotFolder(currentSnapshotFolder)
+	if err := checkCurrentSnapshotFolder(currentSnapshotFolder); err != nil {
+		return err
+	}
 
-	_, err := orch.ExecWithError(instance.Path, "web", fmt.Sprintf("mysqldump -h db -u root -p%s --databases %s > %s", EnvVariables["MYSQL_PASSWORD"], EnvVariables["WG_DB_NAME"], mysqldumpPath))
+	_, err = orch.ExecWithError(instance.Path, "web", fmt.Sprintf("mysqldump -h db -u root -p%s --databases %s > %s", EnvVariables["MYSQL_PASSWORD"], EnvVariables["WG_DB_NAME"], mysqldumpPath))
 	if err != nil {
-		logging.Fatal(fmt.Errorf("mysqldump failed: %w", err))
+		return fmt.Errorf("mysqldump failed: %w", err)
 	}
 	logging.Print("mysqldump mediawiki completed")
 
 	err, output := execute.Run(instance.Path, "sudo", "cp", "--preserve=links,mode,ownership,timestamps", "-r", "config", "extensions", "images", "skins", currentSnapshotFolder)
 	if err != nil {
-		logging.Fatal(fmt.Errorf("%s", output))
+		return fmt.Errorf("%s", output)
 	}
 	logging.Print("Copy folders and files completed.")
 
@@ -59,8 +66,9 @@ func takeSnapshot(tag string) {
 	repoURL := getRepoURL(EnvVariables)
 	err, output = execute.Run(instance.Path, "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "-v", currentSnapshotFolder+":/currentsnapshot/", "restic/restic", "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
 	if err != nil {
-		logging.Fatal(fmt.Errorf("%s", output))
+		return fmt.Errorf("%s", output)
 	}
 	fmt.Print(output)
 	fmt.Println("Completed running restic backup")
+	return nil
 }

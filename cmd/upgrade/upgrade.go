@@ -89,7 +89,10 @@ every registered installation.`,
 }
 
 func upgradeAllInstances(dryRun bool) error {
-	installations := config.GetAll()
+	installations, err := config.GetAll()
+	if err != nil {
+		return err
+	}
 	if len(installations) == 0 {
 		fmt.Println("No registered installations found")
 		return nil
@@ -131,7 +134,10 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
-	orch := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 
 	if dryRun {
 		fmt.Println("Dry run mode - showing what would change without applying")
@@ -152,7 +158,10 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	// Check if this is a locally-built image (created with --build-from)
 	var imagesUpdated bool
 	envPath := filepath.Join(instance.Path, ".env")
-	envVars := canasta.GetEnvVariable(envPath)
+	envVars, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		return err
+	}
 	canastaImage := envVars["CANASTA_IMAGE"]
 	isLocalBuild := strings.HasPrefix(canastaImage, "canasta:local")
 
@@ -283,7 +292,10 @@ func extractSecretKey(installPath string, dryRun bool) (bool, error) {
 	envPath := filepath.Join(installPath, ".env")
 
 	// Check if MW_SECRET_KEY is already set in .env
-	envVars := canasta.GetEnvVariable(envPath)
+	envVars, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		return false, err
+	}
 	if val, ok := envVars["MW_SECRET_KEY"]; ok && val != "" {
 		return false, nil
 	}

@@ -65,7 +65,10 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 		// For the first wiki, ensure MW_SECRET_KEY is in .env
 		if i == 0 {
 			envPath := filepath.Join(path, ".env")
-			envVars := canasta.GetEnvVariable(envPath)
+			envVars, envErr := canasta.GetEnvVariable(envPath)
+			if envErr != nil {
+				return canastaInfo, envErr
+			}
 			if val, ok := envVars["MW_SECRET_KEY"]; ok && val != "" {
 				logging.Print("MW_SECRET_KEY already set in .env, skipping extraction\n")
 			} else {
@@ -110,7 +113,10 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
-	envVariables := canasta.GetEnvVariable(installPath + "/.env")
+	envVariables, err := canasta.GetEnvVariable(installPath + "/.env")
+	if err != nil {
+		return err
+	}
 
 	command := "/wait-for-it.sh -t 60 db:3306"
 	output, err := orch.ExecWithError(installPath, "web", command)
@@ -225,7 +231,10 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 }
 
 func RemoveDatabase(installPath, id string, orch orchestrators.Orchestrator) error {
-	envVariables := canasta.GetEnvVariable(installPath + "/.env")
+	envVariables, err := canasta.GetEnvVariable(installPath + "/.env")
+	if err != nil {
+		return err
+	}
 	command := fmt.Sprintf("echo 'DROP DATABASE IF EXISTS %s;' | mysql -h db -u root -p'%s'", id, envVariables["MYSQL_PASSWORD"])
 	output, err := orch.ExecWithError(installPath, "db", command)
 	if err != nil {

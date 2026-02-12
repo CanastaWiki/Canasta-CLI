@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
 func viewSnapshotsCmdCreate() *cobra.Command {
@@ -18,18 +17,18 @@ func viewSnapshotsCmdCreate() *cobra.Command {
 each snapshot's ID, timestamp, hostname, and tags.`,
 		Example: `  canasta restic view -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			viewSnapshots()
-			return nil
+			return viewSnapshots()
 		},
 	}
 	return initCmd
 }
 
-func viewSnapshots() {
+func viewSnapshots() error {
 	commandArgs = append(commandArgs, "snapshots")
 	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf("%s", output))
+		return fmt.Errorf("%s", output)
 	}
 	fmt.Print(output)
+	return nil
 }

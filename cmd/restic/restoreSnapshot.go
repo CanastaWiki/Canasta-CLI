@@ -34,9 +34,7 @@ specified snapshot.`,
   # Restore without taking a safety snapshot first
   canasta restic restore -i myinstance -s abc123 -r`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-
-			restoreSnapshot(snapshotId, skipBeforeSnapshot)
-			return nil
+			return restoreSnapshot(snapshotId, skipBeforeSnapshot)
 		},
 	}
 
@@ -46,26 +44,33 @@ specified snapshot.`,
 	return restoreSnapshotCmd
 }
 
-func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) {
+func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 	envPath := instance.Path + "/.env"
-	EnvVariables := canasta.GetEnvVariable(envPath)
+	EnvVariables, envErr := canasta.GetEnvVariable(envPath)
+	if envErr != nil {
+		return envErr
+	}
 	currentSnapshotFolder := instance.Path + "/currentsnapshot"
 
 	if !skipBeforeSnapshot {
 		logging.Print("Taking snapshot...")
-		takeSnapshot("BeforeRestoring-" + snapshotId)
+		if err := takeSnapshot("BeforeRestoring-" + snapshotId); err != nil {
+			return err
+		}
 		logging.Print("Snapshot taken...")
 	}
 
-	checkCurrentSnapshotFolder(currentSnapshotFolder)
+	if err := checkCurrentSnapshotFolder(currentSnapshotFolder); err != nil {
+		return err
+	}
 
 	logging.Print("Restoring snapshot to /currentsnapshot")
 	repoURL := getRepoURL(EnvVariables)
 	command := fmt.Sprintf("docker run --rm -i --env-file %s/.env -v %s:/currentsnapshot restic/restic -r %s restore %s --target /currentsnapshot", instance.Path, currentSnapshotFolder, repoURL, snapshotId)
-	commandArgs := strings.Fields(command)
-	err, output := execute.Run("", "sudo", commandArgs...)
+	restoreArgs := strings.Fields(command)
+	err, output := execute.Run("", "sudo", restoreArgs...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf("%s", output))
+		return fmt.Errorf("%s", output)
 	}
 	logging.Print("Copying files....")
 	folders := [...]string{"/config", "/extensions", "/images", "/skins"}
@@ -82,11 +87,15 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) {
 	logging.Print("Copied files...")
 
 	logging.Print("Restoring database...")
-	orch := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 	command = fmt.Sprintf("mysql -h db -u root -p%s %s < /mediawiki/config/db.sql", EnvVariables["MYSQL_PASSWORD"], EnvVariables["WG_DB_NAME"])
 	_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
 	if restoreErr != nil {
-		logging.Fatal(fmt.Errorf("database restore failed: %w", restoreErr))
+		return fmt.Errorf("database restore failed: %w", restoreErr)
 	}
 	logging.Print("Restored database...")
+	return nil
 }
