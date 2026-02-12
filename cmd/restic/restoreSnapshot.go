@@ -26,8 +26,8 @@ func restoreSnapshotCmdCreate() *cobra.Command {
 		Short: "Restore restic snapshot",
 		Long: `Restore a Canasta installation from a Restic snapshot. By default, a safety
 snapshot is taken before restoring. The restore replaces configuration files,
-extensions, images, skins, and the database with the contents of the
-specified snapshot.`,
+extensions, images, skins, public_assets, .env, docker-compose.override.yml,
+my.cnf, and the database with the contents of the specified snapshot.`,
 		Example: `  # Restore a snapshot by ID
   canasta restic restore -i myinstance -s abc123
 
@@ -73,7 +73,7 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 		return fmt.Errorf("%s", output)
 	}
 	logging.Print("Copying files....")
-	folders := [...]string{"/config", "/extensions", "/images", "/skins"}
+	folders := [...]string{"/config", "/extensions", "/images", "/skins", "/public_assets"}
 	for _, folder := range folders {
 		if err := os.RemoveAll(currentSnapshotFolder + folder); err != nil {
 			logging.Print(err.Error())
@@ -82,6 +82,18 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 		if err != nil {
 			logging.Print(err.Error())
 			logging.Print(string(output))
+		}
+	}
+
+	// Restore optional root-level files if they exist in the snapshot.
+	for _, file := range []string{".env", "docker-compose.override.yml", "my.cnf"} {
+		src := fmt.Sprintf("%s/currentsnapshot/%s", currentSnapshotFolder, file)
+		if _, statErr := os.Stat(src); statErr == nil {
+			output, err := exec.Command("sudo", "cp", "--preserve=links,mode,ownership,timestamps", src, instance.Path).CombinedOutput()
+			if err != nil {
+				logging.Print(err.Error())
+				logging.Print(string(output))
+			}
 		}
 	}
 	logging.Print("Copied files...")
