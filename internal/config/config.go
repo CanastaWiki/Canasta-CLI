@@ -6,7 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/user"
-	"path"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"text/tabwriter"
@@ -55,7 +55,7 @@ func ensureInitialized() error {
 			}
 		}
 		directory = dir
-		confFile = path.Join(directory, "conf.json")
+		confFile = filepath.Join(directory, "conf.json")
 
 		// Check for the conf.json file
 		_, err = os.Stat(confFile)
@@ -66,12 +66,14 @@ func ensureInitialized() error {
 				return
 			}
 		} else if err != nil {
-			initErr = fmt.Errorf("error statting %s (%s)", confFile, err)
+			initErr = fmt.Errorf("error statting %s (%w)", confFile, err)
 			return
 		}
 
 		// Check if the file is writable/has enough permissions
-		if err = syscall.Access(confFile, syscall.O_RDWR); err != nil {
+		// 0x2 is W_OK (write permission check). We use the raw value because
+	// syscall.W_OK is not defined on all platforms (e.g., macOS).
+	if err = syscall.Access(confFile, 0x2); err != nil {
 			initErr = err
 			return
 		}
