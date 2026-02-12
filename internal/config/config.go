@@ -326,7 +326,7 @@ func GetConfigDir() (string, error) {
 			return "", err
 		}
 	} else if err != nil {
-		return "", fmt.Errorf("error statting %s (%s)", dir, err)
+		return "", fmt.Errorf("error statting %s (%w)", dir, err)
 	} else {
 		mode := fi.Mode()
 		if !mode.IsDir() {
