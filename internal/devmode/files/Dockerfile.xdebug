@@ -3,8 +3,9 @@ ARG BASE_IMAGE=ghcr.io/canastawiki/canasta:latest
 # --- Stage 1: build xdebug.so ---
 FROM ${BASE_IMAGE} AS builder
 
-RUN apt-get update && apt-get install -y \
-    php8.1-dev autoconf build-essential php-pear \
+RUN PHP_VERSION=$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;') \
+ && apt-get update && apt-get install -y \
+    php${PHP_VERSION}-dev autoconf build-essential php-pear \
  && pecl install xdebug-3.2.1 \
  && mkdir -p /xdebug-out \
  && cp "$(php -r 'echo ini_get("extension_dir");')/xdebug.so" /xdebug-out/
@@ -18,8 +19,12 @@ COPY --from=builder /xdebug-out/xdebug.so /tmp/xdebug.so
 # Get extension_dir in final container and enable xdebug
 # Create conf.d directories if they don't exist (varies by image)
 RUN EXT_DIR="$(php -r 'echo ini_get("extension_dir");')" \
+ && PHP_VERSION=$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;') \
  && mv /tmp/xdebug.so "$EXT_DIR/xdebug.so" \
- && mkdir -p /etc/php/8.1/cli/conf.d /etc/php/8.1/apache2/conf.d /etc/php/8.1/fpm/conf.d \
- && echo "zend_extension=$EXT_DIR/xdebug.so" > /etc/php/8.1/cli/conf.d/20-xdebug.ini \
- && echo "zend_extension=$EXT_DIR/xdebug.so" > /etc/php/8.1/apache2/conf.d/20-xdebug.ini \
- && echo "zend_extension=$EXT_DIR/xdebug.so" > /etc/php/8.1/fpm/conf.d/20-xdebug.ini
+ && mkdir -p /etc/php/${PHP_VERSION}/cli/conf.d \
+             /etc/php/${PHP_VERSION}/apache2/conf.d \
+             /etc/php/${PHP_VERSION}/fpm/conf.d \
+ && echo "zend_extension=$EXT_DIR/xdebug.so" > /etc/php/${PHP_VERSION}/cli/conf.d/20-xdebug.ini \
+ && echo "zend_extension=$EXT_DIR/xdebug.so" > /etc/php/${PHP_VERSION}/apache2/conf.d/20-xdebug.ini \
+ && echo "zend_extension=$EXT_DIR/xdebug.so" > /etc/php/${PHP_VERSION}/fpm/conf.d/20-xdebug.ini \
+ && ln -s /etc/php/${PHP_VERSION}/fpm/conf.d /etc/php/fpm-conf.d
