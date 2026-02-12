@@ -8,7 +8,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"text/tabwriter"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
@@ -70,13 +69,13 @@ func ensureInitialized() error {
 			return
 		}
 
-		// Check if the file is writable/has enough permissions
-		// 0x2 is W_OK (write permission check). We use the raw value because
-	// syscall.W_OK is not defined on all platforms (e.g., macOS).
-	if err = syscall.Access(confFile, 0x2); err != nil {
+		// Check if the file is writable
+		f, err := os.OpenFile(confFile, os.O_WRONLY, 0)
+		if err != nil {
 			initErr = err
 			return
 		}
+		f.Close()
 
 		// Update the existingInstallations list
 		if err := read(&existingInstallations); err != nil {
