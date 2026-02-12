@@ -60,33 +60,33 @@ instead of running the installer, or enable development mode with Xdebug.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Check if the system has at least 2GB of memory
 			if err := system.CheckMemoryInGB(2); err != nil {
-				log.Fatal(err)
+				return err
 			}
 			// Validate wiki ID if yamlPath not provided
 			if yamlPath == "" {
 				if wikiID == "" {
-					log.Fatal(fmt.Errorf("Error: --wiki flag is required when --yamlfile is not provided"))
+					return fmt.Errorf("--wiki flag is required when --yamlfile is not provided")
 				}
 				if err := farmsettings.ValidateWikiID(wikiID); err != nil {
-					log.Fatal(err)
+					return err
 				}
 			}
 
 			// Validate Canasta instance ID format
 			validString := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$`)
 			if !validString.MatchString(canastaInfo.Id) {
-				log.Fatal(fmt.Errorf("Error: Canasta instance ID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed"))
+				return fmt.Errorf("Canasta instance ID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed")
 			}
 
 			// Validate --dev-tag and --build-from are mutually exclusive
 			if devTag != "latest" && buildFromPath != "" {
-				log.Fatal(fmt.Errorf("Error: --dev-tag and --build-from are mutually exclusive"))
+				return fmt.Errorf("--dev-tag and --build-from are mutually exclusive")
 			}
 
 			// Validate database path if provided
 			if databasePath != "" {
 				if err := canasta.ValidateDatabasePath(databasePath); err != nil {
-					log.Fatal(err)
+					return err
 				}
 			}
 
@@ -97,18 +97,18 @@ instead of running the installer, or enable development mode with Xdebug.`,
 
 			// Validate --admin is required when --database is not provided
 			if databasePath == "" && canastaInfo.AdminName == "" {
-				log.Fatal(fmt.Errorf("Error: --admin flag is required when --database is not provided"))
+				return fmt.Errorf("--admin flag is required when --database is not provided")
 			}
 
 			// Always generate database passwords
 			if canastaInfo, err = canasta.GenerateDBPasswords(canastaInfo); err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			// Generate admin password only if not importing (when importing, we skip install.php)
 			if databasePath == "" {
 				if canastaInfo, err = canasta.GenerateAdminPassword(canastaInfo); err != nil {
-					log.Fatal(err)
+					return err
 				}
 			}
 
@@ -120,7 +120,10 @@ instead of running the installer, or enable development mode with Xdebug.`,
 				if !filepath.IsAbs(envFilePath) {
 					envFilePath = filepath.Join(workingDir, envFilePath)
 				}
-				envVars := canasta.GetEnvVariable(envFilePath)
+				envVars, envErr := canasta.GetEnvVariable(envFilePath)
+				if envErr != nil {
+					return envErr
+				}
 				if port, ok := envVars["HTTPS_PORT"]; ok && port != "443" && port != "" {
 					domain = domain + ":" + port
 				}
@@ -132,14 +135,17 @@ instead of running the installer, or enable development mode with Xdebug.`,
 			}
 			_, done := spinner.New(description)
 
-			orch := orchestrators.New(orchestrator)
+			orch, err := orchestrators.New(orchestrator)
+			if err != nil {
+				return err
+			}
 			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
 					canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orch)
-					log.Fatal(fmt.Errorf("Installation failed and files were cleaned up"))
+					return fmt.Errorf("Installation failed and files were cleaned up")
 				}
-				log.Fatal(fmt.Errorf("Installation failed. Keeping all the containers and config files\nExiting"))
+				return fmt.Errorf("Installation failed. Keeping all the containers and config files")
 			}
 			fmt.Println("Done.")
 			return nil
@@ -186,7 +192,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		done <- struct{}{}
 	}()
 	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
-		log.Fatal(fmt.Errorf("Canasta installation with the ID already exist!"))
+		return fmt.Errorf("Canasta installation with the ID already exist!")
 	}
 
 	// Determine the base image to use
@@ -299,7 +305,10 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			return fmt.Errorf("database not ready: %w", err)
 		}
 
-		envVariables := canasta.GetEnvVariable(path + "/.env")
+		envVariables, envErr := canasta.GetEnvVariable(path + "/.env")
+		if envErr != nil {
+			return envErr
+		}
 		dbPassword := envVariables["MYSQL_PASSWORD"]
 		if err := orchestrators.ImportDatabase(orch, wikiID, databasePath, dbPassword, tempInstance); err != nil {
 			return err
@@ -323,12 +332,12 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	// Restart to apply all settings
 	// Stop containers (started without dev mode)
 	if err := orch.Stop(tempInstance); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	// Start with appropriate mode
 	if err := orch.Start(instance); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	if devModeEnabled {

@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
 func listFilesCmdCreate() *cobra.Command {
@@ -23,20 +22,21 @@ for inspecting what was backed up before performing a restore.`,
 			} else if tag == "" {
 				tag = args[0]
 			}
-			listFiles()
-			return nil
+			return listFiles()
 		},
 	}
 	listFilesCmd.Flags().StringVarP(&tag, "tag", "t", "", "Restic snapshot ID (required)")
 	return listFilesCmd
 }
 
-func listFiles() {
+func listFiles() error {
 	commandArgs = append(commandArgs, "ls", tag)
 	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf("%s", output))
 	} else {
 		fmt.Print(output)
+		return fmt.Errorf("%s", output)
 	}
+	fmt.Print(output)
+	return nil
 }

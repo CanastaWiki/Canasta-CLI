@@ -44,12 +44,11 @@ restart. Use --dev or --no-dev to change the development mode setting.`,
 			}
 			resolvedInstance, err := canasta.CheckCanastaId(instance)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			fmt.Println("Restarting Canasta installation '" + resolvedInstance.Id + "'...")
-			err = Restart(resolvedInstance, devModeFlag, noDevFlag)
-			if err != nil {
-				log.Fatal(err)
+			if err = Restart(resolvedInstance, devModeFlag, noDevFlag); err != nil {
+				return err
 			}
 			fmt.Println("Restarted.")
 			return nil
@@ -68,10 +67,12 @@ func Restart(instance config.Installation, enableDev, disableDev bool) error {
 		return fmt.Errorf("cannot specify both --dev and --no-dev")
 	}
 
-	orch := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 
 	// Migrate to the new version Canasta
-	var err error
 	if err = canasta.MigrateToNewVersion(instance.Path); err != nil {
 		return err
 	}

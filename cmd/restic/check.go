@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
 func checkCmdCreate() *cobra.Command {
@@ -17,20 +16,22 @@ func checkCmdCreate() *cobra.Command {
 		Long: `Verify the integrity of the Restic backup repository and its data. This
 checks for errors in the repository structure and snapshot data.`,
 		Example: `  canasta restic check -i myinstance`,
-		Run: func(cmd *cobra.Command, args []string) {
-			check()
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return check()
 		},
 	}
 	checkCmd.Flags().StringVarP(&tag, "tag", "t", "", "Restic snapshot ID (required)")
 	return checkCmd
 }
 
-func check() {
+func check() error {
 	commandArgs = append(commandArgs, "check")
 	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf("%s", output))
 	} else {
 		fmt.Print(output)
+		return fmt.Errorf("%s", output)
 	}
+	fmt.Print(output)
+	return nil
 }

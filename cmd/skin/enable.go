@@ -30,9 +30,11 @@ specific wiki only.`,
 					fmt.Print(err.Error() + "\n")
 					continue
 				}
-				extensionsskins.Enable(skinName, wiki, instance, orch, constants)
+				if err := extensionsskins.Enable(skinName, wiki, instance, orch, constants); err != nil {
+					return err
+				}
 			}
-			return err
+			return nil
 		},
 	}
 	return enableCmd

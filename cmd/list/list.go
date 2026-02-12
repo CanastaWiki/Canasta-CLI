@@ -26,6 +26,5 @@ ID, path, and orchestrator as recorded in the Canasta configuration file.`,
 }
 
 func List(instance config.Installation) error {
-	config.ListAll()
-	return nil
+	return config.ListAll()
 }

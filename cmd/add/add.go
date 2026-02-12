@@ -91,7 +91,7 @@ an existing database dump instead of running the installer.`,
 
 			// Validate wiki ID
 			if err := farmsettings.ValidateWikiID(wikiID); err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			// Parse URL to extract domain and path
@@ -101,7 +101,7 @@ an existing database dump instead of running the installer.`,
 			}
 			parsedUrl, err := urlpkg.Parse(urlString)
 			if err != nil {
-				log.Fatal(fmt.Errorf("failed to parse URL: %w", err))
+				return fmt.Errorf("failed to parse URL: %w", err)
 			}
 			domainName = parsedUrl.Host
 			wikiPath = strings.Trim(parsedUrl.Path, "/")
@@ -109,20 +109,20 @@ an existing database dump instead of running the installer.`,
 			// Validate database path if provided
 			if databasePath != "" {
 				if err := canasta.ValidateDatabasePath(databasePath); err != nil {
-					log.Fatal(err)
+					return err
 				}
 			}
 
 			// Validate --admin is required when --database is not provided
 			if databasePath == "" && admin == "" {
-				log.Fatal(fmt.Errorf("Error: --admin flag is required when --database is not provided"))
+				return fmt.Errorf("--admin flag is required when --database is not provided")
 			}
 
 			// Generate admin password only if not importing and admin is provided
 			if databasePath == "" && adminPassword == "" {
 				adminPassword, err = canasta.GeneratePassword("admin")
 				if err != nil {
-					log.Fatal(err)
+					return err
 				}
 				fmt.Printf("Generated admin password for wiki '%s'\n", wikiID)
 			}
@@ -130,7 +130,7 @@ an existing database dump instead of running the installer.`,
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.Id)
 			err = AddWiki(instance, wikiID, siteName, domainName, wikiPath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			fmt.Println("Done.")
 			return nil
@@ -164,7 +164,10 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 		return err
 	}
 
-	orch := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 
 	//Migrate to the new version Canasta
 	err = canasta.MigrateToNewVersion(instance.Path)
@@ -197,7 +200,10 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 
 	// Import the database if databasePath is specified
 	if databasePath != "" {
-		envVariables := canasta.GetEnvVariable(instance.Path + "/.env")
+		envVariables, envErr := canasta.GetEnvVariable(instance.Path + "/.env")
+		if envErr != nil {
+			return envErr
+		}
 		dbPassword := envVariables["MYSQL_PASSWORD"]
 		err = orchestrators.ImportDatabase(orch, wikiID, databasePath, dbPassword, instance)
 		if err != nil {

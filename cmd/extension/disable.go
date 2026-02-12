@@ -30,9 +30,11 @@ extension for a specific wiki only.`,
 					fmt.Print(err.Error() + "\n")
 					continue
 				}
-				extensionsskins.Disable(extensionName, wiki, instance, orch, constants)
+				if err := extensionsskins.Disable(extensionName, wiki, instance, orch, constants); err != nil {
+					return err
+				}
 			}
-			return err
+			return nil
 		},
 	}
 	return disableCmd

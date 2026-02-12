@@ -2,18 +2,15 @@ package orchestrators
 
 import (
 	"fmt"
-
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
 // New creates an Orchestrator implementation for the given orchestrator ID.
 // This is the single point where orchestrator IDs are mapped to implementations.
-func New(orchestratorID string) Orchestrator {
+func New(orchestratorID string) (Orchestrator, error) {
 	switch orchestratorID {
 	case "compose", "docker-compose":
-		return &ComposeOrchestrator{}
+		return &ComposeOrchestrator{}, nil
 	default:
-		logging.Fatal(fmt.Errorf("orchestrator: %s is not available", orchestratorID))
-		return nil // unreachable, but satisfies compiler
+		return nil, fmt.Errorf("orchestrator: %s is not available", orchestratorID)
 	}
 }

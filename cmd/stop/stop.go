@@ -33,12 +33,11 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 			}
 			resolvedInstance, err := canasta.CheckCanastaId(instance)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			fmt.Println("Stopping Canasta installation '" + resolvedInstance.Id + "'...")
-			err = Stop(resolvedInstance)
-			if err != nil {
-				log.Fatal(err)
+			if err = Stop(resolvedInstance); err != nil {
+				return err
 			}
 			fmt.Println("Stopped.")
 			return nil
@@ -49,6 +48,9 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 }
 
 func Stop(instance config.Installation) error {
-	orch := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 	return orch.Stop(instance)
 }

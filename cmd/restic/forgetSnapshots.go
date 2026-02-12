@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/spf13/cobra"
 )
 
@@ -22,8 +21,7 @@ may still exist until a 'restic prune' is run on the repository.`,
 			} else if tag == "" {
 				tag = args[0]
 			}
-			forgetSnapshot()
-			return nil
+			return forgetSnapshot()
 		},
 	}
 
@@ -31,12 +29,14 @@ may still exist until a 'restic prune' is run on the repository.`,
 	return forgetSnapshotCmd
 }
 
-func forgetSnapshot() {
+func forgetSnapshot() error {
 	commandArgs = append(commandArgs, "forget", tag)
 	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf("%s", output))
 	} else {
 		fmt.Print(output)
+		return fmt.Errorf("%s", output)
 	}
+	fmt.Print(output)
+	return nil
 }

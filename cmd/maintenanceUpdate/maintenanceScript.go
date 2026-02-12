@@ -2,7 +2,6 @@ package maintenance
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
@@ -33,16 +32,19 @@ Use --wiki to target a specific wiki in a farm.`,
 			instance, err = canasta.CheckCanastaId(instance)
 			return err
 		},
-		Run: func(cmd *cobra.Command, args []string) {
-			runMaintenanceScript(instance, args[0], wiki)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMaintenanceScript(instance, args[0], wiki)
 		},
 	}
 
 	return scriptCmd
 }
 
-func runMaintenanceScript(instance config.Installation, script string, wiki string) {
-	orch := orchestrators.New(instance.Orchestrator)
+func runMaintenanceScript(instance config.Installation, script string, wiki string) error {
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 
 	wikiFlag := ""
 	if wiki != "" {
@@ -51,7 +53,8 @@ func runMaintenanceScript(instance config.Installation, script string, wiki stri
 	fmt.Println("Running maintenance script " + script)
 	if err := orch.ExecStreaming(instance.Path, "web",
 		"php maintenance/"+script+wikiFlag); err != nil {
-		log.Fatalf("maintenance script failed: %v", err)
+		return fmt.Errorf("maintenance script failed: %v", err)
 	}
 	fmt.Println("Completed running maintenance script")
+	return nil
 }

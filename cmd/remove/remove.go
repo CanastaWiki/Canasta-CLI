@@ -38,11 +38,9 @@ for confirmation before any data is deleted.`,
 		Example: `  # Remove a wiki by ID
   canasta remove -i myinstance -w docs`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var err error
 			fmt.Printf("Removing wiki '%s' from Canasta instance '%s'...\n", wikiID, instance.Id)
-			err = RemoveWiki(instance, wikiID)
-			if err != nil {
-				log.Fatal(err)
+			if err := RemoveWiki(instance, wikiID); err != nil {
+				return err
 			}
 			fmt.Println("Done.")
 			return nil
@@ -63,7 +61,10 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 		return err
 	}
 
-	orch := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 
 	// Ensure containers are running (starts them if needed)
 	// Needed for database removal and image cleanup on Linux

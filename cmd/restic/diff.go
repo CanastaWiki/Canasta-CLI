@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
 var (
@@ -23,8 +22,7 @@ contents and metadata of both snapshots, displaying added, removed, and
 modified files.`,
 		Example: `  canasta restic diff -i myinstance --tag1 abc123 --tag2 def456`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			diff()
-			return nil
+			return diff()
 		},
 	}
 	diffCmd.Flags().StringVar(&tag1, "tag1", "", "Restic snapshot ID (required)")
@@ -34,12 +32,14 @@ modified files.`,
 	return diffCmd
 }
 
-func diff() {
+func diff() error {
 	commandArgs = append(commandArgs, "diff", tag1, tag2)
 	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf("%s", output))
 	} else {
 		fmt.Print(output)
+		return fmt.Errorf("%s", output)
 	}
+	fmt.Print(output)
+	return nil
 }

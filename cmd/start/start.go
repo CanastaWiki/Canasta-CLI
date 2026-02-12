@@ -47,11 +47,11 @@ Use --dev to enable or --no-dev to disable development mode at start time.`,
 			}
 			resolvedInstance, err := canasta.CheckCanastaId(instance)
 			if err != nil {
-				logging.Fatal(err)
+				return err
 			}
 			fmt.Println("Starting Canasta installation '" + resolvedInstance.Id + "'...")
 			if err := Start(resolvedInstance, devModeFlag, noDevFlag); err != nil {
-				logging.Fatal(err)
+				return err
 			}
 			fmt.Println("Started.")
 			return nil
@@ -69,9 +69,10 @@ func Start(instance config.Installation, enableDev, disableDev bool) error {
 		return fmt.Errorf("cannot specify both --dev and --no-dev")
 	}
 
-	orch := orchestrators.New(instance.Orchestrator)
-
-	var err error
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 	if enableDev {
 		// Enable dev mode using default registry image
 		baseImage := canasta.GetDefaultImage()

@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
 var (
@@ -23,20 +22,21 @@ taking any snapshots. The repository location is read from the
 RESTIC_REPOSITORY variable (or AWS S3 settings) in the installation's .env file.`,
 		Example: `  canasta restic init -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			initRestic()
-			return nil
+			return initRestic()
 		},
 	}
 	return initCmd
 }
 
-func initRestic() {
+func initRestic() error {
 	fmt.Println("Initializing Restic repo")
 	commandArgs = append(commandArgs, "init")
 	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
 	if err != nil {
-		logging.Fatal(fmt.Errorf("%s", output))
 	} else {
 		fmt.Print(output)
+		return fmt.Errorf("%s", output)
 	}
+	fmt.Print(output)
+	return nil
 }

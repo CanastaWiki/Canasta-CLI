@@ -38,23 +38,26 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 
 			instance, err = canasta.CheckCanastaId(instance)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			// Check containers are running
-			orch := orchestrators.New(instance.Orchestrator)
+			orch, err := orchestrators.New(instance.Orchestrator)
+			if err != nil {
+				return err
+			}
 			err = orch.CheckRunningStatus(instance)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			// Verify the wiki exists
 			exists, err := farmsettings.WikiIDExists(instance.Path, wikiID)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			if !exists {
-				log.Fatal(fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.Id))
+				return fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.Id)
 			}
 
 			// Default output path
@@ -64,7 +67,7 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 
 			fmt.Printf("Exporting database for wiki '%s'...\n", wikiID)
 			if err := exportDatabase(instance, wikiID, outputPath); err != nil {
-				log.Fatal(err)
+				return err
 			}
 			fmt.Printf("Database exported to %s\n", outputPath)
 			return nil
@@ -87,10 +90,16 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 }
 
 func exportDatabase(instance config.Installation, wikiID, outputPath string) error {
-	orch := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.New(instance.Orchestrator)
+	if err != nil {
+		return err
+	}
 
 	// Read the database password from .env
-	envVariables := canasta.GetEnvVariable(instance.Path + "/.env")
+	envVariables, err := canasta.GetEnvVariable(instance.Path + "/.env")
+	if err != nil {
+		return err
+	}
 	dbPassword := envVariables["MYSQL_PASSWORD"]
 	if dbPassword == "" {
 		dbPassword = "mediawiki"
