@@ -51,7 +51,7 @@ func takeSnapshot(tag string) {
 
 	err, output := execute.Run(instance.Path, "sudo", "cp", "--preserve=links,mode,ownership,timestamps", "-r", "config", "extensions", "images", "skins", currentSnapshotFolder)
 	if err != nil {
-		logging.Fatal(fmt.Errorf(output))
+		logging.Fatal(fmt.Errorf("%s", output))
 	}
 	logging.Print("Copy folders and files completed.")
 
@@ -59,7 +59,7 @@ func takeSnapshot(tag string) {
 	repoURL := getRepoURL(EnvVariables)
 	err, output = execute.Run(instance.Path, "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "-v", currentSnapshotFolder+":/currentsnapshot/", "restic/restic", "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
 	if err != nil {
-		logging.Fatal(fmt.Errorf(output))
+		logging.Fatal(fmt.Errorf("%s", output))
 	}
 	fmt.Print(output)
 	fmt.Println("Completed running restic backup")

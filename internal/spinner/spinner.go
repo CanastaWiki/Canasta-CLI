@@ -39,7 +39,7 @@ func New(description string) (*progressbar.ProgressBar, chan struct{}) {
 			case <-done:
 				return
 			default:
-				spinner.Add(1)
+				_ = spinner.Add(1)
 				time.Sleep(5 * time.Millisecond)
 			}
 		}

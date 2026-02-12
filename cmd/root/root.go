@@ -38,7 +38,7 @@ multiple Canasta instances, including wiki farms with multiple wikis per instanc
 		logging.Print("Setting verbose")
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd.Help()
+		_ = cmd.Help()
 	},
 }
 

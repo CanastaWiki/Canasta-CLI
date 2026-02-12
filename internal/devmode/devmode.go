@@ -113,7 +113,7 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 	// Run the symlinks script to create extensions/ and skins/ symlinks
 	logging.Print("Creating extension and skin symlinks...\n")
 	if err, output := execute.Run("", "docker", "exec", containerName, "/create-symlinks.sh"); err != nil {
-		execute.Run("", "docker", "rm", "-f", containerName)
+		_, _ = execute.Run("", "docker", "rm", "-f", containerName)
 		return fmt.Errorf("failed to create symlinks: %s", output)
 	}
 
@@ -125,7 +125,7 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 	cmd := exec.Command("bash", "-c", tarCmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Clean up container on failure
-		execute.Run("", "docker", "rm", "-f", containerName)
+		_, _ = execute.Run("", "docker", "rm", "-f", containerName)
 		return fmt.Errorf("failed to copy code from container: %s (output: %s)", err, string(output))
 	}
 
