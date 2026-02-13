@@ -19,7 +19,7 @@ func findSubcommand(parent interface{ Commands() []*cobra.Command }, name string
 func TestMaintenanceSubcommands(t *testing.T) {
 	cmd := NewCmdCreate()
 
-	expected := []string{"update", "script"}
+	expected := []string{"update", "script", "extension"}
 	for _, name := range expected {
 		if findSubcommand(cmd, name) == nil {
 			t.Errorf("expected subcommand %q not found", name)
@@ -65,20 +65,21 @@ func TestUpdateFlags(t *testing.T) {
 	}
 }
 
-func TestScriptRequiresArg(t *testing.T) {
+func TestScriptAcceptsZeroArgs(t *testing.T) {
 	cmd := NewCmdCreate()
 	scriptCmd := findSubcommand(cmd, "script")
 	if scriptCmd == nil {
 		t.Fatal("script subcommand not found")
 	}
 
-	// script requires exactly 1 arg — override PreRunE/RunE to isolate arg validation
+	// script accepts 0 args (lists scripts) or 1 arg (runs a script)
+	// override PreRunE/RunE to isolate arg validation
 	scriptCmd.PreRunE = nil
 	scriptCmd.RunE = func(cmd *cobra.Command, args []string) error { return nil }
 
 	cmd.SetArgs([]string{"script"})
-	if err := cmd.Execute(); err == nil {
-		t.Error("expected error when script is called without arguments")
+	if err := cmd.Execute(); err != nil {
+		t.Errorf("expected no error with zero args, got: %v", err)
 	}
 }
 
