@@ -3,7 +3,8 @@ ARG BASE_IMAGE=ghcr.io/canastawiki/canasta:latest
 # --- Stage 1: build xdebug.so ---
 FROM ${BASE_IMAGE} AS builder
 
-# hadolint ignore=DL3008 -- pinning system package versions is impractical on Debian
+# Pinning system package versions is impractical on Debian
+# hadolint ignore=DL3008
 RUN PHP_VERSION=$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;') \
  && apt-get update && apt-get install -y --no-install-recommends \
     "php${PHP_VERSION}-dev" autoconf build-essential php-pear \
