@@ -22,17 +22,19 @@ func extensionCmdCreate() *cobra.Command {
 	extensionCmd := &cobra.Command{
 		Use:   `extension [extension-name] ["script.php [args]"]`,
 		Short: "Run extension maintenance scripts",
-		Long: `Run maintenance scripts provided by MediaWiki extensions.
+		Long: `Run maintenance scripts provided by loaded MediaWiki extensions.
 
-With no arguments, lists all extensions that have a maintenance/ directory.
-With one argument (extension name), lists available maintenance scripts for
-that extension. With two arguments (extension name and a quoted script string),
-runs the specified script. Any arguments to the script should be included in
-the quoted string.
+With no arguments, lists all loaded extensions that have a maintenance/
+directory. With one argument (extension name), lists available maintenance
+scripts for that extension. With two arguments (extension name and a quoted
+script string), runs the specified script. Any arguments to the script
+should be included in the quoted string.
 
-In a wiki farm, use --wiki to target a specific wiki, or --all to run
-on every wiki.`,
-		Example: `  # List extensions with maintenance scripts
+Only extensions that are currently loaded (enabled) for the target wiki are
+shown and allowed to run. In a wiki farm, use --wiki to target a specific
+wiki, or --all to run on every wiki. If there is only one wiki, it is
+selected automatically.`,
+		Example: `  # List loaded extensions with maintenance scripts
   canasta maintenance extension -i myinstance
 
   # List maintenance scripts for an extension
@@ -55,15 +57,15 @@ on every wiki.`,
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if wiki != "" && all {
+				return fmt.Errorf("cannot use --wiki with --all")
+			}
 			switch len(args) {
 			case 0:
-				return listExtensionsWithMaintenance(instance)
+				return listExtensionsWithMaintenance(instance, wiki, all)
 			case 1:
-				return listExtensionScripts(instance, args[0])
+				return listExtensionScripts(instance, args[0], wiki, all)
 			case 2:
-				if wiki != "" && all {
-					return fmt.Errorf("cannot use --wiki with --all")
-				}
 				if all {
 					wikiIDs, err := getWikiIDs(instance)
 					if err != nil {
@@ -85,11 +87,11 @@ on every wiki.`,
 	return extensionCmd
 }
 
-func listExtensionsWithMaintenance(inst config.Installation) error {
-	return listExtensionsWithMaintenanceWith(nil, inst)
+func listExtensionsWithMaintenance(inst config.Installation, wikiFlag string, allFlag bool) error {
+	return listExtensionsWithMaintenanceWith(nil, inst, wikiFlag, allFlag)
 }
 
-func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst config.Installation) error {
+func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst config.Installation, wikiFlag string, allFlag bool) error {
 	if orch == nil {
 		var err error
 		orch, err = orchestrators.New(inst.Orchestrator)
@@ -98,33 +100,88 @@ func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst con
 		}
 	}
 
+	// Resolve which wiki(s) to query for loaded extensions
+	wikiIDs, err := resolveWikiIDs(inst, wikiFlag, allFlag)
+	if err != nil {
+		return err
+	}
+
+	// Get loaded extensions across the target wiki(s)
+	loaded := make(map[string]bool)
+	for _, id := range wikiIDs {
+		exts, err := getLoadedExtensions(orch, inst.Path, id)
+		if err != nil {
+			return fmt.Errorf("failed to query loaded extensions for wiki %q: %v", id, err)
+		}
+		for _, ext := range exts {
+			loaded[ext] = true
+		}
+	}
+
+	// Find extensions with maintenance directories
 	cmd := `find extensions/ canasta-extensions/ -maxdepth 2 -name maintenance -type d 2>/dev/null`
 	output, _ := orch.ExecWithError(inst.Path, "web", cmd)
 
 	names := parseExtensionNames(output)
-	if len(names) == 0 {
-		fmt.Println("No extensions with maintenance scripts found.")
+
+	// Filter to only loaded extensions
+	var filtered []string
+	for _, name := range names {
+		if loaded[name] {
+			filtered = append(filtered, name)
+		}
+	}
+
+	if len(filtered) == 0 {
+		fmt.Println("No loaded extensions with maintenance scripts found.")
 		return nil
 	}
 
 	fmt.Println("Extensions with maintenance scripts:")
-	for _, name := range names {
+	for _, name := range filtered {
 		fmt.Printf("  %s\n", name)
 	}
 	return nil
 }
 
-func listExtensionScripts(inst config.Installation, extName string) error {
-	return listExtensionScriptsWith(nil, inst, extName)
+func listExtensionScripts(inst config.Installation, extName, wikiFlag string, allFlag bool) error {
+	return listExtensionScriptsWith(nil, inst, extName, wikiFlag, allFlag)
 }
 
-func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Installation, extName string) error {
+func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Installation, extName, wikiFlag string, allFlag bool) error {
 	if orch == nil {
 		var err error
 		orch, err = orchestrators.New(inst.Orchestrator)
 		if err != nil {
 			return err
 		}
+	}
+
+	// Resolve which wiki(s) to check
+	wikiIDs, err := resolveWikiIDs(inst, wikiFlag, allFlag)
+	if err != nil {
+		return err
+	}
+
+	// Check that the extension is loaded for at least one target wiki
+	loaded := false
+	for _, id := range wikiIDs {
+		exts, err := getLoadedExtensions(orch, inst.Path, id)
+		if err != nil {
+			return fmt.Errorf("failed to query loaded extensions for wiki %q: %v", id, err)
+		}
+		for _, ext := range exts {
+			if ext == extName {
+				loaded = true
+				break
+			}
+		}
+		if loaded {
+			break
+		}
+	}
+	if !loaded {
+		return fmt.Errorf("extension %q is not loaded for the target wiki(s)", extName)
 	}
 
 	// Check that the extension has a maintenance directory
@@ -171,6 +228,36 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 	resolvedWiki, cleanedScript, err := resolveWikiFlag(wikiID, scriptStr)
 	if err != nil {
 		return err
+	}
+
+	// Resolve wiki ID if not provided (auto-detect for single-wiki installs)
+	checkWiki := resolvedWiki
+	if checkWiki == "" {
+		wikiIDs, err := getWikiIDs(inst)
+		if err != nil {
+			return err
+		}
+		if len(wikiIDs) == 1 {
+			checkWiki = wikiIDs[0]
+		} else {
+			return fmt.Errorf("multiple wikis found; use --wiki=<id> or --all")
+		}
+	}
+
+	// Check that the extension is loaded for the target wiki
+	exts, err := getLoadedExtensions(orch, inst.Path, checkWiki)
+	if err != nil {
+		return fmt.Errorf("failed to query loaded extensions for wiki %q: %v", checkWiki, err)
+	}
+	loaded := false
+	for _, ext := range exts {
+		if ext == extName {
+			loaded = true
+			break
+		}
+	}
+	if !loaded {
+		return fmt.Errorf("extension %q is not loaded for wiki %q", extName, checkWiki)
 	}
 
 	// Determine which path the extension is at
@@ -227,6 +314,49 @@ func resolveWikiFlag(cliWiki, scriptStr string) (resolvedWiki, cleanedScript str
 		return "", "", fmt.Errorf("conflicting --wiki values: flag has %q but script string has %q", cliWiki, scriptWiki)
 	}
 	return cliWiki, cleanedScript, nil
+}
+
+// resolveWikiIDs returns the list of wiki IDs to operate on. For a single-wiki
+// install it auto-detects; for a farm it requires --wiki or --all.
+func resolveWikiIDs(inst config.Installation, wikiFlag string, allFlag bool) ([]string, error) {
+	if wikiFlag != "" {
+		return []string{wikiFlag}, nil
+	}
+	wikiIDs, err := getWikiIDs(inst)
+	if err != nil {
+		return nil, err
+	}
+	if allFlag || len(wikiIDs) == 1 {
+		return wikiIDs, nil
+	}
+	return nil, fmt.Errorf("multiple wikis found; use --wiki=<id> or --all")
+}
+
+// getLoadedExtensions queries MediaWiki for the list of extensions currently
+// loaded for the given wiki. It uses eval.php to call ExtensionRegistry.
+func getLoadedExtensions(orch orchestrators.Orchestrator, installPath, wikiID string) ([]string, error) {
+	cmd := fmt.Sprintf(
+		`echo 'echo implode(PHP_EOL, array_keys(ExtensionRegistry::getInstance()->getAllThings()));' | php maintenance/eval.php --wiki=%s 2>/dev/null`,
+		wikiID)
+	output, err := orch.ExecWithError(installPath, "web", cmd)
+	if err != nil {
+		return nil, err
+	}
+	return parseLoadedExtensions(output), nil
+}
+
+// parseLoadedExtensions parses the output of ExtensionRegistry::getAllThings()
+// into a list of extension/skin names.
+func parseLoadedExtensions(output string) []string {
+	var names []string
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		names = append(names, line)
+	}
+	return names
 }
 
 // parseExtensionNames extracts extension names from find output like:
