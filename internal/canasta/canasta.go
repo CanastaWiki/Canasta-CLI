@@ -483,6 +483,20 @@ func CreateCaddyfileGlobal(installPath string) error {
 	return os.WriteFile(filePath, []byte(caddyfileGlobalDefault), 0644)
 }
 
+// CopyComposerFile copies a user-provided composer.local.json to config/composer.local.json.
+func CopyComposerFile(installPath, sourceFilename, workingDir string) error {
+	if !strings.HasPrefix(sourceFilename, "/") {
+		sourceFilename = filepath.Join(workingDir, sourceFilename)
+	}
+	destPath := filepath.Join(installPath, "config", "composer.local.json")
+	logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, destPath))
+	err, output := execute.Run("", "cp", sourceFilename, destPath)
+	if err != nil {
+		return fmt.Errorf("%s", output)
+	}
+	return nil
+}
+
 // safePasswordGenerator creates a password generator with symbols that are safe
 // for use in .env files and shell commands. Avoids: = # $ " ' ` \ ! & | ; < > etc.
 func safePasswordGenerator() (*password.Generator, error) {

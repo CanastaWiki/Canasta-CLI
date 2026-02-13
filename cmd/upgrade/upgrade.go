@@ -3,6 +3,7 @@ package upgrade
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -275,6 +276,15 @@ func runMigration(installPath string, dryRun bool) (bool, error) {
 		changed = true
 	}
 
+	// Step 5: Remove empty composer.local.json so the image's version is synced
+	composerChanged, err := removeEmptyComposerLocal(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if composerChanged {
+		changed = true
+	}
+
 	if !changed {
 		fmt.Println("No config migrations needed.")
 	} else if dryRun {
@@ -482,6 +492,45 @@ func createCaddyfileCustom(installPath string, dryRun bool) (bool, error) {
 		fmt.Println("  Updating config/Caddyfile with import directives")
 		if err := canasta.RewriteCaddy(installPath); err != nil {
 			return false, fmt.Errorf("failed to rewrite Caddyfile: %w", err)
+		}
+	}
+
+	return true, nil
+}
+
+// removeEmptyComposerLocal removes config/composer.local.json if it exists with
+// an empty include array. This allows the image's build-time version (with specific
+// bundled extension entries) to be synced via rsync on the next container recreate.
+func removeEmptyComposerLocal(installPath string, dryRun bool) (bool, error) {
+	filePath := filepath.Join(installPath, "config", "composer.local.json")
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return false, nil // File doesn't exist, nothing to do
+	}
+
+	var data struct {
+		Extra struct {
+			MergePlugin struct {
+				Include []string `json:"include"`
+			} `json:"merge-plugin"`
+		} `json:"extra"`
+	}
+	if err := json.Unmarshal(content, &data); err != nil {
+		// Can't parse — leave it alone
+		return false, nil
+	}
+
+	if len(data.Extra.MergePlugin.Include) > 0 {
+		return false, nil // Non-empty includes, leave it alone
+	}
+
+	if dryRun {
+		fmt.Println("  Would remove empty config/composer.local.json (image will sync its version on next recreate)")
+	} else {
+		fmt.Println("  Removing empty config/composer.local.json (image will sync its version on next recreate)")
+		if err := os.Remove(filePath); err != nil {
+			return false, fmt.Errorf("failed to remove composer.local.json: %w", err)
 		}
 	}
 
