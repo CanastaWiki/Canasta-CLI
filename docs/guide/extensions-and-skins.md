@@ -12,6 +12,7 @@
 - [Adding extensions not bundled with Canasta](#adding-extensions-not-bundled-with-canasta)
   - [Composer dependencies](#composer-dependencies)
 - [Semantic MediaWiki](#semantic-mediawiki)
+- [CirrusSearch / Elasticsearch](#cirussearch--elasticsearch)
 - [How it works under the hood](#how-it-works-under-the-hood)
 - [Important notes](#important-notes)
 
@@ -213,6 +214,76 @@ See [Running extension maintenance scripts](general-concepts.md#running-extensio
 - The `enableSemantics()` function is provided by SMW's composer autoloader. Canasta's unified autoloader ensures it is available without any additional steps.
 - SMW's `smw.json` is stored persistently in `config/smw/` so it survives container recreations.
 - If you need to reinitialize the SMW store (e.g., after a major upgrade), delete `config/smw/smw.json` and restart Canasta.
+
+---
+
+## CirrusSearch / Elasticsearch
+
+[CirrusSearch](https://www.mediawiki.org/wiki/Extension:CirrusSearch) replaces MediaWiki's default search with Elasticsearch. Canasta includes both CirrusSearch and Elasticsearch as built-in services — Elasticsearch runs in a dedicated container alongside the web container.
+
+### Enabling CirrusSearch
+
+Enable the CirrusSearch and Elastica extensions:
+
+```bash
+canasta extension enable CirrusSearch,Elastica -i myinstance
+```
+
+No additional configuration is needed. Canasta's built-in Elasticsearch container is already configured as the search backend.
+
+### Rebuilding the search index
+
+After enabling CirrusSearch (or after a major upgrade), you need to build the search index. This is a three-step process:
+
+**Step 1 — Configure index mappings:**
+
+```bash
+canasta maintenance extension CirrusSearch "UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now" -i myinstance
+```
+
+**Step 2 — Index page content:**
+
+```bash
+canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipLinks --indexOnSkip" -i myinstance
+```
+
+**Step 3 — Index links:**
+
+```bash
+canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipParse" -i myinstance
+```
+
+All three steps must run in order. On large wikis, the indexing steps (2 and 3) can take a significant amount of time.
+
+### Recreating the index from scratch
+
+To destroy and recreate the index (e.g., after changing analyzers or mappings), use `--startOver` instead of `--reindexAndRemoveOk --indexIdentifier now` in step 1:
+
+```bash
+canasta maintenance extension CirrusSearch "UpdateSearchIndexConfig.php --startOver" -i myinstance
+```
+
+Then run steps 2 and 3 as above.
+
+### Wiki farms
+
+In a wiki farm, each wiki has its own search index. Use `--wiki` to target a specific wiki:
+
+```bash
+canasta maintenance extension CirrusSearch "UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now" -i myinstance --wiki=docs
+canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipLinks --indexOnSkip" -i myinstance --wiki=docs
+canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipParse" -i myinstance --wiki=docs
+```
+
+Or use `--all` to rebuild indexes for every wiki:
+
+```bash
+canasta maintenance extension CirrusSearch "UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now" -i myinstance --all
+canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipLinks --indexOnSkip" -i myinstance --all
+canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipParse" -i myinstance --all
+```
+
+See [Running extension maintenance scripts](general-concepts.md#running-extension-maintenance-scripts) for general usage of the extension maintenance command.
 
 ---
 
