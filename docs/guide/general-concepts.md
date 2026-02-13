@@ -12,6 +12,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
 - [Maintenance scripts](#maintenance-scripts)
   - [Automatic maintenance](#automatic-maintenance)
   - [Running the update sequence](#running-the-update-sequence)
+  - [Rebuilding Semantic MediaWiki data](#rebuilding-semantic-mediawiki-data)
   - [Running scripts manually](#running-scripts-manually)
 - [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy)
 - [Running on non-standard ports](#running-on-non-standard-ports)
@@ -318,6 +319,34 @@ Use `--skip-jobs` and `--skip-smw` to skip individual steps:
 ```bash
 # Run only update.php
 canasta maintenance update -i myinstance --skip-jobs --skip-smw
+```
+
+### Rebuilding Semantic MediaWiki data
+
+If you use [Semantic MediaWiki](extensions-and-skins.md#semantic-mediawiki), you may need to rebuild the SMW store after initial setup, a major upgrade, or data import. Use `canasta maintenance smw-rebuild`:
+
+```bash
+canasta maintenance smw-rebuild -i myinstance
+```
+
+In a wiki farm, use `--wiki` to target a specific wiki or `--all` to rebuild all wikis:
+
+```bash
+canasta maintenance smw-rebuild -i myinstance --wiki=docs
+canasta maintenance smw-rebuild -i myinstance --all
+```
+
+For large wikis, you can pass options directly to `rebuildData.php` after `--` to run the rebuild in segments:
+
+```bash
+# Resume from where a previous run left off
+canasta maintenance smw-rebuild -i myinstance -- --startidfile /tmp/smw-progress
+
+# Rebuild a specific page range
+canasta maintenance smw-rebuild -i myinstance -- -s 1000 -e 2000
+
+# Skip property rebuilding
+canasta maintenance smw-rebuild -i myinstance -- --skip-properties
 ```
 
 ### Running scripts manually

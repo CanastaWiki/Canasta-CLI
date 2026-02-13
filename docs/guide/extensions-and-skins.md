@@ -192,6 +192,22 @@ When the container starts, Canasta detects if `config/composer.local.json` or an
 
 On the first startup after enabling SMW, Canasta automatically runs `setupStore.php` to initialize the SMW database tables. This creates a `smw.json` configuration file in `config/smw/` on the persistent volume, so the setup only runs once.
 
+### Rebuilding SMW data
+
+After initial setup, you need to run `rebuildData.php` to populate the SMW store. Canasta does not run this automatically because it can take a long time on large wikis. Use the CLI command:
+
+```bash
+canasta maintenance smw-rebuild -i myinstance
+```
+
+For large wikis, pass options to `rebuildData.php` after `--` to run in segments:
+
+```bash
+canasta maintenance smw-rebuild -i myinstance -- --startidfile /tmp/smw-progress
+```
+
+See [Rebuilding Semantic MediaWiki data](general-concepts.md#rebuilding-semantic-mediawiki-data) for more examples.
+
 ### Notes
 
 - The `enableSemantics()` function is provided by SMW's composer autoloader. Canasta's unified autoloader ensures it is available without any additional steps.
