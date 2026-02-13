@@ -486,7 +486,7 @@ func CreateCaddyfileGlobal(installPath string) error {
 // CopyComposerFile copies a user-provided composer.local.json to config/composer.local.json.
 func CopyComposerFile(installPath, sourceFilename, workingDir string) error {
 	if !strings.HasPrefix(sourceFilename, "/") {
-		sourceFilename = workingDir + "/" + sourceFilename
+		sourceFilename = filepath.Join(workingDir, sourceFilename)
 	}
 	destPath := filepath.Join(installPath, "config", "composer.local.json")
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, destPath))
