@@ -67,7 +67,7 @@ func listMaintenanceScriptsWith(orch orchestrators.Orchestrator, inst config.Ins
 
 	scripts := parseScriptNames(output)
 	if len(scripts) == 0 {
-		fmt.Println("No maintenance scripts found.")
+		fmt.Println("No maintenance scripts found")
 		return nil
 	}
 

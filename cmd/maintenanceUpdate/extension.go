@@ -143,7 +143,7 @@ func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst con
 	}
 
 	if len(filtered) == 0 {
-		fmt.Println("No loaded extensions with maintenance scripts found.")
+		fmt.Println("No loaded extensions with maintenance scripts found")
 		return nil
 	}
 
