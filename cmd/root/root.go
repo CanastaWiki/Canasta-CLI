@@ -33,6 +33,8 @@ var rootCmd = &cobra.Command{
 	Long: `Canasta CLI manages Canasta MediaWiki installations using Docker Compose.
 It supports creating, importing, starting, stopping, upgrading, and backing up
 multiple Canasta instances, including wiki farms with multiple wikis per instance.`,
+	SilenceErrors: true,
+	SilenceUsage:  true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logging.SetVerbose(verbose)
 		logging.Print("Setting verbose")
