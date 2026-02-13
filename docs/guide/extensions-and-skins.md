@@ -11,6 +11,7 @@
 - [Disabling extensions and skins](#disabling-extensions-and-skins)
 - [Adding extensions not bundled with Canasta](#adding-extensions-not-bundled-with-canasta)
   - [Composer dependencies](#composer-dependencies)
+- [Semantic MediaWiki](#semantic-mediawiki)
 - [How it works under the hood](#how-it-works-under-the-hood)
 - [Important notes](#important-notes)
 
@@ -126,28 +127,61 @@ User extensions are not shown by `canasta extension list` and cannot be managed 
 
 ### Composer dependencies
 
-Canasta uses a **unified composer autoloader**. At build time, all bundled extension and skin `composer.json` files are merged into MediaWiki's root `vendor/autoload.php` via the [composer merge plugin](https://github.com/wikimedia/composer-merge-plugin). This means extensions like SemanticMediaWiki, Maps, and Bootstrap all share a single autoloader with MediaWiki core.
+Canasta uses a **unified composer autoloader**. At build time, bundled extensions and skins that need composer dependencies are merged into MediaWiki's root `vendor/autoload.php` via the [composer merge plugin](https://github.com/wikimedia/composer-merge-plugin). This means extensions like SemanticMediaWiki, Maps, and Bootstrap all share a single autoloader with MediaWiki core.
 
-The file `config/composer.local.json` controls which `composer.json` files are merged. The default template includes globs that cover all extensions and skins:
+The file `config/composer.local.json` controls which `composer.json` files are merged. The build-time default includes specific entries for bundled extensions that need composer, plus wildcards for user-installed extensions and skins:
 
 ```json
 {
-	"extra": {
-		"merge-plugin": {
-			"include": [
-				"extensions/*/composer.json",
-				"skins/*/composer.json"
-			]
-		}
-	}
+    "extra": {
+        "merge-plugin": {
+            "include": [
+                "extensions/SemanticMediaWiki/composer.json",
+                "extensions/Maps/composer.json",
+                "...",
+                "user-extensions/*/composer.json",
+                "user-skins/*/composer.json"
+            ]
+        }
+    }
 }
 ```
 
-Since the `extensions/` and `skins/` directories contain symlinks to both bundled and user extensions, these globs automatically pick up any user-extension that has a `composer.json`. When the container starts, Canasta detects if `config/composer.local.json` or any extension `composer.json` has changed since the last run, and re-runs `composer update` if needed.
+The `user-extensions/*/composer.json` and `user-skins/*/composer.json` wildcards automatically pick up any user-installed extension or skin that has a `composer.json`. When the container starts, Canasta detects if `config/composer.local.json` or any referenced `composer.json` has changed since the last run, and re-runs `composer update` if needed.
 
 **To opt out of runtime composer updates**, delete `config/composer.local.json` or empty its `include` array. The build-time autoloader will be used as-is.
 
-**Note:** Only the `extra.merge-plugin` section is used. The `require` section of `composer.local.json` is ignored — you cannot install new extensions via Composer, only their dependencies.
+---
+
+## Semantic MediaWiki
+
+[Semantic MediaWiki](https://www.semantic-mediawiki.org/) (SMW) is bundled with Canasta and lets you store and query structured data within your wiki.
+
+### Enabling Semantic MediaWiki
+
+1. Add the following to a settings file (e.g., `config/settings/global/SemanticMediaWiki.php`):
+
+    ```php
+    <?php
+    wfLoadExtension( 'SemanticMediaWiki' );
+    enableSemantics( 'example.org' );
+    ```
+
+    Replace `example.org` with your wiki's domain name.
+
+2. Restart Canasta:
+
+    ```bash
+    canasta restart -i myinstance
+    ```
+
+On the first startup after enabling SMW, Canasta automatically runs `setupStore.php` to initialize the SMW database tables. This creates a `smw.json` configuration file in `config/smw/` on the persistent volume, so the setup only runs once.
+
+### Notes
+
+- The `enableSemantics()` function is provided by SMW's composer autoloader. Canasta's unified autoloader ensures it is available without any additional steps.
+- SMW's `smw.json` is stored persistently in `config/smw/` so it survives container recreations.
+- If you need to reinitialize the SMW store (e.g., after a major upgrade), delete `config/smw/smw.json` and restart Canasta.
 
 ---
 
