@@ -85,7 +85,10 @@ func runSearchIndex(instance config.Installation, wikiID string) error {
 	if err != nil {
 		return err
 	}
+	return runSearchIndexWith(orch, instance.Path, wikiID, startOver)
+}
 
+func runSearchIndexWith(orch orchestrators.Orchestrator, installPath string, wikiID string, startOverFlag bool) error {
 	wikiFlag := ""
 	if wikiID != "" {
 		wikiFlag = " --wiki=" + wikiID
@@ -98,18 +101,18 @@ func runSearchIndex(instance config.Installation, wikiID string) error {
 	// Check that CirrusSearch is installed
 	const updateScript = "extensions/CirrusSearch/maintenance/UpdateSearchIndexConfig.php"
 	checkCmd := fmt.Sprintf("test -f %s && echo exists", updateScript)
-	checkOutput, _ := orch.ExecWithError(instance.Path, "web", checkCmd)
+	checkOutput, _ := orch.ExecWithError(installPath, "web", checkCmd)
 	if !strings.Contains(checkOutput, "exists") {
 		return fmt.Errorf("CirrusSearch extension is not installed; cannot rebuild search index%s", wikiMsg)
 	}
 
 	// Step 1: Update search index configuration
 	updateFlags := " --reindexAndRemoveOk --indexIdentifier now"
-	if startOver {
+	if startOverFlag {
 		updateFlags = " --startOver"
 	}
 	fmt.Printf("Updating search index configuration%s...\n", wikiMsg)
-	if err := orch.ExecStreaming(instance.Path, "web",
+	if err := orch.ExecStreaming(installPath, "web",
 		"php "+updateScript+updateFlags+wikiFlag); err != nil {
 		return fmt.Errorf("UpdateSearchIndexConfig.php failed%s: %v", wikiMsg, err)
 	}
@@ -117,14 +120,14 @@ func runSearchIndex(instance config.Installation, wikiID string) error {
 	// Step 2: Force index content (skip links)
 	const forceScript = "extensions/CirrusSearch/maintenance/ForceSearchIndex.php"
 	fmt.Printf("Indexing content%s...\n", wikiMsg)
-	if err := orch.ExecStreaming(instance.Path, "web",
+	if err := orch.ExecStreaming(installPath, "web",
 		"php "+forceScript+" --skipLinks --indexOnSkip"+wikiFlag); err != nil {
 		return fmt.Errorf("ForceSearchIndex.php (content) failed%s: %v", wikiMsg, err)
 	}
 
 	// Step 3: Force index links (skip parse)
 	fmt.Printf("Indexing links%s...\n", wikiMsg)
-	if err := orch.ExecStreaming(instance.Path, "web",
+	if err := orch.ExecStreaming(installPath, "web",
 		"php "+forceScript+" --skipParse"+wikiFlag); err != nil {
 		return fmt.Errorf("ForceSearchIndex.php (links) failed%s: %v", wikiMsg, err)
 	}
