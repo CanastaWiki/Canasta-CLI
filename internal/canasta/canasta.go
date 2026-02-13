@@ -58,9 +58,6 @@ var caddyfileCustomDefault string
 //go:embed files/Caddyfile.global
 var caddyfileGlobalDefault string
 
-//go:embed files/composer.local.json
-var composerLocalDefault string
-
 // GetImageWithTag returns the Canasta image reference with the specified tag
 func GetImageWithTag(tag string) string {
 	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, tag)
@@ -498,19 +495,6 @@ func CopyComposerFile(installPath, sourceFilename, workingDir string) error {
 		return fmt.Errorf("%s", output)
 	}
 	return nil
-}
-
-// CreateDefaultComposerLocal writes the default composer.local.json to config/
-// if it doesn't already exist (no-clobber).
-func CreateDefaultComposerLocal(installPath string) error {
-	filePath := filepath.Join(installPath, "config", "composer.local.json")
-
-	// Don't overwrite if file already exists
-	if _, err := os.Stat(filePath); err == nil {
-		return nil
-	}
-
-	return os.WriteFile(filePath, []byte(composerLocalDefault), 0644)
 }
 
 // safePasswordGenerator creates a password generator with symbols that are safe
