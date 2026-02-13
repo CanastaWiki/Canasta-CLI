@@ -32,6 +32,7 @@ runJobs.php, and SMW rebuildData.php) or execute arbitrary maintenance scripts.`
 
 	maintenanceCmd.AddCommand(updateCmdCreate())
 	maintenanceCmd.AddCommand(scriptCmdCreate())
+	maintenanceCmd.AddCommand(smwRebuildCmdCreate())
 
 	maintenanceCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	maintenanceCmd.PersistentFlags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on")
