@@ -234,6 +234,121 @@ func TestRunExtensionScriptStreamingError(t *testing.T) {
 	}
 }
 
+func TestResolveWikiFlagNoWiki(t *testing.T) {
+	wiki, script, err := resolveWikiFlag("", "rebuildData.php -s 1000")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wiki != "" {
+		t.Errorf("expected empty wiki, got %q", wiki)
+	}
+	if script != "rebuildData.php -s 1000" {
+		t.Errorf("expected unchanged script, got %q", script)
+	}
+}
+
+func TestResolveWikiFlagCLIOnly(t *testing.T) {
+	wiki, script, err := resolveWikiFlag("docs", "rebuildData.php")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wiki != "docs" {
+		t.Errorf("expected wiki=docs, got %q", wiki)
+	}
+	if script != "rebuildData.php" {
+		t.Errorf("expected unchanged script, got %q", script)
+	}
+}
+
+func TestResolveWikiFlagScriptOnly(t *testing.T) {
+	wiki, script, err := resolveWikiFlag("", "rebuildData.php --wiki=main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wiki != "main" {
+		t.Errorf("expected wiki=main, got %q", wiki)
+	}
+	if strings.Contains(script, "--wiki") {
+		t.Errorf("expected --wiki removed from script, got %q", script)
+	}
+}
+
+func TestResolveWikiFlagBothSame(t *testing.T) {
+	wiki, script, err := resolveWikiFlag("docs", "rebuildData.php --wiki=docs")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wiki != "docs" {
+		t.Errorf("expected wiki=docs, got %q", wiki)
+	}
+	if strings.Contains(script, "--wiki") {
+		t.Errorf("expected --wiki removed from script, got %q", script)
+	}
+}
+
+func TestResolveWikiFlagConflict(t *testing.T) {
+	_, _, err := resolveWikiFlag("docs", "rebuildData.php --wiki=main")
+	if err == nil {
+		t.Fatal("expected error for conflicting --wiki values")
+	}
+	if !strings.Contains(err.Error(), "conflicting") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestResolveWikiFlagScriptWithArgsAndWiki(t *testing.T) {
+	wiki, script, err := resolveWikiFlag("", "rebuildData.php -s 1000 --wiki=main -e 2000")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wiki != "main" {
+		t.Errorf("expected wiki=main, got %q", wiki)
+	}
+	if strings.Contains(script, "--wiki") {
+		t.Errorf("expected --wiki removed from script, got %q", script)
+	}
+	if !strings.Contains(script, "-s 1000") || !strings.Contains(script, "-e 2000") {
+		t.Errorf("expected other args preserved, got %q", script)
+	}
+}
+
+func TestRunExtensionScriptWikiInScriptString(t *testing.T) {
+	mock := &extMockOrchestrator{
+		execOutputs: map[string]string{
+			"test -d extensions/SemanticMediaWiki": "exists",
+		},
+	}
+	inst := config.Installation{Path: "/test"}
+	err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php --wiki=docs", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cmd := mock.streamingCalls[0]
+	if !strings.Contains(cmd, "--wiki=docs") {
+		t.Errorf("expected --wiki=docs, got: %s", cmd)
+	}
+	// Should not have --wiki twice
+	if strings.Count(cmd, "--wiki") != 1 {
+		t.Errorf("expected exactly one --wiki, got: %s", cmd)
+	}
+}
+
+func TestRunExtensionScriptWikiConflict(t *testing.T) {
+	mock := &extMockOrchestrator{
+		execOutputs: map[string]string{
+			"test -d extensions/SemanticMediaWiki": "exists",
+		},
+	}
+	inst := config.Installation{Path: "/test"}
+	err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php --wiki=main", "docs")
+	if err == nil {
+		t.Fatal("expected error for conflicting --wiki values")
+	}
+	if !strings.Contains(err.Error(), "conflicting") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestRunExtensionScriptCanastaExtensions(t *testing.T) {
 	// Extension found in canasta-extensions, not extensions
 	mock := &extMockOrchestrator{

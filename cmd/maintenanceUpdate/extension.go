@@ -3,6 +3,7 @@ package maintenance
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -12,6 +13,9 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
+
+// wikiArgRe matches --wiki=value or --wiki value in a script argument string.
+var wikiArgRe = regexp.MustCompile(`(?:^|\s)--wiki[=\s](\S+)`)
 
 func extensionCmdCreate() *cobra.Command {
 
@@ -163,6 +167,12 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 		}
 	}
 
+	// Reconcile --wiki from CLI flag and script string
+	resolvedWiki, cleanedScript, err := resolveWikiFlag(wikiID, scriptStr)
+	if err != nil {
+		return err
+	}
+
 	// Determine which path the extension is at
 	extPath := ""
 	for _, prefix := range []string{"extensions", "canasta-extensions"} {
@@ -179,20 +189,44 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 
 	wikiFlag := ""
 	wikiMsg := ""
-	if wikiID != "" {
-		wikiFlag = " --wiki=" + wikiID
-		wikiMsg = " for wiki '" + wikiID + "'"
+	if resolvedWiki != "" {
+		wikiFlag = " --wiki=" + resolvedWiki
+		wikiMsg = " for wiki '" + resolvedWiki + "'"
 	}
 
-	cmd := "php " + extPath + "/maintenance/" + scriptStr + wikiFlag
+	cmd := "php " + extPath + "/maintenance/" + cleanedScript + wikiFlag
 
-	fmt.Printf("Running %s%s...\n", scriptStr, wikiMsg)
+	fmt.Printf("Running %s%s...\n", cleanedScript, wikiMsg)
 	if err := orch.ExecStreaming(inst.Path, "web", cmd); err != nil {
-		return fmt.Errorf("%s failed%s: %v", scriptStr, wikiMsg, err)
+		return fmt.Errorf("%s failed%s: %v", cleanedScript, wikiMsg, err)
 	}
 
-	fmt.Printf("Completed %s%s\n", scriptStr, wikiMsg)
+	fmt.Printf("Completed %s%s\n", cleanedScript, wikiMsg)
 	return nil
+}
+
+// resolveWikiFlag reconciles a --wiki value from the CLI flag with a --wiki
+// value that may be embedded in the script argument string. If both are present
+// with different values, it returns an error. If both are present with the same
+// value, or only one is present, it returns the resolved wiki ID and the script
+// string with the embedded --wiki removed (to avoid passing it twice).
+func resolveWikiFlag(cliWiki, scriptStr string) (resolvedWiki, cleanedScript string, err error) {
+	match := wikiArgRe.FindStringSubmatch(scriptStr)
+	if match == nil {
+		// No --wiki in script string; use CLI flag as-is
+		return cliWiki, scriptStr, nil
+	}
+
+	scriptWiki := match[1]
+	cleanedScript = strings.TrimSpace(wikiArgRe.ReplaceAllString(scriptStr, ""))
+
+	if cliWiki == "" {
+		return scriptWiki, cleanedScript, nil
+	}
+	if cliWiki != scriptWiki {
+		return "", "", fmt.Errorf("conflicting --wiki values: flag has %q but script string has %q", cliWiki, scriptWiki)
+	}
+	return cliWiki, cleanedScript, nil
 }
 
 // parseExtensionNames extracts extension names from find output like:

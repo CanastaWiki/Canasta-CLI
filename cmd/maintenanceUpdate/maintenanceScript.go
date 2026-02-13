@@ -80,18 +80,31 @@ func listMaintenanceScriptsWith(orch orchestrators.Orchestrator, inst config.Ins
 }
 
 func runMaintenanceScript(instance config.Installation, script string, wiki string) error {
-	orch, err := orchestrators.New(instance.Orchestrator)
+	return runMaintenanceScriptWith(nil, instance, script, wiki)
+}
+
+func runMaintenanceScriptWith(orch orchestrators.Orchestrator, inst config.Installation, script string, wiki string) error {
+	if orch == nil {
+		var err error
+		orch, err = orchestrators.New(inst.Orchestrator)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Reconcile --wiki from CLI flag and script string
+	resolvedWiki, cleanedScript, err := resolveWikiFlag(wiki, script)
 	if err != nil {
 		return err
 	}
 
 	wikiFlag := ""
-	if wiki != "" {
-		wikiFlag = " --wiki=" + wiki
+	if resolvedWiki != "" {
+		wikiFlag = " --wiki=" + resolvedWiki
 	}
-	fmt.Println("Running maintenance script " + script)
-	if err := orch.ExecStreaming(instance.Path, "web",
-		"php maintenance/"+script+wikiFlag); err != nil {
+	fmt.Println("Running maintenance script " + cleanedScript)
+	if err := orch.ExecStreaming(inst.Path, "web",
+		"php maintenance/"+cleanedScript+wikiFlag); err != nil {
 		return fmt.Errorf("maintenance script failed: %v", err)
 	}
 	fmt.Println("Completed running maintenance script")
