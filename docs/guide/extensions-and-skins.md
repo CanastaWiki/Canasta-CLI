@@ -129,7 +129,23 @@ User extensions are not shown by `canasta extension list` and cannot be managed 
 
 Canasta uses a **unified composer autoloader**. At build time, bundled extensions and skins that need composer dependencies are merged into MediaWiki's root `vendor/autoload.php` via the [composer merge plugin](https://github.com/wikimedia/composer-merge-plugin). This means extensions like SemanticMediaWiki, Maps, and Bootstrap all share a single autoloader with MediaWiki core.
 
-The file `config/composer.local.json` controls which `composer.json` files are merged. The build-time default includes specific entries for bundled extensions that need composer, plus wildcards for user-installed extensions and skins:
+The file `config/composer.local.json` controls which `composer.json` files are merged. The build-time default includes specific entries for bundled extensions that need composer:
+
+```json
+{
+    "extra": {
+        "merge-plugin": {
+            "include": [
+                "extensions/SemanticMediaWiki/composer.json",
+                "extensions/Maps/composer.json",
+                "..."
+            ]
+        }
+    }
+}
+```
+
+If you add a user-extension that has composer dependencies, add its `composer.json` to the include list manually:
 
 ```json
 {
@@ -139,15 +155,14 @@ The file `config/composer.local.json` controls which `composer.json` files are m
                 "extensions/SemanticMediaWiki/composer.json",
                 "extensions/Maps/composer.json",
                 "...",
-                "user-extensions/*/composer.json",
-                "user-skins/*/composer.json"
+                "user-extensions/MyExtension/composer.json"
             ]
         }
     }
 }
 ```
 
-The `user-extensions/*/composer.json` and `user-skins/*/composer.json` wildcards automatically pick up any user-installed extension or skin that has a `composer.json`. When the container starts, Canasta detects if `config/composer.local.json` or any referenced `composer.json` has changed since the last run, and re-runs `composer update` if needed.
+When the container starts, Canasta detects if `config/composer.local.json` or any referenced `composer.json` has changed since the last run, and re-runs `composer update` if needed.
 
 **To opt out of runtime composer updates**, delete `config/composer.local.json` or empty its `include` array. The build-time autoloader will be used as-is.
 
