@@ -54,9 +54,7 @@ selected automatically.`,
 
   # Run for all wikis
   canasta maintenance extension -i myinstance --all SemanticMediaWiki rebuildData.php`,
-		Args:           cobra.ArbitraryArgs,
-		SilenceUsage:   true,
-		SilenceErrors:  true,
+		Args: cobra.ArbitraryArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			instance, err = canasta.CheckCanastaId(instance)
 			return err
