@@ -20,15 +20,18 @@ var wikiArgRe = regexp.MustCompile(`(?:^|\s)--wiki[=\s](\S+)`)
 func extensionCmdCreate() *cobra.Command {
 
 	extensionCmd := &cobra.Command{
-		Use:   `extension [extension-name] ["script.php [args]"]`,
+		Use:   "extension [extension-name] [script.php [args...]]",
 		Short: "Run extension maintenance scripts",
 		Long: `Run maintenance scripts provided by loaded MediaWiki extensions.
 
 With no arguments, lists all loaded extensions that have a maintenance/
 directory. With one argument (extension name), lists available maintenance
-scripts for that extension. With two arguments (extension name and a quoted
-script string), runs the specified script. Any arguments to the script
-should be included in the quoted string.
+scripts for that extension. With two or more arguments (extension name,
+script name, and optional script arguments), runs the specified script.
+
+Flags (-i, --wiki, --all) must come before the extension name. Everything
+after the extension name is treated as the script and its arguments — no
+quotes are needed.
 
 Only extensions that are currently loaded (enabled) for the target wiki are
 shown and allowed to run. In a wiki farm, use --wiki to target a specific
@@ -38,20 +41,20 @@ selected automatically.`,
   canasta maintenance extension -i myinstance
 
   # List maintenance scripts for an extension
-  canasta maintenance extension SemanticMediaWiki -i myinstance
+  canasta maintenance extension -i myinstance SemanticMediaWiki
 
   # Run an extension maintenance script
-  canasta maintenance extension SemanticMediaWiki "rebuildData.php" -i myinstance
+  canasta maintenance extension -i myinstance SemanticMediaWiki rebuildData.php
 
-  # Run with script arguments (in quotes)
-  canasta maintenance extension SemanticMediaWiki "rebuildData.php -s 1000 -e 2000" -i myinstance
+  # Run with script arguments (no quotes needed)
+  canasta maintenance extension -i myinstance SemanticMediaWiki rebuildData.php -s 1000 -e 2000
 
   # Run for a specific wiki in a farm
-  canasta maintenance extension CirrusSearch "UpdateSearchIndexConfig.php" -i myinstance --wiki=docs
+  canasta maintenance extension -i myinstance --wiki=docs CirrusSearch UpdateSearchIndexConfig.php
 
   # Run for all wikis
-  canasta maintenance extension SemanticMediaWiki "rebuildData.php" -i myinstance --all`,
-		Args: cobra.RangeArgs(0, 2),
+  canasta maintenance extension -i myinstance --all SemanticMediaWiki rebuildData.php`,
+		Args: cobra.ArbitraryArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			instance, err = canasta.CheckCanastaId(instance)
 			return err
@@ -60,29 +63,34 @@ selected automatically.`,
 			if wiki != "" && all {
 				return fmt.Errorf("cannot use --wiki with --all")
 			}
-			switch len(args) {
-			case 0:
+			switch {
+			case len(args) == 0:
 				return listExtensionsWithMaintenance(instance, wiki, all)
-			case 1:
+			case len(args) == 1:
 				return listExtensionScripts(instance, args[0], wiki, all)
-			case 2:
+			default:
+				extName := args[0]
+				scriptStr := strings.Join(args[1:], " ")
 				if all {
 					wikiIDs, err := getWikiIDs(instance)
 					if err != nil {
 						return err
 					}
 					for _, id := range wikiIDs {
-						if err := runExtensionScript(instance, args[0], args[1], id); err != nil {
+						if err := runExtensionScript(instance, extName, scriptStr, id); err != nil {
 							return err
 						}
 					}
 					return nil
 				}
-				return runExtensionScript(instance, args[0], args[1], wiki)
+				return runExtensionScript(instance, extName, scriptStr, wiki)
 			}
-			return nil
 		},
 	}
+
+	// Stop parsing flags after the first non-flag argument (the extension name).
+	// This allows script arguments like -s 1000 to be passed without quotes.
+	extensionCmd.Flags().SetInterspersed(false)
 
 	return extensionCmd
 }

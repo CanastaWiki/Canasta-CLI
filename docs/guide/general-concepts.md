@@ -345,7 +345,7 @@ canasta maintenance script "rebuildrecentchanges.php" -i myinstance --wiki=docs
 
 Many extensions include their own maintenance scripts (e.g., Semantic MediaWiki, CirrusSearch, Cargo). Use `canasta maintenance extension` to discover and run them.
 
-List all extensions that have maintenance scripts:
+List all loaded extensions that have maintenance scripts:
 
 ```bash
 canasta maintenance extension -i myinstance
@@ -354,28 +354,30 @@ canasta maintenance extension -i myinstance
 List available scripts for a specific extension:
 
 ```bash
-canasta maintenance extension SemanticMediaWiki -i myinstance
+canasta maintenance extension -i myinstance SemanticMediaWiki
 ```
 
-Run an extension maintenance script (script name and arguments in quotes):
+Run an extension maintenance script. Flags (`-i`, `--wiki`, `--all`) come before the extension name; everything after is the script and its arguments — no quotes needed:
 
 ```bash
-canasta maintenance extension SemanticMediaWiki "rebuildData.php" -i myinstance
-canasta maintenance extension CirrusSearch "UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now" -i myinstance
+canasta maintenance extension -i myinstance SemanticMediaWiki rebuildData.php
+canasta maintenance extension -i myinstance CirrusSearch UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now
 ```
 
-For large operations, pass script-specific options in the quoted string:
+For large operations, pass script-specific options directly:
 
 ```bash
-canasta maintenance extension SemanticMediaWiki "rebuildData.php -s 1000 -e 2000" -i myinstance
+canasta maintenance extension -i myinstance SemanticMediaWiki rebuildData.php -s 1000 -e 2000
 ```
 
 Use `--wiki` and `--all` for wiki farms, just like other maintenance commands:
 
 ```bash
-canasta maintenance extension SemanticMediaWiki "rebuildData.php" -i myinstance --wiki=docs
-canasta maintenance extension SemanticMediaWiki "rebuildData.php" -i myinstance --all
+canasta maintenance extension -i myinstance --wiki=docs SemanticMediaWiki rebuildData.php
+canasta maintenance extension -i myinstance --all SemanticMediaWiki rebuildData.php
 ```
+
+Only extensions that are currently loaded (enabled) for the target wiki are shown and can be run.
 
 See the [CLI Reference](../cli/canasta_maintenance.md) for more details.
 

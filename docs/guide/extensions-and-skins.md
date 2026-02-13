@@ -198,13 +198,13 @@ On the first startup after enabling SMW, Canasta automatically runs `setupStore.
 After initial setup, you need to run `rebuildData.php` to populate the SMW store. Canasta does not run this automatically because it can take a long time on large wikis. Use the extension maintenance command:
 
 ```bash
-canasta maintenance extension SemanticMediaWiki "rebuildData.php" -i myinstance
+canasta maintenance extension -i myinstance SemanticMediaWiki rebuildData.php
 ```
 
 For large wikis, pass options to run in segments:
 
 ```bash
-canasta maintenance extension SemanticMediaWiki "rebuildData.php -s 1000 -e 2000" -i myinstance
+canasta maintenance extension -i myinstance SemanticMediaWiki rebuildData.php -s 1000 -e 2000
 ```
 
 See [Running extension maintenance scripts](general-concepts.md#running-extension-maintenance-scripts) for more examples.
@@ -238,19 +238,19 @@ After enabling CirrusSearch (or after a major upgrade), you need to build the se
 **Step 1 — Configure index mappings:**
 
 ```bash
-canasta maintenance extension CirrusSearch "UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now" -i myinstance
+canasta maintenance extension -i myinstance CirrusSearch UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now
 ```
 
 **Step 2 — Index page content:**
 
 ```bash
-canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipLinks --indexOnSkip" -i myinstance
+canasta maintenance extension -i myinstance CirrusSearch ForceSearchIndex.php --skipLinks --indexOnSkip
 ```
 
 **Step 3 — Index links:**
 
 ```bash
-canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipParse" -i myinstance
+canasta maintenance extension -i myinstance CirrusSearch ForceSearchIndex.php --skipParse
 ```
 
 All three steps must run in order. On large wikis, the indexing steps (2 and 3) can take a significant amount of time.
@@ -260,7 +260,7 @@ All three steps must run in order. On large wikis, the indexing steps (2 and 3) 
 To destroy and recreate the index (e.g., after changing analyzers or mappings), use `--startOver` instead of `--reindexAndRemoveOk --indexIdentifier now` in step 1:
 
 ```bash
-canasta maintenance extension CirrusSearch "UpdateSearchIndexConfig.php --startOver" -i myinstance
+canasta maintenance extension -i myinstance CirrusSearch UpdateSearchIndexConfig.php --startOver
 ```
 
 Then run steps 2 and 3 as above.
@@ -270,17 +270,17 @@ Then run steps 2 and 3 as above.
 In a wiki farm, each wiki has its own search index. Use `--wiki` to target a specific wiki:
 
 ```bash
-canasta maintenance extension CirrusSearch "UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now" -i myinstance --wiki=docs
-canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipLinks --indexOnSkip" -i myinstance --wiki=docs
-canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipParse" -i myinstance --wiki=docs
+canasta maintenance extension -i myinstance --wiki=docs CirrusSearch UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now
+canasta maintenance extension -i myinstance --wiki=docs CirrusSearch ForceSearchIndex.php --skipLinks --indexOnSkip
+canasta maintenance extension -i myinstance --wiki=docs CirrusSearch ForceSearchIndex.php --skipParse
 ```
 
 Or use `--all` to rebuild indexes for every wiki:
 
 ```bash
-canasta maintenance extension CirrusSearch "UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now" -i myinstance --all
-canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipLinks --indexOnSkip" -i myinstance --all
-canasta maintenance extension CirrusSearch "ForceSearchIndex.php --skipParse" -i myinstance --all
+canasta maintenance extension -i myinstance --all CirrusSearch UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now
+canasta maintenance extension -i myinstance --all CirrusSearch ForceSearchIndex.php --skipLinks --indexOnSkip
+canasta maintenance extension -i myinstance --all CirrusSearch ForceSearchIndex.php --skipParse
 ```
 
 See [Running extension maintenance scripts](general-concepts.md#running-extension-maintenance-scripts) for general usage of the extension maintenance command.
