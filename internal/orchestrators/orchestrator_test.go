@@ -62,6 +62,10 @@ func (m *mockOrchestrator) CopyTo(installPath, service, hostPath, containerPath 
 	return m.copyToErr
 }
 
+func (m *mockOrchestrator) RunRestic(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
+	return "", nil
+}
+
 func TestNew(t *testing.T) {
 	tests := []struct {
 		name    string

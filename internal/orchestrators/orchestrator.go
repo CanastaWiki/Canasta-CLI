@@ -25,6 +25,7 @@ type Orchestrator interface {
 	CheckRunningStatus(instance config.Installation) error
 	CopyFrom(installPath, service, containerPath, hostPath string) error
 	CopyTo(installPath, service, hostPath, containerPath string) error
+	RunRestic(installPath, envPath string, volumes map[string]string, args ...string) (string, error)
 }
 
 // ImageInfo holds information about a Docker image

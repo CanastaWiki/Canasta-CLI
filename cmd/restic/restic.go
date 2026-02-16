@@ -108,8 +108,8 @@ func checkCurrentSnapshotFolder(currentSnapshotFolder string) error {
 	return nil
 }
 
-// runRestic is a convenience wrapper for orchestrators.RunRestic
+// runRestic is a convenience wrapper for orch.RunRestic
 // using the package-level orchestrator, install path, and env path.
 func runRestic(volumes map[string]string, args ...string) (string, error) {
-	return orchestrators.RunRestic(orch, instance.Path, envPath, volumes, args...)
+	return orch.RunRestic(instance.Path, envPath, volumes, args...)
 }

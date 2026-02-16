@@ -339,6 +339,21 @@ func (c *ComposeOrchestrator) CopyTo(installPath, service, hostPath, containerPa
 	return nil
 }
 
+func (c *ComposeOrchestrator) RunRestic(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
+	cmdArgs := []string{"docker", "run", "--rm", "-i", "--env-file", envPath}
+	for hostPath, containerPath := range volumes {
+		cmdArgs = append(cmdArgs, "-v", hostPath+":"+containerPath)
+	}
+	cmdArgs = append(cmdArgs, "restic/restic")
+	cmdArgs = append(cmdArgs, args...)
+
+	err, output := execute.Run(installPath, "sudo", cmdArgs...)
+	if err != nil {
+		return output, fmt.Errorf("restic command failed: %s", output)
+	}
+	return output, nil
+}
+
 func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename, workingDir string) error {
 	if sourceFilename != "" {
 		logging.Print("Copying override file\n")
