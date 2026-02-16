@@ -22,7 +22,7 @@ each snapshot's ID, timestamp, hostname, and tags.`,
 }
 
 func listBackups() error {
-	output, err := runRestic(nil, "-r", repoURL, "snapshots")
+	output, err := runBackup(nil, "-r", repoURL, "snapshots")
 	if err != nil {
 		return err
 	}

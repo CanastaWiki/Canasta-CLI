@@ -23,7 +23,7 @@ checks for errors in the repository structure and snapshot data.`,
 }
 
 func check() error {
-	output, err := runRestic(nil, "-r", repoURL, "check")
+	output, err := runBackup(nil, "-r", repoURL, "check")
 	if err != nil {
 		return err
 	}

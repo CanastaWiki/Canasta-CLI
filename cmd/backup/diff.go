@@ -31,7 +31,7 @@ modified files.`,
 }
 
 func diff() error {
-	output, err := runRestic(nil, "-r", repoURL, "diff", tag1, tag2)
+	output, err := runBackup(nil, "-r", repoURL, "diff", tag1, tag2)
 	if err != nil {
 		return err
 	}

@@ -64,7 +64,7 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 	volumes := map[string]string{
 		currentSnapshotFolder: "/currentsnapshot",
 	}
-	_, err := runRestic(volumes, "-r", repoURL, "restore", snapshotId, "--target", "/currentsnapshot")
+	_, err := runBackup(volumes, "-r", repoURL, "restore", snapshotId, "--target", "/currentsnapshot")
 	if err != nil {
 		return err
 	}

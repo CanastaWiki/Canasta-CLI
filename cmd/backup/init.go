@@ -28,7 +28,7 @@ RESTIC_REPOSITORY variable (or AWS S3 settings) in the installation's .env file.
 
 func initRestic() error {
 	fmt.Println("Initializing backup repository")
-	output, err := runRestic(nil, "-r", repoURL, "init")
+	output, err := runBackup(nil, "-r", repoURL, "init")
 	if err != nil {
 		return err
 	}
