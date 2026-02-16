@@ -11,7 +11,7 @@ func New(orchestratorID string) (Orchestrator, error) {
 	case "compose", "docker-compose":
 		return &ComposeOrchestrator{}, nil
 	case "kubernetes", "k8s":
-		return nil, fmt.Errorf("kubernetes orchestrator not yet implemented")
+		return &KubernetesOrchestrator{}, nil
 	default:
 		return nil, fmt.Errorf("orchestrator: %s is not available", orchestratorID)
 	}
