@@ -347,7 +347,7 @@ func (c *ComposeOrchestrator) RunBackup(installPath, envPath string, volumes map
 	cmdArgs = append(cmdArgs, "restic/restic")
 	cmdArgs = append(cmdArgs, args...)
 
-	err, output := execute.Run(installPath, "sudo", cmdArgs...)
+	err, output := execute.Run(installPath, cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
 		return output, fmt.Errorf("restic command failed: %s", output)
 	}
