@@ -3,11 +3,11 @@ package backup
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
@@ -50,9 +50,12 @@ func takeSnapshot(tag string) error {
 	}
 	logging.Print("mysqldump mediawiki completed")
 
-	err, output := execute.Run(instance.Path, "sudo", "cp", "--preserve=links,mode,ownership,timestamps", "-r", "config", "extensions", "images", "skins", currentSnapshotFolder)
-	if err != nil {
-		return fmt.Errorf("%s", output)
+	for _, dir := range []string{"config", "extensions", "images", "skins"} {
+		src := filepath.Join(instance.Path, dir)
+		dst := filepath.Join(currentSnapshotFolder, dir)
+		if err := copyDir(src, dst); err != nil {
+			return fmt.Errorf("failed to copy %s: %w", dir, err)
+		}
 	}
 	logging.Print("Copy folders and files completed.")
 
@@ -60,7 +63,7 @@ func takeSnapshot(tag string) error {
 	volumes := map[string]string{
 		currentSnapshotFolder: "/currentsnapshot/",
 	}
-	output, err = runBackup(volumes, "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
+	output, err := runBackup(volumes, "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
 	if err != nil {
 		return err
 	}

@@ -3,7 +3,7 @@ package backup
 import (
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -70,15 +70,14 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 	}
 
 	logging.Print("Copying files....")
-	folders := [...]string{"/config", "/extensions", "/images", "/skins"}
-	for _, folder := range folders {
-		if err := os.RemoveAll(currentSnapshotFolder + folder); err != nil {
+	for _, dir := range []string{"config", "extensions", "images", "skins"} {
+		dst := filepath.Join(instance.Path, dir)
+		if err := os.RemoveAll(dst); err != nil {
 			logging.Print(err.Error())
 		}
-		output, err := exec.Command("sudo", "cp", "-r", "--preserve=links,mode,ownership,timestamps", fmt.Sprintf("%s/currentsnapshot%s/", currentSnapshotFolder, folder), instance.Path).CombinedOutput()
-		if err != nil {
-			logging.Print(err.Error())
-			logging.Print(string(output))
+		src := filepath.Join(currentSnapshotFolder, "currentsnapshot", dir)
+		if err := copyDir(src, dst); err != nil {
+			logging.Print(fmt.Sprintf("failed to copy %s: %s", dir, err.Error()))
 		}
 	}
 	logging.Print("Copied files...")
