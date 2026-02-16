@@ -1,4 +1,4 @@
-package restic
+package backup
 
 import (
 	"fmt"
@@ -10,20 +10,19 @@ func checkCmdCreate() *cobra.Command {
 
 	checkCmd := &cobra.Command{
 		Use:   "check",
-		Short: "Check restic snapshots",
-		Long: `Verify the integrity of the Restic backup repository and its data. This
+		Short: "Check backup repository integrity",
+		Long: `Verify the integrity of the backup repository and its data. This
 checks for errors in the repository structure and snapshot data.`,
-		Example: `  canasta restic check -i myinstance`,
+		Example: `  canasta backup check -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return check()
 		},
 	}
-	checkCmd.Flags().StringVarP(&tag, "tag", "t", "", "Restic snapshot ID (required)")
 	return checkCmd
 }
 
 func check() error {
-	output, err := runRestic(nil, "-r", repoURL, "check")
+	output, err := runBackup(nil, "-r", repoURL, "check")
 	if err != nil {
 		return err
 	}

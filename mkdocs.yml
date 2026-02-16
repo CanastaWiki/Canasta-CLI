@@ -88,15 +88,15 @@ nav:
       - update: cli/canasta_maintenance_update.md
       - script: cli/canasta_maintenance_script.md
       - extension: cli/canasta_maintenance_extension.md
-    - restic:
-      - Overview: cli/canasta_restic.md
-      - init: cli/canasta_restic_init.md
-      - view: cli/canasta_restic_view.md
-      - take-snapshot: cli/canasta_restic_take-snapshot.md
-      - restore: cli/canasta_restic_restore.md
-      - forget: cli/canasta_restic_forget.md
-      - list: cli/canasta_restic_list.md
-      - check: cli/canasta_restic_check.md
-      - diff: cli/canasta_restic_diff.md
-      - unlock: cli/canasta_restic_unlock.md
-      - schedule: cli/canasta_restic_schedule.md
+    - backup:
+      - Overview: cli/canasta_backup.md
+      - init: cli/canasta_backup_init.md
+      - list: cli/canasta_backup_list.md
+      - create: cli/canasta_backup_create.md
+      - restore: cli/canasta_backup_restore.md
+      - delete: cli/canasta_backup_delete.md
+      - files: cli/canasta_backup_files.md
+      - check: cli/canasta_backup_check.md
+      - diff: cli/canasta_backup_diff.md
+      - unlock: cli/canasta_backup_unlock.md
+      - schedule: cli/canasta_backup_schedule.md

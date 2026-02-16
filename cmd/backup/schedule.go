@@ -1,4 +1,4 @@
-package restic
+package backup
 
 import (
 	"fmt"
@@ -14,14 +14,14 @@ func scheduleCmdCreate() *cobra.Command {
 	scheduleCmd := &cobra.Command{
 		Use:   "schedule [cron expression]",
 		Short: "Schedule a recurring backup",
-		Long: `Schedule recurring Restic backups using a cron expression. This adds or
-updates a crontab entry that runs 'canasta restic take-snapshot' on the
+		Long: `Schedule recurring backups using a cron expression. This adds or
+updates a crontab entry that runs 'canasta backup create' on the
 specified schedule. Backup output is logged to /var/log/canasta-backup.log.`,
 		Example: `  # Schedule daily backups at 2:00 AM
-  canasta restic schedule -i myinstance "0 2 * * *"
+  canasta backup schedule -i myinstance "0 2 * * *"
 
   # Schedule hourly backups
-  canasta restic schedule -i myinstance "0 * * * *"`,
+  canasta backup schedule -i myinstance "0 * * * *"`,
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return scheduleBackup(strings.Join(args, " "))
@@ -41,7 +41,7 @@ func scheduleBackup(cronExpression string) error {
 	}
 
 	cwd := instance.Path
-	cmdStr := fmt.Sprintf("%s cd %s && %s restic take-snapshot --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> /var/log/canasta-backup.log 2>&1", cronExpression, cwd, executable)
+	cmdStr := fmt.Sprintf("%s cd %s && %s backup create --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> /var/log/canasta-backup.log 2>&1", cronExpression, cwd, executable)
 
 	logging.Print(fmt.Sprintf("Scheduling backup with cron: %s", cronExpression))
 
@@ -66,7 +66,7 @@ func scheduleBackup(cronExpression string) error {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		if strings.Contains(line, jobIdentifier) && strings.Contains(line, "restic take-snapshot") {
+		if strings.Contains(line, jobIdentifier) && strings.Contains(line, "backup create") {
 			newLines = append(newLines, cmdStr)
 			updated = true
 			logging.Print("Updated existing backup schedule.")
