@@ -9,6 +9,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 var (
@@ -17,7 +18,9 @@ var (
 	verbose       bool
 	resticCmd     *cobra.Command
 	mysqldumpPath = "/mediawiki/config/db.sql"
-	commandArgs   = make([]string, 10)
+	orch          orchestrators.Orchestrator
+	envPath       string
+	repoURL       string
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -40,14 +43,17 @@ AWS S3 settings) and RESTIC_PASSWORD to be configured in the installation's .env
 			if err != nil {
 				return err
 			}
-			envPath := instance.Path + "/.env"
+			envPath = instance.Path + "/.env"
 			EnvVariables, envErr := canasta.GetEnvVariable(envPath)
 			if envErr != nil {
 				return envErr
 			}
-			repoURL := getRepoURL(EnvVariables)
-			commandArgs = append(make([]string, 0), "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "restic/restic", "-r", repoURL)
+			repoURL = getRepoURL(EnvVariables)
 
+			orch, err = orchestrators.New(instance.Orchestrator)
+			if err != nil {
+				return err
+			}
 			return nil
 		},
 	}
@@ -100,4 +106,10 @@ func checkCurrentSnapshotFolder(currentSnapshotFolder string) error {
 		logging.Print("Emptied.. " + currentSnapshotFolder)
 	}
 	return nil
+}
+
+// runRestic is a convenience wrapper for orchestrators.RunRestic
+// using the package-level orchestrator, install path, and env path.
+func runRestic(volumes map[string]string, args ...string) (string, error) {
+	return orchestrators.RunRestic(orch, instance.Path, envPath, volumes, args...)
 }

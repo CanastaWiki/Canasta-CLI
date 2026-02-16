@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 )
 
 var (
@@ -30,12 +28,9 @@ RESTIC_REPOSITORY variable (or AWS S3 settings) in the installation's .env file.
 
 func initRestic() error {
 	fmt.Println("Initializing Restic repo")
-	commandArgs = append(commandArgs, "init")
-	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	output, err := runRestic(nil, "-r", repoURL, "init")
 	if err != nil {
-	} else {
-		fmt.Print(output)
-		return fmt.Errorf("%s", output)
+		return err
 	}
 	fmt.Print(output)
 	return nil

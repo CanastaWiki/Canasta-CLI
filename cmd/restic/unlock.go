@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 )
 
 func unlockCmdCreate() *cobra.Command {
@@ -24,10 +22,9 @@ backup operation was interrupted and left the repository in a locked state.`,
 }
 
 func unlock() error {
-	commandArgs = append(commandArgs, "unlock")
-	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	output, err := runRestic(nil, "-r", repoURL, "unlock")
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return err
 	}
 	fmt.Print(output)
 	return nil

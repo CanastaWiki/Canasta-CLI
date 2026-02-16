@@ -4,14 +4,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
-	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 func restoreSnapshotCmdCreate() *cobra.Command {
@@ -45,7 +42,6 @@ specified snapshot.`,
 }
 
 func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
-	envPath := instance.Path + "/.env"
 	EnvVariables, envErr := canasta.GetEnvVariable(envPath)
 	if envErr != nil {
 		return envErr
@@ -65,13 +61,14 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 	}
 
 	logging.Print("Restoring snapshot to /currentsnapshot")
-	repoURL := getRepoURL(EnvVariables)
-	command := fmt.Sprintf("docker run --rm -i --env-file %s/.env -v %s:/currentsnapshot restic/restic -r %s restore %s --target /currentsnapshot", instance.Path, currentSnapshotFolder, repoURL, snapshotId)
-	restoreArgs := strings.Fields(command)
-	err, output := execute.Run("", "sudo", restoreArgs...)
-	if err != nil {
-		return fmt.Errorf("%s", output)
+	volumes := map[string]string{
+		currentSnapshotFolder: "/currentsnapshot",
 	}
+	_, err := runRestic(volumes, "-r", repoURL, "restore", snapshotId, "--target", "/currentsnapshot")
+	if err != nil {
+		return err
+	}
+
 	logging.Print("Copying files....")
 	folders := [...]string{"/config", "/extensions", "/images", "/skins"}
 	for _, folder := range folders {
@@ -87,11 +84,7 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 	logging.Print("Copied files...")
 
 	logging.Print("Restoring database...")
-	orch, err := orchestrators.New(instance.Orchestrator)
-	if err != nil {
-		return err
-	}
-	command = fmt.Sprintf("mysql -h db -u root -p%s %s < /mediawiki/config/db.sql", EnvVariables["MYSQL_PASSWORD"], EnvVariables["WG_DB_NAME"])
+	command := fmt.Sprintf("mysql -h db -u root -p%s %s < /mediawiki/config/db.sql", EnvVariables["MYSQL_PASSWORD"], EnvVariables["WG_DB_NAME"])
 	_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
 	if restoreErr != nil {
 		return fmt.Errorf("database restore failed: %w", restoreErr)

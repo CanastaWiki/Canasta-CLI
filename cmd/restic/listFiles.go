@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 )
 
 func listFilesCmdCreate() *cobra.Command {
@@ -30,12 +28,9 @@ for inspecting what was backed up before performing a restore.`,
 }
 
 func listFiles() error {
-	commandArgs = append(commandArgs, "ls", tag)
-	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	output, err := runRestic(nil, "-r", repoURL, "ls", tag)
 	if err != nil {
-	} else {
-		fmt.Print(output)
-		return fmt.Errorf("%s", output)
+		return err
 	}
 	fmt.Print(output)
 	return nil
