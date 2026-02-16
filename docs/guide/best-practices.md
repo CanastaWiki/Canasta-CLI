@@ -54,16 +54,16 @@ The only step that requires `sudo` is installing the CLI binary to `/usr/local/b
 
 ### Backups
 
-- Set up regular backups using `canasta restic` before making significant changes
+- Set up regular backups using `canasta backup` before making significant changes
 - Always take a backup before running `canasta upgrade`
-- Store restic passwords securely and separately from your server
+- Store backup passwords securely and separately from your server
 - Test your backup restoration process periodically
 
 ### Before upgrading
 
 1. Take a backup:
    ```bash
-   canasta restic take-snapshot -t "pre-upgrade-$(date +%Y%m%d)" -i myinstance
+   canasta backup create -t "pre-upgrade-$(date +%Y%m%d)" -i myinstance
    ```
 2. Review the Canasta release notes for any breaking changes
 3. Run the upgrade:

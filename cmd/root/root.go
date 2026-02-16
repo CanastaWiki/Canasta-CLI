@@ -11,7 +11,7 @@ import (
 	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI/cmd/maintenanceUpdate"
 	removeCmd "github.com/CanastaWiki/Canasta-CLI/cmd/remove"
 	restartCmd "github.com/CanastaWiki/Canasta-CLI/cmd/restart"
-	resticCmd "github.com/CanastaWiki/Canasta-CLI/cmd/restic"
+	backupCmd "github.com/CanastaWiki/Canasta-CLI/cmd/backup"
 	skinCmd "github.com/CanastaWiki/Canasta-CLI/cmd/skin"
 	startCmd "github.com/CanastaWiki/Canasta-CLI/cmd/start"
 	stopCmd "github.com/CanastaWiki/Canasta-CLI/cmd/stop"
@@ -67,7 +67,7 @@ func init() {
 	rootCmd.AddCommand(listCmd.NewCmdCreate())
 	rootCmd.AddCommand(maintenanceCmd.NewCmdCreate())
 	rootCmd.AddCommand(restartCmd.NewCmdCreate())
-	rootCmd.AddCommand(resticCmd.NewCmdCreate())
+	rootCmd.AddCommand(backupCmd.NewCmdCreate())
 	rootCmd.AddCommand(skinCmd.NewCmdCreate())
 	rootCmd.AddCommand(startCmd.NewCmdCreate())
 	rootCmd.AddCommand(stopCmd.NewCmdCreate())

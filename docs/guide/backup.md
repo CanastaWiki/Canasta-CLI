@@ -1,21 +1,20 @@
-# Backup and restore with restic
+# Backup and restore
 
-Canasta includes integration with [restic](https://restic.net) for automated backups to AWS S3-compatible storage.
+Canasta includes backup and restore support powered by [restic](https://restic.net). Backups can be stored on any restic-compatible backend (AWS S3, Google Cloud Storage, Azure Blob Storage, Backblaze B2, local filesystem, SFTP, and more).
 
 ## Setup
 
 1. Add these environment variables to your `.env` file:
 ```
-AWS_S3_API=s3.amazonaws.com
+RESTIC_REPOSITORY=s3:s3.amazonaws.com/your-bucket-name
+RESTIC_PASSWORD=your-restic-password
 AWS_ACCESS_KEY_ID=your-access-key
 AWS_SECRET_ACCESS_KEY=your-secret-key
-AWS_S3_BUCKET=your-bucket-name
-RESTIC_PASSWORD=your-restic-password
 ```
 
-2. Initialize the restic repository:
+2. Initialize the backup repository:
 ```bash
-canasta restic init -i myinstance
+canasta backup init -i myinstance
 ```
 
-Once set up, see the [CLI Reference](../cli/canasta_restic.md) for the full list of restic subcommands, flags, and usage examples.
+Once set up, see the [CLI Reference](../cli/canasta_backup.md) for the full list of backup subcommands, flags, and usage examples.
