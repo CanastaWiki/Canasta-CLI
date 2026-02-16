@@ -390,7 +390,7 @@ func stageToVolume(volName string, volumes map[string]string) error {
 	}
 
 	shellCmd := "rm -rf /currentsnapshot/* && " + strings.Join(copyParts, " && ")
-	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", shellCmd)
+	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", "'"+shellCmd+"'")
 
 	err, output := execute.Run("", cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
@@ -414,14 +414,16 @@ func (c *ComposeOrchestrator) RestoreFromBackupVolume(installPath string, dirs m
 			return fmt.Errorf("failed to compute relative path for %s: %w", hostPath, err)
 		}
 		dst := "/install/" + relPath
-		// Handle both directories and individual files
+		// Handle both directories and individual files.
+		// For directories, clear contents without removing the directory itself
+		// to preserve active Docker bind mounts.
 		copyParts = append(copyParts,
-			fmt.Sprintf("if [ -d %s ]; then rm -rf %s && cp -a %s %s; elif [ -f %s ]; then cp -a %s %s; fi",
-				volumePath, dst, volumePath, dst, volumePath, volumePath, dst))
+			fmt.Sprintf("if [ -d %s ]; then mkdir -p %s && rm -rf %s/* %s/.[!.]* 2>/dev/null; cp -a %s/. %s/; elif [ -f %s ]; then cp -a %s %s; fi",
+				volumePath, dst, dst, dst, volumePath, dst, volumePath, volumePath, dst))
 	}
 
 	shellCmd := strings.Join(copyParts, " && ")
-	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", shellCmd)
+	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", "'"+shellCmd+"'")
 
 	err, output := execute.Run("", cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
