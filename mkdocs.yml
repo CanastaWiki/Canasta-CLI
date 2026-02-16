@@ -87,6 +87,7 @@ nav:
       - Overview: cli/canasta_maintenance.md
       - update: cli/canasta_maintenance_update.md
       - script: cli/canasta_maintenance_script.md
+      - extension: cli/canasta_maintenance_extension.md
     - restic:
       - Overview: cli/canasta_restic.md
       - init: cli/canasta_restic_init.md
