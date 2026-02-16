@@ -13,6 +13,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
   - [Automatic maintenance](#automatic-maintenance)
   - [Running the update sequence](#running-the-update-sequence)
   - [Running scripts manually](#running-scripts-manually)
+  - [Running extension maintenance scripts](#running-extension-maintenance-scripts)
 - [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy)
 - [Running on non-standard ports](#running-on-non-standard-ports)
 
@@ -322,10 +323,16 @@ canasta maintenance update -i myinstance --skip-jobs --skip-smw
 
 ### Running scripts manually
 
-To run an arbitrary maintenance script, use `canasta maintenance script`. Wrap the script name and any arguments in quotes so they are passed as a single argument:
+To run an arbitrary MediaWiki core maintenance script, use `canasta maintenance script`. Wrap the script name and any arguments in quotes so they are passed as a single argument:
 
 ```bash
 canasta maintenance script "createAndPromote.php WikiSysop MyPassword --bureaucrat --sysop" -i myinstance
+```
+
+To list all available core maintenance scripts:
+
+```bash
+canasta maintenance script -i myinstance
 ```
 
 Use `--wiki` to target a specific wiki in a farm:
@@ -333,6 +340,44 @@ Use `--wiki` to target a specific wiki in a farm:
 ```bash
 canasta maintenance script "rebuildrecentchanges.php" -i myinstance --wiki=docs
 ```
+
+### Running extension maintenance scripts
+
+Many extensions include their own maintenance scripts (e.g., Semantic MediaWiki, CirrusSearch, Cargo). Use `canasta maintenance extension` to discover and run them.
+
+List all loaded extensions that have maintenance scripts:
+
+```bash
+canasta maintenance extension -i myinstance
+```
+
+List available scripts for a specific extension:
+
+```bash
+canasta maintenance extension -i myinstance SemanticMediaWiki
+```
+
+Run an extension maintenance script. Flags (`-i`, `--wiki`, `--all`) come before the extension name; everything after is the script and its arguments — no quotes needed:
+
+```bash
+canasta maintenance extension -i myinstance SemanticMediaWiki rebuildData.php
+canasta maintenance extension -i myinstance CirrusSearch UpdateSearchIndexConfig.php --reindexAndRemoveOk --indexIdentifier now
+```
+
+For large operations, pass script-specific options directly:
+
+```bash
+canasta maintenance extension -i myinstance SemanticMediaWiki rebuildData.php -s 1000 -e 2000
+```
+
+Use `--wiki` and `--all` for wiki farms, just like other maintenance commands:
+
+```bash
+canasta maintenance extension -i myinstance --wiki=docs SemanticMediaWiki rebuildData.php
+canasta maintenance extension -i myinstance --all SemanticMediaWiki rebuildData.php
+```
+
+Only extensions that are currently loaded (enabled) for the target wiki are shown and can be run.
 
 See the [CLI Reference](../cli/canasta_maintenance.md) for more details.
 
