@@ -7,7 +7,8 @@ import (
 )
 
 var (
-	tag string
+	tag      string
+	snapshot string
 )
 
 func initCmdCreate() *cobra.Command {

@@ -14,19 +14,19 @@ func deleteCmdCreate() *cobra.Command {
 		Short: "Delete a backup",
 		Long: `Remove a snapshot from the backup repository by its ID. The snapshot data
 may still exist until a prune is run on the repository.`,
-		Example: `  canasta backup delete -i myinstance -t abc123`,
+		Example: `  canasta backup delete -i myinstance -s abc123`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return forgetSnapshot()
 		},
 	}
 
-	deleteCmd.Flags().StringVarP(&tag, "tag", "t", "", "Snapshot ID (required)")
-	_ = deleteCmd.MarkFlagRequired("tag")
+	deleteCmd.Flags().StringVarP(&snapshot, "snapshot", "s", "", "Snapshot ID (required)")
+	_ = deleteCmd.MarkFlagRequired("snapshot")
 	return deleteCmd
 }
 
 func forgetSnapshot() error {
-	output, err := runBackup(nil, "-r", repoURL, "forget", tag)
+	output, err := runBackup(nil, "-r", repoURL, "forget", snapshot)
 	if err != nil {
 		return err
 	}
