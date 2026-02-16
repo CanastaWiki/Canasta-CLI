@@ -18,7 +18,6 @@ checks for errors in the repository structure and snapshot data.`,
 			return check()
 		},
 	}
-	checkCmd.Flags().StringVarP(&tag, "tag", "t", "", "Snapshot ID (required)")
 	return checkCmd
 }
 

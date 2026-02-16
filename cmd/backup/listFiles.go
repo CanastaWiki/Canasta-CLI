@@ -13,18 +13,18 @@ func filesCmdCreate() *cobra.Command {
 		Short: "List files in a backup",
 		Long: `List all files contained in a specific backup snapshot. This is useful
 for inspecting what was backed up before performing a restore.`,
-		Example: `  canasta backup files -i myinstance -t abc123`,
+		Example: `  canasta backup files -i myinstance -s abc123`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return listFiles()
 		},
 	}
-	filesCmd.Flags().StringVarP(&tag, "tag", "t", "", "Snapshot ID (required)")
-	_ = filesCmd.MarkFlagRequired("tag")
+	filesCmd.Flags().StringVarP(&snapshot, "snapshot", "s", "", "Snapshot ID (required)")
+	_ = filesCmd.MarkFlagRequired("snapshot")
 	return filesCmd
 }
 
 func listFiles() error {
-	output, err := runBackup(nil, "-r", repoURL, "ls", tag)
+	output, err := runBackup(nil, "-r", repoURL, "ls", snapshot)
 	if err != nil {
 		return err
 	}

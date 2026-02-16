@@ -29,15 +29,15 @@ specified snapshot.`,
   canasta backup restore -i myinstance -s abc123
 
   # Restore without taking a safety snapshot first
-  canasta backup restore -i myinstance -s abc123 -r`,
+  canasta backup restore -i myinstance -s abc123 --skip-safety-backup`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return restoreSnapshot(snapshotId, skipBeforeSnapshot)
 		},
 	}
 
-	restoreCmd.Flags().StringVarP(&snapshotId, "snapshot-id", "s", "", "Snapshot ID (required)")
-	restoreCmd.Flags().BoolVarP(&skipBeforeSnapshot, "skip-before-restore-snapshot", "r", false, "Skips taking snapshot before restore")
-	_ = restoreCmd.MarkFlagRequired("snapshot-id")
+	restoreCmd.Flags().StringVarP(&snapshotId, "snapshot", "s", "", "Snapshot ID (required)")
+	restoreCmd.Flags().BoolVar(&skipBeforeSnapshot, "skip-safety-backup", false, "Skip taking a safety backup before restore")
+	_ = restoreCmd.MarkFlagRequired("snapshot")
 	return restoreCmd
 }
 
