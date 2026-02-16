@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +23,7 @@ specified schedule. Backup output is logged to /var/log/canasta-backup.log.`,
 
   # Schedule hourly backups
   canasta backup schedule -i myinstance "0 * * * *"`,
-		Args:  cobra.MinimumNArgs(1),
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return scheduleBackup(strings.Join(args, " "))
 		},
@@ -31,6 +32,10 @@ specified schedule. Backup output is logged to /var/log/canasta-backup.log.`,
 }
 
 func scheduleBackup(cronExpression string) error {
+	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+		return fmt.Errorf("Cron-based scheduling is not supported for Kubernetes installations; edit the backup CronJob in your kustomization.yaml instead")
+	}
+
 	if err := validateCron(cronExpression); err != nil {
 		return err
 	}
@@ -79,7 +84,7 @@ func scheduleBackup(cronExpression string) error {
 		newLines = append(newLines, cmdStr)
 		logging.Print("Added new backup schedule.")
 	}
-	
+
 	newCrontab := strings.Join(newLines, "\n") + "\n"
 
 	cmd := exec.Command("crontab", "-")
