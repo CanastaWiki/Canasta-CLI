@@ -28,7 +28,7 @@ for inspecting what was backed up before performing a restore.`,
 }
 
 func listFiles() error {
-	output, err := runRestic(nil, "-r", repoURL, "ls", tag)
+	output, err := runBackup(nil, "-r", repoURL, "ls", tag)
 	if err != nil {
 		return err
 	}

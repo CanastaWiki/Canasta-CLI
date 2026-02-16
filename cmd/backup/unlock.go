@@ -22,7 +22,7 @@ backup operation was interrupted and left the repository in a locked state.`,
 }
 
 func unlock() error {
-	output, err := runRestic(nil, "-r", repoURL, "unlock")
+	output, err := runBackup(nil, "-r", repoURL, "unlock")
 	if err != nil {
 		return err
 	}

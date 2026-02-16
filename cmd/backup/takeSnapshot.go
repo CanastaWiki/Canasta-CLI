@@ -60,7 +60,7 @@ func takeSnapshot(tag string) error {
 	volumes := map[string]string{
 		currentSnapshotFolder: "/currentsnapshot/",
 	}
-	output, err = runRestic(volumes, "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
+	output, err = runBackup(volumes, "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
 	if err != nil {
 		return err
 	}

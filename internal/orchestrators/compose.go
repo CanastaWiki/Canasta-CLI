@@ -339,7 +339,7 @@ func (c *ComposeOrchestrator) CopyTo(installPath, service, hostPath, containerPa
 	return nil
 }
 
-func (c *ComposeOrchestrator) RunRestic(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
+func (c *ComposeOrchestrator) RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
 	cmdArgs := []string{"docker", "run", "--rm", "-i", "--env-file", envPath}
 	for hostPath, containerPath := range volumes {
 		cmdArgs = append(cmdArgs, "-v", hostPath+":"+containerPath)

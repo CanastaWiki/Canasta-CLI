@@ -29,7 +29,7 @@ may still exist until a prune is run on the repository.`,
 }
 
 func forgetSnapshot() error {
-	output, err := runRestic(nil, "-r", repoURL, "forget", tag)
+	output, err := runBackup(nil, "-r", repoURL, "forget", tag)
 	if err != nil {
 		return err
 	}
