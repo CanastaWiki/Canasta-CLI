@@ -163,7 +163,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 	}
 
 	createCmd.Flags().StringVarP(&path, "path", "p", workingDir, "Canasta directory")
-	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "compose", "Orchestrator to use for installation")
+	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "compose", "Orchestrator to use (compose or kubernetes)")
 	createCmd.Flags().StringVarP(&canastaInfo.Id, "id", "i", "", "Canasta instance ID")
 	createCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki")
 	createCmd.Flags().StringVarP(&siteName, "site-name", "t", "", "Display name of the wiki (optional, defaults to wiki ID)")
@@ -281,6 +281,12 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := orch.InitConfig(path); err != nil {
 		return err
 	}
+	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
+	if isK8s {
+		if err := canasta.GenerateKustomization(path, canastaInfo.Id); err != nil {
+			return err
+		}
+	}
 	if override != "" {
 		compose, ok := orch.(*orchestrators.ComposeOrchestrator)
 		if !ok {
@@ -292,6 +298,9 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	}
 
 	// Dev mode: extract code and build xdebug image before starting
+	if devModeEnabled && isK8s {
+		return fmt.Errorf("Development mode is only supported with Docker Compose")
+	}
 	if devModeEnabled {
 		if err := devmode.SetupFullDevMode(path, orch, baseImage); err != nil {
 			return err

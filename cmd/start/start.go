@@ -73,6 +73,11 @@ func Start(instance config.Installation, enableDev, disableDev bool) error {
 	if err != nil {
 		return err
 	}
+	if (enableDev || disableDev) {
+		if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+			return fmt.Errorf("Development mode is only supported with Docker Compose")
+		}
+	}
 	if enableDev {
 		// Enable dev mode using default registry image
 		baseImage := canasta.GetDefaultImage()
