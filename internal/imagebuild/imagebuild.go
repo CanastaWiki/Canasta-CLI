@@ -61,6 +61,25 @@ func BuildFromSource(workspacePath string) (string, error) {
 	return LocalCanastaTag, nil
 }
 
+// PushImage tags a local image and pushes it to a registry.
+// Returns the full registry image reference (e.g., "localhost:5000/canasta:local").
+func PushImage(localTag, registry string) (string, error) {
+	remoteTag := registry + "/" + localTag
+	logging.Print(fmt.Sprintf("Tagging %s as %s\n", localTag, remoteTag))
+	err, output := execute.Run("", "docker", "tag", localTag, remoteTag)
+	if err != nil {
+		return "", fmt.Errorf("failed to tag image: %s", output)
+	}
+
+	logging.Print(fmt.Sprintf("Pushing %s\n", remoteTag))
+	err, output = execute.Run("", "docker", "push", remoteTag)
+	if err != nil {
+		return "", fmt.Errorf("failed to push image: %s", output)
+	}
+
+	return remoteTag, nil
+}
+
 // buildImage builds a Docker image from a Dockerfile in the given path
 func buildImage(path, tag string) error {
 	err, output := execute.Run(path, "docker", "build", "-t", tag, ".")

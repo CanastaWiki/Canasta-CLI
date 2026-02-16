@@ -42,6 +42,7 @@ func NewCmdCreate() *cobra.Command {
 		wikiSettingsPath   string // path to existing per-wiki Settings.php
 		globalSettingsPath string // path to existing global settings file
 		composerFile       string // path to custom composer.local.json
+		registry           string // container registry for K8s image push
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -140,7 +141,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 			if err != nil {
 				return err
 			}
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath, done); err != nil {
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, registry, databasePath, wikiSettingsPath, globalSettingsPath, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
 					canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orch)
@@ -179,6 +180,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
 	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
 	createCmd.Flags().StringVar(&composerFile, "composer", "", "Path to custom composer.local.json to copy to config/")
+	createCmd.Flags().StringVar(&registry, "registry", "localhost:5000", "Container registry for pushing locally built images (used with --build-from on Kubernetes)")
 
 	// Mark required flags
 	_ = createCmd.MarkFlagRequired("id")
@@ -187,7 +189,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath string, done chan struct{}) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, registry, databasePath, wikiSettingsPath, globalSettingsPath string, done chan struct{}) error {
 	// Pass a message to the "done" channel indicating the completion of createCanasta function.
 	// This signals the spinner to stop printing progress, regardless of success or failure.
 	defer func() {
@@ -280,7 +282,17 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	}
 	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
 	if isK8s {
-		if err := canasta.GenerateKustomization(path, canastaInfo.Id); err != nil {
+		// For K8s with local builds, push to a registry the cluster can access
+		var k8sImage string
+		if buildFromPath != "" && baseImage != "" {
+			logging.Print("Pushing image to registry for Kubernetes...\n")
+			remoteTag, err := imagebuild.PushImage(baseImage, registry)
+			if err != nil {
+				return fmt.Errorf("failed to push image to registry: %w", err)
+			}
+			k8sImage = remoteTag
+		}
+		if err := canasta.GenerateKustomization(path, canastaInfo.Id, k8sImage); err != nil {
 			return err
 		}
 	}
@@ -340,7 +352,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, LocalStack: localStack}
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, LocalStack: localStack, Registry: registry}
 	if err := config.Add(instance); err != nil {
 		return err
 	}

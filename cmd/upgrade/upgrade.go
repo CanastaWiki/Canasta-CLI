@@ -170,7 +170,11 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	if !dryRun {
 		if isK8s {
 			fmt.Println("Regenerating kustomization.yaml and re-applying manifests...")
-			if err := canasta.GenerateKustomization(instance.Path, instance.Id); err != nil {
+			var k8sImage string
+			if instance.Registry != "" && isLocalBuild {
+				k8sImage = instance.Registry + "/" + canastaImage
+			}
+			if err := canasta.GenerateKustomization(instance.Path, instance.Id, k8sImage); err != nil {
 				return err
 			}
 			imagesUpdated = true

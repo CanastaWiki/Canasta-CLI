@@ -14,11 +14,13 @@ var kustomizationTemplate string
 
 type kustomizationData struct {
 	Namespace string
+	Image     string
 }
 
 // GenerateKustomization creates a kustomization.yaml in the installation directory.
 // The namespace corresponds to the installation ID for K8s isolation.
-func GenerateKustomization(installPath, namespace string) error {
+// An optional image override can be specified to use a custom container image.
+func GenerateKustomization(installPath, namespace, image string) error {
 	tmpl, err := template.New("kustomization").Parse(kustomizationTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to parse kustomization template: %w", err)
@@ -26,6 +28,7 @@ func GenerateKustomization(installPath, namespace string) error {
 
 	data := kustomizationData{
 		Namespace: namespace,
+		Image:     image,
 	}
 
 	outputPath := filepath.Join(installPath, "kustomization.yaml")

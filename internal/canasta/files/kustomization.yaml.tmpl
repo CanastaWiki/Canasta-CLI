@@ -23,3 +23,9 @@ configMapGenerator:
   - name: canasta-env
     envs:
       - .env
+{{- if .Image}}
+
+images:
+  - name: ghcr.io/canastawiki/canasta
+    newName: {{.Image}}
+{{- end}}
