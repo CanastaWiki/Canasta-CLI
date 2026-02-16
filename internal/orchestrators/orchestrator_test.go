@@ -63,7 +63,8 @@ func (m *mockOrchestrator) CopyTo(installPath, service, hostPath, containerPath 
 }
 
 func (m *mockOrchestrator) RunRestic(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
-	return "", nil
+	m.calls = append(m.calls, fmt.Sprintf("RunRestic:%s", strings.Join(args, " ")))
+	return m.execOutput, m.execErr
 }
 
 func TestNew(t *testing.T) {
@@ -232,5 +233,37 @@ func TestImportDatabaseDefaultPassword(t *testing.T) {
 	}
 	if !hasDefaultPw {
 		t.Error("expected default password 'mediawiki' to be used")
+	}
+}
+
+func TestRunResticRecordsCalls(t *testing.T) {
+	mock := &mockOrchestrator{execOutput: "snapshot saved"}
+	output, err := mock.RunRestic("/tmp/test", "/tmp/test/.env", nil, "-r", "s3:bucket", "snapshots")
+	if err != nil {
+		t.Fatalf("RunRestic() error = %v", err)
+	}
+	if output != "snapshot saved" {
+		t.Errorf("RunRestic() output = %q, want %q", output, "snapshot saved")
+	}
+	if len(mock.calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(mock.calls))
+	}
+	expected := "RunRestic:-r s3:bucket snapshots"
+	if mock.calls[0] != expected {
+		t.Errorf("call = %q, want %q", mock.calls[0], expected)
+	}
+}
+
+func TestRunResticError(t *testing.T) {
+	mock := &mockOrchestrator{
+		execOutput: "error output",
+		execErr:    fmt.Errorf("restic failed"),
+	}
+	_, err := mock.RunRestic("/tmp/test", "/tmp/test/.env", nil, "-r", "s3:bucket", "backup", "/data")
+	if err == nil {
+		t.Fatal("expected error from RunRestic")
+	}
+	if len(mock.calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(mock.calls))
 	}
 }
