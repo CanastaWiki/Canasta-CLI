@@ -2,11 +2,13 @@ package backup
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
@@ -23,7 +25,7 @@ func restoreCmdCreate() *cobra.Command {
 		Long: `Restore a Canasta installation from a backup snapshot. By default, a safety
 snapshot is taken before restoring. The restore replaces configuration files,
 extensions, images, skins, public_assets, .env, docker-compose.override.yml,
-my.cnf, and the database with the contents of the specified snapshot.`,
+my.cnf, and all wiki databases with the contents of the specified snapshot.`,
 		Example: `  # Restore a snapshot by ID
   canasta backup restore -i myinstance -s abc123
 
@@ -74,11 +76,46 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 	logging.Print("Copied files...")
 
 	logging.Print("Restoring database...")
-	command := fmt.Sprintf("mysql -h db -u root -p%s %s < /mediawiki/config/db.sql", EnvVariables["MYSQL_PASSWORD"], EnvVariables["WG_DB_NAME"])
-	_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
-	if restoreErr != nil {
-		return fmt.Errorf("database restore failed: %w", restoreErr)
+	wikiIDs, err := getWikiIDsForRestore(instance.Path)
+	if err != nil {
+		return err
 	}
-	logging.Print("Restored database...")
+	for _, id := range wikiIDs {
+		logging.Print(fmt.Sprintf("Restoring database for wiki '%s'...", id))
+		command := fmt.Sprintf("mysql -h db -u root -p%s < %s",
+			EnvVariables["MYSQL_PASSWORD"], dumpPath(id))
+		_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
+		if restoreErr != nil {
+			return fmt.Errorf("Database restore failed for wiki '%s': %w", id, restoreErr)
+		}
+	}
+
+	// Clean up the backup directory containing database dumps
+	os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
+
+	logging.Print("Database restore completed")
 	return nil
+}
+
+// getWikiIDsForRestore determines which wiki databases have per-wiki dump files
+// in the restored config directory.
+func getWikiIDsForRestore(installPath string) ([]string, error) {
+	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
+	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read wikis.yaml: %w", err)
+	}
+
+	var result []string
+	for _, id := range ids {
+		hostDumpPath := filepath.Join(installPath, "config", "backup", fmt.Sprintf("db_%s.sql", id))
+		if _, statErr := os.Stat(hostDumpPath); statErr == nil {
+			result = append(result, id)
+		}
+	}
+
+	if len(result) == 0 {
+		return nil, fmt.Errorf("No database dump files found in backup")
+	}
+	return result, nil
 }
