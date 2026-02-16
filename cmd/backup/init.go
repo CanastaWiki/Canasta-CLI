@@ -1,4 +1,4 @@
-package restic
+package backup
 
 import (
 	"fmt"
@@ -14,11 +14,11 @@ func initCmdCreate() *cobra.Command {
 
 	initCmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize a restic repo",
-		Long: `Initialize a new Restic backup repository. This must be run once before
-taking any snapshots. The repository location is read from the
+		Short: "Initialize a backup repository",
+		Long: `Initialize a new backup repository. This must be run once before
+creating any backups. The repository location is read from the
 RESTIC_REPOSITORY variable (or AWS S3 settings) in the installation's .env file.`,
-		Example: `  canasta restic init -i myinstance`,
+		Example: `  canasta backup init -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return initRestic()
 		},
@@ -27,7 +27,7 @@ RESTIC_REPOSITORY variable (or AWS S3 settings) in the installation's .env file.
 }
 
 func initRestic() error {
-	fmt.Println("Initializing Restic repo")
+	fmt.Println("Initializing backup repository")
 	output, err := runRestic(nil, "-r", repoURL, "init")
 	if err != nil {
 		return err

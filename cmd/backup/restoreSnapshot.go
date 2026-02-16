@@ -1,4 +1,4 @@
-package restic
+package backup
 
 import (
 	"fmt"
@@ -11,34 +11,34 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
-func restoreSnapshotCmdCreate() *cobra.Command {
+func restoreCmdCreate() *cobra.Command {
 
 	var (
 		snapshotId         string
 		skipBeforeSnapshot bool
 	)
 
-	restoreSnapshotCmd := &cobra.Command{
+	restoreCmd := &cobra.Command{
 		Use:   "restore",
-		Short: "Restore restic snapshot",
-		Long: `Restore a Canasta installation from a Restic snapshot. By default, a safety
+		Short: "Restore a backup",
+		Long: `Restore a Canasta installation from a backup snapshot. By default, a safety
 snapshot is taken before restoring. The restore replaces configuration files,
 extensions, images, skins, and the database with the contents of the
 specified snapshot.`,
 		Example: `  # Restore a snapshot by ID
-  canasta restic restore -i myinstance -s abc123
+  canasta backup restore -i myinstance -s abc123
 
   # Restore without taking a safety snapshot first
-  canasta restic restore -i myinstance -s abc123 -r`,
+  canasta backup restore -i myinstance -s abc123 -r`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return restoreSnapshot(snapshotId, skipBeforeSnapshot)
 		},
 	}
 
-	restoreSnapshotCmd.Flags().StringVarP(&snapshotId, "snapshot-id", "s", "", "Restic snapshot ID (required)")
-	restoreSnapshotCmd.Flags().BoolVarP(&skipBeforeSnapshot, "skip-before-restore-snapshot", "r", false, "Skips taking snapshot before restore")
-	_ = restoreSnapshotCmd.MarkFlagRequired("snapshot-id")
-	return restoreSnapshotCmd
+	restoreCmd.Flags().StringVarP(&snapshotId, "snapshot-id", "s", "", "Snapshot ID (required)")
+	restoreCmd.Flags().BoolVarP(&skipBeforeSnapshot, "skip-before-restore-snapshot", "r", false, "Skips taking snapshot before restore")
+	_ = restoreCmd.MarkFlagRequired("snapshot-id")
+	return restoreCmd
 }
 
 func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {

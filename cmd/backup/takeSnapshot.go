@@ -1,4 +1,4 @@
-package restic
+package backup
 
 import (
 	"fmt"
@@ -11,25 +11,25 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
-func takeSnapshotCmdCreate() *cobra.Command {
+func createBackupCmdCreate() *cobra.Command {
 
-	takeSnapshotCmd := &cobra.Command{
-		Use:   "take-snapshot",
-		Short: "Take restic snapshots",
-		Long: `Take a new backup snapshot of the Canasta installation. This dumps the
+	createBackupCmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a backup",
+		Long: `Create a new backup snapshot of the Canasta installation. This dumps the
 database, copies configuration files, extensions, images, and skins into
-a staging directory, then uploads the snapshot to the Restic repository
+a staging directory, then uploads the snapshot to the backup repository
 with the specified tag.`,
-		Example: `  # Take a snapshot with a descriptive tag
-  canasta restic take-snapshot -i myinstance -t before-upgrade`,
+		Example: `  # Create a backup with a descriptive tag
+  canasta backup create -i myinstance -t before-upgrade`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return takeSnapshot(tag)
 		},
 	}
 
-	takeSnapshotCmd.Flags().StringVarP(&tag, "tag", "t", "", "Restic snapshot tag (required)")
-	return takeSnapshotCmd
+	createBackupCmd.Flags().StringVarP(&tag, "tag", "t", "", "Backup tag (required)")
+	return createBackupCmd
 }
 
 func takeSnapshot(tag string) error {
@@ -65,6 +65,6 @@ func takeSnapshot(tag string) error {
 		return err
 	}
 	fmt.Print(output)
-	fmt.Println("Completed running restic backup")
+	fmt.Println("Backup completed")
 	return nil
 }
