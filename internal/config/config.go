@@ -236,8 +236,12 @@ func AddOrchestrator(details Orchestrator) error {
 	if existingInstallations.Orchestrators == nil {
 		existingInstallations.Orchestrators = map[string]Orchestrator{}
 	}
-	if details.Id != "compose" {
-		return fmt.Errorf("orchestrator %s is not suported", details.Id)
+	supportedOrchestrators := map[string]bool{
+		"compose":    true,
+		"kubernetes": true,
+	}
+	if !supportedOrchestrators[details.Id] {
+		return fmt.Errorf("orchestrator %s is not supported", details.Id)
 	}
 	existingInstallations.Orchestrators[details.Id] = details
 	err := write(existingInstallations)
