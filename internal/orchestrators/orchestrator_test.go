@@ -67,6 +67,11 @@ func (m *mockOrchestrator) RunBackup(installPath, envPath string, volumes map[st
 	return m.execOutput, m.execErr
 }
 
+func (m *mockOrchestrator) RestoreFromBackupVolume(installPath string, dirs map[string]string) error {
+	m.calls = append(m.calls, "RestoreFromBackupVolume")
+	return nil
+}
+
 func TestNew(t *testing.T) {
 	tests := []struct {
 		name    string

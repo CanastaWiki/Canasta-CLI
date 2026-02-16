@@ -2,7 +2,6 @@ package backup
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -46,7 +45,6 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 	if envErr != nil {
 		return envErr
 	}
-	currentSnapshotFolder := instance.Path + "/currentsnapshot"
 
 	if !skipBeforeSnapshot {
 		logging.Print("Taking snapshot...")
@@ -56,29 +54,19 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 		logging.Print("Snapshot taken...")
 	}
 
-	if err := checkCurrentSnapshotFolder(currentSnapshotFolder); err != nil {
-		return err
-	}
-
-	logging.Print("Restoring snapshot to /currentsnapshot")
-	volumes := map[string]string{
-		currentSnapshotFolder: "/currentsnapshot",
-	}
-	_, err := runBackup(volumes, "-r", repoURL, "restore", snapshotId, "--target", "/currentsnapshot")
+	logging.Print("Restoring snapshot to backup volume...")
+	_, err := runBackup(nil, "-r", repoURL, "restore", snapshotId, "--target", "/")
 	if err != nil {
 		return err
 	}
 
-	logging.Print("Copying files....")
+	logging.Print("Copying files from backup volume...")
+	dirs := make(map[string]string)
 	for _, dir := range []string{"config", "extensions", "images", "skins"} {
-		dst := filepath.Join(instance.Path, dir)
-		if err := os.RemoveAll(dst); err != nil {
-			logging.Print(err.Error())
-		}
-		src := filepath.Join(currentSnapshotFolder, "currentsnapshot", dir)
-		if err := copyDir(src, dst); err != nil {
-			logging.Print(fmt.Sprintf("failed to copy %s: %s", dir, err.Error()))
-		}
+		dirs["/currentsnapshot/"+dir] = filepath.Join(instance.Path, dir)
+	}
+	if err := orch.RestoreFromBackupVolume(instance.Path, dirs); err != nil {
+		return err
 	}
 	logging.Print("Copied files...")
 

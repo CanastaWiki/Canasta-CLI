@@ -1,11 +1,8 @@
 package backup
 
 import (
-	"io"
-	"io/fs"
 	"log"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -88,64 +85,8 @@ func getRepoURL(env map[string]string) string {
 	return "s3:" + env["AWS_S3_API"] + "/" + env["AWS_S3_BUCKET"]
 }
 
-func checkCurrentSnapshotFolder(currentSnapshotFolder string) error {
-	if _, err := os.Stat(currentSnapshotFolder); err != nil {
-		if os.IsNotExist(err) {
-			logging.Print("Creating..." + currentSnapshotFolder)
-			if err := os.Mkdir(currentSnapshotFolder, 0o700); err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
-	} else {
-		logging.Print("Emptying... " + currentSnapshotFolder)
-		if err := os.RemoveAll(currentSnapshotFolder); err != nil {
-			return err
-		}
-		if err := os.Mkdir(currentSnapshotFolder, 0o700); err != nil {
-			return err
-		}
-		logging.Print("Emptied.. " + currentSnapshotFolder)
-	}
-	return nil
-}
-
 // runBackup is a convenience wrapper for orch.RunBackup
 // using the package-level orchestrator, install path, and env path.
 func runBackup(volumes map[string]string, args ...string) (string, error) {
 	return orch.RunBackup(instance.Path, envPath, volumes, args...)
-}
-
-// copyDir recursively copies a directory tree from src to dst.
-func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		return copyFile(path, target)
-	})
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
 }
