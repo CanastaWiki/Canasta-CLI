@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 )
 
 var (
@@ -33,12 +31,9 @@ modified files.`,
 }
 
 func diff() error {
-	commandArgs = append(commandArgs, "diff", tag1, tag2)
-	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	output, err := runRestic(nil, "-r", repoURL, "diff", tag1, tag2)
 	if err != nil {
-	} else {
-		fmt.Print(output)
-		return fmt.Errorf("%s", output)
+		return err
 	}
 	fmt.Print(output)
 	return nil

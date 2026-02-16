@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 )
 
 func viewSnapshotsCmdCreate() *cobra.Command {
@@ -24,10 +22,9 @@ each snapshot's ID, timestamp, hostname, and tags.`,
 }
 
 func viewSnapshots() error {
-	commandArgs = append(commandArgs, "snapshots")
-	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	output, err := runRestic(nil, "-r", repoURL, "snapshots")
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return err
 	}
 	fmt.Print(output)
 	return nil

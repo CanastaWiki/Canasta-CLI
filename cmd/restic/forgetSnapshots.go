@@ -3,7 +3,6 @@ package restic
 import (
 	"fmt"
 
-	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/spf13/cobra"
 )
 
@@ -30,12 +29,9 @@ may still exist until a 'restic prune' is run on the repository.`,
 }
 
 func forgetSnapshot() error {
-	commandArgs = append(commandArgs, "forget", tag)
-	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	output, err := runRestic(nil, "-r", repoURL, "forget", tag)
 	if err != nil {
-	} else {
-		fmt.Print(output)
-		return fmt.Errorf("%s", output)
+		return err
 	}
 	fmt.Print(output)
 	return nil

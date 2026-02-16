@@ -9,7 +9,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
-	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 func takeSnapshotCmdCreate() *cobra.Command {
@@ -23,7 +22,7 @@ a staging directory, then uploads the snapshot to the Restic repository
 with the specified tag.`,
 		Example: `  # Take a snapshot with a descriptive tag
   canasta restic take-snapshot -i myinstance -t before-upgrade`,
-		Args:  cobra.ExactArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return takeSnapshot(tag)
 		},
@@ -35,11 +34,6 @@ with the specified tag.`,
 
 func takeSnapshot(tag string) error {
 	fmt.Printf("Taking snapshot '%s'...\n", tag)
-	orch, err := orchestrators.New(instance.Orchestrator)
-	if err != nil {
-		return err
-	}
-	envPath := instance.Path + "/.env"
 	EnvVariables, err := canasta.GetEnvVariable(envPath)
 	if err != nil {
 		return err
@@ -63,10 +57,12 @@ func takeSnapshot(tag string) error {
 	logging.Print("Copy folders and files completed.")
 
 	hostname, _ := os.Hostname()
-	repoURL := getRepoURL(EnvVariables)
-	err, output = execute.Run(instance.Path, "sudo", "docker", "run", "--rm", "-i", "--env-file", envPath, "-v", currentSnapshotFolder+":/currentsnapshot/", "restic/restic", "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
+	volumes := map[string]string{
+		currentSnapshotFolder: "/currentsnapshot/",
+	}
+	output, err = runRestic(volumes, "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return err
 	}
 	fmt.Print(output)
 	fmt.Println("Completed running restic backup")

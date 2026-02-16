@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 )
 
 func checkCmdCreate() *cobra.Command {
@@ -25,12 +23,9 @@ checks for errors in the repository structure and snapshot data.`,
 }
 
 func check() error {
-	commandArgs = append(commandArgs, "check")
-	err, output := execute.Run(instance.Path, commandArgs[0], commandArgs[1:]...)
+	output, err := runRestic(nil, "-r", repoURL, "check")
 	if err != nil {
-	} else {
-		fmt.Print(output)
-		return fmt.Errorf("%s", output)
+		return err
 	}
 	fmt.Print(output)
 	return nil
