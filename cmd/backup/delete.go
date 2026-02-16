@@ -16,7 +16,7 @@ func deleteCmdCreate() *cobra.Command {
 may still exist until a prune is run on the repository.`,
 		Example: `  canasta backup delete -i myinstance -s abc123`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return forgetSnapshot()
+			return deleteSnapshot()
 		},
 	}
 
@@ -25,7 +25,7 @@ may still exist until a prune is run on the repository.`,
 	return deleteCmd
 }
 
-func forgetSnapshot() error {
+func deleteSnapshot() error {
 	output, err := runBackup(nil, "-r", repoURL, "forget", snapshot)
 	if err != nil {
 		return err

@@ -21,13 +21,13 @@ creating any backups. The repository location is read from the
 RESTIC_REPOSITORY variable (or AWS S3 settings) in the installation's .env file.`,
 		Example: `  canasta backup init -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return initRestic()
+			return initBackup()
 		},
 	}
 	return initCmd
 }
 
-func initRestic() error {
+func initBackup() error {
 	fmt.Println("Initializing backup repository")
 	output, err := runBackup(nil, "-r", repoURL, "init")
 	if err != nil {
