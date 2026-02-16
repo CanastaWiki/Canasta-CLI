@@ -80,8 +80,8 @@ func TestNew(t *testing.T) {
 	}{
 		{"compose", "compose", false},
 		{"docker-compose alias", "docker-compose", false},
-		{"kubernetes not yet implemented", "kubernetes", true},
-		{"k8s not yet implemented", "k8s", true},
+		{"kubernetes", "kubernetes", false},
+		{"k8s alias", "k8s", false},
 		{"unknown", "unknown-orch", true},
 		{"empty", "", true},
 	}
@@ -96,18 +96,6 @@ func TestNew(t *testing.T) {
 				t.Error("expected non-nil orchestrator")
 			}
 		})
-	}
-}
-
-func TestNewKubernetesNotYetImplemented(t *testing.T) {
-	for _, id := range []string{"kubernetes", "k8s"} {
-		_, err := New(id)
-		if err == nil {
-			t.Fatalf("New(%q) expected error, got nil", id)
-		}
-		if !strings.Contains(err.Error(), "not yet implemented") {
-			t.Errorf("New(%q) error = %q, want 'not yet implemented'", id, err.Error())
-		}
 	}
 }
 
