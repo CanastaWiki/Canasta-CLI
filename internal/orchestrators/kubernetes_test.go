@@ -296,14 +296,16 @@ func TestInitConfigNamespaceFromPath(t *testing.T) {
 	}
 }
 
-func TestRunBackupNotSupported(t *testing.T) {
+func TestRunBackupRequiresNamespace(t *testing.T) {
 	k := &KubernetesOrchestrator{}
+	// RunBackup now has a real implementation that requires a valid
+	// kustomization.yaml with a namespace. Without one it should error.
 	_, err := k.RunBackup("/tmp", "/tmp/.env", nil)
 	if err == nil {
-		t.Fatal("expected error from RunBackup")
+		t.Fatal("expected error from RunBackup without kustomization.yaml")
 	}
-	if !strings.Contains(err.Error(), "not yet supported") {
-		t.Errorf("RunBackup() error = %q, want 'not yet supported'", err.Error())
+	if !strings.Contains(err.Error(), "kustomization.yaml") {
+		t.Errorf("RunBackup() error = %q, want kustomization.yaml error", err.Error())
 	}
 }
 
