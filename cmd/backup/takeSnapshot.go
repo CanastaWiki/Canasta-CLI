@@ -22,13 +22,13 @@ a staging directory, then uploads the snapshot to the backup repository
 with the specified tag.`,
 		Example: `  # Create a backup with a descriptive tag
   canasta backup create -i myinstance -t before-upgrade`,
-		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return takeSnapshot(tag)
 		},
 	}
 
 	createBackupCmd.Flags().StringVarP(&tag, "tag", "t", "", "Backup tag (required)")
+	_ = createBackupCmd.MarkFlagRequired("tag")
 	return createBackupCmd
 }
 
