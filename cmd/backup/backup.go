@@ -1,26 +1,28 @@
 package backup
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 var (
-	instance      config.Installation
-	err           error
-	verbose       bool
-	backupCmd     *cobra.Command
-	mysqldumpPath = "/mediawiki/config/db.sql"
-	orch          orchestrators.Orchestrator
-	envPath       string
-	repoURL       string
+	instance  config.Installation
+	err       error
+	verbose   bool
+	backupCmd *cobra.Command
+	orch      orchestrators.Orchestrator
+	envPath   string
+	repoURL   string
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -89,4 +91,21 @@ func getRepoURL(env map[string]string) string {
 // using the package-level orchestrator, install path, and env path.
 func runBackup(volumes map[string]string, args ...string) (string, error) {
 	return orch.RunBackup(instance.Path, envPath, volumes, args...)
+}
+
+// getWikiIDs reads wikis.yaml and returns all wiki IDs.
+func getWikiIDs(installPath string) ([]string, error) {
+	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
+	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read wikis.yaml: %w", err)
+	}
+	return ids, nil
+}
+
+// dumpPath returns the container path for a wiki's database dump file.
+// Dumps are stored in config/backup/ to avoid filename collisions with
+// user configuration files. This directory is reserved for the backup command.
+func dumpPath(id string) string {
+	return fmt.Sprintf("/mediawiki/config/backup/db_%s.sql", id)
 }
