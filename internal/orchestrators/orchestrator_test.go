@@ -259,6 +259,58 @@ func TestRunBackupRecordsCalls(t *testing.T) {
 	}
 }
 
+func TestIsLocalRepo(t *testing.T) {
+	tests := []struct {
+		name    string
+		repoURL string
+		want    bool
+	}{
+		{"local absolute path", "/path/to/repo", true},
+		{"local root path", "/backups", true},
+		{"s3 backend", "s3:bucket/path", false},
+		{"sftp backend", "sftp:user@host:/path", false},
+		{"rest backend", "rest:http://host:8000", false},
+		{"gs backend", "gs:bucket/path", false},
+		{"azure backend", "azure:container/path", false},
+		{"b2 backend", "b2:bucket/path", false},
+		{"rclone backend", "rclone:remote:path", false},
+		{"empty string", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isLocalRepo(tt.repoURL)
+			if got != tt.want {
+				t.Errorf("isLocalRepo(%q) = %v, want %v", tt.repoURL, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRepoFromArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"local path", []string{"-r", "/backups/repo", "init"}, "/backups/repo"},
+		{"s3 backend", []string{"-r", "s3:bucket", "snapshots"}, "s3:bucket"},
+		{"no -r flag", []string{"init"}, ""},
+		{"-r at end", []string{"init", "-r"}, ""},
+		{"empty args", []string{}, ""},
+		{"-r with other flags", []string{"--verbose", "-r", "/tmp/repo", "backup", "/data"}, "/tmp/repo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := repoFromArgs(tt.args)
+			if got != tt.want {
+				t.Errorf("repoFromArgs(%v) = %q, want %q", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunBackupError(t *testing.T) {
 	mock := &mockOrchestrator{
 		execOutput: "error output",
