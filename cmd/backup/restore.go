@@ -94,6 +94,7 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 	os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
 
 	logging.Print("Database restore completed")
+	fmt.Println("Restore completed")
 	return nil
 }
 

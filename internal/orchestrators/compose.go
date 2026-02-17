@@ -399,6 +399,9 @@ func (c *ComposeOrchestrator) RunBackup(installPath, envPath string, volumes map
 
 	err, output = execute.Run(installPath, cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
+		if strings.Contains(output, "repository does not exist") {
+			return output, fmt.Errorf("backup repository not found. Run 'canasta backup init' to create it")
+		}
 		return output, fmt.Errorf("restic command failed: %s", output)
 	}
 	return output, nil

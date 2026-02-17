@@ -24,7 +24,11 @@ uploads the snapshot to the backup repository with the specified tag.`,
 		Example: `  # Create a backup with a descriptive tag
   canasta backup create -i myinstance -t before-upgrade`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return takeSnapshot(tag)
+			if err := takeSnapshot(tag); err != nil {
+				return err
+			}
+			fmt.Println("Backup completed")
+			return nil
 		},
 	}
 
@@ -84,6 +88,5 @@ func takeSnapshot(tag string) error {
 	// Clean up the backup directory containing database dumps
 	os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
 
-	fmt.Println("Backup completed")
 	return nil
 }
