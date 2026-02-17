@@ -344,6 +344,22 @@ func backupVolumeName(installPath string) string {
 	return "canasta-backup-" + filepath.Base(installPath)
 }
 
+// isLocalRepo returns true if the repository URL is a local filesystem path
+// rather than a remote backend (s3:, sftp:, rest:, gs:, azure:, b2:, rclone:).
+func isLocalRepo(repoURL string) bool {
+	return strings.HasPrefix(repoURL, "/")
+}
+
+// repoFromArgs extracts the repository URL following the -r flag in args.
+func repoFromArgs(args []string) string {
+	for i, arg := range args {
+		if arg == "-r" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 func (c *ComposeOrchestrator) RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
 	volName := backupVolumeName(installPath)
 
@@ -364,6 +380,12 @@ func (c *ComposeOrchestrator) RunBackup(installPath, envPath string, volumes map
 	cmdArgs := []string{"docker", "run", "--rm", "-i", "--env-file", envPath,
 		"-v", volName + ":/currentsnapshot",
 	}
+
+	// If the repository is a local path, bind-mount it into the container
+	if repo := repoFromArgs(args); repo != "" && isLocalRepo(repo) {
+		cmdArgs = append(cmdArgs, "-v", repo+":"+repo)
+	}
+
 	cmdArgs = append(cmdArgs, "restic/restic")
 	cmdArgs = append(cmdArgs, args...)
 
