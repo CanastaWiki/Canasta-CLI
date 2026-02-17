@@ -229,12 +229,20 @@ func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	var output string
 	if compose.Path != "" {
-		err, output := execute.Run(installPath, compose.Path, "down", "-v")
+		err, output = execute.Run(installPath, compose.Path, "down", "-v")
+	} else {
+		err, output = execute.Run(installPath, "docker", "compose", "down", "-v")
+	}
+	if err != nil {
 		return output, err
 	}
-	err, output := execute.Run(installPath, "docker", "compose", "down", "-v")
-	return output, err
+
+	// Remove the backup staging volume (not part of docker-compose.yml)
+	execute.Run("", "docker", "volume", "rm", backupVolumeName(installPath))
+
+	return output, nil
 }
 
 func (c *ComposeOrchestrator) ExecWithError(installPath, service, command string) (string, error) {
