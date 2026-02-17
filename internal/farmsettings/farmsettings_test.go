@@ -37,7 +37,7 @@ func TestGenerateAndReadWikisYaml(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "wikis.yaml")
 
-	absPath, err := GenerateWikisYaml(filePath, "testwiki", "example.com", "Test Wiki")
+	absPath, err := GenerateWikisYaml(filePath, "testwiki", "example.com", "Test Wiki", false)
 	if err != nil {
 		t.Fatalf("GenerateWikisYaml() error = %v", err)
 	}
@@ -65,7 +65,7 @@ func TestGenerateWikisYamlDefaultSiteName(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "wikis.yaml")
 
-	_, err := GenerateWikisYaml(filePath, "mywiki", "example.com", "")
+	_, err := GenerateWikisYaml(filePath, "mywiki", "example.com", "", false)
 	if err != nil {
 		t.Fatalf("GenerateWikisYaml() error = %v", err)
 	}
@@ -86,7 +86,7 @@ func TestReadWikisYamlWithPath(t *testing.T) {
 	filePath := filepath.Join(dir, "wikis.yaml")
 
 	// Generate with URL containing a path
-	_, err := GenerateWikisYaml(filePath, "testwiki", "example.com/mypath", "Test")
+	_, err := GenerateWikisYaml(filePath, "testwiki", "example.com/mypath", "Test", false)
 	if err != nil {
 		t.Fatalf("GenerateWikisYaml() error = %v", err)
 	}
@@ -116,13 +116,13 @@ func TestAddAndRemoveWiki(t *testing.T) {
 	filePath := filepath.Join(configDir, "wikis.yaml")
 
 	// Generate initial wiki
-	_, err := GenerateWikisYaml(filePath, "wiki1", "example.com", "Wiki 1")
+	_, err := GenerateWikisYaml(filePath, "wiki1", "example.com", "Wiki 1", false)
 	if err != nil {
 		t.Fatalf("GenerateWikisYaml() error = %v", err)
 	}
 
 	// Add a second wiki
-	err = AddWiki("wiki2", dir, "other.com", "", "Wiki 2")
+	err = AddWiki("wiki2", dir, "other.com", "", "Wiki 2", false)
 	if err != nil {
 		t.Fatalf("AddWiki() error = %v", err)
 	}
@@ -161,7 +161,7 @@ func TestRemoveLastWikiFails(t *testing.T) {
 	}
 	filePath := filepath.Join(configDir, "wikis.yaml")
 
-	_, err := GenerateWikisYaml(filePath, "onlywiki", "example.com", "Only")
+	_, err := GenerateWikisYaml(filePath, "onlywiki", "example.com", "Only", false)
 	if err != nil {
 		t.Fatalf("GenerateWikisYaml() error = %v", err)
 	}
@@ -180,7 +180,7 @@ func TestWikiIDExists(t *testing.T) {
 	}
 	filePath := filepath.Join(configDir, "wikis.yaml")
 
-	_, err := GenerateWikisYaml(filePath, "testwiki", "example.com", "Test")
+	_, err := GenerateWikisYaml(filePath, "testwiki", "example.com", "Test", false)
 	if err != nil {
 		t.Fatalf("GenerateWikisYaml() error = %v", err)
 	}
@@ -222,7 +222,7 @@ func TestWikiUrlExists(t *testing.T) {
 	}
 	filePath := filepath.Join(configDir, "wikis.yaml")
 
-	_, err := GenerateWikisYaml(filePath, "testwiki", "example.com/wiki", "Test")
+	_, err := GenerateWikisYaml(filePath, "testwiki", "example.com/wiki", "Test", false)
 	if err != nil {
 		t.Fatalf("GenerateWikisYaml() error = %v", err)
 	}
@@ -241,5 +241,95 @@ func TestWikiUrlExists(t *testing.T) {
 	}
 	if exists {
 		t.Error("expected other.com URL to not exist")
+	}
+}
+
+func TestGenerateWikisYamlWithSitemap(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "wikis.yaml")
+
+	_, err := GenerateWikisYaml(filePath, "mywiki", "example.com", "My Wiki", true)
+	if err != nil {
+		t.Fatalf("GenerateWikisYaml() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "sitemap: true") {
+		t.Errorf("expected sitemap: true in output, got:\n%s", content)
+	}
+}
+
+func TestGenerateWikisYamlWithoutSitemap(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "wikis.yaml")
+
+	_, err := GenerateWikisYaml(filePath, "mywiki", "example.com", "My Wiki", false)
+	if err != nil {
+		t.Fatalf("GenerateWikisYaml() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	content := string(data)
+	if strings.Contains(content, "sitemap") {
+		t.Errorf("expected no sitemap field in output, got:\n%s", content)
+	}
+}
+
+func TestAddWikiWithSitemap(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(configDir, "wikis.yaml")
+
+	_, err := GenerateWikisYaml(filePath, "wiki1", "example.com", "Wiki 1", false)
+	if err != nil {
+		t.Fatalf("GenerateWikisYaml() error = %v", err)
+	}
+
+	err = AddWiki("wiki2", dir, "other.com", "", "Wiki 2", true)
+	if err != nil {
+		t.Fatalf("AddWiki() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	content := string(data)
+
+	// wiki1 should not have sitemap field, wiki2 should have sitemap: true
+	lines := strings.Split(content, "\n")
+	wiki1HasSitemap := false
+	wiki2HasSitemap := false
+	currentWiki := ""
+	for _, line := range lines {
+		if strings.Contains(line, "id: wiki1") {
+			currentWiki = "wiki1"
+		} else if strings.Contains(line, "id: wiki2") {
+			currentWiki = "wiki2"
+		}
+		if strings.Contains(line, "sitemap: true") {
+			if currentWiki == "wiki1" {
+				wiki1HasSitemap = true
+			} else if currentWiki == "wiki2" {
+				wiki2HasSitemap = true
+			}
+		}
+	}
+
+	if wiki1HasSitemap {
+		t.Error("wiki1 should not have sitemap field")
+	}
+	if !wiki2HasSitemap {
+		t.Error("wiki2 should have sitemap: true")
 	}
 }

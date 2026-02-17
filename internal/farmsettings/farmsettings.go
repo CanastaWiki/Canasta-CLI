@@ -11,9 +11,10 @@ import (
 )
 
 type Wiki struct {
-	ID   string `yaml:"id"`
-	URL  string `yaml:"url"`
-	NAME string `yaml:"name"`
+	ID      string `yaml:"id"`
+	URL     string `yaml:"url"`
+	NAME    string `yaml:"name"`
+	Sitemap bool   `yaml:"sitemap,omitempty"`
 }
 
 type Wikis struct {
@@ -39,12 +40,12 @@ func ValidateWikiID(wikiID string) error {
 	return nil
 }
 
-func GenerateWikisYaml(filePath, wikiID, domain, siteName string) (string, error) {
+func GenerateWikisYaml(filePath, wikiID, domain, siteName string, sitemap bool) (string, error) {
 	if siteName == "" {
 		siteName = wikiID
 	}
 	wikis := Wikis{}
-	wikis.Wikis = append(wikis.Wikis, Wiki{ID: wikiID, URL: domain, NAME: siteName})
+	wikis.Wikis = append(wikis.Wikis, Wiki{ID: wikiID, URL: domain, NAME: siteName, Sitemap: sitemap})
 
 	out, err := yaml.Marshal(&wikis)
 	if err != nil {
@@ -160,7 +161,7 @@ func WikiUrlExists(installPath, domain, wikiPath string) (bool, error) {
 	return false, nil
 }
 
-func AddWiki(wikiID, installPath, domain, wikiPath, siteName string) error {
+func AddWiki(wikiID, installPath, domain, wikiPath, siteName string, sitemap bool) error {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 
@@ -189,7 +190,7 @@ func AddWiki(wikiID, installPath, domain, wikiPath, siteName string) error {
 	}
 
 	// Create a new wiki
-	newWiki := Wiki{ID: wikiID, URL: filepath.Join(domain, wikiPath), NAME: siteName}
+	newWiki := Wiki{ID: wikiID, URL: filepath.Join(domain, wikiPath), NAME: siteName, Sitemap: sitemap}
 
 	// Append the new wiki to the list of wikis
 	wikis.Wikis = append(wikis.Wikis, newWiki)

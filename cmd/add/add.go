@@ -64,6 +64,7 @@ func NewCmdCreate() *cobra.Command {
 	var admin string
 	var adminPassword string
 	var wikidbuser string
+	var sitemapFlag bool
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -128,7 +129,7 @@ an existing database dump instead of running the installer.`,
 			}
 
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.Id)
-			err = AddWiki(instance, wikiID, siteName, domainName, wikiPath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir)
+			err = AddWiki(instance, wikiID, siteName, domainName, wikiPath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir, sitemapFlag)
 			if err != nil {
 				return err
 			}
@@ -146,6 +147,7 @@ an existing database dump instead of running the installer.`,
 	addCmd.Flags().StringVarP(&admin, "admin", "a", "", "Admin name of the new wiki")
 	addCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Admin password for the new wiki (if not provided, auto-generates and saves to config/admin-password_{wikiid})")
 	addCmd.Flags().StringVar(&wikidbuser, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
+	addCmd.Flags().BoolVar(&sitemapFlag, "sitemap", false, "Enable sitemap generation for this wiki")
 
 	// Mark required flags (admin is validated at runtime based on whether --database is provided)
 	_ = addCmd.MarkFlagRequired("wiki")
@@ -155,7 +157,7 @@ an existing database dump instead of running the installer.`,
 }
 
 // AddWiki accepts the Canasta instance info, wiki ID, site name, domain and path of the new wiki, database info, and the initial admin info, then creates a new wiki in the Canasta instance.
-func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir string) error {
+func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir string, sitemap bool) error {
 	var err error
 
 	//Checking Installation existence
@@ -233,9 +235,17 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 	}
 
 	//Add the wiki in farmsettings (only after successful installation)
-	err = farmsettings.AddWiki(wikiID, instance.Path, domain, wikipath, siteName)
+	err = farmsettings.AddWiki(wikiID, instance.Path, domain, wikipath, siteName, sitemap)
 	if err != nil {
 		return err
+	}
+
+	// Enable the global sitemap generator if this wiki has sitemap enabled
+	if sitemap {
+		envPath := instance.Path + "/.env"
+		if err := canasta.SaveEnvVariable(envPath, "MW_ENABLE_SITEMAP_GENERATOR", "true"); err != nil {
+			return err
+		}
 	}
 
 	//Rewrite the Caddyfile (only after adding to wikis.yaml)

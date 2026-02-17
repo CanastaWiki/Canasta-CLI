@@ -38,6 +38,7 @@ func NewCmdCreate() *cobra.Command {
 		devModeFlag   bool   // enable dev mode
 		devTag        string // registry image tag for dev mode
 		buildFromPath string // path to build Canasta from source
+		sitemapFlag   bool   // enable sitemap generation
 		databasePath       string // path to existing database dump
 		wikiSettingsPath   string // path to existing per-wiki Settings.php
 		globalSettingsPath string // path to existing global settings file
@@ -145,7 +146,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 			if err != nil {
 				return err
 			}
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath, done); err != nil {
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath, sitemapFlag, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
 					canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orch)
@@ -184,6 +185,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
 	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
 	createCmd.Flags().StringVar(&composerFile, "composer", "", "Path to custom composer.local.json to copy to config/")
+	createCmd.Flags().BoolVar(&sitemapFlag, "sitemap", false, "Enable sitemap generation for this wiki")
 
 	// Mark required flags
 	_ = createCmd.MarkFlagRequired("id")
@@ -192,7 +194,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath string, done chan struct{}) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath string, sitemap bool, done chan struct{}) error {
 	// Pass a message to the "done" channel indicating the completion of createCanasta function.
 	// This signals the spinner to stop printing progress, regardless of success or failure.
 	defer func() {
@@ -238,12 +240,17 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	} else {
 		// Generate wikis.yaml directly in the installation directory
 		yamlPath = filepath.Join(path, "config", "wikis.yaml")
-		if _, err := farmsettings.GenerateWikisYaml(yamlPath, wikiID, domain, siteName); err != nil {
+		if _, err := farmsettings.GenerateWikisYaml(yamlPath, wikiID, domain, siteName, sitemap); err != nil {
 			return err
 		}
 	}
 	if err := canasta.CreateEnvFile(envFile, path, workingDir, canastaInfo.RootDBPassword, canastaInfo.WikiDBPassword); err != nil {
 		return err
+	}
+	if sitemap {
+		if err := canasta.SaveEnvVariable(path+"/.env", "MW_ENABLE_SITEMAP_GENERATOR", "true"); err != nil {
+			return err
+		}
 	}
 	// Set CANASTA_IMAGE in .env for local builds so docker-compose uses the locally built image
 	if buildFromPath != "" {

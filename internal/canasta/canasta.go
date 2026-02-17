@@ -811,7 +811,7 @@ func MigrateToNewVersion(installPath string) error {
 
 	// Create the wikis.yaml file using farmsettings.GenerateWikisYaml
 	// Pass empty string for siteName to default to id
-	_, err = farmsettings.GenerateWikisYaml(yamlPath, id, mwSiteServer, "")
+	_, err = farmsettings.GenerateWikisYaml(yamlPath, id, mwSiteServer, "", false)
 	if err != nil {
 		return err
 	}
