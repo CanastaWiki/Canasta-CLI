@@ -85,29 +85,6 @@ func getRepoURL(env map[string]string) string {
 	return "s3:" + env["AWS_S3_API"] + "/" + env["AWS_S3_BUCKET"]
 }
 
-func checkCurrentSnapshotFolder(currentSnapshotFolder string) error {
-	if _, err := os.Stat(currentSnapshotFolder); err != nil {
-		if os.IsNotExist(err) {
-			logging.Print("Creating..." + currentSnapshotFolder)
-			if err := os.Mkdir(currentSnapshotFolder, 0o700); err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
-	} else {
-		logging.Print("Emptying... " + currentSnapshotFolder)
-		if err := os.RemoveAll(currentSnapshotFolder); err != nil {
-			return err
-		}
-		if err := os.Mkdir(currentSnapshotFolder, 0o700); err != nil {
-			return err
-		}
-		logging.Print("Emptied.. " + currentSnapshotFolder)
-	}
-	return nil
-}
-
 // runBackup is a convenience wrapper for orch.RunBackup
 // using the package-level orchestrator, install path, and env path.
 func runBackup(volumes map[string]string, args ...string) (string, error) {

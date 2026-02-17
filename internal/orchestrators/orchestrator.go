@@ -26,6 +26,7 @@ type Orchestrator interface {
 	CopyFrom(installPath, service, containerPath, hostPath string) error
 	CopyTo(installPath, service, hostPath, containerPath string) error
 	RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error)
+	RestoreFromBackupVolume(installPath string, dirs map[string]string) error
 }
 
 // ImageInfo holds information about a Docker image

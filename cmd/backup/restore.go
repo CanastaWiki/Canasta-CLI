@@ -2,8 +2,7 @@ package backup
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -46,7 +45,6 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 	if envErr != nil {
 		return envErr
 	}
-	currentSnapshotFolder := instance.Path + "/currentsnapshot"
 
 	if !skipBeforeSnapshot {
 		logging.Print("Taking snapshot...")
@@ -56,30 +54,19 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 		logging.Print("Snapshot taken...")
 	}
 
-	if err := checkCurrentSnapshotFolder(currentSnapshotFolder); err != nil {
-		return err
-	}
-
-	logging.Print("Restoring snapshot to /currentsnapshot")
-	volumes := map[string]string{
-		currentSnapshotFolder: "/currentsnapshot",
-	}
-	_, err := runBackup(volumes, "-r", repoURL, "restore", snapshotId, "--target", "/currentsnapshot")
+	logging.Print("Restoring snapshot to backup volume...")
+	_, err := runBackup(nil, "-r", repoURL, "restore", snapshotId, "--target", "/")
 	if err != nil {
 		return err
 	}
 
-	logging.Print("Copying files....")
-	folders := [...]string{"/config", "/extensions", "/images", "/skins"}
-	for _, folder := range folders {
-		if err := os.RemoveAll(currentSnapshotFolder + folder); err != nil {
-			logging.Print(err.Error())
-		}
-		output, err := exec.Command("sudo", "cp", "-r", "--preserve=links,mode,ownership,timestamps", fmt.Sprintf("%s/currentsnapshot%s/", currentSnapshotFolder, folder), instance.Path).CombinedOutput()
-		if err != nil {
-			logging.Print(err.Error())
-			logging.Print(string(output))
-		}
+	logging.Print("Copying files from backup volume...")
+	dirs := make(map[string]string)
+	for _, dir := range []string{"config", "extensions", "images", "skins"} {
+		dirs["/currentsnapshot/"+dir] = filepath.Join(instance.Path, dir)
+	}
+	if err := orch.RestoreFromBackupVolume(instance.Path, dirs); err != nil {
+		return err
 	}
 	logging.Print("Copied files...")
 

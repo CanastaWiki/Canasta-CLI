@@ -60,6 +60,10 @@ func (m *extMockOrchestrator) CopyTo(installPath, service, hostPath, containerPa
 func (m *extMockOrchestrator) RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
 	return "", nil
 }
+
+func (m *extMockOrchestrator) RestoreFromBackupVolume(installPath string, dirs map[string]string) error {
+	return nil
+}
 func (m *extMockOrchestrator) StopAndStart(inst config.Installation) error {
 	return nil
 }
