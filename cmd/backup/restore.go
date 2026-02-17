@@ -22,8 +22,8 @@ func restoreCmdCreate() *cobra.Command {
 		Short: "Restore a backup",
 		Long: `Restore a Canasta installation from a backup snapshot. By default, a safety
 snapshot is taken before restoring. The restore replaces configuration files,
-extensions, images, skins, and the database with the contents of the
-specified snapshot.`,
+extensions, images, skins, public_assets, .env, docker-compose.override.yml,
+my.cnf, and the database with the contents of the specified snapshot.`,
 		Example: `  # Restore a snapshot by ID
   canasta backup restore -i myinstance -s abc123
 
@@ -61,11 +61,14 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool) error {
 	}
 
 	logging.Print("Copying files from backup volume...")
-	dirs := make(map[string]string)
-	for _, dir := range []string{"config", "extensions", "images", "skins"} {
-		dirs["/currentsnapshot/"+dir] = filepath.Join(instance.Path, dir)
+	paths := make(map[string]string)
+	for _, dir := range []string{"config", "extensions", "images", "skins", "public_assets"} {
+		paths["/currentsnapshot/"+dir] = filepath.Join(instance.Path, dir)
 	}
-	if err := orch.RestoreFromBackupVolume(instance.Path, dirs); err != nil {
+	for _, file := range []string{".env", "docker-compose.override.yml", "my.cnf"} {
+		paths["/currentsnapshot/"+file] = filepath.Join(instance.Path, file)
+	}
+	if err := orch.RestoreFromBackupVolume(instance.Path, paths); err != nil {
 		return err
 	}
 	logging.Print("Copied files...")

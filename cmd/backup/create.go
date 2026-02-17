@@ -17,9 +17,10 @@ func createBackupCmdCreate() *cobra.Command {
 		Use:   "create",
 		Short: "Create a backup",
 		Long: `Create a new backup snapshot of the Canasta installation. This dumps the
-database, stages configuration files, extensions, images, and skins into
-a Docker volume, then uploads the snapshot to the backup repository with
-the specified tag.`,
+database, stages configuration files, extensions, images, skins, and
+public_assets into a Docker volume, along with .env,
+docker-compose.override.yml, and my.cnf (if present), then uploads the
+snapshot to the backup repository with the specified tag.`,
 		Example: `  # Create a backup with a descriptive tag
   canasta backup create -i myinstance -t before-upgrade`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -46,8 +47,14 @@ func takeSnapshot(tag string) error {
 	logging.Print("mysqldump mediawiki completed")
 
 	volumes := make(map[string]string)
-	for _, dir := range []string{"config", "extensions", "images", "skins"} {
+	for _, dir := range []string{"config", "extensions", "images", "skins", "public_assets"} {
 		volumes[filepath.Join(instance.Path, dir)] = "/currentsnapshot/" + dir
+	}
+	for _, file := range []string{".env", "docker-compose.override.yml", "my.cnf"} {
+		src := filepath.Join(instance.Path, file)
+		if _, statErr := os.Stat(src); statErr == nil {
+			volumes[src] = "/currentsnapshot/" + file
+		}
 	}
 
 	hostname, _ := os.Hostname()
