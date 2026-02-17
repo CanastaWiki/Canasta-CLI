@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	backupCmd "github.com/CanastaWiki/Canasta-CLI/cmd/backup"
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -90,6 +91,13 @@ func Delete(instance config.Installation) error {
 	//Delete config files
 	if _, err := orchestrators.DeleteConfig(instance.Path); err != nil {
 		return err
+	}
+
+	// Remove any scheduled backup crontab entry
+	if removed, err := backupCmd.RemoveSchedule(instance.Id); err != nil {
+		logging.Print(fmt.Sprintf("Warning: could not clean up backup schedule: %v\n", err))
+	} else if removed {
+		logging.Print("Removed backup schedule.\n")
 	}
 
 	//Deleting installation details from conf.json
