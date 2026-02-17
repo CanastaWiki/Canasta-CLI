@@ -6,10 +6,12 @@ Canasta includes backup and restore support powered by [restic](https://restic.n
 
 Each backup includes:
 
-- **Database** — a full MySQL dump
+- **Database** — a full MySQL dump of each wiki's database
 - **Configuration** — the `config/` directory (Caddyfile, settings, wikis.yaml)
 - **Extensions and skins** — the `extensions/` and `skins/` directories
 - **Uploaded files** — the `images/` directory
+- **Public assets** — the `public_assets/` directory
+- **Environment and overrides** — `.env`, `docker-compose.override.yml`, and `my.cnf` (if present)
 
 ## Setup
 
@@ -103,10 +105,24 @@ Set up automatic backups using a cron expression:
 
 ```bash
 # Daily at 2:00 AM
-canasta backup schedule -i myinstance "0 2 * * *"
+canasta backup schedule set -i myinstance "0 2 * * *"
 
 # Every 6 hours
-canasta backup schedule -i myinstance "0 */6 * * *"
+canasta backup schedule set -i myinstance "0 */6 * * *"
+```
+
+If you reschedule with a new expression, the existing schedule is replaced. To schedule multiple times, combine them in one expression (e.g., `"0 0 * * 2,5"` for Tuesdays and Fridays).
+
+To view the current schedule:
+
+```bash
+canasta backup schedule list -i myinstance
+```
+
+To remove a scheduled backup:
+
+```bash
+canasta backup schedule remove -i myinstance
 ```
 
 ### Repository maintenance
