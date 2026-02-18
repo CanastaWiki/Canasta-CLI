@@ -14,6 +14,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
   - [Running the update sequence](#running-the-update-sequence)
   - [Running scripts manually](#running-scripts-manually)
   - [Running extension maintenance scripts](#running-extension-maintenance-scripts)
+- [Sitemaps](#sitemaps)
 - [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy)
 - [Running on non-standard ports](#running-on-non-standard-ports)
 
@@ -380,6 +381,48 @@ canasta maintenance extension -i myinstance --all SemanticMediaWiki rebuildData.
 Only extensions that are currently loaded (enabled) for the target wiki are shown and can be run.
 
 See the [CLI Reference](../cli/canasta_maintenance.md) for more details.
+
+---
+
+## Sitemaps
+
+XML sitemaps help search engines discover and index pages on your wiki. Canasta provides commands to generate and remove sitemaps, and a background process to keep them up to date.
+
+### Generating sitemaps
+
+Use `canasta sitemap generate` to create sitemaps. You can generate for a specific wiki or for all wikis in the installation:
+
+```bash
+# Generate sitemap for a specific wiki
+canasta sitemap generate -i myinstance -w mywiki
+
+# Generate sitemaps for all wikis
+canasta sitemap generate -i myinstance
+```
+
+Sitemap files are stored in the `public_assets/{wiki-id}/sitemap/` directory and served at `/public_assets/sitemap/`. Once generated, a background process automatically refreshes the sitemaps on a regular schedule (controlled by the `MW_SITEMAP_PAUSE_DAYS` environment variable, which defaults to 1 day).
+
+The sitemap URL is automatically advertised in the wiki's `robots.txt` when sitemap files exist.
+
+### Removing sitemaps
+
+Use `canasta sitemap remove` to delete sitemap files. Once removed, the background generator will skip those wikis until sitemaps are generated again:
+
+```bash
+# Remove sitemap for a specific wiki
+canasta sitemap remove -i myinstance -w mywiki
+
+# Remove sitemaps for all wikis (prompts for confirmation)
+canasta sitemap remove -i myinstance
+```
+
+### How it works
+
+The presence of sitemap files is the sole signal that controls sitemap behavior:
+
+- **Background refresh**: The generator only refreshes sitemaps for wikis that already have sitemap files. Generating sitemaps for a wiki opts it in; removing them opts it out.
+- **robots.txt**: The sitemap URL is advertised in `robots.txt` only when sitemap files exist for the wiki.
+- **No configuration needed**: There are no YAML fields or environment variables to set — just generate or remove.
 
 ---
 
