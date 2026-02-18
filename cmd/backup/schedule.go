@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -14,7 +15,8 @@ func scheduleCmdCreate() *cobra.Command {
 	scheduleCmd := &cobra.Command{
 		Use:   "schedule",
 		Short: "Manage scheduled backups",
-		Long:  `Manage recurring backup schedules using crontab.`,
+		Long: `Manage recurring backup schedules using crontab. Backup output is
+logged to backup.log in the installation directory.`,
 	}
 
 	scheduleCmd.AddCommand(scheduleSetCmdCreate())
@@ -29,7 +31,8 @@ func scheduleSetCmdCreate() *cobra.Command {
 		Short: "Set a recurring backup schedule",
 		Long: `Schedule recurring backups using a cron expression. This adds or
 updates a crontab entry that runs 'canasta backup create' on the
-specified schedule. Backup output is logged to /var/log/canasta-backup.log.`,
+specified schedule. Backup output is logged to backup.log in the
+installation directory.`,
 		Example: `  # Schedule daily backups at 2:00 AM
   canasta backup schedule set -i myinstance "0 2 * * *"
 
@@ -118,7 +121,8 @@ func scheduleBackup(cronExpression string) error {
 		return fmt.Errorf("failed to get executable path: %w", err)
 	}
 
-	cmdStr := fmt.Sprintf("%s %s backup create -i %s --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> /var/log/canasta-backup.log 2>&1", cronExpression, executable, instance.Id)
+	logPath := filepath.Join(instance.Path, "backup.log")
+	cmdStr := fmt.Sprintf("%s %s backup create -i %s --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> %s 2>&1", cronExpression, executable, instance.Id, logPath)
 
 	logging.Print(fmt.Sprintf("Scheduling backup with cron: %s", cronExpression))
 
