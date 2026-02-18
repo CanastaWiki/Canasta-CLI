@@ -367,6 +367,14 @@ func RewriteCaddy(installPath string) error {
 	}
 	filePath := installPath + "/config/Caddyfile"
 
+	// Check if CADDY_AUTO_HTTPS is set to "off" in .env (SSL terminated upstream)
+	envPath := installPath + "/.env"
+	envVars, err := GetEnvVariable(envPath)
+	if err != nil {
+		return err
+	}
+	httpOnly := strings.ToLower(envVars["CADDY_AUTO_HTTPS"]) == "off"
+
 	// Remove duplicates from ServerNames
 	ServerNames = removeDuplicates(ServerNames)
 
@@ -383,6 +391,10 @@ func RewriteCaddy(installPath string) error {
 		// Strip any port from server name (e.g., "localhost:8443" -> "localhost")
 		if colonIdx := strings.LastIndex(serverName, ":"); colonIdx != -1 {
 			serverName = serverName[:colonIdx]
+		}
+		// Use explicit http:// when SSL is terminated upstream
+		if httpOnly {
+			siteAddress.WriteString("http://")
 		}
 		siteAddress.WriteString(serverName)
 	}

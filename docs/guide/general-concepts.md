@@ -428,17 +428,23 @@ The presence of sitemap files is the sole signal that controls sitemap behavior:
 
 ## Deploying behind a reverse proxy
 
-When running Canasta behind an external reverse proxy that terminates SSL and forwards requests to Canasta over HTTP (such as nginx, a cloud load balancer, or Cloudflare in "Flexible SSL" mode), you must disable Caddy's automatic HTTPS handling. Otherwise, Caddy may attempt to redirect requests or provision certificates, causing redirect loops or certificate errors.
+When running Canasta behind an external reverse proxy that terminates SSL and forwards requests to Canasta over HTTP (such as nginx, a cloud load balancer, or Cloudflare in "Flexible SSL" mode), you must tell Caddy to serve over HTTP only. Otherwise, Caddy will attempt to provision certificates and listen on HTTPS, causing redirect loops or connection errors.
 
-To configure this, add the following to `config/Caddyfile.global`:
+To configure this, create an env file with the `CADDY_AUTO_HTTPS` setting:
 
-```
-{
-    auto_https off
-}
+```env
+CADDY_AUTO_HTTPS=off
 ```
 
-Then restart the installation:
+Pass this file when creating the installation:
+
+```bash
+canasta create -i myinstance -w main -n example.com -a admin -e custom.env
+```
+
+This generates a Caddyfile with `http://` site addresses so Caddy listens on port 80 only.
+
+For an existing installation, add `CADDY_AUTO_HTTPS=off` to the `.env` file and restart:
 
 ```bash
 canasta restart -i myinstance
