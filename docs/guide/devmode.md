@@ -271,7 +271,7 @@ installation/
 ├── config/
 │   ├── wikis.yaml            # Wiki farm configuration
 │   ├── Caddyfile             # Generated reverse proxy config (do not edit)
-│   ├── Caddyfile.custom      # User customizations for Caddy
+│   ├── Caddyfile.site         # User customizations for Caddy site block
 │   ├── xdebug.ini            # Xdebug configuration
 │   ├── admin-password_{wikiid}  # Generated admin password per wiki
 │   └── settings/

@@ -73,8 +73,8 @@ After creating a Canasta installation, the directory contains:
 ├── config/
 │   ├── wikis.yaml                 # Wiki definition (IDs, URLs, display names)
 │   ├── Caddyfile                  # Generated reverse proxy config (do not edit)
-│   ├── Caddyfile.custom           # User customizations for Caddy site block
-│   ├── Caddyfile.global           # User customizations for Caddy global options
+│   ├── Caddyfile.site             # User customizations for Caddy site block
+│   ├── Caddyfile.global           # User global options and extra site blocks
 │   ├── admin-password_{wiki-id}   # Generated admin password per wiki
 │   └── settings/
 │       ├── global/                # PHP settings loaded for all wikis
@@ -159,13 +159,13 @@ Do not set `$wgSitename` in PHP settings files — it is configured automaticall
 
 `$wgMetaNamespace` provides an alias for the Project namespace (the `Project:` prefix always works as well). It is derived from the display name with spaces replaced by underscores. For example, a wiki named "Project Documentation" will get the alias `Project_Documentation:`. If you need a different alias, you can override `$wgMetaNamespace` in a per-wiki settings file (use underscores instead of spaces).
 
-### Caddyfile, Caddyfile.custom, and Caddyfile.global
+### Caddyfile, Caddyfile.site, and Caddyfile.global
 
 Canasta uses [Caddy](https://caddyserver.com/) as its reverse proxy. The `config/Caddyfile` is auto-generated from `wikis.yaml` and is overwritten whenever wikis are added or removed — do not edit it directly.
 
-To add custom Caddy directives for the site block (headers, rewrites, etc.), edit `config/Caddyfile.custom`. To add global Caddy options, edit `config/Caddyfile.global`. Both files are imported by the generated Caddyfile and are never overwritten.
+To add custom Caddy directives for the site block (headers, rewrites, etc.), edit `config/Caddyfile.site`. To add global Caddy options or additional site blocks (e.g., a www-to-non-www redirect), edit `config/Caddyfile.global`. Both files are imported by the generated Caddyfile and are never overwritten.
 
-Example `Caddyfile.custom`:
+Example `Caddyfile.site`:
 
 ```
 header X-Frame-Options "SAMEORIGIN"
@@ -428,7 +428,7 @@ The presence of sitemap files is the sole signal that controls sitemap behavior:
 
 ## Deploying behind a reverse proxy
 
-When running Canasta behind an external reverse proxy that terminates SSL and forwards requests to Canasta over HTTP (such as nginx, a cloud load balancer, or Cloudflare in "Flexible SSL" mode), you must disable Caddy's automatic HTTPS handling. Otherwise, Caddy may attempt to redirect requests or provision certificates, causing redirect loops or certificate errors.
+When running Canasta behind an external reverse proxy that terminates SSL and forwards requests to Canasta over HTTP (such as nginx, a cloud load balancer, or Cloudflare in "Flexible SSL" mode), you must tell Caddy to serve over HTTP only. Otherwise, Caddy will attempt to provision certificates and listen on HTTPS, causing redirect loops or connection errors.
 
 To configure this, create an env file with the `CADDY_AUTO_HTTPS` setting:
 
@@ -442,12 +442,13 @@ Pass this file when creating the installation:
 canasta create -i myinstance -w main -n example.com -a admin -e custom.env
 ```
 
-This generates a Caddyfile with:
+This generates a Caddyfile with `http://` site addresses so Caddy listens on port 80 only.
 
-- `auto_https off` in the global options block (disables automatic certificate provisioning)
-- `header_up Host {host}` in the reverse proxy directive (preserves the original Host header through the proxy chain)
+For an existing installation, add `CADDY_AUTO_HTTPS=off` to the `.env` file and restart:
 
-For an existing installation, add `CADDY_AUTO_HTTPS=off` to the `.env` file and run `canasta upgrade` to regenerate the Caddyfile.
+```bash
+canasta restart -i myinstance
+```
 
 ---
 
