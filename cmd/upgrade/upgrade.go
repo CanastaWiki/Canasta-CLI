@@ -285,6 +285,15 @@ func runMigration(installPath string, dryRun bool) (bool, error) {
 		changed = true
 	}
 
+	// Step 6: Ensure observability credentials if observable profile is active
+	obsChanged, err := ensureObservabilityCredentials(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if obsChanged {
+		changed = true
+	}
+
 	if !changed {
 		fmt.Println("No config migrations needed.")
 	} else if dryRun {
@@ -532,6 +541,43 @@ func removeEmptyComposerLocal(installPath string, dryRun bool) (bool, error) {
 		if err := os.Remove(filePath); err != nil {
 			return false, fmt.Errorf("failed to remove composer.local.json: %w", err)
 		}
+	}
+
+	return true, nil
+}
+
+// ensureObservabilityCredentials generates OpenSearch credentials if the observable
+// profile is active and credentials are missing, then rewrites the Caddyfile.
+func ensureObservabilityCredentials(installPath string, dryRun bool) (bool, error) {
+	envPath := filepath.Join(installPath, ".env")
+	envVars, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		return false, err
+	}
+
+	if !canasta.ContainsProfile(envVars["COMPOSE_PROFILES"], "observable") {
+		return false, nil
+	}
+
+	// Check if credentials already exist
+	if envVars["OS_USER"] != "" && envVars["OS_PASSWORD"] != "" && envVars["OS_PASSWORD_HASH"] != "" {
+		return false, nil
+	}
+
+	if dryRun {
+		fmt.Println("  Would generate OpenSearch credentials (OS_USER, OS_PASSWORD, OS_PASSWORD_HASH)")
+		fmt.Println("  Would update Caddyfile with OpenSearch reverse proxy block")
+		return true, nil
+	}
+
+	fmt.Println("  Generating OpenSearch credentials...")
+	if _, err := canasta.EnsureObservabilityCredentials(installPath); err != nil {
+		return false, fmt.Errorf("failed to generate observability credentials: %w", err)
+	}
+
+	fmt.Println("  Updating Caddyfile with OpenSearch reverse proxy block")
+	if err := canasta.RewriteCaddy(installPath); err != nil {
+		return false, fmt.Errorf("failed to rewrite Caddyfile: %w", err)
 	}
 
 	return true, nil

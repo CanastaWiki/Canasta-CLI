@@ -277,6 +277,9 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := canasta.CreateCaddyfileGlobal(path); err != nil {
 		return err
 	}
+	if _, err := canasta.EnsureObservabilityCredentials(path); err != nil {
+		return err
+	}
 	if err := canasta.RewriteCaddy(path); err != nil {
 		return err
 	}
