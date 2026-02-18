@@ -6,6 +6,27 @@ import (
 	"testing"
 )
 
+// capturePrintOutput sets up log capture and state cleanup, calls fn,
+// then returns the captured output. All global state (log output, log
+// flags, verbose) is restored after fn returns.
+func capturePrintOutput(t *testing.T, verbose bool, fn func()) string {
+	t.Helper()
+
+	originalFlags := log.Flags()
+	defer log.SetFlags(originalFlags)
+
+	var buf bytes.Buffer
+	oldOutput := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(oldOutput)
+
+	SetVerbose(verbose)
+	defer SetVerbose(false)
+
+	fn()
+	return buf.String()
+}
+
 func TestSetVerboseTrue(t *testing.T) {
 	SetVerbose(true)
 	defer SetVerbose(false)
@@ -50,58 +71,30 @@ func TestSetVerboseToggle(t *testing.T) {
 }
 
 func TestPrintWhenVerboseIsTrue(t *testing.T) {
-	originalFlags := log.Flags()
-	defer log.SetFlags(originalFlags)
-
-	var buf bytes.Buffer
-	oldOutput := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(oldOutput)
-
-	SetVerbose(true)
-	defer SetVerbose(false)
-	Print("hello verbose")
-	if buf.Len() == 0 {
+	got := capturePrintOutput(t, true, func() {
+		Print("hello verbose")
+	})
+	if got == "" {
 		t.Error("expected output when verbose is true, got nothing")
 	}
-	got := buf.String()
 	if got != "hello verbose\n" {
 		t.Errorf("expected %q, got %q", "hello verbose\n", got)
 	}
 }
 
 func TestPrintWhenVerboseIsFalse(t *testing.T) {
-	originalFlags := log.Flags()
-	defer log.SetFlags(originalFlags)
-
-	var buf bytes.Buffer
-	oldOutput := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(oldOutput)
-
-	SetVerbose(false)
-	defer SetVerbose(false)
-	Print("should not appear")
-
-	if buf.Len() != 0 {
-		t.Errorf("expected no output when verbose is false, got %q", buf.String())
+	got := capturePrintOutput(t, false, func() {
+		Print("should not appear")
+	})
+	if got != "" {
+		t.Errorf("expected no output when verbose is false, got %q", got)
 	}
 }
 
 func TestPrintEmptyString(t *testing.T) {
-	originalFlags := log.Flags()
-	defer log.SetFlags(originalFlags)
-
-	var buf bytes.Buffer
-	oldOutput := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(oldOutput)
-
-	SetVerbose(true)
-	defer SetVerbose(false)
-	Print("")
-
-	got := buf.String()
+	got := capturePrintOutput(t, true, func() {
+		Print("")
+	})
 	// log.Print("") still prints a newline
 	if got != "\n" {
 		t.Errorf("expected %q for empty Print, got %q", "\n", got)
@@ -109,20 +102,10 @@ func TestPrintEmptyString(t *testing.T) {
 }
 
 func TestPrintMultipleCalls(t *testing.T) {
-	originalFlags := log.Flags()
-	defer log.SetFlags(originalFlags)
-
-	var buf bytes.Buffer
-	oldOutput := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(oldOutput)
-
-	SetVerbose(true)
-	defer SetVerbose(false)
-	Print("line1")
-	Print("line2")
-
-	got := buf.String()
+	got := capturePrintOutput(t, true, func() {
+		Print("line1")
+		Print("line2")
+	})
 	expected := "line1\nline2\n"
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
@@ -130,25 +113,19 @@ func TestPrintMultipleCalls(t *testing.T) {
 }
 
 func TestPrintClearsLogFlags(t *testing.T) {
-	// Capture and restore original flags
+	// Set flags to something non-zero before calling Print
 	originalFlags := log.Flags()
 	defer log.SetFlags(originalFlags)
-
-	// Set flags to something non-zero first
 	log.SetFlags(log.Ldate | log.Ltime)
 
-	var buf bytes.Buffer
+	got := capturePrintOutput(t, true, func() {
+		Print("test")
+	})
 
-	oldOutput := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(oldOutput)
-
-	SetVerbose(true)
-	defer SetVerbose(false)
-	Print("test")
-
-	// After Print, flags should be 0
-	if log.Flags() != 0 {
-		t.Errorf("expected log flags to be 0 after Print, got %d", log.Flags())
+	// Ensure the emitted log line has no date/time prefix,
+	// even though flags were non-zero before the call.
+	expected := "test\n"
+	if got != expected {
+		t.Errorf("expected %q without date/time prefix, got %q", expected, got)
 	}
 }
