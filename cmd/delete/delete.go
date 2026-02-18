@@ -1,9 +1,11 @@
 package start
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -24,17 +26,33 @@ func NewCmdCreate() *cobra.Command {
 	}
 	instance.Path = workingDir
 
+	var yes bool
+
 	var deleteCmd = &cobra.Command{
 		Use:   "delete",
 		Short: "Delete a Canasta installation",
 		Long: `Permanently delete a Canasta installation. This stops and removes all
 Docker containers and volumes, deletes all configuration files and data,
-and removes the installation from the Canasta registry.`,
+and removes the installation from the Canasta registry. You will be
+prompted for confirmation before any data is deleted.`,
 		Example: `  # Delete an installation by ID
-  canasta delete -i myinstance`,
+  canasta delete -i myinstance
+
+  # Delete without confirmation prompt
+  canasta delete -i myinstance -y`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
+			}
+			if !yes {
+				reader := bufio.NewReader(os.Stdin)
+				fmt.Printf("This will permanently delete the Canasta installation '%s' and all its data. Continue? [y/N] ", instance.Id)
+				text, _ := reader.ReadString('\n')
+				text = strings.ToLower(strings.TrimSpace(text))
+				if text != "y" {
+					fmt.Println("Operation cancelled.")
+					return nil
+				}
 			}
 			if err := Delete(instance); err != nil {
 				return err
@@ -43,6 +61,7 @@ and removes the installation from the Canasta registry.`,
 		},
 	}
 	deleteCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	deleteCmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
 	return deleteCmd
 }
 
