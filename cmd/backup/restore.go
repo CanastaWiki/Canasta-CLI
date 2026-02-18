@@ -151,6 +151,15 @@ func restoreFull(env map[string]string) error {
 	}
 	logging.Print("Copied files...")
 
+	logging.Print("Preserving database passwords...")
+	for _, key := range []string{"MYSQL_PASSWORD", "WIKI_DB_PASSWORD"} {
+		if val, ok := env[key]; ok {
+			if err := canasta.SaveEnvVariable(filepath.Join(instance.Path, ".env"), key, val); err != nil {
+				return fmt.Errorf("failed to preserve %s in .env: %w", key, err)
+			}
+		}
+	}
+
 	logging.Print("Restoring database...")
 	wikiIDs, err := getWikiIDsForRestore(instance.Path)
 	if err != nil {
