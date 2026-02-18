@@ -50,6 +50,9 @@ func TestSetVerboseToggle(t *testing.T) {
 }
 
 func TestPrintWhenVerboseIsTrue(t *testing.T) {
+	originalFlags := log.Flags()
+	defer log.SetFlags(originalFlags)
+
 	var buf bytes.Buffer
 	oldOutput := log.Writer()
 	log.SetOutput(&buf)
@@ -68,6 +71,9 @@ func TestPrintWhenVerboseIsTrue(t *testing.T) {
 }
 
 func TestPrintWhenVerboseIsFalse(t *testing.T) {
+	originalFlags := log.Flags()
+	defer log.SetFlags(originalFlags)
+
 	var buf bytes.Buffer
 	oldOutput := log.Writer()
 	log.SetOutput(&buf)
@@ -83,6 +89,9 @@ func TestPrintWhenVerboseIsFalse(t *testing.T) {
 }
 
 func TestPrintEmptyString(t *testing.T) {
+	originalFlags := log.Flags()
+	defer log.SetFlags(originalFlags)
+
 	var buf bytes.Buffer
 	oldOutput := log.Writer()
 	log.SetOutput(&buf)
@@ -100,6 +109,9 @@ func TestPrintEmptyString(t *testing.T) {
 }
 
 func TestPrintMultipleCalls(t *testing.T) {
+	originalFlags := log.Flags()
+	defer log.SetFlags(originalFlags)
+
 	var buf bytes.Buffer
 	oldOutput := log.Writer()
 	log.SetOutput(&buf)
