@@ -29,10 +29,10 @@ Essentially, preparing your Linux server to be a Canasta host by installing the 
 `sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` once you've
 added the Docker repositories to your system.
 
-On Linux, you also need Docker access for your user account. Add your user to the `docker` group, then log out and log back in:
+On Linux, you also need Docker access and file permission for your user account. Add your user to the `docker` and `www-data` groups, then log out and log back in:
 
 ```bash
-sudo usermod -aG docker $USER
+sudo usermod -aG docker,www-data $USER
 ```
 
 ## Install
