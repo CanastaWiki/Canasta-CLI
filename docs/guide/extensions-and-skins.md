@@ -10,6 +10,7 @@
   - [Enabling multiple at once](#enabling-multiple-at-once)
 - [Disabling extensions and skins](#disabling-extensions-and-skins)
 - [Adding extensions not bundled with Canasta](#adding-extensions-not-bundled-with-canasta)
+  - [Overriding a bundled extension](#overriding-a-bundled-extension)
   - [Composer dependencies](#composer-dependencies)
 - [Semantic MediaWiki](#semantic-mediawiki)
 - [CirrusSearch / Elasticsearch](#cirussearch--elasticsearch)
@@ -125,6 +126,22 @@ canasta restart -i myinstance
 ```
 
 User extensions are not shown by `canasta extension list` and cannot be managed with `enable`/`disable`. They are loaded by the settings files you create.
+
+### Overriding a bundled extension
+
+If you need a different version of an extension than the one bundled with Canasta, you can override it by placing your version in the `extensions/` (or `skins/`) directory with the same name. This is useful when you need a newer release, a patched fork, or a development branch of a bundled extension.
+
+This works because the host's `extensions/` directory is mounted to `user-extensions/` inside the container, and user extensions are symlinked into the final `extensions/` directory *after* bundled extensions, so they take precedence.
+
+To override a bundled extension:
+
+1. Place your version of the extension in `extensions/{ExtensionName}/`
+2. Restart the installation: `canasta restart -i myinstance`
+3. The bundled version will be ignored in favor of yours
+
+No changes to settings files are needed — the existing `wfLoadExtension()` call (whether CLI-managed or manual) will load from your copy automatically.
+
+To revert to the bundled version, remove your copy from `extensions/` and restart.
 
 ### Composer dependencies
 
