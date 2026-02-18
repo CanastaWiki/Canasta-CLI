@@ -74,7 +74,7 @@ After creating a Canasta installation, the directory contains:
 │   ├── wikis.yaml                 # Wiki definition (IDs, URLs, display names)
 │   ├── Caddyfile                  # Generated reverse proxy config (do not edit)
 │   ├── Caddyfile.custom           # User customizations for Caddy site block
-│   ├── Caddyfile.global           # User customizations for Caddy global options
+│   ├── Caddyfile.global           # User global options and extra site blocks
 │   ├── admin-password_{wiki-id}   # Generated admin password per wiki
 │   └── settings/
 │       ├── global/                # PHP settings loaded for all wikis
@@ -163,7 +163,7 @@ Do not set `$wgSitename` in PHP settings files — it is configured automaticall
 
 Canasta uses [Caddy](https://caddyserver.com/) as its reverse proxy. The `config/Caddyfile` is auto-generated from `wikis.yaml` and is overwritten whenever wikis are added or removed — do not edit it directly.
 
-To add custom Caddy directives for the site block (headers, rewrites, etc.), edit `config/Caddyfile.custom`. To add global Caddy options, edit `config/Caddyfile.global`. Both files are imported by the generated Caddyfile and are never overwritten.
+To add custom Caddy directives for the site block (headers, rewrites, etc.), edit `config/Caddyfile.custom`. To add global Caddy options or additional site blocks (e.g., a www-to-non-www redirect), edit `config/Caddyfile.global`. Both files are imported by the generated Caddyfile and are never overwritten.
 
 Example `Caddyfile.custom`:
 
@@ -430,24 +430,27 @@ The presence of sitemap files is the sole signal that controls sitemap behavior:
 
 When running Canasta behind an external reverse proxy that terminates SSL and forwards requests to Canasta over HTTP (such as nginx, a cloud load balancer, or Cloudflare in "Flexible SSL" mode), you must disable Caddy's automatic HTTPS handling. Otherwise, Caddy may attempt to redirect requests or provision certificates, causing redirect loops or certificate errors.
 
-To configure this, create an env file with the `CADDY_AUTO_HTTPS` setting:
+To configure this, add the following to `config/Caddyfile.global`:
 
-```env
-CADDY_AUTO_HTTPS=off
+```
+{
+    auto_https off
+}
 ```
 
-Pass this file when creating the installation:
+If the upstream proxy does not forward the original `Host` header, you may also need to add a `header_up` directive. To do this, add the following to `config/Caddyfile.custom`:
+
+```
+reverse_proxy varnish:80 {
+    header_up Host {host}
+}
+```
+
+Then restart the installation:
 
 ```bash
-canasta create -i myinstance -w main -n example.com -a admin -e custom.env
+canasta restart -i myinstance
 ```
-
-This generates a Caddyfile with:
-
-- `auto_https off` in the global options block (disables automatic certificate provisioning)
-- `header_up Host {host}` in the reverse proxy directive (preserves the original Host header through the proxy chain)
-
-For an existing installation, add `CADDY_AUTO_HTTPS=off` to the `.env` file and run `canasta upgrade` to regenerate the Caddyfile.
 
 ---
 
