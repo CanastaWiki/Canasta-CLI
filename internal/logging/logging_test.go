@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestSetVerbose_True(t *testing.T) {
+func TestSetVerboseTrue(t *testing.T) {
 	SetVerbose(true)
 	defer SetVerbose(false)
 	if !GetVerbose() {
@@ -14,7 +14,7 @@ func TestSetVerbose_True(t *testing.T) {
 	}
 }
 
-func TestSetVerbose_False(t *testing.T) {
+func TestSetVerboseFalse(t *testing.T) {
 	SetVerbose(true)
 	SetVerbose(false)
 	defer SetVerbose(false)
@@ -23,7 +23,7 @@ func TestSetVerbose_False(t *testing.T) {
 	}
 }
 
-func TestGetVerbose_DefaultIsFalse(t *testing.T) {
+func TestGetVerboseDefaultIsFalse(t *testing.T) {
 	// Reset verbose to its zero value
 	SetVerbose(false)
 	defer SetVerbose(false)
@@ -32,7 +32,7 @@ func TestGetVerbose_DefaultIsFalse(t *testing.T) {
 	}
 }
 
-func TestSetVerbose_Toggle(t *testing.T) {
+func TestSetVerboseToggle(t *testing.T) {
 	SetVerbose(false)
 	defer SetVerbose(false)
 	SetVerbose(true)
@@ -49,7 +49,7 @@ func TestSetVerbose_Toggle(t *testing.T) {
 	}
 }
 
-func TestPrint_WhenVerboseIsTrue(t *testing.T) {
+func TestPrintWhenVerboseIsTrue(t *testing.T) {
 	var buf bytes.Buffer
 	oldOutput := log.Writer()
 	log.SetOutput(&buf)
@@ -67,7 +67,7 @@ func TestPrint_WhenVerboseIsTrue(t *testing.T) {
 	}
 }
 
-func TestPrint_WhenVerboseIsFalse(t *testing.T) {
+func TestPrintWhenVerboseIsFalse(t *testing.T) {
 	var buf bytes.Buffer
 	oldOutput := log.Writer()
 	log.SetOutput(&buf)
@@ -82,7 +82,7 @@ func TestPrint_WhenVerboseIsFalse(t *testing.T) {
 	}
 }
 
-func TestPrint_EmptyString(t *testing.T) {
+func TestPrintEmptyString(t *testing.T) {
 	var buf bytes.Buffer
 	oldOutput := log.Writer()
 	log.SetOutput(&buf)
@@ -99,7 +99,7 @@ func TestPrint_EmptyString(t *testing.T) {
 	}
 }
 
-func TestPrint_MultipleCalls(t *testing.T) {
+func TestPrintMultipleCalls(t *testing.T) {
 	var buf bytes.Buffer
 	oldOutput := log.Writer()
 	log.SetOutput(&buf)
@@ -117,7 +117,11 @@ func TestPrint_MultipleCalls(t *testing.T) {
 	}
 }
 
-func TestPrint_ClearsLogFlags(t *testing.T) {
+func TestPrintClearsLogFlags(t *testing.T) {
+	// Capture and restore original flags
+	originalFlags := log.Flags()
+	defer log.SetFlags(originalFlags)
+
 	// Set flags to something non-zero first
 	log.SetFlags(log.Ldate | log.Ltime)
 
