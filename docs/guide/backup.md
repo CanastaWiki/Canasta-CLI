@@ -79,15 +79,17 @@ Replace `abc123` with the snapshot ID from `canasta backup list`. By default, a 
 canasta backup restore -i myinstance -s abc123 --skip-safety-backup
 ```
 
-### Restoring a single wiki's database
+### Restoring a single wiki
 
-To restore only one wiki's database from a backup without overwriting shared files (config, extensions, skins, images, etc.):
+To restore only one wiki from a backup without affecting the rest of the installation:
 
 ```bash
 canasta backup restore -i myinstance -s abc123 -w wiki2
 ```
 
-This is useful when you need to roll back a single wiki in a farm without affecting the rest of the installation. The wiki ID must exist in the current installation's `wikis.yaml`.
+This restores the wiki's database, per-wiki settings (`config/settings/wikis/{id}/`), images (`images/{id}/`), and public assets (`public_assets/{id}/`). Shared files like global config, extensions, and skins are left untouched.
+
+The wiki ID must exist in the current installation's `wikis.yaml`.
 
 ### Restoring a backup to a different instance
 

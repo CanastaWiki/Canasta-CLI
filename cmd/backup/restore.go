@@ -28,8 +28,8 @@ snapshot is taken before restoring. The restore replaces configuration files,
 extensions, images, skins, public_assets, .env, docker-compose.override.yml,
 my.cnf, and all wiki databases with the contents of the specified snapshot.
 
-Use -w/--wiki to restore only a single wiki's database from the backup,
-leaving all shared files (config, extensions, skins, images, etc.) untouched.`,
+Use -w/--wiki to restore only a single wiki's database, per-wiki settings,
+images, and public assets from the backup, leaving shared files untouched.`,
 		Example: `  # Restore a snapshot by ID
   canasta backup restore -i myinstance -s abc123
 
@@ -45,7 +45,7 @@ leaving all shared files (config, extensions, skins, images, etc.) untouched.`,
 
 	restoreCmd.Flags().StringVarP(&snapshotId, "snapshot", "s", "", "Snapshot ID (required)")
 	restoreCmd.Flags().BoolVar(&skipBeforeSnapshot, "skip-safety-backup", false, "Skip taking a safety backup before restore")
-	restoreCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "Restore only this wiki's database (skips shared files)")
+	restoreCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "Restore only this wiki's database and per-wiki files")
 	_ = restoreCmd.MarkFlagRequired("snapshot")
 	return restoreCmd
 }
@@ -76,8 +76,8 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool, wikiID string) 
 	return restoreFull(EnvVariables)
 }
 
-// restoreWiki restores only a single wiki's database from a backup,
-// leaving all shared files (config, extensions, skins, images, etc.) untouched.
+// restoreWiki restores a single wiki's database, per-wiki settings, images,
+// and public assets from a backup, leaving shared files untouched.
 func restoreWiki(wikiID string, env map[string]string) error {
 	// Validate that the wiki ID exists in the current installation's wikis.yaml
 	wikiIDs, err := getWikiIDs(instance.Path)
@@ -95,10 +95,17 @@ func restoreWiki(wikiID string, env map[string]string) error {
 		return fmt.Errorf("wiki '%s' not found in current installation's wikis.yaml", wikiID)
 	}
 
-	// Copy only the backup directory from the backup volume
-	logging.Print("Copying database dump from backup volume...")
+	// Copy per-wiki files from the backup volume:
+	// - database dump from config/backup/
+	// - per-wiki settings from config/settings/wikis/{wikiID}/
+	// - per-wiki images from images/{wikiID}/
+	// - per-wiki public assets from public_assets/{wikiID}/
+	logging.Print("Copying per-wiki files from backup volume...")
 	paths := map[string]string{
 		"/currentsnapshot/config/backup": filepath.Join(instance.Path, "config", "backup"),
+		fmt.Sprintf("/currentsnapshot/config/settings/wikis/%s", wikiID): filepath.Join(instance.Path, "config", "settings", "wikis", wikiID),
+		fmt.Sprintf("/currentsnapshot/images/%s", wikiID):                filepath.Join(instance.Path, "images", wikiID),
+		fmt.Sprintf("/currentsnapshot/public_assets/%s", wikiID):         filepath.Join(instance.Path, "public_assets", wikiID),
 	}
 	if err := orch.RestoreFromBackupVolume(instance.Path, paths); err != nil {
 		return err
@@ -121,10 +128,10 @@ func restoreWiki(wikiID string, env map[string]string) error {
 		return fmt.Errorf("Database restore failed for wiki '%s': %w", wikiID, restoreErr)
 	}
 
-	// Clean up
+	// Clean up the database dump directory
 	os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
 
-	logging.Print("Database restore completed")
+	logging.Print("Per-wiki restore completed")
 	fmt.Printf("Restore completed for wiki '%s'\n", wikiID)
 	return nil
 }
