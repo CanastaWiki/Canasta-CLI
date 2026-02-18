@@ -100,3 +100,7 @@ nav:
       - diff: cli/canasta_backup_diff.md
       - unlock: cli/canasta_backup_unlock.md
       - schedule: cli/canasta_backup_schedule.md
+    - sitemap:
+      - Overview: cli/canasta_sitemap.md
+      - init: cli/canasta_sitemap_generate.md
+      - list: cli/canasta_sitemap_delete.md
