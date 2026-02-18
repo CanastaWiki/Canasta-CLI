@@ -126,5 +126,6 @@ docker compose exec web bash
   ```
 
 **Permission denied errors**
-- Ensure your user has Docker access (see above)
+- Ensure your user is in the `docker` and `www-data` groups (on Linux: `sudo usermod -aG docker,www-data $USER`, then log out and back in)
+- The `docker` group is needed for Docker access; the `www-data` group is needed because the web container runs as `www-data` and shares the `config/` directory
 - Ensure the installation directory has proper ownership
