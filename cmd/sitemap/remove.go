@@ -14,6 +14,7 @@ import (
 
 func removeCmdCreate() *cobra.Command {
 	var wikiID string
+	var yes bool
 
 	cmd := &cobra.Command{
 		Use:   "remove",
@@ -25,18 +26,22 @@ for all wikis. Once removed, the background generator will skip those wikis.`,
   canasta sitemap remove -i myinstance -w mywiki
 
   # Remove sitemaps for all wikis
-  canasta sitemap remove -i myinstance`,
+  canasta sitemap remove -i myinstance
+
+  # Remove sitemaps for all wikis without prompting
+  canasta sitemap remove -i myinstance -y`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRemove(wikiID)
+			return runRemove(wikiID, yes)
 		},
 	}
 
 	cmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "Wiki ID (omit to remove for all wikis)")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
 
 	return cmd
 }
 
-func runRemove(wikiID string) error {
+func runRemove(wikiID string, yes bool) error {
 	// Check containers are running
 	if err := orch.CheckRunningStatus(instance); err != nil {
 		return fmt.Errorf("containers are not running: %w", err)
@@ -52,14 +57,15 @@ func runRemove(wikiID string) error {
 	var wikiIDs []string
 
 	if removingAll {
-		// Confirm before removing all
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("Remove sitemaps for all wikis? [y/N] ")
-		text, _ := reader.ReadString('\n')
-		text = strings.ToLower(strings.TrimSpace(text))
-		if text != "y" {
-			fmt.Println("Operation cancelled.")
-			return nil
+		if !yes {
+			reader := bufio.NewReader(os.Stdin)
+			fmt.Print("Remove sitemaps for all wikis? [y/N] ")
+			text, _ := reader.ReadString('\n')
+			text = strings.ToLower(strings.TrimSpace(text))
+			if text != "y" {
+				fmt.Println("Operation cancelled.")
+				return nil
+			}
 		}
 		wikiIDs = ids
 	} else {

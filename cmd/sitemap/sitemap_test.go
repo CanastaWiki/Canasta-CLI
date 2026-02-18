@@ -80,4 +80,12 @@ func TestRemoveCmd(t *testing.T) {
 	if wikiFlag.Shorthand != "w" {
 		t.Errorf("expected wiki shorthand 'w', got %q", wikiFlag.Shorthand)
 	}
+
+	yesFlag := cmd.Flags().Lookup("yes")
+	if yesFlag == nil {
+		t.Error("expected flag 'yes'")
+	}
+	if yesFlag.Shorthand != "y" {
+		t.Errorf("expected yes shorthand 'y', got %q", yesFlag.Shorthand)
+	}
 }
