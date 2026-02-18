@@ -102,5 +102,5 @@ nav:
       - schedule: cli/canasta_backup_schedule.md
     - sitemap:
       - Overview: cli/canasta_sitemap.md
-      - init: cli/canasta_sitemap_generate.md
-      - list: cli/canasta_sitemap_delete.md
+      - generate: cli/canasta_sitemap_generate.md
+      - remove: cli/canasta_sitemap_remove.md
