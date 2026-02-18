@@ -55,13 +55,6 @@ func runGenerate(wikiID string) error {
 	}
 	scheme := extractScheme(envVars["MW_SITE_SERVER"])
 
-	// Get wgScriptPath from inside the container
-	scriptPathCmd := `php /getMediawikiSettings.php --variable="wgScriptPath" --format="string"`
-	scriptPath, err := orch.ExecWithError(instance.Path, "web", scriptPathCmd)
-	if err != nil {
-		return fmt.Errorf("failed to get wgScriptPath: %w", err)
-	}
-
 	// Determine which wikis to generate for
 	type wikiInfo struct {
 		id         string
@@ -108,8 +101,8 @@ func runGenerate(wikiID string) error {
 		// Run generateSitemap.php
 		fmt.Printf("Generating sitemap for wiki '%s'...\n", wiki.id)
 		genCmd := fmt.Sprintf(
-			"php /mediawiki/maintenance/generateSitemap.php --wiki=%s --fspath=%s --urlpath=%s/public_assets/sitemap --compress yes --server=%s --skip-redirects --identifier=%s",
-			wiki.id, fspath, scriptPath, serverURL, wiki.id,
+			"php maintenance/generateSitemap.php --wiki=%s --fspath=%s --urlpath=/public_assets/sitemap --compress yes --server=%s --skip-redirects --identifier=%s",
+			wiki.id, fspath, serverURL, wiki.id,
 		)
 		if err := orch.ExecStreaming(instance.Path, "web", genCmd); err != nil {
 			return fmt.Errorf("failed to generate sitemap for wiki '%s': %w", wiki.id, err)
