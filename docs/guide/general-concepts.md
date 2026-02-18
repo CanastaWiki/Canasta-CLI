@@ -73,7 +73,7 @@ After creating a Canasta installation, the directory contains:
 ├── config/
 │   ├── wikis.yaml                 # Wiki definition (IDs, URLs, display names)
 │   ├── Caddyfile                  # Generated reverse proxy config (do not edit)
-│   ├── Caddyfile.custom           # User customizations for Caddy site block
+│   ├── Caddyfile.site             # User customizations for Caddy site block
 │   ├── Caddyfile.global           # User global options and extra site blocks
 │   ├── admin-password_{wiki-id}   # Generated admin password per wiki
 │   └── settings/
@@ -159,13 +159,13 @@ Do not set `$wgSitename` in PHP settings files — it is configured automaticall
 
 `$wgMetaNamespace` provides an alias for the Project namespace (the `Project:` prefix always works as well). It is derived from the display name with spaces replaced by underscores. For example, a wiki named "Project Documentation" will get the alias `Project_Documentation:`. If you need a different alias, you can override `$wgMetaNamespace` in a per-wiki settings file (use underscores instead of spaces).
 
-### Caddyfile, Caddyfile.custom, and Caddyfile.global
+### Caddyfile, Caddyfile.site, and Caddyfile.global
 
 Canasta uses [Caddy](https://caddyserver.com/) as its reverse proxy. The `config/Caddyfile` is auto-generated from `wikis.yaml` and is overwritten whenever wikis are added or removed — do not edit it directly.
 
-To add custom Caddy directives for the site block (headers, rewrites, etc.), edit `config/Caddyfile.custom`. To add global Caddy options or additional site blocks (e.g., a www-to-non-www redirect), edit `config/Caddyfile.global`. Both files are imported by the generated Caddyfile and are never overwritten.
+To add custom Caddy directives for the site block (headers, rewrites, etc.), edit `config/Caddyfile.site`. To add global Caddy options or additional site blocks (e.g., a www-to-non-www redirect), edit `config/Caddyfile.global`. Both files are imported by the generated Caddyfile and are never overwritten.
 
-Example `Caddyfile.custom`:
+Example `Caddyfile.site`:
 
 ```
 header X-Frame-Options "SAMEORIGIN"
@@ -435,14 +435,6 @@ To configure this, add the following to `config/Caddyfile.global`:
 ```
 {
     auto_https off
-}
-```
-
-If the upstream proxy does not forward the original `Host` header, you may also need to add a `header_up` directive. To do this, add the following to `config/Caddyfile.custom`:
-
-```
-reverse_proxy varnish:80 {
-    header_up Host {host}
 }
 ```
 

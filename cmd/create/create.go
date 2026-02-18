@@ -271,7 +271,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			return err
 		}
 	}
-	if err := canasta.CreateCaddyfileCustom(path); err != nil {
+	if err := canasta.CreateCaddyfileSite(path); err != nil {
 		return err
 	}
 	if err := canasta.CreateCaddyfileGlobal(path); err != nil {

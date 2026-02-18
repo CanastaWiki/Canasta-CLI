@@ -12,7 +12,7 @@ func TestIsSkipped(t *testing.T) {
 	}{
 		{"exact match my.cnf", "my.cnf", true},
 		{"exact match override", "docker-compose.override.yml", true},
-		{"exact match caddyfile custom", "config/Caddyfile.custom", true},
+		{"exact match caddyfile site", "config/Caddyfile.site", true},
 		{"exact match composer local", "config/composer.local.json", true},
 		{"exact match default vcl", "config/default.vcl", true},
 		{"directory prefix settings", "config/settings/global/Vector.php", true},

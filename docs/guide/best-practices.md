@@ -45,7 +45,7 @@ The only step that requires `sudo` is installing the CLI binary to `/usr/local/b
 
 - By default, Canasta exposes ports for HTTP/HTTPS traffic
 - Caddy handles SSL/TLS termination automatically
-- To customize Caddy behavior (headers, redirects, etc.), edit `config/Caddyfile.custom` — do not edit `config/Caddyfile` directly as it is regenerated when wikis change
+- To customize Caddy behavior (headers, redirects, etc.), edit `config/Caddyfile.site` — do not edit `config/Caddyfile` directly as it is regenerated when wikis change
 - Review your `docker-compose.override.yml` if you need to customize port bindings or network settings
 
 ---
