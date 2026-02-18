@@ -8,13 +8,16 @@ import (
 
 func TestSetVerbose_True(t *testing.T) {
 	SetVerbose(true)
+	defer SetVerbose(false)
 	if !GetVerbose() {
 		t.Error("expected verbose to be true after SetVerbose(true)")
 	}
 }
 
 func TestSetVerbose_False(t *testing.T) {
+	SetVerbose(true)
 	SetVerbose(false)
+	defer SetVerbose(false)
 	if GetVerbose() {
 		t.Error("expected verbose to be false after SetVerbose(false)")
 	}
@@ -22,12 +25,16 @@ func TestSetVerbose_False(t *testing.T) {
 
 func TestGetVerbose_DefaultIsFalse(t *testing.T) {
 	// Reset verbose to its zero value
+	SetVerbose(false)
+	defer SetVerbose(false)
 	if GetVerbose() {
 		t.Error("expected default verbose to be false")
 	}
 }
 
 func TestSetVerbose_Toggle(t *testing.T) {
+	SetVerbose(false)
+	defer SetVerbose(false)
 	SetVerbose(true)
 	if !GetVerbose() {
 		t.Fatal("expected verbose=true")
@@ -49,6 +56,7 @@ func TestPrint_WhenVerboseIsTrue(t *testing.T) {
 	defer log.SetOutput(oldOutput)
 
 	SetVerbose(true)
+	defer SetVerbose(false)
 	Print("hello verbose")
 	if buf.Len() == 0 {
 		t.Error("expected output when verbose is true, got nothing")
@@ -66,6 +74,7 @@ func TestPrint_WhenVerboseIsFalse(t *testing.T) {
 	defer log.SetOutput(oldOutput)
 
 	SetVerbose(false)
+	defer SetVerbose(false)
 	Print("should not appear")
 
 	if buf.Len() != 0 {
@@ -75,10 +84,12 @@ func TestPrint_WhenVerboseIsFalse(t *testing.T) {
 
 func TestPrint_EmptyString(t *testing.T) {
 	var buf bytes.Buffer
+	oldOutput := log.Writer()
 	log.SetOutput(&buf)
-	defer log.SetOutput(nil)
+	defer log.SetOutput(oldOutput)
 
 	SetVerbose(true)
+	defer SetVerbose(false)
 	Print("")
 
 	got := buf.String()
@@ -90,10 +101,12 @@ func TestPrint_EmptyString(t *testing.T) {
 
 func TestPrint_MultipleCalls(t *testing.T) {
 	var buf bytes.Buffer
+	oldOutput := log.Writer()
 	log.SetOutput(&buf)
-	defer log.SetOutput(nil)
+	defer log.SetOutput(oldOutput)
 
 	SetVerbose(true)
+	defer SetVerbose(false)
 	Print("line1")
 	Print("line2")
 
@@ -108,12 +121,14 @@ func TestPrint_ClearsLogFlags(t *testing.T) {
 	// Set flags to something non-zero first
 	log.SetFlags(log.Ldate | log.Ltime)
 
-	SetVerbose(true)
-
 	var buf bytes.Buffer
-	log.SetOutput(&buf)
-	defer log.SetOutput(nil)
 
+	oldOutput := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(oldOutput)
+
+	SetVerbose(true)
+	defer SetVerbose(false)
 	Print("test")
 
 	// After Print, flags should be 0
