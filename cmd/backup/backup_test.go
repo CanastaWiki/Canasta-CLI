@@ -106,6 +106,28 @@ func TestGetWikiIDsForRestore(t *testing.T) {
 		}
 	})
 
+	t.Run("single wiki dump present", func(t *testing.T) {
+		singleDir := t.TempDir()
+		writeWikisYaml(t, singleDir, wikis)
+
+		backupDir := filepath.Join(singleDir, "config", "backup")
+		if err := os.MkdirAll(backupDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		// Only create dump for wiki2, not main
+		if err := os.WriteFile(filepath.Join(backupDir, "db_wiki2.sql"), []byte("-- dump"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		ids, err := getWikiIDsForRestore(singleDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ids) != 1 || ids[0] != "wiki2" {
+			t.Errorf("got %v, want [wiki2]", ids)
+		}
+	})
+
 	t.Run("missing wikis.yaml returns error", func(t *testing.T) {
 		emptyDir := t.TempDir()
 		_, err := getWikiIDsForRestore(emptyDir)
