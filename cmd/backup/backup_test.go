@@ -3,10 +3,12 @@ package backup
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	yaml "gopkg.in/yaml.v2"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 )
 
@@ -135,4 +137,50 @@ func TestGetWikiIDsForRestore(t *testing.T) {
 			t.Fatal("expected error for missing wikis.yaml")
 		}
 	})
+}
+
+func TestRestorePreservesDBPasswords(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+
+	// Write an initial .env with known passwords.
+	original := "MYSQL_PASSWORD=original_root_pw\nWIKI_DB_PASSWORD=original_wiki_pw\nMW_SITE_SERVER=https://example.com\n"
+	if err := os.WriteFile(envPath, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the backup overwriting .env with different passwords.
+	overwritten := "MYSQL_PASSWORD=backup_root_pw\nWIKI_DB_PASSWORD=backup_wiki_pw\nMW_SITE_SERVER=https://backup.example.com\n"
+	if err := os.WriteFile(envPath, []byte(overwritten), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Preserve the original passwords using SaveEnvVariable, matching
+	// the logic in restoreFull.
+	for _, kv := range []struct{ key, val string }{
+		{"MYSQL_PASSWORD", "original_root_pw"},
+		{"WIKI_DB_PASSWORD", "original_wiki_pw"},
+	} {
+		if err := canasta.SaveEnvVariable(envPath, kv.key, kv.val); err != nil {
+			t.Fatalf("SaveEnvVariable(%s) error: %v", kv.key, err)
+		}
+	}
+
+	// Verify the .env now has the original passwords restored.
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "MYSQL_PASSWORD=original_root_pw") {
+		t.Errorf("expected MYSQL_PASSWORD=original_root_pw, got:\n%s", content)
+	}
+	if !strings.Contains(content, "WIKI_DB_PASSWORD=original_wiki_pw") {
+		t.Errorf("expected WIKI_DB_PASSWORD=original_wiki_pw, got:\n%s", content)
+	}
+	// Non-password variables should retain the backup's values.
+	if !strings.Contains(content, "MW_SITE_SERVER=https://backup.example.com") {
+		t.Errorf("expected MW_SITE_SERVER from backup to be preserved, got:\n%s", content)
+	}
 }
