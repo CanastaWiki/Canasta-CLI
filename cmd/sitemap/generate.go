@@ -18,8 +18,8 @@ func generateCmdCreate() *cobra.Command {
 		Short: "Generate sitemaps for one or all wikis",
 		Long: `Generate XML sitemaps for wikis in a Canasta installation. If --wiki is
 specified, generates a sitemap for that wiki only. Otherwise, generates
-sitemaps for all wikis in the instance. Enabling sitemaps also starts
-automatic background regeneration.`,
+sitemaps for all wikis in the instance. Once generated, the background
+generator will automatically refresh them.`,
 		Example: `  # Generate sitemap for a specific wiki
   canasta sitemap generate -i myinstance -w mywiki
 
@@ -117,12 +117,7 @@ func runGenerate(wikiID string) error {
 		fmt.Printf("Sitemap generated for wiki '%s'.\n", wiki.id)
 	}
 
-	// Enable MW_ENABLE_SITEMAP_GENERATOR in .env
-	if err := canasta.SaveEnvVariable(envPath, "MW_ENABLE_SITEMAP_GENERATOR", "true"); err != nil {
-		return fmt.Errorf("failed to update .env: %w", err)
-	}
-
-	fmt.Println("Sitemap generation enabled. Sitemaps will be refreshed automatically.")
+	fmt.Println("Sitemaps will be refreshed automatically.")
 	return nil
 }
 

@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 )
 
@@ -21,7 +20,7 @@ func removeCmdCreate() *cobra.Command {
 		Short: "Remove sitemaps for one or all wikis",
 		Long: `Remove XML sitemap files for wikis in a Canasta installation. If --wiki is
 specified, removes the sitemap for that wiki only. Otherwise, removes sitemaps
-for all wikis and disables automatic background regeneration.`,
+for all wikis. Once removed, the background generator will skip those wikis.`,
 		Example: `  # Remove sitemap for a specific wiki
   canasta sitemap remove -i myinstance -w mywiki
 
@@ -85,15 +84,6 @@ func runRemove(wikiID string) error {
 			return fmt.Errorf("failed to remove sitemap files for wiki '%s': %w", id, err)
 		}
 		fmt.Printf("Removed sitemap for wiki '%s'.\n", id)
-	}
-
-	// If removing all wikis, disable the generator
-	if removingAll {
-		envPath := filepath.Join(instance.Path, ".env")
-		if err := canasta.SaveEnvVariable(envPath, "MW_ENABLE_SITEMAP_GENERATOR", "false"); err != nil {
-			return fmt.Errorf("failed to update .env: %w", err)
-		}
-		fmt.Println("Automatic sitemap generation disabled.")
 	}
 
 	return nil
