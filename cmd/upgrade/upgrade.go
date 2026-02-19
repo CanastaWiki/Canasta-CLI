@@ -267,8 +267,8 @@ func runMigration(installPath string, dryRun bool) (bool, error) {
 		changed = true
 	}
 
-	// Step 4: Create Caddyfile.custom and update Caddyfile with import directive
-	caddyChanged, err := createCaddyfileCustom(installPath, dryRun)
+	// Step 4: Create Caddyfile.site and update Caddyfile with import directive
+	caddyChanged, err := createCaddyfileSite(installPath, dryRun)
 	if err != nil {
 		return false, err
 	}
@@ -455,10 +455,10 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 	return changed, nil
 }
 
-// createCaddyfileCustom creates Caddyfile.custom and Caddyfile.global if they don't exist
+// createCaddyfileSite creates Caddyfile.site and Caddyfile.global if they don't exist
 // and rewrites the Caddyfile to include the import directives
-func createCaddyfileCustom(installPath string, dryRun bool) (bool, error) {
-	customPath := filepath.Join(installPath, "config", "Caddyfile.custom")
+func createCaddyfileSite(installPath string, dryRun bool) (bool, error) {
+	customPath := filepath.Join(installPath, "config", "Caddyfile.site")
 	globalPath := filepath.Join(installPath, "config", "Caddyfile.global")
 
 	// Check if both files already exist
@@ -470,7 +470,7 @@ func createCaddyfileCustom(installPath string, dryRun bool) (bool, error) {
 
 	if dryRun {
 		if customErr != nil {
-			fmt.Println("  Would create config/Caddyfile.custom")
+			fmt.Println("  Would create config/Caddyfile.site")
 		}
 		if globalErr != nil {
 			fmt.Println("  Would create config/Caddyfile.global")
@@ -478,9 +478,9 @@ func createCaddyfileCustom(installPath string, dryRun bool) (bool, error) {
 		fmt.Println("  Would update config/Caddyfile with import directives")
 	} else {
 		if customErr != nil {
-			fmt.Println("  Creating config/Caddyfile.custom")
-			if err := canasta.CreateCaddyfileCustom(installPath); err != nil {
-				return false, fmt.Errorf("failed to create Caddyfile.custom: %w", err)
+			fmt.Println("  Creating config/Caddyfile.site")
+			if err := canasta.CreateCaddyfileSite(installPath); err != nil {
+				return false, fmt.Errorf("failed to create Caddyfile.site: %w", err)
 			}
 		}
 		if globalErr != nil {

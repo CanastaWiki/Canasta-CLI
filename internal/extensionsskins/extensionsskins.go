@@ -26,7 +26,7 @@ func Contains(list []string, element string) bool {
 
 func List(instance config.Installation, orch orchestrators.Orchestrator, constants Item) error {
 	log.Printf("Available %s:\n", constants.Name)
-	output, err := orch.ExecWithError(instance.Path, "web", "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find * -maxdepth 0 -type d")
+	output, err := orch.ExecWithError(instance.Path, "web", "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find -L * -maxdepth 0 -type d")
 	if err != nil {
 		return fmt.Errorf("%s", output)
 	}
@@ -35,7 +35,7 @@ func List(instance config.Installation, orch orchestrators.Orchestrator, constan
 }
 
 func CheckInstalled(name string, instance config.Installation, orch orchestrators.Orchestrator, constants Item) (string, error) {
-	output, err := orch.ExecWithError(instance.Path, "web", "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find * -maxdepth 0 -type d")
+	output, err := orch.ExecWithError(instance.Path, "web", "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find -L * -maxdepth 0 -type d")
 	if err != nil {
 		return "", fmt.Errorf("%s", output)
 	}

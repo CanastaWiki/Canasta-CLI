@@ -15,7 +15,8 @@ var skipPaths = []string{
 	"my.cnf",
 	"docker-compose.override.yml",
 	"config/settings/",
-	"config/Caddyfile.custom",
+	"config/Caddyfile.site",
+	"config/Caddyfile.global",
 	"config/composer.local.json",
 	"config/default.vcl",
 }

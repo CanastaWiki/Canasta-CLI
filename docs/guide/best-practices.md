@@ -33,10 +33,11 @@ This page covers security considerations and best practices for managing Canasta
 Running Canasta CLI commands does **not** require `sudo`. However, your user account must have permission to run Docker commands:
 
 - **macOS** — Docker Desktop grants Docker access to the current user automatically. No additional setup is needed.
-- **Linux** — Add your user to the `docker` group, then log out and log back in:
+- **Linux** — Add your user to the `docker` and `www-data` groups, then log out and log back in:
   ```bash
-  sudo usermod -aG docker $USER
+  sudo usermod -aG docker,www-data $USER
   ```
+  The `docker` group grants permission to run Docker commands. The `www-data` group grants permission to manage files in the installation's `config/` directory, which is shared with the web container.
 - **Windows (WSL)** — Follow the Linux instructions within your WSL distribution.
 
 The only step that requires `sudo` is installing the CLI binary to `/usr/local/bin/` (see [Installation](../installation.md)).
@@ -45,7 +46,7 @@ The only step that requires `sudo` is installing the CLI binary to `/usr/local/b
 
 - By default, Canasta exposes ports for HTTP/HTTPS traffic
 - Caddy handles SSL/TLS termination automatically
-- To customize Caddy behavior (headers, redirects, etc.), edit `config/Caddyfile.custom` — do not edit `config/Caddyfile` directly as it is regenerated when wikis change
+- To customize Caddy behavior (headers, redirects, etc.), edit `config/Caddyfile.site` — do not edit `config/Caddyfile` directly as it is regenerated when wikis change
 - Review your `docker-compose.override.yml` if you need to customize port bindings or network settings
 
 ---

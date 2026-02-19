@@ -14,6 +14,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
   - [Running the update sequence](#running-the-update-sequence)
   - [Running scripts manually](#running-scripts-manually)
   - [Running extension maintenance scripts](#running-extension-maintenance-scripts)
+- [Sitemaps](#sitemaps)
 - [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy)
 - [Running on non-standard ports](#running-on-non-standard-ports)
 
@@ -72,8 +73,8 @@ After creating a Canasta installation, the directory contains:
 ├── config/
 │   ├── wikis.yaml                 # Wiki definition (IDs, URLs, display names)
 │   ├── Caddyfile                  # Generated reverse proxy config (do not edit)
-│   ├── Caddyfile.custom           # User customizations for Caddy site block
-│   ├── Caddyfile.global           # User customizations for Caddy global options
+│   ├── Caddyfile.site             # User customizations for Caddy site block
+│   ├── Caddyfile.global           # User global options and extra site blocks
 │   ├── admin-password_{wiki-id}   # Generated admin password per wiki
 │   └── settings/
 │       ├── global/                # PHP settings loaded for all wikis
@@ -158,13 +159,13 @@ Do not set `$wgSitename` in PHP settings files — it is configured automaticall
 
 `$wgMetaNamespace` provides an alias for the Project namespace (the `Project:` prefix always works as well). It is derived from the display name with spaces replaced by underscores. For example, a wiki named "Project Documentation" will get the alias `Project_Documentation:`. If you need a different alias, you can override `$wgMetaNamespace` in a per-wiki settings file (use underscores instead of spaces).
 
-### Caddyfile, Caddyfile.custom, and Caddyfile.global
+### Caddyfile, Caddyfile.site, and Caddyfile.global
 
 Canasta uses [Caddy](https://caddyserver.com/) as its reverse proxy. The `config/Caddyfile` is auto-generated from `wikis.yaml` and is overwritten whenever wikis are added or removed — do not edit it directly.
 
-To add custom Caddy directives for the site block (headers, rewrites, etc.), edit `config/Caddyfile.custom`. To add global Caddy options, edit `config/Caddyfile.global`. Both files are imported by the generated Caddyfile and are never overwritten.
+To add custom Caddy directives for the site block (headers, rewrites, etc.), edit `config/Caddyfile.site`. To add global Caddy options or additional site blocks (e.g., a www-to-non-www redirect), edit `config/Caddyfile.global`. Both files are imported by the generated Caddyfile and are never overwritten.
 
-Example `Caddyfile.custom`:
+Example `Caddyfile.site`:
 
 ```
 header X-Frame-Options "SAMEORIGIN"
@@ -383,9 +384,51 @@ See the [CLI Reference](../cli/canasta_maintenance.md) for more details.
 
 ---
 
+## Sitemaps
+
+XML sitemaps help search engines discover and index pages on your wiki. Canasta provides commands to generate and remove sitemaps, and a background process to keep them up to date.
+
+### Generating sitemaps
+
+Use `canasta sitemap generate` to create sitemaps. You can generate for a specific wiki or for all wikis in the installation:
+
+```bash
+# Generate sitemap for a specific wiki
+canasta sitemap generate -i myinstance -w mywiki
+
+# Generate sitemaps for all wikis
+canasta sitemap generate -i myinstance
+```
+
+Sitemap files are stored in the `public_assets/{wiki-id}/sitemap/` directory and served at `/public_assets/sitemap/`. Once generated, a background process automatically refreshes the sitemaps on a regular schedule (controlled by the `MW_SITEMAP_PAUSE_DAYS` environment variable, which defaults to 1 day).
+
+The sitemap URL is automatically advertised in the wiki's `robots.txt` when sitemap files exist.
+
+### Removing sitemaps
+
+Use `canasta sitemap remove` to delete sitemap files. Once removed, the background generator will skip those wikis until sitemaps are generated again:
+
+```bash
+# Remove sitemap for a specific wiki
+canasta sitemap remove -i myinstance -w mywiki
+
+# Remove sitemaps for all wikis (prompts for confirmation)
+canasta sitemap remove -i myinstance
+```
+
+### How it works
+
+The presence of sitemap files is the sole signal that controls sitemap behavior:
+
+- **Background refresh**: The generator only refreshes sitemaps for wikis that already have sitemap files. Generating sitemaps for a wiki opts it in; removing them opts it out.
+- **robots.txt**: The sitemap URL is advertised in `robots.txt` only when sitemap files exist for the wiki.
+- **No configuration needed**: There are no YAML fields or environment variables to set — just generate or remove.
+
+---
+
 ## Deploying behind a reverse proxy
 
-When running Canasta behind an external reverse proxy that terminates SSL and forwards requests to Canasta over HTTP (such as nginx, a cloud load balancer, or Cloudflare in "Flexible SSL" mode), you must disable Caddy's automatic HTTPS handling. Otherwise, Caddy may attempt to redirect requests or provision certificates, causing redirect loops or certificate errors.
+When running Canasta behind an external reverse proxy that terminates SSL and forwards requests to Canasta over HTTP (such as nginx, a cloud load balancer, or Cloudflare in "Flexible SSL" mode), you must tell Caddy to serve over HTTP only. Otherwise, Caddy will attempt to provision certificates and listen on HTTPS, causing redirect loops or connection errors.
 
 To configure this, create an env file with the `CADDY_AUTO_HTTPS` setting:
 
@@ -399,12 +442,13 @@ Pass this file when creating the installation:
 canasta create -i myinstance -w main -n example.com -a admin -e custom.env
 ```
 
-This generates a Caddyfile with:
+This generates a Caddyfile with `http://` site addresses so Caddy listens on port 80 only.
 
-- `auto_https off` in the global options block (disables automatic certificate provisioning)
-- `header_up Host {host}` in the reverse proxy directive (preserves the original Host header through the proxy chain)
+For an existing installation, add `CADDY_AUTO_HTTPS=off` to the `.env` file and restart:
 
-For an existing installation, add `CADDY_AUTO_HTTPS=off` to the `.env` file and run `canasta upgrade` to regenerate the Caddyfile.
+```bash
+canasta restart -i myinstance
+```
 
 ---
 

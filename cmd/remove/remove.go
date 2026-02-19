@@ -21,6 +21,7 @@ import (
 func NewCmdCreate() *cobra.Command {
 	var instance config.Installation
 	var wikiID string
+	var yes bool
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -36,10 +37,13 @@ database, settings files, uploaded images, and its entry in wikis.yaml, then
 regenerates the Caddyfile and restarts the instance. You will be prompted
 for confirmation before any data is deleted.`,
 		Example: `  # Remove a wiki by ID
-  canasta remove -i myinstance -w docs`,
+  canasta remove -i myinstance -w docs
+
+  # Remove without confirmation prompt
+  canasta remove -i myinstance -w docs -y`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Removing wiki '%s' from Canasta instance '%s'...\n", wikiID, instance.Id)
-			if err := RemoveWiki(instance, wikiID); err != nil {
+			if err := RemoveWiki(instance, wikiID, yes); err != nil {
 				return err
 			}
 			fmt.Println("Done.")
@@ -49,11 +53,12 @@ for confirmation before any data is deleted.`,
 
 	addCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki")
 	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	addCmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
 	return addCmd
 }
 
 // RemoveWiki removes a wiki with the given wikiID from a Canasta instance
-func RemoveWiki(instance config.Installation, wikiID string) error {
+func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 	var err error
 	//Checking Installation existence
 	instance, err = canasta.CheckCanastaId(instance)
@@ -90,14 +95,16 @@ func RemoveWiki(instance config.Installation, wikiID string) error {
 		return fmt.Errorf("A wiki with the ID '%s' does not exist", wikiID)
 	}
 
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("This will delete the wiki " + wikiID + " in the Canasta instance " + instance.Id + " and the corresponding database. Continue? [y/N] ")
-	text, _ := reader.ReadString('\n')
-	text = strings.ToLower(strings.TrimSpace(text))
+	if !yes {
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("This will delete the wiki " + wikiID + " in the Canasta instance " + instance.Id + " and the corresponding database. Continue? [y/N] ")
+		text, _ := reader.ReadString('\n')
+		text = strings.ToLower(strings.TrimSpace(text))
 
-	if text != "y" {
-		fmt.Println("Operation cancelled.")
-		return nil
+		if text != "y" {
+			fmt.Println("Operation cancelled.")
+			return nil
+		}
 	}
 
 	//Remove the wiki

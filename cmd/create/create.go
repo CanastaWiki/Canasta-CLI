@@ -79,6 +79,11 @@ instead of running the installer, or enable development mode with Xdebug.`,
 				return fmt.Errorf("Canasta instance ID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed")
 			}
 
+			// Check for duplicate ID before doing any work
+			if _, err := config.GetDetails(canastaInfo.Id); err == nil {
+				return fmt.Errorf("Canasta installation with ID '%s' already exists", canastaInfo.Id)
+			}
+
 			// Validate --dev-tag and --build-from are mutually exclusive
 			if devTag != "latest" && buildFromPath != "" {
 				return fmt.Errorf("--dev-tag and --build-from are mutually exclusive")
@@ -193,9 +198,6 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	defer func() {
 		done <- struct{}{}
 	}()
-	if _, err := config.GetDetails(canastaInfo.Id); err == nil {
-		return fmt.Errorf("Canasta installation with the ID already exist!")
-	}
 
 	// Determine the base image to use
 	var baseImage string
@@ -269,7 +271,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			return err
 		}
 	}
-	if err := canasta.CreateCaddyfileCustom(path); err != nil {
+	if err := canasta.CreateCaddyfileSite(path); err != nil {
 		return err
 	}
 	if err := canasta.CreateCaddyfileGlobal(path); err != nil {

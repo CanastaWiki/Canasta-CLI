@@ -229,12 +229,20 @@ func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	var output string
 	if compose.Path != "" {
-		err, output := execute.Run(installPath, compose.Path, "down", "-v")
+		err, output = execute.Run(installPath, compose.Path, "down", "-v")
+	} else {
+		err, output = execute.Run(installPath, "docker", "compose", "down", "-v")
+	}
+	if err != nil {
 		return output, err
 	}
-	err, output := execute.Run(installPath, "docker", "compose", "down", "-v")
-	return output, err
+
+	// Remove the backup staging volume (not part of docker-compose.yml)
+	execute.Run("", "docker", "volume", "rm", backupVolumeName(installPath))
+
+	return output, nil
 }
 
 func (c *ComposeOrchestrator) ExecWithError(installPath, service, command string) (string, error) {
@@ -344,6 +352,22 @@ func backupVolumeName(installPath string) string {
 	return "canasta-backup-" + filepath.Base(installPath)
 }
 
+// isLocalRepo returns true if the repository URL is a local filesystem path
+// rather than a remote backend (s3:, sftp:, rest:, gs:, azure:, b2:, rclone:).
+func isLocalRepo(repoURL string) bool {
+	return strings.HasPrefix(repoURL, "/")
+}
+
+// repoFromArgs extracts the repository URL following the -r flag in args.
+func repoFromArgs(args []string) string {
+	for i, arg := range args {
+		if arg == "-r" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 func (c *ComposeOrchestrator) RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
 	volName := backupVolumeName(installPath)
 
@@ -364,11 +388,20 @@ func (c *ComposeOrchestrator) RunBackup(installPath, envPath string, volumes map
 	cmdArgs := []string{"docker", "run", "--rm", "-i", "--env-file", envPath,
 		"-v", volName + ":/currentsnapshot",
 	}
+
+	// If the repository is a local path, bind-mount it into the container
+	if repo := repoFromArgs(args); repo != "" && isLocalRepo(repo) {
+		cmdArgs = append(cmdArgs, "-v", repo+":"+repo)
+	}
+
 	cmdArgs = append(cmdArgs, "restic/restic")
 	cmdArgs = append(cmdArgs, args...)
 
 	err, output = execute.Run(installPath, cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
+		if strings.Contains(output, "repository does not exist") {
+			return output, fmt.Errorf("backup repository not found. Run 'canasta backup init' to create it")
+		}
 		return output, fmt.Errorf("restic command failed: %s", output)
 	}
 	return output, nil
