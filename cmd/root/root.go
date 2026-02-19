@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	addCmd "github.com/CanastaWiki/Canasta-CLI/cmd/add"
 	createCmd "github.com/CanastaWiki/Canasta-CLI/cmd/create"
@@ -96,11 +97,11 @@ func init() {
 	cobra.OnInitialize(func() {
 		orch, err := orchestrators.New("compose")
 		if err != nil {
-			logging.Print(fmt.Sprintf("Warning: %s\n", err))
+			fmt.Fprintf(os.Stderr, "Warning: %s\n", err)
 			return
 		}
 		if err := orch.CheckDependencies(); err != nil {
-			logging.Print(fmt.Sprintf("Warning: Docker Compose not available: %s\n", err))
+			fmt.Fprintf(os.Stderr, "Warning: Docker Compose not available: %s\n", err)
 		}
 	})
 }

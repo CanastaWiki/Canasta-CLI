@@ -178,6 +178,7 @@ func TestAddOrchestratorSupported(t *testing.T) {
 	}{
 		{"compose accepted", "compose", false},
 		{"kubernetes accepted", "kubernetes", false},
+		{"k8s alias accepted", "k8s", false},
 		{"unknown rejected", "nomad", true},
 	}
 
