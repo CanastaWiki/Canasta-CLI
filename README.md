@@ -28,7 +28,7 @@ canasta create [flags]
 - `-f, --yamlfile`: Initial wiki yaml file for wiki farm setup.
 - `-k, --keep-config`: Keep the config files on installation failure.
 - `-r, --override`: Name of a file to copy to docker-compose.override.yml.
-- `-e, --envfile`: Path to .env file with password overrides (merged with .env.example).
+- `-e, --envfile`: Path to .env file with password overrides (merged with default .env).
 - `--rootdbpass`: Root database password (if not provided, auto-generates and saves to .env).
 - `--wikidbuser`: The username of the wiki database user (default: "root").
 - `--wikidbpass`: Wiki database password (if not provided, auto-generates and saves to .env).

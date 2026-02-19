@@ -176,7 +176,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 	createCmd.Flags().StringVar(&canastaInfo.RootDBPassword, "rootdbpass", "", "Root database password (if not provided, auto-generates and saves to .env). Tip: Use --rootdbpass \"$ROOT_DB_PASS\" to avoid exposing password in shell history")
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBPassword, "wikidbpass", "", "Wiki database password (if not provided, auto-generates and saves to .env). Tip: Use --wikidbpass \"$WIKI_DB_PASS\" to avoid exposing password in shell history")
-	createCmd.Flags().StringVarP(&envFile, "envfile", "e", "", "Path to .env file with password overrides (merged with .env.example)")
+	createCmd.Flags().StringVarP(&envFile, "envfile", "e", "", "Path to .env file with password overrides (merged with default .env)")
 	createCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Enable development mode with Xdebug and code extraction")
 	createCmd.Flags().StringVar(&devTag, "dev-tag", "latest", "Canasta image tag to use (e.g., latest, dev-branch)")
 	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build Canasta image from local source directory (expects Canasta/, optionally CanastaBase/)")
