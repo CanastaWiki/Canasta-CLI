@@ -19,6 +19,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 	"github.com/sethvargo/go-password/password"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type CanastaVariables struct {
@@ -344,7 +345,68 @@ func GenerateAndSaveSecretKey(installPath string) error {
 	return SaveEnvVariable(envPath, "MW_SECRET_KEY", secretKey)
 }
 
-// Function to remove duplicates from slice
+// ContainsProfile checks if a comma-separated profile string contains the given profile name.
+func ContainsProfile(profiles, target string) bool {
+	for _, p := range strings.Split(profiles, ",") {
+		if strings.TrimSpace(p) == target {
+			return true
+		}
+	}
+	return false
+}
+
+// EnsureObservabilityCredentials checks if COMPOSE_PROFILES contains "observable" in .env.
+// If active, it ensures OS_USER, OS_PASSWORD, and OS_PASSWORD_HASH are set.
+// Returns true if the observable profile is active.
+func EnsureObservabilityCredentials(installPath string) (bool, error) {
+	envPath := installPath + "/.env"
+	envVars, err := GetEnvVariable(envPath)
+	if err != nil {
+		return false, err
+	}
+
+	if !ContainsProfile(envVars["COMPOSE_PROFILES"], "observable") {
+		return false, nil
+	}
+
+	// Set OS_USER to "admin" if not present
+	if envVars["OS_USER"] == "" {
+		if err := SaveEnvVariable(envPath, "OS_USER", "admin"); err != nil {
+			return true, fmt.Errorf("failed to save OS_USER: %w", err)
+		}
+		fmt.Println("Set OS_USER=admin in .env")
+	}
+
+	// Generate OS_PASSWORD if not present
+	if envVars["OS_PASSWORD"] == "" {
+		pw, err := GeneratePassword("OpenSearch")
+		if err != nil {
+			return true, fmt.Errorf("failed to generate OS_PASSWORD: %w", err)
+		}
+		if err := SaveEnvVariable(envPath, "OS_PASSWORD", pw); err != nil {
+			return true, fmt.Errorf("failed to save OS_PASSWORD: %w", err)
+		}
+		fmt.Println("Generated OS_PASSWORD and saved to .env")
+		// Re-read so we can hash it below
+		envVars["OS_PASSWORD"] = pw
+	}
+
+	// Compute bcrypt hash of OS_PASSWORD and save as OS_PASSWORD_HASH if not present
+	if envVars["OS_PASSWORD_HASH"] == "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(envVars["OS_PASSWORD"]), bcrypt.DefaultCost)
+		if err != nil {
+			return true, fmt.Errorf("failed to hash OS_PASSWORD: %w", err)
+		}
+		if err := SaveEnvVariable(envPath, "OS_PASSWORD_HASH", string(hash)); err != nil {
+			return true, fmt.Errorf("failed to save OS_PASSWORD_HASH: %w", err)
+		}
+		fmt.Println("Generated OS_PASSWORD_HASH and saved to .env")
+	}
+
+	return true, nil
+}
+
+// removeDuplicates removes duplicate strings from a slice.
 func removeDuplicates(slice []string) []string {
 	keys := make(map[string]bool)
 	list := []string{}
@@ -372,6 +434,14 @@ func RewriteCaddy(installPath string) error {
 		return err
 	}
 	httpOnly := strings.ToLower(envVars["CADDY_AUTO_HTTPS"]) == "off"
+
+	// Check if observable profile is active
+	observable := ContainsProfile(envVars["COMPOSE_PROFILES"], "observable")
+	if observable {
+		if envVars["OS_USER"] == "" || envVars["OS_PASSWORD_HASH"] == "" {
+			return fmt.Errorf("observable profile is active but OS_USER or OS_PASSWORD_HASH is missing from .env; run 'canasta upgrade' to generate credentials")
+		}
+	}
 
 	// Remove duplicates from ServerNames
 	ServerNames = removeDuplicates(ServerNames)
@@ -428,7 +498,22 @@ func RewriteCaddy(installPath string) error {
 	// Write site block
 	writeLine(siteAddress.String() + " {")
 	writeLine("    import /etc/caddy/Caddyfile.site")
-	writeLine("    reverse_proxy varnish:80")
+	writeLine("")
+	if observable {
+		writeLine("    handle /opensearch/* {")
+		writeLine("        basicauth {")
+		writeLine("            " + envVars["OS_USER"] + " " + envVars["OS_PASSWORD_HASH"])
+		writeLine("        }")
+		writeLine("        reverse_proxy opensearch-dashboards:5601")
+		writeLine("    }")
+		writeLine("")
+		writeLine("    handle {")
+		writeLine("        reverse_proxy varnish:80")
+		writeLine("    }")
+	} else {
+		writeLine("    reverse_proxy varnish:80")
+	}
+	writeLine("")
 	writeLine("    log {")
 	writeLine("        output file /var/log/caddy/access.log")
 	writeLine("    }")

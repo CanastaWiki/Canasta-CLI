@@ -560,6 +560,9 @@ func (c *ComposeOrchestrator) InitConfig(installPath string) error {
 	if err := canasta.CreateCaddyfileGlobal(installPath); err != nil {
 		return err
 	}
+	if _, err := canasta.EnsureObservabilityCredentials(installPath); err != nil {
+		return err
+	}
 	return canasta.RewriteCaddy(installPath)
 }
 
@@ -570,7 +573,25 @@ func (c *ComposeOrchestrator) UpdateConfig(installPath string) error {
 
 // MigrateConfig applies Compose-specific migration steps during upgrade.
 func (c *ComposeOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool, error) {
-	return c.migrateCaddyFiles(installPath, dryRun)
+	changed := false
+
+	caddyChanged, err := c.migrateCaddyFiles(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if caddyChanged {
+		changed = true
+	}
+
+	obsChanged, err := c.migrateObservability(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if obsChanged {
+		changed = true
+	}
+
+	return changed, nil
 }
 
 // migrateCaddyFiles creates Caddyfile.site and Caddyfile.global if they don't exist
@@ -610,6 +631,38 @@ func (c *ComposeOrchestrator) migrateCaddyFiles(installPath string, dryRun bool)
 		if err := canasta.RewriteCaddy(installPath); err != nil {
 			return false, fmt.Errorf("failed to rewrite Caddyfile: %w", err)
 		}
+	}
+
+	return true, nil
+}
+
+// migrateObservability ensures observability credentials are set when the
+// observable Compose profile is active. During dry-run it only reports what
+// would change.
+func (c *ComposeOrchestrator) migrateObservability(installPath string, dryRun bool) (bool, error) {
+	envPath := filepath.Join(installPath, ".env")
+	envVars, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		return false, err
+	}
+
+	if !canasta.ContainsProfile(envVars["COMPOSE_PROFILES"], "observable") {
+		return false, nil
+	}
+
+	// Check if credentials are already complete
+	if envVars["OS_USER"] != "" && envVars["OS_PASSWORD"] != "" && envVars["OS_PASSWORD_HASH"] != "" {
+		return false, nil
+	}
+
+	if dryRun {
+		fmt.Println("  Would generate OpenSearch observability credentials in .env")
+		return true, nil
+	}
+
+	fmt.Println("  Generating OpenSearch observability credentials")
+	if _, err := canasta.EnsureObservabilityCredentials(installPath); err != nil {
+		return false, fmt.Errorf("failed to ensure observability credentials: %w", err)
 	}
 
 	return true, nil
