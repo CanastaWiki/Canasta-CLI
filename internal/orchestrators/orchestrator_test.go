@@ -99,18 +99,6 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestNewKubernetesNotYetImplemented(t *testing.T) {
-	for _, id := range []string{"kubernetes", "k8s"} {
-		_, err := New(id)
-		if err == nil {
-			t.Fatalf("New(%q) expected error, got nil", id)
-		}
-		if !strings.Contains(err.Error(), "not yet implemented") {
-			t.Errorf("New(%q) error = %q, want 'not yet implemented'", id, err.Error())
-		}
-	}
-}
-
 func TestExec(t *testing.T) {
 	mock := &mockOrchestrator{execOutput: "success output"}
 	output, err := Exec(mock, "/tmp/test", "web", "php test.php")
