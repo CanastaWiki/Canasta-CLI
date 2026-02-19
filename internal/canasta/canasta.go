@@ -17,7 +17,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
-	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/sethvargo/go-password/password"
 )
 
@@ -63,12 +62,10 @@ func GetImageWithTag(tag string) string {
 	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, tag)
 }
 
-// CloneStackRepo() accepts the orchestrator from the CLI,
-// passes the corresponding repository link,
-// and clones the repo to a new folder in the specified path.
+// CloneStackRepo clones the stack repository to a new folder in the specified path.
 // If localSourcePath is provided and contains a Canasta-DockerCompose directory, it copies from there instead.
 // Returns true if a local Canasta-DockerCompose was used, false if cloned from GitHub.
-func CloneStackRepo(orch orchestrators.Orchestrator, canastaId string, path *string, localSourcePath string) (bool, error) {
+func CloneStackRepo(repoLink string, canastaId string, path *string, localSourcePath string) (bool, error) {
 	*path += "/" + canastaId
 
 	// Check if local Canasta-DockerCompose exists (only when building from source)
@@ -90,7 +87,7 @@ func CloneStackRepo(orch orchestrators.Orchestrator, canastaId string, path *str
 	}
 
 	// Fall back to cloning from GitHub
-	repo := orch.GetRepoLink()
+	repo := repoLink
 	logging.Print(fmt.Sprintf("Cloning the stack repo to %s \n", *path))
 	err := git.Clone(repo, *path)
 	return false, err
@@ -431,6 +428,9 @@ func RewriteCaddy(installPath string) error {
 	writeLine(siteAddress.String() + " {")
 	writeLine("    import /etc/caddy/Caddyfile.site")
 	writeLine("    reverse_proxy varnish:80")
+	writeLine("    log {")
+	writeLine("        output file /var/log/caddy/access.log")
+	writeLine("    }")
 	writeLine("}")
 
 	if writeErr != nil {
@@ -677,14 +677,6 @@ func CheckCanastaId(instance config.Installation) (config.Installation, error) {
 		}
 	}
 	return instance, nil
-}
-
-func DeleteConfigAndContainers(keepConfig bool, installationDir string, orch orchestrators.Orchestrator) {
-	fmt.Println("Removing containers")
-	_, _ = orch.Destroy(installationDir)
-	fmt.Println("Deleting config files")
-	_, _ = orchestrators.DeleteConfig(installationDir)
-	fmt.Println("Deleted all containers and config files")
 }
 
 func RemoveSettings(installPath, id string) error {

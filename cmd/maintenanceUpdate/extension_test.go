@@ -64,6 +64,15 @@ func (m *extMockOrchestrator) RunBackup(installPath, envPath string, volumes map
 func (m *extMockOrchestrator) RestoreFromBackupVolume(installPath string, dirs map[string]string) error {
 	return nil
 }
+func (m *extMockOrchestrator) InitConfig(installPath string) error {
+	return nil
+}
+func (m *extMockOrchestrator) UpdateConfig(installPath string) error {
+	return nil
+}
+func (m *extMockOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool, error) {
+	return false, nil
+}
 func (m *extMockOrchestrator) StopAndStart(inst config.Installation) error {
 	return nil
 }

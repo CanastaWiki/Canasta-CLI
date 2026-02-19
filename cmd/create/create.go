@@ -148,7 +148,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath, done); err != nil {
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
-					canasta.DeleteConfigAndContainers(keepConfig, path+"/"+canastaInfo.Id, orch)
+					deleteConfigAndContainers(path+"/"+canastaInfo.Id, orch)
 					return fmt.Errorf("Installation failed and files were cleaned up")
 				}
 				return fmt.Errorf("Installation failed. Keeping all the containers and config files")
@@ -224,7 +224,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	}
 
 	// Clone the stack repository first to create the installation directory
-	localStack, err := canasta.CloneStackRepo(orch, canastaInfo.Id, &path, buildFromPath)
+	localStack, err := canasta.CloneStackRepo(orch.GetRepoLink(), canastaInfo.Id, &path, buildFromPath)
 	if err != nil {
 		return err
 	}
@@ -271,13 +271,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			return err
 		}
 	}
-	if err := canasta.CreateCaddyfileSite(path); err != nil {
-		return err
-	}
-	if err := canasta.CreateCaddyfileGlobal(path); err != nil {
-		return err
-	}
-	if err := canasta.RewriteCaddy(path); err != nil {
+	if err := orch.InitConfig(path); err != nil {
 		return err
 	}
 	if override != "" {
@@ -356,4 +350,12 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 
 	fmt.Println("\033[32mIf you need email enabled for this wiki, please set $wgSMTP; email will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP for options.\033[0m")
 	return nil
+}
+
+func deleteConfigAndContainers(installationDir string, orch orchestrators.Orchestrator) {
+	fmt.Println("Removing containers")
+	_, _ = orch.Destroy(installationDir)
+	fmt.Println("Deleting config files")
+	_, _ = orchestrators.DeleteConfig(installationDir)
+	fmt.Println("Deleted all containers and config files")
 }

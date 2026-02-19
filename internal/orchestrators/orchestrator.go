@@ -27,6 +27,18 @@ type Orchestrator interface {
 	CopyTo(installPath, service, hostPath, containerPath string) error
 	RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error)
 	RestoreFromBackupVolume(installPath string, dirs map[string]string) error
+
+	// InitConfig sets up orchestrator-specific configuration for a new installation.
+	// Called once during "canasta create" after wikis.yaml and .env are in place.
+	InitConfig(installPath string) error
+
+	// UpdateConfig regenerates orchestrator-specific configuration after
+	// changes to wikis.yaml (e.g., adding or removing a wiki).
+	UpdateConfig(installPath string) error
+
+	// MigrateConfig applies orchestrator-specific migration steps during
+	// "canasta upgrade". Returns true if any changes were made.
+	MigrateConfig(installPath string, dryRun bool) (bool, error)
 }
 
 // ImageInfo holds information about a Docker image
