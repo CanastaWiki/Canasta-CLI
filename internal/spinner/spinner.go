@@ -3,17 +3,20 @@ package spinner
 import (
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/schollz/progressbar/v3"
 )
 
-// New returns a new spinner with the following structure.
+// New creates a spinner that displays progress with the following structure:
 // ⠏ Description...
-// The spinner will keep spinning until a message is passed to the done channel.
-func New(description string) (*progressbar.ProgressBar, chan struct{}) {
+// It returns a stop function. Call stop() to finish the spinner, clear the line,
+// and print a newline so subsequent output appears on its own line.
+// The stop function is idempotent and safe to call multiple times.
+func New(description string) func() {
 	// Create a spinner to show progress and time taken, to avoid the illusion of the CLI being hung.
-	spinner := progressbar.NewOptions(-1,
+	s := progressbar.NewOptions(-1,
 		progressbar.OptionEnableColorCodes(true),
 		progressbar.OptionSetWriter(os.Stdout),
 		progressbar.OptionSetWidth(10),
@@ -27,23 +30,29 @@ func New(description string) (*progressbar.ProgressBar, chan struct{}) {
 		}),
 	)
 
-	// done channel tracks whether the process using the spinner completed. It doesn't care about success or failure,
-	// just the completion.
+	// done signals the goroutine to stop. finished is closed after cleanup completes.
 	done := make(chan struct{})
+	finished := make(chan struct{})
 
-	// Create a goroutine to actively listen on the done channel, and update the spinner while the execution
-	// of the process is ongoing.
 	go func() {
+		defer close(finished)
 		for {
 			select {
 			case <-done:
+				_ = s.Finish()
 				return
 			default:
-				_ = spinner.Add(1)
+				_ = s.Add(1)
 				time.Sleep(5 * time.Millisecond)
 			}
 		}
 	}()
 
-	return spinner, done
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			done <- struct{}{}
+			<-finished
+		})
+	}
 }

@@ -72,10 +72,8 @@ prompted for confirmation before any data is deleted.`,
 
 func Delete(instance config.Installation) error {
 	description := "Deleting Canasta installation '" + instance.Id + "'..."
-	_, done := spinner.New(description)
-	defer func() {
-		done <- struct{}{}
-	}()
+	stopSpinner := spinner.New(description)
+	defer stopSpinner() // ensure cleanup on error paths
 
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
@@ -122,6 +120,7 @@ func Delete(instance config.Installation) error {
 		return err
 	}
 
+	stopSpinner()
 	fmt.Println("Deleted.")
 	return nil
 }
