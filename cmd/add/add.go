@@ -239,7 +239,7 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 	}
 
 	//Rewrite the Caddyfile (only after adding to wikis.yaml)
-	err = canasta.RewriteCaddy(instance.Path)
+	err = orch.UpdateConfig(instance.Path)
 	if err != nil {
 		return err
 	}

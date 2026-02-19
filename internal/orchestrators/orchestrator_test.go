@@ -72,6 +72,21 @@ func (m *mockOrchestrator) RestoreFromBackupVolume(installPath string, dirs map[
 	return nil
 }
 
+func (m *mockOrchestrator) InitConfig(installPath string) error {
+	m.calls = append(m.calls, "InitConfig")
+	return nil
+}
+
+func (m *mockOrchestrator) UpdateConfig(installPath string) error {
+	m.calls = append(m.calls, "UpdateConfig")
+	return nil
+}
+
+func (m *mockOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool, error) {
+	m.calls = append(m.calls, "MigrateConfig")
+	return false, nil
+}
+
 func TestNew(t *testing.T) {
 	tests := []struct {
 		name    string

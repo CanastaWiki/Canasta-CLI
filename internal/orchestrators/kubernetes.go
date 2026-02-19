@@ -227,6 +227,18 @@ func (k *KubernetesOrchestrator) RestoreFromBackupVolume(installPath string, dir
 	return fmt.Errorf("backup is not yet supported for Kubernetes installations")
 }
 
+func (k *KubernetesOrchestrator) InitConfig(installPath string) error {
+	return nil // K8s config is managed via kustomization overlays
+}
+
+func (k *KubernetesOrchestrator) UpdateConfig(installPath string) error {
+	return nil // K8s config is managed via kustomization overlays
+}
+
+func (k *KubernetesOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool, error) {
+	return false, nil // No Compose-specific migrations needed for K8s
+}
+
 // getRunningPod finds a running pod for the given service label in a namespace.
 func getRunningPod(namespace, service string) (string, error) {
 	labelSelector := fmt.Sprintf("%s=%s", podLabelKey, service)

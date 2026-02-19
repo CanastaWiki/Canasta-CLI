@@ -144,7 +144,7 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 	}
 
 	//Rewrite the Caddyfile
-	err = canasta.RewriteCaddy(instance.Path)
+	err = orch.UpdateConfig(instance.Path)
 	if err != nil {
 		return err
 	}

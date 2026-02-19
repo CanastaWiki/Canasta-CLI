@@ -188,7 +188,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Run migration steps (before restart so config is correct when containers come up)
-	migrationsNeeded, err := runMigration(instance.Path, dryRun)
+	migrationsNeeded, err := runMigration(instance.Path, orch, dryRun)
 	if err != nil {
 		return err
 	}
@@ -235,7 +235,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 }
 
 // runMigration orchestrates all migration steps
-func runMigration(installPath string, dryRun bool) (bool, error) {
+func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bool) (bool, error) {
 	fmt.Println("Checking for config migrations...")
 
 	changed := false
@@ -267,12 +267,12 @@ func runMigration(installPath string, dryRun bool) (bool, error) {
 		changed = true
 	}
 
-	// Step 4: Create Caddyfile.site and update Caddyfile with import directive
-	caddyChanged, err := createCaddyfileSite(installPath, dryRun)
+	// Step 4: Orchestrator-specific config migrations (Caddyfiles, etc.)
+	orchChanged, err := orch.MigrateConfig(installPath, dryRun)
 	if err != nil {
 		return false, err
 	}
-	if caddyChanged {
+	if orchChanged {
 		changed = true
 	}
 
@@ -453,49 +453,6 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 	}
 
 	return changed, nil
-}
-
-// createCaddyfileSite creates Caddyfile.site and Caddyfile.global if they don't exist
-// and rewrites the Caddyfile to include the import directives
-func createCaddyfileSite(installPath string, dryRun bool) (bool, error) {
-	customPath := filepath.Join(installPath, "config", "Caddyfile.site")
-	globalPath := filepath.Join(installPath, "config", "Caddyfile.global")
-
-	// Check if both files already exist
-	_, customErr := os.Stat(customPath)
-	_, globalErr := os.Stat(globalPath)
-	if customErr == nil && globalErr == nil {
-		return false, nil
-	}
-
-	if dryRun {
-		if customErr != nil {
-			fmt.Println("  Would create config/Caddyfile.site")
-		}
-		if globalErr != nil {
-			fmt.Println("  Would create config/Caddyfile.global")
-		}
-		fmt.Println("  Would update config/Caddyfile with import directives")
-	} else {
-		if customErr != nil {
-			fmt.Println("  Creating config/Caddyfile.site")
-			if err := canasta.CreateCaddyfileSite(installPath); err != nil {
-				return false, fmt.Errorf("failed to create Caddyfile.site: %w", err)
-			}
-		}
-		if globalErr != nil {
-			fmt.Println("  Creating config/Caddyfile.global")
-			if err := canasta.CreateCaddyfileGlobal(installPath); err != nil {
-				return false, fmt.Errorf("failed to create Caddyfile.global: %w", err)
-			}
-		}
-		fmt.Println("  Updating config/Caddyfile with import directives")
-		if err := canasta.RewriteCaddy(installPath); err != nil {
-			return false, fmt.Errorf("failed to rewrite Caddyfile: %w", err)
-		}
-	}
-
-	return true, nil
 }
 
 // removeEmptyComposerLocal removes config/composer.local.json if it exists with
