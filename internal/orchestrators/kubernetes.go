@@ -33,8 +33,12 @@ func (k *KubernetesOrchestrator) CheckDependencies() error {
 	return nil
 }
 
-func (k *KubernetesOrchestrator) GetRepoLink() string {
-	return "https://github.com/CanastaWiki/Canasta-Kubernetes.git"
+func (k *KubernetesOrchestrator) WriteStackFiles(installPath string) error {
+	return nil // K8s manifests will be embedded in a follow-up PR
+}
+
+func (k *KubernetesOrchestrator) UpdateStackFiles(installPath string, dryRun bool) (bool, error) {
+	return false, nil // K8s manifests will be embedded in a follow-up PR
 }
 
 func (k *KubernetesOrchestrator) Start(instance config.Installation) error {

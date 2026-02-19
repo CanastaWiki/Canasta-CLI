@@ -18,8 +18,11 @@ type mockOrchestrator struct {
 	stopErr     error
 }
 
-func (m *mockOrchestrator) CheckDependencies() error { return nil }
-func (m *mockOrchestrator) GetRepoLink() string      { return "https://example.com/repo.git" }
+func (m *mockOrchestrator) CheckDependencies() error                              { return nil }
+func (m *mockOrchestrator) WriteStackFiles(installPath string) error               { return nil }
+func (m *mockOrchestrator) UpdateStackFiles(installPath string, dryRun bool) (bool, error) {
+	return false, nil
+}
 
 func (m *mockOrchestrator) Start(instance config.Installation) error {
 	m.calls = append(m.calls, "Start")
