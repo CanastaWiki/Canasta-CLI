@@ -1,7 +1,9 @@
 package orchestrators
 
 import (
+	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators/compose"
 )
 
 const (
@@ -46,8 +49,93 @@ func (c *ComposeOrchestrator) CheckDependencies() error {
 	return nil
 }
 
-func (c *ComposeOrchestrator) GetRepoLink() string {
-	return "https://github.com/CanastaWiki/Canasta-DockerCompose.git"
+// WriteStackFiles writes embedded Docker Compose files to the installation directory.
+// Files are only written if they don't already exist (no-clobber).
+func (c *ComposeOrchestrator) WriteStackFiles(installPath string) error {
+	return c.walkStackFiles(installPath, false)
+}
+
+// UpdateStackFiles compares embedded Docker Compose files with on-disk versions
+// and overwrites any that differ. Returns true if anything changed.
+func (c *ComposeOrchestrator) UpdateStackFiles(installPath string, dryRun bool) (bool, error) {
+	changed := false
+	err := fs.WalkDir(compose.StackFiles, "files", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel("files", path)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
+			return nil
+		}
+		targetPath := filepath.Join(installPath, relPath)
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, 0755)
+		}
+		if d.Name() == ".gitkeep" {
+			return nil
+		}
+		embedded, err := compose.StackFiles.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
+		}
+		existing, readErr := os.ReadFile(targetPath)
+		if readErr == nil && bytes.Equal(existing, embedded) {
+			return nil // unchanged
+		}
+		changed = true
+		if dryRun {
+			if readErr != nil {
+				fmt.Printf("  Would create %s\n", relPath)
+			} else {
+				fmt.Printf("  Would update %s\n", relPath)
+			}
+			return nil
+		}
+		if readErr != nil {
+			fmt.Printf("  Creating %s\n", relPath)
+		} else {
+			fmt.Printf("  Updating %s\n", relPath)
+		}
+		return os.WriteFile(targetPath, embedded, 0644)
+	})
+	return changed, err
+}
+
+// walkStackFiles walks the embedded stack files and writes them to installPath.
+// If noClobber is true (create mode), existing files are skipped.
+func (c *ComposeOrchestrator) walkStackFiles(installPath string, overwrite bool) error {
+	return fs.WalkDir(compose.StackFiles, "files", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel("files", path)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
+			return nil
+		}
+		targetPath := filepath.Join(installPath, relPath)
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, 0755)
+		}
+		if d.Name() == ".gitkeep" {
+			return nil
+		}
+		if !overwrite {
+			if _, err := os.Stat(targetPath); err == nil {
+				return nil // no-clobber
+			}
+		}
+		data, err := compose.StackFiles.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
+		}
+		return os.WriteFile(targetPath, data, 0644)
+	})
 }
 
 // GetDevFiles returns the list of compose files needed for dev mode.

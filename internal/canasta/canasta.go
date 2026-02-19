@@ -16,7 +16,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
-	"github.com/CanastaWiki/Canasta-CLI/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/sethvargo/go-password/password"
 )
@@ -132,37 +131,6 @@ func copyTemplate(destPath string, upgrading bool) error {
 
 		return os.WriteFile(targetPath, data, 0644)
 	})
-}
-
-// CloneStackRepo clones the stack repository to a new folder in the specified path.
-// If localSourcePath is provided and contains a Canasta-DockerCompose directory, it copies from there instead.
-// Returns true if a local Canasta-DockerCompose was used, false if cloned from GitHub.
-func CloneStackRepo(repoLink string, canastaId string, path *string, localSourcePath string) (bool, error) {
-	*path += "/" + canastaId
-
-	// Check if local Canasta-DockerCompose exists (only when building from source)
-	if localSourcePath != "" {
-		localDockerComposePath := filepath.Join(localSourcePath, "Canasta-DockerCompose")
-		if info, err := os.Stat(localDockerComposePath); err == nil && info.IsDir() {
-			logging.Print(fmt.Sprintf("Copying local Canasta-DockerCompose from %s to %s\n", localDockerComposePath, *path))
-			// Create target directory
-			if err := os.MkdirAll(*path, 0755); err != nil {
-				return false, fmt.Errorf("failed to create directory: %w", err)
-			}
-			// Copy contents (trailing /. copies contents, not the directory itself)
-			err, output := execute.Run("", "cp", "-r", localDockerComposePath+"/.", *path)
-			if err != nil {
-				return false, fmt.Errorf("failed to copy local Canasta-DockerCompose: %s", output)
-			}
-			return true, nil
-		}
-	}
-
-	// Fall back to cloning from GitHub
-	repo := repoLink
-	logging.Print(fmt.Sprintf("Cloning the stack repo to %s \n", *path))
-	err := git.Clone(repo, *path)
-	return false, err
 }
 
 // UpdateEnvFile configures the .env file for a new Canasta installation.

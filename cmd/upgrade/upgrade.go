@@ -17,7 +17,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
-	"github.com/CanastaWiki/Canasta-CLI/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/CanastaWiki/Canasta-CLI/internal/selfupdate"
 )
@@ -37,8 +36,8 @@ func NewCmdCreate() *cobra.Command {
 	var upgradeCmd = &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade a Canasta installation to the latest version",
-		Long: `Upgrade a Canasta installation by pulling the latest Docker Compose stack
-and container images, running any necessary configuration migrations, and
+		Long: `Upgrade a Canasta installation by updating configuration files,
+pulling the latest container images, running any necessary migrations, and
 restarting the containers.
 
 The CLI itself is also updated to the latest version before upgrading instances.
@@ -144,16 +143,10 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		fmt.Println("Dry run mode - showing what would change without applying")
 	}
 
-	// Check if this uses a local stack (created with --build-from using local Canasta-DockerCompose)
-	var repoChanged bool
-	if instance.LocalStack {
-		fmt.Println("Skipping config update: this instance uses a local Canasta-DockerCompose.")
-	} else {
-		fmt.Println("Checking for configuration file updates...")
-		repoChanged, err = git.FetchAndCheckout(instance.Path, dryRun)
-		if err != nil {
-			return err
-		}
+	fmt.Println("Checking for configuration file updates...")
+	stackChanged, err := orch.UpdateStackFiles(instance.Path, dryRun)
+	if err != nil {
+		return err
 	}
 
 	// Update CLI-managed template files (READMEs, new files added in this CLI version).
@@ -203,7 +196,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 
 	if dryRun {
 		fmt.Println()
-		if repoChanged || migrationsNeeded {
+		if stackChanged || migrationsNeeded {
 			fmt.Println("Run 'canasta upgrade' to apply these changes.")
 		} else {
 			fmt.Println("Installation is up to date. No upgrade needed.")
@@ -212,7 +205,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Only restart if something changed
-	if repoChanged || migrationsNeeded || imagesUpdated {
+	if stackChanged || migrationsNeeded || imagesUpdated {
 		// Restart the containers
 		fmt.Println("Restarting containers...")
 		if err = orch.Stop(instance); err != nil {
@@ -231,7 +224,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 
 		fmt.Println()
 		fmt.Println("Canasta upgraded successfully!")
-	} else if instance.LocalStack || isLocalBuild {
+	} else if isLocalBuild {
 		fmt.Println()
 		fmt.Println("This is a local development instance. To update, recreate the instance.")
 	} else {
@@ -290,6 +283,15 @@ func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bo
 		return false, err
 	}
 	if composerChanged {
+		changed = true
+	}
+
+	// Step 6: Remove legacy .git directory (installations are no longer git repos)
+	gitChanged, err := removeLegacyGitDir(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if gitChanged {
 		changed = true
 	}
 
@@ -530,6 +532,29 @@ func fixVectorDefaultSkin(installPath string, dryRun bool) (bool, error) {
 		)
 		if err := os.WriteFile(vectorPath, []byte(newContent), 0644); err != nil {
 			return false, fmt.Errorf("failed to update Vector.php: %w", err)
+		}
+	}
+
+	return true, nil
+}
+
+// removeLegacyGitDir removes the .git directory from installations that were
+// previously cloned from the Canasta-DockerCompose repo. Stack files are now
+// embedded in the CLI binary, so installations are no longer git repos.
+func removeLegacyGitDir(installPath string, dryRun bool) (bool, error) {
+	gitDir := filepath.Join(installPath, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	if dryRun {
+		fmt.Println("  Would remove legacy .git directory")
+	} else {
+		fmt.Println("  Removing legacy .git directory")
+		if err := os.RemoveAll(gitDir); err != nil {
+			return false, fmt.Errorf("failed to remove .git directory: %w", err)
 		}
 	}
 

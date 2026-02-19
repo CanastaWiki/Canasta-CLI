@@ -18,8 +18,11 @@ type extMockOrchestrator struct {
 	streamingErr   error
 }
 
-func (m *extMockOrchestrator) CheckDependencies() error { return nil }
-func (m *extMockOrchestrator) GetRepoLink() string      { return "" }
+func (m *extMockOrchestrator) CheckDependencies() error                              { return nil }
+func (m *extMockOrchestrator) WriteStackFiles(installPath string) error               { return nil }
+func (m *extMockOrchestrator) UpdateStackFiles(installPath string, dryRun bool) (bool, error) {
+	return false, nil
+}
 func (m *extMockOrchestrator) Start(inst config.Installation) error {
 	return nil
 }
