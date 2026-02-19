@@ -13,7 +13,7 @@
   - [Overriding a bundled extension](#overriding-a-bundled-extension)
   - [Composer dependencies](#composer-dependencies)
 - [Semantic MediaWiki](#semantic-mediawiki)
-- [CirrusSearch / Elasticsearch](#cirussearch--elasticsearch)
+- [CirrusSearch / Elasticsearch](#cirrussearch-elasticsearch)
 - [How it works under the hood](#how-it-works-under-the-hood)
 - [Important notes](#important-notes)
 
