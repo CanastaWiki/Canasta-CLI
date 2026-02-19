@@ -229,6 +229,11 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		return err
 	}
 
+	// Copy shared installation template files (config, settings, etc.)
+	if err := canasta.CopyInstallationTemplate(path); err != nil {
+		return err
+	}
+
 	// If user provided a custom yaml file, copy it; otherwise generate it directly in the installation
 	if yamlPath != "" {
 		// User provided custom yaml file via --yamlfile flag
@@ -242,7 +247,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			return err
 		}
 	}
-	if err := canasta.CreateEnvFile(envFile, path, workingDir, canastaInfo.RootDBPassword, canastaInfo.WikiDBPassword); err != nil {
+	if err := canasta.UpdateEnvFile(envFile, path, workingDir, canastaInfo.RootDBPassword, canastaInfo.WikiDBPassword); err != nil {
 		return err
 	}
 	// Set CANASTA_IMAGE in .env for local builds so docker-compose uses the locally built image

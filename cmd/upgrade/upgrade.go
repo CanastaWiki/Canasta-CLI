@@ -156,6 +156,14 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		}
 	}
 
+	// Update CLI-managed template files (READMEs, new files added in this CLI version).
+	// User-editable files are only created if missing.
+	if !dryRun {
+		if err := canasta.UpdateInstallationTemplate(instance.Path); err != nil {
+			return err
+		}
+	}
+
 	// Check if this is a locally-built image (created with --build-from)
 	var imagesUpdated bool
 	envPath := filepath.Join(instance.Path, ".env")
