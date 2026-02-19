@@ -139,13 +139,14 @@ instead of running the installer, or enable development mode with Xdebug.`,
 			if devModeFlag {
 				description = "Creating Canasta installation '" + canastaInfo.Id + "' with dev mode..."
 			}
-			_, done := spinner.New(description)
+			stopSpinner := spinner.New(description)
 
 			orch, err := orchestrators.New(orchestrator)
 			if err != nil {
 				return err
 			}
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath, done); err != nil {
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
+				stopSpinner()
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
 					deleteConfigAndContainers(path+"/"+canastaInfo.Id, orch)
@@ -153,6 +154,12 @@ instead of running the installer, or enable development mode with Xdebug.`,
 				}
 				return fmt.Errorf("Installation failed. Keeping all the containers and config files")
 			}
+			stopSpinner()
+			if devModeFlag {
+				fmt.Println("\033[32mDevelopment mode enabled. Edit files in mediawiki-code/ - changes appear immediately.\033[0m")
+				fmt.Println("\033[32mVSCode: Open the installation directory, install PHP Debug extension, and start 'Listen for Xdebug'.\033[0m")
+			}
+			fmt.Println("\033[32mIf you need email enabled for this wiki, please set $wgSMTP; email will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP for options.\033[0m")
 			fmt.Println("Done.")
 			return nil
 		},
@@ -192,13 +199,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath string, done chan struct{}) error {
-	// Pass a message to the "done" channel indicating the completion of createCanasta function.
-	// This signals the spinner to stop printing progress, regardless of success or failure.
-	defer func() {
-		done <- struct{}{}
-	}()
-
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath string) error {
 	// Determine the base image to use
 	var baseImage string
 	if buildFromPath != "" {
@@ -343,12 +344,6 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		return err
 	}
 
-	if devModeEnabled {
-		fmt.Println("\033[32mDevelopment mode enabled. Edit files in mediawiki-code/ - changes appear immediately.\033[0m")
-		fmt.Println("\033[32mVSCode: Open the installation directory, install PHP Debug extension, and start 'Listen for Xdebug'.\033[0m")
-	}
-
-	fmt.Println("\033[32mIf you need email enabled for this wiki, please set $wgSMTP; email will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP for options.\033[0m")
 	return nil
 }
 

@@ -127,6 +127,11 @@ an existing database dump instead of running the installer.`,
 				fmt.Printf("Generated admin password for wiki '%s'\n", wikiID)
 			}
 
+			instance, err = canasta.CheckCanastaId(instance)
+			if err != nil {
+				return err
+			}
+
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.Id)
 			err = AddWiki(instance, wikiID, siteName, domainName, wikiPath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir)
 			if err != nil {
@@ -156,14 +161,6 @@ an existing database dump instead of running the installer.`,
 
 // AddWiki accepts the Canasta instance info, wiki ID, site name, domain and path of the new wiki, database info, and the initial admin info, then creates a new wiki in the Canasta instance.
 func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir string) error {
-	var err error
-
-	//Checking Installation existence
-	instance, err = canasta.CheckCanastaId(instance)
-	if err != nil {
-		return err
-	}
-
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
 		return err
