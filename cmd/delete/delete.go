@@ -44,6 +44,11 @@ prompted for confirmation before any data is deleted.`,
 			if instance.Id == "" && len(args) > 0 {
 				instance.Id = args[0]
 			}
+			var err error
+			instance, err = canasta.CheckCanastaId(instance)
+			if err != nil {
+				return err
+			}
 			if !yes {
 				reader := bufio.NewReader(os.Stdin)
 				fmt.Printf("This will permanently delete the Canasta installation '%s' and all its data. Continue? [y/N] ", instance.Id)
@@ -71,13 +76,6 @@ func Delete(instance config.Installation) error {
 	defer func() {
 		done <- struct{}{}
 	}()
-	var err error
-
-	//Checking Installation existence
-	instance, err = canasta.CheckCanastaId(instance)
-	if err != nil {
-		return err
-	}
 
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {

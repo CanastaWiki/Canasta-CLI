@@ -597,7 +597,7 @@ func GeneratePassword(purpose string) (string, error) {
 // SavePasswordToFile saves a password to a file in the specified directory
 func SavePasswordToFile(directory, filename, password string) error {
 	filePath := filepath.Join(directory, filename)
-	fmt.Printf("Saving password to %s\n", filePath)
+	logging.Print(fmt.Sprintf("Saving password to %s\n", filePath))
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err
