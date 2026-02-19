@@ -17,6 +17,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/git"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 	"github.com/sethvargo/go-password/password"
 )
 
@@ -597,7 +598,7 @@ func GeneratePassword(purpose string) (string, error) {
 // SavePasswordToFile saves a password to a file in the specified directory
 func SavePasswordToFile(directory, filename, password string) error {
 	filePath := filepath.Join(directory, filename)
-	logging.Print(fmt.Sprintf("Saving password to %s\n", filePath))
+	spinner.Print(fmt.Sprintf("Saving password to %s\n", filePath))
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err

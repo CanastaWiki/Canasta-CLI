@@ -9,7 +9,7 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 )
 
 type Wiki struct {
@@ -58,7 +58,7 @@ func GenerateWikisYaml(filePath, wikiID, domain, siteName string) (string, error
 		return "", err
 	}
 
-	logging.Print("Successfully written to wikis.yaml\n")
+	spinner.Print("Successfully written to wikis.yaml\n")
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		return "", err
