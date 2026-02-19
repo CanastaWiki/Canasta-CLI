@@ -374,7 +374,7 @@ func EnsureObservabilityCredentials(installPath string) (bool, error) {
 		if err := SaveEnvVariable(envPath, "OS_USER", "admin"); err != nil {
 			return true, fmt.Errorf("failed to save OS_USER: %w", err)
 		}
-		fmt.Println("Set OS_USER=admin in .env")
+		logging.Print("Setting OS_USER=admin in .env\n")
 	}
 
 	// Generate OS_PASSWORD if not present
@@ -386,7 +386,7 @@ func EnsureObservabilityCredentials(installPath string) (bool, error) {
 		if err := SaveEnvVariable(envPath, "OS_PASSWORD", pw); err != nil {
 			return true, fmt.Errorf("failed to save OS_PASSWORD: %w", err)
 		}
-		fmt.Println("Generated OS_PASSWORD and saved to .env")
+		logging.Print("Generating OS_PASSWORD and saving to .env\n")
 		// Re-read so we can hash it below
 		envVars["OS_PASSWORD"] = pw
 	}
@@ -400,7 +400,7 @@ func EnsureObservabilityCredentials(installPath string) (bool, error) {
 		if err := SaveEnvVariable(envPath, "OS_PASSWORD_HASH", string(hash)); err != nil {
 			return true, fmt.Errorf("failed to save OS_PASSWORD_HASH: %w", err)
 		}
-		fmt.Println("Generated OS_PASSWORD_HASH and saved to .env")
+		logging.Print("Generating OS_PASSWORD_HASH and saving to .env\n")
 	}
 
 	return true, nil
@@ -500,7 +500,8 @@ func RewriteCaddy(installPath string) error {
 	writeLine("    import /etc/caddy/Caddyfile.site")
 	writeLine("")
 	if observable {
-		writeLine("    handle /opensearch/* {")
+		writeLine("    @opensearch path /opensearch /opensearch/*")
+		writeLine("    handle @opensearch {")
 		writeLine("        basicauth {")
 		writeLine("            " + envVars["OS_USER"] + " " + envVars["OS_PASSWORD_HASH"])
 		writeLine("        }")

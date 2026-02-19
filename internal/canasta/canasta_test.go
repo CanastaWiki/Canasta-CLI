@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestGetEnvVariable(t *testing.T) {
@@ -329,5 +331,67 @@ func TestRewriteCaddy_Observable(t *testing.T) {
 	}
 	if !strings.Contains(caddy, "admin $2a$10$testhash") {
 		t.Error("Caddyfile should contain OS credentials")
+	}
+	if !strings.Contains(caddy, "@opensearch path /opensearch /opensearch/*") {
+		t.Error("Caddyfile should use @opensearch named path matcher")
+	}
+}
+
+func TestRewriteCaddy_ObservableMissingCredentials(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	os.MkdirAll(configDir, 0755)
+	os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("COMPOSE_PROFILES=web,observable\n"), 0644)
+
+	err := RewriteCaddy(dir)
+	if err == nil {
+		t.Fatal("expected error when observable credentials are missing")
+	}
+	if !strings.Contains(err.Error(), "OS_USER or OS_PASSWORD_HASH is missing") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestEnsureObservabilityCredentials_ValidBcryptHash(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web,observable\n"), 0644)
+
+	_, err := EnsureObservabilityCredentials(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vars, _ := GetEnvVariable(envPath)
+	err = bcrypt.CompareHashAndPassword([]byte(vars["OS_PASSWORD_HASH"]), []byte(vars["OS_PASSWORD"]))
+	if err != nil {
+		t.Error("OS_PASSWORD_HASH should be a valid bcrypt hash of OS_PASSWORD")
+	}
+}
+
+func TestEnsureObservabilityCredentials_PartialCredentials(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	// OS_USER set but OS_PASSWORD and OS_PASSWORD_HASH missing
+	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web,observable\nOS_USER=customuser\n"), 0644)
+
+	active, err := EnsureObservabilityCredentials(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !active {
+		t.Error("expected true when observable profile is active")
+	}
+
+	vars, _ := GetEnvVariable(envPath)
+	if vars["OS_USER"] != "customuser" {
+		t.Errorf("OS_USER = %q, want \"customuser\" (should preserve existing)", vars["OS_USER"])
+	}
+	if vars["OS_PASSWORD"] == "" {
+		t.Error("expected OS_PASSWORD to be generated")
+	}
+	if vars["OS_PASSWORD_HASH"] == "" {
+		t.Error("expected OS_PASSWORD_HASH to be generated")
 	}
 }
