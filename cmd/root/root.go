@@ -21,7 +21,6 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
-	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 
 	"github.com/spf13/cobra"
 )
@@ -90,16 +89,6 @@ func init() {
 			} else {
 				cmd.Printf("\nConfig file: %s/conf.json\n", configDir)
 			}
-		}
-	})
-
-	cobra.OnInitialize(func() {
-		orch, err := orchestrators.New("compose")
-		if err != nil {
-			logging.Fatal(err)
-		}
-		if err := orch.CheckDependencies(); err != nil {
-			logging.Fatal(err)
 		}
 	})
 }
