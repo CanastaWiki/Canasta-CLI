@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-
 	addCmd "github.com/CanastaWiki/Canasta-CLI/cmd/add"
 	createCmd "github.com/CanastaWiki/Canasta-CLI/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI/cmd/delete"
@@ -23,7 +20,6 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
-	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 
 	"github.com/spf13/cobra"
 )
@@ -91,17 +87,6 @@ func init() {
 			} else {
 				cmd.Printf("\nConfig file: %s/conf.json\n", configDir)
 			}
-		}
-	})
-
-	cobra.OnInitialize(func() {
-		orch, err := orchestrators.New("compose")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: %s\n", err)
-			return
-		}
-		if err := orch.CheckDependencies(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Docker Compose not available: %s\n", err)
 		}
 	})
 }
