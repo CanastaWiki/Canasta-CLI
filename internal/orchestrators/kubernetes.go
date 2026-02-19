@@ -9,7 +9,14 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	yaml "gopkg.in/yaml.v2"
 )
+
+// webDeployment is the Kubernetes deployment name for the MediaWiki web service.
+const webDeployment = "deployment/web"
+
+// podLabelKey is the label used to identify pods belonging to a service.
+const podLabelKey = "app"
 
 // KubernetesOrchestrator implements Orchestrator using kubectl.
 // Each Canasta installation maps to a Kubernetes namespace.
@@ -47,7 +54,7 @@ func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
 
 	// Wait for the web deployment to be ready
 	rolloutCmd := exec.Command("kubectl", "rollout", "status",
-		"deployment/web", "-n", ns, "--timeout=300s")
+		webDeployment, "-n", ns, "--timeout=300s")
 	rolloutOutput, err := rolloutCmd.CombinedOutput()
 	logging.Print(string(rolloutOutput))
 	if err != nil {
@@ -79,7 +86,7 @@ func (k *KubernetesOrchestrator) Update(installPath string) (*UpdateReport, erro
 		return nil, err
 	}
 
-	cmd := exec.Command("kubectl", "rollout", "restart", "deployment/web", "-n", ns)
+	cmd := exec.Command("kubectl", "rollout", "restart", webDeployment, "-n", ns)
 	output, err := cmd.CombinedOutput()
 	logging.Print(string(output))
 	if err != nil {
@@ -87,7 +94,7 @@ func (k *KubernetesOrchestrator) Update(installPath string) (*UpdateReport, erro
 	}
 
 	rolloutCmd := exec.Command("kubectl", "rollout", "status",
-		"deployment/web", "-n", ns, "--timeout=300s")
+		webDeployment, "-n", ns, "--timeout=300s")
 	rolloutOutput, err := rolloutCmd.CombinedOutput()
 	logging.Print(string(rolloutOutput))
 	if err != nil {
@@ -158,7 +165,7 @@ func (k *KubernetesOrchestrator) CheckRunningStatus(instance config.Installation
 		return err
 	}
 
-	cmd := exec.Command("kubectl", "get", "deployment/web", "-n", ns,
+	cmd := exec.Command("kubectl", "get", webDeployment, "-n", ns,
 		"-o", "jsonpath={.status.readyReplicas}")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -222,7 +229,7 @@ func (k *KubernetesOrchestrator) RestoreFromBackupVolume(installPath string, dir
 
 // getRunningPod finds a running pod for the given service label in a namespace.
 func getRunningPod(namespace, service string) (string, error) {
-	labelSelector := fmt.Sprintf("app=%s", service)
+	labelSelector := fmt.Sprintf("%s=%s", podLabelKey, service)
 	cmd := exec.Command("kubectl", "get", "pods",
 		"-n", namespace,
 		"-l", labelSelector,
@@ -240,6 +247,12 @@ func getRunningPod(namespace, service string) (string, error) {
 	return podName, nil
 }
 
+// kustomizationFile is the minimal structure needed to extract the namespace
+// from a kustomization.yaml file.
+type kustomizationFile struct {
+	Namespace string `yaml:"namespace"`
+}
+
 // getNamespaceFromPath reads the namespace from the kustomization.yaml
 // in the installation directory.
 func getNamespaceFromPath(installPath string) (string, error) {
@@ -249,15 +262,13 @@ func getNamespaceFromPath(installPath string) (string, error) {
 		return "", fmt.Errorf("cannot read kustomization.yaml: %w", err)
 	}
 
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "namespace:") {
-			ns := strings.TrimSpace(strings.TrimPrefix(line, "namespace:"))
-			if ns == "" {
-				return "", fmt.Errorf("empty namespace in kustomization.yaml")
-			}
-			return ns, nil
-		}
+	var kf kustomizationFile
+	if err := yaml.Unmarshal(data, &kf); err != nil {
+		return "", fmt.Errorf("failed to parse kustomization.yaml: %w", err)
 	}
-	return "", fmt.Errorf("no namespace field found in kustomization.yaml")
+
+	if kf.Namespace == "" {
+		return "", fmt.Errorf("no namespace field found in kustomization.yaml")
+	}
+	return kf.Namespace, nil
 }
