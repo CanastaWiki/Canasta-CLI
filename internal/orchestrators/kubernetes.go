@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators/kubernetes"
@@ -339,7 +340,16 @@ func (k *KubernetesOrchestrator) InitConfig(installPath string) error {
 	if err := tmpl.Execute(&buf, struct{ Namespace string }{namespace}); err != nil {
 		return fmt.Errorf("failed to execute kustomization template: %w", err)
 	}
-	return os.WriteFile(filepath.Join(installPath, "kustomization.yaml"), buf.Bytes(), 0644)
+	if err := os.WriteFile(filepath.Join(installPath, "kustomization.yaml"), buf.Bytes(), 0644); err != nil {
+		return err
+	}
+	if err := canasta.CreateCaddyfileSite(installPath); err != nil {
+		return err
+	}
+	if err := canasta.CreateCaddyfileGlobal(installPath); err != nil {
+		return err
+	}
+	return canasta.RewriteCaddy(installPath)
 }
 
 func (k *KubernetesOrchestrator) UpdateConfig(installPath string) error {

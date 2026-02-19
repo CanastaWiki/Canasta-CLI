@@ -203,6 +203,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 
 	// Determine the base image to use
 	var baseImage string
+	var localImageBuilt bool
 	if buildFromPath != "" {
 		// Check if local Canasta repo exists for building
 		canastaPath := filepath.Join(buildFromPath, "Canasta")
@@ -214,6 +215,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 				return fmt.Errorf("failed to build from source: %w", err)
 			}
 			baseImage = builtImage
+			localImageBuilt = true
 		} else {
 			// No local Canasta repo, use registry image
 			logging.Print("No local Canasta repo found, using registry image\n")
@@ -286,7 +288,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
 	if isK8s {
 		// For K8s with local builds, push to a registry the cluster can access
-		if buildFromPath != "" && baseImage != "" {
+		if localImageBuilt {
 			logging.Print("Pushing image to registry for Kubernetes...\n")
 			if _, err := imagebuild.PushImage(baseImage, registry); err != nil {
 				return fmt.Errorf("failed to push image to registry: %w", err)

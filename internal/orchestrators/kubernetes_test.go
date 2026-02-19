@@ -225,8 +225,15 @@ func TestUpdateStackFilesDryRun(t *testing.T) {
 
 func TestInitConfigGeneratesKustomization(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "my-wiki")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatalf("failed to create dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("COMPOSE_PROFILES=web\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644); err != nil {
+		t.Fatal(err)
 	}
 
 	k := &KubernetesOrchestrator{}
@@ -277,8 +284,15 @@ func TestInitConfigGeneratesKustomization(t *testing.T) {
 func TestInitConfigNamespaceFromPath(t *testing.T) {
 	// Test that the namespace is derived from the directory name
 	dir := filepath.Join(t.TempDir(), "production-wiki")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatalf("failed to create dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("COMPOSE_PROFILES=web\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644); err != nil {
+		t.Fatal(err)
 	}
 
 	k := &KubernetesOrchestrator{}
