@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: {{.Namespace}}
+
+resources:
+- kubernetes/namespace.yaml
+- kubernetes/caddy.yaml
+- kubernetes/db.yaml
+- kubernetes/elasticsearch.yaml
+- kubernetes/varnish.yaml
+- kubernetes/web.yaml
+
+configMapGenerator:
+- name: canasta-settings-global
+  files:
+  - config/settings/global/CanastaFooterIcon.php
+  - config/settings/global/Vector.php
+- name: canasta-config
+  files:
+  - config/wikis.yaml
+  - config/Caddyfile
+  - config/Caddyfile.site
+  - config/Caddyfile.global
+  - config/default.vcl
+  - my.cnf
+  # Uncomment the following line once you have a LocalSettings.php file
+  # - config/LocalSettings.php
+- name: canasta-env
+  envs:
+  - .env
