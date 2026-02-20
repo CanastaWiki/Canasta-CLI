@@ -17,7 +17,7 @@ import (
 
 const (
 	dbServer             = "db"
-	confPath             = "/mediawiki/config/"
+	confPath             = "/tmp/canasta-install/"
 	scriptPath           = "/w"
 	localSettingsFile    = "LocalSettings.php"
 	commonSettingsFile   = "CommonSettings.php"
@@ -40,6 +40,13 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 	if err != nil {
 		return canastaInfo, err
 	}
+
+	// Create writable temp directory for install.php output (needed because
+	// /mediawiki/config/ may be a read-only ConfigMap mount in Kubernetes)
+	if _, err := orch.ExecWithError(path, "web", "mkdir -p "+confPath); err != nil {
+		return canastaInfo, fmt.Errorf("failed to create install temp directory: %w", err)
+	}
+
 	for i := 0; i < len(WikiIDs); i++ {
 		wikiID := WikiIDs[i]
 		domainName := domainNames[i]
@@ -72,18 +79,20 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 			if val, ok := envVars["MW_SECRET_KEY"]; ok && val != "" {
 				logging.Print("MW_SECRET_KEY already set in .env, skipping extraction\n")
 			} else {
-				localSettingsPath := filepath.Join(path, "config", localSettingsFile)
-				content, err := os.ReadFile(localSettingsPath)
-				if err != nil {
-					return canastaInfo, fmt.Errorf("failed to read LocalSettings.php: %w", err)
+				// Read LocalSettings.php from inside the container (works for
+				// both bind-mount and ConfigMap-based orchestrators)
+				catCmd := fmt.Sprintf("cat %s%s", confPath, localSettingsFile)
+				content, catErr := orch.ExecWithError(path, "web", catCmd)
+				if catErr != nil {
+					return canastaInfo, fmt.Errorf("failed to read LocalSettings.php: %w", catErr)
 				}
 
 				secretKeyRegex := regexp.MustCompile(`\$wgSecretKey\s*=\s*["']([0-9a-fA-F]+)["']`)
-				matches := secretKeyRegex.FindSubmatch(content)
+				matches := secretKeyRegex.FindStringSubmatch(content)
 				if matches == nil {
 					return canastaInfo, fmt.Errorf("could not find $wgSecretKey in LocalSettings.php")
 				}
-				secretKey := string(matches[1])
+				secretKey := matches[1]
 
 				if err := canasta.SaveEnvVariable(envPath, "MW_SECRET_KEY", secretKey); err != nil {
 					return canastaInfo, fmt.Errorf("failed to save MW_SECRET_KEY to .env: %w", err)
@@ -97,10 +106,9 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 		// secret key from the first wiki's file (done above when i == 0), after which all these
 		// generated files are unnecessary—Canasta uses its own LocalSettings.php that reads
 		// MW_SECRET_KEY from the environment.
-		var rmOutput string
-		err, rmOutput = execute.Run(path, "rm", filepath.Join(path, "config", localSettingsFile))
-		if err != nil {
-			return canastaInfo, fmt.Errorf("failed to remove LocalSettings.php: %w: %s", err, rmOutput)
+		rmCmd := fmt.Sprintf("rm -f %s%s", confPath, localSettingsFile)
+		if _, rmErr := orch.ExecWithError(path, "web", rmCmd); rmErr != nil {
+			return canastaInfo, fmt.Errorf("failed to remove LocalSettings.php: %w", rmErr)
 		}
 
 		time.Sleep(time.Second)
