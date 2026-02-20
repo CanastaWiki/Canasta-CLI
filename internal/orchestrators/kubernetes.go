@@ -328,7 +328,7 @@ func buildPodOverrides(volumes map[string]string) string {
 }
 
 func (k *KubernetesOrchestrator) RestoreFromBackupVolume(installPath string, dirs map[string]string) error {
-	return fmt.Errorf("backup is not yet supported for Kubernetes installations")
+	return fmt.Errorf("backup restore is not yet supported for Kubernetes installations")
 }
 
 func (k *KubernetesOrchestrator) InitConfig(installPath string) error {
