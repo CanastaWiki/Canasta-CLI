@@ -42,6 +42,7 @@ func NewCmdCreate() *cobra.Command {
 		wikiSettingsPath   string // path to existing per-wiki Settings.php
 		globalSettingsPath string // path to existing global settings file
 		composerFile       string // path to custom composer.local.json
+		registry           string // container registry for K8s image push
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -145,7 +146,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 			if err != nil {
 				return err
 			}
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, registry, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
 				stopSpinner()
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
@@ -191,6 +192,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
 	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
 	createCmd.Flags().StringVar(&composerFile, "composer", "", "Path to custom composer.local.json to copy to config/")
+	createCmd.Flags().StringVar(&registry, "registry", "localhost:5000", "Container registry for pushing locally built images (used with --build-from on Kubernetes)")
 
 	// Mark required flags
 	_ = createCmd.MarkFlagRequired("id")
@@ -199,9 +201,10 @@ instead of running the installer, or enable development mode with Xdebug.`,
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, databasePath, wikiSettingsPath, globalSettingsPath string) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, registry, databasePath, wikiSettingsPath, globalSettingsPath string) error {
 	// Determine the base image to use
 	var baseImage string
+	var localImageBuilt bool
 	if buildFromPath != "" {
 		// Check if local Canasta repo exists for building
 		canastaPath := filepath.Join(buildFromPath, "Canasta")
@@ -213,6 +216,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 				return fmt.Errorf("failed to build from source: %w", err)
 			}
 			baseImage = builtImage
+			localImageBuilt = true
 		} else {
 			// No local Canasta repo, use registry image
 			logging.Print("No local Canasta repo found, using registry image\n")
@@ -282,6 +286,16 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := orch.InitConfig(path); err != nil {
 		return err
 	}
+	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
+	if isK8s {
+		// For K8s with local builds, push to a registry the cluster can access
+		if localImageBuilt {
+			logging.Print("Pushing image to registry for Kubernetes...\n")
+			if _, err := imagebuild.PushImage(baseImage, registry); err != nil {
+				return fmt.Errorf("failed to push image to registry: %w", err)
+			}
+		}
+	}
 	if override != "" {
 		compose, ok := orch.(*orchestrators.ComposeOrchestrator)
 		if !ok {
@@ -293,7 +307,6 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	}
 
 	// Dev mode: extract code and build xdebug image before starting
-	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
 	if devModeEnabled && isK8s {
 		return fmt.Errorf("Development mode is only supported with Docker Compose")
 	}
@@ -339,7 +352,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled}
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, Registry: registry}
 	if err := config.Add(instance); err != nil {
 		return err
 	}
