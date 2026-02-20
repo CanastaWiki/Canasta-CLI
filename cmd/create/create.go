@@ -282,6 +282,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := orch.InitConfig(path); err != nil {
 		return err
 	}
+	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
 	if override != "" {
 		compose, ok := orch.(*orchestrators.ComposeOrchestrator)
 		if !ok {
@@ -293,7 +294,6 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	}
 
 	// Dev mode: extract code and build xdebug image before starting
-	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
 	if devModeEnabled && isK8s {
 		return fmt.Errorf("Development mode is only supported with Docker Compose")
 	}
