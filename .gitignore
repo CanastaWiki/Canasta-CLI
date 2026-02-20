@@ -5,9 +5,10 @@
 *.so
 *.dylib
 
-# YAML files (except mkdocs.yml)
+# YAML files (except mkdocs.yml and embedded orchestrator files)
 *.yaml
 !mkdocs.yml
+!internal/orchestrators/**/files/**/*.yaml
 
 # Build output directory
 build/
