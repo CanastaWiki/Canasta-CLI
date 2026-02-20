@@ -95,22 +95,204 @@ func TestNewKubernetesReturnsOrchestrator(t *testing.T) {
 	}
 }
 
-func TestWriteStackFilesNoop(t *testing.T) {
+// expectedK8sManifests lists the manifest files that should be written by WriteStackFiles.
+var expectedK8sManifests = []string{
+	"namespace.yaml",
+	"web.yaml",
+	"db.yaml",
+	"caddy.yaml",
+	"varnish.yaml",
+	"elasticsearch.yaml",
+}
+
+func TestWriteStackFilesCreatesManifests(t *testing.T) {
+	dir := t.TempDir()
 	k := &KubernetesOrchestrator{}
-	err := k.WriteStackFiles(t.TempDir())
-	if err != nil {
+	if err := k.WriteStackFiles(dir); err != nil {
 		t.Fatalf("WriteStackFiles() error = %v", err)
+	}
+
+	for _, name := range expectedK8sManifests {
+		path := filepath.Join(dir, "kubernetes", name)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Errorf("expected %s to exist: %v", name, err)
+			continue
+		}
+		if info.Size() == 0 {
+			t.Errorf("%s is empty", name)
+		}
 	}
 }
 
-func TestUpdateStackFilesNoop(t *testing.T) {
+func TestWriteStackFilesNoClobber(t *testing.T) {
+	dir := t.TempDir()
 	k := &KubernetesOrchestrator{}
-	changed, err := k.UpdateStackFiles(t.TempDir(), false)
+
+	// First write
+	if err := k.WriteStackFiles(dir); err != nil {
+		t.Fatalf("WriteStackFiles() first call error = %v", err)
+	}
+
+	// Overwrite one file with custom content
+	customPath := filepath.Join(dir, "kubernetes", "namespace.yaml")
+	customContent := []byte("# custom content\n")
+	if err := os.WriteFile(customPath, customContent, 0644); err != nil {
+		t.Fatalf("failed to write custom content: %v", err)
+	}
+
+	// Second write should not clobber
+	if err := k.WriteStackFiles(dir); err != nil {
+		t.Fatalf("WriteStackFiles() second call error = %v", err)
+	}
+
+	got, err := os.ReadFile(customPath)
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	if string(got) != string(customContent) {
+		t.Error("WriteStackFiles() should not overwrite existing files")
+	}
+}
+
+func TestUpdateStackFilesDetectsChanges(t *testing.T) {
+	dir := t.TempDir()
+	k := &KubernetesOrchestrator{}
+
+	// First write
+	if err := k.WriteStackFiles(dir); err != nil {
+		t.Fatalf("WriteStackFiles() error = %v", err)
+	}
+
+	// No changes yet
+	changed, err := k.UpdateStackFiles(dir, false)
 	if err != nil {
 		t.Fatalf("UpdateStackFiles() error = %v", err)
 	}
 	if changed {
-		t.Error("UpdateStackFiles() returned changed=true, want false")
+		t.Error("UpdateStackFiles() returned changed=true when files are identical")
+	}
+
+	// Modify a file
+	modifiedPath := filepath.Join(dir, "kubernetes", "namespace.yaml")
+	if err := os.WriteFile(modifiedPath, []byte("# modified\n"), 0644); err != nil {
+		t.Fatalf("failed to modify file: %v", err)
+	}
+
+	// Should detect change and update
+	changed, err = k.UpdateStackFiles(dir, false)
+	if err != nil {
+		t.Fatalf("UpdateStackFiles() error = %v", err)
+	}
+	if !changed {
+		t.Error("UpdateStackFiles() returned changed=false after modifying a file")
+	}
+}
+
+func TestUpdateStackFilesDryRun(t *testing.T) {
+	dir := t.TempDir()
+	k := &KubernetesOrchestrator{}
+
+	// First write
+	if err := k.WriteStackFiles(dir); err != nil {
+		t.Fatalf("WriteStackFiles() error = %v", err)
+	}
+
+	// Modify a file
+	modifiedPath := filepath.Join(dir, "kubernetes", "namespace.yaml")
+	if err := os.WriteFile(modifiedPath, []byte("# modified\n"), 0644); err != nil {
+		t.Fatalf("failed to modify file: %v", err)
+	}
+
+	// Dry run should report changed but not modify
+	changed, err := k.UpdateStackFiles(dir, true)
+	if err != nil {
+		t.Fatalf("UpdateStackFiles() error = %v", err)
+	}
+	if !changed {
+		t.Error("UpdateStackFiles() dry run returned changed=false")
+	}
+
+	// File should still have modified content
+	got, err := os.ReadFile(modifiedPath)
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	if string(got) != "# modified\n" {
+		t.Error("UpdateStackFiles() dry run should not modify files")
+	}
+}
+
+func TestInitConfigGeneratesKustomization(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "my-wiki")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+
+	k := &KubernetesOrchestrator{}
+	if err := k.InitConfig(dir); err != nil {
+		t.Fatalf("InitConfig() error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
+	if err != nil {
+		t.Fatalf("expected kustomization.yaml to be created: %v", err)
+	}
+
+	text := string(content)
+
+	// Should contain the namespace from the directory name
+	if !strings.Contains(text, "namespace: my-wiki") {
+		t.Errorf("kustomization.yaml should contain 'namespace: my-wiki', got:\n%s", text)
+	}
+
+	// Should reference embedded manifest paths
+	for _, resource := range []string{
+		"kubernetes/namespace.yaml",
+		"kubernetes/web.yaml",
+		"kubernetes/db.yaml",
+		"kubernetes/caddy.yaml",
+		"kubernetes/varnish.yaml",
+		"kubernetes/elasticsearch.yaml",
+	} {
+		if !strings.Contains(text, resource) {
+			t.Errorf("kustomization.yaml should reference %s", resource)
+		}
+	}
+
+	// Should reference .env (not .env.example)
+	if !strings.Contains(text, "- .env") {
+		t.Error("kustomization.yaml should reference .env")
+	}
+	if strings.Contains(text, ".env.example") {
+		t.Error("kustomization.yaml should not reference .env.example")
+	}
+
+	// Should not contain backup references
+	if strings.Contains(text, "backup") {
+		t.Error("kustomization.yaml should not contain backup references")
+	}
+}
+
+func TestInitConfigNamespaceFromPath(t *testing.T) {
+	// Test that the namespace is derived from the directory name
+	dir := filepath.Join(t.TempDir(), "production-wiki")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+
+	k := &KubernetesOrchestrator{}
+	if err := k.InitConfig(dir); err != nil {
+		t.Fatalf("InitConfig() error = %v", err)
+	}
+
+	// Verify the generated file can be read back by getNamespaceFromPath
+	ns, err := getNamespaceFromPath(dir)
+	if err != nil {
+		t.Fatalf("getNamespaceFromPath() error = %v", err)
+	}
+	if ns != "production-wiki" {
+		t.Errorf("namespace = %q, want %q", ns, "production-wiki")
 	}
 }
 

@@ -1,14 +1,18 @@
 package orchestrators
 
 import (
+	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators/kubernetes"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -34,11 +38,54 @@ func (k *KubernetesOrchestrator) CheckDependencies() error {
 }
 
 func (k *KubernetesOrchestrator) WriteStackFiles(installPath string) error {
-	return nil // K8s manifests will be embedded in a follow-up PR
+	return k.walkStackFiles(installPath, false)
 }
 
 func (k *KubernetesOrchestrator) UpdateStackFiles(installPath string, dryRun bool) (bool, error) {
-	return false, nil // K8s manifests will be embedded in a follow-up PR
+	changed := false
+	err := fs.WalkDir(kubernetes.StackFiles, "files/kubernetes", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel("files", path)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
+			return nil
+		}
+		targetPath := filepath.Join(installPath, relPath)
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, 0755)
+		}
+		if d.Name() == ".gitkeep" {
+			return nil
+		}
+		embedded, err := kubernetes.StackFiles.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
+		}
+		existing, readErr := os.ReadFile(targetPath)
+		if readErr == nil && bytes.Equal(existing, embedded) {
+			return nil // unchanged
+		}
+		changed = true
+		if dryRun {
+			if readErr != nil {
+				fmt.Printf("  Would create %s\n", relPath)
+			} else {
+				fmt.Printf("  Would update %s\n", relPath)
+			}
+			return nil
+		}
+		if readErr != nil {
+			fmt.Printf("  Creating %s\n", relPath)
+		} else {
+			fmt.Printf("  Updating %s\n", relPath)
+		}
+		return os.WriteFile(targetPath, embedded, 0644)
+	})
+	return changed, err
 }
 
 func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
@@ -232,7 +279,20 @@ func (k *KubernetesOrchestrator) RestoreFromBackupVolume(installPath string, dir
 }
 
 func (k *KubernetesOrchestrator) InitConfig(installPath string) error {
-	return nil // K8s config is managed via kustomization overlays
+	tmplData, err := kubernetes.StackFiles.ReadFile("files/kustomization.yaml.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded kustomization template: %w", err)
+	}
+	tmpl, err := template.New("kustomization").Parse(string(tmplData))
+	if err != nil {
+		return fmt.Errorf("failed to parse kustomization template: %w", err)
+	}
+	namespace := filepath.Base(installPath)
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, struct{ Namespace string }{namespace}); err != nil {
+		return fmt.Errorf("failed to execute kustomization template: %w", err)
+	}
+	return os.WriteFile(filepath.Join(installPath, "kustomization.yaml"), buf.Bytes(), 0644)
 }
 
 func (k *KubernetesOrchestrator) UpdateConfig(installPath string) error {
@@ -241,6 +301,41 @@ func (k *KubernetesOrchestrator) UpdateConfig(installPath string) error {
 
 func (k *KubernetesOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool, error) {
 	return false, nil // No Compose-specific migrations needed for K8s
+}
+
+// walkStackFiles walks the embedded K8s manifest files and writes them to installPath.
+// Only manifest YAMLs under files/kubernetes/ are written; the template is skipped.
+// If overwrite is false (create mode), existing files are skipped.
+func (k *KubernetesOrchestrator) walkStackFiles(installPath string, overwrite bool) error {
+	return fs.WalkDir(kubernetes.StackFiles, "files/kubernetes", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel("files", path)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
+			return nil
+		}
+		targetPath := filepath.Join(installPath, relPath)
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, 0755)
+		}
+		if d.Name() == ".gitkeep" {
+			return nil
+		}
+		if !overwrite {
+			if _, err := os.Stat(targetPath); err == nil {
+				return nil // no-clobber
+			}
+		}
+		data, err := kubernetes.StackFiles.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
+		}
+		return os.WriteFile(targetPath, data, 0644)
+	})
 }
 
 // getRunningPod finds a running pod for the given service label in a namespace.
