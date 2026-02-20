@@ -83,6 +83,11 @@ func Restart(instance config.Installation, enableDev, disableDev bool) error {
 	}
 
 	// Handle dev mode enable/disable
+	if (enableDev || disableDev) {
+		if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+			return fmt.Errorf("Development mode is only supported with Docker Compose")
+		}
+	}
 	if enableDev {
 		// Enable dev mode using default registry image
 		baseImage := canasta.GetDefaultImage()
@@ -106,6 +111,11 @@ func Restart(instance config.Installation, enableDev, disableDev bool) error {
 				logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
 			}
 		}
+	}
+
+	// Regenerate orchestrator config (Compose: Caddyfile; K8s: kustomization.yaml)
+	if err := orch.UpdateConfig(instance.Path); err != nil {
+		return err
 	}
 
 	// Start containers

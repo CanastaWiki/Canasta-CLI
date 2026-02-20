@@ -167,8 +167,15 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	canastaImage := envVars["CANASTA_IMAGE"]
 	isLocalBuild := strings.HasPrefix(canastaImage, "canasta:local")
 
+	_, isK8s := orch.(*orchestrators.KubernetesOrchestrator)
 	if !dryRun {
-		if isLocalBuild {
+		if isK8s {
+			fmt.Println("Regenerating kustomization.yaml and re-applying manifests...")
+			if err := orch.InitConfig(instance.Path); err != nil {
+				return err
+			}
+			imagesUpdated = true
+		} else if isLocalBuild {
 			fmt.Println("Skipping image pull: this instance uses a locally-built image.")
 		} else {
 			fmt.Println("Pulling Canasta container images...")

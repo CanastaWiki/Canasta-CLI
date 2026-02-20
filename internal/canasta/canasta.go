@@ -211,6 +211,13 @@ func CopyYaml(yamlPath, installPath string) error {
 	return nil
 }
 
+// NormalizeWikiID converts a wiki ID to a filesystem-safe form by replacing
+// spaces with underscores and stripping non-alphanumeric characters.
+func NormalizeWikiID(id string) string {
+	normalized := strings.Replace(id, " ", "_", -1)
+	return regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(normalized, "")
+}
+
 func CopySettings(installPath string) error {
 	yamlPath := installPath + "/config/wikis.yaml"
 
@@ -227,9 +234,7 @@ func CopySettings(installPath string) error {
 	}
 
 	for i := len(WikiIDs) - 1; i >= 0; i-- {
-		// Replace spaces to underlines and remove accented and non-alphanumeric characters
-		id := strings.Replace(WikiIDs[i], " ", "_", -1)
-		id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id,"")
+		id := NormalizeWikiID(WikiIDs[i])
 		dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
 		// Create the directory if it doesn't exist
@@ -248,9 +253,7 @@ func CopySettings(installPath string) error {
 }
 
 func CopySetting(installPath, id string) error {
-	// Normalize wiki ID
-	normalizedId := strings.Replace(id, " ", "_", -1)
-	normalizedId = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(normalizedId, "")
+	normalizedId := NormalizeWikiID(id)
 
 	dirPath := filepath.Join(installPath, "config", "settings", "wikis", normalizedId)
 
@@ -280,9 +283,7 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 		settingsFilePath = workingDir + "/" + settingsFilePath
 	}
 
-	// Normalize wikiID (replace spaces with underscores, remove non-alphanumeric)
-	id := strings.Replace(wikiID, " ", "_", -1)
-	id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
+	id := NormalizeWikiID(wikiID)
 	dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
 	// Create the directory if it doesn't exist
