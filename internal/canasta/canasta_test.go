@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestGetEnvVariable(t *testing.T) {
@@ -217,5 +219,179 @@ func TestGenerateSecretKey(t *testing.T) {
 	}
 	if key == key2 {
 		t.Error("expected different keys on successive calls")
+	}
+}
+
+func TestContainsProfile(t *testing.T) {
+	tests := []struct {
+		profiles string
+		target   string
+		want     bool
+	}{
+		{"web", "web", true},
+		{"web,observable", "observable", true},
+		{"web, observable", "observable", true},
+		{"web", "observable", false},
+		{"", "observable", false},
+		{"observable", "observable", true},
+	}
+	for _, tt := range tests {
+		if got := ContainsProfile(tt.profiles, tt.target); got != tt.want {
+			t.Errorf("ContainsProfile(%q, %q) = %v, want %v", tt.profiles, tt.target, got, tt.want)
+		}
+	}
+}
+
+func TestEnsureObservabilityCredentials_NotObservable(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web\n"), 0644)
+
+	active, err := EnsureObservabilityCredentials(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if active {
+		t.Error("expected false when observable profile is not active")
+	}
+}
+
+func TestEnsureObservabilityCredentials_GeneratesCredentials(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web,observable\n"), 0644)
+
+	active, err := EnsureObservabilityCredentials(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !active {
+		t.Error("expected true when observable profile is active")
+	}
+
+	vars, _ := GetEnvVariable(envPath)
+	if vars["OS_USER"] != "admin" {
+		t.Errorf("OS_USER = %q, want \"admin\"", vars["OS_USER"])
+	}
+	if vars["OS_PASSWORD"] == "" {
+		t.Error("expected OS_PASSWORD to be set")
+	}
+	if vars["OS_PASSWORD_HASH"] == "" {
+		t.Error("expected OS_PASSWORD_HASH to be set")
+	}
+}
+
+func TestEnsureObservabilityCredentials_PreservesExisting(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web,observable\nOS_USER=myuser\nOS_PASSWORD=mypass\nOS_PASSWORD_HASH=$2a$10$fakehash\n"), 0644)
+
+	active, err := EnsureObservabilityCredentials(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !active {
+		t.Error("expected true when observable profile is active")
+	}
+
+	vars, _ := GetEnvVariable(envPath)
+	if vars["OS_USER"] != "myuser" {
+		t.Errorf("OS_USER = %q, want \"myuser\"", vars["OS_USER"])
+	}
+	if vars["OS_PASSWORD"] != "mypass" {
+		t.Errorf("OS_PASSWORD = %q, want \"mypass\"", vars["OS_PASSWORD"])
+	}
+	if vars["OS_PASSWORD_HASH"] != "$2a$10$fakehash" {
+		t.Errorf("OS_PASSWORD_HASH = %q, want \"$2a$10$fakehash\"", vars["OS_PASSWORD_HASH"])
+	}
+}
+
+func TestRewriteCaddy_Observable(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	os.MkdirAll(configDir, 0755)
+	os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("COMPOSE_PROFILES=web,observable\nOS_USER=admin\nOS_PASSWORD_HASH=$2a$10$testhash\n"), 0644)
+
+	if err := RewriteCaddy(dir); err != nil {
+		t.Fatalf("RewriteCaddy() error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(configDir, "Caddyfile"))
+	if err != nil {
+		t.Fatalf("expected Caddyfile to be created: %v", err)
+	}
+	caddy := string(content)
+
+	if !strings.Contains(caddy, "opensearch-dashboards:5601") {
+		t.Error("Caddyfile should contain opensearch-dashboards reverse proxy")
+	}
+	if !strings.Contains(caddy, "basicauth") {
+		t.Error("Caddyfile should contain basicauth block")
+	}
+	if !strings.Contains(caddy, "admin $2a$10$testhash") {
+		t.Error("Caddyfile should contain OS credentials")
+	}
+	if !strings.Contains(caddy, "@opensearch path /opensearch /opensearch/*") {
+		t.Error("Caddyfile should use @opensearch named path matcher")
+	}
+}
+
+func TestRewriteCaddy_ObservableMissingCredentials(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	os.MkdirAll(configDir, 0755)
+	os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("COMPOSE_PROFILES=web,observable\n"), 0644)
+
+	err := RewriteCaddy(dir)
+	if err == nil {
+		t.Fatal("expected error when observable credentials are missing")
+	}
+	if !strings.Contains(err.Error(), "OS_USER or OS_PASSWORD_HASH is missing") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestEnsureObservabilityCredentials_ValidBcryptHash(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web,observable\n"), 0644)
+
+	_, err := EnsureObservabilityCredentials(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vars, _ := GetEnvVariable(envPath)
+	err = bcrypt.CompareHashAndPassword([]byte(vars["OS_PASSWORD_HASH"]), []byte(vars["OS_PASSWORD"]))
+	if err != nil {
+		t.Error("OS_PASSWORD_HASH should be a valid bcrypt hash of OS_PASSWORD")
+	}
+}
+
+func TestEnsureObservabilityCredentials_PartialCredentials(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	// OS_USER set but OS_PASSWORD and OS_PASSWORD_HASH missing
+	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web,observable\nOS_USER=customuser\n"), 0644)
+
+	active, err := EnsureObservabilityCredentials(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !active {
+		t.Error("expected true when observable profile is active")
+	}
+
+	vars, _ := GetEnvVariable(envPath)
+	if vars["OS_USER"] != "customuser" {
+		t.Errorf("OS_USER = %q, want \"customuser\" (should preserve existing)", vars["OS_USER"])
+	}
+	if vars["OS_PASSWORD"] == "" {
+		t.Error("expected OS_PASSWORD to be generated")
+	}
+	if vars["OS_PASSWORD_HASH"] == "" {
+		t.Error("expected OS_PASSWORD_HASH to be generated")
 	}
 }

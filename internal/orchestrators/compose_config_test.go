@@ -127,3 +127,103 @@ func TestComposeMigrateConfig_DryRun(t *testing.T) {
 		t.Error("Caddyfile.site should not be created in dry-run")
 	}
 }
+
+func TestComposeInitConfig_Observable(t *testing.T) {
+	dir := setupTestInstall(t, "COMPOSE_PROFILES=web,observable\n", "wikis:\n  - id: main\n    url: example.com\n")
+
+	c := &ComposeOrchestrator{}
+	if err := c.InitConfig(dir); err != nil {
+		t.Fatalf("InitConfig() error = %v", err)
+	}
+
+	// Should have generated observability credentials
+	envPath := filepath.Join(dir, ".env")
+	content, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("failed to read .env: %v", err)
+	}
+	env := string(content)
+	if !strings.Contains(env, "OS_USER=") {
+		t.Error("expected OS_USER to be set in .env")
+	}
+	if !strings.Contains(env, "OS_PASSWORD=") {
+		t.Error("expected OS_PASSWORD to be set in .env")
+	}
+	if !strings.Contains(env, "OS_PASSWORD_HASH=") {
+		t.Error("expected OS_PASSWORD_HASH to be set in .env")
+	}
+
+	// Caddyfile should contain observable block
+	caddy, err := os.ReadFile(filepath.Join(dir, "config", "Caddyfile"))
+	if err != nil {
+		t.Fatalf("expected Caddyfile to be created: %v", err)
+	}
+	if !strings.Contains(string(caddy), "opensearch-dashboards:5601") {
+		t.Error("Caddyfile should contain opensearch-dashboards proxy")
+	}
+}
+
+func TestComposeMigrateConfig_Observable(t *testing.T) {
+	dir := setupTestInstall(t, "COMPOSE_PROFILES=web,observable\n", "wikis:\n  - id: main\n    url: example.com\n")
+
+	// Create Caddyfiles so caddy migration doesn't trigger
+	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
+	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644)
+
+	c := &ComposeOrchestrator{}
+	changed, err := c.MigrateConfig(dir, false)
+	if err != nil {
+		t.Fatalf("MigrateConfig() error = %v", err)
+	}
+	if !changed {
+		t.Error("expected changes when observability credentials are missing")
+	}
+
+	// Credentials should now be in .env
+	content, _ := os.ReadFile(filepath.Join(dir, ".env"))
+	env := string(content)
+	if !strings.Contains(env, "OS_USER=") {
+		t.Error("expected OS_USER to be set after migration")
+	}
+}
+
+func TestComposeMigrateConfig_ObservableDryRun(t *testing.T) {
+	dir := setupTestInstall(t, "COMPOSE_PROFILES=web,observable\n", "wikis:\n  - id: main\n    url: example.com\n")
+
+	// Create Caddyfiles so caddy migration doesn't trigger
+	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
+	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644)
+
+	c := &ComposeOrchestrator{}
+	changed, err := c.MigrateConfig(dir, true)
+	if err != nil {
+		t.Fatalf("MigrateConfig() error = %v", err)
+	}
+	if !changed {
+		t.Error("expected changes to be reported in dry-run")
+	}
+
+	// Credentials should NOT be generated in dry-run
+	content, _ := os.ReadFile(filepath.Join(dir, ".env"))
+	if strings.Contains(string(content), "OS_USER=") {
+		t.Error("credentials should not be generated in dry-run")
+	}
+}
+
+func TestComposeMigrateConfig_ObservableAlreadyConfigured(t *testing.T) {
+	env := "COMPOSE_PROFILES=web,observable\nOS_USER=admin\nOS_PASSWORD=secret\nOS_PASSWORD_HASH=$2a$10$hash\n"
+	dir := setupTestInstall(t, env, "wikis:\n  - id: main\n    url: example.com\n")
+
+	// Create Caddyfiles so caddy migration doesn't trigger
+	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
+	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644)
+
+	c := &ComposeOrchestrator{}
+	changed, err := c.MigrateConfig(dir, false)
+	if err != nil {
+		t.Fatalf("MigrateConfig() error = %v", err)
+	}
+	if changed {
+		t.Error("expected no changes when observability is already configured")
+	}
+}

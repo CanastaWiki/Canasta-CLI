@@ -40,6 +40,7 @@ canasta create -i myinstance -w wiki1 -a admin -n localhost
 - [General concepts](guide/general-concepts.md) - Installation IDs, wiki IDs, directory structure, settings, and configuration
 - [Wiki farms](guide/wiki-farms.md) - Running multiple wikis in one installation
 - [Extensions and skins](guide/extensions-and-skins.md) - Enabling, disabling, and adding extensions and skins
+- [Observability](guide/observability.md) - Log aggregation with OpenSearch and Dashboards
 - [Development mode](guide/devmode.md) - Live code editing and Xdebug debugging
 - [Backup and restore](guide/backup.md) - Setting up backups with restic
 - [Best practices](guide/best-practices.md) - Security considerations and best practices
