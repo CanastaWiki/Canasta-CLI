@@ -79,12 +79,8 @@ spec:
         - mountPath: /mediawiki/config/my.cnf
           name: canasta-config
           subPath: my.cnf
-        - mountPath: /mediawiki/config/settings/global/Vector.php
-          name: canasta-settings
-          subPath: Vector.php
-        - mountPath: /mediawiki/config/settings/global/CanastaFooterIcon.php
-          name: canasta-settings
-          subPath: CanastaFooterIcon.php
+        - mountPath: /mediawiki/config/settings/global
+          name: canasta-settings-global
         - mountPath: /mediawiki/images
           name: config-volume
           subPath: images
@@ -94,9 +90,9 @@ spec:
           - name: canasta-config
             configMap:
               name: canasta-config
-          - name: canasta-settings
+          - name: canasta-settings-global
             configMap:
-              name: canasta-settings
+              name: canasta-settings-global
           - name: config-volume
             hostPath:
               path: /canasta/config-data
