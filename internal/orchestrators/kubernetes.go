@@ -25,7 +25,11 @@ const podLabelKey = "app"
 
 // KubernetesOrchestrator implements Orchestrator using kubectl.
 // Each Canasta installation maps to a Kubernetes namespace.
-type KubernetesOrchestrator struct{}
+type KubernetesOrchestrator struct {
+	// LocalCluster enables NodePort exposure instead of LoadBalancer,
+	// for use with local clusters (kind, k3d, minikube, etc.).
+	LocalCluster bool
+}
 
 func (k *KubernetesOrchestrator) CheckDependencies() error {
 	if _, err := exec.LookPath("kubectl"); err != nil {
@@ -336,8 +340,15 @@ func (k *KubernetesOrchestrator) InitConfig(installPath string) error {
 		return fmt.Errorf("failed to parse kustomization template: %w", err)
 	}
 	namespace := filepath.Base(installPath)
+	data := struct {
+		Namespace string
+		NodePort  bool
+	}{
+		Namespace: namespace,
+		NodePort:  k.LocalCluster,
+	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, struct{ Namespace string }{namespace}); err != nil {
+	if err := tmpl.Execute(&buf, data); err != nil {
 		return fmt.Errorf("failed to execute kustomization template: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(installPath, "kustomization.yaml"), buf.Bytes(), 0644); err != nil {

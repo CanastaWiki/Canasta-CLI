@@ -17,6 +17,10 @@ configMapGenerator:
   - config/settings/global/Vector.php
 - name: canasta-config
   files:
+  - config/wikis.yaml
+  - config/Caddyfile
+  - config/Caddyfile.site
+  - config/Caddyfile.global
   - config/default.vcl
   - my.cnf
   # Uncomment the following line once you have a LocalSettings.php file
@@ -24,3 +28,48 @@ configMapGenerator:
 - name: canasta-env
   envs:
   - .env
+{{if .NodePort}}
+# Local cluster mode (--local): caddy service patched to NodePort so that
+# the cluster's port mappings can route host traffic into the cluster.
+# See: https://kind.sigs.k8s.io/docs/user/configuration/#extra-port-mappings
+patches:
+- patch: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: caddy-lb
+    spec:
+      type: NodePort
+      ports:
+      - name: http-caddy
+        port: 80
+        targetPort: 80
+        nodePort: 30080
+      - name: https-caddy
+        port: 443
+        targetPort: 443
+        nodePort: 30443
+{{else}}
+# To use NodePort instead of LoadBalancer (e.g. for local development with
+# kind), uncomment the following patch and ensure your kind cluster has
+# extraPortMappings for containerPort 30080 and 30443.
+# See: https://kind.sigs.k8s.io/docs/user/configuration/#extra-port-mappings
+#
+# patches:
+# - patch: |
+#     apiVersion: v1
+#     kind: Service
+#     metadata:
+#       name: caddy-lb
+#     spec:
+#       type: NodePort
+#       ports:
+#       - name: http-caddy
+#         port: 80
+#         targetPort: 80
+#         nodePort: 30080
+#       - name: https-caddy
+#         port: 443
+#         targetPort: 443
+#         nodePort: 30443
+{{end}}

@@ -20,6 +20,7 @@ type Installation struct {
 	Orchestrator string `json:"orchestrator"`
 	DevMode      bool   `json:"devMode,omitempty"`
 	LocalStack   bool   `json:"localStack,omitempty"`
+	LocalCluster bool   `json:"localCluster,omitempty"`
 	Registry     string `json:"registry,omitempty"`
 }
 
