@@ -46,7 +46,7 @@ func NewCmdCreate() *cobra.Command {
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a Canasta installation",
-		Long: `Create a new Canasta MediaWiki installation. This clones the Docker Compose
+		Long: `Create a new Canasta MediaWiki installation. This sets up the Docker Compose
 stack, generates configuration files, starts the containers, and runs the
 MediaWiki installer. You can optionally import an existing database dump
 instead of running the installer, or enable development mode with Xdebug.`,
@@ -215,7 +215,6 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			baseImage = builtImage
 		} else {
 			// No local Canasta repo, use registry image
-			// (buildFromPath may still have Canasta-DockerCompose for CloneStackRepo)
 			logging.Print("No local Canasta repo found, using registry image\n")
 			baseImage = canasta.GetImageWithTag(devTag)
 		}
@@ -224,10 +223,13 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		baseImage = canasta.GetImageWithTag(devTag)
 	}
 
-	// Clone the stack repository first to create the installation directory
-	localStack, err := canasta.CloneStackRepo(orch.GetRepoLink(), canastaInfo.Id, &path, buildFromPath)
-	if err != nil {
-		return err
+	// Create the installation directory and write orchestrator stack files
+	path = filepath.Join(path, canastaInfo.Id)
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return fmt.Errorf("failed to create installation directory: %w", err)
+	}
+	if err := orch.WriteStackFiles(path); err != nil {
+		return fmt.Errorf("failed to write stack files: %w", err)
 	}
 
 	// Copy shared installation template files (config, settings, etc.)
@@ -333,7 +335,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, LocalStack: localStack}
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled}
 	if err := config.Add(instance); err != nil {
 		return err
 	}

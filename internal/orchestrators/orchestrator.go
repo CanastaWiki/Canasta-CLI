@@ -15,7 +15,8 @@ import (
 // live on ComposeOrchestrator directly rather than on this interface.
 type Orchestrator interface {
 	CheckDependencies() error
-	GetRepoLink() string
+	WriteStackFiles(installPath string) error
+	UpdateStackFiles(installPath string, dryRun bool) (bool, error)
 	Start(instance config.Installation) error
 	Stop(instance config.Installation) error
 	Update(installPath string) (*UpdateReport, error)

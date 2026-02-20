@@ -95,11 +95,22 @@ func TestNewKubernetesReturnsOrchestrator(t *testing.T) {
 	}
 }
 
-func TestGetRepoLink(t *testing.T) {
+func TestWriteStackFilesNoop(t *testing.T) {
 	k := &KubernetesOrchestrator{}
-	link := k.GetRepoLink()
-	if !strings.Contains(link, "Canasta-Kubernetes") {
-		t.Errorf("GetRepoLink() = %q, expected to contain 'Canasta-Kubernetes'", link)
+	err := k.WriteStackFiles(t.TempDir())
+	if err != nil {
+		t.Fatalf("WriteStackFiles() error = %v", err)
+	}
+}
+
+func TestUpdateStackFilesNoop(t *testing.T) {
+	k := &KubernetesOrchestrator{}
+	changed, err := k.UpdateStackFiles(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("UpdateStackFiles() error = %v", err)
+	}
+	if changed {
+		t.Error("UpdateStackFiles() returned changed=true, want false")
 	}
 }
 
