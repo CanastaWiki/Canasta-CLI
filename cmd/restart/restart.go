@@ -113,6 +113,11 @@ func Restart(instance config.Installation, enableDev, disableDev bool) error {
 		}
 	}
 
+	// Regenerate orchestrator config (Compose: Caddyfile; K8s: kustomization.yaml)
+	if err := orch.UpdateConfig(instance.Path); err != nil {
+		return err
+	}
+
 	// Start containers
 	return orch.Start(instance)
 }

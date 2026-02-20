@@ -19,6 +19,7 @@ type Installation struct {
 	Path         string `json:"path"`
 	Orchestrator string `json:"orchestrator"`
 	DevMode      bool   `json:"devMode,omitempty"`
+	LocalCluster bool   `json:"localCluster,omitempty"`
 }
 
 type Orchestrator struct {
