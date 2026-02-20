@@ -171,7 +171,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	if !dryRun {
 		if isK8s {
 			fmt.Println("Regenerating kustomization.yaml and re-applying manifests...")
-			if err := canasta.GenerateKustomization(instance.Path, instance.Id); err != nil {
+			if err := orch.InitConfig(instance.Path); err != nil {
 				return err
 			}
 			imagesUpdated = true
