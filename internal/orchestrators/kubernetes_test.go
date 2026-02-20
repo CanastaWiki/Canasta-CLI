@@ -570,7 +570,7 @@ func TestRunBackupRequiresNamespace(t *testing.T) {
 	k := &KubernetesOrchestrator{}
 	_, err := k.RunBackup(dir, filepath.Join(dir, ".env"), nil)
 	if err == nil {
-		t.Fatal("expected error from RunBackup")
+		t.Fatal("expected error from RunBackup without kustomization.yaml")
 	}
 	if !strings.Contains(err.Error(), "kustomization.yaml") {
 		t.Errorf("RunBackup() error = %q, want error about kustomization.yaml", err.Error())
