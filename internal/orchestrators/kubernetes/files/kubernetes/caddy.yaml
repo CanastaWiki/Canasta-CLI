@@ -54,20 +54,14 @@ spec:
           limits:
             memory: "128Mi"
             cpu: "100m"
-        image: caddy:2.4.6-alpine
-        env:
-        - name: MW_SITE_FQDN
-          valueFrom:
-            configMapKeyRef:
-              name: canasta-env
-              key: MW_SITE_FQDN
-        command: 
+        image: caddy:2.8.4-alpine
+        command:
         - "caddy"
-        - "reverse-proxy"
-        - "--from"
-        - "$(MW_SITE_FQDN)"
-        - "--to"
-        - "varnish:80"
+        - "run"
+        - "--config"
+        - "/etc/caddy/Caddyfile"
+        - "--adapter"
+        - "caddyfile"
         ports:
         - name: http-caddy
           containerPort: 80
@@ -76,10 +70,22 @@ spec:
         volumeMounts:
           - name: caddy-data
             mountPath: /data
+          - name: canasta-config
+            mountPath: /etc/caddy/Caddyfile
+            subPath: Caddyfile
+          - name: canasta-config
+            mountPath: /etc/caddy/Caddyfile.site
+            subPath: Caddyfile.site
+          - name: canasta-config
+            mountPath: /etc/caddy/Caddyfile.global
+            subPath: Caddyfile.global
       volumes:
         - name: caddy-data
           persistentVolumeClaim:
             claimName: caddy-data
+        - name: canasta-config
+          configMap:
+            name: canasta-config
 ---
 
 apiVersion: autoscaling/v2
