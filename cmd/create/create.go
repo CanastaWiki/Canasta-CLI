@@ -43,6 +43,7 @@ func NewCmdCreate() *cobra.Command {
 		globalSettingsPath string // path to existing global settings file
 		composerFile       string // path to custom composer.local.json
 		registry           string // container registry for K8s image push
+		localCluster       bool   // use NodePort for local K8s clusters
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -146,7 +147,14 @@ instead of running the installer, or enable development mode with Xdebug.`,
 			if err != nil {
 				return err
 			}
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, registry, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
+			if localCluster {
+				if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+					k8s.LocalCluster = true
+				} else {
+					return fmt.Errorf("--local is only supported with Kubernetes orchestrator")
+				}
+			}
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, registry, localCluster, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
 				stopSpinner()
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
@@ -193,6 +201,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
 	createCmd.Flags().StringVar(&composerFile, "composer", "", "Path to custom composer.local.json to copy to config/")
 	createCmd.Flags().StringVar(&registry, "registry", "localhost:5000", "Container registry for pushing locally built images (used with --build-from on Kubernetes)")
+	createCmd.Flags().BoolVar(&localCluster, "local", false, "Use NodePort instead of LoadBalancer for local Kubernetes clusters (kind, k3d, minikube)")
 
 	// Mark required flags
 	_ = createCmd.MarkFlagRequired("id")
@@ -201,7 +210,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, registry, databasePath, wikiSettingsPath, globalSettingsPath string) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, registry string, localCluster bool, databasePath, wikiSettingsPath, globalSettingsPath string) error {
 	// Determine the base image to use
 	var baseImage string
 	var localImageBuilt bool
@@ -352,7 +361,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, Registry: registry}
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, LocalCluster: localCluster, Registry: registry}
 	if err := config.Add(instance); err != nil {
 		return err
 	}
