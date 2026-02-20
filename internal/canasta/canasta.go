@@ -3,9 +3,10 @@ package canasta
 import (
 	"bufio"
 	"crypto/rand"
-	_ "embed"
+	"embed"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -45,23 +46,94 @@ func GetDefaultImage() string {
 	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, DefaultImageTag)
 }
 
-// Embed README files for settings directories
+
+// installationTemplate contains the shared installation directory structure.
+// These files are common to all orchestrators (Docker Compose, Kubernetes, etc.)
+// and are copied to the installation directory during create.
 //
-//go:embed files/global-settings-README
-var globalSettingsREADME string
-
-//go:embed files/wiki-settings-README
-var wikiSettingsREADME string
-
-//go:embed files/Caddyfile.site
-var caddyfileSiteDefault string
-
-//go:embed files/Caddyfile.global
-var caddyfileGlobalDefault string
+//go:embed all:installation-template
+var installationTemplate embed.FS
 
 // GetImageWithTag returns the Canasta image reference with the specified tag
 func GetImageWithTag(tag string) string {
 	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, tag)
+}
+
+// userEditablePaths lists template files that users may customize.
+// These are only written during create (no-clobber) and never overwritten during upgrade.
+var userEditablePaths = map[string]bool{
+	".env":                                       true,
+	"my.cnf":                                     true,
+	"config/default.vcl":                         true,
+	"config/Caddyfile.site":                      true,
+	"config/Caddyfile.global":                    true,
+	"config/settings/global/Vector.php":          true,
+	"config/settings/global/CanastaFooterIcon.php": true,
+}
+
+// CopyInstallationTemplate copies the embedded installation template files to the
+// destination directory. These are shared files common to all orchestrators.
+// Files are only written if they don't already exist (no-clobber), so orchestrator
+// repos can provide their own versions of files if needed.
+func CopyInstallationTemplate(destPath string) error {
+	logging.Print("Copying installation template files\n")
+	return copyTemplate(destPath, false)
+}
+
+// UpdateInstallationTemplate re-applies the embedded template during upgrade.
+// User-editable files are only created if missing (no-clobber).
+// CLI-managed files (READMEs, etc.) are always updated to match the current CLI version.
+func UpdateInstallationTemplate(destPath string) error {
+	logging.Print("Updating installation template files\n")
+	return copyTemplate(destPath, true)
+}
+
+// copyTemplate walks the embedded installation template and copies files to destPath.
+// If upgrading is true, CLI-managed files are force-updated while user-editable files
+// use no-clobber. If upgrading is false, all files use no-clobber.
+func copyTemplate(destPath string, upgrading bool) error {
+	return fs.WalkDir(installationTemplate, "installation-template", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Strip the "installation-template" prefix to get the relative path
+		relPath, err := filepath.Rel("installation-template", path)
+		if err != nil {
+			return err
+		}
+
+		// Skip the root directory itself
+		if relPath == "." {
+			return nil
+		}
+
+		targetPath := filepath.Join(destPath, relPath)
+
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, 0755)
+		}
+
+		// Skip .gitkeep files — they're only used to preserve directory
+		// structure in the embedded FS and are not needed in the installation
+		if d.Name() == ".gitkeep" {
+			return nil
+		}
+
+		// No-clobber for user-editable files (always) and all files (during create)
+		if !upgrading || userEditablePaths[relPath] {
+			if _, err := os.Stat(targetPath); err == nil {
+				return nil
+			}
+		}
+
+		data, err := installationTemplate.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
+		}
+
+		return os.WriteFile(targetPath, data, 0644)
+	})
 }
 
 // CloneStackRepo clones the stack repository to a new folder in the specified path.
@@ -95,21 +167,14 @@ func CloneStackRepo(repoLink string, canastaId string, path *string, localSource
 	return false, err
 }
 
-// CreateEnvFile creates the .env file for a new Canasta installation
-// It starts with .env.example as the base, merges any custom env file if provided,
-// and then applies the DB passwords and domain configuration
-func CreateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpass string) error {
+// UpdateEnvFile configures the .env file for a new Canasta installation.
+// The base .env is provided by the installation template (CopyInstallationTemplate).
+// This function merges any custom env file if provided,
+// and then applies the DB passwords and domain configuration.
+func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpass string) error {
 	yamlPath := installPath + "/config/wikis.yaml"
 
-	// Step 1: Copy .env.example as base
-	examplePath := installPath + "/.env.example"
-	logging.Print(fmt.Sprintf("Copying %s to %s/.env\n", examplePath, installPath))
-	err, output := execute.Run("", "cp", examplePath, installPath+"/.env")
-	if err != nil {
-		return fmt.Errorf("%s", output)
-	}
-
-	// Step 2: If custom env file provided, merge its values
+	// If custom env file provided, merge its values
 	if customEnvPath != "" {
 		if !strings.HasPrefix(customEnvPath, "/") {
 			customEnvPath = workingDir + "/" + customEnvPath
@@ -138,7 +203,7 @@ func CreateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 		}
 	}
 
-	// Step 3: Apply domain configuration
+	// Apply domain configuration
 	_, domainNames, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err != nil {
 		return err
@@ -150,7 +215,7 @@ func CreateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 		return err
 	}
 
-	// Step 4: Apply DB passwords (command-line flags take precedence)
+	// Apply DB passwords (command-line flags take precedence)
 	// Note: Don't wrap in quotes - docker-compose includes quotes as part of the value,
 	// causing a mismatch with the CLI which strips quotes when reading.
 	if rootDBpass != "" {
@@ -187,10 +252,10 @@ func CopySettings(installPath string) error {
 		return err
 	}
 
-	// Create config/settings/wikis directory if it doesn't exist
-	wikisDir := filepath.Join(installPath, "config", "settings", "wikis")
-	if err := os.MkdirAll(wikisDir, os.ModePerm); err != nil {
-		return err
+	// Read the wiki README template from the installation template
+	wikiREADME, err := installationTemplate.ReadFile("installation-template/config/settings/wikis/README")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded wiki README: %w", err)
 	}
 
 	for i := len(WikiIDs) - 1; i >= 0; i-- {
@@ -204,24 +269,11 @@ func CopySettings(installPath string) error {
 			return err
 		}
 
-		// Write README with wiki ID
+		// Copy README into the wiki's settings directory
 		readmePath := filepath.Join(dirPath, "README")
-		content := strings.ReplaceAll(wikiSettingsREADME, "{WIKI_ID}", id)
-		if err := os.WriteFile(readmePath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(readmePath, wikiREADME, 0644); err != nil {
 			return fmt.Errorf("failed to write README for %s: %w", id, err)
 		}
-	}
-
-	// Create config/settings/global directory if it doesn't exist
-	globalSettingsDir := filepath.Join(installPath, "config", "settings", "global")
-	if err := os.MkdirAll(globalSettingsDir, os.ModePerm); err != nil {
-		return err
-	}
-
-	// Write global README
-	globalReadmePath := filepath.Join(globalSettingsDir, "README")
-	if err := os.WriteFile(globalReadmePath, []byte(globalSettingsREADME), 0644); err != nil {
-		return fmt.Errorf("failed to write global README: %w", err)
 	}
 
 	return nil
@@ -239,10 +291,13 @@ func CopySetting(installPath, id string) error {
 		return err
 	}
 
-	// Write README with wiki ID
+	// Copy README into the wiki's settings directory
+	wikiREADME, err := installationTemplate.ReadFile("installation-template/config/settings/wikis/README")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded wiki README: %w", err)
+	}
 	readmePath := filepath.Join(dirPath, "README")
-	content := strings.ReplaceAll(wikiSettingsREADME, "{WIKI_ID}", normalizedId)
-	if err := os.WriteFile(readmePath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(readmePath, wikiREADME, 0644); err != nil {
 		return fmt.Errorf("failed to write README: %w", err)
 	}
 
@@ -531,7 +586,7 @@ func RewriteCaddy(installPath string) error {
 	return nil
 }
 
-// CreateCaddyfileSite creates config/Caddyfile.site with a template comment header.
+// CreateCaddyfileSite creates config/Caddyfile.site from the installation template.
 // It only writes the file if it doesn't already exist (no-clobber).
 func CreateCaddyfileSite(installPath string) error {
 	filePath := filepath.Join(installPath, "config", "Caddyfile.site")
@@ -541,10 +596,14 @@ func CreateCaddyfileSite(installPath string) error {
 		return nil
 	}
 
-	return os.WriteFile(filePath, []byte(caddyfileSiteDefault), 0644)
+	data, err := installationTemplate.ReadFile("installation-template/config/Caddyfile.site")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded Caddyfile.site: %w", err)
+	}
+	return os.WriteFile(filePath, data, 0644)
 }
 
-// CreateCaddyfileGlobal creates config/Caddyfile.global with a template comment header.
+// CreateCaddyfileGlobal creates config/Caddyfile.global from the installation template.
 // It only writes the file if it doesn't already exist (no-clobber).
 func CreateCaddyfileGlobal(installPath string) error {
 	filePath := filepath.Join(installPath, "config", "Caddyfile.global")
@@ -554,7 +613,11 @@ func CreateCaddyfileGlobal(installPath string) error {
 		return nil
 	}
 
-	return os.WriteFile(filePath, []byte(caddyfileGlobalDefault), 0644)
+	data, err := installationTemplate.ReadFile("installation-template/config/Caddyfile.global")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded Caddyfile.global: %w", err)
+	}
+	return os.WriteFile(filePath, data, 0644)
 }
 
 // CopyComposerFile copies a user-provided composer.local.json to config/composer.local.json.
