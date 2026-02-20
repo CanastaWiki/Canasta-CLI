@@ -277,7 +277,54 @@ func (k *KubernetesOrchestrator) CopyTo(installPath, service, hostPath, containe
 }
 
 func (k *KubernetesOrchestrator) RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
-	return "", fmt.Errorf("backup is not yet supported for Kubernetes installations")
+	ns, err := getNamespaceFromPath(installPath)
+	if err != nil {
+		return "", err
+	}
+
+	cmdArgs := []string{"run", "backup-cli", "--rm", "-i",
+		"--restart=Never", "-n", ns,
+		"--image=restic/restic",
+		"--env-from=configmap/canasta-env"}
+
+	// Add PVC volume mounts via --overrides if volumes are specified
+	if len(volumes) > 0 {
+		overrides := buildPodOverrides(volumes)
+		cmdArgs = append(cmdArgs, "--overrides", overrides)
+	}
+
+	cmdArgs = append(cmdArgs, "--")
+	cmdArgs = append(cmdArgs, args...)
+
+	cmd := exec.Command("kubectl", cmdArgs...)
+	outputByte, err := cmd.CombinedOutput()
+	output := string(outputByte)
+	logging.Print(output)
+	if err != nil {
+		return output, fmt.Errorf("backup command failed: %s", strings.TrimSpace(output))
+	}
+	return output, nil
+}
+
+// buildPodOverrides generates a JSON override spec for kubectl run
+// that mounts host paths as emptyDir volumes (for staging data).
+func buildPodOverrides(volumes map[string]string) string {
+	var volumeMounts []string
+	var volumeDefs []string
+	i := 0
+	for _, containerPath := range volumes {
+		name := fmt.Sprintf("vol%d", i)
+		volumeMounts = append(volumeMounts,
+			fmt.Sprintf(`{"name":"%s","mountPath":"%s"}`, name, containerPath))
+		volumeDefs = append(volumeDefs,
+			fmt.Sprintf(`{"name":"%s","emptyDir":{}}`, name))
+		i++
+	}
+	return fmt.Sprintf(
+		`{"spec":{"containers":[{"name":"backup-cli","volumeMounts":[%s]}],"volumes":[%s]}}`,
+		strings.Join(volumeMounts, ","),
+		strings.Join(volumeDefs, ","),
+	)
 }
 
 func (k *KubernetesOrchestrator) RestoreFromBackupVolume(installPath string, dirs map[string]string) error {

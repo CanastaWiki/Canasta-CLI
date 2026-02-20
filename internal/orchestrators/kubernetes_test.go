@@ -565,14 +565,15 @@ func TestGenerateKustomizationNoNodePort(t *testing.T) {
 	}
 }
 
-func TestRunBackupNotSupported(t *testing.T) {
+func TestRunBackupRequiresNamespace(t *testing.T) {
+	dir := t.TempDir()
 	k := &KubernetesOrchestrator{}
-	_, err := k.RunBackup("/tmp", "/tmp/.env", nil)
+	_, err := k.RunBackup(dir, filepath.Join(dir, ".env"), nil)
 	if err == nil {
 		t.Fatal("expected error from RunBackup")
 	}
-	if !strings.Contains(err.Error(), "not yet supported") {
-		t.Errorf("RunBackup() error = %q, want 'not yet supported'", err.Error())
+	if !strings.Contains(err.Error(), "kustomization.yaml") {
+		t.Errorf("RunBackup() error = %q, want error about kustomization.yaml", err.Error())
 	}
 }
 
