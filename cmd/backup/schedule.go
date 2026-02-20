@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/spf13/cobra"
 )
 
@@ -112,6 +113,10 @@ func writeCrontab(lines []string) error {
 }
 
 func scheduleBackup(cronExpression string) error {
+	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+		return fmt.Errorf("Cron-based scheduling is not supported for Kubernetes installations; edit the backup CronJob in your kustomization.yaml instead")
+	}
+
 	if err := validateCron(cronExpression); err != nil {
 		return err
 	}

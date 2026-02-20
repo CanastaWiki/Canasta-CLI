@@ -10,6 +10,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 func restoreCmdCreate() *cobra.Command {
@@ -51,6 +52,9 @@ images, and public assets from the backup, leaving shared files untouched.`,
 }
 
 func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool, wikiID string) error {
+	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+		return fmt.Errorf("backup restore is not yet supported for Kubernetes installations")
+	}
 	EnvVariables, envErr := canasta.GetEnvVariable(envPath)
 	if envErr != nil {
 		return envErr

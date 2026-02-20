@@ -9,6 +9,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 func createBackupCmdCreate() *cobra.Command {
@@ -38,6 +39,9 @@ uploads the snapshot to the backup repository with the specified tag.`,
 }
 
 func takeSnapshot(tag string) error {
+	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+		return fmt.Errorf("backup create is not yet supported for Kubernetes installations")
+	}
 	fmt.Printf("Taking snapshot '%s'...\n", tag)
 	EnvVariables, err := canasta.GetEnvVariable(envPath)
 	if err != nil {
