@@ -71,9 +71,9 @@ func Restart(instance config.Installation, enableDev, disableDev bool) error {
 	if err != nil {
 		return err
 	}
-	if instance.LocalCluster {
+	if instance.ManagedCluster {
 		if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
-			k8s.LocalCluster = true
+			k8s.ManagedCluster = true
 		}
 	}
 
