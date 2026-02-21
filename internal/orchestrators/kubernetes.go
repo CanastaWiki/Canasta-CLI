@@ -36,6 +36,14 @@ func (k *KubernetesOrchestrator) CheckDependencies() error {
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		return fmt.Errorf("kubectl must be installed and in PATH")
 	}
+	if k.LocalCluster {
+		// For local clusters, also require kind. Skip cluster-info check
+		// because the cluster doesn't exist yet during create.
+		if _, err := exec.LookPath("kind"); err != nil {
+			return fmt.Errorf("kind must be installed and in PATH for local Kubernetes clusters")
+		}
+		return nil
+	}
 	cmd := exec.Command("kubectl", "cluster-info")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("cannot connect to Kubernetes cluster: %s", strings.TrimSpace(string(output)))
@@ -95,6 +103,15 @@ func (k *KubernetesOrchestrator) UpdateStackFiles(installPath string, dryRun boo
 }
 
 func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
+	// For kind-managed clusters, ensure the cluster exists (recreate if
+	// manually deleted) and set the kubectl context before applying.
+	if instance.KindCluster != "" {
+		httpPort, httpsPort := GetPortsFromEnv(instance.Path)
+		if _, err := EnsureKindCluster(instance.KindCluster, httpPort, httpsPort); err != nil {
+			return fmt.Errorf("failed to ensure kind cluster: %w", err)
+		}
+	}
+
 	ns, err := getNamespaceFromPath(instance.Path)
 	if err != nil {
 		return err
@@ -110,6 +127,7 @@ func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
 	}
 
 	// Wait for the web deployment to be ready
+	logging.Print("Waiting for web deployment to be ready (this may take a few minutes if images need to be pulled)...\n")
 	rolloutCmd := exec.Command("kubectl", "rollout", "status",
 		webDeployment, "-n", ns, "--timeout=300s")
 	rolloutOutput, err := rolloutCmd.CombinedOutput()
@@ -162,6 +180,17 @@ func (k *KubernetesOrchestrator) Update(installPath string) (*UpdateReport, erro
 }
 
 func (k *KubernetesOrchestrator) Destroy(installPath string) (string, error) {
+	// If this is a kind-managed installation, delete the entire cluster
+	// (which also removes the namespace and all resources).
+	if id, err := config.GetCanastaID(installPath); err == nil {
+		if inst, err := config.GetDetails(id); err == nil && inst.KindCluster != "" {
+			if err := DeleteKindCluster(inst.KindCluster); err != nil {
+				return "", fmt.Errorf("failed to delete kind cluster: %w", err)
+			}
+			return "kind cluster deleted", nil
+		}
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return "", err
@@ -217,6 +246,20 @@ func (k *KubernetesOrchestrator) ExecStreaming(installPath, service, command str
 }
 
 func (k *KubernetesOrchestrator) CheckRunningStatus(instance config.Installation) error {
+	// For kind-managed clusters, ensure the cluster exists and set context.
+	if instance.KindCluster != "" {
+		exists, err := kindClusterExists(instance.KindCluster)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("kind cluster %q does not exist", instance.KindCluster)
+		}
+		if err := setKindKubectlContext(instance.KindCluster); err != nil {
+			return err
+		}
+	}
+
 	ns, err := getNamespaceFromPath(instance.Path)
 	if err != nil {
 		return err

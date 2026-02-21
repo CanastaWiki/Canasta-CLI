@@ -73,6 +73,11 @@ func Start(instance config.Installation, enableDev, disableDev bool) error {
 	if err != nil {
 		return err
 	}
+	if instance.LocalCluster {
+		if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+			k8s.LocalCluster = true
+		}
+	}
 	if (enableDev || disableDev) {
 		if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
 			return fmt.Errorf("Development mode is only supported with Docker Compose")

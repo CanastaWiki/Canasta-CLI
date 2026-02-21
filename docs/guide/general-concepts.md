@@ -486,14 +486,19 @@ wikis:
 canasta restart -i myinstance
 ```
 
-### Example: two installations on the same server
+### Example: multiple installations on the same machine
+
+Each installation must use unique ports. This applies to both Docker Compose and local Kubernetes (`--local`) installations — they can be mixed freely.
 
 ```bash
-# First installation uses default ports (80/443)
+# Docker Compose installation on default ports (80/443)
 canasta create -i production -w mainwiki -n localhost -a admin
 
-# Second installation uses custom ports
+# Docker Compose installation on custom ports
 canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
+
+# Local Kubernetes installation on different custom ports
+canasta create -o k8s --local -i dev-k8s -w devwiki -n localhost:9443 -a admin -e another.env
 ```
 
-Access them at `https://localhost` and `https://localhost:8443`.
+Access them at `https://localhost`, `https://localhost:8443`, and `https://localhost:9443`.

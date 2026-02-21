@@ -296,12 +296,31 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		return err
 	}
 	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
+
+	// For local K8s clusters, create the kind cluster with port mappings
+	var kindClusterName string
+	if localCluster && isK8s {
+		httpPort, httpsPort := orchestrators.GetPortsFromEnv(path)
+		kindClusterName = orchestrators.KindClusterName(canastaInfo.Id)
+		if err := orchestrators.CreateKindCluster(kindClusterName, httpPort, httpsPort); err != nil {
+			return fmt.Errorf("failed to create kind cluster: %w", err)
+		}
+	}
+
 	if isK8s {
-		// For K8s with local builds, push to a registry the cluster can access
 		if localImageBuilt {
-			logging.Print("Pushing image to registry for Kubernetes...\n")
-			if _, err := imagebuild.PushImage(baseImage, registry); err != nil {
-				return fmt.Errorf("failed to push image to registry: %w", err)
+			if kindClusterName != "" {
+				// Load image directly into kind (no registry needed)
+				logging.Print("Loading image into kind cluster...\n")
+				if err := orchestrators.LoadImageToKind(kindClusterName, baseImage); err != nil {
+					return fmt.Errorf("failed to load image into kind: %w", err)
+				}
+			} else {
+				// Push to a registry the cluster can access
+				logging.Print("Pushing image to registry for Kubernetes...\n")
+				if _, err := imagebuild.PushImage(baseImage, registry); err != nil {
+					return fmt.Errorf("failed to push image to registry: %w", err)
+				}
 			}
 		}
 	}
@@ -327,7 +346,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 
 	// Always start without dev mode for installation to avoid xdebug interference
 	// (xdebug can cause hangs if a debugger is listening during install.php)
-	tempInstance := config.Installation{Path: path, Orchestrator: orchestrator, DevMode: false}
+	tempInstance := config.Installation{Path: path, Orchestrator: orchestrator, DevMode: false, KindCluster: kindClusterName}
 	if err := orch.Start(tempInstance); err != nil {
 		return err
 	}
@@ -361,7 +380,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, LocalCluster: localCluster, Registry: registry}
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, LocalCluster: localCluster, Registry: registry, KindCluster: kindClusterName}
 	if err := config.Add(instance); err != nil {
 		return err
 	}
