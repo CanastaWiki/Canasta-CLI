@@ -39,7 +39,7 @@ sudo usermod -aG docker,www-data $USER
 
 ### Kubernetes (managed cluster)
 
-To use Canasta with a CLI-managed Kubernetes cluster (`canasta create -o k8s --create-cluster`), you also need:
+To use Canasta with a CLI-managed Kubernetes cluster (`canasta create k8s --create-cluster`), you also need:
 
 - **[kubectl](https://kubernetes.io/docs/tasks/tools/)** — the Kubernetes command-line tool
 - **[kind](https://kind.sigs.k8s.io/)** — runs Kubernetes clusters in Docker containers

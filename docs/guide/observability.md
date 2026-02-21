@@ -26,7 +26,7 @@ Create an `.env` file with the profile enabled, then pass it to `canasta create`
 
 ```bash
 echo "COMPOSE_PROFILES=observable" > my.env
-canasta create -i myinstance -w mywiki -a admin -e my.env
+canasta create compose -i myinstance -w mywiki -a admin -e my.env
 ```
 
 Or append `observable` to an existing `.env` file that already sets `COMPOSE_PROFILES`:

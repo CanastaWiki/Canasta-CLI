@@ -25,7 +25,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
 Every Canasta installation has an **installation ID** — a name you choose when creating it with the `-i` flag:
 
 ```bash
-canasta create -i myinstance -w main -n localhost -a admin
+canasta create compose -i myinstance -w main -n localhost -a admin
 ```
 
 The installation ID is used to refer to the installation in all subsequent commands:
@@ -47,7 +47,7 @@ Installation IDs must start and end with an alphanumeric character and may conta
 Every wiki in a Canasta installation has a **wiki ID** — a short identifier set with the `-w` flag when creating or adding a wiki:
 
 ```bash
-canasta create -i myinstance -w main -n localhost -a admin
+canasta create compose -i myinstance -w main -n localhost -a admin
 ```
 
 Even a single-wiki installation requires a wiki ID. The wiki ID is used as:
@@ -141,7 +141,7 @@ The `url` field uses `domain/path` format without the protocol. The Caddyfile is
 The `name` field in `wikis.yaml` controls the wiki's display name (`$wgSitename` in MediaWiki). It defaults to the wiki ID if not set. The name is initially set with the `-t` (`--site-name`) flag of `canasta create` or `canasta add`:
 
 ```bash
-canasta create -i myinstance -w docs -n example.com -a admin -t "Project Documentation"
+canasta create compose -i myinstance -w docs -n example.com -a admin -t "Project Documentation"
 ```
 
 To change it later, edit the `name` field directly in `config/wikis.yaml`:
@@ -266,13 +266,13 @@ Use this option for fully private wikis where the logo should not be visible to 
 To migrate an existing MediaWiki installation into Canasta, prepare a database dump (`.sql` or `.sql.gz` file) and pass it with the `-d` flag:
 
 ```bash
-canasta create -i myinstance -w main -n localhost -d ./backup.sql.gz -a admin
+canasta create compose -i myinstance -w main -n localhost -d ./backup.sql.gz -a admin
 ```
 
 You can also provide a per-wiki settings file and an environment file with password overrides:
 
 ```bash
-canasta create -i myinstance -w main -n localhost -d ./backup.sql.gz -l ./my-settings.php -e ./custom.env -a admin
+canasta create compose -i myinstance -w main -n localhost -d ./backup.sql.gz -l ./my-settings.php -e ./custom.env -a admin
 ```
 
 The `-l` flag (`--wiki-settings`) copies the specified file to `config/settings/wikis/{wiki-id}/`, preserving the filename. Use it to bring over custom settings from an existing wiki.
@@ -439,7 +439,7 @@ CADDY_AUTO_HTTPS=off
 Pass this file when creating the installation:
 
 ```bash
-canasta create -i myinstance -w main -n example.com -a admin -e custom.env
+canasta create compose -i myinstance -w main -n example.com -a admin -e custom.env
 ```
 
 This generates a Caddyfile with `http://` site addresses so Caddy listens on port 80 only.
@@ -465,7 +465,7 @@ HTTPS_PORT=8443
 ```
 
 ```bash
-canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
+canasta create compose -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
 ```
 
 For an existing installation, edit `.env` to set the ports, update `config/wikis.yaml` to include the port in the URL, and restart:
@@ -492,13 +492,13 @@ Each installation must use unique ports. This applies to both Docker Compose and
 
 ```bash
 # Docker Compose installation on default ports (80/443)
-canasta create -i production -w mainwiki -n localhost -a admin
+canasta create compose -i production -w mainwiki -n localhost -a admin
 
 # Docker Compose installation on custom ports
-canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
+canasta create compose -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
 
 # Local Kubernetes installation on different custom ports
-canasta create -o k8s --create-cluster -i dev-k8s -w devwiki -n localhost:9443 -a admin -e another.env
+canasta create k8s --create-cluster -i dev-k8s -w devwiki -n localhost:9443 -a admin -e another.env
 ```
 
 Access them at `https://localhost`, `https://localhost:8443`, and `https://localhost:9443`.

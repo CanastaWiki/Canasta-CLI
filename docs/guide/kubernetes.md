@@ -41,10 +41,10 @@ You need `kubectl` installed and configured to connect to your cluster (`kubectl
 
 ## Creating an installation (managed cluster)
 
-Use `-o k8s` with the `--create-cluster` flag:
+Use `canasta create k8s` with the `--create-cluster` flag:
 
 ```bash
-canasta create -o k8s --create-cluster -i my-wiki -w main -a admin -n localhost
+canasta create k8s --create-cluster -i my-wiki -w main -a admin -n localhost
 ```
 
 This automatically:
@@ -118,7 +118,7 @@ HTTPS_PORT=8443
 ```
 
 ```bash
-canasta create -o k8s --create-cluster -i my-wiki -w main -a admin -n localhost:8443 -e custom.env
+canasta create k8s --create-cluster -i my-wiki -w main -a admin -n localhost:8443 -e custom.env
 ```
 
 Each installation must use unique ports. If two installations attempt to bind the same host port, kind will fail with a Docker port-binding error. See [Running on non-standard ports](general-concepts.md#running-on-non-standard-ports) for more details.
@@ -130,7 +130,7 @@ Each installation must use unique ports. If two installations attempt to bind th
 To test a locally built Canasta image with a managed K8s cluster, use `--build-from`:
 
 ```bash
-canasta create -o k8s --create-cluster --build-from /path/to/workspace -i my-wiki -w main -a admin -n localhost
+canasta create k8s --create-cluster --build-from /path/to/workspace -i my-wiki -w main -a admin -n localhost
 ```
 
 When `--create-cluster` is combined with `--build-from`, the CLI loads the built image directly into the kind cluster using `kind load docker-image`. No container registry is needed.
@@ -144,7 +144,7 @@ Without `--create-cluster`, the CLI pushes the image to a registry (default `loc
 To deploy to a pre-existing Kubernetes cluster without `--create-cluster`:
 
 ```bash
-canasta create -o k8s -i my-wiki -w main -a admin -n my-wiki.example.com
+canasta create k8s -i my-wiki -w main -a admin -n my-wiki.example.com
 ```
 
 This mode is **experimental** and has significant limitations:

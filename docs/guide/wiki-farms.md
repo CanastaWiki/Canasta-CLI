@@ -40,7 +40,7 @@ Multiple wikis share the same domain, distinguished by URL path. The first wiki 
 
 ```bash
 # Create the farm with the first wiki at the root
-canasta create -i myfarm -w mainwiki -n example.com -a admin
+canasta create compose -i myfarm -w mainwiki -n example.com -a admin
 
 # Add a second wiki at example.com/docs
 canasta add -i myfarm -w docs -u example.com/docs -a admin
@@ -56,7 +56,7 @@ Users access these at `https://example.com`, `https://example.com/docs`, and `ht
 Each wiki uses a different subdomain. This requires DNS records pointing each subdomain to your Canasta server. Caddy handles SSL/HTTPS automatically for all configured domains.
 
 ```bash
-canasta create -i myfarm -w mainwiki -n wiki.example.com -a admin
+canasta create compose -i myfarm -w mainwiki -n wiki.example.com -a admin
 canasta add -i myfarm -w docs -u docs.example.com -a admin
 canasta add -i myfarm -w community -u community.example.com -a admin
 ```
@@ -66,7 +66,7 @@ canasta add -i myfarm -w community -u community.example.com -a admin
 You can combine both approaches:
 
 ```bash
-canasta create -i myfarm -w mainwiki -n example.com -a admin
+canasta create compose -i myfarm -w mainwiki -n example.com -a admin
 canasta add -i myfarm -w docs -u example.com/docs -a admin
 canasta add -i myfarm -w community -u community.example.com -a admin
 ```

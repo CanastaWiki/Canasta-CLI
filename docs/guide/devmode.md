@@ -37,10 +37,10 @@ Development mode enables live code editing and step debugging with Xdebug for Ca
 
 ```bash
 # Use the default (latest) Canasta image
-canasta create -i mydev -w mywiki -n localhost -a admin --dev
+canasta create compose -i mydev -w mywiki -n localhost -a admin --dev
 
 # Or specify a specific Canasta image tag
-canasta create -i mydev -w mywiki -n localhost -a admin --dev --dev-tag dev-branch
+canasta create compose -i mydev -w mywiki -n localhost -a admin --dev --dev-tag dev-branch
 ```
 
 The `--dev` flag enables development mode with Xdebug. Use `--dev-tag` to specify which Canasta image tag to use:
@@ -66,7 +66,7 @@ This will:
 For testing changes to Canasta or CanastaBase before they're published, you can build from local source repositories:
 
 ```bash
-canasta create -i mydev -w mywiki -n localhost -a admin --build-from ~/canasta-repos
+canasta create compose -i mydev -w mywiki -n localhost -a admin --build-from ~/canasta-repos
 ```
 
 The `--build-from` flag expects a directory containing:
@@ -86,7 +86,7 @@ This will:
 You can combine `--build-from` with `--dev` to build from source and enable Xdebug:
 
 ```bash
-canasta create -i mydev -w mywiki -n localhost -a admin --dev --build-from ~/canasta-repos
+canasta create compose -i mydev -w mywiki -n localhost -a admin --dev --build-from ~/canasta-repos
 ```
 
 **Note:** `--dev-tag` and `--build-from` are mutually exclusive since `--build-from` builds its own image.
@@ -126,7 +126,7 @@ This will:
 
 **Note:** If `mediawiki-code/` already exists, it will NOT be overwritten. You'll see a warning message. To regenerate the code, delete the directory first and then restart with `--dev`.
 
-**Note:** When enabling dev mode on an existing installation, the default `latest` image tag is used. To use a specific image tag, recreate the installation with `canasta create --dev --dev-tag <tag>`.
+**Note:** When enabling dev mode on an existing installation, the default `latest` image tag is used. To use a specific image tag, recreate the installation with `canasta create compose --dev --dev-tag <tag>`.
 
 ---
 

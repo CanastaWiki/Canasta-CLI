@@ -25,7 +25,7 @@ This page covers security considerations and best practices for managing Canasta
 - Ensure proper file permissions on the installation directory to restrict access to these files
 - Consider using environment variables when passing passwords on the command line to avoid exposing them in shell history:
   ```bash
-  canasta create -i myinstance -w main -a admin --rootdbpass "$ROOT_DB_PASS"
+  canasta create compose -i myinstance -w main -a admin --rootdbpass "$ROOT_DB_PASS"
   ```
 
 ### Docker access

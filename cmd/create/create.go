@@ -11,357 +11,254 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/imagebuild"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
-	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 	"github.com/CanastaWiki/Canasta-CLI/internal/system"
 )
 
+// CreateOptions holds parameters shared between all orchestrator subcommands.
+type CreateOptions struct {
+	CanastaInfo        canasta.CanastaVariables
+	WorkingDir         string
+	Path               string
+	WikiID             string
+	SiteName           string
+	Domain             string
+	YamlPath           string
+	EnvFile            string
+	ComposerFile       string
+	DevTag             string
+	BuildFromPath      string
+	DatabasePath       string
+	WikiSettingsPath   string
+	GlobalSettingsPath string
+	KeepConfig         bool
+}
+
 func NewCmdCreate() *cobra.Command {
-	var (
-		path          string
-		orchestrator  string
-		workingDir    string
-		wikiID        string
-		siteName      string
-		domain        string
-		yamlPath      string
-		err           error
-		keepConfig    bool
-		canastaInfo   canasta.CanastaVariables
-		override      string
-		envFile       string
-		devModeFlag   bool   // enable dev mode
-		devTag        string // registry image tag for dev mode
-		buildFromPath string // path to build Canasta from source
-		databasePath       string // path to existing database dump
-		wikiSettingsPath   string // path to existing per-wiki Settings.php
-		globalSettingsPath string // path to existing global settings file
-		composerFile       string // path to custom composer.local.json
-		registry           string // container registry for K8s image push
-		createCluster      bool   // create and manage a K8s cluster
-	)
+	var opts CreateOptions
+	var err error
+
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a Canasta installation",
-		Long: `Create a new Canasta MediaWiki installation. This sets up the Docker Compose
-stack, generates configuration files, starts the containers, and runs the
-MediaWiki installer. You can optionally import an existing database dump
-instead of running the installer, or enable development mode with Xdebug.`,
-		Example: `  # Create a basic single-wiki installation
-  canasta create -i myinstance -w main -a admin -n example.com
+		Long: `Create a new Canasta MediaWiki installation. Use a subcommand to select
+the orchestrator:
 
-  # Create with an existing database dump
-  canasta create -i myinstance -w main -d /path/to/dump.sql -n example.com
-
-  # Create with development mode enabled
-  canasta create -i myinstance -w main -a admin -n localhost -D`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			// Check if the system has at least 2GB of memory
-			if err := system.CheckMemoryInGB(2); err != nil {
-				return err
-			}
-			// Validate wiki ID if yamlPath not provided
-			if yamlPath == "" {
-				if wikiID == "" {
-					return fmt.Errorf("--wiki flag is required when --yamlfile is not provided")
-				}
-				if err := farmsettings.ValidateWikiID(wikiID); err != nil {
-					return err
-				}
-			}
-
-			// Validate Canasta instance ID format
-			validString := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$`)
-			if !validString.MatchString(canastaInfo.Id) {
-				return fmt.Errorf("Canasta instance ID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed")
-			}
-
-			// Check for duplicate ID before doing any work
-			if _, err := config.GetDetails(canastaInfo.Id); err == nil {
-				return fmt.Errorf("Canasta installation with ID '%s' already exists", canastaInfo.Id)
-			}
-
-			// Validate --dev-tag and --build-from are mutually exclusive
-			if devTag != "latest" && buildFromPath != "" {
-				return fmt.Errorf("--dev-tag and --build-from are mutually exclusive")
-			}
-
-			// Validate database path if provided
-			if databasePath != "" {
-				if err := canasta.ValidateDatabasePath(databasePath); err != nil {
-					return err
-				}
-			}
-
-			// Resolve relative database path to absolute (relative to working directory)
-			if databasePath != "" && !filepath.IsAbs(databasePath) {
-				databasePath = filepath.Join(workingDir, databasePath)
-			}
-
-			// Validate --admin is required when --database is not provided
-			if databasePath == "" && canastaInfo.AdminName == "" {
-				return fmt.Errorf("--admin flag is required when --database is not provided")
-			}
-
-			// Always generate database passwords
-			if canastaInfo, err = canasta.GenerateDBPasswords(canastaInfo); err != nil {
-				return err
-			}
-
-			// Generate admin password only if not importing (when importing, we skip install.php)
-			if databasePath == "" {
-				if canastaInfo, err = canasta.GenerateAdminPassword(canastaInfo); err != nil {
-					return err
-				}
-			}
-
-			// If no domain was explicitly provided and an env file specifies a
-			// non-standard HTTPS port, append the port to the default domain
-			// so that wikis.yaml is generated with the correct URL.
-			if !cmd.Flags().Changed("domain-name") && envFile != "" {
-				envFilePath := envFile
-				if !filepath.IsAbs(envFilePath) {
-					envFilePath = filepath.Join(workingDir, envFilePath)
-				}
-				envVars, envErr := canasta.GetEnvVariable(envFilePath)
-				if envErr != nil {
-					return envErr
-				}
-				if port, ok := envVars["HTTPS_PORT"]; ok && port != "443" && port != "" {
-					domain = domain + ":" + port
-				}
-			}
-
-			description := "Creating Canasta installation '" + canastaInfo.Id + "'..."
-			if devModeFlag {
-				description = "Creating Canasta installation '" + canastaInfo.Id + "' with dev mode..."
-			}
-			stopSpinner := spinner.New(description)
-
-			orch, err := orchestrators.New(orchestrator)
-			if err != nil {
-				return err
-			}
-			if createCluster {
-				if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
-					k8s.ManagedCluster = true
-				} else {
-					return fmt.Errorf("--create-cluster is only supported with Kubernetes orchestrator")
-				}
-			}
-			if err = orch.CheckDependencies(); err != nil {
-				return err
-			}
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, registry, createCluster, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
-				stopSpinner()
-				fmt.Print(err.Error(), "\n")
-				if !keepConfig {
-					deleteConfigAndContainers(path+"/"+canastaInfo.Id, orch)
-					return fmt.Errorf("Installation failed and files were cleaned up")
-				}
-				return fmt.Errorf("Installation failed. Keeping all the containers and config files")
-			}
-			stopSpinner()
-			if devModeFlag {
-				fmt.Println("\033[32mDevelopment mode enabled. Edit files in mediawiki-code/ - changes appear immediately.\033[0m")
-				fmt.Println("\033[32mVSCode: Open the installation directory, install PHP Debug extension, and start 'Listen for Xdebug'.\033[0m")
-			}
-			fmt.Println("\033[32mIf you need email enabled for this wiki, please set $wgSMTP; email will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP for options.\033[0m")
-			fmt.Println("Done.")
-			return nil
-		},
+  canasta create compose  — Docker Compose (recommended)
+  canasta create k8s      — Kubernetes`,
 	}
 
-	if workingDir, err = os.Getwd(); err != nil {
+	if opts.WorkingDir, err = os.Getwd(); err != nil {
 		log.Fatal(err)
 	}
 
-	createCmd.Flags().StringVarP(&path, "path", "p", workingDir, "Canasta directory")
-	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "compose", "Orchestrator to use (compose or kubernetes)")
-	createCmd.Flags().StringVarP(&canastaInfo.Id, "id", "i", "", "Canasta instance ID")
-	createCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki")
-	createCmd.Flags().StringVarP(&siteName, "site-name", "t", "", "Display name of the wiki (optional, defaults to wiki ID)")
-	createCmd.Flags().StringVarP(&domain, "domain-name", "n", "localhost", "Domain name")
-	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "admin", "a", "", "Initial wiki admin username")
-	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password (if not provided, auto-generates and saves to config/admin-password_{wikiid})")
-	createCmd.Flags().StringVarP(&yamlPath, "yamlfile", "f", "", "Initial wiki yaml file")
-	createCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
-	createCmd.Flags().StringVarP(&override, "override", "r", "", "Name of a file to copy to docker-compose.override.yml")
-	createCmd.Flags().StringVar(&canastaInfo.RootDBPassword, "rootdbpass", "", "Root database password (if not provided, auto-generates and saves to .env). Tip: Use --rootdbpass \"$ROOT_DB_PASS\" to avoid exposing password in shell history")
-	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
-	createCmd.Flags().StringVar(&canastaInfo.WikiDBPassword, "wikidbpass", "", "Wiki database password (if not provided, auto-generates and saves to .env). Tip: Use --wikidbpass \"$WIKI_DB_PASS\" to avoid exposing password in shell history")
-	createCmd.Flags().StringVarP(&envFile, "envfile", "e", "", "Path to .env file with password overrides (merged with default .env)")
-	createCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Enable development mode with Xdebug and code extraction")
-	createCmd.Flags().StringVar(&devTag, "dev-tag", "latest", "Canasta image tag to use (e.g., latest, dev-branch)")
-	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build Canasta image from local source directory (expects Canasta/, optionally CanastaBase/)")
-	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
-	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
-	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
-	createCmd.Flags().StringVar(&composerFile, "composer", "", "Path to custom composer.local.json to copy to config/")
-	createCmd.Flags().StringVar(&registry, "registry", "localhost:5000", "Container registry for pushing locally built images (used with --build-from on Kubernetes)")
-	createCmd.Flags().BoolVar(&createCluster, "create-cluster", false, "Create and manage a local Kubernetes cluster for this installation")
+	// Shared flags (persistent so they apply to subcommands)
+	pf := createCmd.PersistentFlags()
+	pf.StringVarP(&opts.Path, "path", "p", opts.WorkingDir, "Canasta directory")
+	pf.StringVarP(&opts.CanastaInfo.Id, "id", "i", "", "Canasta instance ID")
+	pf.StringVarP(&opts.WikiID, "wiki", "w", "", "ID of the wiki")
+	pf.StringVarP(&opts.SiteName, "site-name", "t", "", "Display name of the wiki (optional, defaults to wiki ID)")
+	pf.StringVarP(&opts.Domain, "domain-name", "n", "localhost", "Domain name")
+	pf.StringVarP(&opts.CanastaInfo.AdminName, "admin", "a", "", "Initial wiki admin username")
+	pf.StringVarP(&opts.CanastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password (if not provided, auto-generates and saves to config/admin-password_{wikiid})")
+	pf.StringVarP(&opts.YamlPath, "yamlfile", "f", "", "Initial wiki yaml file")
+	pf.BoolVarP(&opts.KeepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
+	pf.StringVar(&opts.CanastaInfo.RootDBPassword, "rootdbpass", "", "Root database password (if not provided, auto-generates and saves to .env). Tip: Use --rootdbpass \"$ROOT_DB_PASS\" to avoid exposing password in shell history")
+	pf.StringVar(&opts.CanastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
+	pf.StringVar(&opts.CanastaInfo.WikiDBPassword, "wikidbpass", "", "Wiki database password (if not provided, auto-generates and saves to .env). Tip: Use --wikidbpass \"$WIKI_DB_PASS\" to avoid exposing password in shell history")
+	pf.StringVarP(&opts.EnvFile, "envfile", "e", "", "Path to .env file with password overrides (merged with default .env)")
+	pf.StringVar(&opts.DevTag, "dev-tag", "latest", "Canasta image tag to use (e.g., latest, dev-branch)")
+	pf.StringVar(&opts.BuildFromPath, "build-from", "", "Build Canasta image from local source directory (expects Canasta/, optionally CanastaBase/)")
+	pf.StringVarP(&opts.DatabasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
+	pf.StringVarP(&opts.WikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
+	pf.StringVarP(&opts.GlobalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
+	pf.StringVar(&opts.ComposerFile, "composer", "", "Path to custom composer.local.json to copy to config/")
 
 	// Mark required flags
-	_ = createCmd.MarkFlagRequired("id")
+	_ = createCmd.MarkPersistentFlagRequired("id")
+
+	// Add subcommands
+	createCmd.AddCommand(newComposeCmd(&opts))
+	createCmd.AddCommand(newK8sCmd(&opts))
 
 	return createCmd
 }
 
-// createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, registry string, createCluster bool, databasePath, wikiSettingsPath, globalSettingsPath string) error {
-	// Determine the base image to use
-	var baseImage string
-	var localImageBuilt bool
+// validateOpts performs shared validation that applies to all orchestrators.
+// The cmd parameter is used to check whether flags were explicitly set.
+func validateOpts(cmd *cobra.Command, opts *CreateOptions) error {
+	// Check if the system has at least 2GB of memory
+	if err := system.CheckMemoryInGB(2); err != nil {
+		return err
+	}
+
+	// Validate wiki ID if yamlPath not provided
+	if opts.YamlPath == "" {
+		if opts.WikiID == "" {
+			return fmt.Errorf("--wiki flag is required when --yamlfile is not provided")
+		}
+		if err := farmsettings.ValidateWikiID(opts.WikiID); err != nil {
+			return err
+		}
+	}
+
+	// Validate Canasta instance ID format
+	validString := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$`)
+	if !validString.MatchString(opts.CanastaInfo.Id) {
+		return fmt.Errorf("Canasta instance ID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed")
+	}
+
+	// Check for duplicate ID before doing any work
+	if _, err := config.GetDetails(opts.CanastaInfo.Id); err == nil {
+		return fmt.Errorf("Canasta installation with ID '%s' already exists", opts.CanastaInfo.Id)
+	}
+
+	// Validate --dev-tag and --build-from are mutually exclusive
+	if opts.DevTag != "latest" && opts.BuildFromPath != "" {
+		return fmt.Errorf("--dev-tag and --build-from are mutually exclusive")
+	}
+
+	// Validate database path if provided
+	if opts.DatabasePath != "" {
+		if err := canasta.ValidateDatabasePath(opts.DatabasePath); err != nil {
+			return err
+		}
+	}
+
+	// Resolve relative database path to absolute (relative to working directory)
+	if opts.DatabasePath != "" && !filepath.IsAbs(opts.DatabasePath) {
+		opts.DatabasePath = filepath.Join(opts.WorkingDir, opts.DatabasePath)
+	}
+
+	// Validate --admin is required when --database is not provided
+	if opts.DatabasePath == "" && opts.CanastaInfo.AdminName == "" {
+		return fmt.Errorf("--admin flag is required when --database is not provided")
+	}
+
+	// Always generate database passwords
+	var err error
+	if opts.CanastaInfo, err = canasta.GenerateDBPasswords(opts.CanastaInfo); err != nil {
+		return err
+	}
+
+	// Generate admin password only if not importing (when importing, we skip install.php)
+	if opts.DatabasePath == "" {
+		if opts.CanastaInfo, err = canasta.GenerateAdminPassword(opts.CanastaInfo); err != nil {
+			return err
+		}
+	}
+
+	// If no domain was explicitly provided and an env file specifies a
+	// non-standard HTTPS port, append the port to the default domain
+	// so that wikis.yaml is generated with the correct URL.
+	if !cmd.Flags().Changed("domain-name") && opts.EnvFile != "" {
+		envFilePath := opts.EnvFile
+		if !filepath.IsAbs(envFilePath) {
+			envFilePath = filepath.Join(opts.WorkingDir, envFilePath)
+		}
+		envVars, envErr := canasta.GetEnvVariable(envFilePath)
+		if envErr != nil {
+			return envErr
+		}
+		if port, ok := envVars["HTTPS_PORT"]; ok && port != "443" && port != "" {
+			opts.Domain = opts.Domain + ":" + port
+		}
+	}
+
+	return nil
+}
+
+// determineBaseImage resolves the Docker image to use.
+// Returns the image tag and whether it was locally built.
+func determineBaseImage(buildFromPath, devTag string) (string, bool, error) {
 	if buildFromPath != "" {
-		// Check if local Canasta repo exists for building
 		canastaPath := filepath.Join(buildFromPath, "Canasta")
 		if _, err := os.Stat(canastaPath); err == nil {
-			// Build Canasta (and optionally CanastaBase) from source
 			logging.Print("Building Canasta from local source...\n")
 			builtImage, err := imagebuild.BuildFromSource(buildFromPath)
 			if err != nil {
-				return fmt.Errorf("failed to build from source: %w", err)
+				return "", false, fmt.Errorf("failed to build from source: %w", err)
 			}
-			baseImage = builtImage
-			localImageBuilt = true
-		} else {
-			// No local Canasta repo, use registry image
-			logging.Print("No local Canasta repo found, using registry image\n")
-			baseImage = canasta.GetImageWithTag(devTag)
+			return builtImage, true, nil
 		}
-	} else {
-		// Use registry image with specified tag
-		baseImage = canasta.GetImageWithTag(devTag)
+		logging.Print("No local Canasta repo found, using registry image\n")
 	}
+	return canasta.GetImageWithTag(devTag), false, nil
+}
 
-	// Create the installation directory and write orchestrator stack files
-	path = filepath.Join(path, canastaInfo.Id)
+// setupInstallation creates the directory, writes stack files,
+// copies templates, configures .env and wikis.yaml.
+// Returns the resolved installation path (opts.Path + "/" + opts.CanastaInfo.Id).
+func setupInstallation(opts *CreateOptions, orch orchestrators.Orchestrator, baseImage string) (string, error) {
+	path := filepath.Join(opts.Path, opts.CanastaInfo.Id)
 	if err := os.MkdirAll(path, 0755); err != nil {
-		return fmt.Errorf("failed to create installation directory: %w", err)
+		return "", fmt.Errorf("failed to create installation directory: %w", err)
 	}
 	if err := orch.WriteStackFiles(path); err != nil {
-		return fmt.Errorf("failed to write stack files: %w", err)
+		return "", fmt.Errorf("failed to write stack files: %w", err)
 	}
-
-	// Copy shared installation template files (config, settings, etc.)
 	if err := canasta.CopyInstallationTemplate(path); err != nil {
-		return err
+		return "", err
 	}
 
-	// If user provided a custom yaml file, copy it; otherwise generate it directly in the installation
-	if yamlPath != "" {
-		// User provided custom yaml file via --yamlfile flag
-		if err := canasta.CopyYaml(yamlPath, path); err != nil {
-			return err
+	// If user provided a custom yaml file, copy it; otherwise generate it
+	if opts.YamlPath != "" {
+		if err := canasta.CopyYaml(opts.YamlPath, path); err != nil {
+			return "", err
 		}
 	} else {
-		// Generate wikis.yaml directly in the installation directory
-		yamlPath = filepath.Join(path, "config", "wikis.yaml")
-		if _, err := farmsettings.GenerateWikisYaml(yamlPath, wikiID, domain, siteName); err != nil {
-			return err
+		opts.YamlPath = filepath.Join(path, "config", "wikis.yaml")
+		if _, err := farmsettings.GenerateWikisYaml(opts.YamlPath, opts.WikiID, opts.Domain, opts.SiteName); err != nil {
+			return "", err
 		}
 	}
-	if err := canasta.UpdateEnvFile(envFile, path, workingDir, canastaInfo.RootDBPassword, canastaInfo.WikiDBPassword); err != nil {
-		return err
+	if err := canasta.UpdateEnvFile(opts.EnvFile, path, opts.WorkingDir, opts.CanastaInfo.RootDBPassword, opts.CanastaInfo.WikiDBPassword); err != nil {
+		return "", err
 	}
-	// Set CANASTA_IMAGE in .env for local builds so docker-compose uses the locally built image
-	if buildFromPath != "" {
+	// Set CANASTA_IMAGE in .env for local builds
+	if opts.BuildFromPath != "" {
 		if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", baseImage); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if err := canasta.CopySettings(path); err != nil {
-		return err
+		return "", err
 	}
-	// If custom per-wiki settings file provided, overwrite the Settings.php for this wiki
-	if wikiSettingsPath != "" && wikiID != "" {
-		if err := canasta.CopyWikiSettingFile(path, wikiID, wikiSettingsPath, workingDir); err != nil {
-			return err
+	if opts.WikiSettingsPath != "" && opts.WikiID != "" {
+		if err := canasta.CopyWikiSettingFile(path, opts.WikiID, opts.WikiSettingsPath, opts.WorkingDir); err != nil {
+			return "", err
 		}
 	}
-	// If custom global settings file provided, copy to config/settings/
-	if globalSettingsPath != "" {
-		if err := canasta.CopyGlobalSettingFile(path, globalSettingsPath, workingDir); err != nil {
-			return err
+	if opts.GlobalSettingsPath != "" {
+		if err := canasta.CopyGlobalSettingFile(path, opts.GlobalSettingsPath, opts.WorkingDir); err != nil {
+			return "", err
 		}
 	}
-	if composerFile != "" {
-		if err := canasta.CopyComposerFile(path, composerFile, workingDir); err != nil {
-			return err
-		}
-	}
-	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
-
-	// For managed K8s clusters, create the kind cluster with port mappings
-	var kindClusterName string
-	if createCluster && isK8s {
-		httpPort, httpsPort := orchestrators.GetPortsFromEnv(path)
-		kindClusterName = orchestrators.KindClusterName(canastaInfo.Id)
-		if err := orchestrators.CreateKindCluster(kindClusterName, httpPort, httpsPort); err != nil {
-			return fmt.Errorf("failed to create kind cluster: %w", err)
+	if opts.ComposerFile != "" {
+		if err := canasta.CopyComposerFile(path, opts.ComposerFile, opts.WorkingDir); err != nil {
+			return "", err
 		}
 	}
 
-	// Handle K8s image distribution before InitConfig so .env has the
-	// correct CANASTA_IMAGE when kustomization.yaml is generated.
-	if isK8s && localImageBuilt {
-		if kindClusterName != "" {
-			// Load image directly into kind (no registry needed)
-			logging.Print("Loading image into kind cluster...\n")
-			if err := orchestrators.LoadImageToKind(kindClusterName, baseImage); err != nil {
-				return fmt.Errorf("failed to load image into kind: %w", err)
-			}
-		} else {
-			// Push to a registry the cluster can access
-			logging.Print("Pushing image to registry for Kubernetes...\n")
-			remoteTag, err := imagebuild.PushImage(baseImage, registry)
-			if err != nil {
-				return fmt.Errorf("failed to push image to registry: %w", err)
-			}
-			// Update .env so kustomization.yaml references the registry image
-			if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", remoteTag); err != nil {
-				return err
-			}
-		}
-	}
+	return path, nil
+}
 
-	if err := orch.InitConfig(path); err != nil {
-		return err
-	}
-	if override != "" {
-		compose, ok := orch.(*orchestrators.ComposeOrchestrator)
-		if !ok {
-			return fmt.Errorf("--override is only supported with Docker Compose")
-		}
-		if err := compose.CopyOverrideFile(path, override, workingDir); err != nil {
-			return err
-		}
-	}
-
-	// Dev mode: extract code and build xdebug image before starting
-	if devModeEnabled && isK8s {
-		return fmt.Errorf("Development mode is only supported with Docker Compose")
-	}
-	if devModeEnabled {
-		if err := devmode.SetupFullDevMode(path, orch, baseImage); err != nil {
-			return err
-		}
-	}
-
+// installAndRegister starts containers, runs install.php or imports DB,
+// registers the installation in config, and restarts.
+func installAndRegister(opts *CreateOptions, path string, orch orchestrators.Orchestrator, instance config.Installation) error {
 	// Always start without dev mode for installation to avoid xdebug interference
-	// (xdebug can cause hangs if a debugger is listening during install.php)
-	tempInstance := config.Installation{Path: path, Orchestrator: orchestrator, DevMode: false, KindCluster: kindClusterName}
+	tempInstance := instance
+	tempInstance.DevMode = false
 	if err := orch.Start(tempInstance); err != nil {
 		return err
 	}
 
 	// If database path is provided, import the database instead of running install.php
-	if databasePath != "" {
+	if opts.DatabasePath != "" {
 		logging.Print("Importing database instead of running install.php\n")
 
 		// Wait for database to be ready
@@ -374,54 +271,37 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			return envErr
 		}
 		dbPassword := envVariables["MYSQL_PASSWORD"]
-		if err := orchestrators.ImportDatabase(orch, wikiID, databasePath, dbPassword, tempInstance); err != nil {
+		if err := orchestrators.ImportDatabase(orch, opts.WikiID, opts.DatabasePath, dbPassword, tempInstance); err != nil {
 			return err
 		}
-		// Generate secret key and save to .env (DB password already in .env)
 		if err := canasta.GenerateAndSaveSecretKey(path); err != nil {
 			return err
 		}
 	} else {
-		// Run MediaWiki installer
-		if _, err := mediawiki.Install(path, yamlPath, orch, canastaInfo); err != nil {
+		if _, err := mediawiki.Install(path, opts.YamlPath, orch, opts.CanastaInfo); err != nil {
 			return err
 		}
 	}
 
-	reg := ""
-	if isK8s {
-		reg = registry
-	}
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, ManagedCluster: createCluster, Registry: reg, KindCluster: kindClusterName}
 	if err := config.Add(instance); err != nil {
 		return err
 	}
 
 	// Restart to apply all settings
-	// Stop containers (started without dev mode)
 	if err := orch.Stop(tempInstance); err != nil {
 		return err
 	}
-
-	// Start with appropriate mode
-	if err := orch.Start(instance); err != nil {
-		return err
-	}
-
-	return nil
+	return orch.Start(instance)
 }
 
-func deleteConfigAndContainers(installationDir string, orch orchestrators.Orchestrator) {
+// deleteConfigAndContainers removes containers, an optional kind cluster, and config files.
+func deleteConfigAndContainers(installDir string, orch orchestrators.Orchestrator, kindClusterName string) {
 	fmt.Println("Removing containers")
-	_, _ = orch.Destroy(installationDir)
-	// Clean up any kind cluster created during this attempt.
-	// KindClusterName derives the name from the directory basename (the ID).
-	// DeleteKindCluster is a no-op if the cluster doesn't exist.
-	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
-		clusterName := orchestrators.KindClusterName(filepath.Base(installationDir))
-		_ = orchestrators.DeleteKindCluster(clusterName)
+	_, _ = orch.Destroy(installDir)
+	if kindClusterName != "" {
+		_ = orchestrators.DeleteKindCluster(kindClusterName)
 	}
 	fmt.Println("Deleting config files")
-	_, _ = orchestrators.DeleteConfig(installationDir)
+	_, _ = orchestrators.DeleteConfig(installDir)
 	fmt.Println("Deleted all containers and config files")
 }
