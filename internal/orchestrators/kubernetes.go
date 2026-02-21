@@ -38,10 +38,10 @@ func (k *KubernetesOrchestrator) CheckDependencies() error {
 		return fmt.Errorf("kubectl must be installed and in PATH")
 	}
 	if k.ManagedCluster {
-		// For local clusters, also require kind. Skip cluster-info check
+		// For managed clusters, also require kind. Skip cluster-info check
 		// because the cluster doesn't exist yet during create.
 		if _, err := exec.LookPath("kind"); err != nil {
-			return fmt.Errorf("kind must be installed and in PATH for local Kubernetes clusters")
+			return fmt.Errorf("kind must be installed and in PATH (see https://kind.sigs.k8s.io/)")
 		}
 		return nil
 	}
@@ -140,6 +140,12 @@ func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
 }
 
 func (k *KubernetesOrchestrator) Stop(instance config.Installation) error {
+	if instance.KindCluster != "" {
+		if err := setKindKubectlContext(instance.KindCluster); err != nil {
+			return err
+		}
+	}
+
 	ns, err := getNamespaceFromPath(instance.Path)
 	if err != nil {
 		return err
@@ -157,6 +163,10 @@ func (k *KubernetesOrchestrator) Stop(instance config.Installation) error {
 }
 
 func (k *KubernetesOrchestrator) Update(installPath string) (*UpdateReport, error) {
+	if err := ensureKindContext(installPath); err != nil {
+		return nil, err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return nil, err
@@ -207,6 +217,10 @@ func (k *KubernetesOrchestrator) Destroy(installPath string) (string, error) {
 }
 
 func (k *KubernetesOrchestrator) ExecWithError(installPath, service, command string) (string, error) {
+	if err := ensureKindContext(installPath); err != nil {
+		return "", err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return "", err
@@ -226,6 +240,10 @@ func (k *KubernetesOrchestrator) ExecWithError(installPath, service, command str
 }
 
 func (k *KubernetesOrchestrator) ExecStreaming(installPath, service, command string) error {
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return err
@@ -281,6 +299,10 @@ func (k *KubernetesOrchestrator) CheckRunningStatus(instance config.Installation
 }
 
 func (k *KubernetesOrchestrator) CopyFrom(installPath, service, containerPath, hostPath string) error {
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return err
@@ -301,6 +323,10 @@ func (k *KubernetesOrchestrator) CopyFrom(installPath, service, containerPath, h
 }
 
 func (k *KubernetesOrchestrator) CopyTo(installPath, service, hostPath, containerPath string) error {
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return err

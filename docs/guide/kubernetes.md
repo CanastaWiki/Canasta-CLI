@@ -73,7 +73,7 @@ canasta upgrade -i my-wiki   # Update stack files and restart
 
 **Delete** removes the entire kind cluster, all Kubernetes resources, and the installation directory.
 
-If the kind cluster is manually deleted (e.g., via `kind delete cluster`), `canasta start` will automatically recreate it. Note that persistent volume data will be lost in this case since it was stored inside the cluster.
+If the kind cluster is manually deleted (e.g., via `kind delete cluster`), `canasta start` will automatically recreate it. Note that persistent volume data will be lost in this case since it was stored inside the cluster. If the installation was created with `--build-from`, the locally built image will also need to be rebuilt and reloaded.
 
 ---
 
