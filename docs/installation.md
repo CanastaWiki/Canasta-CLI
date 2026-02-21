@@ -15,6 +15,8 @@ This guide covers installing and uninstalling the Canasta command line interface
 
 ## Prerequisites
 
+### Docker Compose (default)
+
 Before using the Canasta CLI, you must have both Docker Engine and Docker Compose installed.
 
 ### Windows and macOS
@@ -34,6 +36,19 @@ On Linux, you also need Docker access and file permission for your user account.
 ```bash
 sudo usermod -aG docker,www-data $USER
 ```
+
+### Kubernetes (local)
+
+To use Canasta with a local Kubernetes cluster (`canasta create -o k8s --local`), you also need:
+
+- **[kubectl](https://kubernetes.io/docs/tasks/tools/)** — the Kubernetes command-line tool
+- **[kind](https://kind.sigs.k8s.io/)** — runs Kubernetes clusters in Docker containers
+
+On macOS: `brew install kubectl kind`
+
+On Linux: download the binaries from the links above or use your package manager.
+
+Docker is still required since kind uses it to run cluster nodes. See the [Kubernetes guide](guide/kubernetes.md) for full details.
 
 ## Install
 
