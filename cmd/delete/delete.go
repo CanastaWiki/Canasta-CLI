@@ -80,6 +80,14 @@ func Delete(instance config.Installation) error {
 		return err
 	}
 
+	// For CLI-managed clusters, set the flag so K8s-aware methods
+	// know this is a managed cluster (e.g., for dependency checks).
+	if instance.ManagedCluster {
+		if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+			k8s.ManagedCluster = true
+		}
+	}
+
 	// Ensure containers are running so we can clean up images from inside
 	// (needed on Linux where container-created files are owned by www-data)
 	ensureErr := orch.CheckRunningStatus(instance)

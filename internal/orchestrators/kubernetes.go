@@ -27,14 +27,23 @@ const podLabelKey = "app"
 // KubernetesOrchestrator implements Orchestrator using kubectl.
 // Each Canasta installation maps to a Kubernetes namespace.
 type KubernetesOrchestrator struct {
-	// LocalCluster enables NodePort exposure instead of LoadBalancer,
-	// for use with local clusters (kind, k3d, minikube, etc.).
-	LocalCluster bool
+	// ManagedCluster indicates the CLI created and manages the Kubernetes
+	// cluster (currently via kind). Enables NodePort exposure and skips
+	// the cluster-info connectivity check during create.
+	ManagedCluster bool
 }
 
 func (k *KubernetesOrchestrator) CheckDependencies() error {
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		return fmt.Errorf("kubectl must be installed and in PATH")
+	}
+	if k.ManagedCluster {
+		// For managed clusters, also require kind. Skip cluster-info check
+		// because the cluster doesn't exist yet during create.
+		if _, err := exec.LookPath("kind"); err != nil {
+			return fmt.Errorf("kind must be installed and in PATH (see https://kind.sigs.k8s.io/)")
+		}
+		return nil
 	}
 	cmd := exec.Command("kubectl", "cluster-info")
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -95,6 +104,15 @@ func (k *KubernetesOrchestrator) UpdateStackFiles(installPath string, dryRun boo
 }
 
 func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
+	// For kind-managed clusters, ensure the cluster exists (recreate if
+	// manually deleted) and set the kubectl context before applying.
+	if instance.KindCluster != "" {
+		httpPort, httpsPort := GetPortsFromEnv(instance.Path)
+		if _, err := EnsureKindCluster(instance.KindCluster, httpPort, httpsPort); err != nil {
+			return fmt.Errorf("failed to ensure kind cluster: %w", err)
+		}
+	}
+
 	ns, err := getNamespaceFromPath(instance.Path)
 	if err != nil {
 		return err
@@ -110,6 +128,7 @@ func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
 	}
 
 	// Wait for the web deployment to be ready
+	logging.Print("Waiting for web deployment to be ready (this may take a few minutes if images need to be pulled)...\n")
 	rolloutCmd := exec.Command("kubectl", "rollout", "status",
 		webDeployment, "-n", ns, "--timeout=300s")
 	rolloutOutput, err := rolloutCmd.CombinedOutput()
@@ -121,6 +140,12 @@ func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
 }
 
 func (k *KubernetesOrchestrator) Stop(instance config.Installation) error {
+	if instance.KindCluster != "" {
+		if err := setKindKubectlContext(instance.KindCluster); err != nil {
+			return err
+		}
+	}
+
 	ns, err := getNamespaceFromPath(instance.Path)
 	if err != nil {
 		return err
@@ -138,6 +163,10 @@ func (k *KubernetesOrchestrator) Stop(instance config.Installation) error {
 }
 
 func (k *KubernetesOrchestrator) Update(installPath string) (*UpdateReport, error) {
+	if err := ensureKindContext(installPath); err != nil {
+		return nil, err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return nil, err
@@ -162,6 +191,17 @@ func (k *KubernetesOrchestrator) Update(installPath string) (*UpdateReport, erro
 }
 
 func (k *KubernetesOrchestrator) Destroy(installPath string) (string, error) {
+	// If this is a kind-managed installation, delete the entire cluster
+	// (which also removes the namespace and all resources).
+	if id, err := config.GetCanastaID(installPath); err == nil {
+		if inst, err := config.GetDetails(id); err == nil && inst.KindCluster != "" {
+			if err := DeleteKindCluster(inst.KindCluster); err != nil {
+				return "", fmt.Errorf("failed to delete kind cluster: %w", err)
+			}
+			return "kind cluster deleted", nil
+		}
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return "", err
@@ -177,6 +217,10 @@ func (k *KubernetesOrchestrator) Destroy(installPath string) (string, error) {
 }
 
 func (k *KubernetesOrchestrator) ExecWithError(installPath, service, command string) (string, error) {
+	if err := ensureKindContext(installPath); err != nil {
+		return "", err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return "", err
@@ -196,6 +240,10 @@ func (k *KubernetesOrchestrator) ExecWithError(installPath, service, command str
 }
 
 func (k *KubernetesOrchestrator) ExecStreaming(installPath, service, command string) error {
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return err
@@ -217,6 +265,20 @@ func (k *KubernetesOrchestrator) ExecStreaming(installPath, service, command str
 }
 
 func (k *KubernetesOrchestrator) CheckRunningStatus(instance config.Installation) error {
+	// For kind-managed clusters, ensure the cluster exists and set context.
+	if instance.KindCluster != "" {
+		exists, err := kindClusterExists(instance.KindCluster)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("kind cluster %q does not exist", instance.KindCluster)
+		}
+		if err := setKindKubectlContext(instance.KindCluster); err != nil {
+			return err
+		}
+	}
+
 	ns, err := getNamespaceFromPath(instance.Path)
 	if err != nil {
 		return err
@@ -237,6 +299,10 @@ func (k *KubernetesOrchestrator) CheckRunningStatus(instance config.Installation
 }
 
 func (k *KubernetesOrchestrator) CopyFrom(installPath, service, containerPath, hostPath string) error {
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return err
@@ -257,6 +323,10 @@ func (k *KubernetesOrchestrator) CopyFrom(installPath, service, containerPath, h
 }
 
 func (k *KubernetesOrchestrator) CopyTo(installPath, service, hostPath, containerPath string) error {
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return err
@@ -277,6 +347,10 @@ func (k *KubernetesOrchestrator) CopyTo(installPath, service, hostPath, containe
 }
 
 func (k *KubernetesOrchestrator) RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
+	if err := ensureKindContext(installPath); err != nil {
+		return "", err
+	}
+
 	ns, err := getNamespaceFromPath(installPath)
 	if err != nil {
 		return "", err
@@ -341,20 +415,20 @@ func (k *KubernetesOrchestrator) InitConfig(installPath string) error {
 	if err := canasta.RewriteCaddy(installPath); err != nil {
 		return err
 	}
-	return k.generateKustomization(installPath, k.LocalCluster)
+	return k.generateKustomization(installPath, k.ManagedCluster)
 }
 
 func (k *KubernetesOrchestrator) UpdateConfig(installPath string) error {
 	if err := canasta.RewriteCaddy(installPath); err != nil {
 		return err
 	}
-	localCluster := false
+	managedCluster := false
 	if id, err := config.GetCanastaID(installPath); err == nil {
 		if inst, err := config.GetDetails(id); err == nil {
-			localCluster = inst.LocalCluster
+			managedCluster = inst.ManagedCluster
 		}
 	}
-	return k.generateKustomization(installPath, localCluster)
+	return k.generateKustomization(installPath, managedCluster)
 }
 
 // kustomization is the Go representation of kustomization.yaml.
@@ -389,7 +463,7 @@ type kustomizeImage struct {
 
 // generateKustomization programmatically generates kustomization.yaml by
 // scanning the installation directory for settings files and wikis.
-func (k *KubernetesOrchestrator) generateKustomization(installPath string, localCluster bool) error {
+func (k *KubernetesOrchestrator) generateKustomization(installPath string, managedCluster bool) error {
 	namespace := filepath.Base(installPath)
 
 	kust := kustomization{
@@ -473,8 +547,8 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, local
 		Envs: []string{".env"},
 	})
 
-	// 5. NodePort patch for local clusters
-	if localCluster {
+	// 5. NodePort patch for managed clusters
+	if managedCluster {
 		kust.Patches = append(kust.Patches, buildNodePortPatch())
 	}
 

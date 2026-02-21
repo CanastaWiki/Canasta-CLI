@@ -4,7 +4,7 @@ Welcome to the official documentation for **Canasta CLI**, the command-line inte
 
 ## What is Canasta CLI?
 
-Canasta CLI is a powerful tool that allows you to create, manage, and maintain multiple Canasta MediaWiki installations with ease. It supports Docker Compose orchestration and provides features for:
+Canasta CLI is a powerful tool that allows you to create, manage, and maintain multiple Canasta MediaWiki installations with ease. It supports Docker Compose and local Kubernetes orchestration and provides features for:
 
 - **Creating** new Canasta installations (single wikis or wiki farms)
 - **Managing** extensions and skins
@@ -42,6 +42,7 @@ canasta create -i myinstance -w wiki1 -a admin -n localhost
 - [Extensions and skins](guide/extensions-and-skins.md) - Enabling, disabling, and adding extensions and skins
 - [Observability](guide/observability.md) - Log aggregation with OpenSearch and Dashboards
 - [Development mode](guide/devmode.md) - Live code editing and Xdebug debugging
+- [Kubernetes](guide/kubernetes.md) - Deploying to Kubernetes with a CLI-managed kind cluster
 - [Backup and restore](guide/backup.md) - Setting up backups with restic
 - [Best practices](guide/best-practices.md) - Security considerations and best practices
 - [Troubleshooting](guide/troubleshooting.md) - Common issues and debugging

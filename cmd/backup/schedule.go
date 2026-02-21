@@ -114,7 +114,7 @@ func writeCrontab(lines []string) error {
 
 func scheduleBackup(cronExpression string) error {
 	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
-		return fmt.Errorf("Cron-based scheduling is not supported for Kubernetes installations; edit the backup CronJob in your kustomization.yaml instead")
+		return fmt.Errorf("cron-based scheduling is not supported for Kubernetes installations; use a Kubernetes CronJob instead")
 	}
 
 	if err := validateCron(cronExpression); err != nil {
@@ -165,6 +165,10 @@ func scheduleBackup(cronExpression string) error {
 }
 
 func listSchedule() error {
+	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+		return fmt.Errorf("cron-based scheduling is not supported for Kubernetes installations; use a Kubernetes CronJob instead")
+	}
+
 	lines, err := readCrontab()
 	if err != nil {
 		return err
@@ -182,6 +186,10 @@ func listSchedule() error {
 }
 
 func unscheduleBackup() error {
+	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+		return fmt.Errorf("cron-based scheduling is not supported for Kubernetes installations; use a Kubernetes CronJob instead")
+	}
+
 	removed, err := RemoveSchedule(instance.Id)
 	if err != nil {
 		return err
