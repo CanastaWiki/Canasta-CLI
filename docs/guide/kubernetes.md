@@ -1,20 +1,26 @@
-# Kubernetes (local)
+# Kubernetes
 
-Canasta CLI can deploy to a local Kubernetes cluster using [kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker). This provides a Kubernetes-based alternative to Docker Compose for local development and testing.
+Canasta CLI can deploy to Kubernetes in two ways:
+
+- **Managed cluster** (`--create-cluster`): The CLI creates and manages a local [kind](https://kind.sigs.k8s.io/) cluster for you. This is the recommended approach for local development and testing.
+- **Existing cluster**: You provide a pre-configured Kubernetes cluster and the CLI deploys to it. This is experimental and has [significant limitations](#using-an-existing-cluster).
 
 ## Contents
 
 - [Prerequisites](#prerequisites)
-- [Creating an installation](#creating-an-installation)
+- [Creating an installation (managed cluster)](#creating-an-installation-managed-cluster)
 - [Managing the installation](#managing-the-installation)
 - [How it works](#how-it-works)
 - [Non-standard ports](#non-standard-ports)
 - [Building from source](#building-from-source)
+- [Using an existing cluster](#using-an-existing-cluster)
 - [Current limitations](#current-limitations)
 
 ---
 
 ## Prerequisites
+
+### Managed cluster (recommended)
 
 In addition to Docker (required for kind), you need:
 
@@ -27,14 +33,18 @@ On Linux, install kubectl and kind using your package manager or by downloading 
 
 The CLI checks for these tools at creation time and will report a clear error if either is missing.
 
+### Existing cluster
+
+You need `kubectl` installed and configured to connect to your cluster (`kubectl cluster-info` must succeed).
+
 ---
 
-## Creating an installation
+## Creating an installation (managed cluster)
 
-Use `-o k8s` with the `--local` flag:
+Use `-o k8s` with the `--create-cluster` flag:
 
 ```bash
-canasta create -o k8s --local -i my-wiki -w main -a admin -n localhost
+canasta create -o k8s --create-cluster -i my-wiki -w main -a admin -n localhost
 ```
 
 This automatically:
@@ -69,7 +79,7 @@ If the kind cluster is manually deleted (e.g., via `kind delete cluster`), `cana
 
 ## How it works
 
-The CLI creates a kind cluster with `extraPortMappings` that map host ports directly to Kubernetes NodePort services:
+With `--create-cluster`, the CLI creates a kind cluster with `extraPortMappings` that map host ports directly to Kubernetes NodePort services:
 
 ```
 Browser -> localhost:443 -> kind node:443 -> NodePort 30443 -> caddy pod -> MediaWiki
@@ -108,7 +118,7 @@ HTTPS_PORT=8443
 ```
 
 ```bash
-canasta create -o k8s --local -i my-wiki -w main -a admin -n localhost:8443 -e custom.env
+canasta create -o k8s --create-cluster -i my-wiki -w main -a admin -n localhost:8443 -e custom.env
 ```
 
 Each installation must use unique ports. If two installations attempt to bind the same host port, kind will fail with a Docker port-binding error. See [Running on non-standard ports](general-concepts.md#running-on-non-standard-ports) for more details.
@@ -117,21 +127,40 @@ Each installation must use unique ports. If two installations attempt to bind th
 
 ## Building from source
 
-To test a locally built Canasta image with a local K8s cluster, use `--build-from`:
+To test a locally built Canasta image with a managed K8s cluster, use `--build-from`:
 
 ```bash
-canasta create -o k8s --local --build-from /path/to/workspace -i my-wiki -w main -a admin -n localhost
+canasta create -o k8s --create-cluster --build-from /path/to/workspace -i my-wiki -w main -a admin -n localhost
 ```
 
-When `--local` is combined with `--build-from`, the CLI loads the built image directly into the kind cluster using `kind load docker-image`. No container registry is needed.
+When `--create-cluster` is combined with `--build-from`, the CLI loads the built image directly into the kind cluster using `kind load docker-image`. No container registry is needed.
 
-Without `--local`, the CLI pushes the image to a registry (default `localhost:5000`, configurable with `--registry`) so the remote cluster can pull it.
+Without `--create-cluster`, the CLI pushes the image to a registry (default `localhost:5000`, configurable with `--registry`) so the cluster can pull it.
+
+---
+
+## Using an existing cluster
+
+To deploy to a pre-existing Kubernetes cluster without `--create-cluster`:
+
+```bash
+canasta create -o k8s -i my-wiki -w main -a admin -n my-wiki.example.com
+```
+
+This mode is **experimental** and has significant limitations:
+
+- The manifests use `hostPath` volumes pointing to `/canasta/config-data`, which only work on single-node clusters. Multi-node clusters will not work correctly.
+- Services use LoadBalancer type by default. You must configure your cluster's load balancer or ingress separately.
+- The CLI does not manage the cluster lifecycle — you are responsible for creating, maintaining, and deleting the cluster.
+- For locally built images (`--build-from`), you need a container registry accessible from the cluster (`--registry` flag, default `localhost:5000`).
+
+For most users, `--create-cluster` is the recommended approach.
 
 ---
 
 ## Current limitations
 
-Kubernetes support is focused on local development with kind. The following features are not yet available for Kubernetes installations:
+The following features are not yet available for Kubernetes installations:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -139,7 +168,7 @@ Kubernetes support is focused on local development with kind. The following feat
 | Backup create | Not supported | Use `kubectl exec` to run mysqldump manually |
 | Backup restore | Not supported | |
 | Backup scheduling | Not supported | Use a Kubernetes CronJob instead |
-| Remote clusters | Not tested | Manifests use `hostPath` volumes, which require a single-node cluster |
+| Remote/multi-node clusters | Not supported | Manifests use `hostPath` volumes |
 | Horizontal scaling | Limited | HPA is defined but not tested with the current volume setup |
 
 For production deployments, Docker Compose remains the recommended orchestrator.

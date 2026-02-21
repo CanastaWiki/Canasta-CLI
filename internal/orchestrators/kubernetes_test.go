@@ -529,7 +529,7 @@ func TestGenerateKustomizationNodePort(t *testing.T) {
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, true); err != nil {
-		t.Fatalf("generateKustomization(localCluster=true) error = %v", err)
+		t.Fatalf("generateKustomization(managedCluster=true) error = %v", err)
 	}
 
 	content, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
@@ -539,7 +539,7 @@ func TestGenerateKustomizationNodePort(t *testing.T) {
 	text := string(content)
 
 	if !strings.Contains(text, "type: NodePort") {
-		t.Error("NodePort patch should be present when localCluster=true")
+		t.Error("NodePort patch should be present when managedCluster=true")
 	}
 	if !strings.Contains(text, "nodePort: 30080") {
 		t.Error("NodePort 30080 should be configured")
@@ -551,7 +551,7 @@ func TestGenerateKustomizationNoNodePort(t *testing.T) {
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, false); err != nil {
-		t.Fatalf("generateKustomization(localCluster=false) error = %v", err)
+		t.Fatalf("generateKustomization(managedCluster=false) error = %v", err)
 	}
 
 	content, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
@@ -561,7 +561,7 @@ func TestGenerateKustomizationNoNodePort(t *testing.T) {
 	text := string(content)
 
 	if strings.Contains(text, "NodePort") {
-		t.Error("NodePort patch should not be present when localCluster=false")
+		t.Error("NodePort patch should not be present when managedCluster=false")
 	}
 }
 

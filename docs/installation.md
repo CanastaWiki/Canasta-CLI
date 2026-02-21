@@ -37,9 +37,9 @@ On Linux, you also need Docker access and file permission for your user account.
 sudo usermod -aG docker,www-data $USER
 ```
 
-### Kubernetes (local)
+### Kubernetes (managed cluster)
 
-To use Canasta with a local Kubernetes cluster (`canasta create -o k8s --local`), you also need:
+To use Canasta with a CLI-managed Kubernetes cluster (`canasta create -o k8s --create-cluster`), you also need:
 
 - **[kubectl](https://kubernetes.io/docs/tasks/tools/)** — the Kubernetes command-line tool
 - **[kind](https://kind.sigs.k8s.io/)** — runs Kubernetes clusters in Docker containers

@@ -80,10 +80,10 @@ func Delete(instance config.Installation) error {
 		return err
 	}
 
-	// For kind-managed installations, set kubectl context before any kubectl commands
+	// For CLI-managed clusters, set the flag so CheckDependencies skips cluster-info
 	if instance.KindCluster != "" {
 		if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
-			k8s.LocalCluster = true
+			k8s.ManagedCluster = true
 		}
 	}
 

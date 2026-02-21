@@ -42,7 +42,7 @@ canasta create -i myinstance -w wiki1 -a admin -n localhost
 - [Extensions and skins](guide/extensions-and-skins.md) - Enabling, disabling, and adding extensions and skins
 - [Observability](guide/observability.md) - Log aggregation with OpenSearch and Dashboards
 - [Development mode](guide/devmode.md) - Live code editing and Xdebug debugging
-- [Kubernetes (local)](guide/kubernetes.md) - Deploying to a local Kubernetes cluster with kind
+- [Kubernetes](guide/kubernetes.md) - Deploying to Kubernetes with a CLI-managed kind cluster
 - [Backup and restore](guide/backup.md) - Setting up backups with restic
 - [Best practices](guide/best-practices.md) - Security considerations and best practices
 - [Troubleshooting](guide/troubleshooting.md) - Common issues and debugging

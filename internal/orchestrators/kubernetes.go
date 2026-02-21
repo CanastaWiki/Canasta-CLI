@@ -27,16 +27,17 @@ const podLabelKey = "app"
 // KubernetesOrchestrator implements Orchestrator using kubectl.
 // Each Canasta installation maps to a Kubernetes namespace.
 type KubernetesOrchestrator struct {
-	// LocalCluster enables NodePort exposure instead of LoadBalancer,
-	// for use with local clusters (kind, k3d, minikube, etc.).
-	LocalCluster bool
+	// ManagedCluster indicates the CLI created and manages the Kubernetes
+	// cluster (currently via kind). Enables NodePort exposure and skips
+	// the cluster-info connectivity check during create.
+	ManagedCluster bool
 }
 
 func (k *KubernetesOrchestrator) CheckDependencies() error {
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		return fmt.Errorf("kubectl must be installed and in PATH")
 	}
-	if k.LocalCluster {
+	if k.ManagedCluster {
 		// For local clusters, also require kind. Skip cluster-info check
 		// because the cluster doesn't exist yet during create.
 		if _, err := exec.LookPath("kind"); err != nil {
@@ -337,20 +338,20 @@ func (k *KubernetesOrchestrator) InitConfig(installPath string) error {
 	if err := canasta.RewriteCaddy(installPath); err != nil {
 		return err
 	}
-	return k.generateKustomization(installPath, k.LocalCluster)
+	return k.generateKustomization(installPath, k.ManagedCluster)
 }
 
 func (k *KubernetesOrchestrator) UpdateConfig(installPath string) error {
 	if err := canasta.RewriteCaddy(installPath); err != nil {
 		return err
 	}
-	localCluster := false
+	managedCluster := false
 	if id, err := config.GetCanastaID(installPath); err == nil {
 		if inst, err := config.GetDetails(id); err == nil {
-			localCluster = inst.LocalCluster
+			managedCluster = inst.ManagedCluster
 		}
 	}
-	return k.generateKustomization(installPath, localCluster)
+	return k.generateKustomization(installPath, managedCluster)
 }
 
 // kustomization is the Go representation of kustomization.yaml.
@@ -385,7 +386,7 @@ type kustomizeImage struct {
 
 // generateKustomization programmatically generates kustomization.yaml by
 // scanning the installation directory for settings files and wikis.
-func (k *KubernetesOrchestrator) generateKustomization(installPath string, localCluster bool) error {
+func (k *KubernetesOrchestrator) generateKustomization(installPath string, managedCluster bool) error {
 	namespace := filepath.Base(installPath)
 
 	kust := kustomization{
@@ -469,8 +470,8 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, local
 		Envs: []string{".env"},
 	})
 
-	// 5. NodePort patch for local clusters
-	if localCluster {
+	// 5. NodePort patch for managed clusters
+	if managedCluster {
 		kust.Patches = append(kust.Patches, buildNodePortPatch())
 	}
 
