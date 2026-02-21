@@ -71,6 +71,11 @@ func Restart(instance config.Installation, enableDev, disableDev bool) error {
 	if err != nil {
 		return err
 	}
+	if instance.LocalCluster {
+		if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+			k8s.LocalCluster = true
+		}
+	}
 
 	// Migrate to the new version Canasta
 	if err = canasta.MigrateToNewVersion(instance.Path); err != nil {

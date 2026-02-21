@@ -21,6 +21,7 @@ type Installation struct {
 	DevMode      bool   `json:"devMode,omitempty"`
 	LocalCluster bool   `json:"localCluster,omitempty"`
 	Registry     string `json:"registry,omitempty"`
+	KindCluster  string `json:"kindCluster,omitempty"`
 }
 
 type Orchestrator struct {

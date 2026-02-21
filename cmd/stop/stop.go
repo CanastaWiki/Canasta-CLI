@@ -52,5 +52,10 @@ func Stop(instance config.Installation) error {
 	if err != nil {
 		return err
 	}
+	if instance.LocalCluster {
+		if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+			k8s.LocalCluster = true
+		}
+	}
 	return orch.Stop(instance)
 }
