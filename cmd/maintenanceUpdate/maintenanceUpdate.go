@@ -51,12 +51,12 @@ automatically.`,
 					return err
 				}
 				for _, id := range wikiIDs {
-					if err := runMaintenanceUpdate(instance, id); err != nil {
+					if err := RunMaintenanceUpdate(instance, id); err != nil {
 						return err
 					}
 				}
 			} else if wiki != "" {
-				if err := runMaintenanceUpdate(instance, wiki); err != nil {
+				if err := RunMaintenanceUpdate(instance, wiki); err != nil {
 					return err
 				}
 			} else {
@@ -65,7 +65,7 @@ automatically.`,
 					return err
 				}
 				if len(wikiIDs) == 1 {
-					if err := runMaintenanceUpdate(instance, wikiIDs[0]); err != nil {
+					if err := RunMaintenanceUpdate(instance, wikiIDs[0]); err != nil {
 						return err
 					}
 				} else {
@@ -91,7 +91,7 @@ func getWikiIDs(instance config.Installation) ([]string, error) {
 	return ids, nil
 }
 
-func runMaintenanceUpdate(instance config.Installation, wikiID string) error {
+func RunMaintenanceUpdate(instance config.Installation, wikiID string) error {
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
 		return err
