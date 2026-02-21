@@ -154,6 +154,9 @@ instead of running the installer, or enable development mode with Xdebug.`,
 					return fmt.Errorf("--create-cluster is only supported with Kubernetes orchestrator")
 				}
 			}
+			if err = orch.CheckDependencies(); err != nil {
+				return err
+			}
 			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, registry, createCluster, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
 				stopSpinner()
 				fmt.Print(err.Error(), "\n")
@@ -292,12 +295,9 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			return err
 		}
 	}
-	if err := orch.InitConfig(path); err != nil {
-		return err
-	}
 	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
 
-	// For local K8s clusters, create the kind cluster with port mappings
+	// For managed K8s clusters, create the kind cluster with port mappings
 	var kindClusterName string
 	if createCluster && isK8s {
 		httpPort, httpsPort := orchestrators.GetPortsFromEnv(path)
@@ -307,22 +307,31 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	if isK8s {
-		if localImageBuilt {
-			if kindClusterName != "" {
-				// Load image directly into kind (no registry needed)
-				logging.Print("Loading image into kind cluster...\n")
-				if err := orchestrators.LoadImageToKind(kindClusterName, baseImage); err != nil {
-					return fmt.Errorf("failed to load image into kind: %w", err)
-				}
-			} else {
-				// Push to a registry the cluster can access
-				logging.Print("Pushing image to registry for Kubernetes...\n")
-				if _, err := imagebuild.PushImage(baseImage, registry); err != nil {
-					return fmt.Errorf("failed to push image to registry: %w", err)
-				}
+	// Handle K8s image distribution before InitConfig so .env has the
+	// correct CANASTA_IMAGE when kustomization.yaml is generated.
+	if isK8s && localImageBuilt {
+		if kindClusterName != "" {
+			// Load image directly into kind (no registry needed)
+			logging.Print("Loading image into kind cluster...\n")
+			if err := orchestrators.LoadImageToKind(kindClusterName, baseImage); err != nil {
+				return fmt.Errorf("failed to load image into kind: %w", err)
+			}
+		} else {
+			// Push to a registry the cluster can access
+			logging.Print("Pushing image to registry for Kubernetes...\n")
+			remoteTag, err := imagebuild.PushImage(baseImage, registry)
+			if err != nil {
+				return fmt.Errorf("failed to push image to registry: %w", err)
+			}
+			// Update .env so kustomization.yaml references the registry image
+			if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", remoteTag); err != nil {
+				return err
 			}
 		}
+	}
+
+	if err := orch.InitConfig(path); err != nil {
+		return err
 	}
 	if override != "" {
 		compose, ok := orch.(*orchestrators.ComposeOrchestrator)
@@ -380,7 +389,11 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, ManagedCluster: createCluster, Registry: registry, KindCluster: kindClusterName}
+	reg := ""
+	if isK8s {
+		reg = registry
+	}
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, ManagedCluster: createCluster, Registry: reg, KindCluster: kindClusterName}
 	if err := config.Add(instance); err != nil {
 		return err
 	}
@@ -402,6 +415,13 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 func deleteConfigAndContainers(installationDir string, orch orchestrators.Orchestrator) {
 	fmt.Println("Removing containers")
 	_, _ = orch.Destroy(installationDir)
+	// Clean up any kind cluster created during this attempt.
+	// KindClusterName derives the name from the directory basename (the ID).
+	// DeleteKindCluster is a no-op if the cluster doesn't exist.
+	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+		clusterName := orchestrators.KindClusterName(filepath.Base(installationDir))
+		_ = orchestrators.DeleteKindCluster(clusterName)
+	}
 	fmt.Println("Deleting config files")
 	_, _ = orchestrators.DeleteConfig(installationDir)
 	fmt.Println("Deleted all containers and config files")
