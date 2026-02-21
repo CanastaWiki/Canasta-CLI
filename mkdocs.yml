@@ -57,6 +57,7 @@ nav:
     - Development mode: guide/devmode.md
     - Backup and restore: guide/backup.md
     - Best practices: guide/best-practices.md
+    - Observability: guide/observability.md
     - Troubleshooting: guide/troubleshooting.md
   - CLI Reference:
     - Overview: cli/canasta.md
