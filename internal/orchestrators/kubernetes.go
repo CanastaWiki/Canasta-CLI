@@ -317,8 +317,12 @@ type kustomization struct {
 	Namespace          string              `yaml:"namespace"`
 	Resources          []string            `yaml:"resources"`
 	ConfigMapGenerator []configMapEntry    `yaml:"configMapGenerator"`
+	Images             []kustomizeImage    `yaml:"images,omitempty"`
 	Patches            []kustomizePatch    `yaml:"patches,omitempty"`
 }
+
+// defaultCanastaImage is the image reference hardcoded in web.yaml.
+const defaultCanastaImage = "ghcr.io/canastawiki/canasta"
 
 type configMapEntry struct {
 	Name  string   `yaml:"name"`
@@ -328,6 +332,12 @@ type configMapEntry struct {
 
 type kustomizePatch struct {
 	Patch string `yaml:"patch"`
+}
+
+type kustomizeImage struct {
+	Name    string `yaml:"name"`
+	NewName string `yaml:"newName,omitempty"`
+	NewTag  string `yaml:"newTag,omitempty"`
 }
 
 // generateKustomization programmatically generates kustomization.yaml by
@@ -419,6 +429,25 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, local
 	// 5. NodePort patch for local clusters
 	if localCluster {
 		kust.Patches = append(kust.Patches, buildNodePortPatch())
+	}
+
+	// 6. Image override (for local builds pushed to a registry)
+	envPath := filepath.Join(installPath, ".env")
+	if envVars, err := canasta.GetEnvVariable(envPath); err == nil {
+		if canastaImage := envVars["CANASTA_IMAGE"]; canastaImage != "" {
+			// Parse "registry/repo:tag" into newName and newTag
+			newName := canastaImage
+			newTag := ""
+			if idx := strings.LastIndex(canastaImage, ":"); idx != -1 {
+				newName = canastaImage[:idx]
+				newTag = canastaImage[idx+1:]
+			}
+			img := kustomizeImage{Name: defaultCanastaImage, NewName: newName}
+			if newTag != "" {
+				img.NewTag = newTag
+			}
+			kust.Images = append(kust.Images, img)
+		}
 	}
 
 	// Marshal and write

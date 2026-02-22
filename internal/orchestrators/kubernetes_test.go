@@ -569,7 +569,7 @@ func TestRunBackupNotSupported(t *testing.T) {
 	k := &KubernetesOrchestrator{}
 	_, err := k.RunBackup("/tmp", "/tmp/.env", nil)
 	if err == nil {
-		t.Fatal("expected error from RunBackup")
+		t.Fatal("expected error from RunBackup without kustomization.yaml")
 	}
 	if !strings.Contains(err.Error(), "not yet supported") {
 		t.Errorf("RunBackup() error = %q, want 'not yet supported'", err.Error())
