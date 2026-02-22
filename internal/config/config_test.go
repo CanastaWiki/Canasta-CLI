@@ -196,6 +196,59 @@ func TestAddOrchestratorSupported(t *testing.T) {
 	}
 }
 
+func TestBuildFromRoundTrip(t *testing.T) {
+	dir := setupTestDir(t)
+
+	inst := Installation{
+		Id:           "bf1",
+		Path:         "/tmp/bf1",
+		Orchestrator: "compose",
+		BuildFrom:    "/home/user/workspace",
+	}
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	got, err := GetDetails("bf1")
+	if err != nil {
+		t.Fatalf("GetDetails() error = %v", err)
+	}
+	if got.BuildFrom != "/home/user/workspace" {
+		t.Errorf("expected BuildFrom '/home/user/workspace', got %q", got.BuildFrom)
+	}
+
+	// Verify the JSON file contains the buildFrom key
+	data, err := os.ReadFile(filepath.Join(dir, "conf.json"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(data), `"buildFrom"`) {
+		t.Error("expected conf.json to contain 'buildFrom' key")
+	}
+}
+
+func TestBuildFromOmittedWhenEmpty(t *testing.T) {
+	dir := setupTestDir(t)
+
+	inst := Installation{
+		Id:           "nobf1",
+		Path:         "/tmp/nobf1",
+		Orchestrator: "compose",
+	}
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	// Verify the JSON file does NOT contain buildFrom when empty
+	data, err := os.ReadFile(filepath.Join(dir, "conf.json"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if strings.Contains(string(data), `"buildFrom"`) {
+		t.Error("expected conf.json to omit 'buildFrom' when empty")
+	}
+}
+
 func TestConfFileCreated(t *testing.T) {
 	dir := setupTestDir(t)
 
