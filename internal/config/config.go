@@ -131,10 +131,33 @@ func ListAll() error {
 		return err
 	}
 
+	if len(existingInstallations.Installations) == 0 {
+		fmt.Println("No instances found.")
+		return nil
+	}
+
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(writer, "Canasta ID\tWiki ID\tServer Name\tServer Path\tInstallation Path\tOrchestrator")
 
 	for _, installation := range existingInstallations.Installations {
+		installPath := installation.Path
+		pathMissing := false
+		if _, err := os.Stat(installation.Path); os.IsNotExist(err) {
+			installPath = installation.Path + " [not found]"
+			pathMissing = true
+		}
+
+		if pathMissing {
+			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				installation.Id,
+				"N/A",
+				"N/A",
+				"N/A",
+				installPath,
+				installation.Orchestrator)
+			continue
+		}
+
 		if _, err := os.Stat(installation.Path + "/config/wikis.yaml"); os.IsNotExist(err) {
 			// File does not exist, print only installation info
 			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
@@ -142,7 +165,7 @@ func ListAll() error {
 				"N/A", // Placeholder
 				"N/A", // Placeholder
 				"N/A", // Placeholder
-				installation.Path,
+				installPath,
 				installation.Orchestrator)
 			continue
 		}
@@ -160,7 +183,7 @@ func ListAll() error {
 					ids[i],
 					serverNames[i],
 					paths[i],
-					installation.Path,
+					installPath,
 					installation.Orchestrator)
 			} else {
 				fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
@@ -168,7 +191,7 @@ func ListAll() error {
 					ids[i],
 					serverNames[i],
 					paths[i],
-					installation.Path,
+					installPath,
 					installation.Orchestrator)
 			}
 
