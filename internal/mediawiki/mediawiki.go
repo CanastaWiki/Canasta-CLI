@@ -123,6 +123,12 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 		time.Sleep(time.Second)
 	}
 
+	// Clean up the temporary install directory
+	rmCmd := fmt.Sprintf("rm -rf %s", confPath)
+	if _, err := orch.ExecWithError(path, "web", rmCmd); err != nil {
+		return canastaInfo, fmt.Errorf("failed to remove install temp directory: %w", err)
+	}
+
 	return canastaInfo, nil
 }
 
@@ -242,12 +248,10 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		}
 	}
 
-	// Always remove the newly generated LocalSettings.php from inside the
-	// container (install.php writes to confPath which is a container-only
-	// temp directory, not a host-mounted path)
-	rmCmd := fmt.Sprintf("rm -f %s%s", confPath, localSettingsFile)
+	// Clean up the temporary install directory
+	rmCmd := fmt.Sprintf("rm -rf %s", confPath)
 	if _, rmErr := orch.ExecWithError(installPath, "web", rmCmd); rmErr != nil {
-		return fmt.Errorf("failed to remove generated LocalSettings.php: %w", rmErr)
+		return fmt.Errorf("failed to remove install temp directory: %w", rmErr)
 	}
 
 	return nil
