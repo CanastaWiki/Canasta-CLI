@@ -61,6 +61,22 @@ spec:
             value: "mediawiki"
         ports:
         - containerPort: 3306
+        startupProbe:
+          exec:
+            command: ["mysqladmin", "ping", "-h", "localhost"]
+          failureThreshold: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command: ["mysqladmin", "ping", "-h", "localhost"]
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          exec:
+            command: ["mysqladmin", "ping", "-h", "localhost"]
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
         volumeMounts:
         - name: initdb-volume
           mountPath: /docker-entrypoint-initdb.d
