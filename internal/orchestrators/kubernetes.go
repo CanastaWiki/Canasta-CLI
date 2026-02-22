@@ -33,6 +33,10 @@ type KubernetesOrchestrator struct {
 	ManagedCluster bool
 }
 
+func (k *KubernetesOrchestrator) Name() string              { return "Kubernetes" }
+func (k *KubernetesOrchestrator) SupportsDevMode() bool     { return false }
+func (k *KubernetesOrchestrator) SupportsImagePull() bool   { return false }
+
 func (k *KubernetesOrchestrator) CheckDependencies() error {
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		return fmt.Errorf("kubectl must be installed and in PATH")

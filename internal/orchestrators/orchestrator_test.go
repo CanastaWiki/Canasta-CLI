@@ -90,6 +90,10 @@ func (m *mockOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool,
 	return false, nil
 }
 
+func (m *mockOrchestrator) Name() string              { return "Mock" }
+func (m *mockOrchestrator) SupportsDevMode() bool     { return true }
+func (m *mockOrchestrator) SupportsImagePull() bool   { return true }
+
 func TestNew(t *testing.T) {
 	tests := []struct {
 		name    string

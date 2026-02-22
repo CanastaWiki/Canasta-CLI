@@ -75,17 +75,9 @@ func Delete(instance config.Installation) error {
 	stopSpinner := spinner.New(description)
 	defer stopSpinner() // ensure cleanup on error paths
 
-	orch, err := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.NewFromInstance(instance)
 	if err != nil {
 		return err
-	}
-
-	// For CLI-managed clusters, set the flag so K8s-aware methods
-	// know this is a managed cluster (e.g., for dependency checks).
-	if instance.ManagedCluster {
-		if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
-			k8s.ManagedCluster = true
-		}
 	}
 
 	// Ensure containers are running so we can clean up images from inside

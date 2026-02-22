@@ -67,14 +67,9 @@ func Restart(instance config.Installation, enableDev, disableDev bool) error {
 		return fmt.Errorf("cannot specify both --dev and --no-dev")
 	}
 
-	orch, err := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.NewFromInstance(instance)
 	if err != nil {
 		return err
-	}
-	if instance.ManagedCluster {
-		if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
-			k8s.ManagedCluster = true
-		}
 	}
 
 	// Migrate to the new version Canasta
@@ -88,10 +83,8 @@ func Restart(instance config.Installation, enableDev, disableDev bool) error {
 	}
 
 	// Handle dev mode enable/disable
-	if (enableDev || disableDev) {
-		if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
-			return fmt.Errorf("Development mode is only supported with Docker Compose")
-		}
+	if (enableDev || disableDev) && !orch.SupportsDevMode() {
+		return fmt.Errorf("development mode is not supported with %s", orch.Name())
 	}
 	if enableDev {
 		// Enable dev mode using default registry image
