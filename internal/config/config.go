@@ -22,6 +22,7 @@ type Installation struct {
 	ManagedCluster bool   `json:"managedCluster,omitempty"`
 	Registry     string `json:"registry,omitempty"`
 	KindCluster  string `json:"kindCluster,omitempty"`
+	BuildFrom    string `json:"buildFrom,omitempty"`
 }
 
 type Orchestrator struct {

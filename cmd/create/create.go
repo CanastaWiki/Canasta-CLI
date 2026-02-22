@@ -392,7 +392,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if isK8s {
 		reg = registry
 	}
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, ManagedCluster: createCluster, Registry: reg, KindCluster: kindClusterName}
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, ManagedCluster: createCluster, Registry: reg, KindCluster: kindClusterName, BuildFrom: buildFromPath}
 	if err := config.Add(instance); err != nil {
 		return err
 	}

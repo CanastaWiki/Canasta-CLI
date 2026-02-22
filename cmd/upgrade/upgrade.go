@@ -26,7 +26,6 @@ var instance config.Installation
 var dryRun bool
 var upgradeAll bool
 var skipCLIUpdate bool
-var buildFrom string
 
 func NewCmdCreate() *cobra.Command {
 	workingDir, err := os.Getwd()
@@ -48,9 +47,10 @@ Use --skip-cli-update to skip the CLI update if needed.
 Use --dry-run to preview migrations without applying them, or --all to upgrade
 every registered installation.
 
-Use --build-from to rebuild the Canasta image from local source repositories.
-For Kubernetes installations created with a kind cluster or custom registry,
-the rebuilt image is automatically distributed using the stored configuration.`,
+Installations created with --build-from automatically rebuild the Canasta image
+from the stored source path during upgrade. For Kubernetes installations created
+with a kind cluster or custom registry, the rebuilt image is automatically
+distributed using the stored configuration.`,
 		Example: `  # Upgrade a single installation
   canasta upgrade -i myinstance
 
@@ -61,10 +61,7 @@ the rebuilt image is automatically distributed using the stored configuration.`,
   canasta upgrade --all
 
   # Upgrade without updating the CLI
-  canasta upgrade -i myinstance --skip-cli-update
-
-  # Rebuild from local source and upgrade
-  canasta upgrade -i myinstance --build-from /path/to/workspace`,
+  canasta upgrade -i myinstance --skip-cli-update`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if upgradeAll && instance.Id != "" {
 				return fmt.Errorf("cannot use --all with --id")
@@ -94,7 +91,6 @@ the rebuilt image is automatically distributed using the stored configuration.`,
 	upgradeCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would change without applying")
 	upgradeCmd.Flags().BoolVar(&upgradeAll, "all", false, "Upgrade all registered Canasta instances")
 	upgradeCmd.Flags().BoolVar(&skipCLIUpdate, "skip-cli-update", false, "Skip updating the CLI itself")
-	upgradeCmd.Flags().StringVar(&buildFrom, "build-from", "", "Rebuild Canasta image from local source directory (expects Canasta/, optionally CanastaBase/)")
 	return upgradeCmd
 }
 
@@ -167,21 +163,15 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		}
 	}
 
-	// Check if this is a locally-built image (created with --build-from)
+	// Update container images
 	var imagesUpdated bool
 	envPath := filepath.Join(instance.Path, ".env")
-	envVars, err := canasta.GetEnvVariable(envPath)
-	if err != nil {
-		return err
-	}
-	canastaImage := envVars["CANASTA_IMAGE"]
-	isLocalBuild := strings.HasPrefix(canastaImage, "canasta:local")
 
 	if !dryRun {
-		if buildFrom != "" {
-			// Rebuild Canasta image from local source
-			fmt.Println("Rebuilding Canasta image from local source...")
-			imageTag, err := imagebuild.BuildFromSource(buildFrom)
+		if instance.BuildFrom != "" {
+			// Rebuild Canasta image from stored source path
+			fmt.Printf("Rebuilding Canasta image from %s...\n", instance.BuildFrom)
+			imageTag, err := imagebuild.BuildFromSource(instance.BuildFrom)
 			if err != nil {
 				return fmt.Errorf("failed to build from source: %w", err)
 			}
@@ -217,9 +207,6 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 				return err
 			}
 			imagesUpdated = true
-		} else if isLocalBuild {
-			fmt.Println("Skipping image pull: this instance uses a locally-built image.")
-			fmt.Println("Use --build-from to rebuild from source.")
 		} else {
 			fmt.Println("Pulling Canasta container images...")
 			report, err := orch.Update(instance.Path)
@@ -274,9 +261,6 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 
 		fmt.Println()
 		fmt.Println("Canasta upgraded successfully!")
-	} else if isLocalBuild {
-		fmt.Println()
-		fmt.Println("This is a local development instance. To update, recreate the instance.")
 	} else {
 		fmt.Println()
 		fmt.Println("Installation is already up to date.")
