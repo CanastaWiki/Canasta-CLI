@@ -40,6 +40,15 @@ type Orchestrator interface {
 	// MigrateConfig applies orchestrator-specific migration steps during
 	// "canasta upgrade". Returns true if any changes were made.
 	MigrateConfig(installPath string, dryRun bool) (bool, error)
+
+	// Name returns a human-readable name for the orchestrator (e.g. "Docker Compose").
+	Name() string
+
+	// SupportsDevMode reports whether this orchestrator supports development mode (Xdebug).
+	SupportsDevMode() bool
+
+	// SupportsImagePull reports whether this orchestrator supports pulling container images.
+	SupportsImagePull() bool
 }
 
 // ImageInfo holds information about a Docker image

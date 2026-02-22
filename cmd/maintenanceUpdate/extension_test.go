@@ -76,6 +76,10 @@ func (m *extMockOrchestrator) UpdateConfig(installPath string) error {
 func (m *extMockOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool, error) {
 	return false, nil
 }
+
+func (m *extMockOrchestrator) Name() string              { return "Mock" }
+func (m *extMockOrchestrator) SupportsDevMode() bool     { return true }
+func (m *extMockOrchestrator) SupportsImagePull() bool   { return true }
 func (m *extMockOrchestrator) StopAndStart(inst config.Installation) error {
 	return nil
 }

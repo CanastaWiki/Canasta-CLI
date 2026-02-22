@@ -25,6 +25,10 @@ const (
 // ComposeOrchestrator implements Orchestrator using Docker Compose.
 type ComposeOrchestrator struct{}
 
+func (c *ComposeOrchestrator) Name() string              { return "Docker Compose" }
+func (c *ComposeOrchestrator) SupportsDevMode() bool     { return true }
+func (c *ComposeOrchestrator) SupportsImagePull() bool   { return true }
+
 // getCompose returns the configured compose orchestrator path.
 func (c *ComposeOrchestrator) getCompose() (config.Orchestrator, error) {
 	return config.GetOrchestrator("compose")

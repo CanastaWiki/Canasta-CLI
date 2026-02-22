@@ -48,14 +48,9 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 }
 
 func Stop(instance config.Installation) error {
-	orch, err := orchestrators.New(instance.Orchestrator)
+	orch, err := orchestrators.NewFromInstance(instance)
 	if err != nil {
 		return err
-	}
-	if instance.ManagedCluster {
-		if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
-			k8s.ManagedCluster = true
-		}
 	}
 	return orch.Stop(instance)
 }

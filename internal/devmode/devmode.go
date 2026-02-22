@@ -279,10 +279,10 @@ func SetupDevEnvironment(installPath, baseImage string) error {
 // BuildXdebugImage builds the xdebug-enabled image.
 // Dev mode requires Docker Compose for Build and GetDevFiles.
 func BuildXdebugImage(installPath string, orch orchestrators.Orchestrator) error {
-	compose, ok := orch.(*orchestrators.ComposeOrchestrator)
-	if !ok {
-		return fmt.Errorf("dev mode is only supported with Docker Compose")
+	if !orch.SupportsDevMode() {
+		return fmt.Errorf("development mode is not supported with %s", orch.Name())
 	}
+	compose := orch.(*orchestrators.ComposeOrchestrator)
 
 	logging.Print("Building xdebug-enabled image...\n")
 
