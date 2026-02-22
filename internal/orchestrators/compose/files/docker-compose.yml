@@ -20,6 +20,12 @@ services:
     environment:
       - MYSQL_ROOT_HOST=%
       - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
     volumes:
       - ./_initdb:/docker-entrypoint-initdb.d
       - mysql-data-volume:/var/lib/mysql
@@ -32,8 +38,10 @@ services:
     extra_hosts:
       - "gateway.docker.internal:host-gateway"
     depends_on:
-      - db
-      - elasticsearch
+      db:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
     environment:
       # Sourced from .env
       - MW_SITE_SERVER=${MW_SITE_SERVER:-https://localhost}
@@ -61,6 +69,12 @@ services:
       memlock:
         soft: -1
         hard: -1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     volumes:
       - elasticsearch:/usr/share/elasticsearch/data
 

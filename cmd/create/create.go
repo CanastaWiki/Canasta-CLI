@@ -365,9 +365,8 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		logging.Print("Importing database instead of running install.php\n")
 
 		// Wait for database to be ready
-		command := "/wait-for-it.sh -t 60 db:3306"
-		if _, err := orch.ExecWithError(path, "web", command); err != nil {
-			return fmt.Errorf("database not ready: %w", err)
+		if err := mediawiki.WaitForDB(path, orch); err != nil {
+			return err
 		}
 
 		envVariables, envErr := canasta.GetEnvVariable(path + "/.env")

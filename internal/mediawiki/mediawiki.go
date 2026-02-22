@@ -25,15 +25,24 @@ const (
 	commonSettingsBackup = "CommonSettingsBackup.php"
 )
 
+// WaitForDB waits for the database to be reachable inside the web container.
+// The orchestrator's health checks handle the real wait; this is a short
+// safety-net check that runs after the container is already started.
+func WaitForDB(path string, orch orchestrators.Orchestrator) error {
+	output, err := orch.ExecWithError(path, "web", "/wait-for-it.sh -t 10 db:3306")
+	if err != nil {
+		return fmt.Errorf("database not ready: %s", output)
+	}
+	return nil
+}
+
 func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
 
-	command := "/wait-for-it.sh -t 60 db:3306"
-	output, err := orch.ExecWithError(path, "web", command)
-	if err != nil {
-		return canastaInfo, fmt.Errorf("%s", output)
+	if err := WaitForDB(path, orch); err != nil {
+		return canastaInfo, err
 	}
 
 	WikiIDs, domainNames, _, err := farmsettings.ReadWikisYaml(yamlPath)
@@ -52,10 +61,10 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 		domainName := domainNames[i]
 
 		// Unset MW_SECRET_KEY so CanastaDefaultSettings.php doesn't think wiki is already configured
-		command := fmt.Sprintf("env -u MW_SECRET_KEY php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
+		installCmd := fmt.Sprintf("env -u MW_SECRET_KEY php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
 			dbServer, wikiID, confPath, scriptPath, domainName, "root", canastaInfo.RootDBPassword, canastaInfo.WikiDBUsername, canastaInfo.WikiDBPassword, canastaInfo.AdminPassword, wikiID, canastaInfo.AdminName)
 
-		output, err = orch.ExecWithError(path, "web", command)
+		output, err := orch.ExecWithError(path, "web", installCmd)
 		if err != nil {
 			return canastaInfo, fmt.Errorf("%s", output)
 		}
@@ -126,10 +135,8 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		return err
 	}
 
-	command := "/wait-for-it.sh -t 60 db:3306"
-	output, err := orch.ExecWithError(installPath, "web", command)
-	if err != nil {
-		return fmt.Errorf("%s", output)
+	if err := WaitForDB(installPath, orch); err != nil {
+		return err
 	}
 
 	// Create writable temp directory for install.php output (needed because
@@ -204,9 +211,9 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	} else {
 		installCmd = "php maintenance/install.php"
 	}
-	command = fmt.Sprintf("%s --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
+	command := fmt.Sprintf("%s --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
 		installCmd, dbServer, id, confPath, scriptPath, domain, installdbuser, installdbpass, dbuser, dbpass, adminPassword, id, admin)
-	output, err = orch.ExecWithError(installPath, "web", command)
+	output, err := orch.ExecWithError(installPath, "web", command)
 	if err != nil {
 		return fmt.Errorf("%s", output)
 	}

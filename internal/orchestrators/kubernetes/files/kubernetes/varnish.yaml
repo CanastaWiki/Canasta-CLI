@@ -37,6 +37,15 @@ spec:
             cpu: "200m"
         ports:
         - containerPort: 80
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 30
         volumeMounts:
           - name: default-vcl-config
             mountPath: /etc/varnish/default.vcl
