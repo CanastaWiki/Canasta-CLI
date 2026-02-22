@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	maintenance "github.com/CanastaWiki/Canasta-CLI/cmd/maintenanceUpdate"
+	"github.com/CanastaWiki/Canasta-CLI/cmd/maintenanceUpdate"
 	"github.com/CanastaWiki/Canasta-CLI/internal/extensionsskins"
 	"github.com/spf13/cobra"
 )
@@ -28,7 +28,6 @@ extension for a specific wiki only.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			extensions := strings.Split(args[0], ",")
-			mainatenanceUpdateRequired := false
 			for _, extension := range extensions {
 				extensionName, err := extensionsskins.CheckInstalled(extension, instance, orch, constants)
 				if err != nil {
@@ -38,15 +37,9 @@ extension for a specific wiki only.`,
 				if err := extensionsskins.Enable(extensionName, wiki, instance, orch, constants); err != nil {
 					return err
 				}
-				if extensionName == "SemanticMediaWiki" {
-					mainatenanceUpdateRequired = true
-				}
 			}
-			if mainatenanceUpdateRequired {
-				// Run maintenance update
-				if err := maintenance.RunMaintenanceUpdate(instance, wiki); err != nil {
-					return fmt.Errorf("maintenance update failed after enabling extension(s): %v", err)
-				}
+			if err := maintenanceUpdate.RunMaintenanceUpdate(instance, wiki); err != nil {
+				return fmt.Errorf("maintenance update failed after enabling extension(s): %v", err)
 			}
 			return nil
 		},
