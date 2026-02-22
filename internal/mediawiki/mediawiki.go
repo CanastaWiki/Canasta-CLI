@@ -132,6 +132,12 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		return fmt.Errorf("%s", output)
 	}
 
+	// Create writable temp directory for install.php output (needed because
+	// /mediawiki/config/ may be a read-only ConfigMap mount in Kubernetes)
+	if _, err := orch.ExecWithError(installPath, "web", "mkdir -p "+confPath); err != nil {
+		return fmt.Errorf("failed to create install temp directory: %w", err)
+	}
+
 	localExists, _ := fileExists(filepath.Join(installPath, "config", localSettingsFile))
 	commonExists, _ := fileExists(filepath.Join(installPath, "config", commonSettingsFile))
 	wikisYamlExists, _ := fileExists(filepath.Join(installPath, "config", "wikis.yaml"))
@@ -229,13 +235,15 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		}
 	}
 
-	// Always remove the newly generated LocalSettings.php (not needed in farm)
-	err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", localSettingsFile))
-	if err != nil {
-		return err
+	// Always remove the newly generated LocalSettings.php from inside the
+	// container (install.php writes to confPath which is a container-only
+	// temp directory, not a host-mounted path)
+	rmCmd := fmt.Sprintf("rm -f %s%s", confPath, localSettingsFile)
+	if _, rmErr := orch.ExecWithError(installPath, "web", rmCmd); rmErr != nil {
+		return fmt.Errorf("failed to remove generated LocalSettings.php: %w", rmErr)
 	}
 
-	return err
+	return nil
 }
 
 func RemoveDatabase(installPath, id string, orch orchestrators.Orchestrator) error {

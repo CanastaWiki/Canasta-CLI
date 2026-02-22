@@ -7,11 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
-	"text/template"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators/kubernetes"
 	yaml "gopkg.in/yaml.v2"
@@ -25,7 +26,11 @@ const podLabelKey = "app"
 
 // KubernetesOrchestrator implements Orchestrator using kubectl.
 // Each Canasta installation maps to a Kubernetes namespace.
-type KubernetesOrchestrator struct{}
+type KubernetesOrchestrator struct {
+	// LocalCluster enables NodePort exposure instead of LoadBalancer,
+	// for use with local clusters (kind, k3d, minikube, etc.).
+	LocalCluster bool
+}
 
 func (k *KubernetesOrchestrator) CheckDependencies() error {
 	if _, err := exec.LookPath("kubectl"); err != nil {
@@ -280,33 +285,244 @@ func (k *KubernetesOrchestrator) RestoreFromBackupVolume(installPath string, dir
 }
 
 func (k *KubernetesOrchestrator) InitConfig(installPath string) error {
-	tmplData, err := kubernetes.StackFiles.ReadFile("files/kustomization.yaml.tmpl")
-	if err != nil {
-		return fmt.Errorf("failed to read embedded kustomization template: %w", err)
-	}
-	tmpl, err := template.New("kustomization").Parse(string(tmplData))
-	if err != nil {
-		return fmt.Errorf("failed to parse kustomization template: %w", err)
-	}
-	namespace := filepath.Base(installPath)
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, struct{ Namespace string }{namespace}); err != nil {
-		return fmt.Errorf("failed to execute kustomization template: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(installPath, "kustomization.yaml"), buf.Bytes(), 0644); err != nil {
-		return err
-	}
 	if err := canasta.CreateCaddyfileSite(installPath); err != nil {
 		return err
 	}
 	if err := canasta.CreateCaddyfileGlobal(installPath); err != nil {
 		return err
 	}
-	return canasta.RewriteCaddy(installPath)
+	if err := canasta.RewriteCaddy(installPath); err != nil {
+		return err
+	}
+	return k.generateKustomization(installPath, k.LocalCluster)
 }
 
 func (k *KubernetesOrchestrator) UpdateConfig(installPath string) error {
-	return nil // K8s config is managed via kustomization overlays
+	if err := canasta.RewriteCaddy(installPath); err != nil {
+		return err
+	}
+	localCluster := false
+	if id, err := config.GetCanastaID(installPath); err == nil {
+		if inst, err := config.GetDetails(id); err == nil {
+			localCluster = inst.LocalCluster
+		}
+	}
+	return k.generateKustomization(installPath, localCluster)
+}
+
+// kustomization is the Go representation of kustomization.yaml.
+type kustomization struct {
+	APIVersion         string              `yaml:"apiVersion"`
+	Kind               string              `yaml:"kind"`
+	Namespace          string              `yaml:"namespace"`
+	Resources          []string            `yaml:"resources"`
+	ConfigMapGenerator []configMapEntry    `yaml:"configMapGenerator"`
+	Patches            []kustomizePatch    `yaml:"patches,omitempty"`
+}
+
+type configMapEntry struct {
+	Name  string   `yaml:"name"`
+	Files []string `yaml:"files,omitempty"`
+	Envs  []string `yaml:"envs,omitempty"`
+}
+
+type kustomizePatch struct {
+	Patch string `yaml:"patch"`
+}
+
+// generateKustomization programmatically generates kustomization.yaml by
+// scanning the installation directory for settings files and wikis.
+func (k *KubernetesOrchestrator) generateKustomization(installPath string, localCluster bool) error {
+	namespace := filepath.Base(installPath)
+
+	kust := kustomization{
+		APIVersion: "kustomize.config.k8s.io/v1beta1",
+		Kind:       "Kustomization",
+		Namespace:  namespace,
+		Resources: []string{
+			"kubernetes/namespace.yaml",
+			"kubernetes/caddy.yaml",
+			"kubernetes/db.yaml",
+			"kubernetes/elasticsearch.yaml",
+			"kubernetes/varnish.yaml",
+			"kubernetes/web.yaml",
+		},
+	}
+
+	// 1. Global settings ConfigMap
+	globalFiles, err := scanSettingsDir(installPath, "config/settings/global")
+	if err != nil {
+		return fmt.Errorf("failed to scan global settings: %w", err)
+	}
+	kust.ConfigMapGenerator = append(kust.ConfigMapGenerator, configMapEntry{
+		Name:  "canasta-settings-global",
+		Files: globalFiles,
+	})
+
+	// 2. Per-wiki settings ConfigMaps + patches
+	wikisYamlPath := filepath.Join(installPath, "config", "wikis.yaml")
+	wikiIDs, _, _, err := farmsettings.ReadWikisYaml(wikisYamlPath)
+	if err != nil {
+		return fmt.Errorf("failed to read wikis.yaml: %w", err)
+	}
+	for _, wikiID := range wikiIDs {
+		normalizedID := canasta.NormalizeWikiID(wikiID)
+		relDir := filepath.Join("config", "settings", "wikis", normalizedID)
+		absDir := filepath.Join(installPath, relDir)
+
+		// Skip if the wiki settings directory doesn't exist
+		if _, err := os.Stat(absDir); os.IsNotExist(err) {
+			continue
+		}
+
+		wikiFiles, err := scanSettingsDir(installPath, relDir)
+		if err != nil {
+			return fmt.Errorf("failed to scan settings for wiki %q: %w", wikiID, err)
+		}
+		if len(wikiFiles) == 0 {
+			continue
+		}
+
+		configMapName := "canasta-settings-wiki-" + normalizedID
+		kust.ConfigMapGenerator = append(kust.ConfigMapGenerator, configMapEntry{
+			Name:  configMapName,
+			Files: wikiFiles,
+		})
+		kust.Patches = append(kust.Patches, buildWikiSettingsPatch(normalizedID, configMapName))
+	}
+
+	// 3. Static config files ConfigMap
+	configFiles := []string{
+		"config/wikis.yaml",
+		"config/Caddyfile",
+		"config/Caddyfile.site",
+		"config/Caddyfile.global",
+		"config/default.vcl",
+		"my.cnf",
+	}
+	// Conditionally include LocalSettings.php
+	if _, err := os.Stat(filepath.Join(installPath, "config", "LocalSettings.php")); err == nil {
+		configFiles = append(configFiles, "config/LocalSettings.php")
+		kust.Patches = append(kust.Patches, buildLocalSettingsPatch())
+	}
+	kust.ConfigMapGenerator = append(kust.ConfigMapGenerator, configMapEntry{
+		Name:  "canasta-config",
+		Files: configFiles,
+	})
+
+	// 4. Environment ConfigMap
+	kust.ConfigMapGenerator = append(kust.ConfigMapGenerator, configMapEntry{
+		Name: "canasta-env",
+		Envs: []string{".env"},
+	})
+
+	// 5. NodePort patch for local clusters
+	if localCluster {
+		kust.Patches = append(kust.Patches, buildNodePortPatch())
+	}
+
+	// Marshal and write
+	data, err := yaml.Marshal(&kust)
+	if err != nil {
+		return fmt.Errorf("failed to marshal kustomization: %w", err)
+	}
+
+	content := "# Auto-generated by Canasta CLI — do not edit manually\n" + string(data)
+	return os.WriteFile(filepath.Join(installPath, "kustomization.yaml"), []byte(content), 0644)
+}
+
+// scanSettingsDir scans a directory relative to installPath and returns
+// kustomize configMapGenerator file entries in key=path format.
+// Skips README, .gitkeep, and .gitignore files.
+func scanSettingsDir(installPath, relDir string) ([]string, error) {
+	absDir := filepath.Join(installPath, relDir)
+	entries, err := os.ReadDir(absDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var files []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name == "README" || name == ".gitkeep" || name == ".gitignore" {
+			continue
+		}
+		// key=path format: the key becomes the filename inside the ConfigMap
+		files = append(files, name+"="+filepath.Join(relDir, name))
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+// buildWikiSettingsPatch returns a strategic merge patch that adds a volume
+// and volumeMount for a per-wiki settings ConfigMap.
+func buildWikiSettingsPatch(normalizedID, configMapName string) kustomizePatch {
+	patch := fmt.Sprintf(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  template:
+    spec:
+      containers:
+      - name: web
+        volumeMounts:
+        - mountPath: /mediawiki/config/settings/wikis/%s
+          name: %s
+      volumes:
+      - name: %s
+        configMap:
+          name: %s
+`, normalizedID, configMapName, configMapName, configMapName)
+	return kustomizePatch{Patch: patch}
+}
+
+// buildLocalSettingsPatch returns a strategic merge patch that adds a
+// subPath volumeMount for config/LocalSettings.php.
+func buildLocalSettingsPatch() kustomizePatch {
+	patch := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  template:
+    spec:
+      containers:
+      - name: web
+        volumeMounts:
+        - mountPath: /mediawiki/config/LocalSettings.php
+          name: canasta-config
+          subPath: LocalSettings.php
+`
+	return kustomizePatch{Patch: patch}
+}
+
+// buildNodePortPatch returns a strategic merge patch that changes the caddy
+// service to NodePort for local cluster access.
+func buildNodePortPatch() kustomizePatch {
+	patch := `apiVersion: v1
+kind: Service
+metadata:
+  name: caddy-lb
+spec:
+  type: NodePort
+  ports:
+  - name: http-caddy
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+  - name: https-caddy
+    port: 443
+    targetPort: 443
+    nodePort: 30443
+`
+	return kustomizePatch{Patch: patch}
 }
 
 func (k *KubernetesOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool, error) {
