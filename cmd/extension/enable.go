@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/CanastaWiki/Canasta-CLI/cmd/maintenanceUpdate"
+	maintenance "github.com/CanastaWiki/Canasta-CLI/cmd/maintenanceUpdate"
 	"github.com/CanastaWiki/Canasta-CLI/internal/extensionsskins"
 	"github.com/spf13/cobra"
 )
@@ -38,7 +38,7 @@ extension for a specific wiki only.`,
 					return err
 				}
 			}
-			if err := maintenanceUpdate.RunMaintenanceUpdate(instance, wiki); err != nil {
+			if err := maintenance.RunMaintenanceUpdate(instance, wiki); err != nil {
 				return fmt.Errorf("maintenance update failed after enabling extension(s): %v", err)
 			}
 			return nil
