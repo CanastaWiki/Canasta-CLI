@@ -80,6 +80,13 @@ func Delete(instance config.Installation) error {
 		return err
 	}
 
+	// For kind-managed installations, set kubectl context before any kubectl commands
+	if instance.KindCluster != "" {
+		if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+			k8s.LocalCluster = true
+		}
+	}
+
 	// Ensure containers are running so we can clean up images from inside
 	// (needed on Linux where container-created files are owned by www-data)
 	ensureErr := orch.CheckRunningStatus(instance)
