@@ -105,6 +105,9 @@ spec:
           subPath: my.cnf
         - mountPath: /mediawiki/config/settings/global
           name: canasta-settings-global
+        - mountPath: /mediawiki/config/persistent
+          name: config-volume
+          subPath: persistent
         - mountPath: /mediawiki/images
           name: config-volume
           subPath: images
