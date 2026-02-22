@@ -170,9 +170,9 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	k8s, isK8s := orch.(*orchestrators.KubernetesOrchestrator)
 	if !dryRun {
 		if isK8s {
-			// Restore LocalCluster flag so kustomization.yaml includes
-			// the NodePort patch when the installation was created with --local
-			k8s.LocalCluster = instance.LocalCluster
+			// Restore ManagedCluster flag so kustomization.yaml includes
+			// the NodePort patch when the installation was created with --create-cluster
+			k8s.ManagedCluster = instance.ManagedCluster
 			fmt.Println("Regenerating kustomization.yaml and re-applying manifests...")
 			if err := orch.InitConfig(instance.Path); err != nil {
 				return err

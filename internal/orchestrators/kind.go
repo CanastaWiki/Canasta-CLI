@@ -9,6 +9,7 @@ import (
 	"text/template"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators/kubernetes"
 )
@@ -135,6 +136,24 @@ func EnsureKindCluster(clusterName string, httpPort, httpsPort int) (bool, error
 		return false, err
 	}
 	return true, nil
+}
+
+// ensureKindContext looks up the kind cluster name for the installation at
+// installPath and sets the kubectl context if it's a kind-managed cluster.
+// This is a no-op for non-kind installations or if the lookup fails.
+func ensureKindContext(installPath string) error {
+	id, err := config.GetCanastaID(installPath)
+	if err != nil {
+		return nil
+	}
+	inst, err := config.GetDetails(id)
+	if err != nil {
+		return nil
+	}
+	if inst.KindCluster != "" {
+		return setKindKubectlContext(inst.KindCluster)
+	}
+	return nil
 }
 
 // setKindKubectlContext switches the kubectl context to the given kind cluster.

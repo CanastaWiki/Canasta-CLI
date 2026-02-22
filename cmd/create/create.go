@@ -43,7 +43,7 @@ func NewCmdCreate() *cobra.Command {
 		globalSettingsPath string // path to existing global settings file
 		composerFile       string // path to custom composer.local.json
 		registry           string // container registry for K8s image push
-		localCluster       bool   // use NodePort for local K8s clusters
+		createCluster      bool   // create and manage a K8s cluster
 	)
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -147,14 +147,17 @@ instead of running the installer, or enable development mode with Xdebug.`,
 			if err != nil {
 				return err
 			}
-			if localCluster {
+			if createCluster {
 				if k8s, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
-					k8s.LocalCluster = true
+					k8s.ManagedCluster = true
 				} else {
-					return fmt.Errorf("--local is only supported with Kubernetes orchestrator")
+					return fmt.Errorf("--create-cluster is only supported with Kubernetes orchestrator")
 				}
 			}
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, registry, localCluster, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
+			if err = orch.CheckDependencies(); err != nil {
+				return err
+			}
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, registry, createCluster, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
 				stopSpinner()
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
@@ -201,7 +204,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
 	createCmd.Flags().StringVar(&composerFile, "composer", "", "Path to custom composer.local.json to copy to config/")
 	createCmd.Flags().StringVar(&registry, "registry", "localhost:5000", "Container registry for pushing locally built images (used with --build-from on Kubernetes)")
-	createCmd.Flags().BoolVar(&localCluster, "local", false, "Use NodePort instead of LoadBalancer for local Kubernetes clusters (kind, k3d, minikube)")
+	createCmd.Flags().BoolVar(&createCluster, "create-cluster", false, "Create and manage a local Kubernetes cluster for this installation")
 
 	// Mark required flags
 	_ = createCmd.MarkFlagRequired("id")
@@ -210,7 +213,7 @@ instead of running the installer, or enable development mode with Xdebug.`,
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, registry string, localCluster bool, databasePath, wikiSettingsPath, globalSettingsPath string) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, registry string, createCluster bool, databasePath, wikiSettingsPath, globalSettingsPath string) error {
 	// Determine the base image to use
 	var baseImage string
 	var localImageBuilt bool
@@ -292,14 +295,11 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			return err
 		}
 	}
-	if err := orch.InitConfig(path); err != nil {
-		return err
-	}
 	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
 
-	// For local K8s clusters, create the kind cluster with port mappings
+	// For managed K8s clusters, create the kind cluster with port mappings
 	var kindClusterName string
-	if localCluster && isK8s {
+	if createCluster && isK8s {
 		httpPort, httpsPort := orchestrators.GetPortsFromEnv(path)
 		kindClusterName = orchestrators.KindClusterName(canastaInfo.Id)
 		if err := orchestrators.CreateKindCluster(kindClusterName, httpPort, httpsPort); err != nil {
@@ -307,22 +307,31 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	if isK8s {
-		if localImageBuilt {
-			if kindClusterName != "" {
-				// Load image directly into kind (no registry needed)
-				logging.Print("Loading image into kind cluster...\n")
-				if err := orchestrators.LoadImageToKind(kindClusterName, baseImage); err != nil {
-					return fmt.Errorf("failed to load image into kind: %w", err)
-				}
-			} else {
-				// Push to a registry the cluster can access
-				logging.Print("Pushing image to registry for Kubernetes...\n")
-				if _, err := imagebuild.PushImage(baseImage, registry); err != nil {
-					return fmt.Errorf("failed to push image to registry: %w", err)
-				}
+	// Handle K8s image distribution before InitConfig so .env has the
+	// correct CANASTA_IMAGE when kustomization.yaml is generated.
+	if isK8s && localImageBuilt {
+		if kindClusterName != "" {
+			// Load image directly into kind (no registry needed)
+			logging.Print("Loading image into kind cluster...\n")
+			if err := orchestrators.LoadImageToKind(kindClusterName, baseImage); err != nil {
+				return fmt.Errorf("failed to load image into kind: %w", err)
+			}
+		} else {
+			// Push to a registry the cluster can access
+			logging.Print("Pushing image to registry for Kubernetes...\n")
+			remoteTag, err := imagebuild.PushImage(baseImage, registry)
+			if err != nil {
+				return fmt.Errorf("failed to push image to registry: %w", err)
+			}
+			// Update .env so kustomization.yaml references the registry image
+			if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", remoteTag); err != nil {
+				return err
 			}
 		}
+	}
+
+	if err := orch.InitConfig(path); err != nil {
+		return err
 	}
 	if override != "" {
 		compose, ok := orch.(*orchestrators.ComposeOrchestrator)
@@ -380,7 +389,11 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, LocalCluster: localCluster, Registry: registry, KindCluster: kindClusterName}
+	reg := ""
+	if isK8s {
+		reg = registry
+	}
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, ManagedCluster: createCluster, Registry: reg, KindCluster: kindClusterName}
 	if err := config.Add(instance); err != nil {
 		return err
 	}
@@ -402,6 +415,13 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 func deleteConfigAndContainers(installationDir string, orch orchestrators.Orchestrator) {
 	fmt.Println("Removing containers")
 	_, _ = orch.Destroy(installationDir)
+	// Clean up any kind cluster created during this attempt.
+	// KindClusterName derives the name from the directory basename (the ID).
+	// DeleteKindCluster is a no-op if the cluster doesn't exist.
+	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
+		clusterName := orchestrators.KindClusterName(filepath.Base(installationDir))
+		_ = orchestrators.DeleteKindCluster(clusterName)
+	}
 	fmt.Println("Deleting config files")
 	_, _ = orchestrators.DeleteConfig(installationDir)
 	fmt.Println("Deleted all containers and config files")
