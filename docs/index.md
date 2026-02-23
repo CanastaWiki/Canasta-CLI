@@ -48,5 +48,6 @@ canasta create -i myinstance -w wiki1 -a admin -n localhost
 - [Kubernetes](guide/kubernetes.md) - Deploying to Kubernetes with a CLI-managed kind cluster
 - [Backup and restore](guide/backup.md) - Setting up backups with restic
 - [Upgrading](guide/upgrading.md) - Upgrade process, version notes, and legacy migration
+- [Sitemaps](guide/sitemaps.md) - XML sitemap generation for search engine indexing
 - [Best practices](guide/best-practices.md) - Security considerations and best practices
 - [Troubleshooting](guide/troubleshooting.md) - Common issues and debugging

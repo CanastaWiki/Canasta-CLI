@@ -87,20 +87,20 @@ The `-d` flag imports the SQL dump during installation. The `admin` account will
 
 ### 3. Copy your settings files
 
-Copy your existing PHP settings files (e.g., `LocalSettings.php` customizations) into the new installation's settings directory:
+Copy your existing PHP settings files (e.g., `LocalSettings.php` customizations) into the new installation's global settings directory:
 
 ```bash
-cp MySettings.php /path/to/myinstance/config/settings/
+cp MySettings.php /path/to/myinstance/config/settings/global/
 ```
 
 If you are running a wiki farm, place per-wiki settings in `config/settings/wikis/<wikiid>/`.
 
 ### 4. Copy uploaded images
 
-Copy your uploaded files into the installation's `images/` directory:
+Copy your uploaded files into the installation's `images/<wiki-id>/` directory:
 
 ```bash
-cp -r /old/wiki/images/* /path/to/myinstance/images/
+cp -r /old/wiki/images/* /path/to/myinstance/images/<wiki-id>/
 ```
 
 ### 5. Copy Caddyfile customizations

@@ -57,6 +57,7 @@ nav:
     - Development mode: guide/devmode.md
     - Backup and restore: guide/backup.md
     - Upgrading: guide/upgrading.md
+    - Sitemaps: guide/sitemaps.md
     - Kubernetes: guide/kubernetes.md
     - Best practices: guide/best-practices.md
     - Observability: guide/observability.md

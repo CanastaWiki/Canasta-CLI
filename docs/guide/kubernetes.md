@@ -24,12 +24,10 @@ Canasta CLI can deploy to Kubernetes in two ways:
 
 In addition to Docker (required for kind), you need:
 
-| Tool | Purpose | Install |
-|------|---------|---------|
-| [kubectl](https://kubernetes.io/docs/tasks/tools/) | Kubernetes CLI | `brew install kubectl` or [see docs](https://kubernetes.io/docs/tasks/tools/) |
-| [kind](https://kind.sigs.k8s.io/) | Local K8s clusters | `brew install kind` or [see docs](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) |
-
-On Linux, install kubectl and kind using your package manager or by downloading the binaries directly from the links above.
+| Tool | Purpose | Install (macOS) | Install (Linux) |
+|------|---------|-----------------|-----------------|
+| [kubectl](https://kubernetes.io/docs/tasks/tools/) | Kubernetes CLI | `brew install kubectl` | [See docs](https://kubernetes.io/docs/tasks/tools/) |
+| [kind](https://kind.sigs.k8s.io/) | Local K8s clusters | `brew install kind` | [See docs](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) |
 
 The CLI checks for these tools at creation time and will report a clear error if either is missing.
 
