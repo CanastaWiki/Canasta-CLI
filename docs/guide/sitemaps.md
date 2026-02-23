@@ -93,7 +93,7 @@ myinstance/
         sitemap-index-mywiki.xml
 ```
 
-The files are compressed (`.xml.gz`) for efficiency, with an index file that lists all the individual sitemap files.
+The file(s) are compressed (`.xml.gz`) for efficiency, with an index file that lists all the individual sitemap files.
 
 ---
 
