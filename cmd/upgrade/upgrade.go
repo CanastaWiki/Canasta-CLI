@@ -17,6 +17,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/imagebuild"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/CanastaWiki/Canasta-CLI/internal/selfupdate"
 )
@@ -44,7 +45,12 @@ The CLI itself is also updated to the latest version before upgrading instances.
 Use --skip-cli-update to skip the CLI update if needed.
 
 Use --dry-run to preview migrations without applying them, or --all to upgrade
-every registered installation.`,
+every registered installation.
+
+Installations created with --build-from automatically rebuild the Canasta image
+from the stored source path during upgrade. For Kubernetes installations created
+with a kind cluster or custom registry, the rebuilt image is automatically
+distributed using the stored configuration.`,
 		Example: `  # Upgrade a single installation
   canasta upgrade -i myinstance
 
@@ -157,25 +163,50 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		}
 	}
 
-	// Check if this is a locally-built image (created with --build-from)
+	// Update container images
 	var imagesUpdated bool
 	envPath := filepath.Join(instance.Path, ".env")
-	envVars, err := canasta.GetEnvVariable(envPath)
-	if err != nil {
-		return err
-	}
-	canastaImage := envVars["CANASTA_IMAGE"]
-	isLocalBuild := strings.HasPrefix(canastaImage, "canasta:local")
 
 	if !dryRun {
-		if !orch.SupportsImagePull() {
+		if instance.BuildFrom != "" {
+			// Rebuild Canasta image from stored source path
+			fmt.Printf("Rebuilding Canasta image from %s...\n", instance.BuildFrom)
+			imageTag, err := imagebuild.BuildFromSource(instance.BuildFrom)
+			if err != nil {
+				return fmt.Errorf("failed to build from source: %w", err)
+			}
+
+			// Distribute the rebuilt image based on stored config
+			if instance.KindCluster != "" {
+				fmt.Println("Loading rebuilt image into kind cluster...")
+				if err := orchestrators.LoadImageToKind(instance.KindCluster, imageTag); err != nil {
+					return fmt.Errorf("failed to load image into kind: %w", err)
+				}
+			} else if instance.Registry != "" {
+				fmt.Println("Pushing rebuilt image to registry...")
+				remoteTag, err := imagebuild.PushImage(imageTag, instance.Registry)
+				if err != nil {
+					return fmt.Errorf("failed to push image to registry: %w", err)
+				}
+				if err := canasta.SaveEnvVariable(envPath, "CANASTA_IMAGE", remoteTag); err != nil {
+					return err
+				}
+			}
+
+			// For K8s, regenerate kustomization so it picks up the image
+			if !orch.SupportsImagePull() {
+				if err := orch.UpdateConfig(instance.Path); err != nil {
+					return err
+				}
+			}
+
+			imagesUpdated = true
+		} else if !orch.SupportsImagePull() {
 			fmt.Println("Regenerating configuration and re-applying manifests...")
 			if err := orch.UpdateConfig(instance.Path); err != nil {
 				return err
 			}
 			imagesUpdated = true
-		} else if isLocalBuild {
-			fmt.Println("Skipping image pull: this instance uses a locally-built image.")
 		} else {
 			fmt.Println("Pulling Canasta container images...")
 			report, err := orch.Update(instance.Path)
@@ -230,9 +261,6 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 
 		fmt.Println()
 		fmt.Println("Canasta upgraded successfully!")
-	} else if isLocalBuild {
-		fmt.Println()
-		fmt.Println("This is a local development instance. To update, recreate the instance.")
 	} else {
 		fmt.Println()
 		fmt.Println("Installation is already up to date.")
