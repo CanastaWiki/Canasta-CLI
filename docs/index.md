@@ -30,8 +30,9 @@ curl -fsSL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/instal
 canasta create -i myinstance -w wiki1 -a admin -n localhost
 ```
 
-!!! note "Linux users"
-    Before running CLI commands, add your user to the `docker` and `www-data` groups. See the [installation guide](installation.md#linux) for details.
+> **Note: Linux users**
+>
+> Before running CLI commands, add your user to the `docker` and `www-data` groups. See the [installation guide](installation.md#linux) for details.
 
 ## Next steps
 
