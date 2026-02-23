@@ -379,9 +379,15 @@ func ContainsProfile(profiles, target string) bool {
 	return false
 }
 
-// EnsureObservabilityCredentials checks if COMPOSE_PROFILES contains "observable" in .env.
+// IsObservabilityEnabled returns true when CANASTA_ENABLE_OBSERVABILITY is set
+// to "true" (case-insensitive) in the given env vars map.
+func IsObservabilityEnabled(envVars map[string]string) bool {
+	return strings.EqualFold(envVars["CANASTA_ENABLE_OBSERVABILITY"], "true")
+}
+
+// EnsureObservabilityCredentials checks if CANASTA_ENABLE_OBSERVABILITY=true in .env.
 // If active, it ensures OS_USER, OS_PASSWORD, and OS_PASSWORD_HASH are set.
-// Returns true if the observable profile is active.
+// Returns true if observability is enabled.
 func EnsureObservabilityCredentials(installPath string) (bool, error) {
 	envPath := installPath + "/.env"
 	envVars, err := GetEnvVariable(envPath)
@@ -389,7 +395,7 @@ func EnsureObservabilityCredentials(installPath string) (bool, error) {
 		return false, err
 	}
 
-	if !ContainsProfile(envVars["COMPOSE_PROFILES"], "observable") {
+	if !IsObservabilityEnabled(envVars) {
 		return false, nil
 	}
 
@@ -459,11 +465,11 @@ func RewriteCaddy(installPath string) error {
 	}
 	httpOnly := strings.ToLower(envVars["CADDY_AUTO_HTTPS"]) == "off"
 
-	// Check if observable profile is active
-	observable := ContainsProfile(envVars["COMPOSE_PROFILES"], "observable")
+	// Check if observability is enabled
+	observable := IsObservabilityEnabled(envVars)
 	if observable {
 		if envVars["OS_USER"] == "" || envVars["OS_PASSWORD_HASH"] == "" {
-			return fmt.Errorf("observable profile is active but OS_USER or OS_PASSWORD_HASH is missing from .env; run 'canasta upgrade' to generate credentials")
+			return fmt.Errorf("observability is enabled but OS_USER or OS_PASSWORD_HASH is missing from .env; run 'canasta upgrade' to generate credentials")
 		}
 	}
 

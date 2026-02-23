@@ -1,4 +1,4 @@
-# Observability (OpenSearch + Logstash + Dashboards)
+# Observability (OpenSearch + Log Shipping + Dashboards)
 
 Canasta includes an optional observability stack that collects logs from MediaWiki, Caddy, and MySQL and makes them searchable through OpenSearch Dashboards.
 
@@ -12,32 +12,27 @@ Canasta includes an optional observability stack that collects logs from MediaWi
 - [Enabling MediaWiki logging](#enabling-mediawiki-logging)
 - [Index patterns](#index-patterns)
 - [Verifying logs are flowing](#verifying-logs-are-flowing)
+- [Architecture notes](#architecture-notes)
 - [Security notes](#security-notes)
 
 ---
 
 ## Enabling observability
 
-The observability stack runs as an optional Docker Compose profile. To enable it, set `COMPOSE_PROFILES` to include `observable` in your `.env` file.
+To enable the observability stack, set `CANASTA_ENABLE_OBSERVABILITY=true` in your `.env` file. This works with both Docker Compose and Kubernetes orchestrators.
 
 ### New installations
 
-Create an `.env` file with the profile enabled, then pass it to `canasta create`:
+Create an `.env` file with observability enabled, then pass it to `canasta create`:
 
 ```bash
-echo "COMPOSE_PROFILES=observable" > my.env
+echo "CANASTA_ENABLE_OBSERVABILITY=true" > my.env
 canasta create -i myinstance -w mywiki -a admin -e my.env
-```
-
-Or append `observable` to an existing `.env` file that already sets `COMPOSE_PROFILES`:
-
-```
-COMPOSE_PROFILES=web,observable
 ```
 
 ### Existing installations
 
-Add `COMPOSE_PROFILES=observable` (or append `,observable`) to the `.env` file in your installation directory, then upgrade:
+Add `CANASTA_ENABLE_OBSERVABILITY=true` to the `.env` file in your installation directory, then upgrade:
 
 ```bash
 canasta upgrade -i myinstance
@@ -46,6 +41,10 @@ canasta upgrade -i myinstance
 In both cases, the CLI automatically:
 - Generates `OS_USER`, `OS_PASSWORD`, and `OS_PASSWORD_HASH` in `.env`
 - Adds the OpenSearch Dashboards reverse proxy block to the Caddyfile
+- For Docker Compose: syncs `COMPOSE_PROFILES` to include `observable`
+- For Kubernetes: adds OpenSearch, Dashboards, and Fluent Bit sidecar resources to the kustomization
+
+> **Note:** If you are migrating from an older Canasta installation that used `COMPOSE_PROFILES=observable`, running `canasta upgrade` will automatically add `CANASTA_ENABLE_OBSERVABILITY=true` to your `.env` file.
 
 ---
 
@@ -100,9 +99,9 @@ Once log files are created, the `mediawiki-logs-*` index pattern will appear aut
 
 ## Index patterns
 
-Index patterns are created automatically by an init container when the observability profile starts. It waits for OpenSearch Dashboards to be ready and for at least one log index to exist, then creates patterns for each available index. A second pass runs 60 seconds later to pick up any late-arriving indices.
+Index patterns are created automatically by an init container (Docker Compose) or init job (Kubernetes) when the observability stack starts. It waits for OpenSearch Dashboards to be ready and for at least one log index to exist, then creates patterns for each available index. A second pass runs 60 seconds later to pick up any late-arriving indices.
 
-If automatic creation fails (check `docker logs <id>-observable-init-1`), you can create patterns manually:
+If automatic creation fails, you can create patterns manually:
 
 1. Open **OpenSearch Dashboards** > **Stack Management** > **Index Patterns**.
 2. Create patterns for the indices that exist:
@@ -111,6 +110,11 @@ If automatic creation fails (check `docker logs <id>-observable-init-1`), you ca
    - `mediawiki-logs-*` (only if MediaWiki logging is enabled)
 3. Select `@timestamp` as the time field.
 
+### Checking init status
+
+- **Docker Compose:** `docker logs <id>-observable-init-1`
+- **Kubernetes:** `kubectl logs job/observable-init -n <namespace>`
+
 ---
 
 ## Verifying logs are flowing
@@ -118,16 +122,33 @@ If automatic creation fails (check `docker logs <id>-observable-init-1`), you ca
 If you do not see logs in Dashboards:
 
 - Generate some activity (browse the wiki, log in, edit a page).
-- Ensure the observability containers are running: `canasta list` or `docker ps`.
+- Ensure the observability containers are running: `canasta list` or check your orchestrator.
 - Check container logs for errors:
-  ```bash
-  docker logs <id>-logstash-1
-  docker logs <id>-opensearch-1
-  ```
+  - **Docker Compose:**
+    ```bash
+    docker logs <id>-logstash-1
+    docker logs <id>-opensearch-1
+    ```
+  - **Kubernetes:**
+    ```bash
+    kubectl logs deployment/opensearch -n <namespace>
+    kubectl logs deployment/web -n <namespace> -c fluent-bit
+    ```
+
+---
+
+## Architecture notes
+
+The observability stack uses different log shipping approaches depending on the orchestrator:
+
+- **Docker Compose:** Uses Logstash to read log files from shared Docker volumes and ship them to OpenSearch.
+- **Kubernetes:** Uses Fluent Bit sidecar containers attached to the web, caddy, and db deployments. Each sidecar reads logs from a shared `emptyDir` volume and ships them to OpenSearch.
+
+Both approaches ship logs to the same OpenSearch indices and Dashboards is accessible at `/opensearch` on both orchestrators.
 
 ---
 
 ## Security notes
 
-- OpenSearch has its security plugin disabled (`plugins.security.disabled=true`). Access to OpenSearch Dashboards is protected by Caddy's basicauth. OpenSearch itself is only accessible within the Docker network (no ports exposed to the host).
+- OpenSearch has its security plugin disabled (`plugins.security.disabled=true`). Access to OpenSearch Dashboards is protected by Caddy's basicauth. OpenSearch itself is only accessible within the container network (no ports exposed to the host).
 - OpenSearch Dashboards port 5601 is not exposed to the host; access is exclusively through the Caddy reverse proxy at `/opensearch`.

@@ -129,7 +129,7 @@ func TestComposeMigrateConfig_DryRun(t *testing.T) {
 }
 
 func TestComposeInitConfig_Observable(t *testing.T) {
-	dir := setupTestInstall(t, "COMPOSE_PROFILES=web,observable\n", "wikis:\n  - id: main\n    url: example.com\n")
+	dir := setupTestInstall(t, "CANASTA_ENABLE_OBSERVABILITY=true\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	c := &ComposeOrchestrator{}
 	if err := c.InitConfig(dir); err != nil {
@@ -153,6 +153,11 @@ func TestComposeInitConfig_Observable(t *testing.T) {
 		t.Error("expected OS_PASSWORD_HASH to be set in .env")
 	}
 
+	// COMPOSE_PROFILES should be synced to include observable
+	if !strings.Contains(env, "COMPOSE_PROFILES=observable") {
+		t.Error("expected COMPOSE_PROFILES to include observable after sync")
+	}
+
 	// Caddyfile should contain observable block
 	caddy, err := os.ReadFile(filepath.Join(dir, "config", "Caddyfile"))
 	if err != nil {
@@ -164,7 +169,7 @@ func TestComposeInitConfig_Observable(t *testing.T) {
 }
 
 func TestComposeMigrateConfig_Observable(t *testing.T) {
-	dir := setupTestInstall(t, "COMPOSE_PROFILES=web,observable\n", "wikis:\n  - id: main\n    url: example.com\n")
+	dir := setupTestInstall(t, "CANASTA_ENABLE_OBSERVABILITY=true\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
 	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
@@ -188,7 +193,7 @@ func TestComposeMigrateConfig_Observable(t *testing.T) {
 }
 
 func TestComposeMigrateConfig_ObservableDryRun(t *testing.T) {
-	dir := setupTestInstall(t, "COMPOSE_PROFILES=web,observable\n", "wikis:\n  - id: main\n    url: example.com\n")
+	dir := setupTestInstall(t, "CANASTA_ENABLE_OBSERVABILITY=true\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
 	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
@@ -211,7 +216,7 @@ func TestComposeMigrateConfig_ObservableDryRun(t *testing.T) {
 }
 
 func TestComposeMigrateConfig_ObservableAlreadyConfigured(t *testing.T) {
-	env := "COMPOSE_PROFILES=web,observable\nOS_USER=admin\nOS_PASSWORD=secret\nOS_PASSWORD_HASH=$2a$10$hash\n"
+	env := "CANASTA_ENABLE_OBSERVABILITY=true\nCOMPOSE_PROFILES=web,observable\nOS_USER=admin\nOS_PASSWORD=secret\nOS_PASSWORD_HASH=$2a$10$hash\n"
 	dir := setupTestInstall(t, env, "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
@@ -225,5 +230,34 @@ func TestComposeMigrateConfig_ObservableAlreadyConfigured(t *testing.T) {
 	}
 	if changed {
 		t.Error("expected no changes when observability is already configured")
+	}
+}
+
+func TestComposeMigrateConfig_OldProfileMigration(t *testing.T) {
+	// Old-style: COMPOSE_PROFILES=web,observable but no CANASTA_ENABLE_OBSERVABILITY
+	dir := setupTestInstall(t, "COMPOSE_PROFILES=web,observable\n", "wikis:\n  - id: main\n    url: example.com\n")
+
+	// Create Caddyfiles so caddy migration doesn't trigger
+	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
+	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644)
+
+	c := &ComposeOrchestrator{}
+	changed, err := c.MigrateConfig(dir, false)
+	if err != nil {
+		t.Fatalf("MigrateConfig() error = %v", err)
+	}
+	if !changed {
+		t.Error("expected changes when migrating from old COMPOSE_PROFILES")
+	}
+
+	// Should have added CANASTA_ENABLE_OBSERVABILITY=true
+	content, _ := os.ReadFile(filepath.Join(dir, ".env"))
+	env := string(content)
+	if !strings.Contains(env, "CANASTA_ENABLE_OBSERVABILITY=true") {
+		t.Error("expected CANASTA_ENABLE_OBSERVABILITY=true to be added after migration")
+	}
+	// Should have generated credentials
+	if !strings.Contains(env, "OS_USER=") {
+		t.Error("expected OS_USER to be set after migration")
 	}
 }
