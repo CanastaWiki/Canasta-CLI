@@ -56,8 +56,8 @@ restart. Use --dev or --no-dev to change the development mode setting.`,
 	}
 	restartCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	restartCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
-	restartCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Restart in development mode with Xdebug")
-	restartCmd.Flags().BoolVar(&noDevFlag, "no-dev", false, "Restart without development mode (disable dev mode)")
+	restartCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Restart in development mode with Xdebug (Compose only)")
+	restartCmd.Flags().BoolVar(&noDevFlag, "no-dev", false, "Restart without development mode (disable dev mode) (Compose only)")
 	return restartCmd
 }
 

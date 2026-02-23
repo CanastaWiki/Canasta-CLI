@@ -48,10 +48,10 @@ func NewCmdCreate() *cobra.Command {
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a Canasta installation",
-		Long: `Create a new Canasta MediaWiki installation. This sets up the Docker Compose
-stack, generates configuration files, starts the containers, and runs the
-MediaWiki installer. You can optionally import an existing database dump
-instead of running the installer, or enable development mode with Xdebug.`,
+		Long: `Create a new Canasta MediaWiki installation. This generates configuration
+files, starts the containers, and runs the MediaWiki installer. You can
+optionally import an existing database dump instead of running the installer,
+or enable development mode with Xdebug (Compose only).`,
 		Example: `  # Create a basic single-wiki installation
   canasta create -i myinstance -w main -a admin -n example.com
 
@@ -191,20 +191,20 @@ instead of running the installer, or enable development mode with Xdebug.`,
 	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password (if not provided, auto-generates and saves to config/admin-password_{wikiid})")
 	createCmd.Flags().StringVarP(&yamlPath, "yamlfile", "f", "", "Initial wiki yaml file")
 	createCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")
-	createCmd.Flags().StringVarP(&override, "override", "r", "", "Name of a file to copy to docker-compose.override.yml")
+	createCmd.Flags().StringVarP(&override, "override", "r", "", "Name of a file to copy to docker-compose.override.yml (Compose only)")
 	createCmd.Flags().StringVar(&canastaInfo.RootDBPassword, "rootdbpass", "", "Root database password (if not provided, auto-generates and saves to .env). Tip: Use --rootdbpass \"$ROOT_DB_PASS\" to avoid exposing password in shell history")
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBPassword, "wikidbpass", "", "Wiki database password (if not provided, auto-generates and saves to .env). Tip: Use --wikidbpass \"$WIKI_DB_PASS\" to avoid exposing password in shell history")
 	createCmd.Flags().StringVarP(&envFile, "envfile", "e", "", "Path to .env file with password overrides (merged with default .env)")
-	createCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Enable development mode with Xdebug and code extraction")
-	createCmd.Flags().StringVar(&devTag, "dev-tag", "latest", "Canasta image tag to use (e.g., latest, dev-branch)")
+	createCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Enable development mode with Xdebug and code extraction (Compose only)")
+	createCmd.Flags().StringVar(&devTag, "dev-tag", "latest", "Canasta image tag to use (e.g., latest, dev-branch) (Compose only)")
 	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build a local Canasta and/or CanastaBase image from the specified local source directory")
 	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
 	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
 	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
 	createCmd.Flags().StringVar(&composerFile, "composer", "", "Path to custom composer.local.json to copy to config/")
 	createCmd.Flags().StringVar(&registry, "registry", "localhost:5000", "Container registry for pushing locally built images (used with --build-from on Kubernetes)")
-	createCmd.Flags().BoolVar(&createCluster, "create-cluster", false, "Create and manage a local Kubernetes cluster for this installation")
+	createCmd.Flags().BoolVar(&createCluster, "create-cluster", false, "Create and manage a local Kubernetes cluster for this installation (Kubernetes only)")
 
 	// Mark required flags
 	_ = createCmd.MarkFlagRequired("id")
