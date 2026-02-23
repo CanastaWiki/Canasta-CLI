@@ -134,7 +134,7 @@ func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
 	// Wait for the web deployment to be ready
 	logging.Print("Waiting for web deployment to be ready (this may take a few minutes if images need to be pulled)...\n")
 	rolloutCmd := exec.Command("kubectl", "rollout", "status",
-		webDeployment, "-n", ns, "--timeout=300s")
+		webDeployment, "-n", ns, "--timeout=600s")
 	rolloutOutput, err := rolloutCmd.CombinedOutput()
 	logging.Print(string(rolloutOutput))
 	if err != nil {
@@ -184,7 +184,7 @@ func (k *KubernetesOrchestrator) Update(installPath string) (*UpdateReport, erro
 	}
 
 	rolloutCmd := exec.Command("kubectl", "rollout", "status",
-		webDeployment, "-n", ns, "--timeout=300s")
+		webDeployment, "-n", ns, "--timeout=600s")
 	rolloutOutput, err := rolloutCmd.CombinedOutput()
 	logging.Print(string(rolloutOutput))
 	if err != nil {
@@ -365,6 +365,9 @@ func (k *KubernetesOrchestrator) InitConfig(installPath string) error {
 	if err := canasta.CreateCaddyfileGlobal(installPath); err != nil {
 		return err
 	}
+	if _, err := canasta.EnsureObservabilityCredentials(installPath); err != nil {
+		return err
+	}
 	if err := canasta.RewriteCaddy(installPath); err != nil {
 		return err
 	}
@@ -505,8 +508,27 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 		kust.Patches = append(kust.Patches, buildNodePortPatch())
 	}
 
-	// 6. Image override (for local builds pushed to a registry)
+	// 6. Observability stack (OpenSearch + Fluent Bit + Dashboards)
 	envPath := filepath.Join(installPath, ".env")
+	if envVars, err := canasta.GetEnvVariable(envPath); err == nil {
+		if canasta.IsObservabilityEnabled(envVars) {
+			kust.Resources = append(kust.Resources,
+				"kubernetes/log-pvcs.yaml",
+				"kubernetes/opensearch.yaml",
+				"kubernetes/opensearch-dashboards.yaml",
+				"kubernetes/fluent-bit-config.yaml",
+				"kubernetes/fluent-bit.yaml",
+				"kubernetes/observable-init.yaml",
+			)
+			kust.Patches = append(kust.Patches,
+				buildLogVolumePatch("web", "/var/log/mediawiki", "mediawiki-logs"),
+				buildLogVolumePatch("caddy", "/var/log/caddy", "caddy-logs"),
+				buildLogVolumePatch("db", "/var/log/mysql", "mysql-logs"),
+			)
+		}
+	}
+
+	// 7. Image override (for local builds pushed to a registry)
 	if envVars, err := canasta.GetEnvVariable(envPath); err == nil {
 		if canastaImage := envVars["CANASTA_IMAGE"]; canastaImage != "" {
 			// Parse "registry/repo:tag" into newName and newTag
@@ -628,8 +650,56 @@ spec:
 	return kustomizePatch{Patch: patch}
 }
 
+// buildLogVolumePatch returns a strategic merge patch that adds a PVC-backed
+// log volume to a deployment so a standalone Fluent Bit pod can read the logs.
+func buildLogVolumePatch(deployment, logPath, pvcName string) kustomizePatch {
+	patch := fmt.Sprintf(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: %s
+spec:
+  template:
+    spec:
+      containers:
+      - name: %s
+        volumeMounts:
+        - mountPath: %s
+          name: %s
+      volumes:
+      - name: %s
+        persistentVolumeClaim:
+          claimName: %s
+`, deployment, deployment, logPath, pvcName, pvcName, pvcName)
+	return kustomizePatch{Patch: patch}
+}
+
 func (k *KubernetesOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool, error) {
-	return false, nil // No Compose-specific migrations needed for K8s
+	envPath := filepath.Join(installPath, ".env")
+	envVars, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		return false, err
+	}
+
+	if !canasta.IsObservabilityEnabled(envVars) {
+		return false, nil
+	}
+
+	// Check if credentials are already complete
+	if envVars["OS_USER"] != "" && envVars["OS_PASSWORD"] != "" && envVars["OS_PASSWORD_HASH"] != "" {
+		return false, nil
+	}
+
+	if dryRun {
+		fmt.Println("  Would generate OpenSearch observability credentials in .env")
+		return true, nil
+	}
+
+	fmt.Println("  Generating OpenSearch observability credentials")
+	if _, err := canasta.EnsureObservabilityCredentials(installPath); err != nil {
+		return false, fmt.Errorf("failed to ensure observability credentials: %w", err)
+	}
+
+	return true, nil
 }
 
 // walkStackFiles walks the embedded K8s manifest files and writes them to installPath.

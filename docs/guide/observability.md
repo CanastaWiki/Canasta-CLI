@@ -1,4 +1,4 @@
-# Observability (OpenSearch + Log Shipping + Dashboards)
+# Observability (OpenSearch + Dashboards)
 
 Canasta includes an optional observability stack that collects logs from MediaWiki, Caddy, and MySQL and makes them searchable through OpenSearch Dashboards.
 
@@ -42,7 +42,7 @@ In both cases, the CLI automatically:
 - Generates `OS_USER`, `OS_PASSWORD`, and `OS_PASSWORD_HASH` in `.env`
 - Adds the OpenSearch Dashboards reverse proxy block to the Caddyfile
 - For Docker Compose: syncs `COMPOSE_PROFILES` to include `observable`
-- For Kubernetes: adds OpenSearch, Dashboards, and Fluent Bit sidecar resources to the kustomization
+- For Kubernetes: adds OpenSearch, Dashboards, and Fluent Bit resources to the kustomization
 
 > **Note:** If you are migrating from an older Canasta installation that used `COMPOSE_PROFILES=observable`, running `canasta upgrade` will automatically add `CANASTA_ENABLE_OBSERVABILITY=true` to your `.env` file.
 
@@ -99,7 +99,7 @@ Once log files are created, the `mediawiki-logs-*` index pattern will appear aut
 
 ## Index patterns
 
-Index patterns are created automatically by an init container (Docker Compose) or init job (Kubernetes) when the observability stack starts. It waits for OpenSearch Dashboards to be ready and for at least one log index to exist, then creates patterns for each available index. A second pass runs 60 seconds later to pick up any late-arriving indices.
+Index patterns are created automatically by an init container (Docker Compose) or init job (Kubernetes) when the observability stack starts.
 
 If automatic creation fails, you can create patterns manually:
 
@@ -132,7 +132,7 @@ If you do not see logs in Dashboards:
   - **Kubernetes:**
     ```bash
     kubectl logs deployment/opensearch -n <namespace>
-    kubectl logs deployment/web -n <namespace> -c fluent-bit
+    kubectl logs deployment/fluent-bit -n <namespace>
     ```
 
 ---
@@ -142,7 +142,7 @@ If you do not see logs in Dashboards:
 The observability stack uses different log shipping approaches depending on the orchestrator:
 
 - **Docker Compose:** Uses Logstash to read log files from shared Docker volumes and ship them to OpenSearch.
-- **Kubernetes:** Uses Fluent Bit sidecar containers attached to the web, caddy, and db deployments. Each sidecar reads logs from a shared `emptyDir` volume and ships them to OpenSearch.
+- **Kubernetes:** Uses a standalone Fluent Bit Deployment that reads log files from PVC volumes shared with the web, caddy, and db pods.
 
 Both approaches ship logs to the same OpenSearch indices and Dashboards is accessible at `/opensearch` on both orchestrators.
 
