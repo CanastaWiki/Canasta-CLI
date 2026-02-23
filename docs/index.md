@@ -30,6 +30,9 @@ curl -fsSL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/instal
 canasta create -i myinstance -w wiki1 -a admin -n localhost
 ```
 
+!!! note "Linux users"
+    Before running CLI commands, add your user to the `docker` and `www-data` groups. See the [installation guide](installation.md#linux) for details.
+
 ## Next steps
 
 - [Installation guide](installation.md) - Detailed installation instructions
@@ -44,5 +47,6 @@ canasta create -i myinstance -w wiki1 -a admin -n localhost
 - [Development mode](guide/devmode.md) - Live code editing and Xdebug debugging
 - [Kubernetes](guide/kubernetes.md) - Deploying to Kubernetes with a CLI-managed kind cluster
 - [Backup and restore](guide/backup.md) - Setting up backups with restic
+- [Upgrading](guide/upgrading.md) - Upgrade process, version notes, and legacy migration
 - [Best practices](guide/best-practices.md) - Security considerations and best practices
 - [Troubleshooting](guide/troubleshooting.md) - Common issues and debugging

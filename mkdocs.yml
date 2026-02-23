@@ -56,6 +56,7 @@ nav:
     - Extensions and skins: guide/extensions-and-skins.md
     - Development mode: guide/devmode.md
     - Backup and restore: guide/backup.md
+    - Upgrading: guide/upgrading.md
     - Kubernetes: guide/kubernetes.md
     - Best practices: guide/best-practices.md
     - Observability: guide/observability.md
