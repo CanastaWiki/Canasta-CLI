@@ -1,5 +1,5 @@
-site_name: Canasta CLI Documentation
-site_description: Official documentation for the Canasta CLI tool
+site_name: Canasta Documentation
+site_description: Official documentation for the Canasta MediaWiki distribution
 site_url: https://canastawiki.github.io/Canasta-CLI/
 repo_url: https://github.com/CanastaWiki/Canasta-CLI
 repo_name: CanastaWiki/Canasta-CLI
@@ -56,6 +56,8 @@ nav:
     - Extensions and skins: guide/extensions-and-skins.md
     - Development mode: guide/devmode.md
     - Backup and restore: guide/backup.md
+    - Upgrading: guide/upgrading.md
+    - Sitemaps: guide/sitemaps.md
     - Kubernetes: guide/kubernetes.md
     - Best practices: guide/best-practices.md
     - Observability: guide/observability.md

@@ -62,21 +62,7 @@ The only step that requires `sudo` is installing the CLI binary to `/usr/local/b
 
 ### Before upgrading
 
-1. Take a backup:
-   ```bash
-   canasta backup create -t "pre-upgrade-$(date +%Y%m%d)" -i myinstance
-   ```
-2. Review the Canasta release notes for any breaking changes
-3. Run the upgrade:
-   ```bash
-   canasta upgrade -i myinstance
-   ```
-
-To upgrade all installations at once:
-
-```bash
-canasta upgrade --all
-```
+See the [Upgrading guide](upgrading.md) for pre-upgrade steps and the full upgrade process.
 
 ### Managing multiple installations
 

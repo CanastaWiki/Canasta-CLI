@@ -58,8 +58,8 @@ Use --dev to enable or --no-dev to disable development mode at start time.`,
 		},
 	}
 	startCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	startCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Start in development mode with Xdebug")
-	startCmd.Flags().BoolVar(&noDevFlag, "no-dev", false, "Start without development mode (disable dev mode)")
+	startCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Start in development mode with Xdebug (Compose only)")
+	startCmd.Flags().BoolVar(&noDevFlag, "no-dev", false, "Start without development mode (disable dev mode) (Compose only)")
 	return startCmd
 }
 

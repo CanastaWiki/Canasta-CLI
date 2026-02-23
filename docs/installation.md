@@ -31,11 +31,18 @@ Essentially, preparing your Linux server to be a Canasta host by installing the 
 `sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` once you've
 added the Docker repositories to your system.
 
-On Linux, you also need Docker access and file permission for your user account. Add your user to the `docker` and `www-data` groups, then log out and log back in:
-
-```bash
-sudo usermod -aG docker,www-data $USER
-```
+> **Warning: Linux required group membership**
+>
+> Add your user to the `docker` and `www-data` groups, then **log out and log back in**:
+>
+> ```bash
+> sudo usermod -aG docker,www-data $USER
+> ```
+>
+> - `docker` — permission to run Docker commands (replaces the need for `sudo`)
+> - `www-data` — permission to manage files in the installation's `config/` directory (shared with the web container)
+>
+> Without these groups, you will get "permission denied" errors when running CLI commands or editing configuration files.
 
 ### Kubernetes (managed cluster)
 
