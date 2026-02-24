@@ -85,24 +85,32 @@ func TestUpdateSiteServerPort(t *testing.T) {
 	}
 }
 
-func TestValidatePortChange_KindBlocked(t *testing.T) {
-	inst := config.Installation{
-		KindCluster: "test-cluster",
-	}
-	err := validatePortChange(inst, "8443")
-	if err == nil {
-		t.Fatal("expected error for kind-managed instance, got nil")
-	}
-	if !strings.Contains(err.Error(), "kind-managed") {
-		t.Errorf("expected error about kind-managed, got: %s", err)
-	}
-}
-
-func TestValidatePortChange_Allowed(t *testing.T) {
+func TestValidatePort(t *testing.T) {
 	inst := config.Installation{}
-	err := validatePortChange(inst, "8443")
-	if err != nil {
-		t.Errorf("expected no error, got: %s", err)
+
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{"valid port", "8443", false},
+		{"standard port", "443", false},
+		{"port 1", "1", false},
+		{"port 65535", "65535", false},
+		{"zero", "0", true},
+		{"negative", "-1", true},
+		{"too high", "65536", true},
+		{"not a number", "abc", true},
+		{"empty", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePort(inst, tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validatePort(%q) error = %v, wantErr %v", tt.value, err, tt.wantErr)
+			}
+		})
 	}
 }
 

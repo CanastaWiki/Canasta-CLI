@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -14,6 +15,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 type sideEffect struct {
@@ -23,15 +25,21 @@ type sideEffect struct {
 
 var sideEffects = map[string]sideEffect{
 	"HTTPS_PORT": {
-		validate: validatePortChange,
+		validate: validatePort,
 		apply:    applyHTTPSPortChange,
 	},
 	"HTTP_PORT": {
-		validate: validatePortChange,
+		validate: validatePort,
 	},
 	"CANASTA_ENABLE_OBSERVABILITY": {
 		apply: applyObservabilityChange,
 	},
+}
+
+// portKeys are env vars that require a kind cluster recreation on change.
+var portKeys = map[string]bool{
+	"HTTP_PORT":  true,
+	"HTTPS_PORT": true,
 }
 
 var noRestart bool
@@ -81,13 +89,18 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 				return nil
 			}
 
-			// Restart: UpdateConfig → Stop → Start
+			// Restart: UpdateConfig → Stop → (recreate kind cluster if needed) → Start
 			fmt.Println("Applying configuration and restarting...")
 			if err := orch.UpdateConfig(instance.Path); err != nil {
 				return fmt.Errorf("failed to update config: %w", err)
 			}
 			if err := orch.Stop(instance); err != nil {
 				return fmt.Errorf("failed to stop instance: %w", err)
+			}
+			if portKeys[key] && instance.KindCluster != "" {
+				if err := recreateKindCluster(instance); err != nil {
+					return err
+				}
 			}
 			if err := orch.Start(instance); err != nil {
 				return fmt.Errorf("failed to start instance: %w", err)
@@ -101,10 +114,11 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 	return cmd
 }
 
-// validatePortChange blocks port changes on kind-managed Kubernetes instances.
-func validatePortChange(inst config.Installation, value string) error {
-	if inst.KindCluster != "" {
-		return fmt.Errorf("port changes are not supported on kind-managed Kubernetes instances")
+// validatePort checks that the value is a valid port number.
+func validatePort(inst config.Installation, value string) error {
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("invalid port number: %s", value)
 	}
 	return nil
 }
@@ -203,6 +217,21 @@ func updateSiteServerPort(siteServer, newPort string) string {
 		u.Host = host
 	}
 	return u.String()
+}
+
+// recreateKindCluster deletes and recreates the kind cluster with the current
+// port settings from .env so the new host-port mappings take effect.
+func recreateKindCluster(inst config.Installation) error {
+	httpPort, httpsPort := orchestrators.GetPortsFromEnv(inst.Path)
+	logging.Print(fmt.Sprintf("Recreating kind cluster %s with ports %d/%d...\n", inst.KindCluster, httpPort, httpsPort))
+
+	if err := orchestrators.DeleteKindCluster(inst.KindCluster); err != nil {
+		return fmt.Errorf("failed to delete kind cluster: %w", err)
+	}
+	if err := orchestrators.CreateKindCluster(inst.KindCluster, httpPort, httpsPort); err != nil {
+		return fmt.Errorf("failed to recreate kind cluster: %w", err)
+	}
+	return nil
 }
 
 // applyObservabilityChange generates observability credentials when enabling.
