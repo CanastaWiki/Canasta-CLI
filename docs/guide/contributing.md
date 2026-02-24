@@ -41,19 +41,19 @@ A typical Canasta release involves changes across one or more repositories. The 
 
 Submit and merge pull requests to the relevant repos. For changes that span both CanastaBase and Canasta (e.g., a new MediaWiki version), merge CanastaBase first so the new base image is available when Canasta builds.
 
-### 2. Bump the VERSION file in the Canasta repo
+### 2. CI builds on every master push
+
+Every push to `master` triggers the CI workflow, which:
+
+1. Builds the Docker image for `linux/amd64` and `linux/arm64`
+2. Pushes the mutable rolling tags: `latest`, `<MW_MAJOR>-latest`, `<MW_VERSION>-latest`, and `<MW_VERSION>-<DATE>-<SHA>`
+3. Runs the auto-tag job: if the version in the `VERSION` file does not already have a corresponding Git tag, it creates one (e.g., `v3.3.0`)
+
+### 3. Bump the VERSION file for a new release
 
 Once all PRs for the release are merged into `master`, update the `VERSION` file in the Canasta repository to the new version number (e.g., `3.3.0`). This can be done directly on `master` or via a final PR.
 
-### 3. Auto-tagging and image publishing
-
-When the `VERSION` file changes on `master`, the CI workflow automatically:
-
-1. Builds and pushes the Docker image with the mutable rolling tags (`latest`, `<MW_MAJOR>-latest`, `<MW_VERSION>-latest`, `<MW_VERSION>-<DATE>-<SHA>`)
-2. Creates a Git tag `v<VERSION>` (e.g., `v3.3.0`) if it doesn't already exist
-3. The new tag triggers a second CI run that builds and pushes an **immutable** versioned image tag (e.g., `3.3.0`)
-
-The immutable tag is the one that CLI installations are pinned to. It is never overwritten by future builds.
+The next CI run will see that the `v3.3.0` tag does not exist and create it. The new tag triggers a second CI run that builds and pushes an **immutable** versioned image tag (e.g., `3.3.0`). This is the tag that CLI installations are pinned to — it is never overwritten by future builds.
 
 ### 4. Update the CLI default image tag
 
