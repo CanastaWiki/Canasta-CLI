@@ -2,6 +2,7 @@ package cmd
 
 import (
 	addCmd "github.com/CanastaWiki/Canasta-CLI/cmd/add"
+	configCmd "github.com/CanastaWiki/Canasta-CLI/cmd/config"
 	createCmd "github.com/CanastaWiki/Canasta-CLI/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI/cmd/delete"
 	devmodeCmd "github.com/CanastaWiki/Canasta-CLI/cmd/devmode"
@@ -61,6 +62,7 @@ func GetRootCmd() *cobra.Command {
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 
+	rootCmd.AddCommand(configCmd.NewCmdCreate())
 	rootCmd.AddCommand(createCmd.NewCmdCreate())
 	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
 	rootCmd.AddCommand(devmodeCmd.NewCmdCreate())
