@@ -9,7 +9,6 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
@@ -17,8 +16,6 @@ import (
 func NewCmdCreate() *cobra.Command {
 	var instance config.Installation
 	var verbose bool
-	var devModeFlag bool
-	var noDevFlag bool
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -31,12 +28,10 @@ func NewCmdCreate() *cobra.Command {
 		Short: "Restart the Canasta installation",
 		Long: `Restart a Canasta installation by stopping and then starting all Docker
 containers. Any pending configuration migrations are applied during the
-restart. Use --dev or --no-dev to change the development mode setting.`,
+restart. Use 'canasta devmode enable' or 'canasta devmode disable' to
+change the development mode setting.`,
 		Example: `  # Restart an installation by ID
-  canasta restart -i myinstance
-
-  # Restart and enable development mode
-  canasta restart -i myinstance -D`,
+  canasta restart -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logging.SetVerbose(verbose)
 			if instance.Id == "" && len(args) > 0 {
@@ -47,7 +42,7 @@ restart. Use --dev or --no-dev to change the development mode setting.`,
 				return err
 			}
 			fmt.Println("Restarting Canasta installation '" + resolvedInstance.Id + "'...")
-			if err = Restart(resolvedInstance, devModeFlag, noDevFlag); err != nil {
+			if err = Restart(resolvedInstance); err != nil {
 				return err
 			}
 			fmt.Println("Restarted.")
@@ -56,17 +51,10 @@ restart. Use --dev or --no-dev to change the development mode setting.`,
 	}
 	restartCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	restartCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
-	restartCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Restart in development mode with Xdebug (Compose only)")
-	restartCmd.Flags().BoolVar(&noDevFlag, "no-dev", false, "Restart without development mode (disable dev mode) (Compose only)")
 	return restartCmd
 }
 
-func Restart(instance config.Installation, enableDev, disableDev bool) error {
-	// Handle --dev and --no-dev flags
-	if enableDev && disableDev {
-		return fmt.Errorf("cannot specify both --dev and --no-dev")
-	}
-
+func Restart(instance config.Installation) error {
 	orch, err := orchestrators.NewFromInstance(instance)
 	if err != nil {
 		return err
@@ -80,35 +68,6 @@ func Restart(instance config.Installation, enableDev, disableDev bool) error {
 	// Stop containers
 	if err = orch.Stop(instance); err != nil {
 		return err
-	}
-
-	// Handle dev mode enable/disable
-	if (enableDev || disableDev) && !orch.SupportsDevMode() {
-		return fmt.Errorf("development mode is not supported with %s", orch.Name())
-	}
-	if enableDev {
-		// Enable dev mode using default registry image
-		baseImage := canasta.GetDefaultImage()
-		if err = devmode.EnableDevMode(instance.Path, orch, baseImage); err != nil {
-			return err
-		}
-		instance.DevMode = true
-		if instance.Id != "" {
-			if err = config.Update(instance); err != nil {
-				logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
-			}
-		}
-	} else if disableDev {
-		// Disable dev mode - restore extensions/skins as real directories
-		if err = devmode.DisableDevMode(instance.Path); err != nil {
-			return err
-		}
-		instance.DevMode = false
-		if instance.Id != "" {
-			if err = config.Update(instance); err != nil {
-				logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
-			}
-		}
 	}
 
 	// Regenerate orchestrator config (Compose: Caddyfile; K8s: kustomization.yaml)

@@ -11,7 +11,6 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/imagebuild"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -35,7 +34,6 @@ func NewCmdCreate() *cobra.Command {
 		canastaInfo   canasta.CanastaVariables
 		override      string
 		envFile       string
-		devModeFlag   bool   // enable dev mode
 		canastaImage  string // custom Canasta image reference
 		buildFromPath string // path to build Canasta from source
 		databasePath       string // path to existing database dump
@@ -50,16 +48,13 @@ func NewCmdCreate() *cobra.Command {
 		Short: "Create a Canasta installation",
 		Long: `Create a new Canasta MediaWiki installation. This generates configuration
 files, starts the containers, and runs the MediaWiki installer. You can
-optionally import an existing database dump instead of running the installer,
-or enable development mode with Xdebug (Compose only).`,
+optionally import an existing database dump instead of running the installer.
+After creating, use 'canasta devmode enable' to enable development mode.`,
 		Example: `  # Create a basic single-wiki installation
   canasta create -i myinstance -w main -a admin -n example.com
 
   # Create with an existing database dump
-  canasta create -i myinstance -w main -d /path/to/dump.sql -n example.com
-
-  # Create with development mode enabled
-  canasta create -i myinstance -w main -a admin -n localhost -D`,
+  canasta create -i myinstance -w main -d /path/to/dump.sql -n example.com`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Check if the system has at least 2GB of memory
 			if err := system.CheckMemoryInGB(2); err != nil {
@@ -137,11 +132,7 @@ or enable development mode with Xdebug (Compose only).`,
 				}
 			}
 
-			description := "Creating Canasta installation '" + canastaInfo.Id + "'..."
-			if devModeFlag {
-				description = "Creating Canasta installation '" + canastaInfo.Id + "' with dev mode..."
-			}
-			stopSpinner := spinner.New(description)
+			stopSpinner := spinner.New("Creating Canasta installation '" + canastaInfo.Id + "'...")
 
 			orch, err := orchestrators.New(orchestrator)
 			if err != nil {
@@ -157,7 +148,7 @@ or enable development mode with Xdebug (Compose only).`,
 			if err = orch.CheckDependencies(); err != nil {
 				return err
 			}
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, canastaImage, buildFromPath, registry, createCluster, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, canastaImage, buildFromPath, registry, createCluster, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
 				stopSpinner()
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
@@ -167,10 +158,6 @@ or enable development mode with Xdebug (Compose only).`,
 				return fmt.Errorf("Installation failed. Keeping all the containers and config files")
 			}
 			stopSpinner()
-			if devModeFlag {
-				fmt.Println("\033[32mDevelopment mode enabled. Edit files in mediawiki-code/ - changes appear immediately.\033[0m")
-				fmt.Println("\033[32mVSCode: Open the installation directory, install PHP Debug extension, and start 'Listen for Xdebug'.\033[0m")
-			}
 			fmt.Println("\033[32mIf you need email enabled for this wiki, please set $wgSMTP; email will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP for options.\033[0m")
 			fmt.Println("Done.")
 			return nil
@@ -196,7 +183,6 @@ or enable development mode with Xdebug (Compose only).`,
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBUsername, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBPassword, "wikidbpass", "", "Wiki database password (if not provided, auto-generates and saves to .env). Tip: Use --wikidbpass \"$WIKI_DB_PASS\" to avoid exposing password in shell history")
 	createCmd.Flags().StringVarP(&envFile, "envfile", "e", "", "Path to .env file with password overrides (merged with default .env)")
-	createCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Enable development mode with Xdebug and code extraction (Compose only)")
 	createCmd.Flags().StringVar(&canastaImage, "canasta-image", "", "Canasta image to use (e.g., ghcr.io/canastawiki/canasta:dev-branch)")
 	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build from local source (directory must contain Canasta/, and optionally CanastaBase/)")
 	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
@@ -213,7 +199,7 @@ or enable development mode with Xdebug (Compose only).`,
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, canastaImage, buildFromPath, registry string, createCluster bool, databasePath, wikiSettingsPath, globalSettingsPath string) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, canastaImage, buildFromPath, registry string, createCluster bool, databasePath, wikiSettingsPath, globalSettingsPath string) error {
 	// Determine the base image to use
 	var baseImage string
 	var localImageBuilt bool
@@ -338,17 +324,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	// Dev mode: extract code and build xdebug image before starting
-	if devModeEnabled && isK8s {
-		return fmt.Errorf("Development mode is only supported with Docker Compose")
-	}
-	if devModeEnabled {
-		if err := devmode.SetupFullDevMode(path, orch, baseImage); err != nil {
-			return err
-		}
-	}
-
-	// Always start without dev mode for installation to avoid xdebug interference
+	// Start without dev mode for installation
 	// (xdebug can cause hangs if a debugger is listening during install.php)
 	tempInstance := config.Installation{Path: path, Orchestrator: orchestrator, DevMode: false, KindCluster: kindClusterName}
 	if err := orch.Start(tempInstance); err != nil {
@@ -387,7 +363,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if isK8s {
 		reg = registry
 	}
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: devModeEnabled, ManagedCluster: createCluster, Registry: reg, KindCluster: kindClusterName, BuildFrom: buildFromPath}
+	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: false, ManagedCluster: createCluster, Registry: reg, KindCluster: kindClusterName, BuildFrom: buildFromPath}
 	if err := config.Add(instance); err != nil {
 		return err
 	}

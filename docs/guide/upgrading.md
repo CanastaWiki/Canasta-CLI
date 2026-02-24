@@ -13,25 +13,24 @@ This guide covers upgrading Canasta installations and migrating from legacy (non
 
 ## How upgrading works
 
-The `canasta upgrade` command performs the following steps:
+The `canasta upgrade` command updates the CLI binary and all registered installations:
 
-1. Pulls the latest Canasta Docker image (or rebuilds it if the installation was created with `--build-from`)
-2. Restarts the containers with the new image
-3. Runs `maintenance/update.php` automatically to apply any database schema changes
-
-To upgrade a single installation:
-
-```bash
-canasta upgrade -i myinstance
-```
-
-To upgrade all installations at once:
+1. Updates the CLI itself to the latest version
+2. For each installation: pulls the latest Canasta Docker image (or rebuilds it if the installation was created with `--build-from`)
+3. Restarts the containers with the new image
+4. Runs `maintenance/update.php` automatically to apply any database schema changes
 
 ```bash
-canasta upgrade --all
+canasta upgrade
 ```
 
-The CLI also updates itself during the upgrade process, so you always have the latest CLI version.
+Use `--dry-run` to preview what would change without applying:
+
+```bash
+canasta upgrade --dry-run
+```
+
+If an installation fails to upgrade, the error is printed and the remaining installations are still upgraded. A summary at the end reports how many succeeded.
 
 ## Pre-upgrade checklist
 

@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,75 +21,48 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/selfupdate"
 )
 
-var instance config.Installation
 var dryRun bool
-var upgradeAll bool
-var skipCLIUpdate bool
 
 func NewCmdCreate() *cobra.Command {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-	instance.Path = workingDir
-
 	var upgradeCmd = &cobra.Command{
 		Use:   "upgrade",
-		Short: "Upgrade a Canasta installation to the latest version",
-		Long: `Upgrade a Canasta installation by updating configuration files,
-pulling the latest container images, running any necessary migrations, and
-restarting the containers.
+		Short: "Upgrade the Canasta CLI and all registered installations",
+		Long: `Upgrade the Canasta CLI binary and all registered installations.
+
+Each installation is updated by refreshing configuration files, pulling the
+latest container images, running any necessary migrations, and restarting
+the containers.
 
 The CLI itself is also updated to the latest version before upgrading instances.
-Use --skip-cli-update to skip the CLI update if needed.
+Dev builds (compiled without version ldflags) skip the CLI self-update automatically.
 
-Use --dry-run to preview migrations without applying them, or --all to upgrade
-every registered installation.
+If an installation fails to upgrade, the error is printed and the remaining
+installations are still upgraded. A summary at the end reports how many succeeded.
+
+Use --dry-run to preview migrations without applying them.
 
 Installations created with --build-from automatically rebuild the Canasta image
 from the stored source path during upgrade. For Kubernetes installations created
 with a kind cluster or custom registry, the rebuilt image is automatically
 distributed using the stored configuration.`,
-		Example: `  # Upgrade a single installation
-  canasta upgrade -i myinstance
+		Example: `  # Upgrade the CLI and all installations
+  canasta upgrade
 
   # Preview what would change without applying
-  canasta upgrade -i myinstance --dry-run
-
-  # Upgrade all registered installations
-  canasta upgrade --all
-
-  # Upgrade without updating the CLI
-  canasta upgrade -i myinstance --skip-cli-update`,
+  canasta upgrade --dry-run`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if upgradeAll && instance.Id != "" {
-				return fmt.Errorf("cannot use --all with --id")
-			}
-
-			// Check for CLI updates first (unless skipped or dry-run)
-			if !skipCLIUpdate && !dryRun {
+			// Check for CLI updates first (skipped automatically for dev builds and dry-run)
+			if !dryRun {
 				if _, err := selfupdate.CheckAndUpdate(); err != nil {
 					return fmt.Errorf("CLI update failed: %w", err)
 				}
 				fmt.Println()
 			}
 
-			if upgradeAll {
-				return upgradeAllInstances(dryRun)
-			}
-			if instance.Id == "" && len(args) > 0 {
-				instance.Id = args[0]
-			}
-			if err := Upgrade(instance, dryRun); err != nil {
-				return err
-			}
-			return nil
+			return upgradeAllInstances(dryRun)
 		},
 	}
-	upgradeCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	upgradeCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would change without applying")
-	upgradeCmd.Flags().BoolVar(&upgradeAll, "all", false, "Upgrade all registered Canasta instances")
-	upgradeCmd.Flags().BoolVar(&skipCLIUpdate, "skip-cli-update", false, "Skip updating the CLI itself")
 	return upgradeCmd
 }
 

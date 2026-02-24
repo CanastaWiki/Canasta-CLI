@@ -119,7 +119,7 @@ func importDatabase(orch orchestrators.Orchestrator, instance config.Installatio
 	}
 
 	// Restart containers to apply changes
-	err = restart.Restart(instance, false, false)
+	err = restart.Restart(instance)
 	if err != nil {
 		return err
 	}
