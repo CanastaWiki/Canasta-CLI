@@ -18,16 +18,18 @@ The Canasta project spans several repositories:
 
 | Repository | Description |
 |-----------|-------------|
-| [CanastaBase](https://github.com/CanastaWiki/CanastaBase) | Base Docker image with MediaWiki, Apache, PHP, and bundled extensions/skins |
-| [Canasta](https://github.com/CanastaWiki/Canasta) | Thin layer on top of CanastaBase that adds the Canasta stack (Caddy, Varnish, maintenance scripts) |
+| [CanastaBase](https://github.com/CanastaWiki/CanastaBase) | Base Docker image with MediaWiki, Apache, PHP, bundled extensions/skins, and maintenance scripts |
+| [Canasta](https://github.com/CanastaWiki/Canasta) | Thin layer on top of CanastaBase that adds additional extensions/skins, patches, and extension-specific maintenance scripts |
 | [Canasta-CLI](https://github.com/CanastaWiki/Canasta-CLI) | Go CLI tool for managing Canasta installations |
 
 The Docker image hierarchy is:
 
 ```
-CanastaBase (mediawiki + extensions + skins)
-  └── Canasta (caddy, varnish, scripts, config)
+CanastaBase (mediawiki + core extensions + skins + maintenance scripts)
+  └── Canasta (additional extensions/skins, patches, extension-specific maintenance)
 ```
+
+Caddy, Varnish, MySQL, and Elasticsearch/OpenSearch run as **separate containers** alongside the Canasta web container — they are not part of the Canasta image.
 
 ---
 
