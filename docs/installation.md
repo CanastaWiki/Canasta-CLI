@@ -55,7 +55,7 @@ On macOS: `brew install kubectl kind`
 
 On Linux: download the binaries from the links above or use your package manager.
 
-Docker is still required since kind uses it to run cluster nodes. See the [Kubernetes guide](guide/kubernetes.md) for full details.
+Docker is still required since kind uses it to run cluster nodes. See the [Orchestrators guide](guide/orchestrators.md#kubernetes) for full details.
 
 ## Install
 

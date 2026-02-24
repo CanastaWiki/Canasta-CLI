@@ -36,7 +36,7 @@ func NewCmdCreate() *cobra.Command {
 		override      string
 		envFile       string
 		devModeFlag   bool   // enable dev mode
-		devTag        string // registry image tag for dev mode
+		canastaImage  string // custom Canasta image reference
 		buildFromPath string // path to build Canasta from source
 		databasePath       string // path to existing database dump
 		wikiSettingsPath   string // path to existing per-wiki Settings.php
@@ -86,9 +86,9 @@ or enable development mode with Xdebug (Compose only).`,
 				return fmt.Errorf("Canasta installation with ID '%s' already exists", canastaInfo.Id)
 			}
 
-			// Validate --dev-tag and --build-from are mutually exclusive
-			if devTag != "latest" && buildFromPath != "" {
-				return fmt.Errorf("--dev-tag and --build-from are mutually exclusive")
+			// Validate --canasta-image and --build-from are mutually exclusive
+			if canastaImage != "" && buildFromPath != "" {
+				return fmt.Errorf("--canasta-image and --build-from are mutually exclusive")
 			}
 
 			// Validate database path if provided
@@ -157,7 +157,7 @@ or enable development mode with Xdebug (Compose only).`,
 			if err = orch.CheckDependencies(); err != nil {
 				return err
 			}
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, devTag, buildFromPath, registry, createCluster, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
+			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, devModeFlag, canastaImage, buildFromPath, registry, createCluster, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
 				stopSpinner()
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
@@ -197,8 +197,8 @@ or enable development mode with Xdebug (Compose only).`,
 	createCmd.Flags().StringVar(&canastaInfo.WikiDBPassword, "wikidbpass", "", "Wiki database password (if not provided, auto-generates and saves to .env). Tip: Use --wikidbpass \"$WIKI_DB_PASS\" to avoid exposing password in shell history")
 	createCmd.Flags().StringVarP(&envFile, "envfile", "e", "", "Path to .env file with password overrides (merged with default .env)")
 	createCmd.Flags().BoolVarP(&devModeFlag, "dev", "D", false, "Enable development mode with Xdebug and code extraction (Compose only)")
-	createCmd.Flags().StringVar(&devTag, "dev-tag", "latest", "Canasta image tag to use (e.g., latest, dev-branch) (Compose only)")
-	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build a local Canasta and/or CanastaBase image from the specified local source directory")
+	createCmd.Flags().StringVar(&canastaImage, "canasta-image", "", "Canasta image to use (e.g., ghcr.io/canastawiki/canasta:dev-branch)")
+	createCmd.Flags().StringVar(&buildFromPath, "build-from", "", "Build from local source (directory must contain Canasta/, and optionally CanastaBase/)")
 	createCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
 	createCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
 	createCmd.Flags().StringVarP(&globalSettingsPath, "global-settings", "g", "", "Path to global settings file to copy to config/settings/global/ (filename preserved)")
@@ -213,30 +213,25 @@ or enable development mode with Xdebug (Compose only).`,
 }
 
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, devTag, buildFromPath, registry string, createCluster bool, databasePath, wikiSettingsPath, globalSettingsPath string) error {
+func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, devModeEnabled bool, canastaImage, buildFromPath, registry string, createCluster bool, databasePath, wikiSettingsPath, globalSettingsPath string) error {
 	// Determine the base image to use
 	var baseImage string
 	var localImageBuilt bool
 	if buildFromPath != "" {
-		// Check if local Canasta repo exists for building
-		canastaPath := filepath.Join(buildFromPath, "Canasta")
-		if _, err := os.Stat(canastaPath); err == nil {
-			// Build Canasta (and optionally CanastaBase) from source
-			logging.Print("Building Canasta from local source...\n")
-			builtImage, err := imagebuild.BuildFromSource(buildFromPath)
-			if err != nil {
-				return fmt.Errorf("failed to build from source: %w", err)
-			}
-			baseImage = builtImage
-			localImageBuilt = true
-		} else {
-			// No local Canasta repo, use registry image
-			logging.Print("No local Canasta repo found, using registry image\n")
-			baseImage = canasta.GetImageWithTag(devTag)
+		// Build Canasta (and optionally CanastaBase) from source
+		logging.Print("Building from local source...\n")
+		builtImage, err := imagebuild.BuildFromSource(buildFromPath)
+		if err != nil {
+			return fmt.Errorf("failed to build from source: %w", err)
 		}
+		baseImage = builtImage
+		localImageBuilt = true
+	} else if canastaImage != "" {
+		// Use the user-specified image
+		baseImage = canastaImage
 	} else {
-		// Use registry image with specified tag
-		baseImage = canasta.GetImageWithTag(devTag)
+		// Use the default Canasta image
+		baseImage = canasta.GetDefaultImage()
 	}
 
 	// Create the installation directory and write orchestrator stack files
@@ -269,8 +264,8 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := canasta.UpdateEnvFile(envFile, path, workingDir, canastaInfo.RootDBPassword, canastaInfo.WikiDBPassword); err != nil {
 		return err
 	}
-	// Set CANASTA_IMAGE in .env for local builds so docker-compose uses the locally built image
-	if buildFromPath != "" {
+	// Set CANASTA_IMAGE in .env when using a non-default image (local build or --canasta-image)
+	if buildFromPath != "" || canastaImage != "" {
 		if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", baseImage); err != nil {
 			return err
 		}

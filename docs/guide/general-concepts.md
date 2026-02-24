@@ -15,6 +15,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
   - [Running scripts manually](#running-scripts-manually)
   - [Running extension maintenance scripts](#running-extension-maintenance-scripts)
 - [Sitemaps](#sitemaps)
+- [Custom Canasta images](#custom-canasta-images)
 - [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy)
 - [Running on non-standard ports](#running-on-non-standard-ports)
 
@@ -387,6 +388,54 @@ See the [CLI Reference](../cli/canasta_maintenance.md) for more details.
 ## Sitemaps
 
 XML sitemaps help search engines discover and index pages on your wiki. See the [Sitemaps guide](sitemaps.md) for full details on generating, removing, and troubleshooting sitemaps.
+
+---
+
+## Custom Canasta images
+
+By default, `canasta create` uses the latest published Canasta image (`ghcr.io/canastawiki/canasta:latest`). You can override this with the `--canasta-image` or `--build-from` flags, or by setting `CANASTA_IMAGE` in the `.env` file.
+
+### When to use a custom image
+
+| Scenario | Flag | Example |
+|----------|------|---------|
+| Use a specific published version or branch | `--canasta-image` | `--canasta-image ghcr.io/canastawiki/canasta:version-3.0.7` |
+| Use an image from a private registry | `--canasta-image` | `--canasta-image myregistry.io/canasta:v1.2.3` |
+| Test local changes to Canasta or CanastaBase | `--build-from` | `--build-from ~/canasta-repos` |
+| Enable Xdebug and live code editing | `--dev` | `--dev` (can combine with either of the above) |
+
+### --canasta-image
+
+Specifies a full image reference to use instead of the default:
+
+```bash
+canasta create -i myinstance -w mywiki -n localhost -a admin \
+  --canasta-image ghcr.io/canastawiki/canasta:version-3.0.7
+```
+
+This writes `CANASTA_IMAGE` to the installation's `.env` file so the stack uses the specified image.
+
+### --build-from
+
+Builds Canasta (and optionally CanastaBase) from local source repositories. The directory must contain `Canasta/`; if `CanastaBase/` is also present, it is built first and used as the base image. See [Development mode: Building from local source](devmode.md#building-from-local-source) for details.
+
+`--canasta-image` and `--build-from` are mutually exclusive since `--build-from` builds its own image.
+
+### --dev
+
+Enables development mode with Xdebug and live code editing. This is orthogonal to image selection — you can combine `--dev` with `--canasta-image` or `--build-from`. See [Development mode](devmode.md) for details.
+
+### Orchestrator differences
+
+**Docker Compose:** Both `--canasta-image` and `--build-from` work directly. Docker pulls or builds the image locally, and the Compose stack uses it.
+
+**Kubernetes:** `--canasta-image` works as long as the image is pullable from the cluster (i.e., it's in a public registry or one the cluster has credentials for). `--build-from` requires extra image distribution: with `--create-cluster` (kind), the image is automatically loaded into the kind cluster; without it, the image is pushed to a registry specified by `--registry` so the cluster can pull it. `--dev` is not supported on Kubernetes.
+
+### Caveats
+
+- **Upgrades are affected.** When `CANASTA_IMAGE` is set in `.env`, `canasta upgrade` uses that image instead of pulling the default. If you want to return to the default image, remove the `CANASTA_IMAGE` line from `.env` and run `canasta upgrade`.
+- **MediaWiki version changes.** If the custom image uses a different MediaWiki version than the previous image, `update.php` runs automatically on the next container start to apply database schema changes.
+- **Compatibility.** Custom images should be based on CanastaBase to ensure the expected directory structure, entry scripts, and configuration mechanisms are present. Using an unrelated image will likely not work.
 
 ---
 

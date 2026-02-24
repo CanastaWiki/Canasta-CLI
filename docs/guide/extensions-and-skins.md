@@ -302,6 +302,39 @@ canasta maintenance extension -i myinstance --all CirrusSearch ForceSearchIndex.
 
 See [Running extension maintenance scripts](general-concepts.md#running-extension-maintenance-scripts) for general usage of the extension maintenance command.
 
+### Custom Elasticsearch plugins
+
+If you need additional Elasticsearch plugins (for example, `analysis-icu` for ICU-based text analysis), you can build a custom Elasticsearch image using `docker-compose.override.yml` (see [Orchestrators](orchestrators.md#docker-composeoverrideyml) for general override file usage).
+
+**1. Create a Dockerfile for your custom Elasticsearch image:**
+
+Create a file called `Dockerfile.elasticsearch` in a build directory (e.g., `build/`):
+
+```dockerfile
+FROM docker.elastic.co/elasticsearch/elasticsearch:7.10.2
+RUN elasticsearch-plugin install analysis-icu
+```
+
+**2. Create or edit `docker-compose.override.yml`** in your installation directory:
+
+```yaml
+services:
+  elasticsearch:
+    build:
+      context: ./build
+      dockerfile: Dockerfile.elasticsearch
+    image: canasta-elasticsearch-icu:7.10.2
+```
+
+**3. Rebuild and restart:**
+
+```bash
+docker compose build elasticsearch
+canasta restart -i myinstance
+```
+
+The override file is automatically picked up by Docker Compose alongside the main `docker-compose.yml`. It is also included in backups.
+
 ---
 
 ## How it works under the hood

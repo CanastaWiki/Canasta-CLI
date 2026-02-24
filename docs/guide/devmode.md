@@ -39,25 +39,18 @@ Development mode enables live code editing and step debugging with Xdebug for Ca
 # Use the default (latest) Canasta image
 canasta create -i mydev -w mywiki -n localhost -a admin --dev
 
-# Or specify a specific Canasta image tag
-canasta create -i mydev -w mywiki -n localhost -a admin --dev --dev-tag dev-branch
+# Or specify a specific Canasta image
+canasta create -i mydev -w mywiki -n localhost -a admin --dev --canasta-image ghcr.io/canastawiki/canasta:dev-branch
 ```
 
-The `--dev` flag enables development mode with Xdebug. Use `--dev-tag` to specify which Canasta image tag to use:
-- Without `--dev-tag` — Uses the `latest` image (default)
-- `--dev-tag dev-branch` — Uses the specified image tag
+The `--dev` flag enables development mode with Xdebug. You can combine it with `--canasta-image` to use a specific image (see [Custom Canasta images](general-concepts.md#custom-canasta-images)).
 
 This will:
 1. Clone the Canasta stack
 2. Extract MediaWiki code to `mediawiki-code/` for live editing
-3. Build an Xdebug-enabled Docker image using the specified tag
+3. Build an Xdebug-enabled Docker image from the base Canasta image
 4. Create IDE configuration files
 5. Start the installation
-
-### Available image tags
-
-- `latest` - Latest stable release (default)
-- Any tag from [ghcr.io/canastawiki/canasta](https://github.com/CanastaWiki/Canasta/pkgs/container/canasta)
 
 ---
 
@@ -70,16 +63,14 @@ canasta create -i mydev -w mywiki -n localhost -a admin --build-from ~/canasta-r
 ```
 
 The `--build-from` flag expects a directory containing:
-- `Canasta/` — Required. The Canasta repository with a Dockerfile. Fails if not found.
-- `CanastaBase/` — Optional. If present, CanastaBase is built first and used as the base image for Canasta. If not found, uses the published CanastaBase image.
-- `Canasta-DockerCompose/` — Optional. If present, the docker-compose stack files are copied from here instead of cloning from GitHub.
+- `Canasta/` — Required. The Canasta repository with a Dockerfile.
+- `CanastaBase/` — Optional. If present, CanastaBase is built first and used as the base image for Canasta. If absent, the published CanastaBase image is used.
 
 This will:
 1. Build CanastaBase locally (if the directory exists) → `canasta-base:local`
 2. Build Canasta using the local or published base image → `canasta:local`
-3. Copy docker-compose files from local Canasta-DockerCompose (if exists) or clone from GitHub
-4. Extract MediaWiki code from the locally built image
-5. Continue with normal installation
+3. Extract MediaWiki code from the locally built image
+4. Continue with normal installation
 
 ### Combining with dev mode
 
@@ -89,7 +80,7 @@ You can combine `--build-from` with `--dev` to build from source and enable Xdeb
 canasta create -i mydev -w mywiki -n localhost -a admin --dev --build-from ~/canasta-repos
 ```
 
-**Note:** `--dev-tag` and `--build-from` are mutually exclusive since `--build-from` builds its own image.
+**Note:** `--canasta-image` and `--build-from` are mutually exclusive since `--build-from` builds its own image.
 
 ### Switching back to upstream images
 
@@ -126,7 +117,7 @@ This will:
 
 **Note:** If `mediawiki-code/` already exists, it will NOT be overwritten. You'll see a warning message. To regenerate the code, delete the directory first and then restart with `--dev`.
 
-**Note:** When enabling dev mode on an existing installation, the default `latest` image tag is used. To use a specific image tag, recreate the installation with `canasta create --dev --dev-tag <tag>`.
+**Note:** When enabling dev mode on an existing installation, the default `latest` image tag is used. To use a specific image, recreate the installation with `canasta create --dev --canasta-image <image>`.
 
 ---
 
