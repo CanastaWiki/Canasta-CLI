@@ -103,7 +103,7 @@ To switch back to the upstream Canasta image:
 1. Remove the `CANASTA_IMAGE` line from `.env` (or set it to the desired upstream image, e.g. `CANASTA_IMAGE=ghcr.io/canastawiki/canasta:latest`)
 2. Pull the upstream image and restart:
    ```bash
-   canasta upgrade -i myinstance
+   canasta upgrade
    ```
 
 ---

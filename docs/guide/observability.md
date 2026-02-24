@@ -35,7 +35,7 @@ canasta create -i myinstance -w mywiki -a admin -e my.env
 Add `CANASTA_ENABLE_OBSERVABILITY=true` to the `.env` file in your installation directory, then upgrade:
 
 ```bash
-canasta upgrade -i myinstance
+canasta upgrade
 ```
 
 In both cases, the CLI automatically:
