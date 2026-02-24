@@ -1,4 +1,4 @@
-# Observability (OpenSearch + Dashboards)
+# Observability (OpenSearch + Logstash + Dashboards)
 
 Canasta includes an optional observability stack that collects logs from MediaWiki, Caddy, and MySQL and makes them searchable through OpenSearch Dashboards.
 
