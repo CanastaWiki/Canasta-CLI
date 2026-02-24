@@ -1,26 +1,105 @@
-# Kubernetes
+# Orchestrators
+
+Canasta CLI supports two orchestrators for running your wiki stack:
+
+- **Docker Compose** (default) — the recommended option for most users
+- **Kubernetes** — for users who need Kubernetes, with CLI-managed kind clusters or existing clusters
+
+Both orchestrators share the same CLI commands (`canasta start`, `canasta stop`, `canasta upgrade`, etc.) and the same installation directory layout (`.env`, `config/`, `extensions/`, `skins/`, `images/`).
+
+## Contents
+
+- [Docker Compose](#docker-compose)
+  - [docker-compose.override.yml](#docker-composeoverrideyml)
+- [Kubernetes](#kubernetes)
+  - [Prerequisites](#prerequisites)
+  - [Creating an installation (managed cluster)](#creating-an-installation-managed-cluster)
+  - [Managing the installation](#managing-the-installation)
+  - [How it works](#how-it-works)
+  - [Non-standard ports](#non-standard-ports)
+  - [Building from source](#building-from-source)
+  - [Using an existing cluster](#using-an-existing-cluster)
+  - [Current limitations](#current-limitations)
+
+---
+
+## Docker Compose
+
+Docker Compose is the default orchestrator. No `-o` flag is needed:
+
+```bash
+canasta create -i myinstance -w main -a admin -n localhost
+```
+
+This creates a standard Docker Compose stack with containers for the web server, database, Caddy reverse proxy, and other services. All data is stored on the host in the installation directory.
+
+Docker Compose supports all Canasta features including [development mode](devmode.md), [backup and restore](backup.md), and [observability](observability.md).
+
+### docker-compose.override.yml
+
+Docker Compose automatically merges `docker-compose.override.yml` with the main `docker-compose.yml` when present. Use this file to customize services without modifying the managed stack files.
+
+You can provide an override file at creation time with the `-r` flag:
+
+```bash
+canasta create -i myinstance -w main -a admin -n localhost -r my-overrides.yml
+```
+
+Or create/edit the file directly in the installation directory at any time.
+
+Common use cases:
+
+**Custom service images** — build a service with additional plugins or configuration:
+
+```yaml
+services:
+  elasticsearch:
+    build:
+      context: ./build
+      dockerfile: Dockerfile.elasticsearch
+    image: canasta-elasticsearch-icu:7.10.2
+```
+
+See [Custom Elasticsearch plugins](extensions-and-skins.md#custom-elasticsearch-plugins) for a full example.
+
+**Extra volumes** — mount additional directories into a container:
+
+```yaml
+services:
+  web:
+    volumes:
+      - ./my-data:/var/www/mediawiki/w/my-data
+```
+
+**Environment variables** — add or override environment variables for a service:
+
+```yaml
+services:
+  web:
+    environment:
+      - MY_CUSTOM_VAR=value
+```
+
+After editing the override file, restart the installation for changes to take effect:
+
+```bash
+canasta restart -i myinstance
+```
+
+The override file is included in [backups](backup.md).
+
+---
+
+## Kubernetes
 
 Canasta CLI can deploy to Kubernetes in two ways:
 
 - **Managed cluster** (`--create-cluster`): The CLI creates and manages a local [kind](https://kind.sigs.k8s.io/) cluster for you. This is the recommended approach for local development and testing.
 - **Existing cluster**: You provide a pre-configured Kubernetes cluster and the CLI deploys to it. This is experimental and has [significant limitations](#using-an-existing-cluster).
 
-## Contents
+### Prerequisites
 
-- [Prerequisites](#prerequisites)
-- [Creating an installation (managed cluster)](#creating-an-installation-managed-cluster)
-- [Managing the installation](#managing-the-installation)
-- [How it works](#how-it-works)
-- [Non-standard ports](#non-standard-ports)
-- [Building from source](#building-from-source)
-- [Using an existing cluster](#using-an-existing-cluster)
-- [Current limitations](#current-limitations)
-
----
-
-## Prerequisites
-
-### Managed cluster (recommended)
+#### Managed cluster (recommended)
 
 In addition to Docker (required for kind), you need:
 
@@ -31,13 +110,13 @@ In addition to Docker (required for kind), you need:
 
 The CLI checks for these tools at creation time and will report a clear error if either is missing.
 
-### Existing cluster
+#### Existing cluster
 
 You need `kubectl` installed and configured to connect to your cluster (`kubectl cluster-info` must succeed).
 
 ---
 
-## Creating an installation (managed cluster)
+### Creating an installation (managed cluster)
 
 Use `-o k8s` with the `--create-cluster` flag:
 
@@ -55,7 +134,7 @@ Once complete, your wiki is accessible at `https://localhost/main/`.
 
 ---
 
-## Managing the installation
+### Managing the installation
 
 The same CLI commands work for both Compose and Kubernetes installations:
 
@@ -75,7 +154,7 @@ If the kind cluster is manually deleted (e.g., via `kind delete cluster`), `cana
 
 ---
 
-## How it works
+### How it works
 
 With `--create-cluster`, the CLI creates a kind cluster with `extraPortMappings` that map host ports directly to Kubernetes NodePort services:
 
@@ -85,7 +164,7 @@ Browser -> localhost:443 -> kind node:443 -> NodePort 30443 -> caddy pod -> Medi
 
 Each installation gets its own kind cluster (`canasta-<id>`) and Kubernetes namespace. The cluster configuration, including port mappings, is stored in the CLI's configuration file so it survives restarts.
 
-### Directory structure
+#### Directory structure
 
 The installation directory has the same structure as a Compose installation, with Kubernetes manifests added:
 
@@ -106,7 +185,7 @@ The `kustomization.yaml` is regenerated automatically by the CLI and should not 
 
 ---
 
-## Non-standard ports
+### Non-standard ports
 
 By default, Canasta uses ports 80 (HTTP) and 443 (HTTPS). To use different ports, pass an env file:
 
@@ -123,7 +202,7 @@ Each installation must use unique ports. If two installations attempt to bind th
 
 ---
 
-## Building from source
+### Building from source
 
 To test a locally built Canasta image with a managed K8s cluster, use `--build-from`:
 
@@ -137,7 +216,7 @@ Without `--create-cluster`, the CLI pushes the image to a registry (default `loc
 
 ---
 
-## Using an existing cluster
+### Using an existing cluster
 
 To deploy to a pre-existing Kubernetes cluster without `--create-cluster`:
 
@@ -156,7 +235,7 @@ For most users, `--create-cluster` is the recommended approach.
 
 ---
 
-## Current limitations
+### Current limitations
 
 The following features are not yet available for Kubernetes installations:
 

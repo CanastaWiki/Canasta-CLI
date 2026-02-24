@@ -44,12 +44,10 @@ canasta create -i mydev -w mywiki -n localhost -a admin
 canasta devmode enable -i mydev
 ```
 
-You can also specify a specific Canasta image tag when creating. Use `--dev-tag` to control which Canasta image tag to use:
-- Without `--dev-tag` — Uses the `latest` image (default)
-- `--dev-tag dev-branch` — Uses the specified image tag
+You can also specify a custom Canasta image when creating. Use `--canasta-image` to control which image to use (see [Custom Canasta images](general-concepts.md#custom-canasta-images)):
 
 ```bash
-canasta create -i mydev -w mywiki -n localhost -a admin --dev-tag dev-branch
+canasta create -i mydev -w mywiki -n localhost -a admin --canasta-image ghcr.io/canastawiki/canasta:dev-branch
 canasta devmode enable -i mydev
 ```
 
@@ -59,11 +57,6 @@ Enabling dev mode will:
 3. Build an Xdebug-enabled Docker image
 4. Create IDE configuration files
 5. Restart the installation with dev mode enabled
-
-### Available image tags
-
-- `latest` - Latest stable release (default)
-- Any tag from [ghcr.io/canastawiki/canasta](https://github.com/CanastaWiki/Canasta/pkgs/container/canasta)
 
 ---
 
@@ -76,15 +69,13 @@ canasta create -i mydev -w mywiki -n localhost -a admin --build-from ~/canasta-r
 ```
 
 The `--build-from` flag expects a directory containing:
-- `Canasta/` — Required. The Canasta repository with a Dockerfile. Fails if not found.
-- `CanastaBase/` — Optional. If present, CanastaBase is built first and used as the base image for Canasta. If not found, uses the published CanastaBase image.
-- `Canasta-DockerCompose/` — Optional. If present, the docker-compose stack files are copied from here instead of cloning from GitHub.
+- `Canasta/` — Required. The Canasta repository with a Dockerfile.
+- `CanastaBase/` — Optional. If present, CanastaBase is built first and used as the base image for Canasta. If absent, the published CanastaBase image is used.
 
 This will:
 1. Build CanastaBase locally (if the directory exists) → `canasta-base:local`
 2. Build Canasta using the local or published base image → `canasta:local`
-3. Copy docker-compose files from local Canasta-DockerCompose (if exists) or clone from GitHub
-4. Continue with normal installation
+3. Continue with normal installation
 
 ### Combining with dev mode
 
@@ -95,9 +86,7 @@ canasta create -i mydev -w mywiki -n localhost -a admin --build-from ~/canasta-r
 canasta devmode enable -i mydev
 ```
 
-The dev mode enable command will detect the locally built image from the `.env` file and use it for code extraction and xdebug image building.
-
-**Note:** `--dev-tag` and `--build-from` are mutually exclusive since `--build-from` builds its own image.
+**Note:** `--canasta-image` and `--build-from` are mutually exclusive since `--build-from` builds its own image.
 
 ### Switching back to upstream images
 

@@ -42,13 +42,13 @@ canasta create -i myinstance -w wiki1 -a admin -n localhost
 ### Guides
 
 - [General concepts](guide/general-concepts.md) - Installation IDs, wiki IDs, directory structure, settings, and configuration
-- [Wiki farms](guide/wiki-farms.md) - Running multiple wikis in one installation
+- [Best practices](guide/best-practices.md) - Security considerations and best practices
 - [Extensions and skins](guide/extensions-and-skins.md) - Enabling, disabling, and adding extensions and skins
-- [Observability](guide/observability.md) - Log aggregation with OpenSearch and Dashboards
-- [Development mode](guide/devmode.md) - Live code editing and Xdebug debugging
-- [Kubernetes](guide/kubernetes.md) - Deploying to Kubernetes with a CLI-managed kind cluster
+- [Wiki farms](guide/wiki-farms.md) - Running multiple wikis in one installation
 - [Backup and restore](guide/backup.md) - Setting up backups with restic
 - [Upgrading](guide/upgrading.md) - Upgrade process, version notes, and legacy migration
+- [Orchestrators](guide/orchestrators.md) - Docker Compose and Kubernetes orchestrator details
+- [Observability](guide/observability.md) - Log aggregation with OpenSearch and Dashboards
 - [Sitemaps](guide/sitemaps.md) - XML sitemap generation for search engine indexing
-- [Best practices](guide/best-practices.md) - Security considerations and best practices
+- [Development mode](guide/devmode.md) - Live code editing and Xdebug debugging
 - [Troubleshooting](guide/troubleshooting.md) - Common issues and debugging

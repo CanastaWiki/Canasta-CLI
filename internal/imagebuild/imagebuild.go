@@ -17,7 +17,9 @@ const (
 )
 
 // BuildFromSource builds Canasta (and optionally CanastaBase) from local repositories.
-// workspacePath should contain a "Canasta" directory (required) and optionally a "CanastaBase" directory.
+// workspacePath must contain a "Canasta" directory (required) and optionally a "CanastaBase" directory.
+// If CanastaBase is present, it is built first and used as the base image for Canasta.
+// If CanastaBase is absent, the published CanastaBase image is used.
 // Returns the final Canasta image tag to use.
 func BuildFromSource(workspacePath string) (string, error) {
 	canastaBasePath := filepath.Join(workspacePath, "CanastaBase")
@@ -25,7 +27,7 @@ func BuildFromSource(workspacePath string) (string, error) {
 
 	// Verify Canasta repo exists (required)
 	if _, err := os.Stat(canastaPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("Canasta repo not found at %s", canastaPath)
+		return "", fmt.Errorf("Canasta/ directory not found in %s", workspacePath)
 	}
 
 	// Check if Canasta has a Dockerfile
