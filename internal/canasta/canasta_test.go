@@ -242,6 +242,29 @@ func TestContainsProfile(t *testing.T) {
 	}
 }
 
+func TestIsObservabilityEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		envVars map[string]string
+		want    bool
+	}{
+		{"enabled", map[string]string{"CANASTA_ENABLE_OBSERVABILITY": "true"}, true},
+		{"enabled uppercase", map[string]string{"CANASTA_ENABLE_OBSERVABILITY": "TRUE"}, true},
+		{"enabled mixed case", map[string]string{"CANASTA_ENABLE_OBSERVABILITY": "True"}, true},
+		{"disabled false", map[string]string{"CANASTA_ENABLE_OBSERVABILITY": "false"}, false},
+		{"disabled empty", map[string]string{"CANASTA_ENABLE_OBSERVABILITY": ""}, false},
+		{"missing key", map[string]string{}, false},
+		{"other value", map[string]string{"CANASTA_ENABLE_OBSERVABILITY": "yes"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsObservabilityEnabled(tt.envVars); got != tt.want {
+				t.Errorf("IsObservabilityEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEnsureObservabilityCredentials_NotObservable(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
@@ -252,21 +275,21 @@ func TestEnsureObservabilityCredentials_NotObservable(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if active {
-		t.Error("expected false when observable profile is not active")
+		t.Error("expected false when observability is not enabled")
 	}
 }
 
 func TestEnsureObservabilityCredentials_GeneratesCredentials(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web,observable\n"), 0644)
+	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !active {
-		t.Error("expected true when observable profile is active")
+		t.Error("expected true when observability is enabled")
 	}
 
 	vars, _ := GetEnvVariable(envPath)
@@ -284,14 +307,14 @@ func TestEnsureObservabilityCredentials_GeneratesCredentials(t *testing.T) {
 func TestEnsureObservabilityCredentials_PreservesExisting(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web,observable\nOS_USER=myuser\nOS_PASSWORD=mypass\nOS_PASSWORD_HASH=$2a$10$fakehash\n"), 0644)
+	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=myuser\nOS_PASSWORD=mypass\nOS_PASSWORD_HASH=$2a$10$fakehash\n"), 0644)
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !active {
-		t.Error("expected true when observable profile is active")
+		t.Error("expected true when observability is enabled")
 	}
 
 	vars, _ := GetEnvVariable(envPath)
@@ -311,7 +334,7 @@ func TestRewriteCaddy_Observable(t *testing.T) {
 	configDir := filepath.Join(dir, "config")
 	os.MkdirAll(configDir, 0755)
 	os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("COMPOSE_PROFILES=web,observable\nOS_USER=admin\nOS_PASSWORD_HASH=$2a$10$testhash\n"), 0644)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=admin\nOS_PASSWORD_HASH=$2a$10$testhash\n"), 0644)
 
 	if err := RewriteCaddy(dir); err != nil {
 		t.Fatalf("RewriteCaddy() error = %v", err)
@@ -342,13 +365,13 @@ func TestRewriteCaddy_ObservableMissingCredentials(t *testing.T) {
 	configDir := filepath.Join(dir, "config")
 	os.MkdirAll(configDir, 0755)
 	os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("COMPOSE_PROFILES=web,observable\n"), 0644)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
 
 	err := RewriteCaddy(dir)
 	if err == nil {
 		t.Fatal("expected error when observable credentials are missing")
 	}
-	if !strings.Contains(err.Error(), "OS_USER or OS_PASSWORD_HASH is missing") {
+	if !strings.Contains(err.Error(), "observability is enabled but OS_USER or OS_PASSWORD_HASH is missing") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
@@ -356,7 +379,7 @@ func TestRewriteCaddy_ObservableMissingCredentials(t *testing.T) {
 func TestEnsureObservabilityCredentials_ValidBcryptHash(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web,observable\n"), 0644)
+	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
 
 	_, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
@@ -374,14 +397,14 @@ func TestEnsureObservabilityCredentials_PartialCredentials(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 	// OS_USER set but OS_PASSWORD and OS_PASSWORD_HASH missing
-	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web,observable\nOS_USER=customuser\n"), 0644)
+	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=customuser\n"), 0644)
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !active {
-		t.Error("expected true when observable profile is active")
+		t.Error("expected true when observability is enabled")
 	}
 
 	vars, _ := GetEnvVariable(envPath)

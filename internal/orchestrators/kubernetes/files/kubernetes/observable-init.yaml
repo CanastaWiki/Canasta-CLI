@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observable-init-script
+data:
+  observable-init.sh: |
+    #!/bin/sh
+    # One-shot init job: fixes .kibana mapping, creates OpenSearch Dashboards
+    # index patterns, and configures default settings.
+    set -eu
+
+    OPENSEARCH_URL="http://opensearch:9200"
+    DASHBOARDS_URL="http://opensearch-dashboards:5601/opensearch"
+    RETRY_INTERVAL=5
+
+    PATTERNS="mediawiki-logs-* caddy-logs-* mysql-logs-*"
+
+    # Wait indefinitely for Dashboards to report green. On a fresh install
+    # this can take several minutes while images are pulled and pods start.
+    echo "Waiting for OpenSearch Dashboards to become ready..."
+    while true; do
+      if curl -sf "${DASHBOARDS_URL}/api/status" 2>/dev/null | grep -q '"state":"green"'; then
+        echo "OpenSearch Dashboards is ready."
+        break
+      fi
+      sleep "$RETRY_INTERVAL"
+    done
+
+    # Create index patterns unconditionally; they work even before matching
+    # indices exist and will show data once logs start flowing.
+    echo "Creating index patterns..."
+    for pattern in $PATTERNS; do
+      echo "Creating index pattern: ${pattern}"
+      response="$(curl -sf -X POST \
+        -H 'Content-Type: application/json' \
+        -H 'osd-xsrf: true' \
+        -d "{\"attributes\":{\"title\":\"${pattern}\",\"timeFieldName\":\"@timestamp\"}}" \
+        "${DASHBOARDS_URL}/api/saved_objects/index-pattern/${pattern}" 2>&1 || true)"
+      if echo "$response" | grep -q '"type":"index-pattern"'; then
+        echo "  Created ${pattern}"
+      elif echo "$response" | grep -qi 'already exists\|409 Conflict'; then
+        echo "  ${pattern} already exists, skipping."
+      else
+        echo "  Unexpected response for ${pattern}: ${response}"
+      fi
+    done
+
+    # Fix .kibana mapping: with DISABLE_SECURITY_DASHBOARDS_PLUGIN=true,
+    # Dashboards creates .kibana with dynamic mapping where "type" is text
+    # instead of keyword. The _find API uses term queries that require
+    # keyword, making index patterns invisible in the UI. The mapping fix
+    # must run AFTER creating index patterns, because the "type" field
+    # only appears in the mapping once the first document with that field
+    # is saved.
+    echo "Checking .kibana index mapping..."
+    mapping="$(curl -sf "${OPENSEARCH_URL}/.kibana/_mapping" 2>/dev/null || true)"
+    if echo "$mapping" | grep -q '"type":{"type":"text"'; then
+      echo "  Detected text mapping for type field, reindexing to fix..."
+      curl -sf -X PUT "${OPENSEARCH_URL}/.kibana_fixed" \
+        -H 'Content-Type: application/json' \
+        -d '{"mappings":{"properties":{"type":{"type":"keyword"},"updated_at":{"type":"date"}}}}' > /dev/null
+      curl -sf -X POST "${OPENSEARCH_URL}/_reindex" \
+        -H 'Content-Type: application/json' \
+        -d '{"source":{"index":".kibana"},"dest":{"index":".kibana_fixed"}}' > /dev/null
+      curl -sf -X POST "${OPENSEARCH_URL}/_aliases" \
+        -H 'Content-Type: application/json' \
+        -d '{"actions":[{"remove_index":{"index":".kibana"}},{"add":{"index":".kibana_fixed","alias":".kibana"}}]}' > /dev/null
+      echo "  Done — .kibana reindexed with correct mapping."
+    else
+      echo "  Mapping is OK, skipping reindex."
+    fi
+
+    echo "Setting default index pattern to mediawiki-logs-*..."
+    curl -sf -X POST \
+      -H 'Content-Type: application/json' \
+      -H 'osd-xsrf: true' \
+      -d '{"value":"mediawiki-logs-*"}' \
+      "${DASHBOARDS_URL}/api/opensearch-dashboards/settings/defaultIndex" > /dev/null 2>&1 || true
+
+    echo "Configuring Dashboards settings..."
+    echo "  Setting Discover as homepage..."
+    curl -sf -X POST \
+      -H 'Content-Type: application/json' \
+      -H 'osd-xsrf: true' \
+      -d '{"value":"/app/discover"}' \
+      "${DASHBOARDS_URL}/api/opensearch-dashboards/settings/defaultRoute" > /dev/null 2>&1 || true
+
+---
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: observable-init
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 900
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: observable-init
+        image: curlimages/curl:8.11.1
+        command: ["/bin/sh", "/scripts/observable-init.sh"]
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+        volumeMounts:
+        - name: init-script
+          mountPath: /scripts
+      volumes:
+      - name: init-script
+        configMap:
+          name: observable-init-script

@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush        5
+        Log_Level    info
+        Parsers_File /fluent-bit/etc/parsers.conf
+
+    [INPUT]
+        Name         tail
+        Path         /var/log/mediawiki/*
+        Tag          mediawiki.*
+        Mem_Buf_Limit 5MB
+        Skip_Long_Lines On
+        Refresh_Interval 10
+
+    [INPUT]
+        Name         tail
+        Path         /var/log/caddy/access.log
+        Tag          caddy.access
+        Parser       json
+        Mem_Buf_Limit 5MB
+        Skip_Long_Lines On
+        Refresh_Interval 10
+
+    [INPUT]
+        Name         tail
+        Path         /var/log/mysql/error.log
+        Tag          mysql.error
+        Mem_Buf_Limit 5MB
+        Skip_Long_Lines On
+        Refresh_Interval 10
+
+    [OUTPUT]
+        Name            opensearch
+        Match           mediawiki.*
+        Host            opensearch
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix mediawiki-logs
+        Suppress_Type_Name On
+        tls             Off
+
+    [OUTPUT]
+        Name            opensearch
+        Match           caddy.*
+        Host            opensearch
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix caddy-logs
+        Suppress_Type_Name On
+        tls             Off
+
+    [OUTPUT]
+        Name            opensearch
+        Match           mysql.*
+        Host            opensearch
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix mysql-logs
+        Suppress_Type_Name On
+        tls             Off
+
+  parsers.conf: |
+    [PARSER]
+        Name         json
+        Format       json
+        Time_Key     time
+        Time_Format  %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep    On
+
+    [PARSER]
+        Name         mysql_error
+        Format       regex
+        Regex        ^(?<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+(?<thread_id>\d+)\s+\[(?<level>\w+)\]\s+(?:\[(?<error_code>\w+)\]\s+)?(?:\[(?<subsystem>\w+)\]\s+)?(?<message>.*)$
+        Time_Key     timestamp
+        Time_Format  %Y-%m-%dT%H:%M:%S.%LZ
+        Time_Keep    On

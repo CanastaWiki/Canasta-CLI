@@ -644,12 +644,39 @@ func getComposeImages(installPath string, compose config.Orchestrator) (map[stri
 	return images, nil
 }
 
+// syncComposeProfiles ensures COMPOSE_PROFILES includes "observable" when
+// CANASTA_ENABLE_OBSERVABILITY=true. Docker Compose requires the profile
+// variable to activate optional services.
+func syncComposeProfiles(installPath string) error {
+	envPath := filepath.Join(installPath, ".env")
+	envVars, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		return err
+	}
+	if !canasta.IsObservabilityEnabled(envVars) {
+		return nil
+	}
+	if canasta.ContainsProfile(envVars["COMPOSE_PROFILES"], "observable") {
+		return nil
+	}
+	profiles := envVars["COMPOSE_PROFILES"]
+	if profiles == "" {
+		profiles = "observable"
+	} else {
+		profiles = profiles + ",observable"
+	}
+	return canasta.SaveEnvVariable(envPath, "COMPOSE_PROFILES", profiles)
+}
+
 // InitConfig sets up Compose-specific configuration for a new installation.
 func (c *ComposeOrchestrator) InitConfig(installPath string) error {
 	if err := canasta.CreateCaddyfileSite(installPath); err != nil {
 		return err
 	}
 	if err := canasta.CreateCaddyfileGlobal(installPath); err != nil {
+		return err
+	}
+	if err := syncComposeProfiles(installPath); err != nil {
 		return err
 	}
 	if _, err := canasta.EnsureObservabilityCredentials(installPath); err != nil {
@@ -728,9 +755,10 @@ func (c *ComposeOrchestrator) migrateCaddyFiles(installPath string, dryRun bool)
 	return true, nil
 }
 
-// migrateObservability ensures observability credentials are set when the
-// observable Compose profile is active. During dry-run it only reports what
-// would change.
+// migrateObservability migrates old COMPOSE_PROFILES=observable to
+// CANASTA_ENABLE_OBSERVABILITY=true and ensures observability credentials
+// are set when observability is enabled. During dry-run it only reports
+// what would change.
 func (c *ComposeOrchestrator) migrateObservability(installPath string, dryRun bool) (bool, error) {
 	envPath := filepath.Join(installPath, ".env")
 	envVars, err := canasta.GetEnvVariable(envPath)
@@ -738,13 +766,44 @@ func (c *ComposeOrchestrator) migrateObservability(installPath string, dryRun bo
 		return false, err
 	}
 
-	if !canasta.ContainsProfile(envVars["COMPOSE_PROFILES"], "observable") {
-		return false, nil
+	changed := false
+
+	// Migrate: if COMPOSE_PROFILES contains "observable" but
+	// CANASTA_ENABLE_OBSERVABILITY is not set, add the new variable.
+	hasOldProfile := canasta.ContainsProfile(envVars["COMPOSE_PROFILES"], "observable")
+	hasNewVar := canasta.IsObservabilityEnabled(envVars)
+	if hasOldProfile && !hasNewVar {
+		if dryRun {
+			fmt.Println("  Would add CANASTA_ENABLE_OBSERVABILITY=true to .env")
+		} else {
+			fmt.Println("  Adding CANASTA_ENABLE_OBSERVABILITY=true to .env")
+			if err := canasta.SaveEnvVariable(envPath, "CANASTA_ENABLE_OBSERVABILITY", "true"); err != nil {
+				return false, fmt.Errorf("failed to save CANASTA_ENABLE_OBSERVABILITY: %w", err)
+			}
+		}
+		changed = true
+		hasNewVar = true
+	}
+
+	if !hasNewVar {
+		return changed, nil
+	}
+
+	// Sync COMPOSE_PROFILES for Docker Compose
+	if !hasOldProfile {
+		if dryRun {
+			fmt.Println("  Would add observable to COMPOSE_PROFILES in .env")
+		} else {
+			if err := syncComposeProfiles(installPath); err != nil {
+				return false, fmt.Errorf("failed to sync COMPOSE_PROFILES: %w", err)
+			}
+		}
+		changed = true
 	}
 
 	// Check if credentials are already complete
 	if envVars["OS_USER"] != "" && envVars["OS_PASSWORD"] != "" && envVars["OS_PASSWORD_HASH"] != "" {
-		return false, nil
+		return changed, nil
 	}
 
 	if dryRun {

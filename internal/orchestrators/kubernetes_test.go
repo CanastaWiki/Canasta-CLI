@@ -229,7 +229,7 @@ func TestInitConfigGeneratesKustomization(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatalf("failed to create dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("COMPOSE_PROFILES=web\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MW_SITE_SERVER=https://example.com\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644); err != nil {
@@ -288,7 +288,7 @@ func TestInitConfigNamespaceFromPath(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatalf("failed to create dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("COMPOSE_PROFILES=web\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MW_SITE_SERVER=https://example.com\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644); err != nil {
@@ -584,5 +584,113 @@ func TestRestoreFromBackupVolumeNotSupported(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not yet supported") {
 		t.Errorf("RestoreFromBackupVolume() error = %q, want 'not yet supported'", err.Error())
+	}
+}
+
+func TestGenerateKustomizationObservabilityEnabled(t *testing.T) {
+	dir := setupTestInstallation(t, "test-wiki")
+	// Enable observability
+	envPath := filepath.Join(dir, ".env")
+	os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+
+	k := &KubernetesOrchestrator{}
+	if err := k.generateKustomization(dir, false); err != nil {
+		t.Fatalf("generateKustomization() error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+
+	// Should contain observability resources
+	for _, resource := range []string{
+		"kubernetes/log-pvcs.yaml",
+		"kubernetes/opensearch.yaml",
+		"kubernetes/opensearch-dashboards.yaml",
+		"kubernetes/fluent-bit-config.yaml",
+		"kubernetes/fluent-bit.yaml",
+		"kubernetes/observable-init.yaml",
+	} {
+		if !strings.Contains(text, resource) {
+			t.Errorf("kustomization.yaml should reference %s when observability is enabled", resource)
+		}
+	}
+
+	// Should contain log volume patches for source deployments
+	if !strings.Contains(text, "mediawiki-logs") {
+		t.Error("kustomization.yaml should contain mediawiki-logs PVC reference")
+	}
+	if !strings.Contains(text, "caddy-logs") {
+		t.Error("kustomization.yaml should contain caddy-logs PVC reference")
+	}
+	if !strings.Contains(text, "mysql-logs") {
+		t.Error("kustomization.yaml should contain mysql-logs PVC reference")
+	}
+}
+
+func TestGenerateKustomizationObservabilityDisabled(t *testing.T) {
+	dir := setupTestInstallation(t, "test-wiki")
+
+	k := &KubernetesOrchestrator{}
+	if err := k.generateKustomization(dir, false); err != nil {
+		t.Fatalf("generateKustomization() error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+
+	// Should NOT contain observability resources
+	if strings.Contains(text, "opensearch.yaml") {
+		t.Error("kustomization.yaml should not reference opensearch.yaml when observability is disabled")
+	}
+	if strings.Contains(text, "fluent-bit") {
+		t.Error("kustomization.yaml should not contain fluent-bit references when observability is disabled")
+	}
+}
+
+func TestKubernetesMigrateConfigObservability(t *testing.T) {
+	dir := setupTestInstallation(t, "test-wiki")
+	// Enable observability but don't provide credentials
+	envPath := filepath.Join(dir, ".env")
+	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+
+	k := &KubernetesOrchestrator{}
+	changed, err := k.MigrateConfig(dir, false)
+	if err != nil {
+		t.Fatalf("MigrateConfig() error = %v", err)
+	}
+	if !changed {
+		t.Error("expected changes when observability credentials are missing")
+	}
+
+	// Credentials should now be in .env
+	content, _ := os.ReadFile(envPath)
+	env := string(content)
+	if !strings.Contains(env, "OS_USER=") {
+		t.Error("expected OS_USER to be set after migration")
+	}
+	if !strings.Contains(env, "OS_PASSWORD=") {
+		t.Error("expected OS_PASSWORD to be set after migration")
+	}
+	if !strings.Contains(env, "OS_PASSWORD_HASH=") {
+		t.Error("expected OS_PASSWORD_HASH to be set after migration")
+	}
+}
+
+func TestKubernetesMigrateConfigNoObservability(t *testing.T) {
+	dir := setupTestInstallation(t, "test-wiki")
+
+	k := &KubernetesOrchestrator{}
+	changed, err := k.MigrateConfig(dir, false)
+	if err != nil {
+		t.Fatalf("MigrateConfig() error = %v", err)
+	}
+	if changed {
+		t.Error("expected no changes when observability is not enabled")
 	}
 }
