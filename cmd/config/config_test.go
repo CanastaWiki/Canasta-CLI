@@ -24,8 +24,12 @@ func TestResolveKey(t *testing.T) {
 		{"HTTPS_PORT", "HTTPS_PORT"},
 		{"Https_Port", "HTTPS_PORT"},
 		{"http_port", "HTTP_PORT"},
+		{"https-port", "HTTPS_PORT"},
+		{"http-port", "HTTP_PORT"},
+		{"HTTP-PORT", "HTTP_PORT"},
 		{"MISSING_KEY", "MISSING_KEY"},
 		{"missing_key", "MISSING_KEY"},
+		{"missing-key", "MISSING_KEY"},
 	}
 
 	for _, tt := range tests {

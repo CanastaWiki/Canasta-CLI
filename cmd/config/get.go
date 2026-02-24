@@ -52,13 +52,15 @@ Key lookup is case-insensitive.`,
 	}
 }
 
-// resolveKey finds the actual key in envVars using case-insensitive matching.
-// If no match is found, returns the input uppercased.
+// resolveKey finds the actual key in envVars using case-insensitive matching
+// with hyphens treated as underscores. If no match is found, returns the
+// input uppercased with hyphens replaced by underscores.
 func resolveKey(envVars map[string]string, input string) string {
+	normalized := strings.ReplaceAll(input, "-", "_")
 	for k := range envVars {
-		if strings.EqualFold(k, input) {
+		if strings.EqualFold(k, normalized) {
 			return k
 		}
 	}
-	return strings.ToUpper(input)
+	return strings.ToUpper(normalized)
 }
