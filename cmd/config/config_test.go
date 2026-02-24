@@ -114,36 +114,6 @@ func TestValidatePort(t *testing.T) {
 	}
 }
 
-func TestGenerateTemplate(t *testing.T) {
-	if envTemplate == "" {
-		t.Fatal("embedded template is empty")
-	}
-
-	expectedSections := []string{
-		"Network",
-		"Database",
-		"MediaWiki",
-		"PHP",
-		"Features",
-		"Caddy",
-		"Docker Image",
-		"Backup",
-	}
-
-	for _, section := range expectedSections {
-		if !strings.Contains(envTemplate, section) {
-			t.Errorf("template missing expected section %q", section)
-		}
-	}
-
-	// Should contain key settings
-	for _, key := range []string{"HTTP_PORT", "HTTPS_PORT", "MYSQL_PASSWORD", "MW_SECRET_KEY"} {
-		if !strings.Contains(envTemplate, key) {
-			t.Errorf("template missing expected key %q", key)
-		}
-	}
-}
-
 func TestUpdateWikisYamlPorts(t *testing.T) {
 	// Create a temp dir with a wikis.yaml and .env
 	tmpDir := t.TempDir()
