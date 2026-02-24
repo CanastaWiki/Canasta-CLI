@@ -33,7 +33,7 @@ The installation ID is used to refer to the installation in all subsequent comma
 ```bash
 canasta start -i myinstance
 canasta extension list -i myinstance
-canasta upgrade -i myinstance
+canasta upgrade
 ```
 
 If you run a command from within the installation directory, the `-i` flag is not required.

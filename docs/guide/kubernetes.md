@@ -64,7 +64,7 @@ canasta stop -i my-wiki      # Scale deployments to 0 (cluster stays running)
 canasta start -i my-wiki     # Scale deployments back up
 canasta restart -i my-wiki   # Stop then start
 canasta delete -i my-wiki    # Delete the kind cluster and all data
-canasta upgrade -i my-wiki   # Update stack files and restart
+canasta upgrade              # Update CLI and all installations
 ```
 
 **Stop** scales all Kubernetes deployments to zero replicas. The kind cluster and persistent volumes remain intact, so your data is preserved.
