@@ -99,6 +99,12 @@ services:
     depends_on:
       web:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "varnishadm", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     volumes:
        - ./config/default.vcl:/etc/varnish/default.vcl:ro
     tmpfs:
