@@ -32,11 +32,11 @@ canasta create -i myinstance -w mywiki -a admin -e my.env
 
 ### Existing installations
 
-Add `CANASTA_ENABLE_OBSERVABILITY=true` to the `.env` file in your installation directory, then upgrade:
-
 ```bash
-canasta upgrade
+canasta config set -i myinstance CANASTA_ENABLE_OBSERVABILITY true
 ```
+
+This saves the setting, generates the observability credentials (`OS_USER`, `OS_PASSWORD`, `OS_PASSWORD_HASH`), and restarts the instance.
 
 In both cases, the CLI automatically:
 - Generates `OS_USER`, `OS_PASSWORD`, and `OS_PASSWORD_HASH` in `.env`

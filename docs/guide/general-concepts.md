@@ -452,10 +452,10 @@ canasta create -i myinstance -w main -n example.com -a admin -e custom.env
 
 This generates a Caddyfile with `http://` site addresses so Caddy listens on port 80 only.
 
-For an existing installation, add `CADDY_AUTO_HTTPS=off` to the `.env` file and restart:
+For an existing installation:
 
 ```bash
-canasta restart -i myinstance
+canasta config set -i myinstance CADDY_AUTO_HTTPS off
 ```
 
 ---
@@ -476,23 +476,14 @@ HTTPS_PORT=8443
 canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
 ```
 
-For an existing installation, edit `.env` to set the ports, update `config/wikis.yaml` to include the port in the URL, and restart:
-
-```env
-HTTP_PORT=8080
-HTTPS_PORT=8443
-```
-
-```yaml
-wikis:
-- id: wiki1
-  url: localhost:8443
-  name: wiki1
-```
+For an existing installation, use `canasta config set`. The HTTPS_PORT side effect automatically updates `config/wikis.yaml` URLs, `MW_SITE_SERVER`, and `MW_SITE_FQDN` to match:
 
 ```bash
-canasta restart -i myinstance
+canasta config set -i myinstance --no-restart HTTP_PORT 8080
+canasta config set -i myinstance HTTPS_PORT 8443
 ```
+
+The second command triggers a restart. Use `--no-restart` on the first to batch both changes into a single restart.
 
 ### Example: multiple installations on the same machine
 
@@ -510,3 +501,29 @@ canasta create -o k8s --create-cluster -i dev-k8s -w devwiki -n localhost:9443 -
 ```
 
 Access them at `https://localhost`, `https://localhost:8443`, and `https://localhost:9443`.
+
+---
+
+## Changing the domain name
+
+The domain name for each wiki is stored in `config/wikis.yaml`. When you change it, you must also update `MW_SITE_SERVER` and `MW_SITE_FQDN` in `.env` and regenerate the Caddyfile.
+
+1. Edit `config/wikis.yaml` and update the `url` field for each wiki:
+
+   ```yaml
+   wikis:
+   - id: wiki1
+     url: newdomain.example.com
+     name: wiki1
+   ```
+
+2. Update the `.env` variables to match and restart:
+
+   ```bash
+   canasta config set -i myinstance --no-restart MW_SITE_SERVER https://newdomain.example.com
+   canasta config set -i myinstance MW_SITE_FQDN newdomain.example.com
+   ```
+
+   The second command triggers a restart, which regenerates the Caddyfile from the updated `wikis.yaml`.
+
+If you are also changing the port, use `canasta config set HTTPS_PORT` instead — it updates `wikis.yaml`, `MW_SITE_SERVER`, and `MW_SITE_FQDN` automatically. See [Running on non-standard ports](#running-on-non-standard-ports).
