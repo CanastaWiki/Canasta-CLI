@@ -137,7 +137,7 @@ func TestGenerateTemplate(t *testing.T) {
 	}
 
 	// Should contain key settings
-	for _, key := range []string{"HTTP_PORT", "HTTPS_PORT", "MYSQL_PASSWORD", "MW_SITE_SERVER"} {
+	for _, key := range []string{"HTTP_PORT", "HTTPS_PORT", "MYSQL_PASSWORD", "MW_SECRET_KEY"} {
 		if !strings.Contains(envTemplate, key) {
 			t.Errorf("template missing expected key %q", key)
 		}
