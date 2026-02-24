@@ -405,24 +405,26 @@ func (k *KubernetesOrchestrator) RestoreFromBackupVolume(installPath string, dir
 // - User extensions from /var/www/mediawiki/w/user-extensions/
 // - User skins from /var/www/mediawiki/w/user-skins/
 // - Images from /mediawiki/images/
+//
+// Uses tar to copy directory CONTENTS (not the directory itself) to avoid
+// nesting issues with kubectl cp when the target directory already exists.
 func (k *KubernetesOrchestrator) syncClusterDataToHost(installPath string) error {
 	syncs := []struct {
-		containerPath string
-		hostPath      string
+		containerDir string
+		hostDir      string
 	}{
-		{"/mediawiki/config/backup/", filepath.Join(installPath, "config", "backup")},
-		{"/var/www/mediawiki/w/user-extensions/", filepath.Join(installPath, "extensions")},
-		{"/var/www/mediawiki/w/user-skins/", filepath.Join(installPath, "skins")},
-		{"/mediawiki/images/", filepath.Join(installPath, "images")},
+		{"/mediawiki/config/backup", filepath.Join(installPath, "config", "backup")},
+		{"/var/www/mediawiki/w/user-extensions", filepath.Join(installPath, "extensions")},
+		{"/var/www/mediawiki/w/user-skins", filepath.Join(installPath, "skins")},
+		{"/mediawiki/images", filepath.Join(installPath, "images")},
 	}
 
 	for _, s := range syncs {
-		// Ensure the host directory exists
-		if err := os.MkdirAll(s.hostPath, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", s.hostPath, err)
+		if err := os.MkdirAll(s.hostDir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", s.hostDir, err)
 		}
-		if err := k.CopyFrom(installPath, "web", s.containerPath, s.hostPath); err != nil {
-			return fmt.Errorf("failed to copy %s from cluster: %w", s.containerPath, err)
+		if err := k.copyDirContentsFrom(installPath, "web", s.containerDir, s.hostDir); err != nil {
+			return fmt.Errorf("failed to copy %s from cluster: %w", s.containerDir, err)
 		}
 	}
 	return nil
@@ -431,24 +433,107 @@ func (k *KubernetesOrchestrator) syncClusterDataToHost(installPath string) error
 // syncHostDataToCluster copies restored data from the CLI host back to the
 // web pod in the cluster. Config files (.env, wikis.yaml, Caddyfile, settings/)
 // stay on the CLI host and are applied via ConfigMaps on the next kustomize apply.
+//
+// Uses tar to copy directory CONTENTS to avoid nesting issues with kubectl cp.
 func (k *KubernetesOrchestrator) syncHostDataToCluster(installPath string) error {
 	syncs := []struct {
-		hostPath      string
-		containerPath string
+		hostDir      string
+		containerDir string
 	}{
-		{filepath.Join(installPath, "extensions") + "/", "/var/www/mediawiki/w/user-extensions/"},
-		{filepath.Join(installPath, "skins") + "/", "/var/www/mediawiki/w/user-skins/"},
-		{filepath.Join(installPath, "images") + "/", "/mediawiki/images/"},
+		{filepath.Join(installPath, "extensions"), "/var/www/mediawiki/w/user-extensions"},
+		{filepath.Join(installPath, "skins"), "/var/www/mediawiki/w/user-skins"},
+		{filepath.Join(installPath, "images"), "/mediawiki/images"},
 	}
 
 	for _, s := range syncs {
-		// Skip if the host directory doesn't exist (e.g. no extensions restored)
-		if _, err := os.Stat(s.hostPath); os.IsNotExist(err) {
+		if _, err := os.Stat(s.hostDir); os.IsNotExist(err) {
 			continue
 		}
-		if err := k.CopyTo(installPath, "web", s.hostPath, s.containerPath); err != nil {
-			return fmt.Errorf("failed to copy %s to cluster: %w", s.hostPath, err)
+		if err := k.copyDirContentsTo(installPath, "web", s.hostDir, s.containerDir); err != nil {
+			return fmt.Errorf("failed to copy %s to cluster: %w", s.hostDir, err)
 		}
+	}
+	return nil
+}
+
+// copyDirContentsFrom copies the CONTENTS of a container directory to a host
+// directory using tar, avoiding the nesting problem where kubectl cp copies
+// the directory itself into the target.
+func (k *KubernetesOrchestrator) copyDirContentsFrom(installPath, service, containerDir, hostDir string) error {
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
+	ns, err := getNamespaceFromPath(installPath)
+	if err != nil {
+		return err
+	}
+
+	pod, err := getRunningPod(ns, service)
+	if err != nil {
+		return err
+	}
+
+	// kubectl exec pod -- tar cf - -C /container/dir . | tar xf - -C /host/dir
+	tarCmd := exec.Command("kubectl", "exec", pod, "-n", ns,
+		"--", "tar", "cf", "-", "-C", containerDir, ".")
+	untarCmd := exec.Command("tar", "xf", "-", "-C", hostDir)
+
+	pipe, err := tarCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create pipe: %w", err)
+	}
+	untarCmd.Stdin = pipe
+
+	if err := untarCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start local tar: %w", err)
+	}
+	if err := tarCmd.Run(); err != nil {
+		return fmt.Errorf("failed to tar from container %s: %w", containerDir, err)
+	}
+	if err := untarCmd.Wait(); err != nil {
+		return fmt.Errorf("failed to extract to %s: %w", hostDir, err)
+	}
+	return nil
+}
+
+// copyDirContentsTo copies the CONTENTS of a host directory to a container
+// directory using tar, avoiding the nesting problem where kubectl cp copies
+// the directory itself into the target.
+func (k *KubernetesOrchestrator) copyDirContentsTo(installPath, service, hostDir, containerDir string) error {
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
+	ns, err := getNamespaceFromPath(installPath)
+	if err != nil {
+		return err
+	}
+
+	pod, err := getRunningPod(ns, service)
+	if err != nil {
+		return err
+	}
+
+	// tar cf - -C /host/dir . | kubectl exec -i pod -- tar xf - -C /container/dir
+	tarCmd := exec.Command("tar", "cf", "-", "-C", hostDir, ".")
+	untarCmd := exec.Command("kubectl", "exec", "-i", pod, "-n", ns,
+		"--", "tar", "xf", "-", "-C", containerDir)
+
+	pipe, err := tarCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create pipe: %w", err)
+	}
+	untarCmd.Stdin = pipe
+
+	if err := untarCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start kubectl tar: %w", err)
+	}
+	if err := tarCmd.Run(); err != nil {
+		return fmt.Errorf("failed to tar from %s: %w", hostDir, err)
+	}
+	if err := untarCmd.Wait(); err != nil {
+		return fmt.Errorf("failed to extract to container %s: %w", containerDir, err)
 	}
 	return nil
 }
