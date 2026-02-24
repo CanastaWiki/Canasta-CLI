@@ -148,7 +148,7 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 	}
 
 	//Restart the Canasta Instance
-	err = restart.Restart(instance, false, false)
+	err = restart.Restart(instance)
 	if err != nil {
 		return err
 	}

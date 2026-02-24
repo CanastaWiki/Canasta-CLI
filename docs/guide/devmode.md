@@ -5,9 +5,8 @@ Development mode enables live code editing and step debugging with Xdebug for Ca
 ## Contents
 
 - [Features](#features)
-- [Creating a dev mode installation](#creating-a-dev-mode-installation)
+- [Enabling dev mode](#enabling-dev-mode)
 - [Building from local source](#building-from-local-source)
-- [Enabling dev mode on existing installations](#enabling-dev-mode-on-existing-installations)
 - [Disabling dev mode](#disabling-dev-mode)
 - [Verifying dev mode is working](#verifying-dev-mode-is-working)
 - [IDE setup](#ide-setup)
@@ -33,26 +32,33 @@ Development mode enables live code editing and step debugging with Xdebug for Ca
 
 ---
 
-## Creating a dev mode installation
+## Enabling dev mode
+
+First create a Canasta installation, then enable dev mode:
 
 ```bash
-# Use the default (latest) Canasta image
-canasta create -i mydev -w mywiki -n localhost -a admin --dev
+# Create an installation
+canasta create -i mydev -w mywiki -n localhost -a admin
 
-# Or specify a specific Canasta image tag
-canasta create -i mydev -w mywiki -n localhost -a admin --dev --dev-tag dev-branch
+# Enable development mode
+canasta devmode enable -i mydev
 ```
 
-The `--dev` flag enables development mode with Xdebug. Use `--dev-tag` to specify which Canasta image tag to use:
+You can also specify a specific Canasta image tag when creating. Use `--dev-tag` to control which Canasta image tag to use:
 - Without `--dev-tag` — Uses the `latest` image (default)
 - `--dev-tag dev-branch` — Uses the specified image tag
 
-This will:
-1. Clone the Canasta stack
-2. Extract MediaWiki code to `mediawiki-code/` for live editing
-3. Build an Xdebug-enabled Docker image using the specified tag
+```bash
+canasta create -i mydev -w mywiki -n localhost -a admin --dev-tag dev-branch
+canasta devmode enable -i mydev
+```
+
+Enabling dev mode will:
+1. Extract MediaWiki code to `mediawiki-code/` for live editing
+2. Create dev mode files (Dockerfile.xdebug, docker-compose.dev.yml, xdebug.ini)
+3. Build an Xdebug-enabled Docker image
 4. Create IDE configuration files
-5. Start the installation
+5. Restart the installation with dev mode enabled
 
 ### Available image tags
 
@@ -78,16 +84,18 @@ This will:
 1. Build CanastaBase locally (if the directory exists) → `canasta-base:local`
 2. Build Canasta using the local or published base image → `canasta:local`
 3. Copy docker-compose files from local Canasta-DockerCompose (if exists) or clone from GitHub
-4. Extract MediaWiki code from the locally built image
-5. Continue with normal installation
+4. Continue with normal installation
 
 ### Combining with dev mode
 
-You can combine `--build-from` with `--dev` to build from source and enable Xdebug:
+You can enable dev mode after building from source:
 
 ```bash
-canasta create -i mydev -w mywiki -n localhost -a admin --dev --build-from ~/canasta-repos
+canasta create -i mydev -w mywiki -n localhost -a admin --build-from ~/canasta-repos
+canasta devmode enable -i mydev
 ```
+
+The dev mode enable command will detect the locally built image from the `.env` file and use it for code extraction and xdebug image building.
 
 **Note:** `--dev-tag` and `--build-from` are mutually exclusive since `--build-from` builds its own image.
 
@@ -108,43 +116,21 @@ To switch back to the upstream Canasta image:
 
 ---
 
-## Enabling dev mode on existing installations
-
-You can enable dev mode on an installation that wasn't created with `--dev`:
-
-```bash
-canasta start -i myinstance --dev
-# or
-canasta restart -i myinstance --dev
-```
-
-This will:
-1. Extract MediaWiki code to `mediawiki-code/` (if not already present)
-2. Create dev mode files (Dockerfile.xdebug, docker-compose.dev.yml, xdebug.ini)
-3. Build the xdebug-enabled image
-4. Start with dev mode compose files
-
-**Note:** If `mediawiki-code/` already exists, it will NOT be overwritten. You'll see a warning message. To regenerate the code, delete the directory first and then restart with `--dev`.
-
-**Note:** When enabling dev mode on an existing installation, the default `latest` image tag is used. To use a specific image tag, recreate the installation with `canasta create --dev --dev-tag <tag>`.
-
----
-
 ## Disabling dev mode
 
 To disable dev mode and restore normal operation:
 
 ```bash
-canasta restart -i myinstance --no-dev
+canasta devmode disable -i myinstance
 ```
 
-This starts without dev compose files (no xdebug). The dev mode files (Dockerfile.xdebug, docker-compose.dev.yml, mediawiki-code/) are left in place so you can re-enable dev mode later without re-extracting code.
+This restores extensions and skins as real directories and restarts without Xdebug. The dev mode files (Dockerfile.xdebug, docker-compose.dev.yml, mediawiki-code/) are left in place so you can re-enable dev mode later without re-extracting code.
 
 ---
 
 ## Verifying dev mode is working
 
-After creating a dev mode installation, verify the setup by running these commands from the installation directory:
+After enabling dev mode, verify the setup by running these commands from the installation directory:
 
 1. **Check containers are running with the dev image**:
    ```bash
@@ -172,7 +158,7 @@ After creating a dev mode installation, verify the setup by running these comman
 
 A `.vscode/launch.json` file is automatically created. To start debugging:
 
-1. Open the installation directory in VSCode
+1. Open the installation's root directory in VSCode (not the `mediawiki-code/` subdirectory) — the path mappings require this
 2. Install the **PHP Debug** extension (by Xdebug)
 3. Go to **Run and Debug** (Ctrl+Shift+D / Cmd+Shift+D)
 4. Select **"Listen for Xdebug"** and click the play button
@@ -183,7 +169,7 @@ A `.vscode/launch.json` file is automatically created. To start debugging:
 
 Configuration files are automatically created in the `.idea/` directory. To start debugging:
 
-1. Open the installation directory in PHPStorm
+1. Open the installation's root directory in PHPStorm (not the `mediawiki-code/` subdirectory) — the path mappings require this
 2. Go to **Run** → **Edit Configurations**
 3. The **"Listen for Xdebug"** configuration should already be available
 4. Click the **phone/listen icon** in the toolbar (or **Run** → **Start Listening for PHP Debug Connections**)
@@ -257,7 +243,7 @@ docker compose exec -e XDEBUG_TRIGGER=1 web php maintenance/run.php someScript
 
 ## Directory structure
 
-After creating a dev mode installation:
+After enabling dev mode on an installation:
 
 ```
 installation/
@@ -349,7 +335,7 @@ For IDE path mapping to work correctly, set breakpoints in files under `mediawik
 
 ### When dev mode is disabled
 
-When you disable dev mode (`canasta restart --no-dev`), the CLI:
+When you disable dev mode (`canasta devmode disable -i myinstance`), the CLI:
 1. Removes the `extensions/` symlink
 2. Copies content from `mediawiki-code/user-extensions/` back to a real `extensions/` directory
 3. Leaves `mediawiki-code/` in place (not volumed in, but available for reference)
@@ -358,7 +344,7 @@ Your user extensions are preserved in both modes.
 
 ### When dev mode is re-enabled
 
-When you re-enable dev mode (`canasta restart --dev`) after having disabled it:
+When you re-enable dev mode (`canasta devmode enable -i myinstance`) after having disabled it:
 1. Extensions in `extensions/` **take precedence** over `mediawiki-code/user-extensions/`
 2. Any changes made to `extensions/` while in non-dev mode are synced to `mediawiki-code/user-extensions/`
 3. The `extensions/` directory becomes a symlink again
@@ -438,8 +424,8 @@ canasta stop -i myinstance
 # Remove the extracted code
 rm -rf mediawiki-code/
 
-# Restart in dev mode (this will re-extract the code)
-canasta restart -i myinstance --dev
+# Re-enable dev mode (this will re-extract the code)
+canasta devmode enable -i myinstance
 ```
 
 This preserves your wikis, configuration, and database while updating the MediaWiki code.
@@ -456,5 +442,5 @@ Dev mode with Xdebug is slower than production mode due to:
 
 For performance testing, disable dev mode:
 ```bash
-canasta restart -i myinstance --no-dev
+canasta devmode disable -i myinstance
 ```

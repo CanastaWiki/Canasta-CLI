@@ -241,7 +241,7 @@ func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, d
 		return err
 	}
 
-	err = restart.Restart(instance, false, false)
+	err = restart.Restart(instance)
 	if err != nil {
 		return err
 	}

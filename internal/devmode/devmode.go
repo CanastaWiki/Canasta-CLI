@@ -236,43 +236,12 @@ func SetupDevEnvironment(installPath, baseImage string) error {
 		return fmt.Errorf("failed to update .env file: %w", err)
 	}
 
-	// Create .vscode directory and write launch.json
-	vscodeDir := filepath.Join(installPath, VSCodeDir)
-	if err := os.MkdirAll(vscodeDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .vscode directory: %w", err)
+	// Write IDE configs with current host/port from .env
+	if err := WriteIDEConfigs(installPath); err != nil {
+		return err
 	}
 
-	// Write VSCode launch.json
-	launchJsonPath := filepath.Join(vscodeDir, "launch.json")
-	if err := os.WriteFile(launchJsonPath, []byte(vscodeLaunchContent), 0644); err != nil {
-		return fmt.Errorf("failed to create VSCode launch.json: %w", err)
-	}
-
-	// Create .idea directory for PHPStorm
-	ideaDir := filepath.Join(installPath, PHPStormDir)
-	if err := os.MkdirAll(ideaDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .idea directory: %w", err)
-	}
-
-	// Create .idea/runConfigurations directory
-	runConfDir := filepath.Join(installPath, PHPStormRunConfDir)
-	if err := os.MkdirAll(runConfDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .idea/runConfigurations directory: %w", err)
-	}
-
-	// Write PHPStorm server configuration (php.xml)
-	phpXmlPath := filepath.Join(ideaDir, "php.xml")
-	if err := os.WriteFile(phpXmlPath, []byte(phpstormServerConfig), 0644); err != nil {
-		return fmt.Errorf("failed to create PHPStorm php.xml: %w", err)
-	}
-
-	// Write PHPStorm run configuration
-	runConfigPath := filepath.Join(runConfDir, "Listen_for_Xdebug.xml")
-	if err := os.WriteFile(runConfigPath, []byte(phpstormRunConfig), 0644); err != nil {
-		return fmt.Errorf("failed to create PHPStorm run configuration: %w", err)
-	}
-
-	logging.Print("Development environment configured (VSCode and PHPStorm)\n")
+	logging.Print("Development environment configured\n")
 	return nil
 }
 
@@ -328,6 +297,61 @@ func SetupFullDevMode(installPath string, orch orchestrators.Orchestrator, baseI
 	return nil
 }
 
+// WriteIDEConfigs writes VSCode and PHPStorm debug configurations.
+// It reads HTTPS_PORT and MW_SITE_FQDN from .env to set the correct host/port.
+// Safe to call multiple times — always overwrites with current values.
+func WriteIDEConfigs(installPath string) error {
+	// Read host and port from .env
+	host := "localhost"
+	port := "443"
+	envPath := filepath.Join(installPath, ".env")
+	if envContent, err := os.ReadFile(envPath); err == nil {
+		for _, line := range strings.Split(string(envContent), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "MW_SITE_FQDN=") {
+				host = strings.TrimPrefix(line, "MW_SITE_FQDN=")
+			} else if strings.HasPrefix(line, "HTTPS_PORT=") {
+				port = strings.TrimPrefix(line, "HTTPS_PORT=")
+			}
+		}
+	}
+
+	// VSCode launch.json
+	vscodeDir := filepath.Join(installPath, VSCodeDir)
+	if err := os.MkdirAll(vscodeDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .vscode directory: %w", err)
+	}
+	launchJsonPath := filepath.Join(vscodeDir, "launch.json")
+	if err := os.WriteFile(launchJsonPath, []byte(vscodeLaunchContent), 0644); err != nil {
+		return fmt.Errorf("failed to create VSCode launch.json: %w", err)
+	}
+
+	// PHPStorm php.xml — substitute host and port
+	ideaDir := filepath.Join(installPath, PHPStormDir)
+	if err := os.MkdirAll(ideaDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .idea directory: %w", err)
+	}
+	runConfDir := filepath.Join(installPath, PHPStormRunConfDir)
+	if err := os.MkdirAll(runConfDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .idea/runConfigurations directory: %w", err)
+	}
+	phpXmlContent := strings.Replace(phpstormServerConfig, `host="localhost"`, fmt.Sprintf(`host="%s"`, host), 1)
+	phpXmlContent = strings.Replace(phpXmlContent, `port="80"`, fmt.Sprintf(`port="%s"`, port), 1)
+	phpXmlPath := filepath.Join(ideaDir, "php.xml")
+	if err := os.WriteFile(phpXmlPath, []byte(phpXmlContent), 0644); err != nil {
+		return fmt.Errorf("failed to create PHPStorm php.xml: %w", err)
+	}
+
+	// PHPStorm run configuration
+	runConfigPath := filepath.Join(runConfDir, "Listen_for_Xdebug.xml")
+	if err := os.WriteFile(runConfigPath, []byte(phpstormRunConfig), 0644); err != nil {
+		return fmt.Errorf("failed to create PHPStorm run configuration: %w", err)
+	}
+
+	logging.Print(fmt.Sprintf("IDE configs written (host=%s, port=%s)\n", host, port))
+	return nil
+}
+
 // IsDevModeSetup checks if dev mode files exist in the installation
 func IsDevModeSetup(installPath string) bool {
 	devComposePath := filepath.Join(installPath, DevComposeFile)
@@ -349,11 +373,12 @@ func EnableDevMode(installPath string, orch orchestrators.Orchestrator, baseImag
 		logging.Print("Dev mode files already exist.\n")
 
 		// Even if dev mode files exist, we need to ensure symlinks are set up
-		// (they may have been converted back to real directories by --no-dev)
+		// (they may have been converted back to real directories by disable)
 		if err := ensureDevModeSymlinks(installPath, codeDir); err != nil {
 			return err
 		}
-		return nil
+		// Always refresh IDE configs so host/port stay in sync with .env
+		return WriteIDEConfigs(installPath)
 	}
 
 	// Full dev mode setup needed
