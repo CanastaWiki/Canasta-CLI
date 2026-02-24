@@ -240,7 +240,19 @@ See [Running extension maintenance scripts](general-concepts.md#running-extensio
 
 ### Enabling Elasticsearch
 
-Elasticsearch is **not started by default**. To enable it:
+Elasticsearch is **not started by default**.
+
+For a new installation, pass an env file with the setting to `canasta create`:
+
+```env
+CANASTA_ENABLE_ELASTICSEARCH=true
+```
+
+```bash
+canasta create -i myinstance -w mywiki -a admin -e custom.env
+```
+
+For an existing installation:
 
 ```bash
 canasta config set -i myinstance CANASTA_ENABLE_ELASTICSEARCH true

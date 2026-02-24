@@ -438,13 +438,11 @@ Builds Canasta (and optionally CanastaBase) from local source repositories. The 
 
 When running Canasta behind an external reverse proxy that terminates SSL and forwards requests to Canasta over HTTP (such as nginx, a cloud load balancer, or Cloudflare in "Flexible SSL" mode), you must tell Caddy to serve over HTTP only. Otherwise, Caddy will attempt to provision certificates and listen on HTTPS, causing redirect loops or connection errors.
 
-To configure this, create an env file with the `CADDY_AUTO_HTTPS` setting:
+For a new installation, create an env file with the setting and pass it to `canasta create`:
 
 ```env
 CADDY_AUTO_HTTPS=off
 ```
-
-Pass this file when creating the installation:
 
 ```bash
 canasta create -i myinstance -w main -n example.com -a admin -e custom.env
@@ -462,11 +460,11 @@ canasta config set -i myinstance CADDY_AUTO_HTTPS off
 
 ## Running on non-standard ports
 
-By default, Canasta uses ports 80 (HTTP) and 443 (HTTPS). To use different ports — for example, to run multiple Canasta installations on the same server — set port variables in the `.env` file and include the port in the domain name.
+By default, Canasta uses ports 80 (HTTP) and 443 (HTTPS). To use different ports — for example, to run multiple Canasta installations on the same server — the approach depends on whether you are creating a new installation or changing an existing one.
 
-For a new installation, pass an env file with port settings:
+### New installation
 
-Create a file called `custom.env`:
+Pass an env file with port settings to `canasta create`. Create a file called `custom.env`:
 ```env
 HTTP_PORT=8080
 HTTPS_PORT=8443
@@ -476,7 +474,9 @@ HTTPS_PORT=8443
 canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
 ```
 
-For an existing installation, use `canasta config set`. The HTTPS_PORT side effect automatically updates `config/wikis.yaml` URLs, `MW_SITE_SERVER`, and `MW_SITE_FQDN` to match:
+### Existing installation
+
+Use `canasta config set`. The HTTPS_PORT side effect automatically updates `config/wikis.yaml` URLs, `MW_SITE_SERVER`, and `MW_SITE_FQDN` to match:
 
 ```bash
 canasta config set -i myinstance --no-restart HTTP_PORT 8080
