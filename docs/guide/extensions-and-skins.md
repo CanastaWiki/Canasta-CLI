@@ -255,7 +255,7 @@ canasta create -i myinstance -w mywiki -a admin -e custom.env
 For an existing installation:
 
 ```bash
-canasta config set -i myinstance CANASTA_ENABLE_ELASTICSEARCH true
+canasta config set -i myinstance CANASTA_ENABLE_ELASTICSEARCH=true
 ```
 
 This starts the Elasticsearch container. For Docker Compose deployments, the CLI automatically syncs the `elasticsearch` profile in `COMPOSE_PROFILES`. For Kubernetes deployments, the CLI includes the Elasticsearch manifest and a `wait-for-elasticsearch` init container in the generated `kustomization.yaml`.

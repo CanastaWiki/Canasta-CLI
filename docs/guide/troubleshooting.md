@@ -120,7 +120,7 @@ docker compose exec web bash
 - This applies to both path-based and subdomain-based wikis
 
 **SSL/TLS errors when running behind a reverse proxy or load balancer**
-- If your server is already behind something that terminates SSL (e.g. Cloudflare, nginx, a cloud load balancer), Caddy's automatic HTTPS will conflict with it. Run `canasta config set -i myinstance CADDY_AUTO_HTTPS off`. See [Deploying behind a reverse proxy](general-concepts.md#deploying-behind-a-reverse-proxy) for details.
+- If your server is already behind something that terminates SSL (e.g. Cloudflare, nginx, a cloud load balancer), Caddy's automatic HTTPS will conflict with it. Run `canasta config set -i myinstance CADDY_AUTO_HTTPS=off`. See [Deploying behind a reverse proxy](general-concepts.md#deploying-behind-a-reverse-proxy) for details.
 
 **Permission denied errors**
 - Ensure your user is in the `docker` and `www-data` groups (on Linux: `sudo usermod -aG docker,www-data $USER`, then log out and back in)

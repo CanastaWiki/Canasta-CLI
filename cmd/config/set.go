@@ -44,16 +44,28 @@ var portKeys = map[string]bool{
 
 var noRestart bool
 
+// setting is a parsed KEY=VALUE pair.
+type setting struct {
+	key   string
+	value string
+}
+
 func setCmdCreate() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "set KEY VALUE",
+		Use:   "set KEY=VALUE [KEY=VALUE ...]",
 		Short: "Change a configuration setting",
-		Long: `Set a configuration value in the .env file of a Canasta installation.
+		Long: `Set one or more configuration values in the .env file of a Canasta installation.
 
-After saving the value, any side effects are applied (e.g., updating
+Each argument must be in KEY=VALUE format. Multiple settings can be changed
+in a single invocation and only one restart is performed.
+
+After saving the values, any side effects are applied (e.g., updating
 wikis.yaml when changing HTTPS_PORT) and the instance is restarted.
 Use --no-restart to skip the restart (useful for batching multiple changes).`,
-		Args: cobra.ExactArgs(2),
+		Example: `  canasta config set HTTPS_PORT=8443 -i myinstance
+  canasta config set HTTP_PORT=8080 HTTPS_PORT=8443 -i myinstance
+  canasta config set CANASTA_ENABLE_OBSERVABILITY=true -i myinstance`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			envPath := filepath.Join(instance.Path, ".env")
 			envVars, err := canasta.GetEnvVariable(envPath)
@@ -61,31 +73,46 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 				return fmt.Errorf("failed to read .env: %w", err)
 			}
 
-			key := resolveKey(envVars, args[0])
-			value := args[1]
+			// Parse all KEY=VALUE args
+			settings := make([]setting, 0, len(args))
+			for _, arg := range args {
+				eqIdx := strings.Index(arg, "=")
+				if eqIdx < 1 {
+					return fmt.Errorf("invalid argument %q: expected KEY=VALUE format", arg)
+				}
+				key := resolveKey(envVars, arg[:eqIdx])
+				value := arg[eqIdx+1:]
+				settings = append(settings, setting{key, value})
+			}
 
-			// Run validation if defined
-			if se, ok := sideEffects[key]; ok && se.validate != nil {
-				if err := se.validate(instance, value); err != nil {
-					return err
+			// Validate all before saving any
+			for _, s := range settings {
+				if se, ok := sideEffects[s.key]; ok && se.validate != nil {
+					if err := se.validate(instance, s.value); err != nil {
+						return err
+					}
 				}
 			}
 
-			// Save the value
-			if err := canasta.SaveEnvVariable(envPath, key, value); err != nil {
-				return fmt.Errorf("failed to save %s: %w", key, err)
+			// Save all values
+			for _, s := range settings {
+				if err := canasta.SaveEnvVariable(envPath, s.key, s.value); err != nil {
+					return fmt.Errorf("failed to save %s: %w", s.key, err)
+				}
+				logging.Print(fmt.Sprintf("Saved %s=%s\n", s.key, s.value))
 			}
-			logging.Print(fmt.Sprintf("Saved %s=%s\n", key, value))
 
-			// Apply side effects if defined
-			if se, ok := sideEffects[key]; ok && se.apply != nil {
-				if err := se.apply(instance, value); err != nil {
-					return fmt.Errorf("side effect for %s failed: %w", key, err)
+			// Apply side effects
+			for _, s := range settings {
+				if se, ok := sideEffects[s.key]; ok && se.apply != nil {
+					if err := se.apply(instance, s.value); err != nil {
+						return fmt.Errorf("side effect for %s failed: %w", s.key, err)
+					}
 				}
 			}
 
 			if noRestart {
-				fmt.Println("Setting saved. Restart skipped (--no-restart).")
+				fmt.Println("Settings saved. Restart skipped (--no-restart).")
 				return nil
 			}
 
@@ -97,9 +124,15 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 			if err := orch.Stop(instance); err != nil {
 				return fmt.Errorf("failed to stop instance: %w", err)
 			}
-			if portKeys[key] && instance.KindCluster != "" {
-				if err := recreateKindCluster(instance); err != nil {
-					return err
+			// Recreate kind cluster at most once if any port key changed
+			if instance.KindCluster != "" {
+				for _, s := range settings {
+					if portKeys[s.key] {
+						if err := recreateKindCluster(instance); err != nil {
+							return err
+						}
+						break
+					}
 				}
 			}
 			if err := orch.Start(instance); err != nil {

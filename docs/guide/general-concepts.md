@@ -453,7 +453,7 @@ This generates a Caddyfile with `http://` site addresses so Caddy listens on por
 For an existing installation:
 
 ```bash
-canasta config set -i myinstance CADDY_AUTO_HTTPS off
+canasta config set -i myinstance CADDY_AUTO_HTTPS=off
 ```
 
 ---
@@ -476,14 +476,11 @@ canasta create -i staging -w testwiki -n localhost:8443 -a admin -e custom.env
 
 ### Existing installation
 
-Use `canasta config set`. The HTTPS_PORT side effect automatically updates `config/wikis.yaml` URLs, `MW_SITE_SERVER`, and `MW_SITE_FQDN` to match:
+Use `canasta config set`. Multiple settings can be changed in a single command. The HTTPS_PORT side effect automatically updates `config/wikis.yaml` URLs, `MW_SITE_SERVER`, and `MW_SITE_FQDN` to match:
 
 ```bash
-canasta config set -i myinstance --no-restart HTTP_PORT 8080
-canasta config set -i myinstance HTTPS_PORT 8443
+canasta config set -i myinstance HTTP_PORT=8080 HTTPS_PORT=8443
 ```
-
-The second command triggers a restart. Use `--no-restart` on the first to batch both changes into a single restart.
 
 ### Example: multiple installations on the same machine
 
@@ -520,10 +517,9 @@ The domain name for each wiki is stored in `config/wikis.yaml`. When you change 
 2. Update the `.env` variables to match and restart:
 
    ```bash
-   canasta config set -i myinstance --no-restart MW_SITE_SERVER https://newdomain.example.com
-   canasta config set -i myinstance MW_SITE_FQDN newdomain.example.com
+   canasta config set -i myinstance MW_SITE_SERVER=https://newdomain.example.com MW_SITE_FQDN=newdomain.example.com
    ```
 
-   The second command triggers a restart, which regenerates the Caddyfile from the updated `wikis.yaml`.
+   This triggers a restart, which regenerates the Caddyfile from the updated `wikis.yaml`.
 
-If you are also changing the port, use `canasta config set HTTPS_PORT` instead — it updates `wikis.yaml`, `MW_SITE_SERVER`, and `MW_SITE_FQDN` automatically. See [Running on non-standard ports](#running-on-non-standard-ports).
+If you are also changing the port, use `canasta config set HTTPS_PORT=<port>` instead — it updates `wikis.yaml`, `MW_SITE_SERVER`, and `MW_SITE_FQDN` automatically. See [Running on non-standard ports](#running-on-non-standard-ports).

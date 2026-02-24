@@ -33,7 +33,7 @@ canasta create -i myinstance -w mywiki -a admin -e my.env
 ### Existing installations
 
 ```bash
-canasta config set -i myinstance CANASTA_ENABLE_OBSERVABILITY true
+canasta config set -i myinstance CANASTA_ENABLE_OBSERVABILITY=true
 ```
 
 This saves the setting, generates the observability credentials (`OS_USER`, `OS_PASSWORD`, `OS_PASSWORD_HASH`), and restarts the instance.
