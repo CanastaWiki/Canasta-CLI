@@ -12,6 +12,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators/kubernetes"
@@ -351,11 +352,190 @@ func (k *KubernetesOrchestrator) CopyTo(installPath, service, hostPath, containe
 }
 
 func (k *KubernetesOrchestrator) RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
-	return "", fmt.Errorf("backup is not yet supported for Kubernetes installations")
+	if err := ensureKindContext(installPath); err != nil {
+		return "", err
+	}
+
+	// Reject local repositories — K8s backups require a remote backend
+	if repo := repoFromArgs(args); repo != "" && isLocalRepo(repo) {
+		return "", fmt.Errorf("local backup repositories are not supported for Kubernetes; use a remote repository (s3:, sftp:, rest:, etc.)")
+	}
+
+	volName := backupVolumeName(installPath)
+
+	// Docker is available (required by kind), so create the staging volume
+	err, output := execute.Run("", "docker", "volume", "create", volName)
+	if err != nil {
+		return "", fmt.Errorf("failed to create backup volume: %s", output)
+	}
+
+	if len(volumes) > 0 {
+		// Sync cluster-side data (extensions, skins, images, database dumps)
+		// to the CLI host before staging into the Docker volume
+		if err := k.syncClusterDataToHost(installPath); err != nil {
+			return "", fmt.Errorf("failed to sync cluster data to host: %w", err)
+		}
+		if err := stageToVolume(volName, volumes); err != nil {
+			return "", err
+		}
+	}
+
+	return runResticDocker(installPath, envPath, volName, args...)
 }
 
 func (k *KubernetesOrchestrator) RestoreFromBackupVolume(installPath string, dirs map[string]string) error {
-	return fmt.Errorf("backup is not yet supported for Kubernetes installations")
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
+	volName := backupVolumeName(installPath)
+
+	// Copy from Docker volume to CLI host (same logic as Compose)
+	if err := restoreFromVolume(volName, installPath, dirs); err != nil {
+		return err
+	}
+
+	// Sync cluster-side data (extensions, skins, images) from CLI host to cluster
+	return k.syncHostDataToCluster(installPath)
+}
+
+// syncClusterDataToHost copies cluster-side data from the web pod to the CLI
+// host so it can be staged into the Docker backup volume. This includes:
+// - Database dumps from /mediawiki/config/backup/
+// - User extensions from /var/www/mediawiki/w/user-extensions/
+// - User skins from /var/www/mediawiki/w/user-skins/
+// - Images from /mediawiki/images/
+//
+// Uses tar to copy directory CONTENTS (not the directory itself) to avoid
+// nesting issues with kubectl cp when the target directory already exists.
+func (k *KubernetesOrchestrator) syncClusterDataToHost(installPath string) error {
+	syncs := []struct {
+		containerDir string
+		hostDir      string
+	}{
+		{"/mediawiki/config/backup", filepath.Join(installPath, "config", "backup")},
+		{"/var/www/mediawiki/w/user-extensions", filepath.Join(installPath, "extensions")},
+		{"/var/www/mediawiki/w/user-skins", filepath.Join(installPath, "skins")},
+		{"/mediawiki/images", filepath.Join(installPath, "images")},
+	}
+
+	for _, s := range syncs {
+		if err := os.MkdirAll(s.hostDir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", s.hostDir, err)
+		}
+		if err := k.copyDirContentsFrom(installPath, "web", s.containerDir, s.hostDir); err != nil {
+			return fmt.Errorf("failed to copy %s from cluster: %w", s.containerDir, err)
+		}
+	}
+	return nil
+}
+
+// syncHostDataToCluster copies restored data from the CLI host back to the
+// web pod in the cluster. Config files (.env, wikis.yaml, Caddyfile, settings/)
+// stay on the CLI host and are applied via ConfigMaps on the next kustomize apply.
+//
+// Uses tar to copy directory CONTENTS to avoid nesting issues with kubectl cp.
+func (k *KubernetesOrchestrator) syncHostDataToCluster(installPath string) error {
+	syncs := []struct {
+		hostDir      string
+		containerDir string
+	}{
+		{filepath.Join(installPath, "extensions"), "/var/www/mediawiki/w/user-extensions"},
+		{filepath.Join(installPath, "skins"), "/var/www/mediawiki/w/user-skins"},
+		{filepath.Join(installPath, "images"), "/mediawiki/images"},
+	}
+
+	for _, s := range syncs {
+		if _, err := os.Stat(s.hostDir); os.IsNotExist(err) {
+			continue
+		}
+		if err := k.copyDirContentsTo(installPath, "web", s.hostDir, s.containerDir); err != nil {
+			return fmt.Errorf("failed to copy %s to cluster: %w", s.hostDir, err)
+		}
+	}
+	return nil
+}
+
+// copyDirContentsFrom copies the CONTENTS of a container directory to a host
+// directory using tar, avoiding the nesting problem where kubectl cp copies
+// the directory itself into the target.
+func (k *KubernetesOrchestrator) copyDirContentsFrom(installPath, service, containerDir, hostDir string) error {
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
+	ns, err := getNamespaceFromPath(installPath)
+	if err != nil {
+		return err
+	}
+
+	pod, err := getRunningPod(ns, service)
+	if err != nil {
+		return err
+	}
+
+	// kubectl exec pod -- tar cf - -C /container/dir . | tar xf - -C /host/dir
+	tarCmd := exec.Command("kubectl", "exec", pod, "-n", ns,
+		"--", "tar", "cf", "-", "-C", containerDir, ".")
+	untarCmd := exec.Command("tar", "xf", "-", "-C", hostDir)
+
+	pipe, err := tarCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create pipe: %w", err)
+	}
+	untarCmd.Stdin = pipe
+
+	if err := untarCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start local tar: %w", err)
+	}
+	if err := tarCmd.Run(); err != nil {
+		return fmt.Errorf("failed to tar from container %s: %w", containerDir, err)
+	}
+	if err := untarCmd.Wait(); err != nil {
+		return fmt.Errorf("failed to extract to %s: %w", hostDir, err)
+	}
+	return nil
+}
+
+// copyDirContentsTo copies the CONTENTS of a host directory to a container
+// directory using tar, avoiding the nesting problem where kubectl cp copies
+// the directory itself into the target.
+func (k *KubernetesOrchestrator) copyDirContentsTo(installPath, service, hostDir, containerDir string) error {
+	if err := ensureKindContext(installPath); err != nil {
+		return err
+	}
+
+	ns, err := getNamespaceFromPath(installPath)
+	if err != nil {
+		return err
+	}
+
+	pod, err := getRunningPod(ns, service)
+	if err != nil {
+		return err
+	}
+
+	// tar cf - -C /host/dir . | kubectl exec -i pod -- tar xf - -C /container/dir
+	tarCmd := exec.Command("tar", "cf", "-", "-C", hostDir, ".")
+	untarCmd := exec.Command("kubectl", "exec", "-i", pod, "-n", ns,
+		"--", "tar", "xf", "-", "-C", containerDir)
+
+	pipe, err := tarCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create pipe: %w", err)
+	}
+	untarCmd.Stdin = pipe
+
+	if err := untarCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start kubectl tar: %w", err)
+	}
+	if err := tarCmd.Run(); err != nil {
+		return fmt.Errorf("failed to tar from %s: %w", hostDir, err)
+	}
+	if err := untarCmd.Wait(); err != nil {
+		return fmt.Errorf("failed to extract to container %s: %w", containerDir, err)
+	}
+	return nil
 }
 
 func (k *KubernetesOrchestrator) InitConfig(installPath string) error {

@@ -565,25 +565,14 @@ func TestGenerateKustomizationNoNodePort(t *testing.T) {
 	}
 }
 
-func TestRunBackupNotSupported(t *testing.T) {
+func TestRunBackupRejectsLocalRepo(t *testing.T) {
 	k := &KubernetesOrchestrator{}
-	_, err := k.RunBackup("/tmp", "/tmp/.env", nil)
+	_, err := k.RunBackup("/tmp/test-install", "/tmp/.env", nil, "-r", "/local/repo", "backup", "/currentsnapshot")
 	if err == nil {
-		t.Fatal("expected error from RunBackup without kustomization.yaml")
+		t.Fatal("expected error from RunBackup with local repo")
 	}
-	if !strings.Contains(err.Error(), "not yet supported") {
-		t.Errorf("RunBackup() error = %q, want 'not yet supported'", err.Error())
-	}
-}
-
-func TestRestoreFromBackupVolumeNotSupported(t *testing.T) {
-	k := &KubernetesOrchestrator{}
-	err := k.RestoreFromBackupVolume("/tmp", nil)
-	if err == nil {
-		t.Fatal("expected error from RestoreFromBackupVolume")
-	}
-	if !strings.Contains(err.Error(), "not yet supported") {
-		t.Errorf("RestoreFromBackupVolume() error = %q, want 'not yet supported'", err.Error())
+	if !strings.Contains(err.Error(), "local backup repositories are not supported") {
+		t.Errorf("RunBackup() error = %q, want 'local backup repositories are not supported'", err.Error())
 	}
 }
 
