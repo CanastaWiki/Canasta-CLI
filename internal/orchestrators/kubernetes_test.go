@@ -102,7 +102,7 @@ var expectedK8sManifests = []string{
 	"db.yaml",
 	"caddy.yaml",
 	"varnish.yaml",
-	"elasticsearch.yaml",
+	"elasticsearch.yaml", // always written to disk; conditionally included in kustomization
 }
 
 func TestWriteStackFilesCreatesManifests(t *testing.T) {
@@ -260,11 +260,15 @@ func TestInitConfigGeneratesKustomization(t *testing.T) {
 		"kubernetes/db.yaml",
 		"kubernetes/caddy.yaml",
 		"kubernetes/varnish.yaml",
-		"kubernetes/elasticsearch.yaml",
 	} {
 		if !strings.Contains(text, resource) {
 			t.Errorf("kustomization.yaml should reference %s", resource)
 		}
+	}
+
+	// Elasticsearch should NOT be included by default
+	if strings.Contains(text, "kubernetes/elasticsearch.yaml") {
+		t.Error("kustomization.yaml should not reference elasticsearch.yaml by default")
 	}
 
 	// Should reference .env (not .env.example)
@@ -692,5 +696,58 @@ func TestKubernetesMigrateConfigNoObservability(t *testing.T) {
 	}
 	if changed {
 		t.Error("expected no changes when observability is not enabled")
+	}
+}
+
+func TestGenerateKustomizationElasticsearchEnabled(t *testing.T) {
+	dir := setupTestInstallation(t, "test-wiki")
+	// Enable Elasticsearch
+	envPath := filepath.Join(dir, ".env")
+	os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_ELASTICSEARCH=true\n"), 0644)
+
+	k := &KubernetesOrchestrator{}
+	if err := k.generateKustomization(dir, false); err != nil {
+		t.Fatalf("generateKustomization() error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+
+	// Should include elasticsearch resource
+	if !strings.Contains(text, "kubernetes/elasticsearch.yaml") {
+		t.Error("kustomization.yaml should reference elasticsearch.yaml when Elasticsearch is enabled")
+	}
+
+	// Should include wait-for-elasticsearch init container patch
+	if !strings.Contains(text, "wait-for-elasticsearch") {
+		t.Error("kustomization.yaml should contain wait-for-elasticsearch init container patch")
+	}
+}
+
+func TestGenerateKustomizationElasticsearchDisabled(t *testing.T) {
+	dir := setupTestInstallation(t, "test-wiki")
+
+	k := &KubernetesOrchestrator{}
+	if err := k.generateKustomization(dir, false); err != nil {
+		t.Fatalf("generateKustomization() error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "kustomization.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+
+	// Should NOT include elasticsearch resource
+	if strings.Contains(text, "elasticsearch.yaml") {
+		t.Error("kustomization.yaml should not reference elasticsearch.yaml when Elasticsearch is disabled")
+	}
+
+	// Should NOT include wait-for-elasticsearch init container patch
+	if strings.Contains(text, "wait-for-elasticsearch") {
+		t.Error("kustomization.yaml should not contain wait-for-elasticsearch when Elasticsearch is disabled")
 	}
 }

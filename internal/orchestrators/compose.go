@@ -644,26 +644,41 @@ func getComposeImages(installPath string, compose config.Orchestrator) (map[stri
 	return images, nil
 }
 
-// syncComposeProfiles ensures COMPOSE_PROFILES includes "observable" when
-// CANASTA_ENABLE_OBSERVABILITY=true. Docker Compose requires the profile
-// variable to activate optional services.
+// syncComposeProfiles ensures COMPOSE_PROFILES includes the correct profiles
+// based on feature flags. Docker Compose requires the profile variable to
+// activate optional services.
 func syncComposeProfiles(installPath string) error {
 	envPath := filepath.Join(installPath, ".env")
 	envVars, err := canasta.GetEnvVariable(envPath)
 	if err != nil {
 		return err
 	}
-	if !canasta.IsObservabilityEnabled(envVars) {
-		return nil
-	}
-	if canasta.ContainsProfile(envVars["COMPOSE_PROFILES"], "observable") {
-		return nil
-	}
+
 	profiles := envVars["COMPOSE_PROFILES"]
-	if profiles == "" {
-		profiles = "observable"
-	} else {
-		profiles = profiles + ",observable"
+	changed := false
+
+	// Sync "observable" profile when observability is enabled
+	if canasta.IsObservabilityEnabled(envVars) && !canasta.ContainsProfile(profiles, "observable") {
+		if profiles == "" {
+			profiles = "observable"
+		} else {
+			profiles = profiles + ",observable"
+		}
+		changed = true
+	}
+
+	// Sync "elasticsearch" profile when Elasticsearch is enabled
+	if canasta.IsElasticsearchEnabled(envVars) && !canasta.ContainsProfile(profiles, "elasticsearch") {
+		if profiles == "" {
+			profiles = "elasticsearch"
+		} else {
+			profiles = profiles + ",elasticsearch"
+		}
+		changed = true
+	}
+
+	if !changed {
+		return nil
 	}
 	return canasta.SaveEnvVariable(envPath, "COMPOSE_PROFILES", profiles)
 }

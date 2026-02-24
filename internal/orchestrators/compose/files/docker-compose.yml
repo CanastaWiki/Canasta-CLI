@@ -40,8 +40,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
     environment:
       # Sourced from .env
       - MW_SITE_SERVER=${MW_SITE_SERVER:-https://localhost}
@@ -60,6 +58,8 @@ services:
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.10.2
+    profiles:
+      - elasticsearch
     restart: unless-stopped
     environment:
       - discovery.type=single-node
