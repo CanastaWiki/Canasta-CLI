@@ -22,7 +22,6 @@ import (
 )
 
 var dryRun bool
-var skipCLIUpdate bool
 
 func NewCmdCreate() *cobra.Command {
 	var upgradeCmd = &cobra.Command{
@@ -35,7 +34,7 @@ latest container images, running any necessary migrations, and restarting
 the containers.
 
 The CLI itself is also updated to the latest version before upgrading instances.
-Use --skip-cli-update to skip the CLI update if needed.
+Dev builds (compiled without version ldflags) skip the CLI self-update automatically.
 
 Use --dry-run to preview migrations without applying them.
 
@@ -47,13 +46,10 @@ distributed using the stored configuration.`,
   canasta upgrade
 
   # Preview what would change without applying
-  canasta upgrade --dry-run
-
-  # Upgrade all installations without updating the CLI
-  canasta upgrade --skip-cli-update`,
+  canasta upgrade --dry-run`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Check for CLI updates first (unless skipped or dry-run)
-			if !skipCLIUpdate && !dryRun {
+			// Check for CLI updates first (skipped automatically for dev builds and dry-run)
+			if !dryRun {
 				if _, err := selfupdate.CheckAndUpdate(); err != nil {
 					return fmt.Errorf("CLI update failed: %w", err)
 				}
@@ -64,7 +60,6 @@ distributed using the stored configuration.`,
 		},
 	}
 	upgradeCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would change without applying")
-	upgradeCmd.Flags().BoolVar(&skipCLIUpdate, "skip-cli-update", false, "Skip updating the CLI itself")
 	return upgradeCmd
 }
 
