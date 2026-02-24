@@ -36,6 +36,9 @@ the containers.
 The CLI itself is also updated to the latest version before upgrading instances.
 Dev builds (compiled without version ldflags) skip the CLI self-update automatically.
 
+If an installation fails to upgrade, the error is printed and the remaining
+installations are still upgraded. A summary at the end reports how many succeeded.
+
 Use --dry-run to preview migrations without applying them.
 
 Installations created with --build-from automatically rebuild the Canasta image

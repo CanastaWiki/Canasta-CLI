@@ -30,6 +30,8 @@ Use `--dry-run` to preview what would change without applying:
 canasta upgrade --dry-run
 ```
 
+If an installation fails to upgrade, the error is printed and the remaining installations are still upgraded. A summary at the end reports how many succeeded.
+
 ## Pre-upgrade checklist
 
 1. **Back up your data** before every upgrade:
