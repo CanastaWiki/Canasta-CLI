@@ -159,6 +159,12 @@ func (c *ComposeOrchestrator) GetDevFiles(installPath string) []string {
 }
 
 func (c *ComposeOrchestrator) Start(instance config.Installation) error {
+	// Sync COMPOSE_PROFILES before starting so that toggling feature flags
+	// in .env (e.g. CANASTA_ENABLE_ELASTICSEARCH) takes effect on restart.
+	if err := syncComposeProfiles(instance.Path); err != nil {
+		return err
+	}
+
 	var files []string
 	if instance.DevMode {
 		fmt.Println("Dev mode enabled (Xdebug active)")
@@ -575,28 +581,49 @@ func getComposeImages(installPath string, compose config.Orchestrator) (map[stri
 	return images, nil
 }
 
-// syncComposeProfiles ensures COMPOSE_PROFILES includes "observable" when
-// CANASTA_ENABLE_OBSERVABILITY=true. Docker Compose requires the profile
-// variable to activate optional services.
+// syncComposeProfiles ensures COMPOSE_PROFILES matches the feature flags in
+// .env. Profiles are added when their flag is enabled and removed when
+// disabled. Docker Compose requires the profile variable to activate
+// optional services.
 func syncComposeProfiles(installPath string) error {
 	envPath := filepath.Join(installPath, ".env")
 	envVars, err := canasta.GetEnvVariable(envPath)
 	if err != nil {
 		return err
 	}
-	if !canasta.IsObservabilityEnabled(envVars) {
-		return nil
-	}
-	if canasta.ContainsProfile(envVars["COMPOSE_PROFILES"], "observable") {
-		return nil
-	}
+
 	profiles := envVars["COMPOSE_PROFILES"]
-	if profiles == "" {
-		profiles = "observable"
-	} else {
-		profiles = profiles + ",observable"
+
+	// Managed profiles: map profile name → whether it should be present
+	managed := map[string]bool{
+		"observable":    canasta.IsObservabilityEnabled(envVars),
+		"elasticsearch": canasta.IsElasticsearchEnabled(envVars),
 	}
-	return canasta.SaveEnvVariable(envPath, "COMPOSE_PROFILES", profiles)
+
+	// Build the new profile list: keep unmanaged profiles as-is, then
+	// add/remove managed ones based on the flag state.
+	var kept []string
+	for _, p := range strings.Split(profiles, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, isManaged := managed[p]; isManaged {
+			continue // will be re-added below if enabled
+		}
+		kept = append(kept, p)
+	}
+	for _, name := range []string{"observable", "elasticsearch"} {
+		if managed[name] {
+			kept = append(kept, name)
+		}
+	}
+
+	newProfiles := strings.Join(kept, ",")
+	if newProfiles == profiles {
+		return nil
+	}
+	return canasta.SaveEnvVariable(envPath, "COMPOSE_PROFILES", newProfiles)
 }
 
 // InitConfig sets up Compose-specific configuration for a new installation.

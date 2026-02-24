@@ -610,7 +610,6 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 			"kubernetes/namespace.yaml",
 			"kubernetes/caddy.yaml",
 			"kubernetes/db.yaml",
-			"kubernetes/elasticsearch.yaml",
 			"kubernetes/varnish.yaml",
 			"kubernetes/web.yaml",
 		},
@@ -708,7 +707,15 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 		}
 	}
 
-	// 7. Image override (for local builds pushed to a registry)
+	// 7. Elasticsearch (optional)
+	if envVars, err := canasta.GetEnvVariable(envPath); err == nil {
+		if canasta.IsElasticsearchEnabled(envVars) {
+			kust.Resources = append(kust.Resources, "kubernetes/elasticsearch.yaml")
+			kust.Patches = append(kust.Patches, buildElasticsearchInitPatch())
+		}
+	}
+
+	// 8. Image override (for local builds pushed to a registry)
 	if envVars, err := canasta.GetEnvVariable(envPath); err == nil {
 		if canastaImage := envVars["CANASTA_IMAGE"]; canastaImage != "" {
 			// Parse "registry/repo:tag" into newName and newTag
@@ -850,6 +857,24 @@ spec:
         persistentVolumeClaim:
           claimName: %s
 `, deployment, deployment, logPath, pvcName, pvcName, pvcName)
+	return kustomizePatch{Patch: patch}
+}
+
+// buildElasticsearchInitPatch returns a strategic merge patch that adds the
+// wait-for-elasticsearch init container to the web deployment.
+func buildElasticsearchInitPatch() kustomizePatch {
+	patch := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  template:
+    spec:
+      initContainers:
+      - name: wait-for-elasticsearch
+        image: busybox:1.36
+        command: ['sh', '-c', 'until nc -z elasticsearch 9200; do echo "Waiting for elasticsearch..."; sleep 5; done']
+`
 	return kustomizePatch{Patch: patch}
 }
 

@@ -238,15 +238,28 @@ See [Running extension maintenance scripts](general-concepts.md#running-extensio
 
 [CirrusSearch](https://www.mediawiki.org/wiki/Extension:CirrusSearch) replaces MediaWiki's default search with Elasticsearch. Canasta includes both CirrusSearch and Elasticsearch as built-in services — Elasticsearch runs in a dedicated container alongside the web container.
 
+### Enabling Elasticsearch
+
+Elasticsearch is **not started by default**. To enable it, set `CANASTA_ENABLE_ELASTICSEARCH=true` in your installation's `.env` file and restart:
+
+```bash
+# In your installation's .env file:
+CANASTA_ENABLE_ELASTICSEARCH=true
+```
+
+```bash
+canasta restart -i myinstance
+```
+
+This starts the Elasticsearch container. For Docker Compose deployments, the CLI automatically syncs the `elasticsearch` profile in `COMPOSE_PROFILES`. For Kubernetes deployments, the CLI includes the Elasticsearch manifest and a `wait-for-elasticsearch` init container in the generated `kustomization.yaml`.
+
 ### Enabling CirrusSearch
 
-Enable the CirrusSearch and Elastica extensions:
+First, make sure Elasticsearch is enabled (see above). Then enable the CirrusSearch and Elastica extensions:
 
 ```bash
 canasta extension enable CirrusSearch,Elastica -i myinstance
 ```
-
-No additional configuration is needed. Canasta's built-in Elasticsearch container is already configured as the search backend.
 
 ### Rebuilding the search index
 

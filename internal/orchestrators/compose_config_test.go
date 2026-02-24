@@ -233,6 +233,48 @@ func TestComposeMigrateConfig_ObservableAlreadyConfigured(t *testing.T) {
 	}
 }
 
+func TestComposeInitConfig_Elasticsearch(t *testing.T) {
+	dir := setupTestInstall(t, "CANASTA_ENABLE_ELASTICSEARCH=true\n", "wikis:\n  - id: main\n    url: example.com\n")
+
+	c := &ComposeOrchestrator{}
+	if err := c.InitConfig(dir); err != nil {
+		t.Fatalf("InitConfig() error = %v", err)
+	}
+
+	// COMPOSE_PROFILES should be synced to include elasticsearch
+	envPath := filepath.Join(dir, ".env")
+	content, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("failed to read .env: %v", err)
+	}
+	env := string(content)
+	if !strings.Contains(env, "elasticsearch") {
+		t.Error("expected COMPOSE_PROFILES to include elasticsearch after sync")
+	}
+}
+
+func TestComposeInitConfig_ElasticsearchAndObservable(t *testing.T) {
+	dir := setupTestInstall(t, "CANASTA_ENABLE_ELASTICSEARCH=true\nCANASTA_ENABLE_OBSERVABILITY=true\n", "wikis:\n  - id: main\n    url: example.com\n")
+
+	c := &ComposeOrchestrator{}
+	if err := c.InitConfig(dir); err != nil {
+		t.Fatalf("InitConfig() error = %v", err)
+	}
+
+	envPath := filepath.Join(dir, ".env")
+	content, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("failed to read .env: %v", err)
+	}
+	env := string(content)
+	if !strings.Contains(env, "observable") {
+		t.Error("expected COMPOSE_PROFILES to include observable")
+	}
+	if !strings.Contains(env, "elasticsearch") {
+		t.Error("expected COMPOSE_PROFILES to include elasticsearch")
+	}
+}
+
 func TestComposeMigrateConfig_OldProfileMigration(t *testing.T) {
 	// Old-style: COMPOSE_PROFILES=web,observable but no CANASTA_ENABLE_OBSERVABILITY
 	dir := setupTestInstall(t, "COMPOSE_PROFILES=web,observable\n", "wikis:\n  - id: main\n    url: example.com\n")

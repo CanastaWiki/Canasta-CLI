@@ -385,6 +385,12 @@ func IsObservabilityEnabled(envVars map[string]string) bool {
 	return strings.EqualFold(envVars["CANASTA_ENABLE_OBSERVABILITY"], "true")
 }
 
+// IsElasticsearchEnabled returns true when CANASTA_ENABLE_ELASTICSEARCH is set
+// to "true" (case-insensitive) in the given env vars map.
+func IsElasticsearchEnabled(envVars map[string]string) bool {
+	return strings.EqualFold(envVars["CANASTA_ENABLE_ELASTICSEARCH"], "true")
+}
+
 // EnsureObservabilityCredentials checks if CANASTA_ENABLE_OBSERVABILITY=true in .env.
 // If active, it ensures OS_USER, OS_PASSWORD, and OS_PASSWORD_HASH are set.
 // Returns true if observability is enabled.
