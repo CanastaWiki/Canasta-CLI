@@ -158,7 +158,7 @@ After enabling dev mode, verify the setup by running these commands from the ins
 
 A `.vscode/launch.json` file is automatically created. To start debugging:
 
-1. Open the installation directory in VSCode
+1. Open the installation's root directory in VSCode (not the `mediawiki-code/` subdirectory) — the path mappings require this
 2. Install the **PHP Debug** extension (by Xdebug)
 3. Go to **Run and Debug** (Ctrl+Shift+D / Cmd+Shift+D)
 4. Select **"Listen for Xdebug"** and click the play button
@@ -169,7 +169,7 @@ A `.vscode/launch.json` file is automatically created. To start debugging:
 
 Configuration files are automatically created in the `.idea/` directory. To start debugging:
 
-1. Open the installation directory in PHPStorm
+1. Open the installation's root directory in PHPStorm (not the `mediawiki-code/` subdirectory) — the path mappings require this
 2. Go to **Run** → **Edit Configurations**
 3. The **"Listen for Xdebug"** configuration should already be available
 4. Click the **phone/listen icon** in the toolbar (or **Run** → **Start Listening for PHP Debug Connections**)
