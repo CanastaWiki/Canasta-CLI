@@ -240,15 +240,22 @@ See [Running extension maintenance scripts](general-concepts.md#running-extensio
 
 ### Enabling Elasticsearch
 
-Elasticsearch is **not started by default**. To enable it, set `CANASTA_ENABLE_ELASTICSEARCH=true` in your installation's `.env` file and restart:
+Elasticsearch is **not started by default**.
 
-```bash
-# In your installation's .env file:
+For a new installation, pass an env file with the setting to `canasta create`:
+
+```env
 CANASTA_ENABLE_ELASTICSEARCH=true
 ```
 
 ```bash
-canasta restart -i myinstance
+canasta create -i myinstance -w mywiki -a admin -e custom.env
+```
+
+For an existing installation:
+
+```bash
+canasta config set -i myinstance CANASTA_ENABLE_ELASTICSEARCH=true
 ```
 
 This starts the Elasticsearch container. For Docker Compose deployments, the CLI automatically syncs the `elasticsearch` profile in `COMPOSE_PROFILES`. For Kubernetes deployments, the CLI includes the Elasticsearch manifest and a `wait-for-elasticsearch` init container in the generated `kustomization.yaml`.
