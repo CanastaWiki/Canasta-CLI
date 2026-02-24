@@ -242,6 +242,8 @@ The following features are not yet available for Kubernetes installations:
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Development mode (Xdebug) | Not supported | Use Docker Compose for Xdebug debugging |
+| Backup create | Not supported | Use `kubectl exec` to run mysqldump manually |
+| Backup restore | Not supported | |
 | Backup scheduling | Not supported | Use a Kubernetes CronJob instead |
 | Remote/multi-node clusters | Not supported | Manifests use `hostPath` volumes |
 | Horizontal scaling | Limited | HPA is defined but not tested with the current volume setup |

@@ -402,7 +402,6 @@ By default, `canasta create` uses the latest published Canasta image (`ghcr.io/c
 | Use a specific published version or branch | `--canasta-image` | `--canasta-image ghcr.io/canastawiki/canasta:version-3.0.7` |
 | Use an image from a private registry | `--canasta-image` | `--canasta-image myregistry.io/canasta:v1.2.3` |
 | Test local changes to Canasta or CanastaBase | `--build-from` | `--build-from ~/canasta-repos` |
-| Enable Xdebug and live code editing | `--dev` | `--dev` (can combine with either of the above) |
 
 ### --canasta-image
 
@@ -421,15 +420,11 @@ Builds Canasta (and optionally CanastaBase) from local source repositories. The 
 
 `--canasta-image` and `--build-from` are mutually exclusive since `--build-from` builds its own image.
 
-### --dev
-
-Enables development mode with Xdebug and live code editing. This is orthogonal to image selection — you can combine `--dev` with `--canasta-image` or `--build-from`. See [Development mode](devmode.md) for details.
-
 ### Orchestrator differences
 
 **Docker Compose:** Both `--canasta-image` and `--build-from` work directly. Docker pulls or builds the image locally, and the Compose stack uses it.
 
-**Kubernetes:** `--canasta-image` works as long as the image is pullable from the cluster (i.e., it's in a public registry or one the cluster has credentials for). `--build-from` requires extra image distribution: with `--create-cluster` (kind), the image is automatically loaded into the kind cluster; without it, the image is pushed to a registry specified by `--registry` so the cluster can pull it. `--dev` is not supported on Kubernetes.
+**Kubernetes:** `--canasta-image` works as long as the image is pullable from the cluster (i.e., it's in a public registry or one the cluster has credentials for). `--build-from` requires extra image distribution: with `--create-cluster` (kind), the image is automatically loaded into the kind cluster; without it, the image is pushed to a registry specified by `--registry` so the cluster can pull it.
 
 ### Caveats
 
