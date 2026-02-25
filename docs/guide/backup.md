@@ -41,6 +41,8 @@ RESTIC_PASSWORD=your-restic-password
 
 See the [restic documentation](https://restic.readthedocs.io/en/latest/030_preparing_a_new_repo.html) for the full list of supported backends and their URL formats.
 
+> **Kubernetes installations:** Only remote backup repositories (S3, SFTP, etc.) are supported. Local filesystem paths cannot be used as backup targets with the Kubernetes orchestrator.
+
 ### 2. Initialize the repository
 
 This must be done once before creating any backups:
