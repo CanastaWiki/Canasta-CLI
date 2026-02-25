@@ -209,7 +209,7 @@ func TestImportDatabase(t *testing.T) {
 		t.Error("expected CREATE DATABASE call")
 	}
 	if !hasImport {
-		t.Error("expected import (mysql <) call")
+		t.Error("expected import (mariadb <) call")
 	}
 }
 

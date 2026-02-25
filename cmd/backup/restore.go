@@ -120,7 +120,7 @@ func restoreWiki(wikiID string, env map[string]string) error {
 
 	// Import the database
 	logging.Print(fmt.Sprintf("Restoring database for wiki '%s'...", wikiID))
-	command := fmt.Sprintf("mysql -h db -u root -p%s < %s",
+	command := fmt.Sprintf("mariadb -h db -u root -p%s < %s",
 		env["MYSQL_PASSWORD"], dumpPath(wikiID))
 	_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
 	if restoreErr != nil {
@@ -167,7 +167,7 @@ func restoreFull(env map[string]string) error {
 	}
 	for _, id := range wikiIDs {
 		logging.Print(fmt.Sprintf("Restoring database for wiki '%s'...", id))
-		command := fmt.Sprintf("mysql -h db -u root -p%s < %s",
+		command := fmt.Sprintf("mariadb -h db -u root -p%s < %s",
 			env["MYSQL_PASSWORD"], dumpPath(id))
 		_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
 		if restoreErr != nil {

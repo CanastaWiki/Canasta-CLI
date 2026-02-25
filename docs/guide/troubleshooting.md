@@ -74,10 +74,10 @@ canasta restart -i myinstance
 
 ## Accessing the database
 
-To connect to the MySQL database directly:
+To connect to the MariaDB database directly:
 ```bash
 cd /path/to/installation
-docker compose exec db mysql -u root -p
+docker compose exec db mariadb -u root -p
 ```
 Enter the root database password from your `.env` file when prompted.
 

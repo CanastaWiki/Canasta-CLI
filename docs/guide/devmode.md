@@ -363,10 +363,10 @@ This log is useful for diagnosing why breakpoints aren't being hit:
 
 ## Accessing the database
 
-To debug data issues, connect to MySQL from the installation directory:
+To debug data issues, connect to MariaDB from the installation directory:
 
 ```bash
-docker compose exec db mysql -uroot -pmediawiki
+docker compose exec db mariadb -uroot -pmediawiki
 ```
 
 Common queries:

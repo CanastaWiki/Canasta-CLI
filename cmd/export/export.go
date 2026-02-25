@@ -110,8 +110,8 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 
 	tempFile := fmt.Sprintf("/tmp/%s.sql", wikiID)
 
-	// Run mysqldump inside the db container (no --databases flag to avoid USE statements)
-	dumpCmd := fmt.Sprintf("mysqldump -u root -p'%s' %s > %s", escapedPassword, wikiID, tempFile)
+	// Run mariadb-dump inside the db container (no --databases flag to avoid USE statements)
+	dumpCmd := fmt.Sprintf("mariadb-dump -u root -p'%s' %s > %s", escapedPassword, wikiID, tempFile)
 	output, err := orch.ExecWithError(instance.Path, "db", dumpCmd)
 	if err != nil {
 		return fmt.Errorf("failed to export database: %s", output)

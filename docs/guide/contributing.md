@@ -29,7 +29,7 @@ CanastaBase (mediawiki + core extensions + skins + maintenance scripts)
   └── Canasta (additional extensions/skins, patches, extension-specific maintenance)
 ```
 
-Caddy, Varnish, MySQL, and Elasticsearch/OpenSearch run as **separate containers** alongside the Canasta web container — they are not part of the Canasta image.
+Caddy, Varnish, MariaDB, and Elasticsearch/OpenSearch run as **separate containers** alongside the Canasta web container — they are not part of the Canasta image.
 
 ---
 

@@ -19,7 +19,7 @@
 
 A wiki farm is a single Canasta installation that hosts multiple wikis. All wikis in a farm share the same MediaWiki software, Docker containers, Caddy reverse proxy, and can share global PHP settings, extensions, and skins. At the same time, each wiki has its own:
 
-- **Database** — a separate MySQL database named after the wiki ID
+- **Database** — a separate MariaDB database named after the wiki ID
 - **Image directory** — uploaded files are stored per-wiki
 - **Settings** — each wiki can have its own PHP settings files and can enable or disable extensions and skins independently
 - **Admin account** — each wiki gets its own admin user and password

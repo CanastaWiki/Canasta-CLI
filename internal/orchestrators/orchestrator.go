@@ -135,13 +135,13 @@ func ImportDatabase(orch Orchestrator, databaseName, databasePath, dbPassword st
 		}
 	}
 
-	createCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p'%s' -e 'CREATE DATABASE IF NOT EXISTS %s'", dbUser, escapedPassword, databaseName)
+	createCmdStr := fmt.Sprintf("mariadb --no-defaults -u%s -p'%s' -e 'CREATE DATABASE IF NOT EXISTS %s'", dbUser, escapedPassword, databaseName)
 	_, err = orch.ExecWithError(instance.Path, "db", createCmdStr)
 	if err != nil {
 		return fmt.Errorf("error creating database: %w", err)
 	}
 
-	importCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p'%s' %s < /tmp/%s.sql", dbUser, escapedPassword, databaseName, databaseName)
+	importCmdStr := fmt.Sprintf("mariadb --no-defaults -u%s -p'%s' %s < /tmp/%s.sql", dbUser, escapedPassword, databaseName, databaseName)
 	_, err = orch.ExecWithError(instance.Path, "db", importCmdStr)
 	if err != nil {
 		return fmt.Errorf("error importing database: %w", err)
