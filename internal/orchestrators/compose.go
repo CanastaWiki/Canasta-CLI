@@ -344,6 +344,57 @@ func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
 	return output, nil
 }
 
+func (c *ComposeOrchestrator) ListServices(instance config.Installation) ([]string, error) {
+	compose, err := c.getCompose()
+	if err != nil {
+		return nil, err
+	}
+	var cmd *exec.Cmd
+	if compose.Path != "" {
+		cmd = exec.Command(compose.Path, "ps", "--services")
+	} else {
+		cmd = exec.Command("docker", "compose", "ps", "--services")
+	}
+	cmd.Dir = instance.Path
+	outputByte, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list services: %s", strings.TrimSpace(string(outputByte)))
+	}
+	var services []string
+	for _, line := range strings.Split(strings.TrimSpace(string(outputByte)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			services = append(services, line)
+		}
+	}
+	return services, nil
+}
+
+func (c *ComposeOrchestrator) ExecInteractive(instance config.Installation, service string, command []string) error {
+	compose, err := c.getCompose()
+	if err != nil {
+		return err
+	}
+	var args []string
+	if compose.Path != "" {
+		args = append(args, "exec", service)
+		args = append(args, command...)
+		cmd := exec.Command(compose.Path, args...)
+		cmd.Dir = instance.Path
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	args = append([]string{"compose", "exec", service}, command...)
+	cmd := exec.Command("docker", args...)
+	cmd.Dir = instance.Path
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 func (c *ComposeOrchestrator) ExecWithError(installPath, service, command string) (string, error) {
 	compose, err := c.getCompose()
 	if err != nil {

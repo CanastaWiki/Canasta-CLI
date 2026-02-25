@@ -90,6 +90,12 @@ func (m *mockOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool,
 	return false, nil
 }
 
+func (m *mockOrchestrator) ListServices(instance config.Installation) ([]string, error) {
+	return nil, nil
+}
+func (m *mockOrchestrator) ExecInteractive(instance config.Installation, service string, command []string) error {
+	return nil
+}
 func (m *mockOrchestrator) Name() string              { return "Mock" }
 func (m *mockOrchestrator) SupportsDevMode() bool     { return true }
 func (m *mockOrchestrator) SupportsImagePull() bool   { return true }

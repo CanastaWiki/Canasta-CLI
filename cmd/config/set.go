@@ -21,12 +21,16 @@ import (
 type sideEffect struct {
 	validate func(instance config.Installation, value string) error
 	apply    func(instance config.Installation, value string) error
+	unapply  func(instance config.Installation) error
 }
 
 var sideEffects = map[string]sideEffect{
 	"HTTPS_PORT": {
 		validate: validatePort,
 		apply:    applyHTTPSPortChange,
+		unapply: func(inst config.Installation) error {
+			return applyHTTPSPortChange(inst, "443")
+		},
 	},
 	"HTTP_PORT": {
 		validate: validatePort,

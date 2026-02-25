@@ -741,6 +741,31 @@ func SavePasswordToFile(directory, filename, password string) error {
 }
 
 
+// DeleteEnvVariable removes a key from the .env file.
+// Returns an error if the key is not found.
+func DeleteEnvVariable(envPath, key string) error {
+	file, err := os.ReadFile(envPath)
+	if err != nil {
+		return err
+	}
+	data := string(file)
+	list := strings.Split(data, "\n")
+	found := false
+	result := make([]string, 0, len(list))
+	for _, line := range list {
+		if strings.HasPrefix(line, key+"=") {
+			found = true
+			continue
+		}
+		result = append(result, line)
+	}
+	if !found {
+		return fmt.Errorf("key %q not found in %s", key, envPath)
+	}
+	lines := strings.Join(result, "\n")
+	return ioutil.WriteFile(envPath, []byte(lines), 0644)
+}
+
 // Make changes to the .env file at the installation directory
 // If the key exists, it updates the value; if not, it appends the key=value pair
 func SaveEnvVariable(envPath, key, value string) error {

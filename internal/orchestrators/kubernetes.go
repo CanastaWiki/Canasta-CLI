@@ -221,6 +221,59 @@ func (k *KubernetesOrchestrator) Destroy(installPath string) (string, error) {
 	return string(output), nil
 }
 
+func (k *KubernetesOrchestrator) ListServices(instance config.Installation) ([]string, error) {
+	if err := ensureKindContext(instance.Path); err != nil {
+		return nil, err
+	}
+
+	ns, err := getNamespaceFromPath(instance.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command("kubectl", "get", "pods", "-n", ns,
+		"-o", fmt.Sprintf("jsonpath={range .items[*]}{.metadata.labels.%s}{\"\\n\"}{end}", podLabelKey))
+	outputByte, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list services: %s", strings.TrimSpace(string(outputByte)))
+	}
+
+	seen := make(map[string]bool)
+	var services []string
+	for _, line := range strings.Split(strings.TrimSpace(string(outputByte)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !seen[line] {
+			seen[line] = true
+			services = append(services, line)
+		}
+	}
+	return services, nil
+}
+
+func (k *KubernetesOrchestrator) ExecInteractive(instance config.Installation, service string, command []string) error {
+	if err := ensureKindContext(instance.Path); err != nil {
+		return err
+	}
+
+	ns, err := getNamespaceFromPath(instance.Path)
+	if err != nil {
+		return err
+	}
+
+	pod, err := getRunningPod(ns, service)
+	if err != nil {
+		return err
+	}
+
+	args := []string{"exec", "-it", pod, "-n", ns, "--"}
+	args = append(args, command...)
+	cmd := exec.Command("kubectl", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 func (k *KubernetesOrchestrator) ExecWithError(installPath, service, command string) (string, error) {
 	if err := ensureKindContext(installPath); err != nil {
 		return "", err

@@ -455,6 +455,12 @@ For an existing installation:
 canasta config set -i myinstance CADDY_AUTO_HTTPS=off
 ```
 
+To re-enable automatic HTTPS (e.g., if you move the wiki off the reverse proxy):
+
+```bash
+canasta config unset -i myinstance CADDY_AUTO_HTTPS
+```
+
 ---
 
 ## Running on non-standard ports
@@ -479,6 +485,12 @@ Use `canasta config set`. Multiple settings can be changed in a single command. 
 
 ```bash
 canasta config set -i myinstance HTTP_PORT=8080 HTTPS_PORT=8443
+```
+
+To revert to the default ports (80/443), remove the overrides:
+
+```bash
+canasta config unset -i myinstance HTTP_PORT HTTPS_PORT
 ```
 
 ### Example: multiple installations on the same machine
