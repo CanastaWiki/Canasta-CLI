@@ -79,7 +79,7 @@ mysqldump -u root -p wikidb > wikidb.sql
 ### 2. Create a new Canasta installation with the database dump
 
 ```bash
-canasta create -i myinstance -w mywiki -a admin -n example.com -d wikidb.sql
+canasta create -i myinstance -w mywiki -n example.com -d wikidb.sql
 ```
 
 The `-d` flag imports the SQL dump during installation. The `admin` account will be created only if it does not already exist in the imported database.

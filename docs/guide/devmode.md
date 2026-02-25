@@ -38,8 +38,7 @@ First create a Canasta installation, then enable dev mode:
 
 ```bash
 # Create an installation
-canasta create -i mydev -w mywiki -n localhost -a admin
-
+canasta create -i mydev -w mywiki -n localhost
 # Enable development mode
 canasta devmode enable -i mydev
 ```
@@ -47,7 +46,7 @@ canasta devmode enable -i mydev
 You can also specify a custom Canasta image when creating. Use `--canasta-image` to control which image to use (see [Custom Canasta images](general-concepts.md#custom-canasta-images)):
 
 ```bash
-canasta create -i mydev -w mywiki -n localhost -a admin --canasta-image ghcr.io/canastawiki/canasta:dev-branch
+canasta create -i mydev -w mywiki -n localhost--canasta-image ghcr.io/canastawiki/canasta:dev-branch
 canasta devmode enable -i mydev
 ```
 
@@ -65,7 +64,7 @@ Enabling dev mode will:
 For testing changes to Canasta or CanastaBase before they're published, you can build from local source repositories:
 
 ```bash
-canasta create -i mydev -w mywiki -n localhost -a admin --build-from ~/canasta-repos
+canasta create -i mydev -w mywiki -n localhost--build-from ~/canasta-repos
 ```
 
 The `--build-from` flag expects a directory containing:
@@ -82,7 +81,7 @@ This will:
 You can enable dev mode after building from source:
 
 ```bash
-canasta create -i mydev -w mywiki -n localhost -a admin --build-from ~/canasta-repos
+canasta create -i mydev -w mywiki -n localhost--build-from ~/canasta-repos
 canasta devmode enable -i mydev
 ```
 
