@@ -51,4 +51,5 @@ canasta create -i myinstance -w wiki1 -a admin -n localhost
 - [Observability](guide/observability.md) - Log aggregation with OpenSearch and Dashboards
 - [Sitemaps](guide/sitemaps.md) - XML sitemap generation for search engine indexing
 - [Development mode](guide/devmode.md) - Live code editing and Xdebug debugging
+- [Contributing](guide/contributing.md) - Release workflow and repository overview
 - [Troubleshooting](guide/troubleshooting.md) - Common issues and debugging

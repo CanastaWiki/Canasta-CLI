@@ -250,11 +250,11 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	if err := canasta.UpdateEnvFile(envFile, path, workingDir, canastaInfo.RootDBPassword, canastaInfo.WikiDBPassword); err != nil {
 		return err
 	}
-	// Set CANASTA_IMAGE in .env when using a non-default image (local build or --canasta-image)
-	if buildFromPath != "" || canastaImage != "" {
-		if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", baseImage); err != nil {
-			return err
-		}
+	// Always set CANASTA_IMAGE in .env so the installation is pinned to a
+	// specific image. For default installs this is the CLI's pinned version;
+	// for --canasta-image or --build-from it's the user-specified image.
+	if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", baseImage); err != nil {
+		return err
 	}
 	if err := canasta.CopySettings(path); err != nil {
 		return err
