@@ -30,7 +30,7 @@ spec:
           name: caddy-logs
           readOnly: true
         - mountPath: /var/log/mysql
-          name: mysql-logs
+          name: mariadb-logs
           readOnly: true
         - mountPath: /fluent-bit/etc/fluent-bit.conf
           name: fluent-bit-conf
@@ -47,9 +47,9 @@ spec:
         persistentVolumeClaim:
           claimName: caddy-logs
           readOnly: true
-      - name: mysql-logs
+      - name: mariadb-logs
         persistentVolumeClaim:
-          claimName: mysql-logs
+          claimName: mariadb-logs
           readOnly: true
       - name: fluent-bit-conf
         configMap:

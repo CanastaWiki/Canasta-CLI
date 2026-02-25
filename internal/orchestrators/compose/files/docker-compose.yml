@@ -14,12 +14,12 @@ x-logging: &default-logging
 
 services:
   db:
-    image: docker.io/library/mysql:8.0
+    image: docker.io/library/mariadb:11.4
     command: >
       bash -c "
         chown -R mysql:mysql /var/log/mysql &&
-        (while sleep 86400; do LOG=/var/log/mysql/error.log; test -f $$LOG && test $$(wc -c <$$LOG) -gt 10485760 && mv $$LOG $$LOG.1 && mysqladmin -u root -p$$MYSQL_ROOT_PASSWORD flush-logs 2>/dev/null; done) &
-        exec docker-entrypoint.sh mysqld --default-authentication-plugin=mysql_native_password --expire_logs_days=3 --secure-file-priv='' --log-error=/var/log/mysql/error.log
+        (while sleep 86400; do LOG=/var/log/mysql/error.log; test -f $$LOG && test $$(wc -c <$$LOG) -gt 10485760 && mv $$LOG $$LOG.1 && mariadb-admin -u root -p$$MYSQL_ROOT_PASSWORD flush-logs 2>/dev/null; done) &
+        exec docker-entrypoint.sh mariadbd --expire_logs_days=3 --secure-file-priv='' --log-error=/var/log/mysql/error.log
       "
     user: root  # Required so the entrypoint can chown /var/log/mysql before dropping to mysql
     cap_add:
@@ -30,7 +30,7 @@ services:
       - MYSQL_ROOT_HOST=%
       - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 30

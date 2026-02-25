@@ -702,7 +702,7 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 			kust.Patches = append(kust.Patches,
 				buildLogVolumePatch("web", "/var/log/mediawiki", "mediawiki-logs"),
 				buildLogVolumePatch("caddy", "/var/log/caddy", "caddy-logs"),
-				buildLogVolumePatch("db", "/var/log/mysql", "mysql-logs"),
+				buildLogVolumePatch("db", "/var/log/mysql", "mariadb-logs"),
 			)
 		}
 	}

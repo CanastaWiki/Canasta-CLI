@@ -52,7 +52,7 @@ canasta create -i myinstance -w main -n localhost -a admin
 
 Even a single-wiki installation requires a wiki ID. The wiki ID is used as:
 
-- The MySQL database name for that wiki
+- The MariaDB database name for that wiki
 - The directory name under `config/settings/wikis/`
 - The suffix in the admin password file (`config/admin-password_{wikiid}`)
 - The value passed to `-w` in commands like `canasta extension`, `canasta remove`, and `canasta export`

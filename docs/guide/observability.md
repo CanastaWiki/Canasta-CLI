@@ -1,6 +1,6 @@
 # Observability (OpenSearch + Logstash + Dashboards)
 
-Canasta includes an optional observability stack that collects logs from MediaWiki, Caddy, and MySQL and makes them searchable through OpenSearch Dashboards.
+Canasta includes an optional observability stack that collects logs from MediaWiki, Caddy, and MariaDB and makes them searchable through OpenSearch Dashboards.
 
 ## Contents
 
@@ -70,7 +70,7 @@ By default, two log sources are available immediately:
 | Index pattern | Source |
 |---------------|--------|
 | `caddy-logs-*` | Caddy reverse proxy access logs |
-| `mysql-logs-*` | MySQL error logs |
+| `mariadb-logs-*` | MariaDB error logs |
 
 The `mediawiki-logs-*` index pattern only appears if MediaWiki logging is enabled (see below).
 
@@ -136,7 +136,7 @@ If automatic creation fails, you can create patterns manually:
 1. Open **OpenSearch Dashboards** > **Stack Management** > **Index Patterns**.
 2. Create patterns for the indices that exist:
    - `caddy-logs-*`
-   - `mysql-logs-*`
+   - `mariadb-logs-*`
    - `mediawiki-logs-*` (only if MediaWiki logging is enabled)
 3. Select `@timestamp` as the time field.
 
