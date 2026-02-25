@@ -76,30 +76,43 @@ canasta restart -i myinstance
 
 To connect to the MySQL database directly:
 ```bash
-cd /path/to/installation
-docker compose exec db mysql -u root -p
+canasta maintenance exec -i myinstance -s db -- mysql -u root -p
 ```
-Enter the root database password from your `.env` file when prompted.
+Enter the root database password from your `.env` file (`MYSQL_PASSWORD`) when prompted.
 
 ---
 
 ## Running commands inside containers
 
-To run arbitrary commands inside the web container:
+Use `canasta maintenance exec` to run commands inside a running container. This works with both Docker Compose and Kubernetes installations.
+
+To list running services:
 ```bash
-cd /path/to/installation
-docker compose exec web <command>
+canasta maintenance exec -i myinstance
 ```
 
-For example, to check PHP version:
+To get a shell inside the web container:
 ```bash
-docker compose exec web php -v
+canasta maintenance exec -i myinstance -s web
 ```
 
-To get a shell inside the container:
+To run a specific command (the default service is `web`):
 ```bash
-docker compose exec web bash
+canasta maintenance exec -i myinstance -- php -v
 ```
+
+To run a command in a different container:
+```bash
+canasta maintenance exec -i myinstance -s db -- mysql -u root -p
+```
+
+!!! warning "Container changes are ephemeral"
+    Files created or modified directly inside a container are **not** persisted
+    across restarts. Only mounted volumes (`.env`, `config/`, `extensions/`,
+    `skins/`, `images/`) survive a `canasta stop`/`canasta start` cycle.
+    Use `canasta maintenance exec` for debugging and inspection, not for
+    permanent configuration changes — use `canasta config set`, settings
+    files, or `wikis.yaml` instead.
 
 ---
 
