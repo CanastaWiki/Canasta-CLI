@@ -5,18 +5,27 @@
 # THIS FILE SHOULD ONLY BE EDITED BY THE DEVELOPERS OF CANASTA
 #
 # Only edits to docker-compose.override.yml are officially supported by Canasta.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   db:
     image: docker.io/library/mysql:8.0
     command: >
       bash -c "
         chown -R mysql:mysql /var/log/mysql &&
+        (while sleep 86400; do LOG=/var/log/mysql/error.log; test -f $$LOG && test $$(wc -c <$$LOG) -gt 10485760 && mv $$LOG $$LOG.1 && mysqladmin -u root -p$$MYSQL_ROOT_PASSWORD flush-logs 2>/dev/null; done) &
         exec docker-entrypoint.sh mysqld --default-authentication-plugin=mysql_native_password --expire_logs_days=3 --secure-file-priv='' --log-error=/var/log/mysql/error.log
       "
     user: root  # Required so the entrypoint can chown /var/log/mysql before dropping to mysql
     cap_add:
       - SYS_NICE  # CAP_SYS_NICE, fix error mbind: Operation not permitted
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - MYSQL_ROOT_HOST=%
       - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
@@ -35,6 +44,7 @@ services:
   web:
     image: ${CANASTA_IMAGE:-ghcr.io/canastawiki/canasta:latest}
     restart: unless-stopped
+    logging: *default-logging
     extra_hosts:
       - "gateway.docker.internal:host-gateway"
     depends_on:
@@ -61,6 +71,7 @@ services:
     profiles:
       - elasticsearch
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
@@ -81,6 +92,7 @@ services:
   caddy:
     image: docker.io/library/caddy:2.10.2-alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
@@ -96,6 +108,7 @@ services:
   varnish:
     image: docker.io/library/varnish:7.0.2-alpine
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       web:
         condition: service_healthy
@@ -115,6 +128,7 @@ services:
     profiles:
       - observable
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
@@ -134,6 +148,7 @@ services:
     profiles:
       - observable
     restart: unless-stopped
+    logging: *default-logging
     entrypoint: >
       bash -c "mkdir -p /usr/share/logstash/data/sincedb && exec /usr/local/bin/docker-entrypoint"
     depends_on:
@@ -152,6 +167,7 @@ services:
     profiles:
       - observable
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - opensearch
     environment:
@@ -165,6 +181,7 @@ services:
     profiles:
       - observable
     restart: "no"
+    logging: *default-logging
     depends_on:
       - opensearch
       - opensearch-dashboards

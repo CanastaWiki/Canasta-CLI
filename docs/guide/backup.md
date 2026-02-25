@@ -137,6 +137,8 @@ canasta backup schedule set -i myinstance "0 */6 * * *"
 
 If you reschedule with a new expression, the existing schedule is replaced. To schedule multiple times, combine them in one expression (e.g., `"0 0 * * 2,5"` for Tuesdays and Fridays).
 
+Backup output is logged to `backup.log` in the installation directory. The log is automatically rotated when it exceeds 10 MB — the previous log is kept as `backup.log.1`.
+
 To view the current schedule:
 
 ```bash

@@ -10,6 +10,9 @@ Canasta includes an optional observability stack that collects logs from MediaWi
 - [Accessing OpenSearch Dashboards](#accessing-opensearch-dashboards)
 - [Viewing logs](#viewing-logs)
 - [Enabling MediaWiki logging](#enabling-mediawiki-logging)
+  - [Extending the defaults](#extending-the-defaults)
+  - [Full debug logging (opt-in)](#full-debug-logging-opt-in)
+  - [Log rotation](#log-rotation)
 - [Index patterns](#index-patterns)
 - [Verifying logs are flowing](#verifying-logs-are-flowing)
 - [Architecture notes](#architecture-notes)
@@ -75,16 +78,41 @@ The `mediawiki-logs-*` index pattern only appears if MediaWiki logging is enable
 
 ## Enabling MediaWiki logging
 
-By default, MediaWiki does not write log files. To enable logging, add the following to `config/settings/global/Logging.php` (or a per-wiki settings file):
+Canasta ships with production-safe default logging that captures exceptions, errors, and fatal errors to `/var/log/mediawiki/`:
+
+| Log file | Contents |
+|----------|----------|
+| `exception.log` | Uncaught exceptions |
+| `error.log` | PHP errors |
+| `fatal.log` | Fatal errors |
+
+These files are created automatically — no configuration is needed. The `mediawiki-logs-*` index pattern will appear in Dashboards once log entries are written.
+
+### Extending the defaults
+
+You can add more log groups in a settings file (e.g., `config/settings/global/Logging.php`). Any `.log` file written to `/var/log/mediawiki/` is automatically rotated, and if the observability stack is enabled, it will appear in the `mediawiki-logs-*` OpenSearch index.
 
 ```php
 <?php
-$wgDebugLogFile = "/var/log/mediawiki/debug.log";
-$wgDBerrorLog = "/var/log/mediawiki/dberror.log";
-$wgDebugLogGroups = [
-    'exception' => "/var/log/mediawiki/exception.log",
-    'error' => "/var/log/mediawiki/error.log",
-];
+// Log CirrusSearch/Elasticsearch queries
+$wgDebugLogGroups['CirrusSearch'] = '/var/log/mediawiki/cirrussearch.log';
+
+// Log ClamAV/antivirus scan results (useful for security auditing)
+$wgDebugLogGroups['UploadBase'] = '/var/log/mediawiki/uploadbase.log';
+
+// Log database errors
+$wgDBerrorLog = '/var/log/mediawiki/dberror.log';
+```
+
+See the [MediaWiki documentation](https://www.mediawiki.org/wiki/Manual:$wgDebugLogGroups) for the full list of available log groups.
+
+### Full debug logging (opt-in)
+
+For verbose debug output (not recommended for production), set `$wgDebugLogFile`:
+
+```php
+<?php
+$wgDebugLogFile = '/var/log/mediawiki/debug.log';
 ```
 
 Then restart:
@@ -93,7 +121,9 @@ Then restart:
 canasta restart -i myinstance
 ```
 
-Once log files are created, the `mediawiki-logs-*` index pattern will appear automatically in Dashboards.
+### Log rotation
+
+MediaWiki log files are rotated daily by the built-in log rotator. Rotated files are compressed and cleaned up according to `LOG_FILES_COMPRESS_DELAY` (default: 3600s) and `LOG_FILES_REMOVE_OLDER_THAN_DAYS` (default: 10). To disable rotation, set `MW_ENABLE_LOG_ROTATOR=false` in `docker-compose.override.yml`.
 
 ---
 

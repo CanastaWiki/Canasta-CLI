@@ -48,13 +48,16 @@ For more detailed debugging, you can access log files inside the container:
 
 | Log | Description | Command |
 |-----|-------------|---------|
-| MediaWiki debug | Application debug log (see below) | `docker compose exec web tail -f /var/log/mediawiki/debug.log` |
+| Exceptions | Uncaught exceptions (exists by default) | `docker compose exec web tail -f /var/log/mediawiki/exception.log` |
+| Errors | PHP errors (exists by default) | `docker compose exec web tail -f /var/log/mediawiki/error.log` |
+| Fatal errors | Fatal errors (exists by default) | `docker compose exec web tail -f /var/log/mediawiki/fatal.log` |
+| MediaWiki debug | Verbose debug log (opt-in, see below) | `docker compose exec web tail -f /var/log/mediawiki/debug.log` |
 | Apache error | PHP errors and Apache warnings | `docker compose exec web tail -f /var/log/apache2/error_log.current` |
 | Apache access | HTTP request log | `docker compose exec web tail -f /var/log/apache2/access_log.current` |
 
 ### Enabling the MediaWiki debug log
 
-The MediaWiki debug log is the most useful log for debugging application issues, but it requires explicit configuration. Add this to a settings file (e.g., `config/settings/global/Debug.php`):
+The exception, error, and fatal log files are created automatically. For more verbose debugging, enable the full debug log by adding this to a settings file (e.g., `config/settings/global/Debug.php`):
 
 ```php
 <?php

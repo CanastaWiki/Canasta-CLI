@@ -122,7 +122,8 @@ func scheduleBackup(cronExpression string) error {
 	}
 
 	logPath := filepath.Join(instance.Path, "backup.log")
-	cmdStr := fmt.Sprintf("%s %s backup create -i %s --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> %s 2>&1", cronExpression, executable, instance.Id, logPath)
+	rotateCmd := fmt.Sprintf("find %s -size +10M -exec mv {} %s.1 \\;", logPath, logPath)
+	cmdStr := fmt.Sprintf("%s %s && %s backup create -i %s --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> %s 2>&1", cronExpression, rotateCmd, executable, instance.Id, logPath)
 
 	logging.Print(fmt.Sprintf("Scheduling backup with cron: %s", cronExpression))
 
