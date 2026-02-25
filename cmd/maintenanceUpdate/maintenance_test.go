@@ -19,7 +19,7 @@ func findSubcommand(parent interface{ Commands() []*cobra.Command }, name string
 func TestMaintenanceSubcommands(t *testing.T) {
 	cmd := NewCmdCreate()
 
-	expected := []string{"update", "script", "extension"}
+	expected := []string{"update", "script", "extension", "exec"}
 	for _, name := range expected {
 		if findSubcommand(cmd, name) == nil {
 			t.Errorf("expected subcommand %q not found", name)

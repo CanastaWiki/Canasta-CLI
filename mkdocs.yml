@@ -87,11 +87,17 @@ nav:
       - list: cli/canasta_skin_list.md
       - enable: cli/canasta_skin_enable.md
       - disable: cli/canasta_skin_disable.md
+    - config:
+      - Overview: cli/canasta_config.md
+      - get: cli/canasta_config_get.md
+      - set: cli/canasta_config_set.md
+      - unset: cli/canasta_config_unset.md
     - maintenance:
       - Overview: cli/canasta_maintenance.md
       - update: cli/canasta_maintenance_update.md
       - script: cli/canasta_maintenance_script.md
       - extension: cli/canasta_maintenance_extension.md
+      - exec: cli/canasta_maintenance_exec.md
     - backup:
       - Overview: cli/canasta_backup.md
       - init: cli/canasta_backup_init.md

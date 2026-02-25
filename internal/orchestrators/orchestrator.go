@@ -41,6 +41,13 @@ type Orchestrator interface {
 	// "canasta upgrade". Returns true if any changes were made.
 	MigrateConfig(installPath string, dryRun bool) (bool, error)
 
+	// ListServices returns the names of running services for the installation.
+	ListServices(instance config.Installation) ([]string, error)
+
+	// ExecInteractive runs an interactive command in a service container with
+	// stdin/stdout/stderr attached. If command is nil, defaults to a shell.
+	ExecInteractive(instance config.Installation, service string, command []string) error
+
 	// Name returns a human-readable name for the orchestrator (e.g. "Docker Compose").
 	Name() string
 

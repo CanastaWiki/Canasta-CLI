@@ -89,6 +89,7 @@ To change the domain, edit config/wikis.yaml instead.`,
 
 	configCmd.AddCommand(getCmdCreate())
 	configCmd.AddCommand(setCmdCreate())
+	configCmd.AddCommand(unsetCmdCreate())
 
 	return configCmd
 }
