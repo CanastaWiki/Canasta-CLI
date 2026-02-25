@@ -6,7 +6,7 @@ Canasta includes backup and restore support powered by [restic](https://restic.n
 
 Each backup includes:
 
-- **Database** — a full MySQL dump of each wiki's database
+- **Database** — a full MariaDB dump of each wiki's database
 - **Configuration** — the `config/` directory (Caddyfile, settings, wikis.yaml)
 - **Extensions and skins** — the `extensions/` and `skins/` directories
 - **Uploaded files** — the `images/` directory
