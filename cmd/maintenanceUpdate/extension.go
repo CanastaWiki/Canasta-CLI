@@ -128,7 +128,7 @@ func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst con
 
 	// Find extensions with maintenance directories
 	cmd := `find extensions/ canasta-extensions/ -maxdepth 2 -name maintenance -type d 2>/dev/null`
-	output, _ := orch.ExecWithError(inst.Path, "web", cmd)
+	output, _ := orch.ExecWithError(inst.Path, orchestrators.ServiceWeb, cmd)
 
 	names := parseExtensionNames(output)
 
@@ -196,7 +196,7 @@ func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Insta
 	checkCmd := fmt.Sprintf(
 		`test -d extensions/%s/maintenance && echo exists || test -d canasta-extensions/%s/maintenance && echo exists`,
 		extName, extName)
-	checkOutput, _ := orch.ExecWithError(inst.Path, "web", checkCmd)
+	checkOutput, _ := orch.ExecWithError(inst.Path, orchestrators.ServiceWeb, checkCmd)
 	if !strings.Contains(checkOutput, "exists") {
 		return fmt.Errorf("extension %q has no maintenance directory", extName)
 	}
@@ -204,7 +204,7 @@ func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Insta
 	cmd := fmt.Sprintf(
 		`find extensions/%s/maintenance/ canasta-extensions/%s/maintenance/ -maxdepth 1 -name '*.php' -type f 2>/dev/null`,
 		extName, extName)
-	output, _ := orch.ExecWithError(inst.Path, "web", cmd)
+	output, _ := orch.ExecWithError(inst.Path, orchestrators.ServiceWeb, cmd)
 
 	scripts := parseScriptNames(output)
 	if len(scripts) == 0 {
@@ -272,7 +272,7 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 	extPath := ""
 	for _, prefix := range []string{"extensions", "canasta-extensions"} {
 		checkCmd := fmt.Sprintf("test -d %s/%s/maintenance && echo exists", prefix, extName)
-		checkOutput, _ := orch.ExecWithError(inst.Path, "web", checkCmd)
+		checkOutput, _ := orch.ExecWithError(inst.Path, orchestrators.ServiceWeb, checkCmd)
 		if strings.Contains(checkOutput, "exists") {
 			extPath = prefix + "/" + extName
 			break
@@ -292,7 +292,7 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 	cmd := "php " + extPath + "/maintenance/" + cleanedScript + wikiFlag
 
 	fmt.Printf("Running %s%s...\n", cleanedScript, wikiMsg)
-	if err := orch.ExecStreaming(inst.Path, "web", cmd); err != nil {
+	if err := orch.ExecStreaming(inst.Path, orchestrators.ServiceWeb, cmd); err != nil {
 		return fmt.Errorf("%s failed%s: %v", cleanedScript, wikiMsg, err)
 	}
 
@@ -346,7 +346,7 @@ func getLoadedExtensions(orch orchestrators.Orchestrator, installPath, wikiID st
 	cmd := fmt.Sprintf(
 		`echo 'echo implode(PHP_EOL, array_keys(ExtensionRegistry::getInstance()->getAllThings()));' | php maintenance/eval.php --wiki=%s 2>/dev/null`,
 		wikiID)
-	output, err := orch.ExecWithError(installPath, "web", cmd)
+	output, err := orch.ExecWithError(installPath, orchestrators.ServiceWeb, cmd)
 	if err != nil {
 		return nil, err
 	}

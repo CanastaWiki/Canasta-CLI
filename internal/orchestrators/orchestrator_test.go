@@ -129,7 +129,7 @@ func TestNew(t *testing.T) {
 
 func TestExec(t *testing.T) {
 	mock := &mockOrchestrator{execOutput: "success output"}
-	output, err := Exec(mock, "/tmp/test", "web", "php test.php")
+	output, err := Exec(mock, "/tmp/test", ServiceWeb, "php test.php")
 	if err != nil {
 		t.Fatalf("Exec() error = %v", err)
 	}
@@ -143,7 +143,7 @@ func TestExecError(t *testing.T) {
 		execOutput: "error details",
 		execErr:    fmt.Errorf("command failed"),
 	}
-	_, err := Exec(mock, "/tmp/test", "web", "php test.php")
+	_, err := Exec(mock, "/tmp/test", ServiceWeb, "php test.php")
 	if err == nil {
 		t.Fatal("expected error from Exec")
 	}

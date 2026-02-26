@@ -91,7 +91,7 @@ func Delete(instance config.Installation) error {
 	} else {
 		// Clean up images from inside the container before stopping
 		cleanupCmd := "find /mediawiki/images -mindepth 1 -delete"
-		if _, err := orch.ExecWithError(instance.Path, "web", cleanupCmd); err != nil {
+		if _, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, cleanupCmd); err != nil {
 			logging.Print(fmt.Sprintf("Warning: could not clean up images: %v\n", err))
 		}
 	}

@@ -96,7 +96,7 @@ func runGenerate(instance config.Installation, orch orchestrators.Orchestrator, 
 
 		// Create the sitemap directory
 		mkdirCmd := fmt.Sprintf("mkdir -p %s && chown www-data:www-data %s", fspath, fspath)
-		if _, err := orch.ExecWithError(instance.Path, "web", mkdirCmd); err != nil {
+		if _, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, mkdirCmd); err != nil {
 			return fmt.Errorf("failed to create sitemap directory for wiki '%s': %w", wiki.id, err)
 		}
 
@@ -106,7 +106,7 @@ func runGenerate(instance config.Installation, orch orchestrators.Orchestrator, 
 			"php maintenance/generateSitemap.php --wiki=%s --fspath=%s --urlpath=/public_assets/sitemap --compress yes --server=%s --skip-redirects --identifier=%s",
 			wiki.id, fspath, serverURL, wiki.id,
 		)
-		if err := orch.ExecStreaming(instance.Path, "web", genCmd); err != nil {
+		if err := orch.ExecStreaming(instance.Path, orchestrators.ServiceWeb, genCmd); err != nil {
 			return fmt.Errorf("failed to generate sitemap for wiki '%s': %w", wiki.id, err)
 		}
 		fmt.Printf("Sitemap generated for wiki '%s'.\n", wiki.id)

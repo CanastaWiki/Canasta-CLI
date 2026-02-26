@@ -227,7 +227,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 
 		// Touch LocalSettings.php to flush cache
 		fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
-		_, err = orch.ExecWithError(instance.Path, "web", "touch LocalSettings.php")
+		_, err = orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, "touch LocalSettings.php")
 		if err != nil {
 			return err
 		}

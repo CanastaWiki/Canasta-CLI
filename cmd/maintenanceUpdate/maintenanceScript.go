@@ -63,7 +63,7 @@ func listMaintenanceScriptsWith(orch orchestrators.Orchestrator, inst config.Ins
 	}
 
 	cmd := `find maintenance/ -maxdepth 1 -name '*.php' -type f 2>/dev/null`
-	output, _ := orch.ExecWithError(inst.Path, "web", cmd)
+	output, _ := orch.ExecWithError(inst.Path, orchestrators.ServiceWeb, cmd)
 
 	scripts := parseScriptNames(output)
 	if len(scripts) == 0 {
@@ -103,7 +103,7 @@ func runMaintenanceScriptWith(orch orchestrators.Orchestrator, inst config.Insta
 		wikiFlag = " --wiki=" + resolvedWiki
 	}
 	fmt.Println("Running maintenance script " + cleanedScript)
-	if err := orch.ExecStreaming(inst.Path, "web",
+	if err := orch.ExecStreaming(inst.Path, orchestrators.ServiceWeb,
 		"php maintenance/"+cleanedScript+wikiFlag); err != nil {
 		return fmt.Errorf("maintenance script failed: %v", err)
 	}

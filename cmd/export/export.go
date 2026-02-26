@@ -109,7 +109,7 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 
 	// Run mysqldump inside the db container (no --databases flag to avoid USE statements)
 	dumpCmd := fmt.Sprintf("mysqldump -u root -p%s %s > %s", orchestrators.ShellQuote(dbPassword), wikiID, tempFile)
-	output, err := orch.ExecWithError(instance.Path, "db", dumpCmd)
+	output, err := orch.ExecWithError(instance.Path, orchestrators.ServiceDB, dumpCmd)
 	if err != nil {
 		return fmt.Errorf("failed to export database: %s", output)
 	}
@@ -118,7 +118,7 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 	copyFile := tempFile
 	if strings.HasSuffix(outputPath, ".gz") {
 		gzipCmd := fmt.Sprintf("gzip -f %s", tempFile)
-		output, err = orch.ExecWithError(instance.Path, "db", gzipCmd)
+		output, err = orch.ExecWithError(instance.Path, orchestrators.ServiceDB, gzipCmd)
 		if err != nil {
 			return fmt.Errorf("failed to compress export file: %s", output)
 		}
@@ -126,14 +126,14 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 	}
 
 	// Copy the dump file from the container to the host
-	err = orch.CopyFrom(instance.Path, "db", copyFile, outputPath)
+	err = orch.CopyFrom(instance.Path, orchestrators.ServiceDB, copyFile, outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to copy export file from container: %w", err)
 	}
 
 	// Clean up temp files in the container
 	rmCmd := fmt.Sprintf("rm -f %s %s.gz", tempFile, tempFile)
-	_, _ = orch.ExecWithError(instance.Path, "db", rmCmd)
+	_, _ = orch.ExecWithError(instance.Path, orchestrators.ServiceDB, rmCmd)
 
 	return nil
 }
