@@ -123,7 +123,7 @@ func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, 
 	// Import the database
 	logging.Print(fmt.Sprintf("Restoring database for wiki '%s'...", wikiID))
 	command := fmt.Sprintf("mysql -h db -u root -p%s < %s",
-		env["MYSQL_PASSWORD"], dumpPath(wikiID))
+		orchestrators.ShellQuote(env["MYSQL_PASSWORD"]), dumpPath(wikiID))
 	_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
 	if restoreErr != nil {
 		os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
@@ -170,7 +170,7 @@ func restoreFull(orch orchestrators.Orchestrator, instance config.Installation, 
 	for _, id := range wikiIDs {
 		logging.Print(fmt.Sprintf("Restoring database for wiki '%s'...", id))
 		command := fmt.Sprintf("mysql -h db -u root -p%s < %s",
-			env["MYSQL_PASSWORD"], dumpPath(id))
+			orchestrators.ShellQuote(env["MYSQL_PASSWORD"]), dumpPath(id))
 		_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
 		if restoreErr != nil {
 			return fmt.Errorf("Database restore failed for wiki '%s': %w", id, restoreErr)

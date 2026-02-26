@@ -61,8 +61,8 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 		domainName := domainNames[i]
 
 		// Unset MW_SECRET_KEY so CanastaDefaultSettings.php doesn't think wiki is already configured
-		installCmd := fmt.Sprintf("env -u MW_SECRET_KEY php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
-			dbServer, wikiID, confPath, scriptPath, domainName, "root", canastaInfo.RootDBPassword, canastaInfo.WikiDBUsername, canastaInfo.WikiDBPassword, canastaInfo.AdminPassword, wikiID, canastaInfo.AdminName)
+		installCmd := fmt.Sprintf("env -u MW_SECRET_KEY php maintenance/install.php --skins='Vector' --dbserver=%s --dbname=%s --confpath=%s --scriptpath=%s --server=%s --installdbuser='%s' --installdbpass=%s --dbuser='%s' --dbpass=%s --pass=%s %s %s",
+			dbServer, orchestrators.ShellQuote(wikiID), confPath, scriptPath, orchestrators.ShellQuote("https://"+domainName), "root", orchestrators.ShellQuote(canastaInfo.RootDBPassword), canastaInfo.WikiDBUsername, orchestrators.ShellQuote(canastaInfo.WikiDBPassword), orchestrators.ShellQuote(canastaInfo.AdminPassword), orchestrators.ShellQuote(wikiID), orchestrators.ShellQuote(canastaInfo.AdminName))
 
 		output, err := orch.ExecWithError(path, "web", installCmd)
 		if err != nil {
@@ -217,8 +217,8 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	} else {
 		installCmd = "php maintenance/install.php"
 	}
-	command := fmt.Sprintf("%s --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
-		installCmd, dbServer, id, confPath, scriptPath, domain, installdbuser, installdbpass, dbuser, dbpass, adminPassword, id, admin)
+	command := fmt.Sprintf("%s --skins='Vector' --dbserver=%s --dbname=%s --confpath=%s --scriptpath=%s --server=%s --installdbuser='%s' --installdbpass=%s --dbuser='%s' --dbpass=%s --pass=%s %s %s",
+		installCmd, dbServer, orchestrators.ShellQuote(id), confPath, scriptPath, orchestrators.ShellQuote("https://"+domain), installdbuser, orchestrators.ShellQuote(installdbpass), dbuser, orchestrators.ShellQuote(dbpass), orchestrators.ShellQuote(adminPassword), orchestrators.ShellQuote(id), orchestrators.ShellQuote(admin))
 	output, err := orch.ExecWithError(installPath, "web", command)
 	if err != nil {
 		return fmt.Errorf("failed to run install.php for wiki %q: %s", id, output)
@@ -262,7 +262,7 @@ func RemoveDatabase(installPath, id string, orch orchestrators.Orchestrator) err
 	if err != nil {
 		return err
 	}
-	command := fmt.Sprintf("echo 'DROP DATABASE IF EXISTS %s;' | mysql -h db -u root -p'%s'", id, envVariables["MYSQL_PASSWORD"])
+	command := fmt.Sprintf("echo 'DROP DATABASE IF EXISTS %s;' | mysql -h db -u root -p%s", id, orchestrators.ShellQuote(envVariables["MYSQL_PASSWORD"]))
 	output, err := orch.ExecWithError(installPath, "db", command)
 	if err != nil {
 		return fmt.Errorf("Error while dropping database '%s': %v. Output: %s", id, err, output)
