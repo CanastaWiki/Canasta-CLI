@@ -2,8 +2,8 @@ package config
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -223,7 +223,7 @@ func applyHTTPSPortChange(inst config.Installation, newPort string) error {
 	envPath := filepath.Join(inst.Path, ".env")
 
 	// Read wikis.yaml
-	data, err := ioutil.ReadFile(wikisPath)
+	data, err := os.ReadFile(wikisPath)
 	if err != nil {
 		return fmt.Errorf("failed to read wikis.yaml: %w", err)
 	}
@@ -242,7 +242,7 @@ func applyHTTPSPortChange(inst config.Installation, newPort string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal wikis.yaml: %w", err)
 	}
-	if err := ioutil.WriteFile(wikisPath, out, 0644); err != nil {
+	if err := os.WriteFile(wikisPath, out, 0644); err != nil {
 		return fmt.Errorf("failed to write wikis.yaml: %w", err)
 	}
 	logging.Print("Updated wikis.yaml with new port\n")

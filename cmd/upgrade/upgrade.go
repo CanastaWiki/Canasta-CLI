@@ -337,7 +337,7 @@ func extractSecretKey(installPath string, dryRun bool) (bool, error) {
 	wikiIDs, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err == nil {
 		for _, wikiID := range wikiIDs {
-			id := strings.Replace(wikiID, " ", "_", -1)
+			id := strings.ReplaceAll(wikiID, " ", "_")
 			id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
 			// Check new path first, fall back to legacy (same pattern as canasta.go)
 			newPath := filepath.Join(installPath, "config", "settings", "wikis", id, "LocalSettings.php")
@@ -409,7 +409,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 
 	for _, wikiID := range wikiIDs {
 		// Normalize wikiID (same as in canasta.go)
-		id := strings.Replace(wikiID, " ", "_", -1)
+		id := strings.ReplaceAll(wikiID, " ", "_")
 		id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
 
 		legacyPath := filepath.Join(installPath, "config", id)
@@ -423,7 +423,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 				} else {
 					fmt.Printf("  Moving %s -> %s\n", legacyPath, newPath)
 					// Create parent directory
-					if err := os.MkdirAll(filepath.Dir(newPath), os.ModePerm); err != nil {
+					if err := os.MkdirAll(filepath.Dir(newPath), 0755); err != nil {
 						return false, fmt.Errorf("failed to create directory: %w", err)
 					}
 					// Move directory
@@ -454,7 +454,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 					} else {
 						fmt.Printf("  Moving %s -> %s\n", legacyFile, newFile)
 						// Create global directory if needed
-						if err := os.MkdirAll(globalPath, os.ModePerm); err != nil {
+						if err := os.MkdirAll(globalPath, 0755); err != nil {
 							return false, fmt.Errorf("failed to create directory: %w", err)
 						}
 						// Move file

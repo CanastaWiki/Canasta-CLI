@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -325,7 +324,7 @@ func write(details Canasta) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(confFile, file, 0644)
+	return os.WriteFile(confFile, file, 0644)
 }
 
 func read(details *Canasta) error {
