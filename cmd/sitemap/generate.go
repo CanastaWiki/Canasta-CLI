@@ -7,10 +7,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func generateCmdCreate() *cobra.Command {
+func newGenerateCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
 	var wikiID string
 
 	cmd := &cobra.Command{
@@ -26,7 +28,7 @@ generator will automatically refresh them.`,
   # Generate sitemaps for all wikis
   canasta sitemap generate -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGenerate(wikiID)
+			return runGenerate(*instance, *orch, wikiID)
 		},
 	}
 
@@ -35,7 +37,7 @@ generator will automatically refresh them.`,
 	return cmd
 }
 
-func runGenerate(wikiID string) error {
+func runGenerate(instance config.Installation, orch orchestrators.Orchestrator, wikiID string) error {
 	// Check containers are running
 	if err := orch.CheckRunningStatus(instance); err != nil {
 		return fmt.Errorf("containers are not running: %w", err)

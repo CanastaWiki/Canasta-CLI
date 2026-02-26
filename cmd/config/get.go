@@ -9,9 +9,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 )
 
-func getCmdCreate() *cobra.Command {
+func newGetCmd(instance *config.Installation) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "get [KEY]",

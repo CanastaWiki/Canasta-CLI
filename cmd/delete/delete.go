@@ -17,9 +17,8 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 )
 
-var instance config.Installation
-
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
+	var instance config.Installation
 	workingDir, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)

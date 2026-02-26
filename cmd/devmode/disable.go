@@ -8,9 +8,10 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	devmodePkg "github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func disableCmdCreate() *cobra.Command {
+func newDisableCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
 	return &cobra.Command{
 		Use:   "disable",
 		Short: "Disable development mode",
@@ -31,19 +32,19 @@ re-extracting code.`,
 			// Update config registry
 			instance.DevMode = false
 			if instance.Id != "" {
-				if err := config.Update(instance); err != nil {
+				if err := config.Update(*instance); err != nil {
 					logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
 				}
 			}
 
 			// Regenerate orchestrator config and restart
-			if err := orch.UpdateConfig(instance.Path); err != nil {
+			if err := (*orch).UpdateConfig(instance.Path); err != nil {
 				return err
 			}
-			if err := orch.Stop(instance); err != nil {
+			if err := (*orch).Stop(*instance); err != nil {
 				return err
 			}
-			if err := orch.Start(instance); err != nil {
+			if err := (*orch).Start(*instance); err != nil {
 				return err
 			}
 

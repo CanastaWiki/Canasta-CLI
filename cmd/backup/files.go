@@ -4,9 +4,13 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func filesCmdCreate() *cobra.Command {
+func newFilesCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
+	var snapshot string
 
 	filesCmd := &cobra.Command{
 		Use:   "files",
@@ -15,19 +19,15 @@ func filesCmdCreate() *cobra.Command {
 for inspecting what was backed up before performing a restore.`,
 		Example: `  canasta backup files -i myinstance -s abc123`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return listFiles()
+			output, err := runBackup(*orch, instance.Path, *envPath, nil, "-r", *repoURL, "ls", snapshot)
+			if err != nil {
+				return err
+			}
+			fmt.Print(output)
+			return nil
 		},
 	}
 	filesCmd.Flags().StringVarP(&snapshot, "snapshot", "s", "", "Snapshot ID (required)")
 	_ = filesCmd.MarkFlagRequired("snapshot")
 	return filesCmd
-}
-
-func listFiles() error {
-	output, err := runBackup(nil, "-r", repoURL, "ls", snapshot)
-	if err != nil {
-		return err
-	}
-	fmt.Print(output)
-	return nil
 }

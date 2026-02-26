@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func scriptCmdCreate() *cobra.Command {
+func newScriptCmd() *cobra.Command {
 
 	scriptCmd := &cobra.Command{
 		Use:   `script ["scriptname.php [args]"]`,

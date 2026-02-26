@@ -15,7 +15,7 @@ var (
 	err      error
 )
 
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
 		log.Fatal(wdErr)
@@ -30,10 +30,10 @@ group provides subcommands to run the standard update sequence, execute
 arbitrary core maintenance scripts, or run extension-specific maintenance scripts.`,
 	}
 
-	maintenanceCmd.AddCommand(updateCmdCreate())
-	maintenanceCmd.AddCommand(scriptCmdCreate())
-	maintenanceCmd.AddCommand(extensionCmdCreate())
-	maintenanceCmd.AddCommand(execCmdCreate())
+	maintenanceCmd.AddCommand(newUpdateCmd())
+	maintenanceCmd.AddCommand(newScriptCmd())
+	maintenanceCmd.AddCommand(newExtensionCmd())
+	maintenanceCmd.AddCommand(newExecCmd())
 
 	maintenanceCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	maintenanceCmd.PersistentFlags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on")

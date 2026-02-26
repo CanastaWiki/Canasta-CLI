@@ -94,16 +94,15 @@ func isKnownKey(key string) bool {
 	return false
 }
 
-var noRestart bool
-
 // setting is a parsed KEY=VALUE pair.
 type setting struct {
 	key   string
 	value string
 }
 
-func setCmdCreate() *cobra.Command {
+func newSetCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
 	var force bool
+	var noRestart bool
 	cmd := &cobra.Command{
 		Use:   "set KEY=VALUE [KEY=VALUE ...]",
 		Short: "Change a configuration setting",
@@ -150,7 +149,7 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 			// Validate all before saving any
 			for _, s := range settings {
 				if se, ok := sideEffects[s.key]; ok && se.validate != nil {
-					if err := se.validate(instance, s.value); err != nil {
+					if err := se.validate(*instance, s.value); err != nil {
 						return err
 					}
 				}
@@ -167,7 +166,7 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 			// Apply side effects
 			for _, s := range settings {
 				if se, ok := sideEffects[s.key]; ok && se.apply != nil {
-					if err := se.apply(instance, s.value); err != nil {
+					if err := se.apply(*instance, s.value); err != nil {
 						return fmt.Errorf("side effect for %s failed: %w", s.key, err)
 					}
 				}
@@ -180,24 +179,24 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 
 			// Restart: UpdateConfig → Stop → (recreate kind cluster if needed) → Start
 			fmt.Println("Applying configuration and restarting...")
-			if err := orch.UpdateConfig(instance.Path); err != nil {
+			if err := (*orch).UpdateConfig(instance.Path); err != nil {
 				return fmt.Errorf("failed to update config: %w", err)
 			}
-			if err := orch.Stop(instance); err != nil {
+			if err := (*orch).Stop(*instance); err != nil {
 				return fmt.Errorf("failed to stop instance: %w", err)
 			}
 			// Recreate kind cluster at most once if any port key changed
 			if instance.KindCluster != "" {
 				for _, s := range settings {
 					if portKeys[s.key] {
-						if err := recreateKindCluster(instance); err != nil {
+						if err := recreateKindCluster(*instance); err != nil {
 							return err
 						}
 						break
 					}
 				}
 			}
-			if err := orch.Start(instance); err != nil {
+			if err := (*orch).Start(*instance); err != nil {
 				return fmt.Errorf("failed to start instance: %w", err)
 			}
 			fmt.Println("Done.")

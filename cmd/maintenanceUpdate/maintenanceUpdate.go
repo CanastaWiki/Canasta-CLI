@@ -18,7 +18,7 @@ var (
 	skipSMW  bool
 )
 
-func updateCmdCreate() *cobra.Command {
+func newUpdateCmd() *cobra.Command {
 
 	updateCmd := &cobra.Command{
 		Use:   "update",

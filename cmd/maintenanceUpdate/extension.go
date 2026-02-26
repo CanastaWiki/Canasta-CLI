@@ -17,7 +17,7 @@ import (
 // wikiArgRe matches --wiki=value or --wiki value in a script argument string.
 var wikiArgRe = regexp.MustCompile(`(?:^|\s)--wiki[=\s](\S+)`)
 
-func extensionCmdCreate() *cobra.Command {
+func newExtensionCmd() *cobra.Command {
 
 	extensionCmd := &cobra.Command{
 		Use:   "extension [extension-name] [script.php [args...]]",

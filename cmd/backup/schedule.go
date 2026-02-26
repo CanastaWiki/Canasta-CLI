@@ -7,11 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/spf13/cobra"
 )
 
-func scheduleCmdCreate() *cobra.Command {
+func newScheduleCmd(instance *config.Installation) *cobra.Command {
 	scheduleCmd := &cobra.Command{
 		Use:   "schedule",
 		Short: "Manage scheduled backups",
@@ -19,13 +20,13 @@ func scheduleCmdCreate() *cobra.Command {
 logged to backup.log in the installation directory.`,
 	}
 
-	scheduleCmd.AddCommand(scheduleSetCmdCreate())
-	scheduleCmd.AddCommand(scheduleListCmdCreate())
-	scheduleCmd.AddCommand(scheduleRemoveCmdCreate())
+	scheduleCmd.AddCommand(newScheduleSetCmd(instance))
+	scheduleCmd.AddCommand(newScheduleListCmd(instance))
+	scheduleCmd.AddCommand(newScheduleRemoveCmd(instance))
 	return scheduleCmd
 }
 
-func scheduleSetCmdCreate() *cobra.Command {
+func newScheduleSetCmd(instance *config.Installation) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set [cron expression]",
 		Short: "Set a recurring backup schedule",
@@ -40,31 +41,31 @@ installation directory.`,
   canasta backup schedule set -i myinstance "0 * * * *"`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return scheduleBackup(strings.Join(args, " "))
+			return scheduleBackup(*instance, strings.Join(args, " "))
 		},
 	}
 }
 
-func scheduleListCmdCreate() *cobra.Command {
+func newScheduleListCmd(instance *config.Installation) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "Show the backup schedule",
 		Long:  `Show the current backup schedule for this installation, if one exists.`,
 		Example: `  canasta backup schedule list -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return listSchedule()
+			return listSchedule(*instance)
 		},
 	}
 }
 
-func scheduleRemoveCmdCreate() *cobra.Command {
+func newScheduleRemoveCmd(instance *config.Installation) *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove",
 		Short: "Remove a scheduled backup",
 		Long:  `Remove the crontab entry for recurring backups of this installation.`,
 		Example: `  canasta backup schedule remove -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return unscheduleBackup()
+			return unscheduleBackup(*instance)
 		},
 	}
 }
@@ -72,11 +73,6 @@ func scheduleRemoveCmdCreate() *cobra.Command {
 // jobIdentifierForInstance returns the string used to identify a crontab entry for a given instance ID.
 func jobIdentifierForInstance(id string) string {
 	return fmt.Sprintf("backup create -i %s", id)
-}
-
-// jobIdentifier returns the string used to identify a crontab entry for this instance.
-func jobIdentifier() string {
-	return jobIdentifierForInstance(instance.Id)
 }
 
 // readCrontab returns the current crontab contents as non-empty lines.
@@ -111,7 +107,7 @@ func writeCrontab(lines []string) error {
 	return nil
 }
 
-func scheduleBackup(cronExpression string) error {
+func scheduleBackup(instance config.Installation, cronExpression string) error {
 	if err := validateCron(cronExpression); err != nil {
 		return err
 	}
@@ -134,7 +130,7 @@ func scheduleBackup(cronExpression string) error {
 
 	var newLines []string
 	updated := false
-	identifier := jobIdentifier()
+	identifier := jobIdentifierForInstance(instance.Id)
 
 	for _, line := range lines {
 		if strings.Contains(line, identifier) {
@@ -160,13 +156,13 @@ func scheduleBackup(cronExpression string) error {
 	return nil
 }
 
-func listSchedule() error {
+func listSchedule(instance config.Installation) error {
 	lines, err := readCrontab()
 	if err != nil {
 		return err
 	}
 
-	identifier := jobIdentifier()
+	identifier := jobIdentifierForInstance(instance.Id)
 	for _, line := range lines {
 		if strings.Contains(line, identifier) {
 			fmt.Printf("Instance '%s' is scheduled for backup at: %s\n", instance.Id, cronFromLine(line))
@@ -177,7 +173,7 @@ func listSchedule() error {
 	return fmt.Errorf("no backup schedule found for instance '%s'", instance.Id)
 }
 
-func unscheduleBackup() error {
+func unscheduleBackup(instance config.Installation) error {
 	removed, err := RemoveSchedule(instance.Id)
 	if err != nil {
 		return err

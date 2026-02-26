@@ -21,7 +21,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/system"
 )
 
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
 	var (
 		path          string
 		orchestrator  string

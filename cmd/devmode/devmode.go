@@ -9,18 +9,15 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var (
-	instance config.Installation
-	orch     orchestrators.Orchestrator
-	err      error
-	verbose  bool
-)
+func NewCmd() *cobra.Command {
+	var (
+		instance config.Installation
+		orch     orchestrators.Orchestrator
+	)
 
-func NewCmdCreate() *cobra.Command {
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
 		log.Fatal(wdErr)
@@ -34,7 +31,7 @@ func NewCmdCreate() *cobra.Command {
 mode extracts MediaWiki code for live editing and enables Xdebug for step
 debugging. This is only supported with Docker Compose.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			logging.SetVerbose(verbose)
+			var err error
 			instance, err = canasta.CheckCanastaId(instance)
 			if err != nil {
 				return err
@@ -51,10 +48,9 @@ debugging. This is only supported with Docker Compose.`,
 	}
 
 	devmodeCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	devmodeCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 
-	devmodeCmd.AddCommand(enableCmdCreate())
-	devmodeCmd.AddCommand(disableCmdCreate())
+	devmodeCmd.AddCommand(newEnableCmd(&instance, &orch))
+	devmodeCmd.AddCommand(newDisableCmd(&instance, &orch))
 
 	return devmodeCmd
 }

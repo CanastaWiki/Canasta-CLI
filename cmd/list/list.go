@@ -10,12 +10,10 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var (
-	instance config.Installation
-	cleanup  bool
-)
+func NewCmd() *cobra.Command {
+	var instance config.Installation
+	var cleanup bool
 
-func NewCmdCreate() *cobra.Command {
 	var listCmd = &cobra.Command{
 		Use:   "list",
 		Short: "List all Canasta installations",

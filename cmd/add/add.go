@@ -52,7 +52,7 @@ import (
 // Network Flow:
 // Client → Caddy (SSL/domain routing) → Varnish (caching) → Apache → MediaWiki (wiki routing based on URL)
 
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
 	var instance config.Installation
 	var wikiID string
 	var domainName string
