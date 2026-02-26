@@ -28,8 +28,8 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 		Example: `  # Stop an installation by ID
   canasta stop -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if instance.Id == "" && len(args) > 0 {
-				instance.Id = args[0]
+			if len(args) > 0 {
+				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta stop --id %s)", args[0], args[0])
 			}
 			resolvedInstance, err := canasta.CheckCanastaId(instance)
 			if err != nil {
