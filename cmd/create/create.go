@@ -51,7 +51,7 @@ files, starts the containers, and runs the MediaWiki installer. You can
 optionally import an existing database dump instead of running the installer.
 After creating, use 'canasta devmode enable' to enable development mode.`,
 		Example: `  # Create a basic single-wiki installation
-  canasta create -i myinstance -w main -a admin -n example.com
+  canasta create -i myinstance -w main -n example.com
 
   # Create with an existing database dump
   canasta create -i myinstance -w main -d /path/to/dump.sql -n example.com`,
@@ -96,11 +96,6 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 			// Resolve relative database path to absolute (relative to working directory)
 			if databasePath != "" && !filepath.IsAbs(databasePath) {
 				databasePath = filepath.Join(workingDir, databasePath)
-			}
-
-			// Validate --admin is required when --database is not provided
-			if databasePath == "" && canastaInfo.AdminName == "" {
-				return fmt.Errorf("--admin flag is required when --database is not provided")
 			}
 
 			// Always generate database passwords
@@ -174,7 +169,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 	createCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki")
 	createCmd.Flags().StringVarP(&siteName, "site-name", "t", "", "Display name of the wiki (optional, defaults to wiki ID)")
 	createCmd.Flags().StringVarP(&domain, "domain-name", "n", "localhost", "Domain name")
-	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "admin", "a", "", "Initial wiki admin username")
+	createCmd.Flags().StringVarP(&canastaInfo.AdminName, "admin", "a", "WikiSysop", "Initial wiki admin username (default: \"WikiSysop\")")
 	createCmd.Flags().StringVarP(&canastaInfo.AdminPassword, "password", "s", "", "Initial wiki admin password (if not provided, auto-generates and saves to config/admin-password_{wikiid})")
 	createCmd.Flags().StringVarP(&yamlPath, "yamlfile", "f", "", "Initial wiki yaml file")
 	createCmd.Flags().BoolVarP(&keepConfig, "keep-config", "k", false, "Keep the config files on installation failure")

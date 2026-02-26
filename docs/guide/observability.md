@@ -30,7 +30,7 @@ Create an `.env` file with observability enabled, then pass it to `canasta creat
 
 ```bash
 echo "CANASTA_ENABLE_OBSERVABILITY=true" > my.env
-canasta create -i myinstance -w mywiki -a admin -e my.env
+canasta create -i myinstance -w mywiki -e my.env
 ```
 
 ### Existing installations

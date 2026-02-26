@@ -249,7 +249,7 @@ CANASTA_ENABLE_ELASTICSEARCH=true
 ```
 
 ```bash
-canasta create -i myinstance -w mywiki -a admin -e custom.env
+canasta create -i myinstance -w mywiki -e custom.env
 ```
 
 For an existing installation:

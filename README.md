@@ -23,7 +23,7 @@ canasta create [flags]
 - `-w, --wiki`: ID of the wiki.
 - `-t, --site-name`: Display name of the wiki (optional, defaults to wiki ID).
 - `-n, --domain-name`: Domain name (default: "localhost").
-- `-a, --admin`: Initial wiki admin username (required).
+- `-a, --admin`: Initial wiki admin username (default: "WikiSysop").
 - `-s, --password`: Initial wiki admin password (if not provided, auto-generates and saves to config/admin-password_{wikiid}).
 - `-f, --yamlfile`: Initial wiki yaml file for wiki farm setup.
 - `-k, --keep-config`: Keep the config files on installation failure.
@@ -80,7 +80,7 @@ canasta add [flags]
 - `-i, --id`: Canasta instance ID (required).
 - `-o, --orchestrator`: Orchestrator to use for installation (default: "compose").
 - `-d, --database`: Path to the existing database dump.
-- `-a, --admin`: Admin name of the new wiki (required).
+- `-a, --admin`: Admin name of the new wiki (default: "WikiSysop").
 - `-s, --password`: Admin password for the new wiki (if not provided, auto-generates and saves to config/admin-password_{wikiid}).
 - `--wikidbuser`: The username of the wiki database user (default: "root").
 

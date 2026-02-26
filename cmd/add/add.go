@@ -79,10 +79,10 @@ The new wiki is registered in wikis.yaml, the Caddyfile is regenerated,
 and the MediaWiki installer runs for the new wiki. You can also import
 an existing database dump instead of running the installer.`,
 		Example: `  # Add a wiki accessible at localhost/docs
-  canasta add -i myinstance -w docs -u localhost/docs -a admin
+  canasta add -i myinstance -w docs -u localhost/docs
 
   # Add a wiki on a different domain
-  canasta add -i myinstance -w blog -u blog.example.com -a admin
+  canasta add -i myinstance -w blog -u blog.example.com
 
   # Add a wiki with an existing database dump
   canasta add -i myinstance -w docs -u localhost/docs -d /path/to/dump.sql`,
@@ -111,11 +111,6 @@ an existing database dump instead of running the installer.`,
 				if err := canasta.ValidateDatabasePath(databasePath); err != nil {
 					return err
 				}
-			}
-
-			// Validate --admin is required when --database is not provided
-			if databasePath == "" && admin == "" {
-				return fmt.Errorf("--admin flag is required when --database is not provided")
 			}
 
 			// Generate admin password only if not importing and admin is provided
@@ -148,11 +143,11 @@ an existing database dump instead of running the installer.`,
 	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	addCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
 	addCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
-	addCmd.Flags().StringVarP(&admin, "admin", "a", "", "Admin name of the new wiki")
+	addCmd.Flags().StringVarP(&admin, "admin", "a", "WikiSysop", "Admin name of the new wiki (default: \"WikiSysop\")")
 	addCmd.Flags().StringVarP(&adminPassword, "password", "s", "", "Admin password for the new wiki (if not provided, auto-generates and saves to config/admin-password_{wikiid})")
 	addCmd.Flags().StringVar(&wikidbuser, "wikidbuser", "root", "The username of the wiki database user (default: \"root\")")
 
-	// Mark required flags (admin is validated at runtime based on whether --database is provided)
+	// Mark required flags
 	_ = addCmd.MarkFlagRequired("wiki")
 	_ = addCmd.MarkFlagRequired("url")
 

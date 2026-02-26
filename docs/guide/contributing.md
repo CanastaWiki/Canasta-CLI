@@ -116,7 +116,7 @@ To test changes to CanastaBase or Canasta before they are published, use `--buil
 #   ├── Canasta/       (required)
 #   └── CanastaBase/   (optional — if present, built first)
 
-canasta create -i test-instance -w mywiki -n localhost -a admin \
+canasta create -i test-instance -w mywiki -n localhost \
   --build-from ~/canasta-repos
 ```
 
