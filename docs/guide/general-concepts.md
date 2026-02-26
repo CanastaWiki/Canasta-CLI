@@ -46,8 +46,8 @@ Installation IDs must start and end with an alphanumeric character and may conta
 Every wiki in a Canasta installation has a **wiki ID** — a short identifier set with the `-w` flag when creating or adding a wiki:
 
 ```bash
-canasta create -i myinstance -w main -n localhost```
-
+canasta create -i myinstance -w main -n localhost
+```
 Even a single-wiki installation requires a wiki ID. The wiki ID is used as:
 
 - The MySQL database name for that wiki

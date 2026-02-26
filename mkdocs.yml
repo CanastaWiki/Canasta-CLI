@@ -59,9 +59,11 @@ nav:
     - Upgrading: guide/upgrading.md
     - Sitemaps: guide/sitemaps.md
     - Kubernetes: guide/kubernetes.md
+    - Orchestrators: guide/orchestrators.md
     - Best practices: guide/best-practices.md
     - Observability: guide/observability.md
     - Troubleshooting: guide/troubleshooting.md
+    - Contributing: guide/contributing.md
   - CLI Reference:
     - Overview: cli/canasta.md
     - Commands:
@@ -92,6 +94,10 @@ nav:
       - get: cli/canasta_config_get.md
       - set: cli/canasta_config_set.md
       - unset: cli/canasta_config_unset.md
+    - devmode:
+      - Overview: cli/canasta_devmode.md
+      - enable: cli/canasta_devmode_enable.md
+      - disable: cli/canasta_devmode_disable.md
     - maintenance:
       - Overview: cli/canasta_maintenance.md
       - update: cli/canasta_maintenance_update.md
