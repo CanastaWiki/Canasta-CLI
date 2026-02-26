@@ -11,6 +11,7 @@ import (
 )
 
 func unsetCmdCreate() *cobra.Command {
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "unset KEY [KEY ...]",
 		Short: "Remove a configuration setting",
@@ -37,6 +38,9 @@ is removed. The instance is then restarted unless --no-restart is specified.`,
 			keys := make([]string, 0, len(args))
 			for _, arg := range args {
 				key := resolveKey(envVars, arg)
+				if !force && !isKnownKey(key) {
+					return fmt.Errorf("unrecognized setting %q\nUse 'canasta config unset --force %s' to remove it anyway\nRun 'canasta config --help' to see available settings", key, key)
+				}
 				if _, ok := envVars[key]; !ok {
 					return fmt.Errorf("key %q is not set", key)
 				}
@@ -91,5 +95,6 @@ is removed. The instance is then restarted unless --no-restart is specified.`,
 	}
 
 	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "Remove the setting without restarting the instance")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow unsetting unrecognized keys")
 	return cmd
 }

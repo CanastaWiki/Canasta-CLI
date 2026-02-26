@@ -42,6 +42,47 @@ func TestResolveKey(t *testing.T) {
 	}
 }
 
+func TestIsKnownKey(t *testing.T) {
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		// Exact known keys
+		{"HTTP_PORT", true},
+		{"HTTPS_PORT", true},
+		{"PHP_UPLOAD_MAX_FILESIZE", true},
+		{"CANASTA_ENABLE_ELASTICSEARCH", true},
+		{"CANASTA_IMAGE", true},
+		{"RESTIC_REPOSITORY", true},
+		{"MW_SITEMAP_PAUSE_DAYS", true},
+
+		// Restic backend prefixes
+		{"AWS_ACCESS_KEY_ID", true},
+		{"AWS_SECRET_ACCESS_KEY", true},
+		{"AZURE_ACCOUNT_NAME", true},
+		{"B2_ACCOUNT_ID", true},
+		{"GOOGLE_PROJECT_ID", true},
+		{"OS_AUTH_URL", true},
+		{"ST_AUTH", true},
+		{"RCLONE_BWLIMIT", true},
+
+		// Unknown keys
+		{"TYPO_VAR", false},
+		{"CANASTA_ENABLE_ELASTICSEARH", false},
+		{"RANDOM_SETTING", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			got := isKnownKey(tt.key)
+			if got != tt.want {
+				t.Errorf("isKnownKey(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestUpdateURLPort(t *testing.T) {
 	tests := []struct {
 		name    string
