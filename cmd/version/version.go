@@ -2,7 +2,6 @@ package version
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -27,7 +26,6 @@ Shows "dev" if the binary was built without version information.`,
 				v = "dev"
 			}
 			fmt.Printf("Canasta CLI %s (commit %s, built %s)\n", v, sha1, buildTime)
-			os.Exit(0)
 			return nil
 		},
 	}

@@ -106,6 +106,10 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 	// Start a container and run the symlinks script to create extension/skin symlinks
 	// (normally /create-symlinks.sh runs as part of the entrypoint, but we bypass it with sleep)
 	containerName := "canasta-code-extract-temp"
+
+	// Remove any orphaned container from a previous failed extraction
+	_, _ = execute.Run("", "docker", "rm", "-f", containerName)
+
 	logging.Print("Starting temporary container for code extraction...\n")
 	if err, output := execute.Run("", "docker", "run", "-d", "--name", containerName, baseImage, "sleep", "infinity"); err != nil {
 		return fmt.Errorf("failed to start temporary container: %s", output)

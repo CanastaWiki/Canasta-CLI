@@ -340,7 +340,9 @@ func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
 	}
 
 	// Remove the backup staging volume (not part of docker-compose.yml)
-	execute.Run("", "docker", "volume", "rm", backupVolumeName(installPath))
+	if rmErr, rmOutput := execute.Run("", "docker", "volume", "rm", backupVolumeName(installPath)); rmErr != nil {
+		logging.Print(fmt.Sprintf("Warning: failed to remove backup volume: %s\n", rmOutput))
+	}
 
 	return output, nil
 }
