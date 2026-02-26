@@ -50,6 +50,9 @@ Settings safe to change on a running installation:
     PHP_POST_MAX_SIZE               POST data size limit (default: 10M)
     PHP_MAX_INPUT_VARS              Max input variables (default: 1000)
 
+  Sitemaps
+    MW_SITEMAP_PAUSE_DAYS           Days between sitemap refreshes (default: 1)
+
   Features
     CANASTA_ENABLE_ELASTICSEARCH    Enable Elasticsearch (default: false)
     CANASTA_ENABLE_OBSERVABILITY    Enable observability stack (default: false)

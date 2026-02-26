@@ -83,7 +83,13 @@ canasta sitemap remove -i myinstance -y
 
 ## Background refresh
 
-After sitemaps are generated for a wiki, a background process inside the container automatically refreshes them on a regular schedule. The refresh interval is controlled by the `MW_SITEMAP_PAUSE_DAYS` environment variable, which defaults to `1` (day). Values less than 1 are treated as 1.
+After sitemaps are generated for a wiki, a background process inside the container automatically refreshes them on a regular schedule. The refresh interval is controlled by the `MW_SITEMAP_PAUSE_DAYS` setting, which defaults to `1` (day). Values less than 1 are treated as 1.
+
+To change the refresh interval:
+
+```bash
+canasta config set MW_SITEMAP_PAUSE_DAYS=7 -i myinstance
+```
 
 The background generator runs continuously inside the container — it starts after a 30-second delay and loops indefinitely, sleeping for the configured interval between runs. It only refreshes sitemaps for wikis that already have sitemap files — generating sitemaps for a wiki opts it in, and removing them opts it out.
 
