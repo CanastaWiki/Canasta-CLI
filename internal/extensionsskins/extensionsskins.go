@@ -2,11 +2,27 @@ package extensionsskins
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
+
+// validNamePattern matches names consisting of alphanumeric characters,
+// underscores, hyphens, and dots (e.g. "VisualEditor", "Semantic_MediaWiki").
+var validNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$`)
+
+// ValidateName checks that an extension or skin name contains only safe characters.
+func ValidateName(name string, constants Item) error {
+	if name == "" {
+		return fmt.Errorf("%s name cannot be empty", constants.CmdName)
+	}
+	if !validNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid %s name %q: must start with a letter or digit and contain only letters, digits, underscores, hyphens, and dots", constants.CmdName, name)
+	}
+	return nil
+}
 
 type Item struct {
 	Name                     string // e.g. "Canasta extension" or "Canasta skin"
@@ -37,6 +53,9 @@ func List(instance config.Installation, orch orchestrators.Orchestrator, constan
 }
 
 func CheckInstalled(name string, instance config.Installation, orch orchestrators.Orchestrator, constants Item) (string, error) {
+	if err := ValidateName(name, constants); err != nil {
+		return "", err
+	}
 	output, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find -L * -maxdepth 0 -type d")
 	if err != nil {
 		return "", fmt.Errorf("failed to check installed %s: %s", constants.Name, output)
@@ -48,6 +67,9 @@ func CheckInstalled(name string, instance config.Installation, orch orchestrator
 }
 
 func Enable(name, wiki string, instance config.Installation, orch orchestrators.Orchestrator, constants Item) error {
+	if err := ValidateName(name, constants); err != nil {
+		return err
+	}
 	if wiki == "" {
 		fmt.Println("You didn't specify a wiki. The extension or skin will affect all wikis in the corresponding Canasta instance.")
 	}
@@ -78,6 +100,9 @@ func Enable(name, wiki string, instance config.Installation, orch orchestrators.
 }
 
 func CheckEnabled(name, wiki string, instance config.Installation, orch orchestrators.Orchestrator, constants Item) (string, error) {
+	if err := ValidateName(name, constants); err != nil {
+		return "", err
+	}
 	var settingsPath string
 	var filePath string
 
@@ -109,6 +134,9 @@ func CheckEnabled(name, wiki string, instance config.Installation, orch orchestr
 }
 
 func Disable(name, wiki string, instance config.Installation, orch orchestrators.Orchestrator, constants Item) error {
+	if err := ValidateName(name, constants); err != nil {
+		return err
+	}
 	if wiki == "" {
 		fmt.Println("You didn't specify a wiki. The common settings will disable the extension or skin in the corresponding Canasta instance.")
 	}

@@ -150,49 +150,9 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		return fmt.Errorf("failed to create install temp directory: %w", err)
 	}
 
-	localExists, _ := fileExists(filepath.Join(installPath, "config", localSettingsFile))
-	commonExists, _ := fileExists(filepath.Join(installPath, "config", commonSettingsFile))
-	wikisYamlExists, _ := fileExists(filepath.Join(installPath, "config", "wikis.yaml"))
-
-	if !localExists && !commonExists && !wikisYamlExists {
-		return fmt.Errorf("No valid configuration found (wikis.yaml, LocalSettings.php, or CommonSettings.php)")
-	}
-
-	// New architecture uses wikis.yaml without config/LocalSettings.php
-	useNewArchitecture := wikisYamlExists && !localExists && !commonExists
-
-	// Track which settings file we're preserving (legacy architecture only)
-	var originalSettingsFile string
-	if useNewArchitecture {
-		// New architecture: no config files to backup/remove
-		// We'll unset MW_SECRET_KEY when running install.php so CanastaDefaultSettings.php
-		// doesn't think the wiki is already configured
-	} else if commonExists {
-		// Farm already exists with CommonSettings.php - preserve it
-		originalSettingsFile = commonSettingsFile
-		// Backup the file
-		err, _ = execute.Run(installPath, "cp", filepath.Join(installPath, "config", commonSettingsFile), filepath.Join(installPath, "config", commonSettingsBackup))
-		if err != nil {
-			return err
-		}
-		// Remove the original so installer doesn't see it
-		err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", commonSettingsFile))
-		if err != nil {
-			return err
-		}
-	} else if localExists {
-		// Converting from single wiki (LocalSettings.php) to farm
-		originalSettingsFile = localSettingsFile
-		// Backup the file
-		err, _ = execute.Run(installPath, "cp", filepath.Join(installPath, "config", localSettingsFile), filepath.Join(installPath, "config", localSettingsBackup))
-		if err != nil {
-			return err
-		}
-		// Remove the original so installer doesn't see it
-		err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", localSettingsFile))
-		if err != nil {
-			return err
-		}
+	useNewArchitecture, originalSettingsFile, err := backupLegacySettings(installPath)
+	if err != nil {
+		return err
 	}
 
 	installdbuser := "root"
@@ -230,21 +190,8 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		return err
 	}
 
-	// Restore the original settings file as CommonSettings.php (legacy architecture only)
-	if useNewArchitecture {
-		// New architecture: nothing to restore
-	} else if originalSettingsFile == commonSettingsFile {
-		// Farm already existed, restore CommonSettings.php from backup
-		err, _ = execute.Run(installPath, "mv", filepath.Join(installPath, "config", commonSettingsBackup), filepath.Join(installPath, "config", commonSettingsFile))
-		if err != nil {
-			return err
-		}
-	} else if originalSettingsFile == localSettingsFile {
-		// Converting single wiki to farm: rename backup to CommonSettings.php
-		err, _ = execute.Run(installPath, "mv", filepath.Join(installPath, "config", localSettingsBackup), filepath.Join(installPath, "config", commonSettingsFile))
-		if err != nil {
-			return err
-		}
+	if err := restoreLegacySettings(installPath, useNewArchitecture, originalSettingsFile); err != nil {
+		return err
 	}
 
 	// Clean up the temporary install directory
@@ -254,6 +201,70 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	}
 
 	return nil
+}
+
+// backupLegacySettings detects the configuration architecture and, for legacy
+// setups (LocalSettings.php or CommonSettings.php), backs up the settings file
+// and removes the original so the installer doesn't see it.
+// Returns whether the new architecture is in use and which original file was backed up.
+func backupLegacySettings(installPath string) (useNewArchitecture bool, originalSettingsFile string, err error) {
+	localExists, _ := fileExists(filepath.Join(installPath, "config", localSettingsFile))
+	commonExists, _ := fileExists(filepath.Join(installPath, "config", commonSettingsFile))
+	wikisYamlExists, _ := fileExists(filepath.Join(installPath, "config", "wikis.yaml"))
+
+	if !localExists && !commonExists && !wikisYamlExists {
+		return false, "", fmt.Errorf("No valid configuration found (wikis.yaml, LocalSettings.php, or CommonSettings.php)")
+	}
+
+	useNewArchitecture = wikisYamlExists && !localExists && !commonExists
+	if useNewArchitecture {
+		return true, "", nil
+	}
+
+	if commonExists {
+		originalSettingsFile = commonSettingsFile
+	} else if localExists {
+		originalSettingsFile = localSettingsFile
+	}
+
+	configDir := filepath.Join(installPath, "config")
+	var backupFile string
+	if originalSettingsFile == commonSettingsFile {
+		backupFile = commonSettingsBackup
+	} else {
+		backupFile = localSettingsBackup
+	}
+
+	err, _ = execute.Run(installPath, "cp", filepath.Join(configDir, originalSettingsFile), filepath.Join(configDir, backupFile))
+	if err != nil {
+		return false, "", err
+	}
+	err, _ = execute.Run(installPath, "rm", filepath.Join(configDir, originalSettingsFile))
+	if err != nil {
+		return false, "", err
+	}
+
+	return false, originalSettingsFile, nil
+}
+
+// restoreLegacySettings restores the backed-up settings file as
+// CommonSettings.php after install.php has run.
+func restoreLegacySettings(installPath string, useNewArchitecture bool, originalSettingsFile string) error {
+	if useNewArchitecture || originalSettingsFile == "" {
+		return nil
+	}
+
+	configDir := filepath.Join(installPath, "config")
+	var backupFile string
+	if originalSettingsFile == commonSettingsFile {
+		backupFile = commonSettingsBackup
+	} else {
+		backupFile = localSettingsBackup
+	}
+
+	// Restore as CommonSettings.php (both cases: existing farm or single→farm conversion)
+	err, _ := execute.Run(installPath, "mv", filepath.Join(configDir, backupFile), filepath.Join(configDir, commonSettingsFile))
+	return err
 }
 
 func RemoveDatabase(installPath, id string, orch orchestrators.Orchestrator) error {
