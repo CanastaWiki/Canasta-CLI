@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
-	"github.com/CanastaWiki/Canasta-CLI/internal/perms"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/kirsle/configdir"
 )
 
@@ -325,7 +325,7 @@ func write(details Canasta) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(confFile, file, perms.FilePerm)
+	return os.WriteFile(confFile, file, permissions.FilePermission)
 }
 
 func read(details *Canasta) error {

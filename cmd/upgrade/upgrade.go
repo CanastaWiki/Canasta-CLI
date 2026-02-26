@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI/internal/perms"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/imagebuild"
@@ -424,7 +424,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 				} else {
 					fmt.Printf("  Moving %s -> %s\n", legacyPath, newPath)
 					// Create parent directory
-					if err := os.MkdirAll(filepath.Dir(newPath), perms.DirPerm); err != nil {
+					if err := os.MkdirAll(filepath.Dir(newPath), permissions.DirectoryPermission); err != nil {
 						return false, fmt.Errorf("failed to create directory: %w", err)
 					}
 					// Move directory
@@ -455,7 +455,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 					} else {
 						fmt.Printf("  Moving %s -> %s\n", legacyFile, newFile)
 						// Create global directory if needed
-						if err := os.MkdirAll(globalPath, perms.DirPerm); err != nil {
+						if err := os.MkdirAll(globalPath, permissions.DirectoryPermission); err != nil {
 							return false, fmt.Errorf("failed to create directory: %w", err)
 						}
 						// Move file
@@ -537,7 +537,7 @@ func fixVectorDefaultSkin(installPath string, dryRun bool) (bool, error) {
 			"$wgDefaultSkin = \"vector-2022\";\nwfLoadSkin( 'Vector' );",
 			1,
 		)
-		if err := os.WriteFile(vectorPath, []byte(newContent), perms.FilePerm); err != nil {
+		if err := os.WriteFile(vectorPath, []byte(newContent), permissions.FilePermission); err != nil {
 			return false, fmt.Errorf("failed to update Vector.php: %w", err)
 		}
 	}

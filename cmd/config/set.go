@@ -12,7 +12,7 @@ import (
 	yaml "gopkg.in/yaml.v2"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI/internal/perms"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -243,7 +243,7 @@ func applyHTTPSPortChange(inst config.Installation, newPort string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal wikis.yaml: %w", err)
 	}
-	if err := os.WriteFile(wikisPath, out, perms.FilePerm); err != nil {
+	if err := os.WriteFile(wikisPath, out, permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to write wikis.yaml: %w", err)
 	}
 	logging.Print("Updated wikis.yaml with new port\n")

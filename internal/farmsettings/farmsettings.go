@@ -8,7 +8,7 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 
-	"github.com/CanastaWiki/Canasta-CLI/internal/perms"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 )
 
@@ -70,7 +70,7 @@ func GenerateWikisYaml(filePath, wikiID, domain, siteName string) (string, error
 		return "", err
 	}
 
-	err = os.WriteFile(filePath, out, perms.FilePerm)
+	err = os.WriteFile(filePath, out, permissions.FilePermission)
 	if err != nil {
 		return "", err
 	}
@@ -224,7 +224,7 @@ func AddWiki(wikiID, installPath, domain, wikiPath, siteName string) error {
 	}
 
 	// Write the updated data back to the file
-	err = os.WriteFile(filePath, updatedData, perms.FilePerm)
+	err = os.WriteFile(filePath, updatedData, permissions.FilePermission)
 	if err != nil {
 		return err
 	}
@@ -274,7 +274,7 @@ func RemoveWiki(wikiID, installPath string) error {
 	}
 
 	// Write the updated data back to the file
-	err = os.WriteFile(filePath, updatedData, perms.FilePerm)
+	err = os.WriteFile(filePath, updatedData, permissions.FilePermission)
 	if err != nil {
 		return err
 	}
