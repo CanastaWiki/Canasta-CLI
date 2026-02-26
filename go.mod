@@ -3,7 +3,6 @@ module github.com/CanastaWiki/Canasta-CLI
 go 1.24.0
 
 require (
-	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f
 	github.com/schollz/progressbar/v3 v3.13.1
 	github.com/spf13/cobra v1.4.0
 	golang.org/x/crypto v0.48.0
