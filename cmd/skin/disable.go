@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/extensionsskins"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/spf13/cobra"
 )
 
-func disableCmdCreate() *cobra.Command {
+func newDisableCmd(instance *config.Installation, orch *orchestrators.Orchestrator, wiki *string, constants *extensionsskins.Item) *cobra.Command {
 
 	disableCmd := &cobra.Command{
 		Use:   "disable SKIN_NAME",
@@ -25,12 +27,12 @@ specific wiki only.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			skins := strings.Split(args[0], ",")
 			for _, skin := range skins {
-				skinName, err := extensionsskins.CheckEnabled(skin, wiki, instance, orch, constants)
+				skinName, err := extensionsskins.CheckEnabled(skin, *wiki, *instance, *orch, *constants)
 				if err != nil {
 					fmt.Print(err.Error() + "\n")
 					continue
 				}
-				if err := extensionsskins.Disable(skinName, wiki, instance, orch, constants); err != nil {
+				if err := extensionsskins.Disable(skinName, *wiki, *instance, *orch, *constants); err != nil {
 					return err
 				}
 			}

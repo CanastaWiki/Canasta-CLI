@@ -11,20 +11,19 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var (
-	instance   config.Installation
-	orch       orchestrators.Orchestrator
-	sitemapCmd *cobra.Command
-)
+func NewCmd() *cobra.Command {
+	var (
+		instance config.Installation
+		orch     orchestrators.Orchestrator
+	)
 
-func NewCmdCreate() *cobra.Command {
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
 		log.Fatal(wdErr)
 	}
 	instance.Path = workingDir
 
-	sitemapCmd = &cobra.Command{
+	sitemapCmd := &cobra.Command{
 		Use:   "sitemap",
 		Short: "Manage sitemaps for a Canasta instance",
 		Long: `Generate or remove XML sitemaps for wikis in a Canasta installation.
@@ -45,8 +44,8 @@ to delete them.`,
 		},
 	}
 
-	sitemapCmd.AddCommand(generateCmdCreate())
-	sitemapCmd.AddCommand(removeCmdCreate())
+	sitemapCmd.AddCommand(newGenerateCmd(&instance, &orch))
+	sitemapCmd.AddCommand(newRemoveCmd(&instance, &orch))
 
 	sitemapCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 

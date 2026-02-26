@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/extensionsskins"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 	"github.com/spf13/cobra"
 )
 
-func enableCmdCreate() *cobra.Command {
+func newEnableCmd(instance *config.Installation, orch *orchestrators.Orchestrator, wiki *string, constants *extensionsskins.Item) *cobra.Command {
 
 	enableCmd := &cobra.Command{
 		Use:   "enable EXTENSION1,EXTENSION2,...",
@@ -28,12 +30,12 @@ extension for a specific wiki only.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			extensions := strings.Split(args[0], ",")
 			for _, extension := range extensions {
-				extensionName, err := extensionsskins.CheckInstalled(extension, instance, orch, constants)
+				extensionName, err := extensionsskins.CheckInstalled(extension, *instance, *orch, *constants)
 				if err != nil {
 					fmt.Print(err.Error() + "\n")
 					continue
 				}
-				if err := extensionsskins.Enable(extensionName, wiki, instance, orch, constants); err != nil {
+				if err := extensionsskins.Enable(extensionName, *wiki, *instance, *orch, *constants); err != nil {
 					return err
 				}
 			}

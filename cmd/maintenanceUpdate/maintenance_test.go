@@ -17,7 +17,7 @@ func findSubcommand(parent interface{ Commands() []*cobra.Command }, name string
 }
 
 func TestMaintenanceSubcommands(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 
 	expected := []string{"update", "script", "extension", "exec"}
 	for _, name := range expected {
@@ -28,7 +28,7 @@ func TestMaintenanceSubcommands(t *testing.T) {
 }
 
 func TestMaintenancePersistentFlags(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 
 	flags := []struct {
 		name      string
@@ -52,7 +52,7 @@ func TestMaintenancePersistentFlags(t *testing.T) {
 }
 
 func TestUpdateFlags(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 	updateCmd := findSubcommand(cmd, "update")
 	if updateCmd == nil {
 		t.Fatal("update subcommand not found")
@@ -66,7 +66,7 @@ func TestUpdateFlags(t *testing.T) {
 }
 
 func TestScriptAcceptsZeroArgs(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 	scriptCmd := findSubcommand(cmd, "script")
 	if scriptCmd == nil {
 		t.Fatal("script subcommand not found")
@@ -84,7 +84,7 @@ func TestScriptAcceptsZeroArgs(t *testing.T) {
 }
 
 func TestUpdateFlagParsing(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 	updateCmd := findSubcommand(cmd, "update")
 	if updateCmd == nil {
 		t.Fatal("update subcommand not found")
@@ -107,7 +107,7 @@ func TestUpdateFlagParsing(t *testing.T) {
 }
 
 func TestWikiAndAllConflict(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 	updateCmd := findSubcommand(cmd, "update")
 	if updateCmd == nil {
 		t.Fatal("update subcommand not found")

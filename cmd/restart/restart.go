@@ -9,13 +9,11 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
 	var instance config.Installation
-	var verbose bool
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -33,7 +31,6 @@ change the development mode setting.`,
 		Example: `  # Restart an installation by ID
   canasta restart -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			logging.SetVerbose(verbose)
 			if len(args) > 0 {
 				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta restart --id %s)", args[0], args[0])
 			}
@@ -50,7 +47,6 @@ change the development mode setting.`,
 		},
 	}
 	restartCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	restartCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
 	return restartCmd
 }
 

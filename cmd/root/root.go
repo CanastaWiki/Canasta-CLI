@@ -40,7 +40,7 @@ wikis per instance.`,
 	SilenceUsage:  true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		logging.SetVerbose(verbose)
-		logging.Print("Setting verbose")
+		logging.Print("Verbose logging enabled")
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		_ = cmd.Help()
@@ -62,25 +62,25 @@ func GetRootCmd() *cobra.Command {
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 
-	rootCmd.AddCommand(configCmd.NewCmdCreate())
-	rootCmd.AddCommand(createCmd.NewCmdCreate())
-	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
-	rootCmd.AddCommand(devmodeCmd.NewCmdCreate())
-	rootCmd.AddCommand(exportCmd.NewCmdCreate())
-	rootCmd.AddCommand(extensionCmd.NewCmdCreate())
-	rootCmd.AddCommand(importCmd.NewCmdCreate())
-	rootCmd.AddCommand(listCmd.NewCmdCreate())
-	rootCmd.AddCommand(maintenanceCmd.NewCmdCreate())
-	rootCmd.AddCommand(restartCmd.NewCmdCreate())
-	rootCmd.AddCommand(backupCmd.NewCmdCreate())
-	rootCmd.AddCommand(sitemapCmd.NewCmdCreate())
-	rootCmd.AddCommand(skinCmd.NewCmdCreate())
-	rootCmd.AddCommand(startCmd.NewCmdCreate())
-	rootCmd.AddCommand(stopCmd.NewCmdCreate())
-	rootCmd.AddCommand(upgradeCmd.NewCmdCreate())
-	rootCmd.AddCommand(versionCmd.NewCmdCreate())
-	rootCmd.AddCommand(addCmd.NewCmdCreate())
-	rootCmd.AddCommand(removeCmd.NewCmdCreate())
+	rootCmd.AddCommand(configCmd.NewCmd())
+	rootCmd.AddCommand(createCmd.NewCmd())
+	rootCmd.AddCommand(deleteCmd.NewCmd())
+	rootCmd.AddCommand(devmodeCmd.NewCmd())
+	rootCmd.AddCommand(exportCmd.NewCmd())
+	rootCmd.AddCommand(extensionCmd.NewCmd())
+	rootCmd.AddCommand(importCmd.NewCmd())
+	rootCmd.AddCommand(listCmd.NewCmd())
+	rootCmd.AddCommand(maintenanceCmd.NewCmd())
+	rootCmd.AddCommand(restartCmd.NewCmd())
+	rootCmd.AddCommand(backupCmd.NewCmd())
+	rootCmd.AddCommand(sitemapCmd.NewCmd())
+	rootCmd.AddCommand(skinCmd.NewCmd())
+	rootCmd.AddCommand(startCmd.NewCmd())
+	rootCmd.AddCommand(stopCmd.NewCmd())
+	rootCmd.AddCommand(upgradeCmd.NewCmd())
+	rootCmd.AddCommand(versionCmd.NewCmd())
+	rootCmd.AddCommand(addCmd.NewCmd())
+	rootCmd.AddCommand(removeCmd.NewCmd())
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	// Add config file location to help output

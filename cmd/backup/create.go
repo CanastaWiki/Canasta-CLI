@@ -8,10 +8,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func createBackupCmdCreate() *cobra.Command {
+func newCreateCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
+	var tag string
 
 	createBackupCmd := &cobra.Command{
 		Use:   "create",
@@ -24,7 +27,7 @@ uploads the snapshot to the backup repository with the specified tag.`,
 		Example: `  # Create a backup with a descriptive tag
   canasta backup create -i myinstance -t before-upgrade`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := takeSnapshot(tag); err != nil {
+			if err := takeSnapshot(*orch, *instance, *envPath, *repoURL, tag); err != nil {
 				return err
 			}
 			fmt.Println("Backup completed")
@@ -37,7 +40,7 @@ uploads the snapshot to the backup repository with the specified tag.`,
 	return createBackupCmd
 }
 
-func takeSnapshot(tag string) error {
+func takeSnapshot(orch orchestrators.Orchestrator, instance config.Installation, envPath, repoURL, tag string) error {
 	fmt.Printf("Taking snapshot '%s'...\n", tag)
 	EnvVariables, err := canasta.GetEnvVariable(envPath)
 	if err != nil {
@@ -79,7 +82,7 @@ func takeSnapshot(tag string) error {
 
 	hostname, _ := os.Hostname()
 	logging.Print("Staging files to backup volume...")
-	output, err := runBackup(volumes, "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
+	output, err := runBackup(orch, instance.Path, envPath, volumes, "-r", repoURL, "--tag", fmt.Sprintf("%s__on__%s", tag, hostname), "backup", "/currentsnapshot")
 	if err != nil {
 		return err
 	}

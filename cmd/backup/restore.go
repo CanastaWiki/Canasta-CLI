@@ -8,11 +8,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func restoreCmdCreate() *cobra.Command {
+func newRestoreCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
 
 	var (
 		snapshotId         string
@@ -39,7 +41,7 @@ images, and public assets from the backup, leaving shared files untouched.`,
   # Restore only a single wiki's database
   canasta backup restore -i myinstance -s abc123 -w wiki2`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return restoreSnapshot(snapshotId, skipBeforeSnapshot, wikiID)
+			return restoreSnapshot(*orch, *instance, *envPath, *repoURL, snapshotId, skipBeforeSnapshot, wikiID)
 		},
 	}
 
@@ -50,7 +52,7 @@ images, and public assets from the backup, leaving shared files untouched.`,
 	return restoreCmd
 }
 
-func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool, wikiID string) error {
+func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Installation, envPath, repoURL, snapshotId string, skipBeforeSnapshot bool, wikiID string) error {
 	EnvVariables, envErr := canasta.GetEnvVariable(envPath)
 	if envErr != nil {
 		return envErr
@@ -58,27 +60,27 @@ func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool, wikiID string) 
 
 	if !skipBeforeSnapshot {
 		logging.Print("Taking snapshot...")
-		if err := takeSnapshot("BeforeRestoring-" + snapshotId); err != nil {
+		if err := takeSnapshot(orch, instance, envPath, repoURL, "BeforeRestoring-"+snapshotId); err != nil {
 			return err
 		}
 		logging.Print("Snapshot taken...")
 	}
 
 	logging.Print("Restoring snapshot to backup volume...")
-	_, err := runBackup(nil, "-r", repoURL, "restore", snapshotId, "--target", "/")
+	_, err := runBackup(orch, instance.Path, envPath, nil, "-r", repoURL, "restore", snapshotId, "--target", "/")
 	if err != nil {
 		return err
 	}
 
 	if wikiID != "" {
-		return restoreWiki(wikiID, EnvVariables)
+		return restoreWiki(orch, instance, wikiID, EnvVariables)
 	}
-	return restoreFull(EnvVariables)
+	return restoreFull(orch, instance, EnvVariables)
 }
 
 // restoreWiki restores a single wiki's database, per-wiki settings, images,
 // and public assets from a backup, leaving shared files untouched.
-func restoreWiki(wikiID string, env map[string]string) error {
+func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, wikiID string, env map[string]string) error {
 	// Validate that the wiki ID exists in the current installation's wikis.yaml
 	wikiIDs, err := getWikiIDs(instance.Path)
 	if err != nil {
@@ -137,7 +139,7 @@ func restoreWiki(wikiID string, env map[string]string) error {
 }
 
 // restoreFull performs a full restore of all files and databases from a backup.
-func restoreFull(env map[string]string) error {
+func restoreFull(orch orchestrators.Orchestrator, instance config.Installation, env map[string]string) error {
 	logging.Print("Copying files from backup volume...")
 	paths := make(map[string]string)
 	for _, dir := range []string{"config", "extensions", "images", "skins", "public_assets"} {

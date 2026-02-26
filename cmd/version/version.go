@@ -14,7 +14,7 @@ var (
 	buildTime string
 )
 
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
 	var versionCmd = &cobra.Command{
 		Use:   "version",
 		Short: "Show the Canasta version",

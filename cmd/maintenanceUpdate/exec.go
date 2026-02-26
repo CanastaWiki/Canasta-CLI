@@ -10,7 +10,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func execCmdCreate() *cobra.Command {
+func newExecCmd() *cobra.Command {
 	var service string
 
 	cmd := &cobra.Command{

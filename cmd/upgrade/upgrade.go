@@ -24,7 +24,7 @@ import (
 
 var dryRun bool
 
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
 	var upgradeCmd = &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade the Canasta CLI and all registered installations",

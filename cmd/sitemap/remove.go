@@ -9,10 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func removeCmdCreate() *cobra.Command {
+func newRemoveCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
 	var wikiID string
 	var yes bool
 
@@ -31,7 +33,7 @@ for all wikis. Once removed, the background generator will skip those wikis.`,
   # Remove sitemaps for all wikis without prompting
   canasta sitemap remove -i myinstance -y`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRemove(wikiID, yes)
+			return runRemove(*instance, *orch, wikiID, yes)
 		},
 	}
 
@@ -41,7 +43,7 @@ for all wikis. Once removed, the background generator will skip those wikis.`,
 	return cmd
 }
 
-func runRemove(wikiID string, yes bool) error {
+func runRemove(instance config.Installation, orch orchestrators.Orchestrator, wikiID string, yes bool) error {
 	// Check containers are running
 	if err := orch.CheckRunningStatus(instance); err != nil {
 		return fmt.Errorf("containers are not running: %w", err)
