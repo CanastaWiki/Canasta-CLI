@@ -53,6 +53,7 @@ Settings safe to change on a running installation:
   Features
     CANASTA_ENABLE_ELASTICSEARCH    Enable Elasticsearch (default: false)
     CANASTA_ENABLE_OBSERVABILITY    Enable observability stack (default: false)
+    CANASTA_ENABLE_WIKI_DIRECTORY   Show wiki directory on 404 pages (default: false)
 
   Caddy / TLS
     CADDY_AUTO_HTTPS                Set to "off" behind a reverse proxy
