@@ -65,7 +65,7 @@ The default service is "web" (the MediaWiki container).`,
 
 			// Default service to "web" if not specified
 			if service == "" {
-				service = "web"
+				service = orchestrators.ServiceWeb
 			}
 
 			// Ensure containers are running

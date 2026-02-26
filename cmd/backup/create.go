@@ -53,7 +53,7 @@ func takeSnapshot(orch orchestrators.Orchestrator, instance config.Installation,
 	}
 
 	// Create the backup directory inside the container for database dumps
-	_, err = orch.ExecWithError(instance.Path, "web", "mkdir -p /mediawiki/config/backup")
+	_, err = orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, "mkdir -p /mediawiki/config/backup")
 	if err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
@@ -62,7 +62,7 @@ func takeSnapshot(orch orchestrators.Orchestrator, instance config.Installation,
 		logging.Print(fmt.Sprintf("Dumping database for wiki '%s'...", id))
 		cmd := fmt.Sprintf("mysqldump -h db -u root -p%s --databases %s > %s",
 			orchestrators.ShellQuote(EnvVariables["MYSQL_PASSWORD"]), id, dumpPath(id))
-		_, err = orch.ExecWithError(instance.Path, "web", cmd)
+		_, err = orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, cmd)
 		if err != nil {
 			return fmt.Errorf("mysqldump failed for wiki '%s': %w", id, err)
 		}

@@ -88,7 +88,7 @@ func runRemove(instance config.Installation, orch orchestrators.Orchestrator, wi
 	for _, id := range wikiIDs {
 		fspath := "/mediawiki/public_assets/" + id + "/sitemap"
 		rmCmd := fmt.Sprintf("find %s -mindepth 1 -delete 2>/dev/null; true", fspath)
-		if _, err := orch.ExecWithError(instance.Path, "web", rmCmd); err != nil {
+		if _, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, rmCmd); err != nil {
 			return fmt.Errorf("failed to remove sitemap files for wiki '%s': %w", id, err)
 		}
 		fmt.Printf("Removed sitemap for wiki '%s'.\n", id)

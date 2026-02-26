@@ -9,6 +9,12 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
+// Service name constants for container orchestration.
+const (
+	ServiceWeb = "web"
+	ServiceDB  = "db"
+)
+
 // Orchestrator defines the interface for container orchestration backends.
 // Docker Compose is the primary implementation; Kubernetes support is planned.
 // Compose-specific operations (Pull, Build, CopyOverrideFile, GetDevFiles)
@@ -124,32 +130,32 @@ func ImportDatabase(orch Orchestrator, databaseName, databasePath, dbPassword st
 		containerFile = fmt.Sprintf("/tmp/%s.sql", databaseName)
 	}
 
-	err := orch.CopyTo(instance.Path, "db", databasePath, containerFile)
+	err := orch.CopyTo(instance.Path, ServiceDB, databasePath, containerFile)
 	if err != nil {
 		return fmt.Errorf("error copying database file to container: %w", err)
 	}
 
 	defer func() {
 		rmCmdStr := fmt.Sprintf("rm -f /tmp/%s.sql /tmp/%s.sql.gz", databaseName, databaseName)
-		_, _ = orch.ExecWithError(instance.Path, "db", rmCmdStr)
+		_, _ = orch.ExecWithError(instance.Path, ServiceDB, rmCmdStr)
 	}()
 
 	if isCompressed {
 		decompressCmd := fmt.Sprintf("gunzip -f %s", containerFile)
-		_, err = orch.ExecWithError(instance.Path, "db", decompressCmd)
+		_, err = orch.ExecWithError(instance.Path, ServiceDB, decompressCmd)
 		if err != nil {
 			return fmt.Errorf("error decompressing database file: %w", err)
 		}
 	}
 
 	createCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p%s -e 'CREATE DATABASE IF NOT EXISTS %s'", dbUser, quotedPassword, databaseName)
-	_, err = orch.ExecWithError(instance.Path, "db", createCmdStr)
+	_, err = orch.ExecWithError(instance.Path, ServiceDB, createCmdStr)
 	if err != nil {
 		return fmt.Errorf("error creating database: %w", err)
 	}
 
 	importCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p%s %s < /tmp/%s.sql", dbUser, quotedPassword, databaseName, databaseName)
-	_, err = orch.ExecWithError(instance.Path, "db", importCmdStr)
+	_, err = orch.ExecWithError(instance.Path, ServiceDB, importCmdStr)
 	if err != nil {
 		return fmt.Errorf("error importing database: %w", err)
 	}

@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	dbServer             = "db"
 	confPath             = "/tmp/canasta-install/"
 	scriptPath           = "/w"
 	localSettingsFile    = "LocalSettings.php"
@@ -29,7 +28,7 @@ const (
 // The orchestrator's health checks handle the real wait; this is a short
 // safety-net check that runs after the container is already started.
 func WaitForDB(path string, orch orchestrators.Orchestrator) error {
-	output, err := orch.ExecWithError(path, "web", "/wait-for-it.sh -t 10 db:3306")
+	output, err := orch.ExecWithError(path, orchestrators.ServiceWeb, "/wait-for-it.sh -t 10 db:3306")
 	if err != nil {
 		return fmt.Errorf("database not ready: %s", output)
 	}
@@ -52,7 +51,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 
 	// Create writable temp directory for install.php output (needed because
 	// /mediawiki/config/ may be a read-only ConfigMap mount in Kubernetes)
-	if _, err := orch.ExecWithError(path, "web", "mkdir -p "+confPath); err != nil {
+	if _, err := orch.ExecWithError(path, orchestrators.ServiceWeb, "mkdir -p "+confPath); err != nil {
 		return canastaInfo, fmt.Errorf("failed to create install temp directory: %w", err)
 	}
 
@@ -62,9 +61,9 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 
 		// Unset MW_SECRET_KEY so CanastaDefaultSettings.php doesn't think wiki is already configured
 		installCmd := fmt.Sprintf("env -u MW_SECRET_KEY php maintenance/install.php --skins='Vector' --dbserver=%s --dbname=%s --confpath=%s --scriptpath=%s --server=%s --installdbuser='%s' --installdbpass=%s --dbuser='%s' --dbpass=%s --pass=%s %s %s",
-			dbServer, orchestrators.ShellQuote(wikiID), confPath, scriptPath, orchestrators.ShellQuote("https://"+domainName), "root", orchestrators.ShellQuote(canastaInfo.RootDBPassword), canastaInfo.WikiDBUsername, orchestrators.ShellQuote(canastaInfo.WikiDBPassword), orchestrators.ShellQuote(canastaInfo.AdminPassword), orchestrators.ShellQuote(wikiID), orchestrators.ShellQuote(canastaInfo.AdminName))
+			orchestrators.ServiceDB, orchestrators.ShellQuote(wikiID), confPath, scriptPath, orchestrators.ShellQuote("https://"+domainName), "root", orchestrators.ShellQuote(canastaInfo.RootDBPassword), canastaInfo.WikiDBUsername, orchestrators.ShellQuote(canastaInfo.WikiDBPassword), orchestrators.ShellQuote(canastaInfo.AdminPassword), orchestrators.ShellQuote(wikiID), orchestrators.ShellQuote(canastaInfo.AdminName))
 
-		output, err := orch.ExecWithError(path, "web", installCmd)
+		output, err := orch.ExecWithError(path, orchestrators.ServiceWeb, installCmd)
 		if err != nil {
 			return canastaInfo, fmt.Errorf("failed to run install.php: %s", output)
 		}
@@ -91,7 +90,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 				// Read LocalSettings.php from inside the container (works for
 				// both bind-mount and ConfigMap-based orchestrators)
 				catCmd := fmt.Sprintf("cat %s%s", confPath, localSettingsFile)
-				content, catErr := orch.ExecWithError(path, "web", catCmd)
+				content, catErr := orch.ExecWithError(path, orchestrators.ServiceWeb, catCmd)
 				if catErr != nil {
 					return canastaInfo, fmt.Errorf("failed to read LocalSettings.php: %w", catErr)
 				}
@@ -116,7 +115,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 		// generated files are unnecessary—Canasta uses its own LocalSettings.php that reads
 		// MW_SECRET_KEY from the environment.
 		rmCmd := fmt.Sprintf("rm -f %s%s", confPath, localSettingsFile)
-		if _, rmErr := orch.ExecWithError(path, "web", rmCmd); rmErr != nil {
+		if _, rmErr := orch.ExecWithError(path, orchestrators.ServiceWeb, rmCmd); rmErr != nil {
 			return canastaInfo, fmt.Errorf("failed to remove LocalSettings.php: %w", rmErr)
 		}
 
@@ -125,7 +124,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 
 	// Clean up the temporary install directory
 	rmCmd := fmt.Sprintf("rm -rf %s", confPath)
-	if _, err := orch.ExecWithError(path, "web", rmCmd); err != nil {
+	if _, err := orch.ExecWithError(path, orchestrators.ServiceWeb, rmCmd); err != nil {
 		return canastaInfo, fmt.Errorf("failed to remove install temp directory: %w", err)
 	}
 
@@ -147,7 +146,7 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 
 	// Create writable temp directory for install.php output (needed because
 	// /mediawiki/config/ may be a read-only ConfigMap mount in Kubernetes)
-	if _, err := orch.ExecWithError(installPath, "web", "mkdir -p "+confPath); err != nil {
+	if _, err := orch.ExecWithError(installPath, orchestrators.ServiceWeb, "mkdir -p "+confPath); err != nil {
 		return fmt.Errorf("failed to create install temp directory: %w", err)
 	}
 
@@ -218,8 +217,8 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		installCmd = "php maintenance/install.php"
 	}
 	command := fmt.Sprintf("%s --skins='Vector' --dbserver=%s --dbname=%s --confpath=%s --scriptpath=%s --server=%s --installdbuser='%s' --installdbpass=%s --dbuser='%s' --dbpass=%s --pass=%s %s %s",
-		installCmd, dbServer, orchestrators.ShellQuote(id), confPath, scriptPath, orchestrators.ShellQuote("https://"+domain), installdbuser, orchestrators.ShellQuote(installdbpass), dbuser, orchestrators.ShellQuote(dbpass), orchestrators.ShellQuote(adminPassword), orchestrators.ShellQuote(id), orchestrators.ShellQuote(admin))
-	output, err := orch.ExecWithError(installPath, "web", command)
+		installCmd, orchestrators.ServiceDB, orchestrators.ShellQuote(id), confPath, scriptPath, orchestrators.ShellQuote("https://"+domain), installdbuser, orchestrators.ShellQuote(installdbpass), dbuser, orchestrators.ShellQuote(dbpass), orchestrators.ShellQuote(adminPassword), orchestrators.ShellQuote(id), orchestrators.ShellQuote(admin))
+	output, err := orch.ExecWithError(installPath, orchestrators.ServiceWeb, command)
 	if err != nil {
 		return fmt.Errorf("failed to run install.php for wiki %q: %s", id, output)
 	}
@@ -250,7 +249,7 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 
 	// Clean up the temporary install directory
 	rmCmd := fmt.Sprintf("rm -rf %s", confPath)
-	if _, rmErr := orch.ExecWithError(installPath, "web", rmCmd); rmErr != nil {
+	if _, rmErr := orch.ExecWithError(installPath, orchestrators.ServiceWeb, rmCmd); rmErr != nil {
 		return fmt.Errorf("failed to remove install temp directory: %w", rmErr)
 	}
 
@@ -263,7 +262,7 @@ func RemoveDatabase(installPath, id string, orch orchestrators.Orchestrator) err
 		return err
 	}
 	command := fmt.Sprintf("echo 'DROP DATABASE IF EXISTS %s;' | mysql -h db -u root -p%s", id, orchestrators.ShellQuote(envVariables["MYSQL_PASSWORD"]))
-	output, err := orch.ExecWithError(installPath, "db", command)
+	output, err := orch.ExecWithError(installPath, orchestrators.ServiceDB, command)
 	if err != nil {
 		return fmt.Errorf("Error while dropping database '%s': %v. Output: %s", id, err, output)
 	}
