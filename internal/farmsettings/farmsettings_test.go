@@ -180,6 +180,43 @@ func TestAddAndRemoveWiki(t *testing.T) {
 	}
 }
 
+func TestAddWikiWithPath(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(configDir, "wikis.yaml")
+
+	// Generate initial wiki (no path)
+	_, err := GenerateWikisYaml(filePath, "wiki1", "example.com", "Wiki 1")
+	if err != nil {
+		t.Fatalf("GenerateWikisYaml() error = %v", err)
+	}
+
+	// Add a wiki with a URL path
+	err = AddWiki("wiki2", dir, "example.com", "blog", "Blog Wiki")
+	if err != nil {
+		t.Fatalf("AddWiki() error = %v", err)
+	}
+
+	ids, serverNames, paths, err := ReadWikisYaml(filePath)
+	if err != nil {
+		t.Fatalf("ReadWikisYaml() error = %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 wikis, got %d", len(ids))
+	}
+
+	// The second wiki should have serverName=example.com and path=/blog
+	if serverNames[1] != "example.com" {
+		t.Errorf("expected serverName=example.com, got %s", serverNames[1])
+	}
+	if paths[1] != "/blog" {
+		t.Errorf("expected path=/blog, got %s", paths[1])
+	}
+}
+
 func TestRemoveLastWikiFails(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")

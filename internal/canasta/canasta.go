@@ -39,6 +39,8 @@ const (
 	// This should match the current stable Canasta release. Update it
 	// when cutting a new CLI release to pair with a new Canasta version.
 	DefaultImageTag = "3.2.1"
+	// DirPerm is the default permission mode for directories created by the CLI.
+	DirPerm = 0755
 )
 
 // GetDefaultImage returns the full default Canasta image reference
@@ -234,7 +236,7 @@ func CopySettings(installPath string) error {
 		dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
 		// Create the directory if it doesn't exist
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
+		if err := os.MkdirAll(dirPath, DirPerm); err != nil {
 			return err
 		}
 
@@ -254,7 +256,7 @@ func CopySetting(installPath, id string) error {
 	dirPath := filepath.Join(installPath, "config", "settings", "wikis", normalizedId)
 
 	// Create the directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
+	if err := os.MkdirAll(dirPath, DirPerm); err != nil {
 		return err
 	}
 
@@ -283,7 +285,7 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 	dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
 	// Create the directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
+	if err := os.MkdirAll(dirPath, DirPerm); err != nil {
 		return err
 	}
 
@@ -311,7 +313,7 @@ func CopyGlobalSettingFile(installPath, settingsFilePath, workingDir string) err
 	dirPath := filepath.Join(installPath, "config", "settings", "global")
 
 	// Create the directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
+	if err := os.MkdirAll(dirPath, DirPerm); err != nil {
 		return err
 	}
 
@@ -949,7 +951,7 @@ func MigrateToNewVersion(installPath string) error {
 
 	// Create config/settings/wikis directory
 	wikisDir := filepath.Join(installPath, "config", "settings", "wikis")
-	if err := os.MkdirAll(wikisDir, 0755); err != nil {
+	if err := os.MkdirAll(wikisDir, DirPerm); err != nil {
 		return err
 	}
 

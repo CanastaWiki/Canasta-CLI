@@ -423,7 +423,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 				} else {
 					fmt.Printf("  Moving %s -> %s\n", legacyPath, newPath)
 					// Create parent directory
-					if err := os.MkdirAll(filepath.Dir(newPath), 0755); err != nil {
+					if err := os.MkdirAll(filepath.Dir(newPath), canasta.DirPerm); err != nil {
 						return false, fmt.Errorf("failed to create directory: %w", err)
 					}
 					// Move directory
@@ -454,7 +454,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 					} else {
 						fmt.Printf("  Moving %s -> %s\n", legacyFile, newFile)
 						// Create global directory if needed
-						if err := os.MkdirAll(globalPath, 0755); err != nil {
+						if err := os.MkdirAll(globalPath, canasta.DirPerm); err != nil {
 							return false, fmt.Errorf("failed to create directory: %w", err)
 						}
 						// Move file
