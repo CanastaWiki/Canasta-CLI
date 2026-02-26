@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -76,7 +77,7 @@ func (c *ComposeOrchestrator) UpdateStackFiles(installPath string, dryRun bool) 
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
+			return os.MkdirAll(targetPath, permissions.DirectoryPermission)
 		}
 		if d.Name() == ".gitkeep" {
 			return nil
@@ -103,7 +104,7 @@ func (c *ComposeOrchestrator) UpdateStackFiles(installPath string, dryRun bool) 
 		} else {
 			fmt.Printf("  Updating %s\n", relPath)
 		}
-		return os.WriteFile(targetPath, embedded, 0644)
+		return os.WriteFile(targetPath, embedded, permissions.FilePermission)
 	})
 	return changed, err
 }
@@ -124,7 +125,7 @@ func (c *ComposeOrchestrator) walkStackFiles(installPath string, overwrite bool)
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
+			return os.MkdirAll(targetPath, permissions.DirectoryPermission)
 		}
 		if d.Name() == ".gitkeep" {
 			return nil
@@ -138,7 +139,7 @@ func (c *ComposeOrchestrator) walkStackFiles(installPath string, overwrite bool)
 		if err != nil {
 			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
 		}
-		return os.WriteFile(targetPath, data, 0644)
+		return os.WriteFile(targetPath, data, permissions.FilePermission)
 	})
 }
 
@@ -549,8 +550,8 @@ func (c *ComposeOrchestrator) RestoreFromBackupVolume(installPath string, dirs m
 func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename, workingDir string) error {
 	if sourceFilename != "" {
 		logging.Print("Copying override file\n")
-		if !strings.HasPrefix(sourceFilename, "/") {
-			sourceFilename = workingDir + "/" + sourceFilename
+		if !filepath.IsAbs(sourceFilename) {
+			sourceFilename = filepath.Join(workingDir, sourceFilename)
 		}
 		var overrideFilename = installPath + "/docker-compose.override.yml"
 		logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, overrideFilename))

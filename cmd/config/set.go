@@ -2,8 +2,8 @@ package config
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	yaml "gopkg.in/yaml.v2"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -225,7 +226,7 @@ func applyHTTPSPortChange(inst config.Installation, newPort string) error {
 	envPath := filepath.Join(inst.Path, ".env")
 
 	// Read wikis.yaml
-	data, err := ioutil.ReadFile(wikisPath)
+	data, err := os.ReadFile(wikisPath)
 	if err != nil {
 		return fmt.Errorf("failed to read wikis.yaml: %w", err)
 	}
@@ -244,7 +245,7 @@ func applyHTTPSPortChange(inst config.Installation, newPort string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal wikis.yaml: %w", err)
 	}
-	if err := ioutil.WriteFile(wikisPath, out, 0644); err != nil {
+	if err := os.WriteFile(wikisPath, out, permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to write wikis.yaml: %w", err)
 	}
 	logging.Print("Updated wikis.yaml with new port\n")
