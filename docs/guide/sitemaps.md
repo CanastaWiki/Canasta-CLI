@@ -6,6 +6,8 @@ XML sitemaps help search engines discover and index pages on your wiki. Canasta 
 
 - [Why sitemaps matter](#why-sitemaps-matter)
 - [Generating sitemaps](#generating-sitemaps)
+  - [Redirect pages](#redirect-pages)
+  - [Filtering namespaces](#filtering-namespaces)
 - [Removing sitemaps](#removing-sitemaps)
 - [Background refresh](#background-refresh)
 - [File storage](#file-storage)
@@ -39,6 +41,20 @@ canasta sitemap generate -i myinstance
 
 Once generated, a [background process](#background-refresh) automatically keeps the sitemaps up to date.
 
+### Redirect pages
+
+Redirect pages are automatically excluded from sitemaps (via MediaWiki's `--skip-redirects` flag). Since redirect pages point to other pages that are already in the sitemap, including them would add no value for search engines and unnecessarily increase the sitemap size.
+
+### Filtering namespaces
+
+You can control which namespaces are included in sitemaps by setting [`$wgSitemapNamespaces`](https://www.mediawiki.org/wiki/Manual:$wgSitemapNamespaces) in your wiki's Settings.php. For example, to include only the main namespace and the Help namespace:
+
+```php
+$wgSitemapNamespaces = [ NS_MAIN, NS_HELP ];
+```
+
+If `$wgSitemapNamespaces` is not set, MediaWiki includes all namespaces by default.
+
 ---
 
 ## Removing sitemaps
@@ -67,13 +83,9 @@ canasta sitemap remove -i myinstance -y
 
 ## Background refresh
 
-After sitemaps are generated for a wiki, a background process inside the container automatically refreshes them on a regular schedule. The refresh interval is controlled by the `MW_SITEMAP_PAUSE_DAYS` environment variable in your `.env` file:
+After sitemaps are generated for a wiki, a background process inside the container automatically refreshes them on a regular schedule. The refresh interval is controlled by the `MW_SITEMAP_PAUSE_DAYS` environment variable, which defaults to `1` (day). Values less than 1 are treated as 1.
 
-```env
-MW_SITEMAP_PAUSE_DAYS=1
-```
-
-The default is 1 day (values less than 1 are treated as 1). The background generator runs continuously inside the container — it starts after a 30-second delay and loops indefinitely, sleeping for the configured interval between runs. It only refreshes sitemaps for wikis that already have sitemap files — generating sitemaps for a wiki opts it in, and removing them opts it out.
+The background generator runs continuously inside the container — it starts after a 30-second delay and loops indefinitely, sleeping for the configured interval between runs. It only refreshes sitemaps for wikis that already have sitemap files — generating sitemaps for a wiki opts it in, and removing them opts it out.
 
 The generator writes daily-rotating log files inside the container at `/var/log/mediawiki/mwsitemapgen_log_YYYYMMDD`.
 
