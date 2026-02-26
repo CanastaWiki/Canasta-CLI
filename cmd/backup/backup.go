@@ -41,12 +41,12 @@ and RESTIC_PASSWORD to be configured in the installation's .env file.`,
 			if err != nil {
 				return err
 			}
-			envPath = instance.Path + "/.env"
-			EnvVariables, envErr := canasta.GetEnvVariable(envPath)
+			envPath = filepath.Join(instance.Path, ".env")
+			envVariables, envErr := canasta.GetEnvVariable(envPath)
 			if envErr != nil {
 				return envErr
 			}
-			repoURL = getRepoURL(EnvVariables)
+			repoURL = getRepoURL(envVariables)
 
 			orch, err = orchestrators.New(instance.Orchestrator)
 			if err != nil {

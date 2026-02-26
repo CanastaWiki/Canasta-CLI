@@ -137,7 +137,7 @@ func copyTemplate(destPath string, upgrading bool) error {
 // This function merges any custom env file if provided,
 // and then applies the DB passwords and domain configuration.
 func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpass string) error {
-	yamlPath := installPath + "/config/wikis.yaml"
+	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
 
 	// If custom env file provided, merge its values
 	if customEnvPath != "" {
@@ -216,7 +216,7 @@ func NormalizeWikiID(id string) string {
 }
 
 func CopySettings(installPath string) error {
-	yamlPath := installPath + "/config/wikis.yaml"
+	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
 
 	logging.Print(fmt.Sprintf("Copying settings from wikis.yaml at %s\n", yamlPath))
 	WikiIDs, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
@@ -347,7 +347,7 @@ func generateSecretKey() (string, error) {
 // GenerateAndSaveSecretKey generates a secret key and saves it to .env as MW_SECRET_KEY,
 // unless MW_SECRET_KEY is already set (e.g. provided by the user via -e flag).
 func GenerateAndSaveSecretKey(installPath string) error {
-	envPath := installPath + "/.env"
+	envPath := filepath.Join(installPath, ".env")
 	envVars, err := GetEnvVariable(envPath)
 	if err != nil {
 		return err
@@ -392,7 +392,7 @@ func IsElasticsearchEnabled(envVars map[string]string) bool {
 // If active, it ensures OS_USER, OS_PASSWORD, and OS_PASSWORD_HASH are set.
 // Returns true if observability is enabled.
 func EnsureObservabilityCredentials(installPath string) (bool, error) {
-	envPath := installPath + "/.env"
+	envPath := filepath.Join(installPath, ".env")
 	envVars, err := GetEnvVariable(envPath)
 	if err != nil {
 		return false, err
@@ -412,7 +412,7 @@ func EnsureObservabilityCredentials(installPath string) (bool, error) {
 
 	// Generate OS_PASSWORD if not present
 	if envVars["OS_PASSWORD"] == "" {
-		pw, err := GeneratePassword("OpenSearch")
+		pw, err := GeneratePassword()
 		if err != nil {
 			return true, fmt.Errorf("failed to generate OS_PASSWORD: %w", err)
 		}
@@ -454,14 +454,14 @@ func removeDuplicates(slice []string) []string {
 }
 
 func RewriteCaddy(installPath string) error {
-	_, ServerNames, _, err := farmsettings.ReadWikisYaml(installPath + "/config/wikis.yaml")
+	_, ServerNames, _, err := farmsettings.ReadWikisYaml(filepath.Join(installPath, "config", "wikis.yaml"))
 	if err != nil {
 		return err
 	}
-	filePath := installPath + "/config/Caddyfile"
+	filePath := filepath.Join(installPath, "config", "Caddyfile")
 
 	// Check if CADDY_AUTO_HTTPS is set to "off" in .env (SSL terminated upstream)
-	envPath := installPath + "/.env"
+	envPath := filepath.Join(installPath, ".env")
 	envVars, err := GetEnvVariable(envPath)
 	if err != nil {
 		return err
@@ -695,26 +695,8 @@ func GenerateAdminPassword(canastaInfo CanastaVariables) (CanastaVariables, erro
 	return canastaInfo, nil
 }
 
-// GeneratePasswords generates all passwords (admin and database).
-// For backward compatibility - calls both GenerateAdminPassword and GenerateDBPasswords.
-func GeneratePasswords(workingDir string, canastaInfo CanastaVariables) (CanastaVariables, error) {
-	var err error
-
-	canastaInfo, err = GenerateAdminPassword(canastaInfo)
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	canastaInfo, err = GenerateDBPasswords(canastaInfo)
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	return canastaInfo, nil
-}
-
-// GeneratePassword generates a random password for the specified purpose
-func GeneratePassword(purpose string) (string, error) {
+// GeneratePassword generates a random password.
+func GeneratePassword() (string, error) {
 	gen, err := safePasswordGenerator()
 	if err != nil {
 		return "", err
@@ -791,14 +773,14 @@ func SaveEnvVariable(envPath, key, value string) error {
 
 // Get values saved inside the .env at the envPath
 func GetEnvVariable(envPath string) (map[string]string, error) {
-	EnvVariables := make(map[string]string)
-	file_data, err := os.ReadFile(envPath)
+	envVariables := make(map[string]string)
+	fileData, err := os.ReadFile(envPath)
 	if err != nil {
 		return nil, err
 	}
-	data := strings.TrimSuffix(string(file_data), "\n")
-	variable_list := strings.Split(data, "\n")
-	for _, variable := range variable_list {
+	data := strings.TrimSuffix(string(fileData), "\n")
+	variableList := strings.Split(data, "\n")
+	for _, variable := range variableList {
 		// Use SplitN to only split on first "=" - values may contain "=" characters
 		list := strings.SplitN(variable, "=", 2)
 		if len(list) < 2 {
@@ -809,9 +791,9 @@ func GetEnvVariable(envPath string) (map[string]string, error) {
 		if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
 			value = value[1 : len(value)-1]
 		}
-		EnvVariables[list[0]] = value
+		envVariables[list[0]] = value
 	}
-	return EnvVariables, nil
+	return envVariables, nil
 }
 
 // Checking Installation existence

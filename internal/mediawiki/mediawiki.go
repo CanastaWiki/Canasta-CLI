@@ -135,7 +135,7 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
-	envVariables, err := canasta.GetEnvVariable(installPath + "/.env")
+	envVariables, err := canasta.GetEnvVariable(filepath.Join(installPath, ".env"))
 	if err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 }
 
 func RemoveDatabase(installPath, id string, orch orchestrators.Orchestrator) error {
-	envVariables, err := canasta.GetEnvVariable(installPath + "/.env")
+	envVariables, err := canasta.GetEnvVariable(filepath.Join(installPath, ".env"))
 	if err != nil {
 		return err
 	}
