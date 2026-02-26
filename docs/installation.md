@@ -97,4 +97,4 @@ The configuration directory location depends on your platform:
 
 ### Email configuration
 
-Email functionality is **not enabled by default**. To enable email for your wiki, you must configure the `$wgSMTP` setting in your wiki's settings file. See the [MediaWiki SMTP documentation](https://www.mediawiki.org/wiki/Manual:$wgSMTP) for configuration options.
+Email works out of the box using a built-in mail server (Postfix). Messages may be flagged as spam by recipients since the server has no SPF or DKIM records. For production use, configure an authenticated SMTP provider via `$wgSMTP`. See the [Email guide](guide/email.md) for details.
