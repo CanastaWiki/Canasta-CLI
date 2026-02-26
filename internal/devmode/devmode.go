@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
@@ -98,7 +99,7 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 	}
 
 	// Create the destination directory
-	if err := os.MkdirAll(codeDir, 0755); err != nil {
+	if err := os.MkdirAll(codeDir, canasta.DirPerm); err != nil {
 		return fmt.Errorf("failed to create code directory: %w", err)
 	}
 
@@ -163,7 +164,7 @@ func consolidateUserDir(installPath, codeDir, dirName, userDirName string) error
 	targetDir := filepath.Join(codeDir, userDirName)
 
 	// Ensure target directory exists (should exist from extraction)
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, canasta.DirPerm); err != nil {
 		return fmt.Errorf("failed to create %s directory: %w", userDirName, err)
 	}
 
@@ -318,7 +319,7 @@ func WriteIDEConfigs(installPath string) error {
 
 	// VSCode launch.json
 	vscodeDir := filepath.Join(installPath, VSCodeDir)
-	if err := os.MkdirAll(vscodeDir, 0755); err != nil {
+	if err := os.MkdirAll(vscodeDir, canasta.DirPerm); err != nil {
 		return fmt.Errorf("failed to create .vscode directory: %w", err)
 	}
 	launchJsonPath := filepath.Join(vscodeDir, "launch.json")
@@ -328,11 +329,11 @@ func WriteIDEConfigs(installPath string) error {
 
 	// PHPStorm php.xml — substitute host and port
 	ideaDir := filepath.Join(installPath, PHPStormDir)
-	if err := os.MkdirAll(ideaDir, 0755); err != nil {
+	if err := os.MkdirAll(ideaDir, canasta.DirPerm); err != nil {
 		return fmt.Errorf("failed to create .idea directory: %w", err)
 	}
 	runConfDir := filepath.Join(installPath, PHPStormRunConfDir)
-	if err := os.MkdirAll(runConfDir, 0755); err != nil {
+	if err := os.MkdirAll(runConfDir, canasta.DirPerm); err != nil {
 		return fmt.Errorf("failed to create .idea/runConfigurations directory: %w", err)
 	}
 	phpXmlContent := strings.Replace(phpstormServerConfig, `host="localhost"`, fmt.Sprintf(`host="%s"`, host), 1)
@@ -434,7 +435,7 @@ func restoreUserDir(installPath, dirName, userDirName string) error {
 	if err != nil {
 		// Directory doesn't exist, create empty one
 		logging.Print(fmt.Sprintf("  %s/ doesn't exist, creating empty directory\n", dirName))
-		return os.MkdirAll(symlinkPath, 0755)
+		return os.MkdirAll(symlinkPath, canasta.DirPerm)
 	}
 
 	if info.Mode()&os.ModeSymlink == 0 {
@@ -450,7 +451,7 @@ func restoreUserDir(installPath, dirName, userDirName string) error {
 	}
 
 	// Create new directory
-	if err := os.MkdirAll(symlinkPath, 0755); err != nil {
+	if err := os.MkdirAll(symlinkPath, canasta.DirPerm); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 

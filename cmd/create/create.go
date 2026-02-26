@@ -217,7 +217,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 
 	// Create the installation directory and write orchestrator stack files
 	path = filepath.Join(path, canastaInfo.Id)
-	if err := os.MkdirAll(path, 0755); err != nil {
+	if err := os.MkdirAll(path, canasta.DirPerm); err != nil {
 		return fmt.Errorf("failed to create installation directory: %w", err)
 	}
 	if err := orch.WriteStackFiles(path); err != nil {

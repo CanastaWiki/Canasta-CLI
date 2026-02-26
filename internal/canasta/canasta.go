@@ -108,7 +108,7 @@ func copyTemplate(destPath string, upgrading bool) error {
 		targetPath := filepath.Join(destPath, relPath)
 
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
+			return os.MkdirAll(targetPath, DirPerm)
 		}
 
 		// Skip .gitkeep files — they're only used to preserve directory

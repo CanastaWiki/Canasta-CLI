@@ -76,7 +76,7 @@ func (c *ComposeOrchestrator) UpdateStackFiles(installPath string, dryRun bool) 
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
+			return os.MkdirAll(targetPath, canasta.DirPerm)
 		}
 		if d.Name() == ".gitkeep" {
 			return nil
@@ -124,7 +124,7 @@ func (c *ComposeOrchestrator) walkStackFiles(installPath string, overwrite bool)
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
+			return os.MkdirAll(targetPath, canasta.DirPerm)
 		}
 		if d.Name() == ".gitkeep" {
 			return nil

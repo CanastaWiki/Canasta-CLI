@@ -76,7 +76,7 @@ func (k *KubernetesOrchestrator) UpdateStackFiles(installPath string, dryRun boo
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
+			return os.MkdirAll(targetPath, canasta.DirPerm)
 		}
 		if d.Name() == ".gitkeep" {
 			return nil
@@ -473,7 +473,7 @@ func (k *KubernetesOrchestrator) syncClusterDataToHost(installPath string) error
 	}
 
 	for _, s := range syncs {
-		if err := os.MkdirAll(s.hostDir, 0755); err != nil {
+		if err := os.MkdirAll(s.hostDir, canasta.DirPerm); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", s.hostDir, err)
 		}
 		if err := k.copyDirContentsFrom(installPath, "web", s.containerDir, s.hostDir); err != nil {
@@ -977,7 +977,7 @@ func (k *KubernetesOrchestrator) walkStackFiles(installPath string, overwrite bo
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
+			return os.MkdirAll(targetPath, canasta.DirPerm)
 		}
 		if d.Name() == ".gitkeep" {
 			return nil
