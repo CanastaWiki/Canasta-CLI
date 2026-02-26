@@ -2,7 +2,6 @@ package importcmd
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -11,6 +10,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -81,7 +81,7 @@ To create a new wiki from a database dump, use the --database flag with
 
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	instance.Path = workingDir
 

@@ -2,7 +2,6 @@ package extensionsskins
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -10,6 +9,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -24,7 +24,7 @@ func NewCmd(constants Item) *cobra.Command {
 
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
-		log.Fatal(wdErr)
+		logging.Fatal(wdErr)
 	}
 	instance.Path = workingDir
 

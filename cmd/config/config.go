@@ -1,13 +1,13 @@
 package config
 
 import (
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -19,7 +19,7 @@ func NewCmd() *cobra.Command {
 
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
-		log.Fatal(wdErr)
+		logging.Fatal(wdErr)
 	}
 	instance.Path = workingDir
 

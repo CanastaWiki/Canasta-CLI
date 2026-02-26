@@ -2,13 +2,13 @@ package stop
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -16,7 +16,7 @@ func NewCmd() *cobra.Command {
 	var instance config.Installation
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	instance.Path = workingDir
 

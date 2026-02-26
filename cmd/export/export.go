@@ -2,7 +2,6 @@ package export
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -76,7 +76,7 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	instance.Path = workingDir
 
