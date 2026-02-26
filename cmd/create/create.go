@@ -144,7 +144,27 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 			if err = orch.CheckDependencies(); err != nil {
 				return err
 			}
-			if err = createCanasta(canastaInfo, workingDir, path, wikiID, siteName, domain, yamlPath, orch, orchestrator, override, envFile, composerFile, canastaImage, buildFromPath, registry, createCluster, databasePath, wikiSettingsPath, globalSettingsPath); err != nil {
+			if err = createCanasta(createOptions{
+				CanastaInfo:        canastaInfo,
+				Orch:               orch,
+				WorkingDir:         workingDir,
+				Path:               path,
+				WikiID:             wikiID,
+				SiteName:           siteName,
+				Domain:             domain,
+				YamlPath:           yamlPath,
+				Orchestrator:       orchestrator,
+				Override:           override,
+				EnvFile:            envFile,
+				ComposerFile:       composerFile,
+				CanastaImage:       canastaImage,
+				BuildFromPath:      buildFromPath,
+				Registry:           registry,
+				CreateCluster:      createCluster,
+				DatabasePath:       databasePath,
+				WikiSettingsPath:   wikiSettingsPath,
+				GlobalSettingsPath: globalSettingsPath,
+			}); err != nil {
 				stopSpinner()
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
@@ -194,34 +214,56 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 	return createCmd
 }
 
+type createOptions struct {
+	CanastaInfo        canasta.CanastaVariables
+	Orch               orchestrators.Orchestrator
+	WorkingDir         string
+	Path               string
+	WikiID             string
+	SiteName           string
+	Domain             string
+	YamlPath           string
+	Orchestrator       string
+	Override           string
+	EnvFile            string
+	ComposerFile       string
+	CanastaImage       string
+	BuildFromPath      string
+	Registry           string
+	CreateCluster      bool
+	DatabasePath       string
+	WikiSettingsPath   string
+	GlobalSettingsPath string
+}
+
 // createCanasta accepts all the keyword arguments and creates an installation of the latest Canasta.
-func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiID, siteName, domain, yamlPath string, orch orchestrators.Orchestrator, orchestrator, override, envFile, composerFile string, canastaImage, buildFromPath, registry string, createCluster bool, databasePath, wikiSettingsPath, globalSettingsPath string) error {
+func createCanasta(opts createOptions) error {
 	// Determine the base image to use
 	var baseImage string
 	var localImageBuilt bool
-	if buildFromPath != "" {
+	if opts.BuildFromPath != "" {
 		// Build Canasta (and optionally CanastaBase) from source
 		logging.Print("Building from local source...\n")
-		builtImage, err := imagebuild.BuildFromSource(buildFromPath)
+		builtImage, err := imagebuild.BuildFromSource(opts.BuildFromPath)
 		if err != nil {
 			return fmt.Errorf("failed to build from source: %w", err)
 		}
 		baseImage = builtImage
 		localImageBuilt = true
-	} else if canastaImage != "" {
+	} else if opts.CanastaImage != "" {
 		// Use the user-specified image
-		baseImage = canastaImage
+		baseImage = opts.CanastaImage
 	} else {
 		// Use the default Canasta image
 		baseImage = canasta.GetDefaultImage()
 	}
 
 	// Create the installation directory and write orchestrator stack files
-	path = filepath.Join(path, canastaInfo.Id)
+	path := filepath.Join(opts.Path, opts.CanastaInfo.Id)
 	if err := os.MkdirAll(path, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("failed to create installation directory: %w", err)
 	}
-	if err := orch.WriteStackFiles(path); err != nil {
+	if err := opts.Orch.WriteStackFiles(path); err != nil {
 		return fmt.Errorf("failed to write stack files: %w", err)
 	}
 
@@ -231,6 +273,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	}
 
 	// If user provided a custom yaml file, copy it; otherwise generate it directly in the installation
+	yamlPath := opts.YamlPath
 	if yamlPath != "" {
 		// User provided custom yaml file via --yamlfile flag
 		if err := canasta.CopyYaml(yamlPath, path); err != nil {
@@ -239,11 +282,11 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 	} else {
 		// Generate wikis.yaml directly in the installation directory
 		yamlPath = filepath.Join(path, "config", "wikis.yaml")
-		if _, err := farmsettings.GenerateWikisYaml(yamlPath, wikiID, domain, siteName); err != nil {
+		if _, err := farmsettings.GenerateWikisYaml(yamlPath, opts.WikiID, opts.Domain, opts.SiteName); err != nil {
 			return err
 		}
 	}
-	if err := canasta.UpdateEnvFile(envFile, path, workingDir, canastaInfo.RootDBPassword, canastaInfo.WikiDBPassword); err != nil {
+	if err := canasta.UpdateEnvFile(opts.EnvFile, path, opts.WorkingDir, opts.CanastaInfo.RootDBPassword, opts.CanastaInfo.WikiDBPassword); err != nil {
 		return err
 	}
 	// Always set CANASTA_IMAGE in .env so the installation is pinned to a
@@ -256,29 +299,29 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		return err
 	}
 	// If custom per-wiki settings file provided, overwrite the Settings.php for this wiki
-	if wikiSettingsPath != "" && wikiID != "" {
-		if err := canasta.CopyWikiSettingFile(path, wikiID, wikiSettingsPath, workingDir); err != nil {
+	if opts.WikiSettingsPath != "" && opts.WikiID != "" {
+		if err := canasta.CopyWikiSettingFile(path, opts.WikiID, opts.WikiSettingsPath, opts.WorkingDir); err != nil {
 			return err
 		}
 	}
 	// If custom global settings file provided, copy to config/settings/
-	if globalSettingsPath != "" {
-		if err := canasta.CopyGlobalSettingFile(path, globalSettingsPath, workingDir); err != nil {
+	if opts.GlobalSettingsPath != "" {
+		if err := canasta.CopyGlobalSettingFile(path, opts.GlobalSettingsPath, opts.WorkingDir); err != nil {
 			return err
 		}
 	}
-	if composerFile != "" {
-		if err := canasta.CopyComposerFile(path, composerFile, workingDir); err != nil {
+	if opts.ComposerFile != "" {
+		if err := canasta.CopyComposerFile(path, opts.ComposerFile, opts.WorkingDir); err != nil {
 			return err
 		}
 	}
-	isK8s := orchestrator == "kubernetes" || orchestrator == "k8s"
+	isK8s := opts.Orchestrator == "kubernetes" || opts.Orchestrator == "k8s"
 
 	// For managed K8s clusters, create the kind cluster with port mappings
 	var kindClusterName string
-	if createCluster && isK8s {
+	if opts.CreateCluster && isK8s {
 		httpPort, httpsPort := orchestrators.GetPortsFromEnv(path)
-		kindClusterName = orchestrators.KindClusterName(canastaInfo.Id)
+		kindClusterName = orchestrators.KindClusterName(opts.CanastaInfo.Id)
 		if err := orchestrators.CreateKindCluster(kindClusterName, httpPort, httpsPort); err != nil {
 			return fmt.Errorf("failed to create kind cluster: %w", err)
 		}
@@ -296,7 +339,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		} else {
 			// Push to a registry the cluster can access
 			logging.Print("Pushing image to registry for Kubernetes...\n")
-			remoteTag, err := imagebuild.PushImage(baseImage, registry)
+			remoteTag, err := imagebuild.PushImage(baseImage, opts.Registry)
 			if err != nil {
 				return fmt.Errorf("failed to push image to registry: %w", err)
 			}
@@ -307,32 +350,32 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	}
 
-	if err := orch.InitConfig(path); err != nil {
+	if err := opts.Orch.InitConfig(path); err != nil {
 		return err
 	}
-	if override != "" {
-		compose, ok := orch.(*orchestrators.ComposeOrchestrator)
+	if opts.Override != "" {
+		compose, ok := opts.Orch.(*orchestrators.ComposeOrchestrator)
 		if !ok {
 			return fmt.Errorf("--override is only supported with Docker Compose")
 		}
-		if err := compose.CopyOverrideFile(path, override, workingDir); err != nil {
+		if err := compose.CopyOverrideFile(path, opts.Override, opts.WorkingDir); err != nil {
 			return err
 		}
 	}
 
 	// Start without dev mode for installation
 	// (xdebug can cause hangs if a debugger is listening during install.php)
-	tempInstance := config.Installation{Path: path, Orchestrator: orchestrator, DevMode: false, KindCluster: kindClusterName}
-	if err := orch.Start(tempInstance); err != nil {
+	tempInstance := config.Installation{Path: path, Orchestrator: opts.Orchestrator, DevMode: false, KindCluster: kindClusterName}
+	if err := opts.Orch.Start(tempInstance); err != nil {
 		return err
 	}
 
 	// If database path is provided, import the database instead of running install.php
-	if databasePath != "" {
+	if opts.DatabasePath != "" {
 		logging.Print("Importing database instead of running install.php\n")
 
 		// Wait for database to be ready
-		if err := mediawiki.WaitForDB(path, orch); err != nil {
+		if err := mediawiki.WaitForDB(path, opts.Orch); err != nil {
 			return err
 		}
 
@@ -341,7 +384,7 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 			return envErr
 		}
 		dbPassword := envVariables["MYSQL_PASSWORD"]
-		if err := orchestrators.ImportDatabase(orch, wikiID, databasePath, dbPassword, tempInstance); err != nil {
+		if err := orchestrators.ImportDatabase(opts.Orch, opts.WikiID, opts.DatabasePath, dbPassword, tempInstance); err != nil {
 			return err
 		}
 		// Generate secret key and save to .env (DB password already in .env)
@@ -350,28 +393,28 @@ func createCanasta(canastaInfo canasta.CanastaVariables, workingDir, path, wikiI
 		}
 	} else {
 		// Run MediaWiki installer
-		if _, err := mediawiki.Install(path, yamlPath, orch, canastaInfo); err != nil {
+		if _, err := mediawiki.Install(path, yamlPath, opts.Orch, opts.CanastaInfo); err != nil {
 			return err
 		}
 	}
 
 	reg := ""
 	if isK8s {
-		reg = registry
+		reg = opts.Registry
 	}
-	instance := config.Installation{Id: canastaInfo.Id, Path: path, Orchestrator: orchestrator, DevMode: false, ManagedCluster: createCluster, Registry: reg, KindCluster: kindClusterName, BuildFrom: buildFromPath}
+	instance := config.Installation{Id: opts.CanastaInfo.Id, Path: path, Orchestrator: opts.Orchestrator, DevMode: false, ManagedCluster: opts.CreateCluster, Registry: reg, KindCluster: kindClusterName, BuildFrom: opts.BuildFromPath}
 	if err := config.Add(instance); err != nil {
 		return err
 	}
 
 	// Restart to apply all settings
 	// Stop containers (started without dev mode)
-	if err := orch.Stop(tempInstance); err != nil {
+	if err := opts.Orch.Stop(tempInstance); err != nil {
 		return err
 	}
 
 	// Start with appropriate mode
-	if err := orch.Start(instance); err != nil {
+	if err := opts.Orch.Start(instance); err != nil {
 		return err
 	}
 
