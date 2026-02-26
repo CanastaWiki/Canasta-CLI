@@ -27,7 +27,7 @@ The **Canasta CLI** is the command-line tool for managing Canasta installations.
 curl -fsSL https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/install.sh | sudo bash
 
 # Create a new Canasta installation
-canasta create -i myinstance -w wiki1 -a admin -n localhost
+canasta create -i myinstance -w wiki1 -n localhost
 ```
 
 > **Note: Linux users**
