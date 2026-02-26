@@ -3,6 +3,7 @@ package export
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -96,7 +97,7 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 	}
 
 	// Read the database password from .env
-	envVariables, err := canasta.GetEnvVariable(instance.Path + "/.env")
+	envVariables, err := canasta.GetEnvVariable(filepath.Join(instance.Path, ".env"))
 	if err != nil {
 		return err
 	}
@@ -108,7 +109,7 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 	tempFile := fmt.Sprintf("/tmp/%s.sql", wikiID)
 
 	// Run mysqldump inside the db container (no --databases flag to avoid USE statements)
-	dumpCmd := fmt.Sprintf("mysqldump -u root -p%s %s > %s", orchestrators.ShellQuote(dbPassword), wikiID, tempFile)
+	dumpCmd := fmt.Sprintf("mysqldump -u root -p%s %s > %s", orchestrators.ShellQuote(dbPassword), orchestrators.ShellQuote(wikiID), tempFile)
 	output, err := orch.ExecWithError(instance.Path, orchestrators.ServiceDB, dumpCmd)
 	if err != nil {
 		return fmt.Errorf("failed to export database: %s", output)
