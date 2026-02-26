@@ -20,6 +20,7 @@ func TestValidateWikiID(t *testing.T) {
 		{"reserved images", "images", true},
 		{"reserved w", "w", true},
 		{"reserved wiki", "wiki", true},
+		{"reserved wikis", "wikis", true},
 		{"contains hyphen", "my-wiki", true},
 	}
 
@@ -28,6 +29,32 @@ func TestValidateWikiID(t *testing.T) {
 			err := ValidateWikiID(tt.wikiID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateWikiID(%q) error = %v, wantErr %v", tt.wikiID, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateWikiPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		wikiPath string
+		wantErr  bool
+	}{
+		{"valid path", "docs", false},
+		{"valid path with underscore", "my_wiki", false},
+		{"empty path", "", false},
+		{"reserved w", "w", true},
+		{"reserved wiki", "wiki", true},
+		{"reserved wikis", "wikis", true},
+		{"reserved settings", "settings", true},
+		{"reserved images", "images", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateWikiPath(tt.wikiPath)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateWikiPath(%q) error = %v, wantErr %v", tt.wikiPath, err, tt.wantErr)
 			}
 		})
 	}

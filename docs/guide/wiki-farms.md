@@ -12,6 +12,7 @@
   - [Per-wiki extension and skin management](#per-wiki-extension-and-skin-management)
   - [Removing a wiki](#removing-a-wiki)
   - [Deleting the entire farm](#deleting-the-entire-farm)
+- [Wiki directory](#wiki-directory)
 
 ---
 
@@ -107,5 +108,33 @@ canasta delete -i myfarm
 ```
 
 This stops and removes all containers, volumes, and configuration files.
+
+---
+
+## Wiki directory
+
+When a user browses to an unrecognized path on a wiki farm, Canasta returns a styled 404 page. You can optionally enable a wiki directory on this page, which displays a card grid of all wikis in the farm with links and logos.
+
+The directory is **disabled by default** for security — enabling it publicly exposes the list of wikis in your farm.
+
+### Enabling the directory
+
+```bash
+canasta config set CANASTA_ENABLE_WIKI_DIRECTORY=true -i myfarm
+```
+
+After the instance restarts, the 404 page will show an "Available wikis" section with a card for each wiki. The directory is also available as a standalone landing page at the `/wikis` path (e.g. `https://example.com/wikis`).
+
+### Disabling the directory
+
+```bash
+canasta config set CANASTA_ENABLE_WIKI_DIRECTORY=false -i myfarm
+```
+
+### How logos work
+
+Each wiki card attempts to load the wiki's logo by querying its MediaWiki API. If a wiki is private, unreachable, or does not have a logo configured, the card simply appears without a logo — no errors are shown.
+
+---
 
 See the [CLI Reference](../cli/canasta.md) for the full list of commands and flags.

@@ -30,7 +30,7 @@ func ValidateWikiID(wikiID string) error {
 	}
 
 	// Check if wikiID is one of the reserved names
-	reservedNames := []string{"settings", "images", "w", "wiki"}
+	reservedNames := []string{"settings", "images", "w", "wiki", "wikis"}
 	for _, name := range reservedNames {
 		if wikiID == name {
 			return fmt.Errorf("%s cannot be used as wikiID", wikiID)
@@ -38,6 +38,22 @@ func ValidateWikiID(wikiID string) error {
 	}
 
 	// If it passes the checks, return nil (no error)
+	return nil
+}
+
+// ValidateWikiPath validates that the URL path component doesn't use a reserved name
+func ValidateWikiPath(wikiPath string) error {
+	if wikiPath == "" {
+		return nil
+	}
+
+	reservedPaths := []string{"settings", "images", "w", "wiki", "wikis"}
+	for _, name := range reservedPaths {
+		if wikiPath == name {
+			return fmt.Errorf("%q cannot be used as a wiki URL path", wikiPath)
+		}
+	}
+
 	return nil
 }
 

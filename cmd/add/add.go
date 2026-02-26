@@ -109,6 +109,11 @@ an existing database dump instead of running the installer.`,
 			domainName = parsedUrl.Host
 			wikiPath = strings.Trim(parsedUrl.Path, "/")
 
+			// Validate wiki URL path
+			if err := farmsettings.ValidateWikiPath(wikiPath); err != nil {
+				return err
+			}
+
 			// Validate database path if provided
 			if databasePath != "" {
 				if err := canasta.ValidateDatabasePath(databasePath); err != nil {
