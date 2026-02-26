@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/perms"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
@@ -48,19 +48,19 @@ func CreateDevModeFiles(installPath string) error {
 
 	// Create Dockerfile.xdebug
 	dockerfilePath := filepath.Join(installPath, "Dockerfile.xdebug")
-	if err := os.WriteFile(dockerfilePath, []byte(dockerfileXdebugContent), 0644); err != nil {
+	if err := os.WriteFile(dockerfilePath, []byte(dockerfileXdebugContent), perms.FilePerm); err != nil {
 		return fmt.Errorf("failed to create Dockerfile.xdebug: %w", err)
 	}
 
 	// Create docker-compose.dev.yml
 	devComposePath := filepath.Join(installPath, DevComposeFile)
-	if err := os.WriteFile(devComposePath, []byte(dockerComposeDevContent), 0644); err != nil {
+	if err := os.WriteFile(devComposePath, []byte(dockerComposeDevContent), perms.FilePerm); err != nil {
 		return fmt.Errorf("failed to create docker-compose.dev.yml: %w", err)
 	}
 
 	// Create config/xdebug.ini
 	xdebugIniPath := filepath.Join(installPath, "config", "xdebug.ini")
-	if err := os.WriteFile(xdebugIniPath, []byte(xdebugIniContent), 0644); err != nil {
+	if err := os.WriteFile(xdebugIniPath, []byte(xdebugIniContent), perms.FilePerm); err != nil {
 		return fmt.Errorf("failed to create xdebug.ini: %w", err)
 	}
 
@@ -99,7 +99,7 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 	}
 
 	// Create the destination directory
-	if err := os.MkdirAll(codeDir, canasta.DirPerm); err != nil {
+	if err := os.MkdirAll(codeDir, perms.DirPerm); err != nil {
 		return fmt.Errorf("failed to create code directory: %w", err)
 	}
 
@@ -164,7 +164,7 @@ func consolidateUserDir(installPath, codeDir, dirName, userDirName string) error
 	targetDir := filepath.Join(codeDir, userDirName)
 
 	// Ensure target directory exists (should exist from extraction)
-	if err := os.MkdirAll(targetDir, canasta.DirPerm); err != nil {
+	if err := os.MkdirAll(targetDir, perms.DirPerm); err != nil {
 		return fmt.Errorf("failed to create %s directory: %w", userDirName, err)
 	}
 
@@ -233,7 +233,7 @@ func SetupDevEnvironment(installPath, baseImage string) error {
 	// Append dev settings to .env
 	devSettings := fmt.Sprintf("\n# Development mode settings\nDEV_CODE_PATH=./mediawiki-code\nCANASTA_IMAGE=%s\n", baseImage)
 	envContent = append(envContent, []byte(devSettings)...)
-	if err := os.WriteFile(envPath, envContent, 0644); err != nil {
+	if err := os.WriteFile(envPath, envContent, perms.FilePerm); err != nil {
 		return fmt.Errorf("failed to update .env file: %w", err)
 	}
 
@@ -319,33 +319,33 @@ func WriteIDEConfigs(installPath string) error {
 
 	// VSCode launch.json
 	vscodeDir := filepath.Join(installPath, VSCodeDir)
-	if err := os.MkdirAll(vscodeDir, canasta.DirPerm); err != nil {
+	if err := os.MkdirAll(vscodeDir, perms.DirPerm); err != nil {
 		return fmt.Errorf("failed to create .vscode directory: %w", err)
 	}
 	launchJsonPath := filepath.Join(vscodeDir, "launch.json")
-	if err := os.WriteFile(launchJsonPath, []byte(vscodeLaunchContent), 0644); err != nil {
+	if err := os.WriteFile(launchJsonPath, []byte(vscodeLaunchContent), perms.FilePerm); err != nil {
 		return fmt.Errorf("failed to create VSCode launch.json: %w", err)
 	}
 
 	// PHPStorm php.xml — substitute host and port
 	ideaDir := filepath.Join(installPath, PHPStormDir)
-	if err := os.MkdirAll(ideaDir, canasta.DirPerm); err != nil {
+	if err := os.MkdirAll(ideaDir, perms.DirPerm); err != nil {
 		return fmt.Errorf("failed to create .idea directory: %w", err)
 	}
 	runConfDir := filepath.Join(installPath, PHPStormRunConfDir)
-	if err := os.MkdirAll(runConfDir, canasta.DirPerm); err != nil {
+	if err := os.MkdirAll(runConfDir, perms.DirPerm); err != nil {
 		return fmt.Errorf("failed to create .idea/runConfigurations directory: %w", err)
 	}
 	phpXmlContent := strings.Replace(phpstormServerConfig, `host="localhost"`, fmt.Sprintf(`host="%s"`, host), 1)
 	phpXmlContent = strings.Replace(phpXmlContent, `port="80"`, fmt.Sprintf(`port="%s"`, port), 1)
 	phpXmlPath := filepath.Join(ideaDir, "php.xml")
-	if err := os.WriteFile(phpXmlPath, []byte(phpXmlContent), 0644); err != nil {
+	if err := os.WriteFile(phpXmlPath, []byte(phpXmlContent), perms.FilePerm); err != nil {
 		return fmt.Errorf("failed to create PHPStorm php.xml: %w", err)
 	}
 
 	// PHPStorm run configuration
 	runConfigPath := filepath.Join(runConfDir, "Listen_for_Xdebug.xml")
-	if err := os.WriteFile(runConfigPath, []byte(phpstormRunConfig), 0644); err != nil {
+	if err := os.WriteFile(runConfigPath, []byte(phpstormRunConfig), perms.FilePerm); err != nil {
 		return fmt.Errorf("failed to create PHPStorm run configuration: %w", err)
 	}
 
@@ -435,7 +435,7 @@ func restoreUserDir(installPath, dirName, userDirName string) error {
 	if err != nil {
 		// Directory doesn't exist, create empty one
 		logging.Print(fmt.Sprintf("  %s/ doesn't exist, creating empty directory\n", dirName))
-		return os.MkdirAll(symlinkPath, canasta.DirPerm)
+		return os.MkdirAll(symlinkPath, perms.DirPerm)
 	}
 
 	if info.Mode()&os.ModeSymlink == 0 {
@@ -451,7 +451,7 @@ func restoreUserDir(installPath, dirName, userDirName string) error {
 	}
 
 	// Create new directory
-	if err := os.MkdirAll(symlinkPath, canasta.DirPerm); err != nil {
+	if err := os.MkdirAll(symlinkPath, perms.DirPerm); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 

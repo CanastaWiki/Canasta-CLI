@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/perms"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -39,8 +40,6 @@ const (
 	// This should match the current stable Canasta release. Update it
 	// when cutting a new CLI release to pair with a new Canasta version.
 	DefaultImageTag = "3.2.1"
-	// DirPerm is the default permission mode for directories created by the CLI.
-	DirPerm = 0755
 )
 
 // GetDefaultImage returns the full default Canasta image reference
@@ -108,7 +107,7 @@ func copyTemplate(destPath string, upgrading bool) error {
 		targetPath := filepath.Join(destPath, relPath)
 
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, DirPerm)
+			return os.MkdirAll(targetPath, perms.DirPerm)
 		}
 
 		// Skip .gitkeep files — they're only used to preserve directory
@@ -129,7 +128,7 @@ func copyTemplate(destPath string, upgrading bool) error {
 			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
 		}
 
-		return os.WriteFile(targetPath, data, 0644)
+		return os.WriteFile(targetPath, data, perms.FilePerm)
 	})
 }
 
@@ -236,13 +235,13 @@ func CopySettings(installPath string) error {
 		dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
 		// Create the directory if it doesn't exist
-		if err := os.MkdirAll(dirPath, DirPerm); err != nil {
+		if err := os.MkdirAll(dirPath, perms.DirPerm); err != nil {
 			return err
 		}
 
 		// Copy README into the wiki's settings directory
 		readmePath := filepath.Join(dirPath, "README")
-		if err := os.WriteFile(readmePath, wikiREADME, 0644); err != nil {
+		if err := os.WriteFile(readmePath, wikiREADME, perms.FilePerm); err != nil {
 			return fmt.Errorf("failed to write README for %s: %w", id, err)
 		}
 	}
@@ -256,7 +255,7 @@ func CopySetting(installPath, id string) error {
 	dirPath := filepath.Join(installPath, "config", "settings", "wikis", normalizedId)
 
 	// Create the directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, DirPerm); err != nil {
+	if err := os.MkdirAll(dirPath, perms.DirPerm); err != nil {
 		return err
 	}
 
@@ -266,7 +265,7 @@ func CopySetting(installPath, id string) error {
 		return fmt.Errorf("failed to read embedded wiki README: %w", err)
 	}
 	readmePath := filepath.Join(dirPath, "README")
-	if err := os.WriteFile(readmePath, wikiREADME, 0644); err != nil {
+	if err := os.WriteFile(readmePath, wikiREADME, perms.FilePerm); err != nil {
 		return fmt.Errorf("failed to write README: %w", err)
 	}
 
@@ -285,7 +284,7 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 	dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
 	// Create the directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, DirPerm); err != nil {
+	if err := os.MkdirAll(dirPath, perms.DirPerm); err != nil {
 		return err
 	}
 
@@ -313,7 +312,7 @@ func CopyGlobalSettingFile(installPath, settingsFilePath, workingDir string) err
 	dirPath := filepath.Join(installPath, "config", "settings", "global")
 
 	// Create the directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, DirPerm); err != nil {
+	if err := os.MkdirAll(dirPath, perms.DirPerm); err != nil {
 		return err
 	}
 
@@ -579,7 +578,7 @@ func CreateCaddyfileSite(installPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read embedded Caddyfile.site: %w", err)
 	}
-	return os.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, perms.FilePerm)
 }
 
 // CreateCaddyfileGlobal creates config/Caddyfile.global from the installation template.
@@ -596,7 +595,7 @@ func CreateCaddyfileGlobal(installPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read embedded Caddyfile.global: %w", err)
 	}
-	return os.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, perms.FilePerm)
 }
 
 // CopyComposerFile copies a user-provided composer.local.json to config/composer.local.json.
@@ -759,7 +758,7 @@ func DeleteEnvVariable(envPath, key string) error {
 		return fmt.Errorf("key %q not found in %s", key, envPath)
 	}
 	lines := strings.Join(result, "\n")
-	return os.WriteFile(envPath, []byte(lines), 0644)
+	return os.WriteFile(envPath, []byte(lines), perms.FilePerm)
 }
 
 // Make changes to the .env file at the installation directory
@@ -784,7 +783,7 @@ func SaveEnvVariable(envPath, key, value string) error {
 		list = append(list, fmt.Sprintf("%s=%s", key, value))
 	}
 	lines := strings.Join(list, "\n")
-	if err := os.WriteFile(envPath, []byte(lines), 0644); err != nil {
+	if err := os.WriteFile(envPath, []byte(lines), perms.FilePerm); err != nil {
 		return err
 	}
 	return nil
@@ -951,7 +950,7 @@ func MigrateToNewVersion(installPath string) error {
 
 	// Create config/settings/wikis directory
 	wikisDir := filepath.Join(installPath, "config", "settings", "wikis")
-	if err := os.MkdirAll(wikisDir, DirPerm); err != nil {
+	if err := os.MkdirAll(wikisDir, perms.DirPerm); err != nil {
 		return err
 	}
 

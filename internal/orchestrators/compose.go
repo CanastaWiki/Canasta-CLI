@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/perms"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
@@ -76,7 +77,7 @@ func (c *ComposeOrchestrator) UpdateStackFiles(installPath string, dryRun bool) 
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, canasta.DirPerm)
+			return os.MkdirAll(targetPath, perms.DirPerm)
 		}
 		if d.Name() == ".gitkeep" {
 			return nil
@@ -103,7 +104,7 @@ func (c *ComposeOrchestrator) UpdateStackFiles(installPath string, dryRun bool) 
 		} else {
 			fmt.Printf("  Updating %s\n", relPath)
 		}
-		return os.WriteFile(targetPath, embedded, 0644)
+		return os.WriteFile(targetPath, embedded, perms.FilePerm)
 	})
 	return changed, err
 }
@@ -124,7 +125,7 @@ func (c *ComposeOrchestrator) walkStackFiles(installPath string, overwrite bool)
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, canasta.DirPerm)
+			return os.MkdirAll(targetPath, perms.DirPerm)
 		}
 		if d.Name() == ".gitkeep" {
 			return nil
@@ -138,7 +139,7 @@ func (c *ComposeOrchestrator) walkStackFiles(installPath string, overwrite bool)
 		if err != nil {
 			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
 		}
-		return os.WriteFile(targetPath, data, 0644)
+		return os.WriteFile(targetPath, data, perms.FilePerm)
 	})
 }
 
