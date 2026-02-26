@@ -832,21 +832,11 @@ func CheckCanastaId(instance config.Installation) (config.Installation, error) {
 	return instance, nil
 }
 
-func RemoveSettings(installPath, id string) error {
-	// Check new path first (config/settings/wikis/<id>)
-	newPath := filepath.Join(installPath, "config", "settings", "wikis", id)
-	if _, err := os.Stat(newPath); err == nil {
-		err, output := execute.Run("", "rm", "-rf", newPath)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
-		return nil
-	}
-
-	// Check legacy path (config/<id>)
-	legacyPath := filepath.Join(installPath, "config", id)
-	if _, err := os.Stat(legacyPath); err == nil {
-		err, output := execute.Run("", "rm", "-rf", legacyPath)
+// removeWikiDir removes a per-wiki subdirectory if it exists.
+func removeWikiDir(installPath, subdir, id string) error {
+	dirPath := filepath.Join(installPath, subdir, id)
+	if _, err := os.Stat(dirPath); err == nil {
+		err, output := execute.Run("", "rm", "-rf", dirPath)
 		if err != nil {
 			return fmt.Errorf("%s", output)
 		}
@@ -856,46 +846,21 @@ func RemoveSettings(installPath, id string) error {
 	return nil
 }
 
-func RemoveImages(installPath, id string) error {
-	// Prepare the file path
-	filePath := filepath.Join(installPath, "images", id)
-
-	// Check if the file exists
-	if _, err := os.Stat(filePath); err == nil {
-		// If the file exists, remove it
-		err, output := execute.Run("", "rm", "-rf", filePath)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
-	} else if os.IsNotExist(err) {
-		// File does not exist, do nothing
-		return nil
-	} else {
-		// File may or may not exist. See the specific error
-		return err
+func RemoveSettings(installPath, id string) error {
+	// New path takes precedence; fall back to legacy path
+	newPath := filepath.Join(installPath, "config", "settings", "wikis", id)
+	if _, err := os.Stat(newPath); err == nil {
+		return removeWikiDir(installPath, filepath.Join("config", "settings", "wikis"), id)
 	}
-	return nil
+	return removeWikiDir(installPath, "config", id)
+}
+
+func RemoveImages(installPath, id string) error {
+	return removeWikiDir(installPath, "images", id)
 }
 
 func RemovePublicAssets(installPath, id string) error {
-	// Prepare the file path
-	filePath := filepath.Join(installPath, "public_assets", id)
-
-	// Check if the file exists
-	if _, err := os.Stat(filePath); err == nil {
-		// If the file exists, remove it
-		err, output := execute.Run("", "rm", "-rf", filePath)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
-	} else if os.IsNotExist(err) {
-		// File does not exist, do nothing
-		return nil
-	} else {
-		// File may or may not exist. See the specific error
-		return err
-	}
-	return nil
+	return removeWikiDir(installPath, "public_assets", id)
 }
 
 func MigrateToNewVersion(installPath string) error {
