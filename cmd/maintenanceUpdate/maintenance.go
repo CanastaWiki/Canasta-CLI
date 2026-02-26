@@ -1,11 +1,12 @@
 package maintenance
 
 import (
-	"log"
 	"os"
 
-	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/spf13/cobra"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
 var (
@@ -18,7 +19,7 @@ var (
 func NewCmd() *cobra.Command {
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
-		log.Fatal(wdErr)
+		logging.Fatal(wdErr)
 	}
 	instance.Path = workingDir
 

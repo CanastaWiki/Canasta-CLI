@@ -2,7 +2,6 @@ package create
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -181,7 +180,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 	}
 
 	if workingDir, err = os.Getwd(); err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 
 	createCmd.Flags().StringVarP(&path, "path", "p", workingDir, "Canasta directory")

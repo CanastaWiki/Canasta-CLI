@@ -2,7 +2,6 @@ package extensionsskins
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
@@ -28,12 +27,12 @@ func Contains(list []string, element string) bool {
 }
 
 func List(instance config.Installation, orch orchestrators.Orchestrator, constants Item) error {
-	log.Printf("Available %s:\n", constants.Name)
+	fmt.Printf("Available %s:\n", constants.Name)
 	output, err := orch.ExecWithError(instance.Path, "web", "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find -L * -maxdepth 0 -type d")
 	if err != nil {
 		return fmt.Errorf("failed to list %s: %s", constants.Name, output)
 	}
-	log.Print(output)
+	fmt.Print(output)
 	return nil
 }
 
@@ -50,7 +49,7 @@ func CheckInstalled(name string, instance config.Installation, orch orchestrator
 
 func Enable(name, wiki string, instance config.Installation, orch orchestrators.Orchestrator, constants Item) error {
 	if wiki == "" {
-		log.Println("You didn't specify a wiki. The extension or skin will affect all wikis in the corresponding Canasta instance.")
+		fmt.Println("You didn't specify a wiki. The extension or skin will affect all wikis in the corresponding Canasta instance.")
 	}
 
 	var filePath string
@@ -66,14 +65,14 @@ func Enable(name, wiki string, instance config.Installation, orch orchestrators.
 	output, err := orch.ExecWithError(instance.Path, "web", "ls "+filePath)
 
 	if err == nil {
-		log.Printf("%s %s is already enabled!\n", constants.Name, name)
+		fmt.Printf("%s %s is already enabled!\n", constants.Name, name)
 	} else if Contains(strings.Split(output, ":"), " No such file or directory\n") {
 		command := fmt.Sprintf(`echo -e "%s" > %s`, phpScript, filePath)
 		execOutput, execErr := orch.ExecWithError(instance.Path, "web", command)
 		if execErr != nil {
 			return fmt.Errorf("failed to enable %s %q for wiki %q: %s", constants.Name, name, wiki, execOutput)
 		}
-		log.Printf("%s %s enabled\n", constants.Name, name)
+		fmt.Printf("%s %s enabled\n", constants.Name, name)
 	}
 	return nil
 }
@@ -111,7 +110,7 @@ func CheckEnabled(name, wiki string, instance config.Installation, orch orchestr
 
 func Disable(name, wiki string, instance config.Installation, orch orchestrators.Orchestrator, constants Item) error {
 	if wiki == "" {
-		log.Println("You didn't specify a wiki. The common settings will disable the extension or skin in the corresponding Canasta instance.")
+		fmt.Println("You didn't specify a wiki. The common settings will disable the extension or skin in the corresponding Canasta instance.")
 	}
 
 	var filePath string
@@ -127,6 +126,6 @@ func Disable(name, wiki string, instance config.Installation, orch orchestrators
 	if err != nil {
 		return fmt.Errorf("failed to disable %s %q for wiki %q: %s", constants.Name, name, wiki, output)
 	}
-	log.Printf("%s %s disabled\n", constants.Name, name)
+	fmt.Printf("%s %s disabled\n", constants.Name, name)
 	return nil
 }

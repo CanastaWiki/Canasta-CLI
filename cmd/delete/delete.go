@@ -3,7 +3,6 @@ package start
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -21,7 +20,7 @@ func NewCmd() *cobra.Command {
 	var instance config.Installation
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	instance.Path = workingDir
 
