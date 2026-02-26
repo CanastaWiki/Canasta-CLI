@@ -167,7 +167,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 				stopSpinner()
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
-					deleteConfigAndContainers(path+"/"+canastaInfo.Id, orch)
+					deleteConfigAndContainers(filepath.Join(path, canastaInfo.Id), orch)
 					return fmt.Errorf("Installation failed and files were cleaned up")
 				}
 				return fmt.Errorf("Installation failed. Keeping all the containers and config files")
@@ -291,7 +291,7 @@ func createCanasta(opts createOptions) error {
 	// Always set CANASTA_IMAGE in .env so the installation is pinned to a
 	// specific image. For default installs this is the CLI's pinned version;
 	// for --canasta-image or --build-from it's the user-specified image.
-	if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", baseImage); err != nil {
+	if err := canasta.SaveEnvVariable(filepath.Join(path, ".env"), "CANASTA_IMAGE", baseImage); err != nil {
 		return err
 	}
 	if err := canasta.CopySettings(path); err != nil {
@@ -343,7 +343,7 @@ func createCanasta(opts createOptions) error {
 				return fmt.Errorf("failed to push image to registry: %w", err)
 			}
 			// Update .env so kustomization.yaml references the registry image
-			if err := canasta.SaveEnvVariable(path+"/.env", "CANASTA_IMAGE", remoteTag); err != nil {
+			if err := canasta.SaveEnvVariable(filepath.Join(path, ".env"), "CANASTA_IMAGE", remoteTag); err != nil {
 				return err
 			}
 		}
@@ -378,7 +378,7 @@ func createCanasta(opts createOptions) error {
 			return err
 		}
 
-		envVariables, envErr := canasta.GetEnvVariable(path + "/.env")
+		envVariables, envErr := canasta.GetEnvVariable(filepath.Join(path, ".env"))
 		if envErr != nil {
 			return envErr
 		}

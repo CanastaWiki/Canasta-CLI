@@ -101,6 +101,7 @@ for a specific wiki only.`, constants.Plural, constants.Plural, article(constant
 		RunE: func(cmd *cobra.Command, args []string) error {
 			names := strings.Split(args[0], ",")
 			for _, name := range names {
+				name = strings.TrimSpace(name)
 				checkedName, err := CheckInstalled(name, *instance, *orch, *constants)
 				if err != nil {
 					fmt.Print(err.Error() + "\n")
@@ -141,6 +142,7 @@ for a specific wiki only.`, constants.Plural, constants.Plural, article(constant
 		RunE: func(cmd *cobra.Command, args []string) error {
 			names := strings.Split(args[0], ",")
 			for _, name := range names {
+				name = strings.TrimSpace(name)
 				checkedName, err := CheckEnabled(name, *wiki, *instance, *orch, *constants)
 				if err != nil {
 					fmt.Print(err.Error() + "\n")
