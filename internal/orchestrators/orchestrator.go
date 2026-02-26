@@ -113,7 +113,7 @@ func ImportDatabase(orch Orchestrator, databaseName, databasePath, dbPassword st
 		dbPassword = "mediawiki"
 	}
 
-	escapedPassword := strings.ReplaceAll(dbPassword, "'", "'\\''")
+	quotedPassword := ShellQuote(dbPassword)
 
 	isCompressed := strings.HasSuffix(databasePath, ".sql.gz")
 
@@ -142,13 +142,13 @@ func ImportDatabase(orch Orchestrator, databaseName, databasePath, dbPassword st
 		}
 	}
 
-	createCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p'%s' -e 'CREATE DATABASE IF NOT EXISTS %s'", dbUser, escapedPassword, databaseName)
+	createCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p%s -e 'CREATE DATABASE IF NOT EXISTS %s'", dbUser, quotedPassword, databaseName)
 	_, err = orch.ExecWithError(instance.Path, "db", createCmdStr)
 	if err != nil {
 		return fmt.Errorf("error creating database: %w", err)
 	}
 
-	importCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p'%s' %s < /tmp/%s.sql", dbUser, escapedPassword, databaseName, databaseName)
+	importCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p%s %s < /tmp/%s.sql", dbUser, quotedPassword, databaseName, databaseName)
 	_, err = orch.ExecWithError(instance.Path, "db", importCmdStr)
 	if err != nil {
 		return fmt.Errorf("error importing database: %w", err)
