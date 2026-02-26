@@ -553,7 +553,7 @@ func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename, work
 		if !filepath.IsAbs(sourceFilename) {
 			sourceFilename = filepath.Join(workingDir, sourceFilename)
 		}
-		var overrideFilename = installPath + "/docker-compose.override.yml"
+		var overrideFilename = filepath.Join(installPath, "docker-compose.override.yml")
 		logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, overrideFilename))
 		err, output := execute.Run("", "cp", sourceFilename, overrideFilename)
 		if err != nil {

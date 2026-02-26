@@ -99,15 +99,20 @@ func TestSaveEnvVariable(t *testing.T) {
 	}
 }
 
-func TestGeneratePasswords(t *testing.T) {
+func TestGenerateAdminAndDBPasswords(t *testing.T) {
 	info := CanastaVariables{
 		Id:        "test",
 		AdminName: "admin",
 	}
 
-	result, err := GeneratePasswords(t.TempDir(), info)
+	result, err := GenerateAdminPassword(info)
 	if err != nil {
-		t.Fatalf("GeneratePasswords() error = %v", err)
+		t.Fatalf("GenerateAdminPassword() error = %v", err)
+	}
+
+	result, err = GenerateDBPasswords(result)
+	if err != nil {
+		t.Fatalf("GenerateDBPasswords() error = %v", err)
 	}
 
 	// Check admin password
@@ -142,9 +147,14 @@ func TestGeneratePasswordsPreserveExisting(t *testing.T) {
 		WikiDBPassword: "mywikipass",
 	}
 
-	result, err := GeneratePasswords(t.TempDir(), info)
+	result, err := GenerateAdminPassword(info)
 	if err != nil {
-		t.Fatalf("GeneratePasswords() error = %v", err)
+		t.Fatalf("GenerateAdminPassword() error = %v", err)
+	}
+
+	result, err = GenerateDBPasswords(result)
+	if err != nil {
+		t.Fatalf("GenerateDBPasswords() error = %v", err)
 	}
 
 	if result.AdminPassword != "myadminpass" {

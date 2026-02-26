@@ -42,7 +42,7 @@ uploads the snapshot to the backup repository with the specified tag.`,
 
 func takeSnapshot(orch orchestrators.Orchestrator, instance config.Installation, envPath, repoURL, tag string) error {
 	fmt.Printf("Taking snapshot '%s'...\n", tag)
-	EnvVariables, err := canasta.GetEnvVariable(envPath)
+	envVariables, err := canasta.GetEnvVariable(envPath)
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func takeSnapshot(orch orchestrators.Orchestrator, instance config.Installation,
 	for _, id := range wikiIDs {
 		logging.Print(fmt.Sprintf("Dumping database for wiki '%s'...", id))
 		cmd := fmt.Sprintf("mysqldump -h db -u root -p%s --databases %s > %s",
-			orchestrators.ShellQuote(EnvVariables["MYSQL_PASSWORD"]), id, dumpPath(id))
+			orchestrators.ShellQuote(envVariables["MYSQL_PASSWORD"]), id, dumpPath(id))
 		_, err = orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, cmd)
 		if err != nil {
 			return fmt.Errorf("mysqldump failed for wiki '%s': %w", id, err)
@@ -89,7 +89,9 @@ func takeSnapshot(orch orchestrators.Orchestrator, instance config.Installation,
 	fmt.Print(output)
 
 	// Clean up the backup directory containing database dumps
-	os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
+	if err := os.RemoveAll(filepath.Join(instance.Path, "config", "backup")); err != nil {
+		logging.Print(fmt.Sprintf("Warning: failed to clean up backup directory: %v\n", err))
+	}
 
 	return nil
 }

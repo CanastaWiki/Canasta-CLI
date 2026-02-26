@@ -158,7 +158,7 @@ func ListAll() error {
 			continue
 		}
 
-		if _, err := os.Stat(installation.Path + "/config/wikis.yaml"); os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(installation.Path, "config", "wikis.yaml")); os.IsNotExist(err) {
 			// File does not exist, print only installation info
 			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				installation.Id,
@@ -170,7 +170,7 @@ func ListAll() error {
 			continue
 		}
 
-		ids, serverNames, paths, err := farmsettings.ReadWikisYaml(installation.Path + "/config/wikis.yaml")
+		ids, serverNames, paths, err := farmsettings.ReadWikisYaml(filepath.Join(installation.Path, "config", "wikis.yaml"))
 		if err != nil {
 			fmt.Printf("Error reading wikis.yaml for installation ID '%s': %s\n", installation.Id, err)
 			continue

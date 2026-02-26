@@ -123,7 +123,7 @@ an existing database dump instead of running the installer.`,
 
 			// Generate admin password only if not importing and admin is provided
 			if databasePath == "" && adminPassword == "" {
-				adminPassword, err = canasta.GeneratePassword("admin")
+				adminPassword, err = canasta.GeneratePassword()
 				if err != nil {
 					return err
 				}

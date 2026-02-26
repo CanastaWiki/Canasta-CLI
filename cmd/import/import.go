@@ -1,3 +1,5 @@
+// Package importcmd implements the "canasta import" command.
+// The name avoids conflicting with Go's "import" keyword.
 package importcmd
 
 import (

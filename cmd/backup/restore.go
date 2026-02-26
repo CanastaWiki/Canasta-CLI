@@ -53,7 +53,7 @@ images, and public assets from the backup, leaving shared files untouched.`,
 }
 
 func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Installation, envPath, repoURL, snapshotId string, skipBeforeSnapshot bool, wikiID string) error {
-	EnvVariables, envErr := canasta.GetEnvVariable(envPath)
+	envVariables, envErr := canasta.GetEnvVariable(envPath)
 	if envErr != nil {
 		return envErr
 	}
@@ -73,9 +73,9 @@ func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Installati
 	}
 
 	if wikiID != "" {
-		return restoreWiki(orch, instance, wikiID, EnvVariables)
+		return restoreWiki(orch, instance, wikiID, envVariables)
 	}
-	return restoreFull(orch, instance, EnvVariables)
+	return restoreFull(orch, instance, envVariables)
 }
 
 // restoreWiki restores a single wiki's database, per-wiki settings, images,
@@ -116,7 +116,7 @@ func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, 
 	// Validate that the dump file exists
 	hostDumpPath := filepath.Join(instance.Path, "config", "backup", fmt.Sprintf("db_%s.sql", wikiID))
 	if _, err := os.Stat(hostDumpPath); err != nil {
-		os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
+		cleanupBackupDir(instance.Path)
 		return fmt.Errorf("database dump file for wiki '%s' not found in backup snapshot", wikiID)
 	}
 
@@ -126,12 +126,12 @@ func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, 
 		orchestrators.ShellQuote(env["MYSQL_PASSWORD"]), dumpPath(wikiID))
 	_, restoreErr := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, command)
 	if restoreErr != nil {
-		os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
+		cleanupBackupDir(instance.Path)
 		return fmt.Errorf("Database restore failed for wiki '%s': %w", wikiID, restoreErr)
 	}
 
 	// Clean up the database dump directory
-	os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
+	cleanupBackupDir(instance.Path)
 
 	logging.Print("Per-wiki restore completed")
 	fmt.Printf("Restore completed for wiki '%s'\n", wikiID)
@@ -178,11 +178,18 @@ func restoreFull(orch orchestrators.Orchestrator, instance config.Installation, 
 	}
 
 	// Clean up the backup directory containing database dumps
-	os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
+	cleanupBackupDir(instance.Path)
 
 	logging.Print("Database restore completed")
 	fmt.Println("Restore completed")
 	return nil
+}
+
+// cleanupBackupDir removes the temporary backup directory, logging a warning on failure.
+func cleanupBackupDir(installPath string) {
+	if err := os.RemoveAll(filepath.Join(installPath, "config", "backup")); err != nil {
+		logging.Print(fmt.Sprintf("Warning: failed to clean up backup directory: %v\n", err))
+	}
 }
 
 // getWikiIDsForRestore determines which wiki databases have per-wiki dump files
