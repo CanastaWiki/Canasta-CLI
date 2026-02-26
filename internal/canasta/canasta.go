@@ -162,7 +162,7 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 
 		// Apply each override to .env
 		for key, value := range customEnv {
-			if err := SaveEnvVariable(installPath+"/.env", key, value); err != nil {
+			if err := SaveEnvVariable(filepath.Join(installPath, ".env"), key, value); err != nil {
 				return err
 			}
 		}
@@ -173,10 +173,10 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 	if err != nil {
 		return err
 	}
-	if err := SaveEnvVariable(installPath+"/.env", "MW_SITE_SERVER", "https://"+domainNames[0]); err != nil {
+	if err := SaveEnvVariable(filepath.Join(installPath, ".env"), "MW_SITE_SERVER", "https://"+domainNames[0]); err != nil {
 		return err
 	}
-	if err := SaveEnvVariable(installPath+"/.env", "MW_SITE_FQDN", domainNames[0]); err != nil {
+	if err := SaveEnvVariable(filepath.Join(installPath, ".env"), "MW_SITE_FQDN", domainNames[0]); err != nil {
 		return err
 	}
 
@@ -184,13 +184,13 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 	// Note: Don't wrap in quotes - docker-compose includes quotes as part of the value,
 	// causing a mismatch with the CLI which strips quotes when reading.
 	if rootDBpass != "" {
-		if err := SaveEnvVariable(installPath+"/.env", "MYSQL_PASSWORD", rootDBpass); err != nil {
+		if err := SaveEnvVariable(filepath.Join(installPath, ".env"), "MYSQL_PASSWORD", rootDBpass); err != nil {
 			return err
 		}
 	}
 
 	if wikiDBpass != "" {
-		if err := SaveEnvVariable(installPath+"/.env", "WIKI_DB_PASSWORD", wikiDBpass); err != nil {
+		if err := SaveEnvVariable(filepath.Join(installPath, ".env"), "WIKI_DB_PASSWORD", wikiDBpass); err != nil {
 			return err
 		}
 	}
@@ -201,18 +201,21 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 
 func CopyYaml(yamlPath, installPath string) error {
 	logging.Print(fmt.Sprintf("Copying %s to %s/config/wikis.yaml\n", yamlPath, installPath))
-	err, output := execute.Run("", "cp", yamlPath, installPath+"/config/wikis.yaml")
+	err, output := execute.Run("", "cp", yamlPath, filepath.Join(installPath, "config", "wikis.yaml"))
 	if err != nil {
 		return fmt.Errorf("failed to copy wikis.yaml from %s: %s", yamlPath, output)
 	}
 	return nil
 }
 
+// normalizeWikiIDRe strips characters that are not alphanumeric or underscore.
+var normalizeWikiIDRe = regexp.MustCompile("[^a-zA-Z0-9_]+")
+
 // NormalizeWikiID converts a wiki ID to a filesystem-safe form by replacing
 // spaces with underscores and stripping non-alphanumeric characters.
 func NormalizeWikiID(id string) string {
 	normalized := strings.ReplaceAll(id, " ", "_")
-	return regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(normalized, "")
+	return normalizeWikiIDRe.ReplaceAllString(normalized, "")
 }
 
 func CopySettings(installPath string) error {

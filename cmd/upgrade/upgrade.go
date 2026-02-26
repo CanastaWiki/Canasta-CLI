@@ -338,8 +338,7 @@ func extractSecretKey(installPath string, dryRun bool) (bool, error) {
 	wikiIDs, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err == nil {
 		for _, wikiID := range wikiIDs {
-			id := strings.ReplaceAll(wikiID, " ", "_")
-			id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
+			id := canasta.NormalizeWikiID(wikiID)
 			// Check new path first, fall back to legacy (same pattern as canasta.go)
 			newPath := filepath.Join(installPath, "config", "settings", "wikis", id, "LocalSettings.php")
 			legacyPath := filepath.Join(installPath, "config", id, "LocalSettings.php")
@@ -409,9 +408,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 	}
 
 	for _, wikiID := range wikiIDs {
-		// Normalize wikiID (same as in canasta.go)
-		id := strings.ReplaceAll(wikiID, " ", "_")
-		id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
+		id := canasta.NormalizeWikiID(wikiID)
 
 		legacyPath := filepath.Join(installPath, "config", id)
 		newPath := filepath.Join(installPath, "config", "settings", "wikis", id)
