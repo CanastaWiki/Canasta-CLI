@@ -82,7 +82,7 @@ func DeleteConfig(installPath string) (string, error) {
 func Exec(orch Orchestrator, installPath, service, command string) (string, error) {
 	output, err := orch.ExecWithError(installPath, service, command)
 	if err != nil {
-		return output, fmt.Errorf("%s", output)
+		return output, fmt.Errorf("command failed in service %q: %s", service, output)
 	}
 	return output, nil
 }

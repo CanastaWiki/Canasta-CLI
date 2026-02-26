@@ -186,13 +186,13 @@ func (c *ComposeOrchestrator) Start(instance config.Installation) error {
 	if compose.Path != "" {
 		err, output := execute.Run(instance.Path, compose.Path, args...)
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to start containers at %s: %s", instance.Path, output)
 		}
 	} else {
 		allArgs := append([]string{"compose"}, args...)
 		err, output := execute.Run(instance.Path, "docker", allArgs...)
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to start containers at %s: %s", instance.Path, output)
 		}
 	}
 	return nil
@@ -219,13 +219,13 @@ func (c *ComposeOrchestrator) Stop(instance config.Installation) error {
 	if compose.Path != "" {
 		err, output := execute.Run(instance.Path, compose.Path, args...)
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to stop containers at %s: %s", instance.Path, output)
 		}
 	} else {
 		allArgs := append([]string{"compose"}, args...)
 		err, output := execute.Run(instance.Path, "docker", allArgs...)
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to stop containers at %s: %s", instance.Path, output)
 		}
 	}
 	return nil
@@ -240,12 +240,12 @@ func (c *ComposeOrchestrator) Pull(installPath string) error {
 	if compose.Path != "" {
 		err, output := execute.Run(installPath, compose.Path, "pull", "--ignore-buildable", "--ignore-pull-failures")
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to pull images at %s: %s", installPath, output)
 		}
 	} else {
 		err, output := execute.Run(installPath, "docker", "compose", "pull", "--ignore-buildable", "--ignore-pull-failures")
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to pull images at %s: %s", installPath, output)
 		}
 	}
 	return nil
@@ -268,12 +268,12 @@ func (c *ComposeOrchestrator) Update(installPath string) (*UpdateReport, error) 
 	if compose.Path != "" {
 		err, output := execute.Run(installPath, compose.Path, "pull", "--ignore-buildable", "--ignore-pull-failures")
 		if err != nil {
-			return nil, fmt.Errorf("%s", output)
+			return nil, fmt.Errorf("failed to pull images for update at %s: %s", installPath, output)
 		}
 	} else {
 		err, output := execute.Run(installPath, "docker", "compose", "pull", "--ignore-buildable", "--ignore-pull-failures")
 		if err != nil {
-			return nil, fmt.Errorf("%s", output)
+			return nil, fmt.Errorf("failed to pull images for update at %s: %s", installPath, output)
 		}
 	}
 
@@ -312,13 +312,13 @@ func (c *ComposeOrchestrator) Build(installPath string, files ...string) error {
 	if compose.Path != "" {
 		err, output := execute.Run(installPath, compose.Path, args...)
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to build images at %s: %s", installPath, output)
 		}
 	} else {
 		allArgs := append([]string{"compose"}, args...)
 		err, output := execute.Run(installPath, "docker", allArgs...)
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to build images at %s: %s", installPath, output)
 		}
 	}
 	return nil
@@ -557,7 +557,7 @@ func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename, work
 		logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, overrideFilename))
 		err, output := execute.Run("", "cp", sourceFilename, overrideFilename)
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to copy override file from %s: %s", sourceFilename, output)
 		}
 	}
 	return nil
