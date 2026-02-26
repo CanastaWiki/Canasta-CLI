@@ -10,9 +10,12 @@ import (
 )
 
 type Item struct {
-	Name                     string
-	RelativeInstallationPath string
-	PhpCommand               string
+	Name                     string // e.g. "Canasta extension" or "Canasta skin"
+	CmdName                  string // e.g. "extension" or "skin"
+	Plural                   string // e.g. "extensions" or "skins"
+	RelativeInstallationPath string // e.g. "extensions" or "skins"
+	PhpCommand               string // e.g. "wfLoadExtension" or "wfLoadSkin"
+	ExampleNames             string // e.g. "VisualEditor,Cite,ParserFunctions" or "Timeless"
 }
 
 func Contains(list []string, element string) bool {
