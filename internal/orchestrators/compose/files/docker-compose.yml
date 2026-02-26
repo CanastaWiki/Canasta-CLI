@@ -59,6 +59,7 @@ services:
       - PHP_POST_MAX_SIZE=${PHP_UPLOAD_MAX_FILESIZE:-10M}
       - PHP_MAX_INPUT_VARS=${PHP_MAX_INPUT_VARS:-1000}
       - CANASTA_ENABLE_WIKI_DIRECTORY=${CANASTA_ENABLE_WIKI_DIRECTORY:-false}
+      - MW_SITEMAP_PAUSE_DAYS=${MW_SITEMAP_PAUSE_DAYS:-1}
     volumes:
       - ./extensions:/var/www/mediawiki/w/user-extensions
       - ./skins:/var/www/mediawiki/w/user-skins
