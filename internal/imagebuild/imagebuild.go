@@ -86,7 +86,7 @@ func PushImage(localTag, registry string) (string, error) {
 func buildImage(path, tag string) error {
 	err, output := execute.Run(path, "docker", "build", "-t", tag, ".")
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to build Docker image %q: %s", tag, output)
 	}
 	return nil
 }
@@ -98,7 +98,7 @@ func buildCanastaImage(path, baseImage, tag string) error {
 		"--build-arg", fmt.Sprintf("BASE_IMAGE=%s", baseImage),
 		"-t", tag, ".")
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to build Canasta image %q from base %q: %s", tag, baseImage, output)
 	}
 	return nil
 }

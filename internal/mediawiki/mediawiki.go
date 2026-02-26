@@ -66,7 +66,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 
 		output, err := orch.ExecWithError(path, "web", installCmd)
 		if err != nil {
-			return canastaInfo, fmt.Errorf("%s", output)
+			return canastaInfo, fmt.Errorf("failed to run install.php: %s", output)
 		}
 
 		// Save admin password to config/admin-password_{wikiid}
@@ -221,7 +221,7 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		installCmd, dbServer, id, confPath, scriptPath, domain, installdbuser, installdbpass, dbuser, dbpass, adminPassword, id, admin)
 	output, err := orch.ExecWithError(installPath, "web", command)
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to run install.php for wiki %q: %s", id, output)
 	}
 
 	// Save admin password to config/admin-password_{wikiid}

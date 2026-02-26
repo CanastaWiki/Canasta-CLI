@@ -203,7 +203,7 @@ func CopyYaml(yamlPath, installPath string) error {
 	logging.Print(fmt.Sprintf("Copying %s to %s/config/wikis.yaml\n", yamlPath, installPath))
 	err, output := execute.Run("", "cp", yamlPath, installPath+"/config/wikis.yaml")
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to copy wikis.yaml from %s: %s", yamlPath, output)
 	}
 	return nil
 }
@@ -293,7 +293,7 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", settingsFilePath, destPath))
 	err, output := execute.Run("", "cp", settingsFilePath, destPath)
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to copy wiki settings file to %s: %s", destPath, output)
 	}
 
 	return nil
@@ -321,7 +321,7 @@ func CopyGlobalSettingFile(installPath, settingsFilePath, workingDir string) err
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", settingsFilePath, destPath))
 	err, output := execute.Run("", "cp", settingsFilePath, destPath)
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to copy global settings file to %s: %s", destPath, output)
 	}
 
 	return nil
@@ -607,7 +607,7 @@ func CopyComposerFile(installPath, sourceFilename, workingDir string) error {
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, destPath))
 	err, output := execute.Run("", "cp", sourceFilename, destPath)
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to copy composer file from %s: %s", sourceFilename, output)
 	}
 	return nil
 }
@@ -838,7 +838,7 @@ func removeWikiDir(installPath, subdir, id string) error {
 	if _, err := os.Stat(dirPath); err == nil {
 		err, output := execute.Run("", "rm", "-rf", dirPath)
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to remove %s for wiki %q: %s", subdir, id, output)
 		}
 	} else if !os.IsNotExist(err) {
 		return err
