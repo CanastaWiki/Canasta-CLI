@@ -87,6 +87,9 @@ an existing database dump instead of running the installer.`,
   # Add a wiki with an existing database dump
   canasta add -i myinstance -w docs -u localhost/docs -d /path/to/dump.sql`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return fmt.Errorf("unknown argument %q; use flags to specify options (e.g. canasta add --wiki <wiki> --url <url>)", args[0])
+			}
 			var err error
 
 			// Validate wiki ID
