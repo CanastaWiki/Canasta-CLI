@@ -12,7 +12,8 @@ import (
 )
 
 func getCmdCreate() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "get [KEY]",
 		Short: "Show configuration settings",
 		Long: `Show configuration settings from the .env file of a Canasta installation.
@@ -30,6 +31,9 @@ Key lookup is case-insensitive.`,
 
 			if len(args) == 1 {
 				key := resolveKey(envVars, args[0])
+				if !force && !isKnownKey(key) {
+					return fmt.Errorf("unrecognized setting %q\nUse 'canasta config get --force %s' to query it anyway\nRun 'canasta config --help' to see available settings", key, key)
+				}
 				val, ok := envVars[key]
 				if !ok {
 					return fmt.Errorf("key %q is not set", key)
@@ -50,6 +54,9 @@ Key lookup is case-insensitive.`,
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow querying unrecognized keys")
+	return cmd
 }
 
 // resolveKey finds the actual key in envVars using case-insensitive matching

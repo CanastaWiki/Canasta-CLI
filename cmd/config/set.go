@@ -46,6 +46,51 @@ var portKeys = map[string]bool{
 	"HTTPS_PORT": true,
 }
 
+// knownKeys lists the configuration keys that are safe to set via
+// "canasta config set". Keys not in this list (and not matching a
+// resticPrefixes entry) are rejected unless --force is used.
+var knownKeys = map[string]bool{
+	// Network
+	"HTTP_PORT":  true,
+	"HTTPS_PORT": true,
+	// PHP
+	"PHP_UPLOAD_MAX_FILESIZE": true,
+	"PHP_POST_MAX_SIZE":       true,
+	"PHP_MAX_INPUT_VARS":      true,
+	// Sitemaps
+	"MW_SITEMAP_PAUSE_DAYS": true,
+	// Features
+	"CANASTA_ENABLE_ELASTICSEARCH":  true,
+	"CANASTA_ENABLE_OBSERVABILITY":  true,
+	"CANASTA_ENABLE_WIKI_DIRECTORY": true,
+	// Caddy / TLS
+	"CADDY_AUTO_HTTPS": true,
+	// Docker Image
+	"CANASTA_IMAGE": true,
+	// Backup (Restic)
+	"RESTIC_REPOSITORY": true,
+	"RESTIC_PASSWORD":   true,
+}
+
+// resticPrefixes lists key prefixes for Restic backend credentials
+// (e.g., AWS_ACCESS_KEY_ID, AZURE_ACCOUNT_NAME). Any key matching one
+// of these prefixes is treated as known.
+var resticPrefixes = []string{"AWS_", "AZURE_", "B2_", "GOOGLE_", "OS_", "ST_", "RCLONE_"}
+
+// isKnownKey reports whether key is in the knownKeys set or matches a
+// Restic backend prefix.
+func isKnownKey(key string) bool {
+	if knownKeys[key] {
+		return true
+	}
+	for _, prefix := range resticPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 var noRestart bool
 
 // setting is a parsed KEY=VALUE pair.
@@ -55,6 +100,7 @@ type setting struct {
 }
 
 func setCmdCreate() *cobra.Command {
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "set KEY=VALUE [KEY=VALUE ...]",
 		Short: "Change a configuration setting",
@@ -87,6 +133,15 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 				key := resolveKey(envVars, arg[:eqIdx])
 				value := arg[eqIdx+1:]
 				settings = append(settings, setting{key, value})
+			}
+
+			// Reject unrecognized keys unless --force is used
+			if !force {
+				for _, s := range settings {
+					if !isKnownKey(s.key) {
+						return fmt.Errorf("unrecognized setting %q\nUse 'canasta config set --force %s=%s' to set it anyway\nRun 'canasta config --help' to see available settings", s.key, s.key, s.value)
+					}
+				}
 			}
 
 			// Validate all before saving any
@@ -148,6 +203,7 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 	}
 
 	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "Save the setting without restarting the instance")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow setting unrecognized keys")
 	return cmd
 }
 
