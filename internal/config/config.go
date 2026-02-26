@@ -11,7 +11,6 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
-	"github.com/kirsle/configdir"
 )
 
 type Installation struct {
@@ -337,7 +336,11 @@ func read(details *Canasta) error {
 }
 
 func GetConfigDir() (string, error) {
-	dir := configdir.LocalConfig("canasta")
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("unable to determine config directory: %w", err)
+	}
+	dir := filepath.Join(base, "canasta")
 
 	// Checks if this is running as root
 	currentUser, err := user.Current()
