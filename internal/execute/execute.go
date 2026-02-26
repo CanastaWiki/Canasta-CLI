@@ -45,7 +45,7 @@ func defaultRun(path, command string, cmdArgs ...string) (error, string) {
 	}
 
 	logging.Print(fmt.Sprint(command, " ", strings.Join(cmdArgs, " ")))
-	cmd := exec.Command("bash", "-c", command+" "+strings.Join(cmdArgs, " "))
+	cmd := exec.Command(command, cmdArgs...)
 	cmd.Stdout = io.MultiWriter(outWriter)
 	cmd.Stderr = io.MultiWriter(errWriter)
 
