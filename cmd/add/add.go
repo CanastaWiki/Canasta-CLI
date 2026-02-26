@@ -136,7 +136,19 @@ an existing database dump instead of running the installer.`,
 			}
 
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.Id)
-			err = AddWiki(instance, wikiID, siteName, domainName, wikiPath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir)
+			err = AddWiki(AddWikiOptions{
+				Instance:         instance,
+				WikiID:           wikiID,
+				SiteName:         siteName,
+				Domain:           domainName,
+				WikiPath:         wikiPath,
+				DatabasePath:     databasePath,
+				WikiSettingsPath: wikiSettingsPath,
+				Admin:            admin,
+				AdminPassword:    adminPassword,
+				WikiDBUser:       wikidbuser,
+				WorkingDir:       workingDir,
+			})
 			if err != nil {
 				return err
 			}
@@ -162,94 +174,109 @@ an existing database dump instead of running the installer.`,
 	return addCmd
 }
 
+// AddWikiOptions contains all the parameters needed to add a wiki to a Canasta instance.
+type AddWikiOptions struct {
+	Instance         config.Installation
+	WikiID           string
+	SiteName         string
+	Domain           string
+	WikiPath         string
+	DatabasePath     string
+	WikiSettingsPath string
+	Admin            string
+	AdminPassword    string
+	WikiDBUser       string
+	WorkingDir       string
+}
+
 // AddWiki accepts the Canasta instance info, wiki ID, site name, domain and path of the new wiki, database info, and the initial admin info, then creates a new wiki in the Canasta instance.
-func AddWiki(instance config.Installation, wikiID, siteName, domain, wikipath, databasePath, wikiSettingsPath, admin, adminPassword, wikidbuser, workingDir string) error {
-	orch, err := orchestrators.New(instance.Orchestrator)
+func AddWiki(opts AddWikiOptions) error {
+	orch, err := orchestrators.New(opts.Instance.Orchestrator)
 	if err != nil {
 		return err
 	}
 
 	//Migrate to the new version Canasta
-	err = canasta.MigrateToNewVersion(instance.Path)
+	err = canasta.MigrateToNewVersion(opts.Instance.Path)
 	if err != nil {
 		return err
 	}
 
 	//Checking Running status
-	err = orch.CheckRunningStatus(instance)
+	err = orch.CheckRunningStatus(opts.Instance)
 	if err != nil {
 		return err
 	}
 
 	//Checking Wiki existence
-	wikiIDExists, err := farmsettings.WikiIDExists(instance.Path, wikiID)
+	wikiIDExists, err := farmsettings.WikiIDExists(opts.Instance.Path, opts.WikiID)
 	if err != nil {
 		return err
 	}
 	if wikiIDExists {
-		return fmt.Errorf("A wiki with the ID '%s' exists", wikiID)
+		return fmt.Errorf("A wiki with the ID '%s' exists", opts.WikiID)
 	}
 
-	urlExists, err := farmsettings.WikiUrlExists(instance.Path, domain, wikipath)
+	urlExists, err := farmsettings.WikiUrlExists(opts.Instance.Path, opts.Domain, opts.WikiPath)
 	if err != nil {
 		return err
 	}
 	if urlExists {
-		return fmt.Errorf("A wiki with the same installation path '%s' in the Canasta instance '%s' exists", wikiID+": "+domain+"/"+wikipath, instance.Id)
+		return fmt.Errorf("A wiki with the same installation path '%s' in the Canasta instance '%s' exists", opts.WikiID+": "+opts.Domain+"/"+opts.WikiPath, opts.Instance.Id)
 	}
 
 	// Import the database if databasePath is specified
-	if databasePath != "" {
-		envVariables, envErr := canasta.GetEnvVariable(instance.Path + "/.env")
+	if opts.DatabasePath != "" {
+		envVariables, envErr := canasta.GetEnvVariable(opts.Instance.Path + "/.env")
 		if envErr != nil {
 			return envErr
 		}
 		dbPassword := envVariables["MYSQL_PASSWORD"]
-		err = orchestrators.ImportDatabase(orch, wikiID, databasePath, dbPassword, instance)
+		err = orchestrators.ImportDatabase(orch, opts.WikiID, opts.DatabasePath, dbPassword, opts.Instance)
 		if err != nil {
 			return err
 		}
 	}
 
 	// Copy Settings.php - use custom file if provided, otherwise use template
-	if wikiSettingsPath != "" {
-		err = canasta.CopyWikiSettingFile(instance.Path, wikiID, wikiSettingsPath, workingDir)
+	if opts.WikiSettingsPath != "" {
+		err = canasta.CopyWikiSettingFile(opts.Instance.Path, opts.WikiID, opts.WikiSettingsPath, opts.WorkingDir)
 		if err != nil {
 			return err
 		}
 	} else {
-		err = canasta.CopySetting(instance.Path, wikiID)
+		err = canasta.CopySetting(opts.Instance.Path, opts.WikiID)
 		if err != nil {
 			return err
 		}
 	}
 
 	// Run MediaWiki installer only if not importing a database
-	if databasePath == "" {
-		err = mediawiki.InstallOne(instance.Path, wikiID, domain, admin, adminPassword, wikidbuser, workingDir, orch)
+	if opts.DatabasePath == "" {
+		err = mediawiki.InstallOne(opts.Instance.Path, opts.WikiID, opts.Domain, opts.Admin, opts.AdminPassword, opts.WikiDBUser, opts.WorkingDir, orch)
 		if err != nil {
 			return err
 		}
 	}
 
 	//Add the wiki in farmsettings (only after successful installation)
-	err = farmsettings.AddWiki(wikiID, instance.Path, domain, wikipath, siteName)
+	err = farmsettings.AddWiki(opts.WikiID, opts.Instance.Path, opts.Domain, opts.WikiPath, opts.SiteName)
 	if err != nil {
 		return err
 	}
 
 	//Rewrite the Caddyfile (only after adding to wikis.yaml)
-	err = orch.UpdateConfig(instance.Path)
+	err = orch.UpdateConfig(opts.Instance.Path)
 	if err != nil {
 		return err
 	}
 
-	err = restart.Restart(instance)
+	err = restart.Restart(opts.Instance)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("Successfully added wiki '" + wikiID + "' in Canasta instance '" + instance.Id + "'...")
+	fmt.Println("Successfully added wiki '" + opts.WikiID + "' in Canasta instance '" + opts.Instance.Id + "'...")
 
 	return nil
 }
