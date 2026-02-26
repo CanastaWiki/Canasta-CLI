@@ -63,6 +63,8 @@ var knownKeys = map[string]bool{
 	"CANASTA_ENABLE_ELASTICSEARCH":  true,
 	"CANASTA_ENABLE_OBSERVABILITY":  true,
 	"CANASTA_ENABLE_WIKI_DIRECTORY": true,
+	// Email
+	"MW_ENABLE_POSTFIX": true,
 	// Caddy / TLS
 	"CADDY_AUTO_HTTPS": true,
 	// Docker Image
