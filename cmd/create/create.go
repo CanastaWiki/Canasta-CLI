@@ -153,7 +153,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 				return fmt.Errorf("Installation failed. Keeping all the containers and config files")
 			}
 			stopSpinner()
-			fmt.Println("\033[32mIf you need email enabled for this wiki, please set $wgSMTP; email will not work otherwise. See https://mediawiki.org/wiki/Manual:$wgSMTP for options.\033[0m")
+			fmt.Println("\033[32mEmail is sent via a built-in mail server. For reliable delivery, configure $wgSMTP with an authenticated SMTP provider. See https://mediawiki.org/wiki/Manual:$wgSMTP\033[0m")
 			fmt.Println("Done.")
 			return nil
 		},
