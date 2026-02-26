@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	maintenance "github.com/CanastaWiki/Canasta-CLI/cmd/maintenanceUpdate"
 	"github.com/CanastaWiki/Canasta-CLI/internal/extensionsskins"
+	internalmaintenance "github.com/CanastaWiki/Canasta-CLI/internal/maintenance"
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +25,7 @@ extension for a specific wiki only.`,
 
   # Enable an extension for a specific wiki
   canasta extension enable VisualEditor -i myinstance -w docs`,
-		Args: cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			extensions := strings.Split(args[0], ",")
 			for _, extension := range extensions {
@@ -38,8 +38,14 @@ extension for a specific wiki only.`,
 					return err
 				}
 			}
-			if err := maintenance.RunMaintenanceUpdate(instance, wiki); err != nil {
-				return fmt.Errorf("maintenance update failed after enabling extension(s): %v", err)
+			var maintErr error
+			if wiki != "" {
+				maintErr = internalmaintenance.RunMaintenanceUpdate(instance, wiki, internalmaintenance.Options{})
+			} else {
+				maintErr = internalmaintenance.RunUpdateAllWikis(instance, internalmaintenance.Options{})
+			}
+			if maintErr != nil {
+				return fmt.Errorf("maintenance update failed after enabling extension(s): %v", maintErr)
 			}
 			return nil
 		},

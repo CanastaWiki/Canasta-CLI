@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/extensionsskins"
+	internalmaintenance "github.com/CanastaWiki/Canasta-CLI/internal/maintenance"
 	"github.com/spf13/cobra"
 )
 
@@ -33,6 +34,15 @@ specific wiki only.`,
 				if err := extensionsskins.Enable(skinName, wiki, instance, orch, constants); err != nil {
 					return err
 				}
+			}
+			var maintErr error
+			if wiki != "" {
+				maintErr = internalmaintenance.RunMaintenanceUpdate(instance, wiki, internalmaintenance.Options{})
+			} else {
+				maintErr = internalmaintenance.RunUpdateAllWikis(instance, internalmaintenance.Options{})
+			}
+			if maintErr != nil {
+				return fmt.Errorf("maintenance update failed after enabling skin(s): %v", maintErr)
 			}
 			return nil
 		},

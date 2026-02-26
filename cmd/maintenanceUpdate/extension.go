@@ -11,6 +11,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	internalmaintenance "github.com/CanastaWiki/Canasta-CLI/internal/maintenance"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -72,7 +73,7 @@ selected automatically.`,
 				extName := args[0]
 				scriptStr := strings.Join(args[1:], " ")
 				if all {
-					wikiIDs, err := getWikiIDs(instance)
+					wikiIDs, err := internalmaintenance.GetWikiIDs(instance)
 					if err != nil {
 						return err
 					}
@@ -241,7 +242,7 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 	// Resolve wiki ID if not provided (auto-detect for single-wiki installs)
 	checkWiki := resolvedWiki
 	if checkWiki == "" {
-		wikiIDs, err := getWikiIDs(inst)
+		wikiIDs, err := internalmaintenance.GetWikiIDs(inst)
 		if err != nil {
 			return err
 		}
@@ -330,7 +331,7 @@ func resolveWikiIDs(inst config.Installation, wikiFlag string, allFlag bool) ([]
 	if wikiFlag != "" {
 		return []string{wikiFlag}, nil
 	}
-	wikiIDs, err := getWikiIDs(inst)
+	wikiIDs, err := internalmaintenance.GetWikiIDs(inst)
 	if err != nil {
 		return nil, err
 	}

@@ -2,15 +2,11 @@ package maintenance
 
 import (
 	"fmt"
-	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
-	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+	internalmaintenance "github.com/CanastaWiki/Canasta-CLI/internal/maintenance"
 )
 
 var (
@@ -45,34 +41,22 @@ automatically.`,
 			if wiki != "" && all {
 				return fmt.Errorf("cannot use --wiki with --all")
 			}
+			opts := internalmaintenance.Options{SkipJobs: skipJobs, SkipSMW: skipSMW}
 			if all {
-				wikiIDs, err := getWikiIDs(instance)
-				if err != nil {
-					return err
-				}
-				for _, id := range wikiIDs {
-					if err := RunMaintenanceUpdate(instance, id); err != nil {
-						return err
-					}
-				}
+				return internalmaintenance.RunUpdateAllWikis(instance, opts)
 			} else if wiki != "" {
-				if err := RunMaintenanceUpdate(instance, wiki); err != nil {
-					return err
-				}
+				return internalmaintenance.RunMaintenanceUpdate(instance, wiki, opts)
 			} else {
-				wikiIDs, err := getWikiIDs(instance)
+				wikiIDs, err := internalmaintenance.GetWikiIDs(instance)
 				if err != nil {
 					return err
 				}
 				if len(wikiIDs) == 1 {
-					if err := RunMaintenanceUpdate(instance, wikiIDs[0]); err != nil {
-						return err
-					}
+					return internalmaintenance.RunMaintenanceUpdate(instance, wikiIDs[0], opts)
 				} else {
 					return fmt.Errorf("multiple wikis found; use --wiki=<id> or --all")
 				}
 			}
-			return nil
 		},
 	}
 
@@ -80,61 +64,4 @@ automatically.`,
 	updateCmd.Flags().BoolVar(&skipSMW, "skip-smw", false, "Skip running Semantic MediaWiki rebuildData.php")
 
 	return updateCmd
-}
-
-func getWikiIDs(instance config.Installation) ([]string, error) {
-	yamlPath := filepath.Join(instance.Path, "config", "wikis.yaml")
-	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read wikis.yaml: %v", err)
-	}
-	return ids, nil
-}
-
-func RunMaintenanceUpdate(instance config.Installation, wikiID string) error {
-	orch, err := orchestrators.New(instance.Orchestrator)
-	if err != nil {
-		return err
-	}
-
-	wikiFlag := ""
-	if wikiID != "" {
-		wikiFlag = " --wiki=" + wikiID
-	}
-	wikiMsg := ""
-	if wikiID != "" {
-		wikiMsg = " for wiki '" + wikiID + "'"
-	}
-
-	fmt.Printf("Running update.php%s...\n", wikiMsg)
-	if err := orch.ExecStreaming(instance.Path, "web",
-		"php maintenance/update.php --quick"+wikiFlag); err != nil {
-		return fmt.Errorf("update.php failed%s: %v", wikiMsg, err)
-	}
-
-	if !skipJobs {
-		fmt.Printf("Running runJobs.php%s...\n", wikiMsg)
-		if err := orch.ExecStreaming(instance.Path, "web",
-			"php maintenance/runJobs.php"+wikiFlag); err != nil {
-			return fmt.Errorf("runJobs.php failed%s: %v", wikiMsg, err)
-		}
-	}
-
-	if !skipSMW {
-		const rebuildScript = "extensions/SemanticMediaWiki/maintenance/rebuildData.php"
-		checkCmd := fmt.Sprintf("test -f %s && echo exists", rebuildScript)
-		checkOutput, _ := orch.ExecWithError(instance.Path, "web", checkCmd)
-		if !strings.Contains(checkOutput, "exists") {
-			fmt.Printf("Semantic MediaWiki not installed%s, skipping rebuildData.php\n", wikiMsg)
-		} else {
-			fmt.Printf("Running rebuildData.php%s...\n", wikiMsg)
-			if err := orch.ExecStreaming(instance.Path, "web",
-				"php "+rebuildScript+wikiFlag); err != nil {
-				fmt.Printf("rebuildData.php failed%s: %v\n", wikiMsg, err)
-			}
-		}
-	}
-
-	fmt.Printf("Completed maintenance%s\n", wikiMsg)
-	return nil
 }
