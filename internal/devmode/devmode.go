@@ -120,7 +120,7 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 
 	// Copy code from container to host, preserving symlinks
 	// CanastaBase uses relative symlinks (../canasta-extensions/X, ../user-extensions/X)
-	// Note: Can't use execute.Run here because it wraps commands in bash -c which breaks pipes
+	// Uses bash -c directly because this command requires a shell pipe
 	logging.Print(fmt.Sprintf("Copying MediaWiki code to %s...\n", codeDir))
 	tarCmd := fmt.Sprintf("docker exec %s tar -cf - -C /var/www/mediawiki/w . | tar -xf - -C %s", containerName, codeDir)
 	cmd := exec.Command("bash", "-c", tarCmd)
