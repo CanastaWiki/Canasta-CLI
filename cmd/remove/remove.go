@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -134,7 +133,7 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 
 	// Remove the Images (from inside container first to handle www-data ownership on Linux)
 	if containersRunning {
-		cleanupCmd := fmt.Sprintf("rm -rf %s", orchestrators.ShellQuote(filepath.Join("/mediawiki/images", wikiID)))
+		cleanupCmd := fmt.Sprintf("rm -rf %s", orchestrators.ShellQuote("/mediawiki/images/"+wikiID))
 		_, _ = orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, cleanupCmd)
 	}
 	err = canasta.RemoveImages(instance.Path, wikiID)
