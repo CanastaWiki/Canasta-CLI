@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newScriptCmd() *cobra.Command {
+func newScriptCmd(instance *config.Installation, wiki *string) *cobra.Command {
 
 	scriptCmd := &cobra.Command{
 		Use:   `script ["scriptname.php [args]"]`,
@@ -35,14 +35,15 @@ Use --wiki to target a specific wiki in a farm.`,
   canasta maintenance script "rebuildrecentchanges.php" -i myinstance --wiki=docs`,
 		Args: cobra.RangeArgs(0, 1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			instance, err = canasta.CheckCanastaId(instance)
+			var err error
+			*instance, err = canasta.CheckCanastaId(*instance)
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return listMaintenanceScripts(instance)
+				return listMaintenanceScripts(*instance)
 			}
-			return runMaintenanceScript(instance, args[0], wiki)
+			return runMaintenanceScript(*instance, args[0], *wiki)
 		},
 	}
 

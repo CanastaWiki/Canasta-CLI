@@ -9,14 +9,13 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
-var (
-	instance config.Installation
-	wiki     string
-	all      bool
-	err      error
-)
-
 func NewCmd() *cobra.Command {
+	var (
+		instance config.Installation
+		wiki     string
+		all      bool
+	)
+
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
 		logging.Fatal(wdErr)
@@ -31,10 +30,10 @@ group provides subcommands to run the standard update sequence, execute
 arbitrary core maintenance scripts, or run extension-specific maintenance scripts.`,
 	}
 
-	maintenanceCmd.AddCommand(newUpdateCmd())
-	maintenanceCmd.AddCommand(newScriptCmd())
-	maintenanceCmd.AddCommand(newExtensionCmd())
-	maintenanceCmd.AddCommand(newExecCmd())
+	maintenanceCmd.AddCommand(newUpdateCmd(&instance, &wiki, &all))
+	maintenanceCmd.AddCommand(newScriptCmd(&instance, &wiki))
+	maintenanceCmd.AddCommand(newExtensionCmd(&instance, &wiki, &all))
+	maintenanceCmd.AddCommand(newExecCmd(&instance))
 
 	maintenanceCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
 	maintenanceCmd.PersistentFlags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on")

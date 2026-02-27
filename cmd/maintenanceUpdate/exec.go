@@ -7,10 +7,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newExecCmd() *cobra.Command {
+func newExecCmd(instance *config.Installation) *cobra.Command {
 	var service string
 
 	cmd := &cobra.Command{
@@ -36,7 +37,8 @@ The default service is "web" (the MediaWiki container).`,
   # Default service is "web", so this also works
   canasta maintenance exec -i myinstance -- php -v`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			instance, err = canasta.CheckCanastaId(instance)
+			var err error
+			*instance, err = canasta.CheckCanastaId(*instance)
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,7 +49,7 @@ The default service is "web" (the MediaWiki container).`,
 
 			// No service flag and no args: list services
 			if service == "" && len(args) == 0 {
-				services, err := orch.ListServices(instance)
+				services, err := orch.ListServices(*instance)
 				if err != nil {
 					return err
 				}
@@ -69,7 +71,7 @@ The default service is "web" (the MediaWiki container).`,
 			}
 
 			// Ensure containers are running
-			if err := orch.CheckRunningStatus(instance); err != nil {
+			if err := orch.CheckRunningStatus(*instance); err != nil {
 				return fmt.Errorf("containers are not running: %w", err)
 			}
 
@@ -85,7 +87,7 @@ The default service is "web" (the MediaWiki container).`,
 				command = []string{"/bin/bash"}
 			}
 
-			return orch.ExecInteractive(instance, service, command)
+			return orch.ExecInteractive(*instance, service, command)
 		},
 	}
 

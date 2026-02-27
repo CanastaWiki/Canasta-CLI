@@ -17,7 +17,7 @@ import (
 // wikiArgRe matches --wiki=value or --wiki value in a script argument string.
 var wikiArgRe = regexp.MustCompile(`(?:^|\s)--wiki[=\s](\S+)`)
 
-func newExtensionCmd() *cobra.Command {
+func newExtensionCmd(instance *config.Installation, wiki *string, all *bool) *cobra.Command {
 
 	extensionCmd := &cobra.Command{
 		Use:   "extension [extension-name] [script.php [args...]]",
@@ -56,34 +56,35 @@ selected automatically.`,
   canasta maintenance extension -i myinstance --all SemanticMediaWiki rebuildData.php`,
 		Args: cobra.ArbitraryArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			instance, err = canasta.CheckCanastaId(instance)
+			var err error
+			*instance, err = canasta.CheckCanastaId(*instance)
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if wiki != "" && all {
+			if *wiki != "" && *all {
 				return fmt.Errorf("cannot use --wiki with --all")
 			}
 			switch {
 			case len(args) == 0:
-				return listExtensionsWithMaintenance(instance, wiki, all)
+				return listExtensionsWithMaintenance(*instance, *wiki, *all)
 			case len(args) == 1:
-				return listExtensionScripts(instance, args[0], wiki, all)
+				return listExtensionScripts(*instance, args[0], *wiki, *all)
 			default:
 				extName := args[0]
 				scriptStr := strings.Join(args[1:], " ")
-				if all {
-					wikiIDs, err := getWikiIDs(instance)
+				if *all {
+					wikiIDs, err := getWikiIDs(*instance)
 					if err != nil {
 						return err
 					}
 					for _, id := range wikiIDs {
-						if err := runExtensionScript(instance, extName, scriptStr, id); err != nil {
+						if err := runExtensionScript(*instance, extName, scriptStr, id); err != nil {
 							return err
 						}
 					}
 					return nil
 				}
-				return runExtensionScript(instance, extName, scriptStr, wiki)
+				return runExtensionScript(*instance, extName, scriptStr, *wiki)
 			}
 		},
 	}

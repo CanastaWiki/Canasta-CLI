@@ -18,7 +18,7 @@ var (
 	skipSMW  bool
 )
 
-func newUpdateCmd() *cobra.Command {
+func newUpdateCmd(instance *config.Installation, wiki *string, all *bool) *cobra.Command {
 
 	updateCmd := &cobra.Command{
 		Use:   "update",
@@ -38,34 +38,35 @@ automatically.`,
   canasta maintenance update -i myinstance --all
   canasta maintenance update -i myinstance --skip-jobs --skip-smw`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			instance, err = canasta.CheckCanastaId(instance)
+			var err error
+			*instance, err = canasta.CheckCanastaId(*instance)
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if wiki != "" && all {
+			if *wiki != "" && *all {
 				return fmt.Errorf("cannot use --wiki with --all")
 			}
-			if all {
-				wikiIDs, err := getWikiIDs(instance)
+			if *all {
+				wikiIDs, err := getWikiIDs(*instance)
 				if err != nil {
 					return err
 				}
 				for _, id := range wikiIDs {
-					if err := runMaintenanceUpdate(instance, id); err != nil {
+					if err := runMaintenanceUpdate(*instance, id); err != nil {
 						return err
 					}
 				}
-			} else if wiki != "" {
-				if err := runMaintenanceUpdate(instance, wiki); err != nil {
+			} else if *wiki != "" {
+				if err := runMaintenanceUpdate(*instance, *wiki); err != nil {
 					return err
 				}
 			} else {
-				wikiIDs, err := getWikiIDs(instance)
+				wikiIDs, err := getWikiIDs(*instance)
 				if err != nil {
 					return err
 				}
 				if len(wikiIDs) == 1 {
-					if err := runMaintenanceUpdate(instance, wikiIDs[0]); err != nil {
+					if err := runMaintenanceUpdate(*instance, wikiIDs[0]); err != nil {
 						return err
 					}
 				} else {

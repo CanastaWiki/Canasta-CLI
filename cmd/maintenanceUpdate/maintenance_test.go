@@ -116,14 +116,6 @@ func TestWikiAndAllConflict(t *testing.T) {
 	// Override PreRunE to skip CheckCanastaId
 	updateCmd.PreRunE = nil
 
-	// Set wiki and all flags, then execute
-	wiki = "docs"
-	all = true
-	defer func() {
-		wiki = ""
-		all = false
-	}()
-
 	cmd.SetArgs([]string{"update", "--wiki=docs", "--all"})
 	err := cmd.Execute()
 	if err == nil {
