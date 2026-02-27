@@ -302,6 +302,15 @@ func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bo
 		changed = true
 	}
 
+	// Step 7: Remove skip-binary-as-hex from my.cnf (breaks mysqladmin health check)
+	mycnfChanged, err := removeSkipBinaryAsHex(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if mycnfChanged {
+		changed = true
+	}
+
 	if !changed {
 		fmt.Println("No config migrations needed.")
 	} else if dryRun {
@@ -536,6 +545,43 @@ func fixVectorDefaultSkin(installPath string, dryRun bool) (bool, error) {
 		)
 		if err := os.WriteFile(vectorPath, []byte(newContent), permissions.FilePermission); err != nil {
 			return false, fmt.Errorf("failed to update Vector.php: %w", err)
+		}
+	}
+
+	return true, nil
+}
+
+// removeSkipBinaryAsHex removes all skip-binary-as-hex lines from my.cnf.
+// This option is not recognized by mysqladmin, which causes the db container's
+// health check to fail. It may appear in [mysql], [client], or other sections
+// in older installations.
+func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
+	mycnfPath := filepath.Join(installPath, "my.cnf")
+
+	content, err := os.ReadFile(mycnfPath)
+	if err != nil {
+		return false, nil // File doesn't exist, nothing to do
+	}
+
+	if !strings.Contains(string(content), "skip-binary-as-hex") {
+		return false, nil
+	}
+
+	// Remove all lines containing skip-binary-as-hex (including loose- prefixed)
+	var filtered []string
+	for _, line := range strings.Split(string(content), "\n") {
+		if !strings.Contains(line, "skip-binary-as-hex") {
+			filtered = append(filtered, line)
+		}
+	}
+	newContent := strings.Join(filtered, "\n")
+
+	if dryRun {
+		fmt.Println("  Would remove skip-binary-as-hex from my.cnf (breaks mysqladmin health check)")
+	} else {
+		fmt.Println("  Removing skip-binary-as-hex from my.cnf (breaks mysqladmin health check)")
+		if err := os.WriteFile(mycnfPath, []byte(newContent), permissions.FilePermission); err != nil {
+			return false, fmt.Errorf("failed to update my.cnf: %w", err)
 		}
 	}
 
