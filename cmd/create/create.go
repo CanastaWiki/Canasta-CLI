@@ -422,15 +422,21 @@ func createCanasta(opts createOptions) error {
 
 func deleteConfigAndContainers(installationDir string, orch orchestrators.Orchestrator) {
 	fmt.Println("Removing containers")
-	_, _ = orch.Destroy(installationDir)
+	if _, err := orch.Destroy(installationDir); err != nil {
+		fmt.Printf("Warning: failed to remove containers: %v\n", err)
+	}
 	// Clean up any kind cluster created during this attempt.
 	// KindClusterName derives the name from the directory basename (the ID).
 	// DeleteKindCluster is a no-op if the cluster doesn't exist.
 	if _, ok := orch.(*orchestrators.KubernetesOrchestrator); ok {
 		clusterName := orchestrators.KindClusterName(filepath.Base(installationDir))
-		_ = orchestrators.DeleteKindCluster(clusterName)
+		if err := orchestrators.DeleteKindCluster(clusterName); err != nil {
+			fmt.Printf("Warning: failed to delete kind cluster: %v\n", err)
+		}
 	}
 	fmt.Println("Deleting config files")
-	_, _ = orchestrators.DeleteConfig(installationDir)
+	if _, err := orchestrators.DeleteConfig(installationDir); err != nil {
+		fmt.Printf("Warning: failed to delete config files: %v\n", err)
+	}
 	fmt.Println("Deleted all containers and config files")
 }

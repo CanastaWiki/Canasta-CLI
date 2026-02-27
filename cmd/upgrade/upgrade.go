@@ -22,9 +22,9 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/selfupdate"
 )
 
-var dryRun bool
-
 func NewCmd() *cobra.Command {
+	var dryRun bool
+
 	var upgradeCmd = &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade the Canasta CLI and all registered installations",

@@ -13,12 +13,11 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var (
-	skipJobs bool
-	skipSMW  bool
-)
-
 func newUpdateCmd(instance *config.Installation, wiki *string) *cobra.Command {
+	var (
+		skipJobs bool
+		skipSMW  bool
+	)
 
 	updateCmd := &cobra.Command{
 		Use:   "update",
@@ -42,14 +41,14 @@ specific wiki.`,
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if *wiki != "" {
-				return runMaintenanceUpdate(*instance, *wiki)
+				return runMaintenanceUpdate(*instance, *wiki, skipJobs, skipSMW)
 			}
 			wikiIDs, err := getWikiIDs(*instance)
 			if err != nil {
 				return err
 			}
 			for _, id := range wikiIDs {
-				if err := runMaintenanceUpdate(*instance, id); err != nil {
+				if err := runMaintenanceUpdate(*instance, id, skipJobs, skipSMW); err != nil {
 					return err
 				}
 			}
@@ -72,7 +71,7 @@ func getWikiIDs(instance config.Installation) ([]string, error) {
 	return ids, nil
 }
 
-func runMaintenanceUpdate(instance config.Installation, wikiID string) error {
+func runMaintenanceUpdate(instance config.Installation, wikiID string, skipJobs, skipSMW bool) error {
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
 		return err
