@@ -10,7 +10,7 @@ import (
 	extensionCmd "github.com/CanastaWiki/Canasta-CLI/cmd/extension"
 	importCmd "github.com/CanastaWiki/Canasta-CLI/cmd/import"
 	listCmd "github.com/CanastaWiki/Canasta-CLI/cmd/list"
-	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI/cmd/maintenanceUpdate"
+	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI/cmd/maintenance"
 	removeCmd "github.com/CanastaWiki/Canasta-CLI/cmd/remove"
 	restartCmd "github.com/CanastaWiki/Canasta-CLI/cmd/restart"
 	backupCmd "github.com/CanastaWiki/Canasta-CLI/cmd/backup"
