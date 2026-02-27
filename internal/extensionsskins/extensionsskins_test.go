@@ -1,6 +1,9 @@
 package extensionsskins
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestValidateName(t *testing.T) {
 	constants := Item{CmdName: "extension"}
@@ -38,16 +41,13 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
-func TestContains(t *testing.T) {
+func TestSlicesContains(t *testing.T) {
 	list := []string{"VisualEditor", "Cite", "ParserFunctions"}
 
-	if !Contains(list, "Cite") {
-		t.Error("expected Contains to return true for 'Cite'")
+	if !slices.Contains(list, "Cite") {
+		t.Error("expected slices.Contains to return true for 'Cite'")
 	}
-	if Contains(list, "Missing") {
-		t.Error("expected Contains to return false for 'Missing'")
-	}
-	if Contains(nil, "anything") {
-		t.Error("expected Contains to return false for nil list")
+	if slices.Contains(list, "Missing") {
+		t.Error("expected slices.Contains to return false for 'Missing'")
 	}
 }
