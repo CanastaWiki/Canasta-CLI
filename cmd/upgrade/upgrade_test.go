@@ -25,28 +25,33 @@ func TestRemoveSkipBinaryAsHex(t *testing.T) {
 			wantChanged: false,
 		},
 		{
-			name:        "in mysql section",
+			name:        "in mysql section preserved",
 			content:     "[mysql]\nskip-binary-as-hex = true\n",
-			wantChanged: true,
-			wantContent: "[mysql]\n",
+			wantChanged: false,
 		},
 		{
-			name:        "in client section",
+			name:        "in client section removed",
 			content:     "[client]\nskip-binary-as-hex = true\nport=3306\n",
 			wantChanged: true,
 			wantContent: "[client]\nport=3306\n",
 		},
 		{
-			name:        "in multiple sections",
+			name:        "in both sections only client removed",
 			content:     "[mysql]\nskip-binary-as-hex = true\n[client]\nskip-binary-as-hex = true\n",
 			wantChanged: true,
-			wantContent: "[mysql]\n[client]\n",
+			wantContent: "[mysql]\nskip-binary-as-hex = true\n[client]\n",
 		},
 		{
-			name:        "loose prefixed variant",
-			content:     "[mysql]\nloose-skip-binary-as-hex = true\n",
+			name:        "before any section header removed",
+			content:     "skip-binary-as-hex = true\n[mysql]\nport=3306\n",
 			wantChanged: true,
-			wantContent: "[mysql]\n",
+			wantContent: "[mysql]\nport=3306\n",
+		},
+		{
+			name:        "in mysqld section removed",
+			content:     "[mysqld]\nskip-binary-as-hex = true\nmax_connections=100\n",
+			wantChanged: true,
+			wantContent: "[mysqld]\nmax_connections=100\n",
 		},
 	}
 
@@ -85,7 +90,7 @@ func TestRemoveSkipBinaryAsHex(t *testing.T) {
 func TestRemoveSkipBinaryAsHexDryRun(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "my.cnf")
-	content := "[mysql]\nskip-binary-as-hex = true\n"
+	content := "[client]\nskip-binary-as-hex = true\n"
 	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
