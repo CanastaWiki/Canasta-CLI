@@ -5,6 +5,7 @@ package importcmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -100,7 +101,7 @@ To create a new wiki from a database dump, use the --database flag with
 
 func importDatabase(orch orchestrators.Orchestrator, instance config.Installation, wikiID, databasePath, settingsPath, workingDir string) error {
 	// Read database password from .env
-	envVariables, err := canasta.GetEnvVariable(instance.Path + "/.env")
+	envVariables, err := canasta.GetEnvVariable(filepath.Join(instance.Path, ".env"))
 	if err != nil {
 		return err
 	}
