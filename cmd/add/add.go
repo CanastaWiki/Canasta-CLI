@@ -4,6 +4,7 @@ import (
 	"fmt"
 	urlpkg "net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -227,7 +228,7 @@ func AddWiki(opts AddWikiOptions) error {
 
 	// Import the database if databasePath is specified
 	if opts.DatabasePath != "" {
-		envVariables, envErr := canasta.GetEnvVariable(opts.Instance.Path + "/.env")
+		envVariables, envErr := canasta.GetEnvVariable(filepath.Join(opts.Instance.Path, ".env"))
 		if envErr != nil {
 			return envErr
 		}

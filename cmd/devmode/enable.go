@@ -2,6 +2,7 @@ package devmode
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -26,7 +27,7 @@ the instance with dev mode compose files. Only supported with Docker Compose.`,
 
 			// Determine the base image: check .env for CANASTA_IMAGE, fall back to default
 			baseImage := canasta.GetDefaultImage()
-			envVars, envErr := canasta.GetEnvVariable(instance.Path + "/.env")
+			envVars, envErr := canasta.GetEnvVariable(filepath.Join(instance.Path, ".env"))
 			if envErr == nil {
 				if img, ok := envVars["CANASTA_IMAGE"]; ok && img != "" {
 					baseImage = img
