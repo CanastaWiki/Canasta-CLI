@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
-	"github.com/spf13/cobra"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
 func newScheduleCmd(instance *config.Installation) *cobra.Command {
@@ -118,8 +120,9 @@ func scheduleBackup(instance config.Installation, cronExpression string) error {
 	}
 
 	logPath := filepath.Join(instance.Path, "backup.log")
-	rotateCmd := fmt.Sprintf("find %s -size +10M -exec mv {} %s.1 \\;", logPath, logPath)
-	cmdStr := fmt.Sprintf("%s %s && %s backup create -i %s --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> %s 2>&1", cronExpression, rotateCmd, executable, instance.Id, logPath)
+	quotedLogPath := orchestrators.ShellQuote(logPath)
+	rotateCmd := fmt.Sprintf("find %s -size +10M -exec mv {} %s \\;", quotedLogPath, orchestrators.ShellQuote(logPath+".1"))
+	cmdStr := fmt.Sprintf("%s %s && %s backup create -i %s --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> %s 2>&1", cronExpression, rotateCmd, executable, instance.Id, quotedLogPath)
 
 	logging.Print(fmt.Sprintf("Scheduling backup with cron: %s", cronExpression))
 
