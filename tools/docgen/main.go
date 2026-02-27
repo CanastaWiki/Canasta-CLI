@@ -150,10 +150,10 @@ func flagsToTable(flags *pflag.FlagSet) string {
 
 		shorthand := ""
 		if flag.Shorthand != "" {
-			shorthand = "-" + flag.Shorthand
+			shorthand = "`-" + flag.Shorthand + "`"
 		}
 
-		name := "--" + flag.Name
+		name := "`--" + flag.Name + "`"
 
 		// Escape pipe characters in description
 		description := strings.ReplaceAll(flag.Usage, "|", "\\|")
@@ -165,7 +165,7 @@ func flagsToTable(flags *pflag.FlagSet) string {
 			defaultVal = "`" + flag.DefValue + "`"
 		}
 
-		buf.WriteString(fmt.Sprintf("| `%s` | `%s` | %s | %s |\n", name, shorthand, description, defaultVal))
+		buf.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", name, shorthand, description, defaultVal))
 	})
 
 	return buf.String()
