@@ -89,19 +89,24 @@ func TestUpdateFlagParsing(t *testing.T) {
 		t.Fatal("update subcommand not found")
 	}
 
-	// Reset package-level variables
-	skipJobs = false
-	skipSMW = false
-
 	if err := updateCmd.ParseFlags([]string{"--skip-jobs", "--skip-smw"}); err != nil {
 		t.Fatalf("ParseFlags error: %v", err)
 	}
 
+	skipJobs, err := updateCmd.Flags().GetBool("skip-jobs")
+	if err != nil {
+		t.Fatalf("GetBool skip-jobs error: %v", err)
+	}
 	if !skipJobs {
-		t.Error("--skip-jobs should set skipJobs to true")
+		t.Error("--skip-jobs should be true after parsing")
+	}
+
+	skipSMW, err := updateCmd.Flags().GetBool("skip-smw")
+	if err != nil {
+		t.Fatalf("GetBool skip-smw error: %v", err)
 	}
 	if !skipSMW {
-		t.Error("--skip-smw should set skipSMW to true")
+		t.Error("--skip-smw should be true after parsing")
 	}
 }
 
