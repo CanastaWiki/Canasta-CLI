@@ -2,22 +2,11 @@ package maintenance
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
-
-// GetWikiIDs returns the list of wiki IDs from the instance's wikis.yaml.
-func GetWikiIDs(instance config.Installation) ([]string, error) {
-	yamlPath := filepath.Join(instance.Path, "config", "wikis.yaml")
-	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read wikis.yaml: %v", err)
-	}
-	return ids, nil
-}
 
 // RunUpdatePhp runs update.php --quick for a single wiki.
 func RunUpdatePhp(instance config.Installation, orch orchestrators.Orchestrator, wikiID string) error {
@@ -44,7 +33,7 @@ func RunUpdateAllWikis(instance config.Installation, orch orchestrators.Orchestr
 	if wiki != "" {
 		return RunUpdatePhp(instance, orch, wiki)
 	}
-	wikiIDs, err := GetWikiIDs(instance)
+	wikiIDs, err := farmsettings.GetWikiIDs(instance.Path)
 	if err != nil {
 		return err
 	}

@@ -11,7 +11,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	maint "github.com/CanastaWiki/Canasta-CLI/internal/maintenance"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -310,7 +310,7 @@ func resolveWikiIDs(inst config.Installation, wikiFlag string) ([]string, error)
 	if wikiFlag != "" {
 		return []string{wikiFlag}, nil
 	}
-	return maint.GetWikiIDs(inst)
+	return farmsettings.GetWikiIDs(inst.Path)
 }
 
 // getLoadedExtensions queries MediaWiki for the list of extensions currently

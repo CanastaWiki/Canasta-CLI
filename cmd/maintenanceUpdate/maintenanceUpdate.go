@@ -8,6 +8,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	maint "github.com/CanastaWiki/Canasta-CLI/internal/maintenance"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
@@ -42,7 +43,7 @@ specific wiki.`,
 			if *wiki != "" {
 				return runMaintenanceUpdate(*instance, *wiki, skipJobs, skipSMW)
 			}
-			wikiIDs, err := maint.GetWikiIDs(*instance)
+			wikiIDs, err := farmsettings.GetWikiIDs(instance.Path)
 			if err != nil {
 				return err
 			}
