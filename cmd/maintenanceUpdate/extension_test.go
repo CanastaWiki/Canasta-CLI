@@ -168,7 +168,7 @@ func TestListExtensionsWithMaintenance(t *testing.T) {
 	}
 	inst := config.Installation{Path: "/test"}
 	// Pass a specific wiki to avoid needing wikis.yaml
-	err := listExtensionsWithMaintenanceWith(mock, inst, "main", false)
+	err := listExtensionsWithMaintenanceWith(mock, inst, "main")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestListExtensionsFiltersToLoaded(t *testing.T) {
 	}
 	inst := config.Installation{Path: "/test"}
 	// We can't easily capture stdout in this test, but at least verify no error
-	err := listExtensionsWithMaintenanceWith(mock, inst, "main", false)
+	err := listExtensionsWithMaintenanceWith(mock, inst, "main")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -213,7 +213,7 @@ extensions/SemanticMediaWiki/maintenance/setupStore.php`,
 		},
 	}
 	inst := config.Installation{Path: "/test"}
-	err := listExtensionScriptsWith(mock, inst, "SemanticMediaWiki", "main", false)
+	err := listExtensionScriptsWith(mock, inst, "SemanticMediaWiki", "main")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestListExtensionScriptsNotLoaded(t *testing.T) {
 		},
 	}
 	inst := config.Installation{Path: "/test"}
-	err := listExtensionScriptsWith(mock, inst, "SemanticMediaWiki", "main", false)
+	err := listExtensionScriptsWith(mock, inst, "SemanticMediaWiki", "main")
 	if err == nil {
 		t.Fatal("expected error for extension not loaded")
 	}
@@ -242,7 +242,7 @@ func TestListExtensionScriptsNotFound(t *testing.T) {
 		},
 	}
 	inst := config.Installation{Path: "/test"}
-	err := listExtensionScriptsWith(mock, inst, "NonExistent", "main", false)
+	err := listExtensionScriptsWith(mock, inst, "NonExistent", "main")
 	if err == nil {
 		t.Fatal("expected error for non-existent extension")
 	}

@@ -18,7 +18,7 @@ var (
 	skipSMW  bool
 )
 
-func newUpdateCmd(instance *config.Installation, wiki *string, all *bool) *cobra.Command {
+func newUpdateCmd(instance *config.Installation, wiki *string) *cobra.Command {
 
 	updateCmd := &cobra.Command{
 		Use:   "update",
@@ -30,12 +30,10 @@ needed after upgrading MediaWiki or enabling new extensions.
 By default, all three scripts are run. Use --skip-jobs to skip runJobs.php
 and --skip-smw to skip rebuildData.php.
 
-In a wiki farm, use --wiki to target a specific wiki, or --all to run
-maintenance on every wiki. If there is only one wiki, it is selected
-automatically.`,
+In a wiki farm, runs on all wikis by default. Use --wiki to target a
+specific wiki.`,
 		Example: `  canasta maintenance update -i myinstance
   canasta maintenance update -i myinstance --wiki=docs
-  canasta maintenance update -i myinstance --all
   canasta maintenance update -i myinstance --skip-jobs --skip-smw`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
@@ -43,34 +41,16 @@ automatically.`,
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if *wiki != "" && *all {
-				return fmt.Errorf("cannot use --wiki with --all")
+			if *wiki != "" {
+				return runMaintenanceUpdate(*instance, *wiki)
 			}
-			if *all {
-				wikiIDs, err := getWikiIDs(*instance)
-				if err != nil {
+			wikiIDs, err := getWikiIDs(*instance)
+			if err != nil {
+				return err
+			}
+			for _, id := range wikiIDs {
+				if err := runMaintenanceUpdate(*instance, id); err != nil {
 					return err
-				}
-				for _, id := range wikiIDs {
-					if err := runMaintenanceUpdate(*instance, id); err != nil {
-						return err
-					}
-				}
-			} else if *wiki != "" {
-				if err := runMaintenanceUpdate(*instance, *wiki); err != nil {
-					return err
-				}
-			} else {
-				wikiIDs, err := getWikiIDs(*instance)
-				if err != nil {
-					return err
-				}
-				if len(wikiIDs) == 1 {
-					if err := runMaintenanceUpdate(*instance, wikiIDs[0]); err != nil {
-						return err
-					}
-				} else {
-					return fmt.Errorf("multiple wikis found; use --wiki=<id> or --all")
 				}
 			}
 			return nil

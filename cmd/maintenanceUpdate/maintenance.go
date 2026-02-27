@@ -13,7 +13,6 @@ func NewCmd() *cobra.Command {
 	var (
 		instance config.Installation
 		wiki     string
-		all      bool
 	)
 
 	workingDir, wdErr := os.Getwd()
@@ -30,13 +29,12 @@ group provides subcommands to run the standard update sequence, execute
 arbitrary core maintenance scripts, or run extension-specific maintenance scripts.`,
 	}
 
-	maintenanceCmd.AddCommand(newUpdateCmd(&instance, &wiki, &all))
+	maintenanceCmd.AddCommand(newUpdateCmd(&instance, &wiki))
 	maintenanceCmd.AddCommand(newScriptCmd(&instance, &wiki))
-	maintenanceCmd.AddCommand(newExtensionCmd(&instance, &wiki, &all))
+	maintenanceCmd.AddCommand(newExtensionCmd(&instance, &wiki))
 	maintenanceCmd.AddCommand(newExecCmd(&instance))
 
 	maintenanceCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	maintenanceCmd.PersistentFlags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on")
-	maintenanceCmd.PersistentFlags().BoolVar(&all, "all", false, "Run for all wikis in the farm")
+	maintenanceCmd.PersistentFlags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on (default: all wikis)")
 	return maintenanceCmd
 }
