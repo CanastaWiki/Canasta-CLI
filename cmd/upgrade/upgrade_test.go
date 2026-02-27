@@ -7,6 +7,107 @@ import (
 	"testing"
 )
 
+func TestRemoveSkipBinaryAsHex(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string // file content; empty string means don't create the file
+		wantChanged bool
+		wantContent string // expected content after migration (ignored if !wantChanged)
+	}{
+		{
+			name:        "missing file",
+			content:     "",
+			wantChanged: false,
+		},
+		{
+			name:        "no skip-binary-as-hex",
+			content:     "[mysqld]\nmax_connections=100\n",
+			wantChanged: false,
+		},
+		{
+			name:        "in mysql section",
+			content:     "[mysql]\nskip-binary-as-hex = true\n",
+			wantChanged: true,
+			wantContent: "[mysql]\n",
+		},
+		{
+			name:        "in client section",
+			content:     "[client]\nskip-binary-as-hex = true\nport=3306\n",
+			wantChanged: true,
+			wantContent: "[client]\nport=3306\n",
+		},
+		{
+			name:        "in multiple sections",
+			content:     "[mysql]\nskip-binary-as-hex = true\n[client]\nskip-binary-as-hex = true\n",
+			wantChanged: true,
+			wantContent: "[mysql]\n[client]\n",
+		},
+		{
+			name:        "loose prefixed variant",
+			content:     "[mysql]\nloose-skip-binary-as-hex = true\n",
+			wantChanged: true,
+			wantContent: "[mysql]\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			filePath := filepath.Join(tmpDir, "my.cnf")
+
+			if tt.content != "" {
+				if err := os.WriteFile(filePath, []byte(tt.content), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			changed, err := removeSkipBinaryAsHex(tmpDir, false)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if changed != tt.wantChanged {
+				t.Errorf("changed = %v, want %v", changed, tt.wantChanged)
+			}
+
+			if tt.wantChanged {
+				got, err := os.ReadFile(filePath)
+				if err != nil {
+					t.Fatal("file should still exist after migration")
+				}
+				if string(got) != tt.wantContent {
+					t.Errorf("content = %q, want %q", string(got), tt.wantContent)
+				}
+			}
+		})
+	}
+}
+
+func TestRemoveSkipBinaryAsHexDryRun(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "my.cnf")
+	content := "[mysql]\nskip-binary-as-hex = true\n"
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := removeSkipBinaryAsHex(tmpDir, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("dry run should report changed = true")
+	}
+
+	// File should be unchanged after dry run
+	got, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatal("file should still exist after dry run")
+	}
+	if string(got) != content {
+		t.Errorf("dry run should not modify file, got %q", string(got))
+	}
+}
+
 func TestRemoveEmptyComposerLocal(t *testing.T) {
 	tests := []struct {
 		name        string
