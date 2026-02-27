@@ -17,7 +17,7 @@ import (
 // wikiArgRe matches --wiki=value or --wiki value in a script argument string.
 var wikiArgRe = regexp.MustCompile(`(?:^|\s)--wiki[=\s](\S+)`)
 
-func newExtensionCmd(instance *config.Installation, wiki *string, all *bool) *cobra.Command {
+func newExtensionCmd(instance *config.Installation, wiki *string) *cobra.Command {
 
 	extensionCmd := &cobra.Command{
 		Use:   "extension [extension-name] [script.php [args...]]",
@@ -29,14 +29,13 @@ directory. With one argument (extension name), lists available maintenance
 scripts for that extension. With two or more arguments (extension name,
 script name, and optional script arguments), runs the specified script.
 
-Flags (-i, --wiki, --all) must come before the extension name. Everything
-after the extension name is treated as the script and its arguments — no
-quotes are needed.
+Flags (-i, --wiki) must come before the extension name. Everything after
+the extension name is treated as the script and its arguments — no quotes
+are needed.
 
 Only extensions that are currently loaded (enabled) for the target wiki are
-shown and allowed to run. In a wiki farm, use --wiki to target a specific
-wiki, or --all to run on every wiki. If there is only one wiki, it is
-selected automatically.`,
+shown and allowed to run. In a wiki farm, runs on all wikis by default.
+Use --wiki to target a specific wiki.`,
 		Example: `  # List loaded extensions with maintenance scripts
   canasta maintenance extension -i myinstance
 
@@ -50,10 +49,7 @@ selected automatically.`,
   canasta maintenance extension -i myinstance SemanticMediaWiki rebuildData.php -s 1000 -e 2000
 
   # Run for a specific wiki in a farm
-  canasta maintenance extension -i myinstance --wiki=docs CirrusSearch UpdateSearchIndexConfig.php
-
-  # Run for all wikis
-  canasta maintenance extension -i myinstance --all SemanticMediaWiki rebuildData.php`,
+  canasta maintenance extension -i myinstance --wiki=docs CirrusSearch UpdateSearchIndexConfig.php`,
 		Args: cobra.ArbitraryArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
@@ -61,30 +57,24 @@ selected automatically.`,
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if *wiki != "" && *all {
-				return fmt.Errorf("cannot use --wiki with --all")
-			}
 			switch {
 			case len(args) == 0:
-				return listExtensionsWithMaintenance(*instance, *wiki, *all)
+				return listExtensionsWithMaintenance(*instance, *wiki)
 			case len(args) == 1:
-				return listExtensionScripts(*instance, args[0], *wiki, *all)
+				return listExtensionScripts(*instance, args[0], *wiki)
 			default:
 				extName := args[0]
 				scriptStr := strings.Join(args[1:], " ")
-				if *all {
-					wikiIDs, err := getWikiIDs(*instance)
-					if err != nil {
+				wikiIDs, err := resolveWikiIDs(*instance, *wiki)
+				if err != nil {
+					return err
+				}
+				for _, id := range wikiIDs {
+					if err := runExtensionScript(*instance, extName, scriptStr, id); err != nil {
 						return err
 					}
-					for _, id := range wikiIDs {
-						if err := runExtensionScript(*instance, extName, scriptStr, id); err != nil {
-							return err
-						}
-					}
-					return nil
 				}
-				return runExtensionScript(*instance, extName, scriptStr, *wiki)
+				return nil
 			}
 		},
 	}
@@ -96,11 +86,11 @@ selected automatically.`,
 	return extensionCmd
 }
 
-func listExtensionsWithMaintenance(inst config.Installation, wikiFlag string, allFlag bool) error {
-	return listExtensionsWithMaintenanceWith(nil, inst, wikiFlag, allFlag)
+func listExtensionsWithMaintenance(inst config.Installation, wikiFlag string) error {
+	return listExtensionsWithMaintenanceWith(nil, inst, wikiFlag)
 }
 
-func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst config.Installation, wikiFlag string, allFlag bool) error {
+func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst config.Installation, wikiFlag string) error {
 	if orch == nil {
 		var err error
 		orch, err = orchestrators.New(inst.Orchestrator)
@@ -110,7 +100,7 @@ func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst con
 	}
 
 	// Resolve which wiki(s) to query for loaded extensions
-	wikiIDs, err := resolveWikiIDs(inst, wikiFlag, allFlag)
+	wikiIDs, err := resolveWikiIDs(inst, wikiFlag)
 	if err != nil {
 		return err
 	}
@@ -153,11 +143,11 @@ func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst con
 	return nil
 }
 
-func listExtensionScripts(inst config.Installation, extName, wikiFlag string, allFlag bool) error {
-	return listExtensionScriptsWith(nil, inst, extName, wikiFlag, allFlag)
+func listExtensionScripts(inst config.Installation, extName, wikiFlag string) error {
+	return listExtensionScriptsWith(nil, inst, extName, wikiFlag)
 }
 
-func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Installation, extName, wikiFlag string, allFlag bool) error {
+func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Installation, extName, wikiFlag string) error {
 	if orch == nil {
 		var err error
 		orch, err = orchestrators.New(inst.Orchestrator)
@@ -167,7 +157,7 @@ func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Insta
 	}
 
 	// Resolve which wiki(s) to check
-	wikiIDs, err := resolveWikiIDs(inst, wikiFlag, allFlag)
+	wikiIDs, err := resolveWikiIDs(inst, wikiFlag)
 	if err != nil {
 		return err
 	}
@@ -239,19 +229,7 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 		return err
 	}
 
-	// Resolve wiki ID if not provided (auto-detect for single-wiki installs)
 	checkWiki := resolvedWiki
-	if checkWiki == "" {
-		wikiIDs, err := getWikiIDs(inst)
-		if err != nil {
-			return err
-		}
-		if len(wikiIDs) == 1 {
-			checkWiki = wikiIDs[0]
-		} else {
-			return fmt.Errorf("multiple wikis found; use --wiki=<id> or --all")
-		}
-	}
 
 	// Check that the extension is loaded for the target wiki
 	exts, err := getLoadedExtensions(orch, inst.Path, checkWiki)
@@ -325,20 +303,13 @@ func resolveWikiFlag(cliWiki, scriptStr string) (resolvedWiki, cleanedScript str
 	return cliWiki, cleanedScript, nil
 }
 
-// resolveWikiIDs returns the list of wiki IDs to operate on. For a single-wiki
-// install it auto-detects; for a farm it requires --wiki or --all.
-func resolveWikiIDs(inst config.Installation, wikiFlag string, allFlag bool) ([]string, error) {
+// resolveWikiIDs returns the list of wiki IDs to operate on.
+// If wikiFlag is set, returns just that wiki; otherwise returns all wikis.
+func resolveWikiIDs(inst config.Installation, wikiFlag string) ([]string, error) {
 	if wikiFlag != "" {
 		return []string{wikiFlag}, nil
 	}
-	wikiIDs, err := getWikiIDs(inst)
-	if err != nil {
-		return nil, err
-	}
-	if allFlag || len(wikiIDs) == 1 {
-		return wikiIDs, nil
-	}
-	return nil, fmt.Errorf("multiple wikis found; use --wiki=<id> or --all")
+	return getWikiIDs(inst)
 }
 
 // getLoadedExtensions queries MediaWiki for the list of extensions currently

@@ -36,7 +36,6 @@ func TestMaintenancePersistentFlags(t *testing.T) {
 	}{
 		{"id", "i"},
 		{"wiki", "w"},
-		{"all", ""},
 	}
 
 	for _, f := range flags {
@@ -106,22 +105,3 @@ func TestUpdateFlagParsing(t *testing.T) {
 	}
 }
 
-func TestWikiAndAllConflict(t *testing.T) {
-	cmd := NewCmd()
-	updateCmd := findSubcommand(cmd, "update")
-	if updateCmd == nil {
-		t.Fatal("update subcommand not found")
-	}
-
-	// Override PreRunE to skip CheckCanastaId
-	updateCmd.PreRunE = nil
-
-	cmd.SetArgs([]string{"update", "--wiki=docs", "--all"})
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when --wiki and --all are both set")
-	}
-	if err.Error() != "cannot use --wiki with --all" {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
