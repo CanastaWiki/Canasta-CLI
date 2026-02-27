@@ -10,6 +10,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/maintenance"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -69,6 +70,8 @@ is shown with its enabled/disabled status.`, constants.Plural, constants.CmdName
 }
 
 func newEnableCmd(instance *config.Installation, orch *orchestrators.Orchestrator, wiki *string, constants *Item) *cobra.Command {
+	var skipUpdate bool
+
 	// Build the Use string with an appropriate argument placeholder
 	argName := strings.ToUpper(constants.CmdName)
 	useStr := fmt.Sprintf("enable %s1,%s2,...", argName, argName)
@@ -88,18 +91,25 @@ func newEnableCmd(instance *config.Installation, orch *orchestrators.Orchestrato
 	example += fmt.Sprintf(`
 
   # Enable %s %s for a specific wiki
-  canasta %s enable %s -i myinstance -w docs`, article(constants.CmdName), constants.CmdName, constants.CmdName, firstName)
+  canasta %s enable %s -i myinstance -w docs
 
-	return &cobra.Command{
+  # Enable without running update.php
+  canasta %s enable %s -i myinstance --skip-update`, article(constants.CmdName), constants.CmdName, constants.CmdName, firstName, constants.CmdName, firstName)
+
+	cmd := &cobra.Command{
 		Use:   useStr,
 		Short: fmt.Sprintf("Enable a %s", constants.Name),
 		Long: fmt.Sprintf(`Enable one or more Canasta %s by name. Multiple %s can be
 specified as a comma-separated list. Use the --wiki flag to enable %s %s
-for a specific wiki only.`, constants.Plural, constants.Plural, article(constants.CmdName), constants.CmdName),
+for a specific wiki only.
+
+After enabling, update.php is automatically run to apply any required
+database changes. Use --skip-update to skip this step.`, constants.Plural, constants.Plural, article(constants.CmdName), constants.CmdName),
 		Example: example,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			names := strings.Split(args[0], ",")
+			anyEnabled := false
 			for _, name := range names {
 				name = strings.TrimSpace(name)
 				checkedName, err := CheckInstalled(name, *instance, *orch, *constants)
@@ -110,10 +120,20 @@ for a specific wiki only.`, constants.Plural, constants.Plural, article(constant
 				if err := Enable(checkedName, *wiki, *instance, *orch, *constants); err != nil {
 					return err
 				}
+				anyEnabled = true
+			}
+			if anyEnabled && !skipUpdate {
+				if err := maintenance.RunUpdateAllWikis(*instance, *orch, *wiki); err != nil {
+					return err
+				}
 			}
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&skipUpdate, "skip-update", false, "Skip running update.php after enabling")
+
+	return cmd
 }
 
 func newDisableCmd(instance *config.Installation, orch *orchestrators.Orchestrator, wiki *string, constants *Item) *cobra.Command {

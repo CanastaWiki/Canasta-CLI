@@ -124,6 +124,16 @@ func ReadWikisYaml(filePath string) ([]string, []string, []string, error) {
 	return ids, serverNames, paths, nil
 }
 
+// GetWikiIDs returns the list of wiki IDs from the installation's wikis.yaml.
+func GetWikiIDs(installPath string) ([]string, error) {
+	filePath := filepath.Join(installPath, "config", "wikis.yaml")
+	ids, _, _, err := ReadWikisYaml(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read wikis.yaml: %v", err)
+	}
+	return ids, nil
+}
+
 // WikiIDExists checks if a wiki with the given wikiID exists in the installation
 func WikiIDExists(installPath, wikiID string) (bool, error) {
 	// Get the absolute path to the wikis.yaml file

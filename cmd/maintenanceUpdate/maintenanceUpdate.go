@@ -2,7 +2,6 @@ package maintenance
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -10,6 +9,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	maint "github.com/CanastaWiki/Canasta-CLI/internal/maintenance"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -43,7 +43,7 @@ specific wiki.`,
 			if *wiki != "" {
 				return runMaintenanceUpdate(*instance, *wiki, skipJobs, skipSMW)
 			}
-			wikiIDs, err := getWikiIDs(*instance)
+			wikiIDs, err := farmsettings.GetWikiIDs(instance.Path)
 			if err != nil {
 				return err
 			}
@@ -62,18 +62,13 @@ specific wiki.`,
 	return updateCmd
 }
 
-func getWikiIDs(instance config.Installation) ([]string, error) {
-	yamlPath := filepath.Join(instance.Path, "config", "wikis.yaml")
-	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read wikis.yaml: %v", err)
-	}
-	return ids, nil
-}
-
 func runMaintenanceUpdate(instance config.Installation, wikiID string, skipJobs, skipSMW bool) error {
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
+		return err
+	}
+
+	if err := maint.RunUpdatePhp(instance, orch, wikiID); err != nil {
 		return err
 	}
 
@@ -84,12 +79,6 @@ func runMaintenanceUpdate(instance config.Installation, wikiID string, skipJobs,
 	wikiMsg := ""
 	if wikiID != "" {
 		wikiMsg = " for wiki '" + wikiID + "'"
-	}
-
-	fmt.Printf("Running update.php%s...\n", wikiMsg)
-	if err := orch.ExecStreaming(instance.Path, orchestrators.ServiceWeb,
-		"php maintenance/update.php --quick"+wikiFlag); err != nil {
-		return fmt.Errorf("update.php failed%s: %v", wikiMsg, err)
 	}
 
 	if !skipJobs {
