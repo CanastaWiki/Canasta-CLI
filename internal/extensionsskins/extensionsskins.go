@@ -168,7 +168,7 @@ func CheckEnabled(name, wiki string, instance config.Installation, constants Ite
 
 	slice := getSlice(&cfg, constants)
 	if !slices.Contains(*slice, name) {
-		return "", fmt.Errorf("%s %s is not enabled", constants.Name, name)
+		return "", fmt.Errorf("%s %s is not listed in %s so it was not removed", constants.Name, name, path)
 	}
 	return name, nil
 }
@@ -196,7 +196,7 @@ func Disable(name, wiki string, instance config.Installation, constants Item) er
 		}
 	}
 	if idx == -1 {
-		return fmt.Errorf("%s %s is not enabled", constants.Name, name)
+		return fmt.Errorf("%s %s is not listed in %s so it was not removed", constants.Name, name, path)
 	}
 
 	*slice = append((*slice)[:idx], (*slice)[idx+1:]...)
