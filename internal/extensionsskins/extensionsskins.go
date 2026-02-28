@@ -23,7 +23,6 @@ type configYAML struct {
 }
 
 const configFileName = "main.yaml"
-const configHeader = "# This file is managed by Canasta, which adds and removes extensions and\n# skins from it. You may edit it, but Canasta may overwrite your changes.\n"
 
 // validNamePattern matches names consisting of alphanumeric characters,
 // underscores, hyphens, and dots (e.g. "VisualEditor", "Semantic_MediaWiki").
@@ -90,7 +89,7 @@ func writeConfig(path string, cfg configYAML) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append([]byte(configHeader), data...), permissions.FilePermission)
+	return os.WriteFile(path, data, permissions.FilePermission)
 }
 
 // getSlice returns a pointer to the appropriate slice (extensions or skins) in the config.

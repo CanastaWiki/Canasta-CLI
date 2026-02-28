@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
@@ -125,23 +124,6 @@ func TestWriteAndReadConfig(t *testing.T) {
 	}
 }
 
-func TestWriteConfigHeader(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.yaml")
-
-	cfg := configYAML{Extensions: []string{"Cite"}}
-	if err := writeConfig(path, cfg); err != nil {
-		t.Fatalf("writeConfig: %v", err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if !strings.HasPrefix(string(data), "# This file is managed by Canasta") {
-		t.Errorf("expected header comment, got:\n%s", data)
-	}
-}
 
 func TestWriteConfigDeletesEmptyFile(t *testing.T) {
 	dir := t.TempDir()

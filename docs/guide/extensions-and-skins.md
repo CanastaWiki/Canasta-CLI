@@ -392,8 +392,6 @@ When you run `canasta extension enable VisualEditor`, the CLI adds the extension
 
 - **Global enable** updates `config/settings/global/main.yaml`:
   ```yaml
-  # This file is managed by Canasta, which adds and removes extensions and
-  # skins from it. You may edit it, but Canasta may overwrite your changes.
   extensions:
   - VisualEditor
   ```
