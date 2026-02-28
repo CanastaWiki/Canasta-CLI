@@ -302,6 +302,15 @@ func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bo
 		changed = true
 	}
 
+	// Step 7: Remove skip-binary-as-hex from my.cnf (breaks mysqladmin health check)
+	mycnfChanged, err := removeSkipBinaryAsHex(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if mycnfChanged {
+		changed = true
+	}
+
 	if !changed {
 		fmt.Println("No config migrations needed.")
 	} else if dryRun {
@@ -536,6 +545,56 @@ func fixVectorDefaultSkin(installPath string, dryRun bool) (bool, error) {
 		)
 		if err := os.WriteFile(vectorPath, []byte(newContent), permissions.FilePermission); err != nil {
 			return false, fmt.Errorf("failed to update Vector.php: %w", err)
+		}
+	}
+
+	return true, nil
+}
+
+// removeSkipBinaryAsHex removes skip-binary-as-hex lines from sections other
+// than [mysql] in my.cnf. The option is valid for the mysql client but is not
+// recognized by mysqladmin, which causes the db container's health check to
+// fail when it appears in [client] or other sections.
+func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
+	mycnfPath := filepath.Join(installPath, "my.cnf")
+
+	content, err := os.ReadFile(mycnfPath)
+	if err != nil {
+		return false, nil // File doesn't exist, nothing to do
+	}
+
+	if !strings.Contains(string(content), "skip-binary-as-hex") {
+		return false, nil
+	}
+
+	// Track current section and only remove skip-binary-as-hex outside [mysql]
+	var filtered []string
+	changed := false
+	currentSection := ""
+	for _, line := range strings.Split(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.Contains(trimmed, "]") {
+			currentSection = trimmed
+		}
+		if strings.Contains(line, "skip-binary-as-hex") && currentSection != "[mysql]" {
+			changed = true
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+
+	if !changed {
+		return false, nil
+	}
+
+	newContent := strings.Join(filtered, "\n")
+
+	if dryRun {
+		fmt.Println("  Would remove skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mysqladmin health check)")
+	} else {
+		fmt.Println("  Removing skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mysqladmin health check)")
+		if err := os.WriteFile(mycnfPath, []byte(newContent), permissions.FilePermission); err != nil {
+			return false, fmt.Errorf("failed to update my.cnf: %w", err)
 		}
 	}
 
