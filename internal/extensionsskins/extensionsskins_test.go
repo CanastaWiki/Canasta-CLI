@@ -79,20 +79,20 @@ var skinConstants = Item{
 
 func TestConfigPath(t *testing.T) {
 	got := configPath("/srv/canasta/myinstance", "")
-	want := "/srv/canasta/myinstance/config/settings/global/CanastaManaged.yaml"
+	want := "/srv/canasta/myinstance/config/settings/global/main.yaml"
 	if got != want {
 		t.Errorf("configPath global = %q, want %q", got, want)
 	}
 
 	got = configPath("/srv/canasta/myinstance", "docs")
-	want = "/srv/canasta/myinstance/config/settings/wikis/docs/CanastaManaged.yaml"
+	want = "/srv/canasta/myinstance/config/settings/wikis/docs/main.yaml"
 	if got != want {
 		t.Errorf("configPath per-wiki = %q, want %q", got, want)
 	}
 }
 
 func TestReadConfigEmpty(t *testing.T) {
-	cfg, err := readConfig("/nonexistent/path/CanastaManaged.yaml")
+	cfg, err := readConfig("/nonexistent/path/main.yaml")
 	if err != nil {
 		t.Fatalf("readConfig on missing file: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestReadConfigEmpty(t *testing.T) {
 
 func TestWriteAndReadConfig(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "CanastaManaged.yaml")
+	path := filepath.Join(dir, "main.yaml")
 
 	cfg := configYAML{
 		Extensions: []string{"Cite", "VisualEditor"},
@@ -127,7 +127,7 @@ func TestWriteAndReadConfig(t *testing.T) {
 
 func TestWriteConfigHeader(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "CanastaManaged.yaml")
+	path := filepath.Join(dir, "main.yaml")
 
 	cfg := configYAML{Extensions: []string{"Cite"}}
 	if err := writeConfig(path, cfg); err != nil {
@@ -138,14 +138,14 @@ func TestWriteConfigHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if !strings.HasPrefix(string(data), "# DO NOT EDIT") {
+	if !strings.HasPrefix(string(data), "# This file is managed by Canasta") {
 		t.Errorf("expected header comment, got:\n%s", data)
 	}
 }
 
 func TestWriteConfigDeletesEmptyFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "CanastaManaged.yaml")
+	path := filepath.Join(dir, "main.yaml")
 
 	// Write a non-empty config first
 	cfg := configYAML{Extensions: []string{"Cite"}}
@@ -302,7 +302,7 @@ func TestDisableRemovesFileWhenEmpty(t *testing.T) {
 
 	path := configPath(inst.Path, "")
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Error("CanastaManaged.yaml should be deleted when last entry is removed")
+		t.Error("main.yaml should be deleted when last entry is removed")
 	}
 }
 

@@ -194,7 +194,7 @@ Each settings directory (`config/settings/global/` and `config/settings/wikis/{w
 1. **YAML files** (`*.yaml`) — loaded in lexicographic order via MediaWiki's [`SettingsBuilder::loadFile()`](https://www.mediawiki.org/wiki/Manual:YAML_settings_file_format)
 2. **PHP files** (`*.php`) — loaded in lexicographic order via `require_once`
 
-Both formats are valid ways to add settings. Configuration variables can be set in either format and will take effect regardless of load order, since extension registration happens after all settings files have been processed. The CLI manages a YAML file called `CanastaManaged.yaml` for extensions and skins enabled via `canasta extension enable` and `canasta skin enable`. You can also create your own YAML files in the same directory. The format supports extensions, skins, and [configuration settings](https://www.mediawiki.org/wiki/Manual:YAML_settings_file_format):
+Both formats are valid ways to add settings. Configuration variables can be set in either format and will take effect regardless of load order, since extension registration happens after all settings files have been processed. The CLI manages a YAML file called `main.yaml` for extensions and skins enabled via `canasta extension enable` and `canasta skin enable`. You can also create your own YAML files in the same directory. The format supports extensions, skins, and [configuration settings](https://www.mediawiki.org/wiki/Manual:YAML_settings_file_format):
 
 ```yaml
 extensions:
@@ -388,16 +388,17 @@ The override file is automatically picked up by Docker Compose alongside the mai
 
 ## How it works under the hood
 
-When you run `canasta extension enable VisualEditor`, the CLI adds the extension name to a YAML file called `CanastaManaged.yaml` on the host filesystem:
+When you run `canasta extension enable VisualEditor`, the CLI adds the extension name to a YAML file called `main.yaml` on the host filesystem:
 
-- **Global enable** updates `config/settings/global/CanastaManaged.yaml`:
+- **Global enable** updates `config/settings/global/main.yaml`:
   ```yaml
-  # DO NOT EDIT - managed by Canasta CLI
+  # This file is managed by Canasta, which adds and removes extensions and
+  # skins from it. You may edit it, but Canasta may overwrite your changes.
   extensions:
   - VisualEditor
   ```
 
-- **Per-wiki enable** (`-w docs`) updates `config/settings/wikis/docs/CanastaManaged.yaml` with the same format.
+- **Per-wiki enable** (`-w docs`) updates `config/settings/wikis/docs/main.yaml` with the same format.
 
 Extensions and skins are sorted alphabetically within the file. Disabling removes the entry. If the file becomes empty, it is deleted. The CLI never modifies any other files in the settings directory.
 
@@ -411,5 +412,5 @@ For details on how these files are processed at runtime, see [Settings file load
 - **`enable` and `list` require running containers.** The `enable` command checks that the extension exists in the container image before adding it to the config. The `list` command queries the container.
 - **`disable` does not require running containers.** It operates on host-side YAML files only.
 - **Enabling is idempotent.** Running `enable` on an already-enabled extension is a no-op.
-- **Disable only works on CLI-managed extensions.** Only entries in `CanastaManaged.yaml` are affected; other files are left alone.
+- **Disable only works on CLI-managed extensions.** Only entries in `main.yaml` are affected; other files are left alone.
 - **No restart required.** Changes take effect on the next page load since PHP reads the settings files on each request.

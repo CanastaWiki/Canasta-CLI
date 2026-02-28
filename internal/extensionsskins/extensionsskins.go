@@ -22,8 +22,8 @@ type configYAML struct {
 	Skins      []string `yaml:"skins,omitempty"`
 }
 
-const configFileName = "CanastaManaged.yaml"
-const configHeader = "# DO NOT EDIT - managed by Canasta CLI\n"
+const configFileName = "main.yaml"
+const configHeader = "# This file is managed by Canasta, which adds and removes extensions and\n# skins from it. You may edit it, but Canasta may overwrite your changes.\n"
 
 // validNamePattern matches names consisting of alphanumeric characters,
 // underscores, hyphens, and dots (e.g. "VisualEditor", "Semantic_MediaWiki").
@@ -49,7 +49,7 @@ type Item struct {
 	ExampleNames             string // e.g. "VisualEditor,Cite,ParserFunctions" or "Timeless"
 }
 
-// configPath returns the host path to CanastaManaged.yaml for the given installation and wiki.
+// configPath returns the host path to main.yaml for the given installation and wiki.
 func configPath(instancePath, wiki string) string {
 	if wiki != "" {
 		return filepath.Join(instancePath, "config", "settings", "wikis", wiki, configFileName)
