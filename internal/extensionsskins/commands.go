@@ -117,7 +117,7 @@ database changes. Use --skip-update to skip this step.`, constants.Plural, const
 					fmt.Print(err.Error() + "\n")
 					continue
 				}
-				if err := Enable(checkedName, *wiki, *instance, *orch, *constants); err != nil {
+				if err := Enable(checkedName, *wiki, *instance, *constants); err != nil {
 					return err
 				}
 				anyEnabled = true
@@ -163,12 +163,12 @@ for a specific wiki only.`, constants.Plural, constants.Plural, article(constant
 			names := strings.Split(args[0], ",")
 			for _, name := range names {
 				name = strings.TrimSpace(name)
-				checkedName, err := CheckEnabled(name, *wiki, *instance, *orch, *constants)
+				checkedName, err := CheckEnabled(name, *wiki, *instance, *constants)
 				if err != nil {
 					fmt.Print(err.Error() + "\n")
 					continue
 				}
-				if err := Disable(checkedName, *wiki, *instance, *orch, *constants); err != nil {
+				if err := Disable(checkedName, *wiki, *instance, *constants); err != nil {
 					return err
 				}
 			}
