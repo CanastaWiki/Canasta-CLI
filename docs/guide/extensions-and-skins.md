@@ -201,8 +201,6 @@ extensions:
 - MyExtension
 skins:
 - MySkin
-config:
-  wgSomeVariable: value
 ```
 
 PHP files remain useful for settings that require logic, function calls (such as `enableSemantics()`), or conditional expressions that YAML cannot represent.
