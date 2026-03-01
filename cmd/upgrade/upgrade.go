@@ -204,7 +204,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
-	// MySQL 8.0 → MariaDB migration (Docker Compose only)
+	// MySQL 8.0 → MariaDB migration
 	var mysqlDumpPath string
 	var mysqlMigrationNeeded bool
 	if instance.Orchestrator == "compose" {
@@ -212,6 +212,11 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		if err != nil {
 			return err
 		}
+	} else {
+		// Kubernetes: automatic migration is not supported. Warn the user
+		// so they can manually dump and restore if they were on MySQL 8.0.
+		fmt.Println("  Note: If this installation was using MySQL 8.0, the database must be")
+		fmt.Println("  manually migrated to MariaDB. See https://canasta.wiki/setup/ for details.")
 	}
 
 	if dryRun {
