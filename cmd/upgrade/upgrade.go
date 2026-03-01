@@ -204,9 +204,19 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
+	// MySQL 8.0 → MariaDB migration (Docker Compose only)
+	var mysqlDumpPath string
+	var mysqlMigrationNeeded bool
+	if instance.Orchestrator == "compose" {
+		mysqlDumpPath, mysqlMigrationNeeded, err = migrateMySQL8ToMariaDB(instance.Path, dryRun)
+		if err != nil {
+			return err
+		}
+	}
+
 	if dryRun {
 		fmt.Println()
-		if stackChanged || migrationsNeeded {
+		if stackChanged || migrationsNeeded || mysqlMigrationNeeded {
 			fmt.Println("Run 'canasta upgrade' to apply these changes.")
 		} else {
 			fmt.Println("Installation is up to date. No upgrade needed.")
@@ -215,14 +225,37 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Only restart if something changed
-	if stackChanged || migrationsNeeded || imagesUpdated {
+	if stackChanged || migrationsNeeded || imagesUpdated || mysqlDumpPath != "" {
 		// Restart the containers
 		fmt.Println("Restarting containers...")
 		if err = orch.Stop(instance); err != nil {
 			return err
 		}
+
+		// If we dumped MySQL 8.0 data, clear the volume before MariaDB starts
+		if mysqlDumpPath != "" {
+			if err = clearMySQLDataVolume(instance.Path); err != nil {
+				fmt.Printf("  Dump file preserved at %s for manual recovery\n", mysqlDumpPath)
+				return err
+			}
+		}
+
 		if err = orch.Start(instance); err != nil {
+			if mysqlDumpPath != "" {
+				fmt.Printf("  Dump file preserved at %s for manual recovery\n", mysqlDumpPath)
+			}
 			return err
+		}
+
+		// Import the MySQL dump into MariaDB
+		if mysqlDumpPath != "" {
+			if err = importMariaDBDump(instance.Path, orch, mysqlDumpPath); err != nil {
+				fmt.Printf("  Dump file preserved at %s for manual import\n", mysqlDumpPath)
+				return err
+			}
+			// Clean up the temporary dump file on success
+			os.Remove(mysqlDumpPath)
+			fmt.Println("  MySQL 8.0 → MariaDB migration complete")
 		}
 
 		// Touch LocalSettings.php to flush cache
