@@ -170,6 +170,14 @@ header X-Frame-Options "SAMEORIGIN"
 header X-Content-Type-Options "nosniff"
 ```
 
+Example `Caddyfile.global` — redirect `www.example.com` to `example.com` so both domains reach the same wiki:
+
+```
+www.example.com {
+    redir https://example.com{uri} permanent
+}
+```
+
 See the [Caddy documentation](https://caddyserver.com/docs/caddyfile/directives) for available directives.
 
 If deploying behind an external reverse proxy that handles SSL termination, see [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy).
