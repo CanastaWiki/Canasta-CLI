@@ -59,6 +59,8 @@ spec:
                 key: MYSQL_PASSWORD
           - name: MYSQL_DATABASE
             value: "mediawiki"
+          - name: MARIADB_AUTO_UPGRADE
+            value: "1"
         ports:
         - containerPort: 3306
         startupProbe:
