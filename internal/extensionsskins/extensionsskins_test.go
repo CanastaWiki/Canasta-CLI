@@ -78,20 +78,20 @@ var skinConstants = Item{
 
 func TestConfigPath(t *testing.T) {
 	got := configPath("/srv/canasta/myinstance", "")
-	want := "/srv/canasta/myinstance/config/settings/global/main.yaml"
+	want := "/srv/canasta/myinstance/config/settings/global/settings.yaml"
 	if got != want {
 		t.Errorf("configPath global = %q, want %q", got, want)
 	}
 
 	got = configPath("/srv/canasta/myinstance", "docs")
-	want = "/srv/canasta/myinstance/config/settings/wikis/docs/main.yaml"
+	want = "/srv/canasta/myinstance/config/settings/wikis/docs/settings.yaml"
 	if got != want {
 		t.Errorf("configPath per-wiki = %q, want %q", got, want)
 	}
 }
 
 func TestReadConfigEmpty(t *testing.T) {
-	cfg, err := readConfig("/nonexistent/path/main.yaml")
+	cfg, err := readConfig("/nonexistent/path/settings.yaml")
 	if err != nil {
 		t.Fatalf("readConfig on missing file: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestReadConfigEmpty(t *testing.T) {
 
 func TestWriteAndReadConfig(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "main.yaml")
+	path := filepath.Join(dir, "settings.yaml")
 
 	cfg := configYAML{
 		Extensions: []string{"Cite", "VisualEditor"},
@@ -127,7 +127,7 @@ func TestWriteAndReadConfig(t *testing.T) {
 
 func TestWriteConfigDeletesEmptyFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "main.yaml")
+	path := filepath.Join(dir, "settings.yaml")
 
 	// Write a non-empty config first
 	cfg := configYAML{Extensions: []string{"Cite"}}
@@ -284,7 +284,7 @@ func TestDisableRemovesFileWhenEmpty(t *testing.T) {
 
 	path := configPath(inst.Path, "")
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Error("main.yaml should be deleted when last entry is removed")
+		t.Error("settings.yaml should be deleted when last entry is removed")
 	}
 }
 

@@ -22,7 +22,7 @@ type configYAML struct {
 	Skins      []string `yaml:"skins,omitempty"`
 }
 
-const configFileName = "main.yaml"
+const configFileName = "settings.yaml"
 
 // validNamePattern matches names consisting of alphanumeric characters,
 // underscores, hyphens, and dots (e.g. "VisualEditor", "Semantic_MediaWiki").
@@ -48,7 +48,7 @@ type Item struct {
 	ExampleNames             string // e.g. "VisualEditor,Cite,ParserFunctions" or "Timeless"
 }
 
-// configPath returns the host path to main.yaml for the given installation and wiki.
+// configPath returns the host path to settings.yaml for the given installation and wiki.
 func configPath(instancePath, wiki string) string {
 	if wiki != "" {
 		return filepath.Join(instancePath, "config", "settings", "wikis", wiki, configFileName)
@@ -89,7 +89,8 @@ func writeConfig(path string, cfg configYAML) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, permissions.FilePermission)
+	header := "# Canasta will add and remove lines from this file as extensions and skins are enabled and disabled.\n"
+	return os.WriteFile(path, []byte(header+string(data)), permissions.FilePermission)
 }
 
 // getSlice returns a pointer to the appropriate slice (extensions or skins) in the config.
