@@ -56,8 +56,8 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
   # Create with an existing database dump
   canasta create -i myinstance -w main -d /path/to/dump.sql -n example.com`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Check if the system has at least 2GB of memory
-			if err := system.CheckMemoryInGB(2); err != nil {
+			// Check if the system has at least 4GB of memory
+			if err := system.CheckMemoryInGB(4); err != nil {
 				return err
 			}
 			// Validate wiki ID if yamlPath not provided

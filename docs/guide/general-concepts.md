@@ -4,6 +4,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
 
 ## Contents
 
+- [System requirements](#system-requirements)
 - [Installation IDs](#installation-ids)
 - [Wiki IDs](#wiki-ids)
 - [Installation directory structure](#installation-directory-structure)
@@ -18,6 +19,14 @@ This page covers foundational concepts that apply to all Canasta installations, 
 - [Custom Canasta images](#custom-canasta-images)
 - [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy)
 - [Running on non-standard ports](#running-on-non-standard-ports)
+
+---
+
+## System requirements
+
+Canasta requires at least **4 GB of available memory** to run. The `canasta create` command checks available memory before proceeding and will exit with an error if the system does not meet this requirement.
+
+For production use, 8 GB or more of total system memory is recommended, especially if Elasticsearch is enabled.
 
 ---
 
