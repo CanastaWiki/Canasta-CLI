@@ -60,11 +60,11 @@ func takeSnapshot(orch orchestrators.Orchestrator, instance config.Installation,
 
 	for _, id := range wikiIDs {
 		logging.Print(fmt.Sprintf("Dumping database for wiki '%s'...", id))
-		cmd := fmt.Sprintf("mysqldump -h db -u root -p%s --databases %s > %s",
+		cmd := fmt.Sprintf("mariadb-dump -h db -u root -p%s --databases %s > %s",
 			orchestrators.ShellQuote(envVariables["MYSQL_PASSWORD"]), orchestrators.ShellQuote(id), dumpPath(id))
 		_, err = orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, cmd)
 		if err != nil {
-			return fmt.Errorf("mysqldump failed for wiki '%s': %w", id, err)
+			return fmt.Errorf("mariadb-dump failed for wiki '%s': %w", id, err)
 		}
 	}
 	logging.Print("Database dumps completed")

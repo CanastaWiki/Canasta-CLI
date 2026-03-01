@@ -12,7 +12,7 @@ INDEX_WAIT=60         # seconds to wait for indices after Dashboards is up
 INDEX_RETRY=10        # seconds between index checks
 RETRY_DELAY=60        # seconds to wait before retrying missed patterns
 
-PATTERNS="mediawiki-logs-* caddy-logs-* mysql-logs-*"
+PATTERNS="mediawiki-logs-* caddy-logs-* mariadb-logs-*"
 
 # ---------- wait for OpenSearch Dashboards API ----------
 echo "Waiting for OpenSearch Dashboards to become ready..."
@@ -35,7 +35,7 @@ echo "Waiting for log indices to be created by Logstash..."
 elapsed=0
 while [ "$elapsed" -lt "$INDEX_WAIT" ]; do
   indices="$(wget -qO- 'http://opensearch:9200/_cat/indices?h=index' 2>/dev/null || true)"
-  if echo "$indices" | grep -qE "^(mediawiki-logs-|caddy-logs-|mysql-logs-)"; then
+  if echo "$indices" | grep -qE "^(mediawiki-logs-|caddy-logs-|mariadb-logs-)"; then
     echo "At least one log index exists."
     break
   fi

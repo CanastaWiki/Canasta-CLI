@@ -29,7 +29,7 @@ data:
     [INPUT]
         Name         tail
         Path         /var/log/mysql/error.log
-        Tag          mysql.error
+        Tag          mariadb.error
         Mem_Buf_Limit 5MB
         Skip_Long_Lines On
         Refresh_Interval 10
@@ -56,11 +56,11 @@ data:
 
     [OUTPUT]
         Name            opensearch
-        Match           mysql.*
+        Match           mariadb.*
         Host            opensearch
         Port            9200
         Logstash_Format On
-        Logstash_Prefix mysql-logs
+        Logstash_Prefix mariadb-logs
         Suppress_Type_Name On
         tls             Off
 
@@ -73,7 +73,7 @@ data:
         Time_Keep    On
 
     [PARSER]
-        Name         mysql_error
+        Name         mariadb_error
         Format       regex
         Regex        ^(?<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+(?<thread_id>\d+)\s+\[(?<level>\w+)\]\s+(?:\[(?<error_code>\w+)\]\s+)?(?:\[(?<subsystem>\w+)\]\s+)?(?<message>.*)$
         Time_Key     timestamp
