@@ -67,18 +67,15 @@ func TestSaveEnvVariable(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 
-	// Start with a file
 	initial := "KEY1=old\nKEY2=keep\n"
 	if err := os.WriteFile(envPath, []byte(initial), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Update existing key
 	if err := SaveEnvVariable(envPath, "KEY1", "new"); err != nil {
 		t.Fatalf("SaveEnvVariable() error = %v", err)
 	}
 
-	// Add new key
 	if err := SaveEnvVariable(envPath, "KEY3", "added"); err != nil {
 		t.Fatalf("SaveEnvVariable() error = %v", err)
 	}
@@ -96,6 +93,59 @@ func TestSaveEnvVariable(t *testing.T) {
 	}
 	if vars["KEY3"] != "added" {
 		t.Errorf("KEY3 = %q, want \"added\"", vars["KEY3"])
+	}
+}
+
+func TestDeleteEnvVariable(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+
+	content := "KEY1=value1\nKEY2=value2\nKEY3=value3\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := DeleteEnvVariable(envPath, "KEY2"); err != nil {
+		t.Fatalf("DeleteEnvVariable() error = %v", err)
+	}
+
+	vars, err := GetEnvVariable(envPath)
+	if err != nil {
+		t.Fatalf("GetEnvVariable() error = %v", err)
+	}
+
+	if _, exists := vars["KEY2"]; exists {
+		t.Errorf("expected KEY2 to be deleted, but still present")
+	}
+	if vars["KEY1"] != "value1" {
+		t.Errorf("KEY1 = %q, want \"value1\"", vars["KEY1"])
+	}
+	if vars["KEY3"] != "value3" {
+		t.Errorf("KEY3 = %q, want \"value3\"", vars["KEY3"])
+	}
+
+	if err := os.WriteFile(envPath, []byte("KEY1=value1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := DeleteEnvVariable(envPath, "MISSING"); err == nil {
+		t.Fatal("expected error when deleting non-existent key, got nil")
+	}
+
+	if err := os.WriteFile(envPath, []byte("KEY1=value1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := DeleteEnvVariable(envPath, "KEY1"); err != nil {
+		t.Fatalf("DeleteEnvVariable() error = %v", err)
+	}
+
+	vars, err = GetEnvVariable(envPath)
+	if err != nil {
+		t.Fatalf("GetEnvVariable() error = %v", err)
+	}
+	if len(vars) != 0 {
+		t.Errorf("expected empty map after deleting only key, got %v", vars)
 	}
 }
 
