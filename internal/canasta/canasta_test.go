@@ -428,3 +428,26 @@ func TestEnsureObservabilityCredentials_PartialCredentials(t *testing.T) {
 		t.Error("expected OS_PASSWORD_HASH to be generated")
 	}
 }
+
+
+func TestNormalizeWikiID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{"spaces to underscores", "my wiki", "my_wiki"},
+		{"strip non alphanumeric", "my@wiki!", "mywiki"},
+		{"already normalized", "my_wiki", "my_wiki"},
+		{"empty", "", ""},
+		{"multiple spaces", "my  wiki  name", "my__wiki__name"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NormalizeWikiID(tc.id); got != tc.want {
+				t.Errorf("NormalizeWikiID(%q) = %q, want %q", tc.id, got, tc.want)
+			}
+		})
+	}
+}
