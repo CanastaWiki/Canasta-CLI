@@ -3,6 +3,7 @@ package canasta
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -248,6 +249,24 @@ func TestContainsProfile(t *testing.T) {
 	for _, tt := range tests {
 		if got := ContainsProfile(tt.profiles, tt.target); got != tt.want {
 			t.Errorf("ContainsProfile(%q, %q) = %v, want %v", tt.profiles, tt.target, got, tt.want)
+		}
+	}
+}
+
+func TestRemoveDuplicates(t *testing.T) {
+	tests := []struct {
+		input []string
+		want  []string
+	}{
+		{[]string{"a", "b", "a", "c"}, []string{"a", "b", "c"}},
+		{[]string{"a", "b", "c"}, []string{"a", "b", "c"}},
+		{[]string{}, []string{}},
+		{[]string{"a"}, []string{"a"}},
+		{[]string{"x", "x", "x"}, []string{"x"}},
+	}
+	for _, tt := range tests {
+		if got := removeDuplicates(tt.input); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("removeDuplicates(%v) = %v, want %v", tt.input, got, tt.want)
 		}
 	}
 }
