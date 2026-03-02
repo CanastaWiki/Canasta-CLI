@@ -77,7 +77,10 @@ func (k *KubernetesOrchestrator) UpdateStackFiles(installPath string, dryRun boo
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, permissions.DirectoryPermission)
+			if !dryRun {
+				return os.MkdirAll(targetPath, permissions.DirectoryPermission)
+			}
+			return nil
 		}
 		if d.Name() == ".gitkeep" {
 			return nil
