@@ -51,7 +51,7 @@ func TestList(t *testing.T) {
 	os.Stdout = w
 
 	err = List(config.Installation{}, false)
-	
+
 	w.Close()
 
 	os.Stdout = oldStdout
@@ -82,5 +82,103 @@ func TestList(t *testing.T) {
 		if !strings.Contains(outputStr, expected) {
 			t.Errorf("Expected output to contain '%s', but it did not.\nFull output:\n%s", expected, outputStr)
 		}
+	}
+}
+
+func TestListCleanup(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "canasta-list-cleanup-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp config dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	config.ResetForTesting(tmpDir)
+
+	installPath := filepath.Join(tmpDir, "stale-installation")
+
+	installation := config.Installation{
+		Id:           "stale-instance",
+		Path:         installPath,
+		Orchestrator: "compose",
+	}
+	if err := config.Add(installation); err != nil {
+		t.Fatalf("Failed to add installation to config: %v", err)
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err = List(config.Installation{}, true)
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("List() returned an error: %v", err)
+	}
+
+	var out bytes.Buffer
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatalf("Failed to read from stdout pipe: %v", err)
+	}
+
+	outputStr := out.String()
+	expectedOutput := "Removed stale entry 'stale-instance' (directory not found)"
+	if !strings.Contains(outputStr, expectedOutput) {
+		t.Errorf("Expected output to contain '%s', but it did not.\nFull output:\n%s", expectedOutput, outputStr)
+	}
+
+	installations, err := config.GetAll()
+	if err != nil {
+		t.Fatalf("Failed to get config: %v", err)
+	}
+	if _, exists := installations["stale-instance"]; exists {
+		t.Errorf("Expected stale entry 'stale-instance' to be removed from config, but it still exists")
+	}
+}
+
+func TestListNotFound(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "canasta-list-notfound-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp config dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	config.ResetForTesting(tmpDir)
+
+	installPath := filepath.Join(tmpDir, "missing-installation")
+
+	installation := config.Installation{
+		Id:           "missing-instance",
+		Path:         installPath,
+		Orchestrator: "compose",
+	}
+	if err := config.Add(installation); err != nil {
+		t.Fatalf("Failed to add installation to config: %v", err)
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err = List(config.Installation{}, false)
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("List() returned an error: %v", err)
+	}
+
+	var out bytes.Buffer
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatalf("Failed to read from stdout pipe: %v", err)
+	}
+
+	outputStr := out.String()
+	expectedOutput := installPath + " [not found]"
+	if !strings.Contains(outputStr, expectedOutput) {
+		t.Errorf("Expected output to contain '%s', but it did not.\nFull output:\n%s", expectedOutput, outputStr)
 	}
 }
