@@ -13,7 +13,7 @@ func TestGetEnvVariable(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 
-	content := "KEY1=value1\nKEY2=value2\nKEY_WITH_EQUALS=abc=def\nQUOTED=\"hello world\"\n"
+	content := "KEY1=value1\n# this is a comment\nKEY2=value2\n\nEMPTY=\nKEY_WITH_EQUALS=abc=def\nKEY=a=b\nQUOTED=\"hello world\"\n"
 	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,9 @@ func TestGetEnvVariable(t *testing.T) {
 	}{
 		{"KEY1", "value1"},
 		{"KEY2", "value2"},
+		{"EMPTY", ""},
 		{"KEY_WITH_EQUALS", "abc=def"},
+		{"KEY", "a=b"},
 		{"QUOTED", "hello world"},
 	}
 
