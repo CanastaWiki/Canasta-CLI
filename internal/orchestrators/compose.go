@@ -23,6 +23,10 @@ const (
 	overrideComposeFile = "docker-compose.override.yml"
 )
 
+func composeVolumeName(installPath, suffix string) string {
+	return filepath.Base(installPath) + "_" + suffix
+}
+
 // ComposeOrchestrator implements Orchestrator using Docker Compose.
 type ComposeOrchestrator struct{}
 
