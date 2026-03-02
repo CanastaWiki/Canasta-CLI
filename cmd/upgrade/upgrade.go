@@ -204,15 +204,21 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
-	// MySQL 8.0 → MariaDB migration
-	var mysqlDumpPath string
+	// MySQL 8.0 → MariaDB migration: detect now (read-only file check),
+	// but dump after containers are stopped so the data volume isn't locked.
 	var mysqlMigrationNeeded bool
 	if instance.Orchestrator == "compose" {
-		mysqlDumpPath, mysqlMigrationNeeded, err = migrateMySQL8ToMariaDB(instance.Path, dryRun)
+		mysqlMigrationNeeded, err = detectMySQL8Data(instance.Path)
 		if err != nil {
 			return err
 		}
-	} else {
+		if mysqlMigrationNeeded {
+			fmt.Println("  Detected MySQL 8.0 data — migration to MariaDB required")
+			if dryRun {
+				fmt.Println("  Would dump MySQL 8.0 databases and re-import into MariaDB")
+			}
+		}
+	} else if !dryRun {
 		// Kubernetes: automatic migration is not supported. Warn the user
 		// so they can manually dump and restore if they were on MySQL 8.0.
 		fmt.Println("  Note: If this installation was using MySQL 8.0, the database must be")
@@ -230,11 +236,20 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Only restart if something changed
-	if stackChanged || migrationsNeeded || imagesUpdated || mysqlDumpPath != "" {
+	if stackChanged || migrationsNeeded || imagesUpdated || mysqlMigrationNeeded {
 		// Restart the containers
 		fmt.Println("Restarting containers...")
 		if err = orch.Stop(instance); err != nil {
 			return err
+		}
+
+		// Now that containers are stopped, dump MySQL 8.0 data if needed
+		var mysqlDumpPath string
+		if mysqlMigrationNeeded {
+			mysqlDumpPath, err = dumpMySQL8Data(instance.Path)
+			if err != nil {
+				return err
+			}
 		}
 
 		// If we dumped MySQL 8.0 data, clear the volume before MariaDB starts
