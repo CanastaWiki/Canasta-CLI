@@ -204,9 +204,24 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
+	// MySQL 8.0 → MariaDB migration
+	var mysqlDumpPath string
+	var mysqlMigrationNeeded bool
+	if instance.Orchestrator == "compose" {
+		mysqlDumpPath, mysqlMigrationNeeded, err = migrateMySQL8ToMariaDB(instance.Path, dryRun)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Kubernetes: automatic migration is not supported. Warn the user
+		// so they can manually dump and restore if they were on MySQL 8.0.
+		fmt.Println("  Note: If this installation was using MySQL 8.0, the database must be")
+		fmt.Println("  manually migrated to MariaDB. See https://canasta.wiki/setup/ for details.")
+	}
+
 	if dryRun {
 		fmt.Println()
-		if stackChanged || migrationsNeeded {
+		if stackChanged || migrationsNeeded || mysqlMigrationNeeded {
 			fmt.Println("Run 'canasta upgrade' to apply these changes.")
 		} else {
 			fmt.Println("Installation is up to date. No upgrade needed.")
@@ -215,14 +230,37 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Only restart if something changed
-	if stackChanged || migrationsNeeded || imagesUpdated {
+	if stackChanged || migrationsNeeded || imagesUpdated || mysqlDumpPath != "" {
 		// Restart the containers
 		fmt.Println("Restarting containers...")
 		if err = orch.Stop(instance); err != nil {
 			return err
 		}
+
+		// If we dumped MySQL 8.0 data, clear the volume before MariaDB starts
+		if mysqlDumpPath != "" {
+			if err = clearMySQLDataVolume(instance.Path); err != nil {
+				fmt.Printf("  Dump file preserved at %s for manual recovery\n", mysqlDumpPath)
+				return err
+			}
+		}
+
 		if err = orch.Start(instance); err != nil {
+			if mysqlDumpPath != "" {
+				fmt.Printf("  Dump file preserved at %s for manual recovery\n", mysqlDumpPath)
+			}
 			return err
+		}
+
+		// Import the MySQL dump into MariaDB
+		if mysqlDumpPath != "" {
+			if err = importMariaDBDump(instance.Path, orch, mysqlDumpPath); err != nil {
+				fmt.Printf("  Dump file preserved at %s for manual import\n", mysqlDumpPath)
+				return err
+			}
+			// Clean up the temporary dump file on success
+			os.Remove(mysqlDumpPath)
+			fmt.Println("  MySQL 8.0 → MariaDB migration complete")
 		}
 
 		// Touch LocalSettings.php to flush cache
@@ -302,7 +340,7 @@ func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bo
 		changed = true
 	}
 
-	// Step 7: Remove skip-binary-as-hex from my.cnf (breaks mysqladmin health check)
+	// Step 7: Remove skip-binary-as-hex from my.cnf (breaks mariadb-admin health check)
 	mycnfChanged, err := removeSkipBinaryAsHex(installPath, dryRun)
 	if err != nil {
 		return false, err
@@ -553,7 +591,7 @@ func fixVectorDefaultSkin(installPath string, dryRun bool) (bool, error) {
 
 // removeSkipBinaryAsHex removes skip-binary-as-hex lines from sections other
 // than [mysql] in my.cnf. The option is valid for the mysql client but is not
-// recognized by mysqladmin, which causes the db container's health check to
+// recognized by mariadb-admin, which causes the db container's health check to
 // fail when it appears in [client] or other sections.
 func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
 	mycnfPath := filepath.Join(installPath, "my.cnf")
@@ -590,9 +628,9 @@ func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
 	newContent := strings.Join(filtered, "\n")
 
 	if dryRun {
-		fmt.Println("  Would remove skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mysqladmin health check)")
+		fmt.Println("  Would remove skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mariadb-admin health check)")
 	} else {
-		fmt.Println("  Removing skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mysqladmin health check)")
+		fmt.Println("  Removing skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mariadb-admin health check)")
 		if err := os.WriteFile(mycnfPath, []byte(newContent), permissions.FilePermission); err != nil {
 			return false, fmt.Errorf("failed to update my.cnf: %w", err)
 		}

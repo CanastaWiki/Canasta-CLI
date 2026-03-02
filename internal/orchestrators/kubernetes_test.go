@@ -618,8 +618,8 @@ func TestGenerateKustomizationObservabilityEnabled(t *testing.T) {
 	if !strings.Contains(text, "caddy-logs") {
 		t.Error("kustomization.yaml should contain caddy-logs PVC reference")
 	}
-	if !strings.Contains(text, "mysql-logs") {
-		t.Error("kustomization.yaml should contain mysql-logs PVC reference")
+	if !strings.Contains(text, "mariadb-logs") {
+		t.Error("kustomization.yaml should contain mariadb-logs PVC reference")
 	}
 }
 

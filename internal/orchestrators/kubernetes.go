@@ -77,7 +77,10 @@ func (k *KubernetesOrchestrator) UpdateStackFiles(installPath string, dryRun boo
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, permissions.DirectoryPermission)
+			if !dryRun {
+				return os.MkdirAll(targetPath, permissions.DirectoryPermission)
+			}
+			return nil
 		}
 		if d.Name() == ".gitkeep" {
 			return nil
@@ -756,7 +759,7 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 			kust.Patches = append(kust.Patches,
 				buildLogVolumePatch("web", "/var/log/mediawiki", "mediawiki-logs"),
 				buildLogVolumePatch("caddy", "/var/log/caddy", "caddy-logs"),
-				buildLogVolumePatch("db", "/var/log/mysql", "mysql-logs"),
+				buildLogVolumePatch("db", "/var/log/mysql", "mariadb-logs"),
 			)
 		}
 	}

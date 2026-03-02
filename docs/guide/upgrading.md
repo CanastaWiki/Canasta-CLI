@@ -70,10 +70,10 @@ If you have an existing MediaWiki installation that was **not** created with the
 
 ### 1. Export your database
 
-Use `mysqldump` (or the equivalent for your database engine) to create a SQL dump of your wiki database:
+Use `mariadb-dump` (or the equivalent for your database engine) to create a SQL dump of your wiki database:
 
 ```bash
-mysqldump -u root -p wikidb > wikidb.sql
+mariadb-dump -u root -p wikidb > wikidb.sql
 ```
 
 ### 2. Create a new Canasta installation with the database dump

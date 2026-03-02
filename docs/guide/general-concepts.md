@@ -19,6 +19,8 @@ This page covers foundational concepts that apply to all Canasta installations, 
 - [Custom Canasta images](#custom-canasta-images)
 - [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy)
 - [Running on non-standard ports](#running-on-non-standard-ports)
+  - [TLS certificates and non-standard ports](#tls-certificates-and-non-standard-ports)
+- [Changing the domain name](#changing-the-domain-name)
 
 ---
 
@@ -59,7 +61,7 @@ canasta create -i myinstance -w main -n localhost
 ```
 Even a single-wiki installation requires a wiki ID. The wiki ID is used as:
 
-- The MySQL database name for that wiki
+- The MariaDB database name for that wiki
 - The directory name under `config/settings/wikis/`
 - The suffix in the admin password file (`config/admin-password_{wikiid}`)
 - The value passed to `-w` in commands like `canasta extension`, `canasta remove`, and `canasta export`
@@ -521,19 +523,39 @@ canasta create -o k8s --create-cluster -i dev-k8s -w devwiki -n localhost:9443-e
 
 Access them at `https://localhost`, `https://localhost:8443`, and `https://localhost:9443`.
 
+### TLS certificates and non-standard ports
+
+When Canasta is configured with a real domain name, Caddy automatically obtains a TLS certificate from Let's Encrypt. This uses the ACME HTTP-01 challenge, which requires Let's Encrypt to connect to **port 80** on your server. If you set `HTTP_PORT` to a non-standard value, the challenge will fail because Let's Encrypt cannot reach Caddy on port 80.
+
+Non-standard ports are therefore intended for **local development and testing** (e.g., `localhost:8443`), not for production deployments with automatic TLS.
+
+If you need to run multiple Canasta installations with TLS on the same server, place a shared reverse proxy (such as Caddy or nginx) in front of all instances. The reverse proxy holds ports 80/443, obtains the certificates, and forwards traffic to each Canasta instance on its internal ports. In this setup, each Canasta instance should set `CADDY_AUTO_HTTPS=off` in its `.env` file so its built-in Caddy does not attempt its own ACME challenges.
+
 ---
 
 ## Changing the domain name
 
-The domain name for each wiki is stored in `config/wikis.yaml`. When you change it, you must also update `MW_SITE_SERVER` and `MW_SITE_FQDN` in `.env` and regenerate the Caddyfile.
+The domain name for each wiki is stored in `config/wikis.yaml`. The `.env` file also contains two domain-related variables:
+
+- `MW_SITE_SERVER` — the full URL of the primary wiki (e.g., `https://example.com`)
+- `MW_SITE_FQDN` — the domain name of the primary wiki (e.g., `example.com`)
+
+These refer specifically to the primary (first) wiki in the installation. In a [wiki farm](wiki-farms.md), additional wikis may use the same domain (path-based) or different domains (subdomain-based), and their URLs are managed entirely in `wikis.yaml`.
+
+### Single wiki or path-based farm
+
+When all wikis share the same domain, changing the domain requires updating both `wikis.yaml` and `.env`:
 
 1. Edit `config/wikis.yaml` and update the `url` field for each wiki:
 
    ```yaml
    wikis:
-   - id: wiki1
+   - id: main
      url: newdomain.example.com
-     name: wiki1
+     name: main
+   - id: docs
+     url: newdomain.example.com/docs
+     name: docs
    ```
 
 2. Update the `.env` variables to match and restart:
@@ -543,5 +565,15 @@ The domain name for each wiki is stored in `config/wikis.yaml`. When you change 
    ```
 
    This triggers a restart, which regenerates the Caddyfile from the updated `wikis.yaml`.
+
+### Subdomain-based farm
+
+When wikis use different subdomains, you only need to update `MW_SITE_SERVER` and `MW_SITE_FQDN` if the primary wiki's domain is changing. To change another wiki's domain, edit its `url` in `wikis.yaml` and restart:
+
+```bash
+canasta restart -i myinstance
+```
+
+### Port changes
 
 If you are also changing the port, use `canasta config set HTTPS_PORT=<port>` instead — it updates `wikis.yaml`, `MW_SITE_SERVER`, and `MW_SITE_FQDN` automatically. See [Running on non-standard ports](#running-on-non-standard-ports).

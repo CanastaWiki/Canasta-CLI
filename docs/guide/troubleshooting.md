@@ -74,9 +74,9 @@ canasta restart -i myinstance
 
 ## Accessing the database
 
-To connect to the MySQL database directly:
+To connect to the MariaDB database directly:
 ```bash
-canasta maintenance exec -i myinstance -s db -- mysql -u root -p
+canasta maintenance exec -i myinstance -s db -- mariadb -u root -p
 ```
 Enter the root database password from your `.env` file (`MYSQL_PASSWORD`) when prompted.
 
@@ -103,7 +103,7 @@ canasta maintenance exec -i myinstance -- php -v
 
 To run a command in a different container:
 ```bash
-canasta maintenance exec -i myinstance -s db -- mysql -u root -p
+canasta maintenance exec -i myinstance -s db -- mariadb -u root -p
 ```
 
 !!! warning "Container changes are ephemeral"

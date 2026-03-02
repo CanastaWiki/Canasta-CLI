@@ -45,17 +45,6 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
-func TestSlicesContains(t *testing.T) {
-	list := []string{"VisualEditor", "Cite", "ParserFunctions"}
-
-	if !slices.Contains(list, "Cite") {
-		t.Error("expected slices.Contains to return true for 'Cite'")
-	}
-	if slices.Contains(list, "Missing") {
-		t.Error("expected slices.Contains to return false for 'Missing'")
-	}
-}
-
 // --- YAML config helpers ---
 
 var extConstants = Item{

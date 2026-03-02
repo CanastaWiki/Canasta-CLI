@@ -6,7 +6,7 @@ Canasta includes backup and restore support powered by [restic](https://restic.n
 
 Each backup includes:
 
-- **Database** — a full MySQL dump of each wiki's database
+- **Database** — a full MariaDB dump of each wiki's database
 - **Configuration** — the `config/` directory (Caddyfile, settings, wikis.yaml)
 - **Extensions and skins** — the `extensions/` and `skins/` directories
 - **Uploaded files** — the `images/` directory
@@ -104,6 +104,25 @@ canasta backup restore -i other-instance -s abc123
 ```
 
 The target instance will receive all files and databases from the snapshot, replacing its current contents.
+
+If the new instance uses a different domain name than the original, you must update the URLs after restoring:
+
+1. Edit `config/wikis.yaml` and change the `url` field for each wiki to the new domain:
+
+   ```yaml
+   wikis:
+   - id: main
+     url: newdomain.example.com
+     name: main
+   ```
+
+2. Update the `.env` file to match:
+
+   ```bash
+   canasta config set -i other-instance MW_SITE_SERVER=https://newdomain.example.com MW_SITE_FQDN=newdomain.example.com
+   ```
+
+   This also regenerates the Caddyfile and restarts the instance.
 
 ### Inspecting a backup
 

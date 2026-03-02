@@ -36,11 +36,12 @@ const (
 	DefaultImageRegistry = "ghcr.io/canastawiki"
 	// DefaultImageName is the name of the Canasta image
 	DefaultImageName = "canasta"
-	// DefaultImageTag is the default tag to use for the Canasta image.
-	// This should match the current stable Canasta release. Update it
-	// when cutting a new CLI release to pair with a new Canasta version.
-	DefaultImageTag = "3.2.1"
 )
+
+// DefaultImageTag is the default tag to use for the Canasta image.
+// It is set via ldflags at build time from the VERSION file.
+// The "latest" fallback is used for dev builds (when ldflags aren't applied).
+var DefaultImageTag = "latest"
 
 // GetDefaultImage returns the full default Canasta image reference
 func GetDefaultImage() string {
