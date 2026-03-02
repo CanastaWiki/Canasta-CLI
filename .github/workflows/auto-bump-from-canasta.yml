@@ -1,0 +1,80 @@
+name: Auto-bump Canasta version
+
+on:
+  repository_dispatch:
+    types: [canasta-version-bump]
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.CROSS_REPO_PAT }}
+
+      - name: Read payload
+        id: payload
+        run: |
+          echo "new_version=${{ github.event.client_payload.new_version }}" >> $GITHUB_OUTPUT
+
+      - name: Check if already up to date
+        id: check
+        run: |
+          CURRENT=$(cat VERSION)
+          NEW=${{ steps.payload.outputs.new_version }}
+          if [ "$CURRENT" == "$NEW" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create branch and apply changes
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          NEW_VERSION=${{ steps.payload.outputs.new_version }}
+          BRANCH="auto/bump-canasta-${NEW_VERSION}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+
+          echo "$NEW_VERSION" > VERSION
+
+          git add VERSION
+          git commit -m "Update VERSION to ${NEW_VERSION} (Canasta release)"
+          git push origin "$BRANCH"
+
+      - name: Close superseded PRs
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
+        run: |
+          NEW_VERSION=${{ steps.payload.outputs.new_version }}
+          CURRENT_BRANCH="auto/bump-canasta-${NEW_VERSION}"
+
+          gh pr list --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("auto/bump-canasta-")) | select(.headRefName != "'"$CURRENT_BRANCH"'") | .number' | while read -r pr; do
+            gh pr close "$pr" --comment "Superseded by Canasta ${NEW_VERSION} bump."
+          done
+
+      - name: Create pull request
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
+        run: |
+          NEW_VERSION=${{ steps.payload.outputs.new_version }}
+          BRANCH="auto/bump-canasta-${NEW_VERSION}"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Update VERSION to ${NEW_VERSION}" \
+            --body "$(cat <<EOF
+          Automated version bump triggered by Canasta ${NEW_VERSION} release.
+
+          - VERSION: ${{ steps.check.outputs.current }} → ${NEW_VERSION}
+
+          Merging this PR will trigger the release workflow to build and publish new binaries.
+          EOF
+          )"
