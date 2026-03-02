@@ -521,6 +521,14 @@ canasta create -o k8s --create-cluster -i dev-k8s -w devwiki -n localhost:9443-e
 
 Access them at `https://localhost`, `https://localhost:8443`, and `https://localhost:9443`.
 
+### TLS certificates and non-standard ports
+
+When Canasta is configured with a real domain name, Caddy automatically obtains a TLS certificate from Let's Encrypt. This uses the ACME HTTP-01 challenge, which requires Let's Encrypt to connect to **port 80** on your server. If you set `HTTP_PORT` to a non-standard value, the challenge will fail because Let's Encrypt cannot reach Caddy on port 80.
+
+Non-standard ports are therefore intended for **local development and testing** (e.g., `localhost:8443`), not for production deployments with automatic TLS.
+
+If you need to run multiple Canasta installations with TLS on the same server, place a shared reverse proxy (such as Caddy or nginx) in front of all instances. The reverse proxy holds ports 80/443, obtains the certificates, and forwards traffic to each Canasta instance on its internal ports. In this setup, each Canasta instance should set `CADDY_AUTO_HTTPS=off` in its `.env` file so its built-in Caddy does not attempt its own ACME challenges.
+
 ---
 
 ## Changing the domain name
