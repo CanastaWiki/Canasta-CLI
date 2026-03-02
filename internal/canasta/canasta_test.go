@@ -222,6 +222,57 @@ func TestGenerateSecretKey(t *testing.T) {
 	}
 }
 
+func TestGenerateAndSaveSecretKey_AlreadySet(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	existingKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	content := "KEY1=value1\nMW_SECRET_KEY=" + existingKey + "\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := GenerateAndSaveSecretKey(dir)
+	if err != nil {
+		t.Fatalf("GenerateAndSaveSecretKey() error = %v", err)
+	}
+
+	vars, err := GetEnvVariable(envPath)
+	if err != nil {
+		t.Fatalf("GetEnvVariable() error = %v", err)
+	}
+
+	if vars["MW_SECRET_KEY"] != existingKey {
+		t.Errorf("expected MW_SECRET_KEY to be unchanged, got %s", vars["MW_SECRET_KEY"])
+	}
+}
+
+func TestGenerateAndSaveSecretKey_GeneratesNew(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	content := "KEY1=value1\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := GenerateAndSaveSecretKey(dir)
+	if err != nil {
+		t.Fatalf("GenerateAndSaveSecretKey() error = %v", err)
+	}
+
+	vars, err := GetEnvVariable(envPath)
+	if err != nil {
+		t.Fatalf("GetEnvVariable() error = %v", err)
+	}
+
+	key := vars["MW_SECRET_KEY"]
+	if key == "" {
+		t.Fatal("expected MW_SECRET_KEY to be set in .env")
+	}
+	if len(key) != 64 {
+		t.Errorf("expected 64-character MW_SECRET_KEY, got length %d", len(key))
+	}
+}
+
 func TestContainsProfile(t *testing.T) {
 	tests := []struct {
 		profiles string
