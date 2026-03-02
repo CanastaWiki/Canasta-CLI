@@ -12,6 +12,13 @@ var (
 	sha1      string
 	buildTime string
 )
+func DisplayVersion() string {
+			v := Version
+			if v == "" {
+				v = "dev"
+			}
+			return fmt.Sprintf("Canasta CLI %s (commit %s, built %s)", v, sha1, buildTime)
+}
 
 func NewCmd() *cobra.Command {
 	var versionCmd = &cobra.Command{
@@ -21,11 +28,7 @@ func NewCmd() *cobra.Command {
 Shows "dev" if the binary was built without version information.`,
 		Example: `  canasta version`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			v := Version
-			if v == "" {
-				v = "dev"
-			}
-			fmt.Printf("Canasta CLI %s (commit %s, built %s)\n", v, sha1, buildTime)
+			fmt.Println(DisplayVersion())
 			return nil
 		},
 	}
