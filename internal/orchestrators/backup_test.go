@@ -41,6 +41,9 @@ func TestComposeVolumeName(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("composeVolumeName(%q, %q) = %q, want %q", tt.installPath, tt.suffix, got, tt.want)
 		}
+	}
+}
+
 // captureShellArg installs a mock execute.Run that records the argument
 // passed to "sh -c" and returns it. The mock succeeds without error.
 func captureShellArg(t *testing.T) *string {
