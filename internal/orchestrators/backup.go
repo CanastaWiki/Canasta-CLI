@@ -45,7 +45,7 @@ func stageToVolume(volName string, volumes map[string]string) error {
 	}
 
 	shellCmd := "rm -rf /currentsnapshot/* && " + strings.Join(copyParts, " && ")
-	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", "'"+shellCmd+"'")
+	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", shellCmd)
 
 	err, output := execute.Run("", cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
@@ -100,7 +100,7 @@ func restoreFromVolume(volName, installPath string, dirs map[string]string) erro
 	}
 
 	shellCmd := strings.Join(copyParts, " && ")
-	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", "'"+shellCmd+"'")
+	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", shellCmd)
 
 	err, output := execute.Run("", cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
