@@ -135,6 +135,27 @@ func TestGenerateAdminAndDBPasswords(t *testing.T) {
 		if strings.Contains(pw, "$") {
 			t.Errorf("password contains $: %s", pw)
 		}
+
+		digits := 0
+		for _, c := range pw {
+			if c >= '0' && c <= '9' {
+				digits++
+			}
+		}
+
+		symbols := 0
+		for _, c := range pw {
+			if strings.ContainsRune("@%^-_+.,:", c) {
+				symbols++
+			}
+		}
+
+		if digits < 4 {
+			t.Errorf("password has %d digits, want >= 4: %s", digits, pw)
+		}
+		if symbols < 6 {
+			t.Errorf("password has %d symbols, want >= 6: %s", symbols, pw)
+		}
 	}
 }
 
