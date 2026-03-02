@@ -22,36 +22,29 @@ func composeVolumeName(installPath, volume string) string {
 	return project + "_" + volume
 }
 
-// migrateMySQL8ToMariaDB detects whether the MySQL data volume contains
-// MySQL 8.0 binary data (mysql.ibd) and, if so, dumps all user databases
-// using a temporary mysql:8.0 container. Returns the path to the host-side
-// dump file (empty if no migration needed or dry-run), whether MySQL 8.0 was
-// detected, and any error.
-func migrateMySQL8ToMariaDB(installPath string, dryRun bool) (string, bool, error) {
+// detectMySQL8Data checks whether the MySQL data volume contains MySQL 8.0
+// binary data (mysql.ibd). This is a read-only check that can run while the
+// database container is still running.
+func detectMySQL8Data(installPath string) (bool, error) {
 	volName := composeVolumeName(installPath, "mysql-data-volume")
-
-	// Detect MySQL 8.0 by checking for mysql.ibd (the InnoDB data dictionary
-	// file that MySQL 8.0 uses but MariaDB does not).
 	err, _ := execute.Run("", "docker", "run", "--rm",
 		"-v", volName+":/data",
 		"alpine", "test", "-f", "/data/mysql.ibd")
-	if err != nil {
-		// No mysql.ibd → not a MySQL 8.0 data directory, nothing to do
-		return "", false, nil
-	}
+	return err == nil, nil
+}
 
-	fmt.Println("  Detected MySQL 8.0 data — migration to MariaDB required")
-
-	if dryRun {
-		fmt.Println("  Would dump MySQL 8.0 databases and re-import into MariaDB")
-		return "", true, nil
-	}
+// dumpMySQL8Data starts a temporary mysql:8.0 container against the data
+// volume and dumps all user databases. The containers must be stopped before
+// calling this so the data volume is not locked. Returns the path to the
+// host-side dump file.
+func dumpMySQL8Data(installPath string) (string, error) {
+	volName := composeVolumeName(installPath, "mysql-data-volume")
 
 	// Read the database password from .env
 	envPath := filepath.Join(installPath, ".env")
 	envVars, err := canasta.GetEnvVariable(envPath)
 	if err != nil {
-		return "", true, fmt.Errorf("failed to read .env: %w", err)
+		return "", fmt.Errorf("failed to read .env: %w", err)
 	}
 	password := envVars["MYSQL_PASSWORD"]
 	if password == "" {
@@ -68,7 +61,7 @@ func migrateMySQL8ToMariaDB(installPath string, dryRun bool) (string, bool, erro
 		"-e", "MYSQL_ROOT_PASSWORD="+password,
 		"mysql:8.0")
 	if err != nil {
-		return "", true, fmt.Errorf("failed to start temporary MySQL container: %s", output)
+		return "", fmt.Errorf("failed to start temporary MySQL container: %s", output)
 	}
 
 	// Always clean up the temporary container
@@ -83,7 +76,7 @@ func migrateMySQL8ToMariaDB(installPath string, dryRun bool) (string, bool, erro
 		"--user=root", "--password="+password,
 		"--wait=60")
 	if err != nil {
-		return "", true, fmt.Errorf("MySQL 8.0 container failed to become ready: %s", output)
+		return "", fmt.Errorf("MySQL 8.0 container failed to become ready: %s", output)
 	}
 
 	// List user databases (exclude system databases)
@@ -93,7 +86,7 @@ func migrateMySQL8ToMariaDB(installPath string, dryRun bool) (string, bool, erro
 		"--skip-column-names", "--batch",
 		"-e", "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('mysql','information_schema','performance_schema','sys')")
 	if err != nil {
-		return "", true, fmt.Errorf("failed to list databases: %s", output)
+		return "", fmt.Errorf("failed to list databases: %s", output)
 	}
 
 	var databases []string
@@ -109,7 +102,7 @@ func migrateMySQL8ToMariaDB(installPath string, dryRun bool) (string, bool, erro
 
 	if len(databases) == 0 {
 		fmt.Println("  No user databases found — skipping dump")
-		return "", true, nil
+		return "", nil
 	}
 
 	fmt.Printf("  Dumping databases: %s\n", strings.Join(databases, ", "))
@@ -120,13 +113,13 @@ func migrateMySQL8ToMariaDB(installPath string, dryRun bool) (string, bool, erro
 	err, output = execute.Run("", "docker", "exec", containerName,
 		"bash", "-c", dumpCmd)
 	if err != nil {
-		return "", true, fmt.Errorf("mysqldump failed: %s", output)
+		return "", fmt.Errorf("mysqldump failed: %s", output)
 	}
 
 	// Copy dump to a temporary host file
 	tmpFile, err := os.CreateTemp("", "canasta-mysql-dump-*.sql")
 	if err != nil {
-		return "", true, fmt.Errorf("failed to create temp file: %w", err)
+		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpFile.Close()
 
@@ -134,11 +127,11 @@ func migrateMySQL8ToMariaDB(installPath string, dryRun bool) (string, bool, erro
 		containerName+":/tmp/dump.sql", tmpFile.Name())
 	if err != nil {
 		os.Remove(tmpFile.Name())
-		return "", true, fmt.Errorf("failed to copy dump from container: %s", output)
+		return "", fmt.Errorf("failed to copy dump from container: %s", output)
 	}
 
 	fmt.Printf("  Dump saved to %s\n", tmpFile.Name())
-	return tmpFile.Name(), true, nil
+	return tmpFile.Name(), nil
 }
 
 // clearMySQLDataVolume removes all files from the MySQL data volume so that
