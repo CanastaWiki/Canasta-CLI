@@ -230,13 +230,21 @@ func GetCanastaID(installPath string) (string, error) {
 	if err := ensureInitialized(); err != nil {
 		return "", err
 	}
-	var canastaID string
-	for _, installations := range existingInstallations.Installations {
-		if installations.Path == installPath {
-			return installations.Id, nil
+	// Walk up the directory tree to find an enclosing installation.
+	dir := installPath
+	for {
+		for _, inst := range existingInstallations.Installations {
+			if inst.Path == dir {
+				return inst.Id, nil
+			}
 		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
-	return canastaID, fmt.Errorf("No Canasta installations exist at %s", installPath)
+	return "", fmt.Errorf("No Canasta installations exist at %s", installPath)
 }
 
 func Add(details Installation) error {
