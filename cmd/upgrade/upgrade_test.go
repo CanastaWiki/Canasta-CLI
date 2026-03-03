@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -223,6 +224,84 @@ func TestRemoveEmptyComposerLocalDryRun(t *testing.T) {
 	// File should still exist after dry run
 	if _, err := os.Stat(filePath); err != nil {
 		t.Error("file should still exist after dry run")
+	}
+}
+
+func TestBackfillCanastaImage(t *testing.T) {
+	tests := []struct {
+		name        string
+		envContent  string
+		wantChanged bool
+	}{
+		{
+			name:        "missing CANASTA_IMAGE",
+			envContent:  "MW_SITE_SERVER=https://localhost\nMYSQL_PASSWORD=secret\n",
+			wantChanged: true,
+		},
+		{
+			name:        "already set",
+			envContent:  "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:3.3.1\nMYSQL_PASSWORD=secret\n",
+			wantChanged: false,
+		},
+		{
+			name:        "empty value",
+			envContent:  "CANASTA_IMAGE=\nMYSQL_PASSWORD=secret\n",
+			wantChanged: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			envPath := filepath.Join(tmpDir, ".env")
+			if err := os.WriteFile(envPath, []byte(tt.envContent), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			changed, err := backfillCanastaImage(tmpDir, false)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if changed != tt.wantChanged {
+				t.Errorf("changed = %v, want %v", changed, tt.wantChanged)
+			}
+
+			if tt.wantChanged {
+				got, err := os.ReadFile(envPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(string(got), "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:") {
+					t.Errorf("expected CANASTA_IMAGE to be set, got:\n%s", string(got))
+				}
+			}
+		})
+	}
+}
+
+func TestBackfillCanastaImageDryRun(t *testing.T) {
+	tmpDir := t.TempDir()
+	envPath := filepath.Join(tmpDir, ".env")
+	content := "MW_SITE_SERVER=https://localhost\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := backfillCanastaImage(tmpDir, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("dry run should report changed = true")
+	}
+
+	// File should be unchanged after dry run
+	got, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Errorf("dry run should not modify file, got %q", string(got))
 	}
 }
 

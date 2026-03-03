@@ -364,6 +364,15 @@ func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bo
 		changed = true
 	}
 
+	// Step 8: Backfill CANASTA_IMAGE in .env for legacy installations
+	imageChanged, err := backfillCanastaImage(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if imageChanged {
+		changed = true
+	}
+
 	if !changed {
 		fmt.Println("No config migrations needed.")
 	} else if dryRun {
@@ -672,6 +681,34 @@ func removeLegacyGitDir(installPath string, dryRun bool) (bool, error) {
 		if err := os.RemoveAll(gitDir); err != nil {
 			return false, fmt.Errorf("failed to remove .git directory: %w", err)
 		}
+	}
+
+	return true, nil
+}
+
+// backfillCanastaImage sets CANASTA_IMAGE in .env for installations that
+// predate the canasta create change that writes it. Without this variable,
+// docker-compose falls back to the "latest" tag, bypassing version pinning.
+func backfillCanastaImage(installPath string, dryRun bool) (bool, error) {
+	envPath := filepath.Join(installPath, ".env")
+
+	envVars, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		return false, err
+	}
+	if val, ok := envVars["CANASTA_IMAGE"]; ok && val != "" {
+		return false, nil
+	}
+
+	image := canasta.GetDefaultImage()
+
+	if dryRun {
+		fmt.Printf("  Would set CANASTA_IMAGE=%s in .env\n", image)
+	} else {
+		if err := canasta.SaveEnvVariable(envPath, "CANASTA_IMAGE", image); err != nil {
+			return false, fmt.Errorf("failed to set CANASTA_IMAGE in .env: %w", err)
+		}
+		fmt.Printf("  Set CANASTA_IMAGE=%s in .env\n", image)
 	}
 
 	return true, nil
