@@ -181,8 +181,7 @@ download_and_install() {
 
   check_wget_show_progress
 
-  # Download to a temp file to avoid collisions with directories named "canasta"
-  # (e.g., on case-insensitive filesystems where Canasta/ exists).
+  # Download to a temp file
   tmpfile=$(mktemp "${TMPDIR:-/tmp}/canasta-download.XXXXXX")
   trap 'rm -f "$tmpfile"' EXIT
 
