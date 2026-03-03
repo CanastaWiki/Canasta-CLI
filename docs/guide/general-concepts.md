@@ -105,6 +105,14 @@ The CLI maintains a registry of all installations in a `conf.json` file. The loc
 - **Linux (non-root)**: `~/.config/canasta/conf.json`
 - **macOS**: `~/Library/Application Support/canasta/conf.json`
 
+To override the default location, set the `CANASTA_CONFIG_DIR` environment variable. This takes priority over the platform defaults and is useful when multiple sysops need to share a single installation registry:
+
+```bash
+export CANASTA_CONFIG_DIR=/shared/canasta-config
+```
+
+The directory is created automatically if it does not exist.
+
 Example:
 
 ```json
