@@ -46,7 +46,7 @@ canasta start -i myinstance
 canasta extension list -i myinstance
 ```
 
-The `-i` flag is required for `canasta create` (since the installation directory doesn't exist yet). For all other commands, `-i` is optional if you run the command from within the installation directory.
+The `-i` flag is required for `canasta create` (since the installation directory doesn't exist yet). For all other commands, `-i` is optional if you run the command from within the installation directory or any of its subdirectories (e.g., `config/settings/`).
 
 Installation IDs must start and end with an alphanumeric character and may contain letters, digits, hyphens (`-`), and underscores (`_`).
 
@@ -104,6 +104,14 @@ The CLI maintains a registry of all installations in a `conf.json` file. The loc
 - **Linux (root)**: `/etc/canasta/conf.json`
 - **Linux (non-root)**: `~/.config/canasta/conf.json`
 - **macOS**: `~/Library/Application Support/canasta/conf.json`
+
+To override the default location, set the `CANASTA_CONFIG_DIR` environment variable. This takes priority over the platform defaults and is useful when multiple sysops need to share a single installation registry:
+
+```bash
+export CANASTA_CONFIG_DIR=/shared/canasta-config
+```
+
+The directory is created automatically if it does not exist.
 
 Example:
 
