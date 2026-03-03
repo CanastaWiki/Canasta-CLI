@@ -373,6 +373,15 @@ func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bo
 		changed = true
 	}
 
+	// Step 9: Add Special:Random cache bypass to default.vcl
+	vclChanged, err := addVclSpecialRandomBypass(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if vclChanged {
+		changed = true
+	}
+
 	if !changed {
 		fmt.Println("No config migrations needed.")
 	} else if dryRun {
@@ -658,6 +667,50 @@ func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
 		if err := os.WriteFile(mycnfPath, []byte(newContent), permissions.FilePermission); err != nil {
 			return false, fmt.Errorf("failed to update my.cnf: %w", err)
 		}
+	}
+
+	return true, nil
+}
+
+// addVclSpecialRandomBypass patches default.vcl to bypass Varnish cache for
+// Special:Random. Without this, Varnish caches the redirect and every user
+// gets the same "random" page until the cache TTL expires.
+func addVclSpecialRandomBypass(installPath string, dryRun bool) (bool, error) {
+	vclPath := filepath.Join(installPath, "config", "default.vcl")
+
+	content, err := os.ReadFile(vclPath)
+	if err != nil {
+		return false, nil // File doesn't exist, nothing to patch
+	}
+
+	if strings.Contains(string(content), "Special:Random") {
+		return false, nil // Already has the bypass
+	}
+
+	// Insert the bypass block after the "Pass API" block
+	marker := `if (req.url ~ "/w/api.php") {
+        return(pass);
+    }`
+	bypass := marker + `
+
+    # Bypass cache for Special:Random
+    if (req.url ~ "^/(w/index\.php\?title=|wiki/)Special:Random") {
+        return (pass);
+    }`
+
+	if !strings.Contains(string(content), marker) {
+		// VCL has been customized beyond recognition, skip
+		return false, nil
+	}
+
+	if dryRun {
+		fmt.Println("  Would add Special:Random cache bypass to default.vcl")
+	} else {
+		newContent := strings.Replace(string(content), marker, bypass, 1)
+		if err := os.WriteFile(vclPath, []byte(newContent), permissions.FilePermission); err != nil {
+			return false, fmt.Errorf("failed to update default.vcl: %w", err)
+		}
+		fmt.Println("  Added Special:Random cache bypass to default.vcl")
 	}
 
 	return true, nil
