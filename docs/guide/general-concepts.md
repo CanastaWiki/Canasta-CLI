@@ -46,7 +46,7 @@ canasta start -i myinstance
 canasta extension list -i myinstance
 ```
 
-The `-i` flag is required for `canasta create` (since the installation directory doesn't exist yet). For all other commands, `-i` is optional if you run the command from within the installation directory.
+The `-i` flag is required for `canasta create` (since the installation directory doesn't exist yet). For all other commands, `-i` is optional if you run the command from within the installation directory or any of its subdirectories (e.g., `config/settings/`).
 
 Installation IDs must start and end with an alphanumeric character and may contain letters, digits, hyphens (`-`), and underscores (`_`).
 
