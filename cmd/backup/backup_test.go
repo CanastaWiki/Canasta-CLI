@@ -184,3 +184,76 @@ func TestRestorePreservesDBPasswords(t *testing.T) {
 		t.Errorf("expected MW_SITE_SERVER from backup to be preserved, got:\n%s", content)
 	}
 }
+
+func TestGetRepoURL(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "RESTIC_REPOSITORY is set",
+			env: map[string]string{
+				"RESTIC_REPOSITORY": "rest:http://repo.example/repo",
+				"RESTIC_REPO":       "rest:http://repo.example/other",
+				"AWS_S3_API":        "https://s3.example",
+				"AWS_S3_BUCKET":     "bucket",
+			},
+			want: "rest:http://repo.example/repo",
+		},
+		{
+			name: "RESTIC_REPO is set",
+			env: map[string]string{
+				"RESTIC_REPOSITORY": "",
+				"RESTIC_REPO":   "rest:http://repo.example/repo",
+				"AWS_S3_API":    "https://s3.example",
+				"AWS_S3_BUCKET": "bucket",
+			},
+			want: "rest:http://repo.example/repo",
+		},
+		{
+			name: "AWS S3 settings are set",
+			env: map[string]string{
+				"AWS_S3_API":    "https://s3.example",
+				"AWS_S3_BUCKET": "bucket",
+			},
+			want: "s3:https://s3.example/bucket",
+		},
+		{
+			name: "only AWS_S3_API is set",
+			env: map[string]string{
+				"AWS_S3_API": "https://s3.example",
+			},
+			want: "s3:https://s3.example/",
+		},
+		{
+			name: "only AWS_S3_BUCKET is set",
+			env: map[string]string{
+				"AWS_S3_BUCKET": "bucket",
+			},
+			want: "s3:/bucket",
+		},
+		{
+			name: "all vars empty strings",
+			env: map[string]string{
+				"RESTIC_REPOSITORY": "",
+				"RESTIC_REPO":       "",
+				"AWS_S3_API":        "",
+				"AWS_S3_BUCKET":     "",
+			},
+			want: "s3:/",
+		},
+		{
+			name: "all vars absent",
+			env:  map[string]string{},
+			want: "s3:/",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := getRepoURL(tc.env)
+			if got != tc.want {
+				t.Errorf("getRepoURL() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
