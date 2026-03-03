@@ -1,6 +1,8 @@
 package canasta
 
 import (
+	"bytes"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,8 +228,8 @@ func TestGenerateAndSaveSecretKey_AlreadySet(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 	existingKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-	content := "KEY1=value1\nMW_SECRET_KEY=" + existingKey + "\n"
-	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+	content := []byte("KEY1=value1\nMW_SECRET_KEY=" + existingKey + "\n")
+	if err := os.WriteFile(envPath, content, 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -236,13 +238,13 @@ func TestGenerateAndSaveSecretKey_AlreadySet(t *testing.T) {
 		t.Fatalf("GenerateAndSaveSecretKey() error = %v", err)
 	}
 
-	vars, err := GetEnvVariable(envPath)
+	newContent, err := os.ReadFile(envPath)
 	if err != nil {
-		t.Fatalf("GetEnvVariable() error = %v", err)
+		t.Fatalf("Failed to read .env file: %v", err)
 	}
 
-	if vars["MW_SECRET_KEY"] != existingKey {
-		t.Errorf("expected MW_SECRET_KEY to be unchanged, got %s", vars["MW_SECRET_KEY"])
+	if !bytes.Equal(content, newContent) {
+		t.Errorf("expected .env file to be unmodified. Got:\n%s\nWant:\n%s", newContent, content)
 	}
 }
 
@@ -270,6 +272,18 @@ func TestGenerateAndSaveSecretKey_GeneratesNew(t *testing.T) {
 	}
 	if len(key) != 64 {
 		t.Errorf("expected 64-character MW_SECRET_KEY, got length %d", len(key))
+	}
+	if _, err := hex.DecodeString(key); err != nil {
+		t.Errorf("expected MW_SECRET_KEY to be valid hex, got error: %v", err)
+	}
+}
+
+func TestGenerateAndSaveSecretKey_MissingEnv(t *testing.T) {
+	dir := t.TempDir()
+
+	err := GenerateAndSaveSecretKey(dir)
+	if err == nil {
+		t.Fatal("expected error when .env file does not exist")
 	}
 }
 
