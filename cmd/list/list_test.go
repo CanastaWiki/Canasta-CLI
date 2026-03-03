@@ -13,16 +13,13 @@ import (
 )
 
 func TestList(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "canasta-list-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp config dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	config.ResetForTesting(tmpDir)
+	t.Cleanup(func() { config.ResetForTesting("") })
 
 	installPath := filepath.Join(tmpDir, "canasta-test")
-	err = os.MkdirAll(filepath.Join(installPath, "config"), 0755)
+	err := os.MkdirAll(filepath.Join(installPath, "config"), 0755)
 	if err != nil {
 		t.Fatalf("Failed to create mock config dir: %v", err)
 	}
@@ -86,13 +83,10 @@ func TestList(t *testing.T) {
 }
 
 func TestListCleanup(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "canasta-list-cleanup-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp config dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	config.ResetForTesting(tmpDir)
+	t.Cleanup(func() { config.ResetForTesting("") })
 
 	installPath := filepath.Join(tmpDir, "stale-installation")
 
@@ -109,7 +103,7 @@ func TestListCleanup(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err = List(config.Installation{}, true)
+	err := List(config.Installation{}, true)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -125,8 +119,14 @@ func TestListCleanup(t *testing.T) {
 
 	outputStr := out.String()
 	expectedOutput := "Removed stale entry 'stale-instance' (directory not found)"
+	tableStr := strings.Replace(outputStr, expectedOutput, "", 1)
+
 	if !strings.Contains(outputStr, expectedOutput) {
 		t.Errorf("Expected output to contain '%s', but it did not.\nFull output:\n%s", expectedOutput, outputStr)
+	}
+
+	if strings.Contains(tableStr, "stale-instance") {
+		t.Errorf("Expected stale entry 'stale-instance' to not appear in the listed output table, but it did.\nFull output:\n%s", outputStr)
 	}
 
 	installations, err := config.GetAll()
@@ -139,13 +139,10 @@ func TestListCleanup(t *testing.T) {
 }
 
 func TestListNotFound(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "canasta-list-notfound-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp config dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	config.ResetForTesting(tmpDir)
+	t.Cleanup(func() { config.ResetForTesting("") })
 
 	installPath := filepath.Join(tmpDir, "missing-installation")
 
@@ -162,7 +159,7 @@ func TestListNotFound(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err = List(config.Installation{}, false)
+	err := List(config.Installation{}, false)
 
 	w.Close()
 	os.Stdout = oldStdout
