@@ -249,6 +249,41 @@ func TestBuildFromOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestGetConfigDirEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CANASTA_CONFIG_DIR", dir)
+
+	got, err := GetConfigDir()
+	if err != nil {
+		t.Fatalf("GetConfigDir() error = %v", err)
+	}
+	if got != dir {
+		t.Errorf("GetConfigDir() = %q, want %q", got, dir)
+	}
+}
+
+func TestGetConfigDirEnvCreatesDir(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "custom-canasta")
+	t.Setenv("CANASTA_CONFIG_DIR", target)
+
+	got, err := GetConfigDir()
+	if err != nil {
+		t.Fatalf("GetConfigDir() error = %v", err)
+	}
+	if got != target {
+		t.Errorf("GetConfigDir() = %q, want %q", got, target)
+	}
+
+	fi, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("expected directory to be created: %v", err)
+	}
+	if !fi.IsDir() {
+		t.Error("expected target to be a directory")
+	}
+}
+
 func TestConfFileCreated(t *testing.T) {
 	dir := setupTestDir(t)
 

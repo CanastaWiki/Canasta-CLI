@@ -336,20 +336,26 @@ func read(details *Canasta) error {
 }
 
 func GetConfigDir() (string, error) {
-	base, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("unable to determine config directory: %w", err)
-	}
-	dir := filepath.Join(base, "canasta")
+	var dir string
 
-	// Checks if this is running as root
-	currentUser, err := user.Current()
-	if err != nil {
-		return "", fmt.Errorf("Unable to get the current user: %s", err)
-	}
+	if envDir := os.Getenv("CANASTA_CONFIG_DIR"); envDir != "" {
+		dir = envDir
+	} else {
+		base, err := os.UserConfigDir()
+		if err != nil {
+			return "", fmt.Errorf("unable to determine config directory: %w", err)
+		}
+		dir = filepath.Join(base, "canasta")
 
-	if currentUser.Username == "root" {
-		dir = "/etc/canasta"
+		// Checks if this is running as root
+		currentUser, err := user.Current()
+		if err != nil {
+			return "", fmt.Errorf("Unable to get the current user: %s", err)
+		}
+
+		if currentUser.Username == "root" {
+			dir = "/etc/canasta"
+		}
 	}
 
 	fi, err := os.Stat(dir)
