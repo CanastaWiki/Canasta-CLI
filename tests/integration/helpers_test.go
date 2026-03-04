@@ -156,27 +156,44 @@ func runCanasta(t *testing.T, configDir string, args ...string) (string, error) 
 }
 
 // waitForWiki polls the MediaWiki API until it gets a valid siteinfo response
-// or the timeout expires.
+// or the timeout expires. Uses 127.0.0.1 instead of localhost to avoid IPv6
+// resolution issues (Docker binds to 0.0.0.0, not [::]).
 func waitForWiki(t *testing.T, httpPort string, timeout time.Duration) {
 	t.Helper()
-	url := fmt.Sprintf("http://localhost:%s/w/api.php?action=query&meta=siteinfo&format=json", httpPort)
+	apiURL := fmt.Sprintf("http://127.0.0.1:%s/w/api.php?action=query&meta=siteinfo&format=json", httpPort)
 	deadline := time.Now().Add(timeout)
 
+	var lastErr string
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(url)
-		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				var result map[string]interface{}
-				if json.NewDecoder(resp.Body).Decode(&result) == nil {
-					if _, ok := result["query"]; ok {
-						t.Logf("Wiki is up at port %s", httpPort)
-						return
-					}
-				}
-			}
+		resp, err := http.Get(apiURL)
+		if err != nil {
+			lastErr = fmt.Sprintf("connection error: %v", err)
+			time.Sleep(5 * time.Second)
+			continue
 		}
+		var result map[string]interface{}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&result)
+		resp.Body.Close()
+		if decodeErr != nil {
+			lastErr = fmt.Sprintf("HTTP %d, decode error: %v", resp.StatusCode, decodeErr)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		if _, ok := result["query"]; ok {
+			t.Logf("Wiki is up at port %s", httpPort)
+			return
+		}
+		lastErr = fmt.Sprintf("HTTP %d, no 'query' key in response", resp.StatusCode)
 		time.Sleep(5 * time.Second)
+	}
+
+	// Dump diagnostics before failing
+	t.Logf("waitForWiki timed out (last: %s). Dumping diagnostics:", lastErr)
+	if out, err := exec.Command("docker", "ps", "-a").CombinedOutput(); err == nil {
+		t.Logf("docker ps -a:\n%s", out)
+	}
+	if out, err := exec.Command("docker", "logs", "--tail=50", "caddy").CombinedOutput(); err == nil {
+		t.Logf("caddy logs:\n%s", out)
 	}
 	t.Fatalf("wiki did not become ready at port %s within %v", httpPort, timeout)
 }
