@@ -669,14 +669,12 @@ func GenerateDBPasswords(canastaInfo CanastaVariables) (CanastaVariables, error)
 	// Wiki DB password: flag → auto-generate (per-farm, saved to .env only)
 	if canastaInfo.WikiDBUsername == "root" {
 		canastaInfo.WikiDBPassword = canastaInfo.RootDBPassword
-	} else {
-		if canastaInfo.WikiDBPassword == "" {
-			canastaInfo.WikiDBPassword, err = gen.Generate(30, 4, 6, false, true)
-			if err != nil {
-				return canastaInfo, err
-			}
-			fmt.Printf("Generated wiki database password (will be saved to .env)\n")
+	} else if canastaInfo.WikiDBPassword == "" {
+		canastaInfo.WikiDBPassword, err = gen.Generate(30, 4, 6, false, true)
+		if err != nil {
+			return canastaInfo, err
 		}
+		fmt.Printf("Generated wiki database password (will be saved to .env)\n")
 	}
 
 	return canastaInfo, nil

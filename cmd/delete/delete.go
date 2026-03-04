@@ -101,7 +101,7 @@ func Delete(instance config.Installation) error {
 		return err
 	}
 
-	//Delete config files
+	// Delete config files
 	if _, err := orchestrators.DeleteConfig(instance.Path); err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func Delete(instance config.Installation) error {
 		logging.Print("Removed backup schedule.\n")
 	}
 
-	//Deleting installation details from conf.json
+	// Deleting installation details from conf.json
 	if err = config.Delete(instance.Id); err != nil {
 		return err
 	}

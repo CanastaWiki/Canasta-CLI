@@ -367,14 +367,15 @@ func GetConfigDir() (string, error) {
 	}
 
 	fi, err := os.Stat(dir)
-	if os.IsNotExist(err) {
+	switch {
+	case os.IsNotExist(err):
 		err = os.MkdirAll(dir, 0o755)
 		if err != nil {
 			return "", err
 		}
-	} else if err != nil {
+	case err != nil:
 		return "", fmt.Errorf("error statting %s (%w)", dir, err)
-	} else {
+	default:
 		mode := fi.Mode()
 		if !mode.IsDir() {
 			return "", fmt.Errorf("%s exists but is not a directory", dir)
