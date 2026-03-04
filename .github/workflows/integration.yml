@@ -3,6 +3,7 @@ name: Integration Tests
 on:
   push:
     branches: [main]
+  pull_request: # TODO: remove before merging
   workflow_dispatch:
 
 jobs:
