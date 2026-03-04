@@ -146,6 +146,23 @@ func TestDeleteEnvVariable(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:    "remove key does not match key with same prefix",
+			content: "KEY=value\nKEY1=value1\nKEY2=value2\n",
+			key:     "KEY",
+			wantErr: false,
+			assertMap: func(t *testing.T, vars map[string]string) {
+				if _, exists := vars["KEY"]; exists {
+					t.Errorf("expected KEY to be deleted, but still present")
+				}
+				if vars["KEY1"] != "value1" {
+					t.Errorf("KEY1 = %q, want \"value1\"", vars["KEY1"])
+				}
+				if vars["KEY2"] != "value2" {
+					t.Errorf("KEY2 = %q, want \"value2\"", vars["KEY2"])
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
