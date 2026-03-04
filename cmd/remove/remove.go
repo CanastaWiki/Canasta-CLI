@@ -90,7 +90,7 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 		fmt.Println("These may require manual removal.")
 	}
 
-	//Checking Wiki existence
+	// Checking Wiki existence
 	exists, err := farmsettings.WikiIDExists(instance.Path, wikiID)
 	if err != nil {
 		return err
@@ -111,7 +111,7 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 		}
 	}
 
-	//Remove the wiki
+	// Remove the wiki
 	err = farmsettings.RemoveWiki(wikiID, instance.Path)
 	if err != nil {
 		return err
@@ -125,7 +125,7 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 		}
 	}
 
-	//Remove the Localsettings
+	// Remove the Localsettings
 	err = canasta.RemoveSettings(instance.Path, wikiID)
 	if err != nil {
 		return err
@@ -147,13 +147,13 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 		return err
 	}
 
-	//Rewrite the Caddyfile
+	// Rewrite the Caddyfile
 	err = orch.UpdateConfig(instance.Path)
 	if err != nil {
 		return err
 	}
 
-	//Restart the Canasta Instance
+	// Restart the Canasta Instance
 	err = restart.Restart(instance)
 	if err != nil {
 		return err

@@ -240,7 +240,8 @@ func createCanasta(opts createOptions) error {
 	// Determine the base image to use
 	var baseImage string
 	var localImageBuilt bool
-	if opts.BuildFromPath != "" {
+	switch {
+	case opts.BuildFromPath != "":
 		// Build Canasta (and optionally CanastaBase) from source
 		logging.Print("Building from local source...\n")
 		builtImage, err := imagebuild.BuildFromSource(opts.BuildFromPath)
@@ -249,10 +250,10 @@ func createCanasta(opts createOptions) error {
 		}
 		baseImage = builtImage
 		localImageBuilt = true
-	} else if opts.CanastaImage != "" {
+	case opts.CanastaImage != "":
 		// Use the user-specified image
 		baseImage = opts.CanastaImage
-	} else {
+	default:
 		// Use the default Canasta image
 		baseImage = canasta.GetDefaultImage()
 	}
