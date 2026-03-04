@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -40,11 +41,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to read VERSION file: %v\n", err)
 		os.Exit(1)
 	}
-	imageTag := string(versionBytes)
-	// Trim newline
-	for len(imageTag) > 0 && (imageTag[len(imageTag)-1] == '\n' || imageTag[len(imageTag)-1] == '\r') {
-		imageTag = imageTag[:len(imageTag)-1]
-	}
+	imageTag := strings.TrimSpace(string(versionBytes))
 
 	ldflags := fmt.Sprintf("-X 'github.com/CanastaWiki/Canasta-CLI/internal/canasta.DefaultImageTag=%s'", imageTag)
 	cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", binPath, "../../canasta.go")
@@ -170,7 +167,8 @@ func waitForWiki(t *testing.T, httpPort string, timeout time.Duration) {
 			t.Fatalf("failed to create request: %v", reqErr)
 		}
 		req.Host = "localhost"
-		resp, err := http.DefaultClient.Do(req)
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = fmt.Sprintf("connection error: %v", err)
 			time.Sleep(5 * time.Second)
