@@ -156,8 +156,8 @@ func runCanasta(t *testing.T, configDir string, args ...string) (string, error) 
 }
 
 // waitForWiki polls the MediaWiki API until it gets a valid siteinfo response
-// or the timeout expires. Uses 127.0.0.1 instead of localhost to avoid IPv6
-// resolution issues (Docker binds to 0.0.0.0, not [::]).
+// or the timeout expires. Uses 127.0.0.1 to avoid IPv6 resolution issues, and
+// sets Host: localhost so Caddy matches the request to the wiki site block.
 func waitForWiki(t *testing.T, httpPort string, timeout time.Duration) {
 	t.Helper()
 	apiURL := fmt.Sprintf("http://127.0.0.1:%s/w/api.php?action=query&meta=siteinfo&format=json", httpPort)
@@ -165,7 +165,12 @@ func waitForWiki(t *testing.T, httpPort string, timeout time.Duration) {
 
 	var lastErr string
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(apiURL)
+		req, reqErr := http.NewRequest("GET", apiURL, nil)
+		if reqErr != nil {
+			t.Fatalf("failed to create request: %v", reqErr)
+		}
+		req.Host = "localhost"
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			lastErr = fmt.Sprintf("connection error: %v", err)
 			time.Sleep(5 * time.Second)
