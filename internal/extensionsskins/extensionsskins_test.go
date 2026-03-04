@@ -45,6 +45,31 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
+func TestArticle(t *testing.T) {
+	gotests := []struct {
+		input string
+		want  string
+	}{
+		{"extension", "an"},
+		{"skin", "a"},
+		{"apple", "an"},
+		{"Extension", "an"},
+		{"item", "an"},
+		{"Object", "an"},
+		{"umbrella", "an"},
+		{"Umbrella", "an"},
+		{"wiki", "a"},
+		{"", "a"},
+	}
+
+	for _, tt := range gotests {
+		got := article(tt.input)
+		if got != tt.want {
+			t.Errorf("article(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 // --- YAML config helpers ---
 
 var extConstants = Item{
