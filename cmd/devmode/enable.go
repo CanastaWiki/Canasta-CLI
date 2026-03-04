@@ -23,7 +23,7 @@ the instance with dev mode compose files. Only supported with Docker Compose.`,
 		Example: `  # Enable dev mode on an installation
   canasta devmode enable -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("Enabling development mode on '%s'...\n", instance.Id)
+			fmt.Printf("Enabling development mode on '%s'...\n", instance.ID)
 
 			// Determine the base image: check .env for CANASTA_IMAGE, fall back to default
 			baseImage := canasta.GetDefaultImage()
@@ -41,7 +41,7 @@ the instance with dev mode compose files. Only supported with Docker Compose.`,
 
 			// Update config registry
 			instance.DevMode = true
-			if instance.Id != "" {
+			if instance.ID != "" {
 				if err := config.Update(*instance); err != nil {
 					logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
 				}

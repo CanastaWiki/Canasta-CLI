@@ -37,7 +37,7 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -58,7 +58,7 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 				return err
 			}
 			if !exists {
-				return fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.Id)
+				return fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.ID)
 			}
 
 			// Default output path
@@ -81,7 +81,7 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 	}
 	instance.Path = workingDir
 
-	exportCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	exportCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	exportCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to export")
 	exportCmd.Flags().StringVarP(&outputPath, "file", "f", "", "Output file path (default: <wikiID>.sql)")
 

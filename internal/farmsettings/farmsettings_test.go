@@ -313,7 +313,7 @@ func TestWikiIDExistsNoFile(t *testing.T) {
 	}
 }
 
-func TestWikiUrlExists(t *testing.T) {
+func TestWikiURLExists(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
@@ -326,17 +326,17 @@ func TestWikiUrlExists(t *testing.T) {
 		t.Fatalf("GenerateWikisYaml() error = %v", err)
 	}
 
-	exists, err := WikiUrlExists(dir, "example.com", "wiki")
+	exists, err := WikiURLExists(dir, "example.com", "wiki")
 	if err != nil {
-		t.Fatalf("WikiUrlExists() error = %v", err)
+		t.Fatalf("WikiURLExists() error = %v", err)
 	}
 	if !exists {
 		t.Error("expected URL to exist")
 	}
 
-	exists, err = WikiUrlExists(dir, "other.com", "wiki")
+	exists, err = WikiURLExists(dir, "other.com", "wiki")
 	if err != nil {
-		t.Fatalf("WikiUrlExists() error = %v", err)
+		t.Fatalf("WikiURLExists() error = %v", err)
 	}
 	if exists {
 		t.Error("expected other.com URL to not exist")

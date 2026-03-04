@@ -36,7 +36,7 @@ specific wiki.`,
   canasta maintenance update -i myinstance --skip-jobs --skip-smw`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			*instance, err = canasta.CheckCanastaId(*instance)
+			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {

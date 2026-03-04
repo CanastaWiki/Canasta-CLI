@@ -31,11 +31,11 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 			if len(args) > 0 {
 				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta stop --id %s)", args[0], args[0])
 			}
-			resolvedInstance, err := canasta.CheckCanastaId(instance)
+			resolvedInstance, err := canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
-			fmt.Println("Stopping Canasta installation '" + resolvedInstance.Id + "'...")
+			fmt.Println("Stopping Canasta installation '" + resolvedInstance.ID + "'...")
 			if err = Stop(resolvedInstance); err != nil {
 				return err
 			}
@@ -43,7 +43,7 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 			return nil
 		},
 	}
-	stopCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	stopCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	return stopCmd
 }
 

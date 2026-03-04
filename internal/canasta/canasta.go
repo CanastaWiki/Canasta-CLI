@@ -24,7 +24,7 @@ import (
 )
 
 type CanastaVariables struct {
-	Id             string
+	ID             string
 	AdminPassword  string
 	AdminName      string
 	RootDBPassword string
@@ -207,7 +207,7 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 
 func CopyYaml(yamlPath, installPath string) error {
 	logging.Print(fmt.Sprintf("Copying %s to %s/config/wikis.yaml\n", yamlPath, installPath))
-	err, output := execute.Run("", "cp", yamlPath, filepath.Join(installPath, "config", "wikis.yaml"))
+	output, err := execute.Run("", "cp", yamlPath, filepath.Join(installPath, "config", "wikis.yaml"))
 	if err != nil {
 		return fmt.Errorf("failed to copy wikis.yaml from %s: %s", yamlPath, output)
 	}
@@ -259,9 +259,9 @@ func CopySettings(installPath string) error {
 }
 
 func CopySetting(installPath, id string) error {
-	normalizedId := NormalizeWikiID(id)
+	normalizedID := NormalizeWikiID(id)
 
-	dirPath := filepath.Join(installPath, "config", "settings", "wikis", normalizedId)
+	dirPath := filepath.Join(installPath, "config", "settings", "wikis", normalizedID)
 
 	// Create the directory if it doesn't exist
 	if err := os.MkdirAll(dirPath, permissions.DirectoryPermission); err != nil {
@@ -300,7 +300,7 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 	// Copy the provided file as Settings.php
 	destPath := filepath.Join(dirPath, "Settings.php")
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", settingsFilePath, destPath))
-	err, output := execute.Run("", "cp", settingsFilePath, destPath)
+	output, err := execute.Run("", "cp", settingsFilePath, destPath)
 	if err != nil {
 		return fmt.Errorf("failed to copy wiki settings file to %s: %s", destPath, output)
 	}
@@ -328,7 +328,7 @@ func CopyGlobalSettingFile(installPath, settingsFilePath, workingDir string) err
 	// Copy the provided file preserving its name
 	destPath := filepath.Join(dirPath, filename)
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", settingsFilePath, destPath))
-	err, output := execute.Run("", "cp", settingsFilePath, destPath)
+	output, err := execute.Run("", "cp", settingsFilePath, destPath)
 	if err != nil {
 		return fmt.Errorf("failed to copy global settings file to %s: %s", destPath, output)
 	}
@@ -614,7 +614,7 @@ func CopyComposerFile(installPath, sourceFilename, workingDir string) error {
 	}
 	destPath := filepath.Join(installPath, "config", "composer.local.json")
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, destPath))
-	err, output := execute.Run("", "cp", sourceFilename, destPath)
+	output, err := execute.Run("", "cp", sourceFilename, destPath)
 	if err != nil {
 		return fmt.Errorf("failed to copy composer file from %s: %s", sourceFilename, output)
 	}
@@ -805,17 +805,17 @@ func GetEnvVariable(envPath string) (map[string]string, error) {
 }
 
 // Checking Installation existence
-func CheckCanastaId(instance config.Installation) (config.Installation, error) {
+func CheckCanastaID(instance config.Installation) (config.Installation, error) {
 	var err error
-	if instance.Id != "" {
-		if instance, err = config.GetDetails(instance.Id); err != nil {
+	if instance.ID != "" {
+		if instance, err = config.GetDetails(instance.ID); err != nil {
 			return instance, err
 		}
 	} else {
-		if instance.Id, err = config.GetCanastaID(instance.Path); err != nil {
+		if instance.ID, err = config.GetCanastaID(instance.Path); err != nil {
 			return instance, err
 		}
-		if instance, err = config.GetDetails(instance.Id); err != nil {
+		if instance, err = config.GetDetails(instance.ID); err != nil {
 			return instance, err
 		}
 	}
@@ -826,7 +826,7 @@ func CheckCanastaId(instance config.Installation) (config.Installation, error) {
 func removeWikiDir(installPath, subdir, id string) error {
 	dirPath := filepath.Join(installPath, subdir, id)
 	if _, err := os.Stat(dirPath); err == nil {
-		err, output := execute.Run("", "rm", "-rf", dirPath)
+		output, err := execute.Run("", "rm", "-rf", dirPath)
 		if err != nil {
 			return fmt.Errorf("failed to remove %s for wiki %q: %s", subdir, id, output)
 		}

@@ -81,7 +81,7 @@ To change the domain, first edit config/wikis.yaml, then use
 "canasta config set" to update MW_SITE_SERVER and MW_SITE_FQDN.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -90,7 +90,7 @@ To change the domain, first edit config/wikis.yaml, then use
 		},
 	}
 
-	configCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	configCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 
 	configCmd.AddCommand(newGetCmd(&instance))
 	configCmd.AddCommand(newSetCmd(&instance, &orch))

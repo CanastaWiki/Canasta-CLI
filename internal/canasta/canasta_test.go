@@ -196,7 +196,7 @@ func TestDeleteEnvVariable(t *testing.T) {
 
 func TestGenerateAdminAndDBPasswords(t *testing.T) {
 	info := CanastaVariables{
-		Id:        "test",
+		ID:        "test",
 		AdminName: "admin",
 	}
 
@@ -256,7 +256,7 @@ func TestGenerateAdminAndDBPasswords(t *testing.T) {
 
 func TestGeneratePasswordsPreserveExisting(t *testing.T) {
 	info := CanastaVariables{
-		Id:             "test",
+		ID:             "test",
 		AdminName:      "admin",
 		AdminPassword:  "myadminpass",
 		RootDBPassword: "myrootpass",

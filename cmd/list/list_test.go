@@ -34,7 +34,7 @@ func TestList(t *testing.T) {
 	}
 
 	installation := config.Installation{
-		Id:           "test-instance",
+		ID:           "test-instance",
 		Path:         installPath,
 		Orchestrator: "compose",
 	}
@@ -91,7 +91,7 @@ func TestListCleanup(t *testing.T) {
 	installPath := filepath.Join(tmpDir, "stale-installation")
 
 	installation := config.Installation{
-		Id:           "stale-instance",
+		ID:           "stale-instance",
 		Path:         installPath,
 		Orchestrator: "compose",
 	}
@@ -147,7 +147,7 @@ func TestListNotFound(t *testing.T) {
 	installPath := filepath.Join(tmpDir, "missing-installation")
 
 	installation := config.Installation{
-		Id:           "missing-instance",
+		ID:           "missing-instance",
 		Path:         installPath,
 		Orchestrator: "compose",
 	}

@@ -33,7 +33,7 @@ func ValidateWikiID(wikiID string) error {
 
 	// Check if wikiID contains a hyphen (-)
 	if strings.Contains(wikiID, "-") {
-		return fmt.Errorf("The character '-' is not allowed in wikiID")
+		return fmt.Errorf("the character '-' is not allowed in wikiID")
 	}
 
 	// Check if wikiID is one of the reserved names
@@ -165,8 +165,8 @@ func WikiIDExists(installPath, wikiID string) (bool, error) {
 	return false, nil
 }
 
-// WikiUrlExists checks if a wiki with the given URL (domain/path combo) exists in the installation
-func WikiUrlExists(installPath, domain, wikiPath string) (bool, error) {
+// WikiURLExists checks if a wiki with the given URL (domain/path combo) exists in the installation
+func WikiURLExists(installPath, domain, wikiPath string) (bool, error) {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 
@@ -183,9 +183,9 @@ func WikiUrlExists(installPath, domain, wikiPath string) (bool, error) {
 	}
 
 	// Check if a wiki with the given URL exists
-	targetUrl := domain + "/" + wikiPath
+	targetURL := domain + "/" + wikiPath
 	for i := range serverNames {
-		if serverNames[i]+paths[i] == targetUrl {
+		if serverNames[i]+paths[i] == targetURL {
 			return true, nil
 		}
 	}

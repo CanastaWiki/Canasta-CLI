@@ -38,7 +38,7 @@ The default service is "web" (the MediaWiki container).`,
   canasta maintenance exec -i myinstance -- php -v`,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			*instance, err = canasta.CheckCanastaId(*instance)
+			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {

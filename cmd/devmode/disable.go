@@ -22,7 +22,7 @@ re-extracting code.`,
 		Example: `  # Disable dev mode on an installation
   canasta devmode disable -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("Disabling development mode on '%s'...\n", instance.Id)
+			fmt.Printf("Disabling development mode on '%s'...\n", instance.ID)
 
 			// Disable dev mode (restore symlinks to real directories)
 			if err := devmodePkg.DisableDevMode(instance.Path); err != nil {
@@ -31,7 +31,7 @@ re-extracting code.`,
 
 			// Update config registry
 			instance.DevMode = false
-			if instance.Id != "" {
+			if instance.ID != "" {
 				if err := config.Update(*instance); err != nil {
 					logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
 				}

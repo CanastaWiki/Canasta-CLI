@@ -27,13 +27,13 @@ func BuildFromSource(workspacePath string) (string, error) {
 
 	// Verify Canasta repo exists (required)
 	if _, err := os.Stat(canastaPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("Canasta/ directory not found in %s", workspacePath)
+		return "", fmt.Errorf("canasta/ directory not found in %s", workspacePath)
 	}
 
 	// Check if Canasta has a Dockerfile
 	canastaDockerfile := filepath.Join(canastaPath, "Dockerfile")
 	if _, err := os.Stat(canastaDockerfile); os.IsNotExist(err) {
-		return "", fmt.Errorf("Dockerfile not found in Canasta repo at %s", canastaDockerfile)
+		return "", fmt.Errorf("dockerfile not found in Canasta repo at %s", canastaDockerfile)
 	}
 
 	baseImage := "ghcr.io/canastawiki/canasta-base:latest"
@@ -68,13 +68,13 @@ func BuildFromSource(workspacePath string) (string, error) {
 func PushImage(localTag, registry string) (string, error) {
 	remoteTag := registry + "/" + localTag
 	logging.Print(fmt.Sprintf("Tagging %s as %s\n", localTag, remoteTag))
-	err, output := execute.Run("", "docker", "tag", localTag, remoteTag)
+	output, err := execute.Run("", "docker", "tag", localTag, remoteTag)
 	if err != nil {
 		return "", fmt.Errorf("failed to tag image: %s", output)
 	}
 
 	logging.Print(fmt.Sprintf("Pushing %s\n", remoteTag))
-	err, output = execute.Run("", "docker", "push", remoteTag)
+	output, err = execute.Run("", "docker", "push", remoteTag)
 	if err != nil {
 		return "", fmt.Errorf("failed to push image: %s", output)
 	}
@@ -84,7 +84,7 @@ func PushImage(localTag, registry string) (string, error) {
 
 // buildImage builds a Docker image from a Dockerfile in the given path
 func buildImage(path, tag string) error {
-	err, output := execute.Run(path, "docker", "build", "-t", tag, ".")
+	output, err := execute.Run(path, "docker", "build", "-t", tag, ".")
 	if err != nil {
 		return fmt.Errorf("failed to build Docker image %q: %s", tag, output)
 	}
@@ -94,7 +94,7 @@ func buildImage(path, tag string) error {
 // buildCanastaImage builds the Canasta image with a specified base image
 // The Canasta Dockerfile must support a BASE_IMAGE build arg
 func buildCanastaImage(path, baseImage, tag string) error {
-	err, output := execute.Run(path, "docker", "build",
+	output, err := execute.Run(path, "docker", "build",
 		"--build-arg", fmt.Sprintf("BASE_IMAGE=%s", baseImage),
 		"-t", tag, ".")
 	if err != nil {

@@ -18,7 +18,7 @@ func TestAddAndGetDetails(t *testing.T) {
 	setupTestDir(t)
 
 	inst := Installation{
-		Id:           "test1",
+		ID:           "test1",
 		Path:         "/tmp/test1",
 		Orchestrator: "compose",
 	}
@@ -31,7 +31,7 @@ func TestAddAndGetDetails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDetails() error = %v", err)
 	}
-	if got.Id != "test1" || got.Path != "/tmp/test1" || got.Orchestrator != "compose" {
+	if got.ID != "test1" || got.Path != "/tmp/test1" || got.Orchestrator != "compose" {
 		t.Errorf("GetDetails() = %+v, want %+v", got, inst)
 	}
 }
@@ -39,7 +39,7 @@ func TestAddAndGetDetails(t *testing.T) {
 func TestExists(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{Id: "exists1", Path: "/tmp/exists1", Orchestrator: "compose"}
+	inst := Installation{ID: "exists1", Path: "/tmp/exists1", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -64,7 +64,7 @@ func TestExists(t *testing.T) {
 func TestDelete(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{Id: "del1", Path: "/tmp/del1", Orchestrator: "compose"}
+	inst := Installation{ID: "del1", Path: "/tmp/del1", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -85,7 +85,7 @@ func TestDelete(t *testing.T) {
 func TestUpdate(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{Id: "upd1", Path: "/tmp/upd1", Orchestrator: "compose"}
+	inst := Installation{ID: "upd1", Path: "/tmp/upd1", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -107,7 +107,7 @@ func TestUpdate(t *testing.T) {
 func TestDuplicateAdd(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{Id: "dup1", Path: "/tmp/dup1", Orchestrator: "compose"}
+	inst := Installation{ID: "dup1", Path: "/tmp/dup1", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -130,8 +130,8 @@ func TestDeleteNonexistent(t *testing.T) {
 func TestGetAll(t *testing.T) {
 	setupTestDir(t)
 
-	inst1 := Installation{Id: "all1", Path: "/tmp/all1", Orchestrator: "compose"}
-	inst2 := Installation{Id: "all2", Path: "/tmp/all2", Orchestrator: "compose"}
+	inst1 := Installation{ID: "all1", Path: "/tmp/all1", Orchestrator: "compose"}
+	inst2 := Installation{ID: "all2", Path: "/tmp/all2", Orchestrator: "compose"}
 	if err := Add(inst1); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -151,7 +151,7 @@ func TestGetAll(t *testing.T) {
 func TestGetCanastaID(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{Id: "pathtest", Path: "/tmp/pathtest", Orchestrator: "compose"}
+	inst := Installation{ID: "pathtest", Path: "/tmp/pathtest", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -173,7 +173,7 @@ func TestGetCanastaID(t *testing.T) {
 func TestGetCanastaIDFromSubdirectory(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{Id: "subdir-test", Path: "/srv/canasta/my-wiki", Orchestrator: "compose"}
+	inst := Installation{ID: "subdir-test", Path: "/srv/canasta/my-wiki", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -220,7 +220,7 @@ func TestAddOrchestratorSupported(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			setupTestDir(t)
-			err := AddOrchestrator(Orchestrator{Id: tt.id, Path: "/usr/bin/test"})
+			err := AddOrchestrator(Orchestrator{ID: tt.id, Path: "/usr/bin/test"})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AddOrchestrator(%q) error = %v, wantErr %v", tt.id, err, tt.wantErr)
 			}
@@ -235,7 +235,7 @@ func TestBuildFromRoundTrip(t *testing.T) {
 	dir := setupTestDir(t)
 
 	inst := Installation{
-		Id:           "bf1",
+		ID:           "bf1",
 		Path:         "/tmp/bf1",
 		Orchestrator: "compose",
 		BuildFrom:    "/home/user/workspace",
@@ -266,7 +266,7 @@ func TestBuildFromOmittedWhenEmpty(t *testing.T) {
 	dir := setupTestDir(t)
 
 	inst := Installation{
-		Id:           "nobf1",
+		ID:           "nobf1",
 		Path:         "/tmp/nobf1",
 		Orchestrator: "compose",
 	}

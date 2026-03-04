@@ -37,7 +37,7 @@ to list all available %s, and enable or disable them globally or for
 a specific wiki in a farm.`, constants.Plural, constants.Plural),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -46,7 +46,7 @@ a specific wiki in a farm.`, constants.Plural, constants.Plural),
 		},
 	}
 
-	cmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	cmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	cmd.PersistentFlags().StringVarP(&wiki, "wiki", "w", "", "ID of the specific wiki within the Canasta farm")
 
 	cmd.AddCommand(newListCmd(&instance, &orch, &wiki, &constants))
