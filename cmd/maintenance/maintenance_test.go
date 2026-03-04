@@ -69,6 +69,7 @@ func TestScriptAcceptsZeroArgs(t *testing.T) {
 	scriptCmd := findSubcommand(cmd, "script")
 	if scriptCmd == nil {
 		t.Fatal("script subcommand not found")
+		return
 	}
 
 	// script accepts 0 args (lists scripts) or 1 arg (runs a script)
