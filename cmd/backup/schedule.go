@@ -50,9 +50,9 @@ installation directory.`,
 
 func newScheduleListCmd(instance *config.Installation) *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "Show the backup schedule",
-		Long:  `Show the current backup schedule for this installation, if one exists.`,
+		Use:     "list",
+		Short:   "Show the backup schedule",
+		Long:    `Show the current backup schedule for this installation, if one exists.`,
 		Example: `  canasta backup schedule list -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return listSchedule(*instance)
@@ -62,9 +62,9 @@ func newScheduleListCmd(instance *config.Installation) *cobra.Command {
 
 func newScheduleRemoveCmd(instance *config.Installation) *cobra.Command {
 	return &cobra.Command{
-		Use:   "remove",
-		Short: "Remove a scheduled backup",
-		Long:  `Remove the crontab entry for recurring backups of this installation.`,
+		Use:     "remove",
+		Short:   "Remove a scheduled backup",
+		Long:    `Remove the crontab entry for recurring backups of this installation.`,
 		Example: `  canasta backup schedule remove -i myinstance`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return unscheduleBackup(*instance)

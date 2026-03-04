@@ -9,33 +9,33 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/imagebuild"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 	"github.com/CanastaWiki/Canasta-CLI/internal/system"
 )
 
 func NewCmd() *cobra.Command {
 	var (
-		path          string
-		orchestrator  string
-		workingDir    string
-		wikiID        string
-		siteName      string
-		domain        string
-		yamlPath      string
-		err           error
-		keepConfig    bool
-		canastaInfo   canasta.CanastaVariables
-		override      string
-		envFile       string
-		canastaImage  string // custom Canasta image reference
-		buildFromPath string // path to build Canasta from source
+		path               string
+		orchestrator       string
+		workingDir         string
+		wikiID             string
+		siteName           string
+		domain             string
+		yamlPath           string
+		err                error
+		keepConfig         bool
+		canastaInfo        canasta.CanastaVariables
+		override           string
+		envFile            string
+		canastaImage       string // custom Canasta image reference
+		buildFromPath      string // path to build Canasta from source
 		databasePath       string // path to existing database dump
 		wikiSettingsPath   string // path to existing per-wiki Settings.php
 		globalSettingsPath string // path to existing global settings file

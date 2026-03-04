@@ -96,7 +96,7 @@ func Delete(instance config.Installation) error {
 		}
 	}
 
-	//Stopping and deleting Contianers and it's volumes
+	// Stopping and deleting Containers and their volumes
 	if _, err := orch.Destroy(instance.Path); err != nil {
 		return err
 	}

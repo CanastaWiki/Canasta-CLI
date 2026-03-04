@@ -104,7 +104,7 @@ func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, 
 	// - per-wiki public assets from public_assets/{wikiID}/
 	logging.Print("Copying per-wiki files from backup volume...")
 	paths := map[string]string{
-		"/currentsnapshot/config/backup": filepath.Join(instance.Path, "config", "backup"),
+		"/currentsnapshot/config/backup":                                 filepath.Join(instance.Path, "config", "backup"),
 		fmt.Sprintf("/currentsnapshot/config/settings/wikis/%s", wikiID): filepath.Join(instance.Path, "config", "settings", "wikis", wikiID),
 		fmt.Sprintf("/currentsnapshot/images/%s", wikiID):                filepath.Join(instance.Path, "images", wikiID),
 		fmt.Sprintf("/currentsnapshot/public_assets/%s", wikiID):         filepath.Join(instance.Path, "public_assets", wikiID),

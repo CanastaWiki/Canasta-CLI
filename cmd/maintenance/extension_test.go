@@ -18,8 +18,8 @@ type extMockOrchestrator struct {
 	streamingErr   error
 }
 
-func (m *extMockOrchestrator) CheckDependencies() error                              { return nil }
-func (m *extMockOrchestrator) WriteStackFiles(installPath string) error               { return nil }
+func (m *extMockOrchestrator) CheckDependencies() error                 { return nil }
+func (m *extMockOrchestrator) WriteStackFiles(installPath string) error { return nil }
 func (m *extMockOrchestrator) UpdateStackFiles(installPath string, dryRun bool) (bool, error) {
 	return false, nil
 }
@@ -83,9 +83,9 @@ func (m *extMockOrchestrator) ListServices(inst config.Installation) ([]string, 
 func (m *extMockOrchestrator) ExecInteractive(inst config.Installation, service string, command []string) error {
 	return nil
 }
-func (m *extMockOrchestrator) Name() string              { return "Mock" }
-func (m *extMockOrchestrator) SupportsDevMode() bool     { return true }
-func (m *extMockOrchestrator) SupportsImagePull() bool   { return true }
+func (m *extMockOrchestrator) Name() string            { return "Mock" }
+func (m *extMockOrchestrator) SupportsDevMode() bool   { return true }
+func (m *extMockOrchestrator) SupportsImagePull() bool { return true }
 func (m *extMockOrchestrator) StopAndStart(inst config.Installation) error {
 	return nil
 }
@@ -256,7 +256,7 @@ func TestListExtensionScriptsNotFound(t *testing.T) {
 func TestRunExtensionScript(t *testing.T) {
 	mock := &extMockOrchestrator{
 		execOutputs: map[string]string{
-			"eval.php":                              "SemanticMediaWiki\n",
+			"eval.php":                             "SemanticMediaWiki\n",
 			"test -d extensions/SemanticMediaWiki": "exists",
 		},
 	}
@@ -277,7 +277,7 @@ func TestRunExtensionScript(t *testing.T) {
 func TestRunExtensionScriptWithWiki(t *testing.T) {
 	mock := &extMockOrchestrator{
 		execOutputs: map[string]string{
-			"eval.php":                          "CirrusSearch\n",
+			"eval.php":                        "CirrusSearch\n",
 			"test -d extensions/CirrusSearch": "exists",
 		},
 	}
@@ -295,7 +295,7 @@ func TestRunExtensionScriptWithWiki(t *testing.T) {
 func TestRunExtensionScriptWithArgs(t *testing.T) {
 	mock := &extMockOrchestrator{
 		execOutputs: map[string]string{
-			"eval.php":                              "SemanticMediaWiki\n",
+			"eval.php":                             "SemanticMediaWiki\n",
 			"test -d extensions/SemanticMediaWiki": "exists",
 		},
 	}
@@ -345,7 +345,7 @@ func TestRunExtensionScriptNotFound(t *testing.T) {
 func TestRunExtensionScriptStreamingError(t *testing.T) {
 	mock := &extMockOrchestrator{
 		execOutputs: map[string]string{
-			"eval.php":                              "SemanticMediaWiki\n",
+			"eval.php":                             "SemanticMediaWiki\n",
 			"test -d extensions/SemanticMediaWiki": "exists",
 		},
 		streamingErr: fmt.Errorf("container error"),
@@ -364,7 +364,7 @@ func TestRunExtensionScriptCanastaExtensions(t *testing.T) {
 	// Extension found in canasta-extensions, not extensions
 	mock := &extMockOrchestrator{
 		execOutputs: map[string]string{
-			"eval.php":                          "Foo\n",
+			"eval.php":                       "Foo\n",
 			"test -d canasta-extensions/Foo": "exists",
 		},
 	}
@@ -462,7 +462,7 @@ func TestResolveWikiFlagScriptWithArgsAndWiki(t *testing.T) {
 func TestRunExtensionScriptWikiInScriptString(t *testing.T) {
 	mock := &extMockOrchestrator{
 		execOutputs: map[string]string{
-			"eval.php":                              "SemanticMediaWiki\n",
+			"eval.php":                             "SemanticMediaWiki\n",
 			"test -d extensions/SemanticMediaWiki": "exists",
 		},
 	}

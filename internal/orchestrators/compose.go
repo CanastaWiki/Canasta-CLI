@@ -10,11 +10,11 @@ import (
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators/compose"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 const (
@@ -26,9 +26,9 @@ const (
 // ComposeOrchestrator implements Orchestrator using Docker Compose.
 type ComposeOrchestrator struct{}
 
-func (c *ComposeOrchestrator) Name() string              { return "Docker Compose" }
-func (c *ComposeOrchestrator) SupportsDevMode() bool     { return true }
-func (c *ComposeOrchestrator) SupportsImagePull() bool   { return true }
+func (c *ComposeOrchestrator) Name() string            { return "Docker Compose" }
+func (c *ComposeOrchestrator) SupportsDevMode() bool   { return true }
+func (c *ComposeOrchestrator) SupportsImagePull() bool { return true }
 
 // getCompose returns the configured compose orchestrator path.
 func (c *ComposeOrchestrator) getCompose() (config.Orchestrator, error) {

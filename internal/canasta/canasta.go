@@ -12,14 +12,15 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/sethvargo/go-password/password"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
-	"github.com/sethvargo/go-password/password"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type CanastaVariables struct {
@@ -48,7 +49,6 @@ func GetDefaultImage() string {
 	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, DefaultImageTag)
 }
 
-
 // installationTemplate contains the shared installation directory structure.
 // These files are common to all orchestrators (Docker Compose, Kubernetes, etc.)
 // and are copied to the installation directory during create.
@@ -59,12 +59,12 @@ var installationTemplate embed.FS
 // userEditablePaths lists template files that users may customize.
 // These are only written during create (no-clobber) and never overwritten during upgrade.
 var userEditablePaths = map[string]bool{
-	".env":                                       true,
-	"my.cnf":                                     true,
-	"config/default.vcl":                         true,
-	"config/Caddyfile.site":                      true,
-	"config/Caddyfile.global":                    true,
-	"config/settings/global/Vector.php":          true,
+	".env":                              true,
+	"my.cnf":                            true,
+	"config/default.vcl":                true,
+	"config/Caddyfile.site":             true,
+	"config/Caddyfile.global":           true,
+	"config/settings/global/Vector.php": true,
 	"config/settings/global/CanastaFooterIcon.php": true,
 }
 
@@ -204,7 +204,6 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 
 	return nil
 }
-
 
 func CopyYaml(yamlPath, installPath string) error {
 	logging.Print(fmt.Sprintf("Copying %s to %s/config/wikis.yaml\n", yamlPath, installPath))
@@ -726,7 +725,6 @@ func SavePasswordToFile(directory, filename, password string) error {
 	_, err = file.WriteString(password)
 	return err
 }
-
 
 // DeleteEnvVariable removes a key from the .env file.
 // Returns an error if the key is not found.
