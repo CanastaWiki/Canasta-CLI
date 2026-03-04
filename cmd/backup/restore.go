@@ -122,7 +122,7 @@ func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, 
 
 	// Import the database
 	logging.Print(fmt.Sprintf("Restoring database for wiki '%s'...", wikiID))
-	command := fmt.Sprintf("mysql -h db -u root -p%s < %s",
+	command := fmt.Sprintf("mariadb -h db -u root -p%s < %s",
 		orchestrators.ShellQuote(env["MYSQL_PASSWORD"]), dumpPath(wikiID))
 	_, restoreErr := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, command)
 	if restoreErr != nil {
@@ -169,7 +169,7 @@ func restoreFull(orch orchestrators.Orchestrator, instance config.Installation, 
 	}
 	for _, id := range wikiIDs {
 		logging.Print(fmt.Sprintf("Restoring database for wiki '%s'...", id))
-		command := fmt.Sprintf("mysql -h db -u root -p%s < %s",
+		command := fmt.Sprintf("mariadb -h db -u root -p%s < %s",
 			orchestrators.ShellQuote(env["MYSQL_PASSWORD"]), dumpPath(id))
 		_, restoreErr := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, command)
 		if restoreErr != nil {

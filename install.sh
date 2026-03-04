@@ -177,8 +177,13 @@ download_and_install() {
   local canasta_url=""
   local platform=""
   local binary_name=""
+  local tmpfile=""
 
   check_wget_show_progress
+
+  # Download to a temp file
+  tmpfile=$(mktemp "${TMPDIR:-/tmp}/canasta-download.XXXXXX")
+  trap 'rm -f "$tmpfile"' EXIT
 
   # Detect platform
   platform=$(detect_platform)
@@ -193,7 +198,7 @@ download_and_install() {
   fi
 
   echo "Downloading Canasta CLI version $VERSION for $platform..."
-  if ! sudo wget -q $WGET_SHOW_PROGRESS "$canasta_url" -O canasta; then
+  if ! sudo wget -q $WGET_SHOW_PROGRESS "$canasta_url" -O "$tmpfile"; then
     echo "Platform-specific binary not found. Trying generic binary (backward compatibility)..."
 
     # Fall back to generic binary name for older releases
@@ -203,29 +208,19 @@ download_and_install() {
       canasta_url="https://github.com/CanastaWiki/Canasta-CLI/releases/download/v${VERSION}/canasta"
     fi
 
-    if ! sudo wget -q $WGET_SHOW_PROGRESS "$canasta_url" -O canasta; then
+    if ! sudo wget -q $WGET_SHOW_PROGRESS "$canasta_url" -O "$tmpfile"; then
       echo "Download failed. The version you specified might not exist."
       echo "Please use '-l' or '--list' flag to see the available versions or try again."
-      rm -f canasta   # Delete the 0-byte canasta file
       exit 1
     fi
   fi
   echo "Download was successful; now installing Canasta CLI."
-  sudo chmod u=rwx,g=xr,o=x canasta
-  sudo mv canasta "$TARGET"
-  if [ $? -ne 0 ]; then
+  sudo chmod u=rwx,g=xr,o=x "$tmpfile"
+  if ! sudo mv "$tmpfile" "$TARGET"; then
     echo "Installation failed. Please try again."
-
-    while true; do
-      read -rp "Do you want to keep the downloaded file? (y/n): " yn
-      case $yn in
-        [Yy]* ) break;;
-        [Nn]* ) rm -f canasta; echo "Downloaded file deleted."; break;;
-        * ) echo "Please answer yes or no.";;
-      esac
-    done
     exit 1
   fi
+  trap - EXIT
   echo "Canasta CLI was successfully installed."
 }
 

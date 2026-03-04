@@ -64,6 +64,9 @@ var knownKeys = map[string]bool{
 	"CANASTA_ENABLE_ELASTICSEARCH":  true,
 	"CANASTA_ENABLE_OBSERVABILITY":  true,
 	"CANASTA_ENABLE_WIKI_DIRECTORY": true,
+	// MediaWiki site
+	"MW_SITE_SERVER": true,
+	"MW_SITE_FQDN":   true,
 	// Caddy / TLS
 	"CADDY_AUTO_HTTPS": true,
 	// Docker Image

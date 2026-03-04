@@ -36,11 +36,12 @@ const (
 	DefaultImageRegistry = "ghcr.io/canastawiki"
 	// DefaultImageName is the name of the Canasta image
 	DefaultImageName = "canasta"
-	// DefaultImageTag is the default tag to use for the Canasta image.
-	// This should match the current stable Canasta release. Update it
-	// when cutting a new CLI release to pair with a new Canasta version.
-	DefaultImageTag = "3.2.1"
 )
+
+// DefaultImageTag is the default tag to use for the Canasta image.
+// It is set via ldflags at build time from the VERSION file.
+// The "latest" fallback is used for dev builds (when ldflags aren't applied).
+var DefaultImageTag = "latest"
 
 // GetDefaultImage returns the full default Canasta image reference
 func GetDefaultImage() string {
@@ -77,7 +78,7 @@ func CopyInstallationTemplate(destPath string) error {
 }
 
 // UpdateInstallationTemplate re-applies the embedded template during upgrade.
-// User-editable files are only created if missing (no-clobber).
+// User-editable files are skipped entirely (they may have been intentionally deleted).
 // CLI-managed files (READMEs, etc.) are always updated to match the current CLI version.
 func UpdateInstallationTemplate(destPath string) error {
 	logging.Print("Updating installation template files\n")
@@ -85,8 +86,8 @@ func UpdateInstallationTemplate(destPath string) error {
 }
 
 // copyTemplate walks the embedded installation template and copies files to destPath.
-// If upgrading is true, CLI-managed files are force-updated while user-editable files
-// use no-clobber. If upgrading is false, all files use no-clobber.
+// If upgrading is true, CLI-managed files are force-updated and user-editable files
+// are skipped. If upgrading is false (create), all files use no-clobber.
 func copyTemplate(destPath string, upgrading bool) error {
 	return fs.WalkDir(installationTemplate, "installation-template", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -116,8 +117,14 @@ func copyTemplate(destPath string, upgrading bool) error {
 			return nil
 		}
 
-		// No-clobber for user-editable files (always) and all files (during create)
-		if !upgrading || userEditablePaths[relPath] {
+		// During upgrade, skip user-editable files entirely — they are only
+		// created during "canasta create". This avoids recreating files that
+		// the user intentionally deleted.
+		if upgrading && userEditablePaths[relPath] {
+			return nil
+		}
+		// During create, all files use no-clobber (skip if exists)
+		if !upgrading {
 			if _, err := os.Stat(targetPath); err == nil {
 				return nil
 			}

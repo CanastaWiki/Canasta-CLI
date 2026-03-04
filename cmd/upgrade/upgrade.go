@@ -204,9 +204,30 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
+	// MySQL 8.0 → MariaDB migration: detect now (read-only file check),
+	// but dump after containers are stopped so the data volume isn't locked.
+	var mysqlMigrationNeeded bool
+	if instance.Orchestrator == "compose" {
+		mysqlMigrationNeeded, err = detectMySQL8Data(instance.Path)
+		if err != nil {
+			return err
+		}
+		if mysqlMigrationNeeded {
+			fmt.Println("  Detected MySQL 8.0 data — migration to MariaDB required")
+			if dryRun {
+				fmt.Println("  Would dump MySQL 8.0 databases and re-import into MariaDB")
+			}
+		}
+	} else if !dryRun {
+		// Kubernetes: automatic migration is not supported. Warn the user
+		// so they can manually dump and restore if they were on MySQL 8.0.
+		fmt.Println("  Note: If this installation was using MySQL 8.0, the database must be")
+		fmt.Println("  manually migrated to MariaDB. See https://canasta.wiki/setup/ for details.")
+	}
+
 	if dryRun {
 		fmt.Println()
-		if stackChanged || migrationsNeeded {
+		if stackChanged || migrationsNeeded || mysqlMigrationNeeded {
 			fmt.Println("Run 'canasta upgrade' to apply these changes.")
 		} else {
 			fmt.Println("Installation is up to date. No upgrade needed.")
@@ -215,14 +236,46 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Only restart if something changed
-	if stackChanged || migrationsNeeded || imagesUpdated {
+	if stackChanged || migrationsNeeded || imagesUpdated || mysqlMigrationNeeded {
 		// Restart the containers
 		fmt.Println("Restarting containers...")
 		if err = orch.Stop(instance); err != nil {
 			return err
 		}
+
+		// Now that containers are stopped, dump MySQL 8.0 data if needed
+		var mysqlDumpPath string
+		if mysqlMigrationNeeded {
+			mysqlDumpPath, err = dumpMySQL8Data(instance.Path)
+			if err != nil {
+				return err
+			}
+		}
+
+		// If we dumped MySQL 8.0 data, clear the volume before MariaDB starts
+		if mysqlDumpPath != "" {
+			if err = clearMySQLDataVolume(instance.Path); err != nil {
+				fmt.Printf("  Dump file preserved at %s for manual recovery\n", mysqlDumpPath)
+				return err
+			}
+		}
+
 		if err = orch.Start(instance); err != nil {
+			if mysqlDumpPath != "" {
+				fmt.Printf("  Dump file preserved at %s for manual recovery\n", mysqlDumpPath)
+			}
 			return err
+		}
+
+		// Import the MySQL dump into MariaDB
+		if mysqlDumpPath != "" {
+			if err = importMariaDBDump(instance.Path, orch, mysqlDumpPath); err != nil {
+				fmt.Printf("  Dump file preserved at %s for manual import\n", mysqlDumpPath)
+				return err
+			}
+			// Clean up the temporary dump file on success
+			os.Remove(mysqlDumpPath)
+			fmt.Println("  MySQL 8.0 → MariaDB migration complete")
 		}
 
 		// Touch LocalSettings.php to flush cache
@@ -302,12 +355,30 @@ func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bo
 		changed = true
 	}
 
-	// Step 7: Remove skip-binary-as-hex from my.cnf (breaks mysqladmin health check)
+	// Step 7: Remove skip-binary-as-hex from my.cnf (breaks mariadb-admin health check)
 	mycnfChanged, err := removeSkipBinaryAsHex(installPath, dryRun)
 	if err != nil {
 		return false, err
 	}
 	if mycnfChanged {
+		changed = true
+	}
+
+	// Step 8: Backfill CANASTA_IMAGE in .env for legacy installations
+	imageChanged, err := backfillCanastaImage(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if imageChanged {
+		changed = true
+	}
+
+	// Step 9: Add Special:Random cache bypass to default.vcl
+	vclChanged, err := addVclSpecialRandomBypass(installPath, dryRun)
+	if err != nil {
+		return false, err
+	}
+	if vclChanged {
 		changed = true
 	}
 
@@ -553,7 +624,7 @@ func fixVectorDefaultSkin(installPath string, dryRun bool) (bool, error) {
 
 // removeSkipBinaryAsHex removes skip-binary-as-hex lines from sections other
 // than [mysql] in my.cnf. The option is valid for the mysql client but is not
-// recognized by mysqladmin, which causes the db container's health check to
+// recognized by mariadb-admin, which causes the db container's health check to
 // fail when it appears in [client] or other sections.
 func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
 	mycnfPath := filepath.Join(installPath, "my.cnf")
@@ -590,12 +661,56 @@ func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
 	newContent := strings.Join(filtered, "\n")
 
 	if dryRun {
-		fmt.Println("  Would remove skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mysqladmin health check)")
+		fmt.Println("  Would remove skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mariadb-admin health check)")
 	} else {
-		fmt.Println("  Removing skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mysqladmin health check)")
+		fmt.Println("  Removing skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mariadb-admin health check)")
 		if err := os.WriteFile(mycnfPath, []byte(newContent), permissions.FilePermission); err != nil {
 			return false, fmt.Errorf("failed to update my.cnf: %w", err)
 		}
+	}
+
+	return true, nil
+}
+
+// addVclSpecialRandomBypass patches default.vcl to bypass Varnish cache for
+// Special:Random. Without this, Varnish caches the redirect and every user
+// gets the same "random" page until the cache TTL expires.
+func addVclSpecialRandomBypass(installPath string, dryRun bool) (bool, error) {
+	vclPath := filepath.Join(installPath, "config", "default.vcl")
+
+	content, err := os.ReadFile(vclPath)
+	if err != nil {
+		return false, nil // File doesn't exist, nothing to patch
+	}
+
+	if strings.Contains(string(content), "Special:Random") {
+		return false, nil // Already has the bypass
+	}
+
+	// Insert the bypass block after the "Pass API" block
+	marker := `if (req.url ~ "/w/api.php") {
+        return(pass);
+    }`
+	bypass := marker + `
+
+    # Bypass cache for Special:Random
+    if (req.url ~ "^/(w/index\.php\?title=|wiki/)Special:Random") {
+        return (pass);
+    }`
+
+	if !strings.Contains(string(content), marker) {
+		// VCL has been customized beyond recognition, skip
+		return false, nil
+	}
+
+	if dryRun {
+		fmt.Println("  Would add Special:Random cache bypass to default.vcl")
+	} else {
+		newContent := strings.Replace(string(content), marker, bypass, 1)
+		if err := os.WriteFile(vclPath, []byte(newContent), permissions.FilePermission); err != nil {
+			return false, fmt.Errorf("failed to update default.vcl: %w", err)
+		}
+		fmt.Println("  Added Special:Random cache bypass to default.vcl")
 	}
 
 	return true, nil
@@ -619,6 +734,34 @@ func removeLegacyGitDir(installPath string, dryRun bool) (bool, error) {
 		if err := os.RemoveAll(gitDir); err != nil {
 			return false, fmt.Errorf("failed to remove .git directory: %w", err)
 		}
+	}
+
+	return true, nil
+}
+
+// backfillCanastaImage sets CANASTA_IMAGE in .env for installations that
+// predate the canasta create change that writes it. Without this variable,
+// docker-compose falls back to the "latest" tag, bypassing version pinning.
+func backfillCanastaImage(installPath string, dryRun bool) (bool, error) {
+	envPath := filepath.Join(installPath, ".env")
+
+	envVars, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		return false, err
+	}
+	if val, ok := envVars["CANASTA_IMAGE"]; ok && val != "" {
+		return false, nil
+	}
+
+	image := canasta.GetDefaultImage()
+
+	if dryRun {
+		fmt.Printf("  Would set CANASTA_IMAGE=%s in .env\n", image)
+	} else {
+		if err := canasta.SaveEnvVariable(envPath, "CANASTA_IMAGE", image); err != nil {
+			return false, fmt.Errorf("failed to set CANASTA_IMAGE in .env: %w", err)
+		}
+		fmt.Printf("  Set CANASTA_IMAGE=%s in .env\n", image)
 	}
 
 	return true, nil

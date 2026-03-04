@@ -77,7 +77,10 @@ func (c *ComposeOrchestrator) UpdateStackFiles(installPath string, dryRun bool) 
 		}
 		targetPath := filepath.Join(installPath, relPath)
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, permissions.DirectoryPermission)
+			if !dryRun {
+				return os.MkdirAll(targetPath, permissions.DirectoryPermission)
+			}
+			return nil
 		}
 		if d.Name() == ".gitkeep" {
 			return nil
@@ -725,20 +728,52 @@ func (c *ComposeOrchestrator) MigrateConfig(installPath string, dryRun bool) (bo
 	return changed, nil
 }
 
-// migrateCaddyFiles creates Caddyfile.site and Caddyfile.global if they don't exist
-// and rewrites the Caddyfile to include the import directives.
+// migrateCaddyFiles creates Caddyfile.site and Caddyfile.global if they don't exist,
+// renames legacy Caddyfile.custom to Caddyfile.site, and rewrites the Caddyfile to
+// use the current import directives.
 func (c *ComposeOrchestrator) migrateCaddyFiles(installPath string, dryRun bool) (bool, error) {
-	customPath := filepath.Join(installPath, "config", "Caddyfile.site")
+	sitePath := filepath.Join(installPath, "config", "Caddyfile.site")
 	globalPath := filepath.Join(installPath, "config", "Caddyfile.global")
+	legacyCustomPath := filepath.Join(installPath, "config", "Caddyfile.custom")
 
-	_, customErr := os.Stat(customPath)
+	changed := false
+
+	// Rename legacy Caddyfile.custom → Caddyfile.site if the old name exists
+	if _, err := os.Stat(legacyCustomPath); err == nil {
+		if dryRun {
+			fmt.Println("  Would rename config/Caddyfile.custom to config/Caddyfile.site")
+		} else {
+			fmt.Println("  Renaming config/Caddyfile.custom to config/Caddyfile.site")
+			if err := os.Rename(legacyCustomPath, sitePath); err != nil {
+				return false, fmt.Errorf("failed to rename Caddyfile.custom: %w", err)
+			}
+		}
+		changed = true
+	}
+
+	// Check whether the Caddyfile still references the old name
+	caddyfilePath := filepath.Join(installPath, "config", "Caddyfile")
+	if content, err := os.ReadFile(caddyfilePath); err == nil {
+		if strings.Contains(string(content), "Caddyfile.custom") {
+			changed = true
+		}
+	}
+
+	_, siteErr := os.Stat(sitePath)
 	_, globalErr := os.Stat(globalPath)
-	if customErr == nil && globalErr == nil {
+	if siteErr != nil {
+		changed = true
+	}
+	if globalErr != nil {
+		changed = true
+	}
+
+	if !changed {
 		return false, nil
 	}
 
 	if dryRun {
-		if customErr != nil {
+		if siteErr != nil {
 			fmt.Println("  Would create config/Caddyfile.site")
 		}
 		if globalErr != nil {
@@ -746,7 +781,7 @@ func (c *ComposeOrchestrator) migrateCaddyFiles(installPath string, dryRun bool)
 		}
 		fmt.Println("  Would update config/Caddyfile with import directives")
 	} else {
-		if customErr != nil {
+		if siteErr != nil {
 			fmt.Println("  Creating config/Caddyfile.site")
 			if err := canasta.CreateCaddyfileSite(installPath); err != nil {
 				return false, fmt.Errorf("failed to create Caddyfile.site: %w", err)

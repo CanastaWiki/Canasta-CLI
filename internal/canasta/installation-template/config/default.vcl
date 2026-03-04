@@ -55,6 +55,11 @@ sub vcl_recv {
         return(pass);
     }
 
+    # Bypass cache for Special:Random
+    if (req.url ~ "^/(w/index\.php\?title=|wiki/)Special:Random") {
+        return (pass);
+    }
+
     call mobile_detect;
 
     # Pass requests from logged-in users directly.

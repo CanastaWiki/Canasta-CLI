@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -226,6 +227,84 @@ func TestRemoveEmptyComposerLocalDryRun(t *testing.T) {
 	}
 }
 
+func TestBackfillCanastaImage(t *testing.T) {
+	tests := []struct {
+		name        string
+		envContent  string
+		wantChanged bool
+	}{
+		{
+			name:        "missing CANASTA_IMAGE",
+			envContent:  "MW_SITE_SERVER=https://localhost\nMYSQL_PASSWORD=secret\n",
+			wantChanged: true,
+		},
+		{
+			name:        "already set",
+			envContent:  "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:3.3.1\nMYSQL_PASSWORD=secret\n",
+			wantChanged: false,
+		},
+		{
+			name:        "empty value",
+			envContent:  "CANASTA_IMAGE=\nMYSQL_PASSWORD=secret\n",
+			wantChanged: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			envPath := filepath.Join(tmpDir, ".env")
+			if err := os.WriteFile(envPath, []byte(tt.envContent), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			changed, err := backfillCanastaImage(tmpDir, false)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if changed != tt.wantChanged {
+				t.Errorf("changed = %v, want %v", changed, tt.wantChanged)
+			}
+
+			if tt.wantChanged {
+				got, err := os.ReadFile(envPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(string(got), "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:") {
+					t.Errorf("expected CANASTA_IMAGE to be set, got:\n%s", string(got))
+				}
+			}
+		})
+	}
+}
+
+func TestBackfillCanastaImageDryRun(t *testing.T) {
+	tmpDir := t.TempDir()
+	envPath := filepath.Join(tmpDir, ".env")
+	content := "MW_SITE_SERVER=https://localhost\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := backfillCanastaImage(tmpDir, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("dry run should report changed = true")
+	}
+
+	// File should be unchanged after dry run
+	got, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Errorf("dry run should not modify file, got %q", string(got))
+	}
+}
+
 func TestRemoveEmptyComposerLocalPreservesPopulated(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "config")
@@ -266,5 +345,134 @@ func TestRemoveEmptyComposerLocalPreservesPopulated(t *testing.T) {
 	}
 	if string(got) != string(content) {
 		t.Error("file content should be unchanged")
+	}
+}
+
+func TestAddVclSpecialRandomBypass(t *testing.T) {
+	vclWithoutBypass := `vcl 4.0;
+
+backend default {
+    .host = "web";
+    .port = "80";
+}
+
+sub vcl_recv {
+    # Pass API
+    if (req.url ~ "/w/api.php") {
+        return(pass);
+    }
+
+    call mobile_detect;
+}`
+
+	vclWithBypass := `vcl 4.0;
+
+backend default {
+    .host = "web";
+    .port = "80";
+}
+
+sub vcl_recv {
+    if (req.url ~ "Special:Random") {
+        return (pass);
+    }
+}`
+
+	tests := []struct {
+		name        string
+		content     string
+		wantChanged bool
+	}{
+		{
+			name:        "missing file",
+			content:     "",
+			wantChanged: false,
+		},
+		{
+			name:        "needs bypass",
+			content:     vclWithoutBypass,
+			wantChanged: true,
+		},
+		{
+			name:        "already has bypass",
+			content:     vclWithBypass,
+			wantChanged: false,
+		},
+		{
+			name:        "customized beyond recognition",
+			content:     "vcl 4.0;\n# completely custom config\n",
+			wantChanged: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configDir := filepath.Join(tmpDir, "config")
+			if err := os.MkdirAll(configDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+
+			vclPath := filepath.Join(configDir, "default.vcl")
+			if tt.content != "" {
+				if err := os.WriteFile(vclPath, []byte(tt.content), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			changed, err := addVclSpecialRandomBypass(tmpDir, false)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if changed != tt.wantChanged {
+				t.Errorf("changed = %v, want %v", changed, tt.wantChanged)
+			}
+
+			if tt.wantChanged {
+				got, err := os.ReadFile(vclPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(string(got), "Special:Random") {
+					t.Error("expected default.vcl to contain Special:Random bypass")
+				}
+			}
+		})
+	}
+}
+
+func TestAddVclSpecialRandomBypassDryRun(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `sub vcl_recv {
+    if (req.url ~ "/w/api.php") {
+        return(pass);
+    }
+
+    call mobile_detect;
+}`
+	vclPath := filepath.Join(configDir, "default.vcl")
+	if err := os.WriteFile(vclPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := addVclSpecialRandomBypass(tmpDir, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("dry run should report changed = true")
+	}
+
+	got, err := os.ReadFile(vclPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Error("dry run should not modify file")
 	}
 }

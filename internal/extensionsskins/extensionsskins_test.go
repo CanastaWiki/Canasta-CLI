@@ -45,14 +45,28 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
-func TestSlicesContains(t *testing.T) {
-	list := []string{"VisualEditor", "Cite", "ParserFunctions"}
-
-	if !slices.Contains(list, "Cite") {
-		t.Error("expected slices.Contains to return true for 'Cite'")
+func TestArticle(t *testing.T) {
+	gotests := []struct {
+		input string
+		want  string
+	}{
+		{"extension", "an"},
+		{"skin", "a"},
+		{"apple", "an"},
+		{"Extension", "an"},
+		{"item", "an"},
+		{"Object", "an"},
+		{"umbrella", "an"},
+		{"Umbrella", "an"},
+		{"wiki", "a"},
+		{"", "a"},
 	}
-	if slices.Contains(list, "Missing") {
-		t.Error("expected slices.Contains to return false for 'Missing'")
+
+	for _, tt := range gotests {
+		got := article(tt.input)
+		if got != tt.want {
+			t.Errorf("article(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
 

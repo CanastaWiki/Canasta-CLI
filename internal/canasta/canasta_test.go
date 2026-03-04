@@ -1,8 +1,11 @@
 package canasta
 
 import (
+	"bytes"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -13,7 +16,7 @@ func TestGetEnvVariable(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 
-	content := "KEY1=value1\nKEY2=value2\nKEY_WITH_EQUALS=abc=def\nQUOTED=\"hello world\"\n"
+	content := "KEY1=value1\n# this is a comment\nKEY2=value2\n\nEMPTY=\nKEY_WITH_EQUALS=abc=def\nKEY=a=b\nQUOTED=\"hello world\"\n"
 	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +31,9 @@ func TestGetEnvVariable(t *testing.T) {
 	}{
 		{"KEY1", "value1"},
 		{"KEY2", "value2"},
+		{"EMPTY", ""},
 		{"KEY_WITH_EQUALS", "abc=def"},
+		{"KEY", "a=b"},
 		{"QUOTED", "hello world"},
 	}
 
@@ -135,6 +140,27 @@ func TestGenerateAdminAndDBPasswords(t *testing.T) {
 		if strings.Contains(pw, "$") {
 			t.Errorf("password contains $: %s", pw)
 		}
+
+		digits := 0
+		for _, c := range pw {
+			if c >= '0' && c <= '9' {
+				digits++
+			}
+		}
+
+		symbols := 0
+		for _, c := range pw {
+			if strings.ContainsRune("@%^-_+.,:", c) {
+				symbols++
+			}
+		}
+
+		if digits < 4 {
+			t.Errorf("password has %d digits, want >= 4: %s", digits, pw)
+		}
+		if symbols < 6 {
+			t.Errorf("password has %d symbols, want >= 6: %s", symbols, pw)
+		}
 	}
 }
 
@@ -232,6 +258,69 @@ func TestGenerateSecretKey(t *testing.T) {
 	}
 }
 
+func TestGenerateAndSaveSecretKey_AlreadySet(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	existingKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	content := []byte("KEY1=value1\nMW_SECRET_KEY=" + existingKey + "\n")
+	if err := os.WriteFile(envPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := GenerateAndSaveSecretKey(dir)
+	if err != nil {
+		t.Fatalf("GenerateAndSaveSecretKey() error = %v", err)
+	}
+
+	newContent, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("Failed to read .env file: %v", err)
+	}
+
+	if !bytes.Equal(content, newContent) {
+		t.Errorf("expected .env file to be unmodified. Got:\n%s\nWant:\n%s", newContent, content)
+	}
+}
+
+func TestGenerateAndSaveSecretKey_GeneratesNew(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	content := "KEY1=value1\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := GenerateAndSaveSecretKey(dir)
+	if err != nil {
+		t.Fatalf("GenerateAndSaveSecretKey() error = %v", err)
+	}
+
+	vars, err := GetEnvVariable(envPath)
+	if err != nil {
+		t.Fatalf("GetEnvVariable() error = %v", err)
+	}
+
+	key := vars["MW_SECRET_KEY"]
+	if key == "" {
+		t.Fatal("expected MW_SECRET_KEY to be set in .env")
+	}
+	if len(key) != 64 {
+		t.Errorf("expected 64-character MW_SECRET_KEY, got length %d", len(key))
+	}
+	if _, err := hex.DecodeString(key); err != nil {
+		t.Errorf("expected MW_SECRET_KEY to be valid hex, got error: %v", err)
+	}
+}
+
+func TestGenerateAndSaveSecretKey_MissingEnv(t *testing.T) {
+	dir := t.TempDir()
+
+	err := GenerateAndSaveSecretKey(dir)
+	if err == nil {
+		t.Fatal("expected error when .env file does not exist")
+	}
+}
+
 func TestContainsProfile(t *testing.T) {
 	tests := []struct {
 		profiles string
@@ -248,6 +337,24 @@ func TestContainsProfile(t *testing.T) {
 	for _, tt := range tests {
 		if got := ContainsProfile(tt.profiles, tt.target); got != tt.want {
 			t.Errorf("ContainsProfile(%q, %q) = %v, want %v", tt.profiles, tt.target, got, tt.want)
+		}
+	}
+}
+
+func TestRemoveDuplicates(t *testing.T) {
+	tests := []struct {
+		input []string
+		want  []string
+	}{
+		{[]string{"a", "b", "a", "c"}, []string{"a", "b", "c"}},
+		{[]string{"a", "b", "c"}, []string{"a", "b", "c"}},
+		{[]string{}, []string{}},
+		{[]string{"a"}, []string{"a"}},
+		{[]string{"x", "x", "x"}, []string{"x"}},
+	}
+	for _, tt := range tests {
+		if got := removeDuplicates(tt.input); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("removeDuplicates(%v) = %v, want %v", tt.input, got, tt.want)
 		}
 	}
 }
@@ -426,5 +533,27 @@ func TestEnsureObservabilityCredentials_PartialCredentials(t *testing.T) {
 	}
 	if vars["OS_PASSWORD_HASH"] == "" {
 		t.Error("expected OS_PASSWORD_HASH to be generated")
+	}
+}
+
+func TestNormalizeWikiID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{name: "spaces to underscores", id: "my wiki", want: "my_wiki"},
+		{name: "strip non alphanumeric", id: "my@wiki!", want: "mywiki"},
+		{name: "already normalized", id: "my_wiki", want: "my_wiki"},
+		{name: "empty", id: "", want: ""},
+		{name: "multiple spaces", id: "my  wiki  name", want: "my__wiki__name"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NormalizeWikiID(tc.id); got != tc.want {
+				t.Errorf("NormalizeWikiID(%q) = %q, want %q", tc.id, got, tc.want)
+			}
+		})
 	}
 }

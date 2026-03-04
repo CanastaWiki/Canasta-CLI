@@ -1,5 +1,4 @@
-# This workflow will build and publish a release of Canasta-CLI on pushing to the 'main' branch.
-# It also automatically grabs the current latest version and increments the minor version.
+# This workflow builds Canasta-CLI and publishes a release when the VERSION file changes.
 
 name: Go build
 
@@ -12,20 +11,25 @@ jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
-      new_version: ${{ steps.generate.outputs.new_version }}
+      new_version: ${{ steps.read.outputs.version }}
+      changed: ${{ steps.check.outputs.changed }}
     steps:
-    - name: Generate Version Tag
-      id: generate
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 2
+    - name: Read version from VERSION file
+      id: read
       run: |
-        latest_version_raw="$(curl -s https://api.github.com/repos/${{ github.repository }}/releases | grep -m 1 "html_url" | rev | cut -d/  -f1 | rev  )"
-        latest_version="${latest_version_raw%??}"
-        major_version=$(echo $latest_version | cut -d. -f1 | cut -dv -f2)
-        minor_version=$(echo $latest_version | cut -d. -f2)
-        patch_version=$(echo $latest_version | cut -d. -f3)
-        minor_version=$(expr $minor_version + 1)
-        new_version=$(echo "v$major_version.$minor_version.$patch_version")
-        echo $new_version
-        echo "new_version=$new_version" >> $GITHUB_OUTPUT
+        VERSION=$(cat VERSION | tr -d '[:space:]')
+        echo "version=v${VERSION}" >> $GITHUB_OUTPUT
+    - name: Check if VERSION changed
+      id: check
+      run: |
+        if git diff HEAD~1 --name-only 2>/dev/null | grep -q '^VERSION$'; then
+          echo "changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "changed=false" >> $GITHUB_OUTPUT
+        fi
   build:
     runs-on: ubuntu-latest
     needs: version
@@ -60,6 +64,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [version, build]
+    if: needs.version.outputs.changed == 'true'
     steps:
     - name: Download executables
       uses: actions/download-artifact@v4

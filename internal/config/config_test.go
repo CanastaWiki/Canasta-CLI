@@ -170,6 +170,41 @@ func TestGetCanastaID(t *testing.T) {
 	}
 }
 
+func TestGetCanastaIDFromSubdirectory(t *testing.T) {
+	setupTestDir(t)
+
+	inst := Installation{Id: "subdir-test", Path: "/srv/canasta/my-wiki", Orchestrator: "compose"}
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		path    string
+		wantID  string
+		wantErr bool
+	}{
+		{"exact match", "/srv/canasta/my-wiki", "subdir-test", false},
+		{"one level deep", "/srv/canasta/my-wiki/config", "subdir-test", false},
+		{"two levels deep", "/srv/canasta/my-wiki/config/settings", "subdir-test", false},
+		{"unrelated path", "/srv/other/project", "", true},
+		{"parent of installation", "/srv/canasta", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id, err := GetCanastaID(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetCanastaID(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
+				return
+			}
+			if id != tt.wantID {
+				t.Errorf("GetCanastaID(%q) = %q, want %q", tt.path, id, tt.wantID)
+			}
+		})
+	}
+}
+
 func TestAddOrchestratorSupported(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -246,6 +281,41 @@ func TestBuildFromOmittedWhenEmpty(t *testing.T) {
 	}
 	if strings.Contains(string(data), `"buildFrom"`) {
 		t.Error("expected conf.json to omit 'buildFrom' when empty")
+	}
+}
+
+func TestGetConfigDirEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CANASTA_CONFIG_DIR", dir)
+
+	got, err := GetConfigDir()
+	if err != nil {
+		t.Fatalf("GetConfigDir() error = %v", err)
+	}
+	if got != dir {
+		t.Errorf("GetConfigDir() = %q, want %q", got, dir)
+	}
+}
+
+func TestGetConfigDirEnvCreatesDir(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "custom-canasta")
+	t.Setenv("CANASTA_CONFIG_DIR", target)
+
+	got, err := GetConfigDir()
+	if err != nil {
+		t.Fatalf("GetConfigDir() error = %v", err)
+	}
+	if got != target {
+		t.Errorf("GetConfigDir() = %q, want %q", got, target)
+	}
+
+	fi, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("expected directory to be created: %v", err)
+	}
+	if !fi.IsDir() {
+		t.Error("expected target to be a directory")
 	}
 }
 
