@@ -56,6 +56,9 @@ a specific wiki in a farm.`, constants.Plural, constants.Plural),
 	return cmd
 }
 
+// Consistent signature with newEnableCmd/newDisableCmd.
+//
+//nolint:unparam
 func newListCmd(instance *config.Installation, orch *orchestrators.Orchestrator, wiki *string, constants *Item) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
@@ -136,6 +139,9 @@ database changes. Use --skip-update to skip this step.`, constants.Plural, const
 	return cmd
 }
 
+// Consistent signature with newEnableCmd/newListCmd.
+//
+//nolint:unparam
 func newDisableCmd(instance *config.Installation, orch *orchestrators.Orchestrator, wiki *string, constants *Item) *cobra.Command {
 	// Build the Use string with an appropriate argument placeholder
 	argName := strings.ToUpper(constants.CmdName)

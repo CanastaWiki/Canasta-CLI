@@ -25,6 +25,9 @@ func composeVolumeName(installPath, volume string) string {
 // detectMySQL8Data checks whether the MySQL data volume contains MySQL 8.0
 // binary data (mysql.ibd). This is a read-only check that can run while the
 // database container is still running.
+// Error return kept for future-proofing.
+//
+//nolint:unparam
 func detectMySQL8Data(installPath string) (bool, error) {
 	volName := composeVolumeName(installPath, "mysql-data-volume")
 	err, _ := execute.Run("", "docker", "run", "--rm",
