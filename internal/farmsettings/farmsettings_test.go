@@ -22,7 +22,7 @@ func TestValidateWikiID(t *testing.T) {
 		{"reserved wiki", "wiki", true},
 		{"reserved wikis", "wikis", true},
 		{"contains hyphen", "my-wiki", true},
-		{"empty string", "", false},
+		{"empty string", "", true},
 		{"only hyphens", "---", true},
 		{"mixed case and numbers", "MyWiki123", false},
 	}
