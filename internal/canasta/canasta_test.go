@@ -418,3 +418,85 @@ func TestEnsureObservabilityCredentials_PartialCredentials(t *testing.T) {
 		t.Error("expected OS_PASSWORD_HASH to be generated")
 	}
 }
+
+func TestSavePasswordToFile(t *testing.T) {
+	dir := t.TempDir()
+	filename := "test_password.txt"
+	password := "supersecret123"
+
+	err := SavePasswordToFile(dir, filename, password)
+	if err != nil {
+		t.Fatalf("SavePasswordToFile() failed: %v", err)
+	}
+
+	filePath := filepath.Join(dir, filename)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to read saved password file: %v", err)
+	}
+
+	if string(data) != password {
+		t.Errorf("expected password file to contain %q, but got %q", password, string(data))
+	}
+
+	info, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatalf("Failed to stat saved password file: %v", err)
+	}
+
+	if info.Mode().Perm()&0600 != 0600 {
+		t.Errorf("expected file to securely have at least user rw permissions, got %v", info.Mode().Perm())
+	}
+}
+
+func TestUpdateEnvFile(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wikiYamlPath := filepath.Join(configDir, "wikis.yaml")
+	wikiYamlContent := "wikis:\n  - id: main\n    url: example.com\n"
+	if err := os.WriteFile(wikiYamlPath, []byte(wikiYamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	baseEnvPath := filepath.Join(dir, ".env")
+	baseContent := "EXISTING_KEY=base_value\nOVERRIDE_ME=old_value\n"
+	if err := os.WriteFile(baseEnvPath, []byte(baseContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	customEnvPath := filepath.Join(dir, "custom.env")
+	customContent := "OVERRIDE_ME=new_value\nNEW_KEY=custom_value\nMYSQL_PASSWORD=rootpass\nWIKI_DB_PASSWORD=wikipass\n"
+	if err := os.WriteFile(customEnvPath, []byte(customContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := UpdateEnvFile(customEnvPath, dir, dir, "rootpass", "wikipass")
+	if err != nil {
+		t.Fatalf("UpdateEnvFile() error = %v", err)
+	}
+
+	vars, err := GetEnvVariable(baseEnvPath)
+	if err != nil {
+		t.Fatalf("GetEnvVariable() error reading final .env: %v", err)
+	}
+
+	if vars["EXISTING_KEY"] != "base_value" {
+		t.Errorf("expected EXISTING_KEY=base_value, got %q", vars["EXISTING_KEY"])
+	}
+	if vars["OVERRIDE_ME"] != "new_value" {
+		t.Errorf("expected OVERRIDE_ME=new_value, got %q", vars["OVERRIDE_ME"])
+	}
+	if vars["NEW_KEY"] != "custom_value" {
+		t.Errorf("expected NEW_KEY=custom_value, got %q", vars["NEW_KEY"])
+	}
+	if vars["MW_SITE_SERVER"] != "https://example.com" {
+		t.Errorf("expected MW_SITE_SERVER=https://example.com, got %q", vars["MW_SITE_SERVER"])
+	}
+	if vars["MW_SITE_FQDN"] != "example.com" {
+		t.Errorf("expected MW_SITE_FQDN=example.com, got %q", vars["MW_SITE_FQDN"])
+	}
+}
