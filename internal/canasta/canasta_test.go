@@ -67,15 +67,18 @@ func TestSaveEnvVariable(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 
+	// Start with a file
 	initial := "KEY1=old\nKEY2=keep\n"
 	if err := os.WriteFile(envPath, []byte(initial), 0644); err != nil {
 		t.Fatal(err)
 	}
 
+	// Update existing key
 	if err := SaveEnvVariable(envPath, "KEY1", "new"); err != nil {
 		t.Fatalf("SaveEnvVariable() error = %v", err)
 	}
 
+	// Add new key
 	if err := SaveEnvVariable(envPath, "KEY3", "added"); err != nil {
 		t.Fatalf("SaveEnvVariable() error = %v", err)
 	}
@@ -97,55 +100,75 @@ func TestSaveEnvVariable(t *testing.T) {
 }
 
 func TestDeleteEnvVariable(t *testing.T) {
-	dir := t.TempDir()
-	envPath := filepath.Join(dir, ".env")
-
-	content := "KEY1=value1\nKEY2=value2\nKEY3=value3\n"
-	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name      string
+		content   string
+		key       string
+		wantErr   bool
+		assertMap func(t *testing.T, vars map[string]string)
+	}{
+		{
+			name:    "remove existing key from multi-key file",
+			content: "KEY1=value1\nKEY2=value2\nKEY3=value3\n",
+			key:     "KEY2",
+			wantErr: false,
+			assertMap: func(t *testing.T, vars map[string]string) {
+				if _, exists := vars["KEY2"]; exists {
+					t.Errorf("expected KEY2 to be deleted, but still present")
+				}
+				if vars["KEY1"] != "value1" {
+					t.Errorf("KEY1 = %q, want \"value1\"", vars["KEY1"])
+				}
+				if vars["KEY3"] != "value3" {
+					t.Errorf("KEY3 = %q, want \"value3\"", vars["KEY3"])
+				}
+			},
+		},
+		{
+			name:    "remove non-existent key returns error",
+			content: "KEY1=value1\n",
+			key:     "MISSING",
+			wantErr: true,
+			assertMap: func(t *testing.T, vars map[string]string) {
+				if vars["KEY1"] != "value1" {
+					t.Errorf("KEY1 = %q, want \"value1\"", vars["KEY1"])
+				}
+			},
+		},
+		{
+			name:    "remove only key leaves empty file",
+			content: "KEY1=value1\n",
+			key:     "KEY1",
+			wantErr: false,
+			assertMap: func(t *testing.T, vars map[string]string) {
+				if len(vars) != 0 {
+					t.Errorf("expected empty map after deleting only key, got %v", vars)
+				}
+			},
+		},
 	}
 
-	if err := DeleteEnvVariable(envPath, "KEY2"); err != nil {
-		t.Fatalf("DeleteEnvVariable() error = %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			envPath := filepath.Join(dir, ".env")
 
-	vars, err := GetEnvVariable(envPath)
-	if err != nil {
-		t.Fatalf("GetEnvVariable() error = %v", err)
-	}
+			if err := os.WriteFile(envPath, []byte(tt.content), 0644); err != nil {
+				t.Fatal(err)
+			}
 
-	if _, exists := vars["KEY2"]; exists {
-		t.Errorf("expected KEY2 to be deleted, but still present")
-	}
-	if vars["KEY1"] != "value1" {
-		t.Errorf("KEY1 = %q, want \"value1\"", vars["KEY1"])
-	}
-	if vars["KEY3"] != "value3" {
-		t.Errorf("KEY3 = %q, want \"value3\"", vars["KEY3"])
-	}
+			err := DeleteEnvVariable(envPath, tt.key)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("DeleteEnvVariable() error = %v, wantErr %v", err, tt.wantErr)
+			}
 
-	if err := os.WriteFile(envPath, []byte("KEY1=value1\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+			vars, err := GetEnvVariable(envPath)
+			if err != nil {
+				t.Fatalf("GetEnvVariable() error = %v", err)
+			}
 
-	if err := DeleteEnvVariable(envPath, "MISSING"); err == nil {
-		t.Fatal("expected error when deleting non-existent key, got nil")
-	}
-
-	if err := os.WriteFile(envPath, []byte("KEY1=value1\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := DeleteEnvVariable(envPath, "KEY1"); err != nil {
-		t.Fatalf("DeleteEnvVariable() error = %v", err)
-	}
-
-	vars, err = GetEnvVariable(envPath)
-	if err != nil {
-		t.Fatalf("GetEnvVariable() error = %v", err)
-	}
-	if len(vars) != 0 {
-		t.Errorf("expected empty map after deleting only key, got %v", vars)
+			tt.assertMap(t, vars)
+		})
 	}
 }
 
