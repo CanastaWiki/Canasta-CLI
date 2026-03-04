@@ -2,6 +2,7 @@ package cmd
 
 import (
 	addCmd "github.com/CanastaWiki/Canasta-CLI/cmd/add"
+	backupCmd "github.com/CanastaWiki/Canasta-CLI/cmd/backup"
 	configCmd "github.com/CanastaWiki/Canasta-CLI/cmd/config"
 	createCmd "github.com/CanastaWiki/Canasta-CLI/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI/cmd/delete"
@@ -13,7 +14,6 @@ import (
 	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI/cmd/maintenance"
 	removeCmd "github.com/CanastaWiki/Canasta-CLI/cmd/remove"
 	restartCmd "github.com/CanastaWiki/Canasta-CLI/cmd/restart"
-	backupCmd "github.com/CanastaWiki/Canasta-CLI/cmd/backup"
 	sitemapCmd "github.com/CanastaWiki/Canasta-CLI/cmd/sitemap"
 	skinCmd "github.com/CanastaWiki/Canasta-CLI/cmd/skin"
 	startCmd "github.com/CanastaWiki/Canasta-CLI/cmd/start"

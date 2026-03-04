@@ -9,10 +9,10 @@ import (
 
 func TestGetNamespaceFromPath(t *testing.T) {
 	tests := []struct {
-		name      string
-		content   string
-		wantNS    string
-		wantErr   bool
+		name    string
+		content string
+		wantNS  string
+		wantErr bool
 	}{
 		{
 			name:    "standard namespace",

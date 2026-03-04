@@ -14,14 +14,14 @@ import (
 )
 
 type Installation struct {
-	Id           string `json:"id"`
-	Path         string `json:"path"`
-	Orchestrator string `json:"orchestrator"`
-	DevMode      bool   `json:"devMode,omitempty"`
+	Id             string `json:"id"`
+	Path           string `json:"path"`
+	Orchestrator   string `json:"orchestrator"`
+	DevMode        bool   `json:"devMode,omitempty"`
 	ManagedCluster bool   `json:"managedCluster,omitempty"`
-	Registry     string `json:"registry,omitempty"`
-	KindCluster  string `json:"kindCluster,omitempty"`
-	BuildFrom    string `json:"buildFrom,omitempty"`
+	Registry       string `json:"registry,omitempty"`
+	KindCluster    string `json:"kindCluster,omitempty"`
+	BuildFrom      string `json:"buildFrom,omitempty"`
 }
 
 type Orchestrator struct {
@@ -383,4 +383,3 @@ func GetConfigDir() (string, error) {
 
 	return dir, nil
 }
-

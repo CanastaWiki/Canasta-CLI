@@ -109,4 +109,3 @@ func TestUpdateFlagParsing(t *testing.T) {
 		t.Error("--skip-smw should be true after parsing")
 	}
 }
-

@@ -11,8 +11,8 @@ import (
 
 func TestResolveKey(t *testing.T) {
 	envVars := map[string]string{
-		"HTTPS_PORT":  "443",
-		"HTTP_PORT":   "80",
+		"HTTPS_PORT":     "443",
+		"HTTP_PORT":      "80",
 		"MYSQL_PASSWORD": "secret",
 	}
 

@@ -138,7 +138,6 @@ func TestWriteAndReadConfig(t *testing.T) {
 	}
 }
 
-
 func TestWriteConfigDeletesEmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.yaml")

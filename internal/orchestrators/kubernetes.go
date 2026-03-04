@@ -10,14 +10,15 @@ import (
 	"sort"
 	"strings"
 
+	yaml "gopkg.in/yaml.v2"
+
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
-	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators/kubernetes"
-	yaml "gopkg.in/yaml.v2"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 // webDeployment is the Kubernetes deployment name for the MediaWiki web service.
@@ -35,9 +36,9 @@ type KubernetesOrchestrator struct {
 	ManagedCluster bool
 }
 
-func (k *KubernetesOrchestrator) Name() string              { return "Kubernetes" }
-func (k *KubernetesOrchestrator) SupportsDevMode() bool     { return false }
-func (k *KubernetesOrchestrator) SupportsImagePull() bool   { return false }
+func (k *KubernetesOrchestrator) Name() string            { return "Kubernetes" }
+func (k *KubernetesOrchestrator) SupportsDevMode() bool   { return false }
+func (k *KubernetesOrchestrator) SupportsImagePull() bool { return false }
 
 func (k *KubernetesOrchestrator) CheckDependencies() error {
 	if _, err := exec.LookPath("kubectl"); err != nil {
@@ -626,13 +627,13 @@ func (k *KubernetesOrchestrator) UpdateConfig(installPath string) error {
 
 // kustomization is the Go representation of kustomization.yaml.
 type kustomization struct {
-	APIVersion         string              `yaml:"apiVersion"`
-	Kind               string              `yaml:"kind"`
-	Namespace          string              `yaml:"namespace"`
-	Resources          []string            `yaml:"resources"`
-	ConfigMapGenerator []configMapEntry    `yaml:"configMapGenerator"`
-	Images             []kustomizeImage    `yaml:"images,omitempty"`
-	Patches            []kustomizePatch    `yaml:"patches,omitempty"`
+	APIVersion         string           `yaml:"apiVersion"`
+	Kind               string           `yaml:"kind"`
+	Namespace          string           `yaml:"namespace"`
+	Resources          []string         `yaml:"resources"`
+	ConfigMapGenerator []configMapEntry `yaml:"configMapGenerator"`
+	Images             []kustomizeImage `yaml:"images,omitempty"`
+	Patches            []kustomizePatch `yaml:"patches,omitempty"`
 }
 
 // defaultCanastaImage is the image reference hardcoded in web.yaml.

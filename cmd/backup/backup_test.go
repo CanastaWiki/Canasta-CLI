@@ -205,9 +205,9 @@ func TestGetRepoURL(t *testing.T) {
 			name: "RESTIC_REPO is set",
 			env: map[string]string{
 				"RESTIC_REPOSITORY": "",
-				"RESTIC_REPO":   "rest:http://repo.example/repo",
-				"AWS_S3_API":    "https://s3.example",
-				"AWS_S3_BUCKET": "bucket",
+				"RESTIC_REPO":       "rest:http://repo.example/repo",
+				"AWS_S3_API":        "https://s3.example",
+				"AWS_S3_BUCKET":     "bucket",
 			},
 			want: "rest:http://repo.example/repo",
 		},
