@@ -22,6 +22,9 @@ func TestValidateWikiID(t *testing.T) {
 		{"reserved wiki", "wiki", true},
 		{"reserved wikis", "wikis", true},
 		{"contains hyphen", "my-wiki", true},
+		{"empty string", "", true},
+		{"only hyphens", "---", true},
+		{"mixed case and numbers", "MyWiki123", false},
 	}
 
 	for _, tt := range tests {
@@ -233,6 +236,38 @@ func TestRemoveLastWikiFails(t *testing.T) {
 	err = RemoveWiki("onlywiki", dir)
 	if err == nil {
 		t.Fatal("expected error when removing last wiki, got nil")
+	}
+}
+
+func TestRemoveWikiNonexistent(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(configDir, "wikis.yaml")
+
+	_, err := GenerateWikisYaml(filePath, "wiki1", "example.com", "Wiki 1")
+	if err != nil {
+		t.Fatalf("GenerateWikisYaml() error = %v", err)
+	}
+
+	err = AddWiki("wiki2", dir, "other.com", "", "Wiki 2")
+	if err != nil {
+		t.Fatalf("AddWiki() error = %v", err)
+	}
+
+	err = RemoveWiki("nonexistent", dir)
+	if err != nil {
+		t.Fatalf("RemoveWiki() error = %v", err)
+	}
+
+	ids, _, _, err := ReadWikisYaml(filePath)
+	if err != nil {
+		t.Fatalf("ReadWikisYaml() error = %v", err)
+	}
+	if len(ids) != 2 || ids[0] != "wiki1" || ids[1] != "wiki2" {
+		t.Errorf("expected [wiki1, wiki2], got %v", ids)
 	}
 }
 
