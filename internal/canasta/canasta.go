@@ -630,6 +630,9 @@ func safePasswordGenerator() (*password.Generator, error) {
 }
 
 // problematicPasswordChars are characters that may cause issues in .env files or shell commands
+// Not credentials — character filter list.
+//
+//nolint:gosec
 const problematicPasswordChars = "=#$\"'`\\!&|;<>"
 
 // warnIfProblematicPassword checks if a password contains characters that may cause issues

@@ -96,7 +96,7 @@ func createTestInstance(t *testing.T, id string) *testInstance {
 		"HTTP_PORT=%s\nHTTPS_PORT=%s\nCADDY_AUTO_HTTPS=off\n",
 		httpPort, httpsPort,
 	)
-	if err := os.WriteFile(envFile, []byte(envContent), 0644); err != nil {
+	if err := os.WriteFile(envFile, []byte(envContent), 0600); err != nil {
 		t.Fatalf("failed to write test .env: %v", err)
 	}
 

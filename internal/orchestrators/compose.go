@@ -41,6 +41,7 @@ func (c *ComposeOrchestrator) CheckDependencies() error {
 		return err
 	}
 	if compose.Path != "" {
+		//nolint:gosec // compose.Path from system lookup
 		cmd := exec.Command(compose.Path, "version")
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("unable to execute compose (%s)", err)
@@ -358,6 +359,7 @@ func (c *ComposeOrchestrator) ListServices(instance config.Installation) ([]stri
 	}
 	var cmd *exec.Cmd
 	if compose.Path != "" {
+		//nolint:gosec // compose.Path from system lookup
 		cmd = exec.Command(compose.Path, "ps", "--services")
 	} else {
 		cmd = exec.Command("docker", "compose", "ps", "--services")
@@ -386,6 +388,7 @@ func (c *ComposeOrchestrator) ExecInteractive(instance config.Installation, serv
 	if compose.Path != "" {
 		args = append(args, "exec", service)
 		args = append(args, command...)
+		//nolint:gosec // compose.Path from system lookup
 		cmd := exec.Command(compose.Path, args...)
 		cmd.Dir = instance.Path
 		cmd.Stdin = os.Stdin
@@ -409,6 +412,7 @@ func (c *ComposeOrchestrator) ExecWithError(installPath, service, command string
 	}
 	var cmd *exec.Cmd
 	if compose.Path != "" {
+		//nolint:gosec // compose.Path from system lookup
 		cmd = exec.Command(compose.Path, "exec", "-T", service, "/bin/bash", "-c", command)
 	} else {
 		cmd = exec.Command("docker", "compose", "exec", "-T", service, "/bin/bash", "-c", command)
@@ -429,6 +433,7 @@ func (c *ComposeOrchestrator) ExecStreaming(installPath, service, command string
 	}
 	var cmd *exec.Cmd
 	if compose.Path != "" {
+		//nolint:gosec // compose.Path from system lookup
 		cmd = exec.Command(compose.Path, "exec", "-T", service, "/bin/bash", "-c", command)
 	} else {
 		cmd = exec.Command("docker", "compose", "exec", "-T", service, "/bin/bash", "-c", command)
@@ -469,8 +474,10 @@ func (c *ComposeOrchestrator) CopyFrom(installPath, service, containerPath, host
 	}
 	var cmd *exec.Cmd
 	if compose.Path != "" {
+		//nolint:gosec // compose.Path from system lookup
 		cmd = exec.Command(compose.Path, "cp", service+":"+containerPath, hostPath)
 	} else {
+		//nolint:gosec // args from trusted caller
 		cmd = exec.Command("docker", "compose", "cp", service+":"+containerPath, hostPath)
 	}
 	if installPath != "" {
@@ -490,8 +497,10 @@ func (c *ComposeOrchestrator) CopyTo(installPath, service, hostPath, containerPa
 	}
 	var cmd *exec.Cmd
 	if compose.Path != "" {
+		//nolint:gosec // compose.Path from system lookup
 		cmd = exec.Command(compose.Path, "cp", hostPath, service+":"+containerPath)
 	} else {
+		//nolint:gosec // args from trusted caller
 		cmd = exec.Command("docker", "compose", "cp", hostPath, service+":"+containerPath)
 	}
 	if installPath != "" {

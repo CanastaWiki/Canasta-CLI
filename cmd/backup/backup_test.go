@@ -22,7 +22,7 @@ func writeWikisYaml(t *testing.T, dir string, wikis []farmsettings.Wiki) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -84,7 +84,7 @@ func TestGetWikiIDsForRestore(t *testing.T) {
 		}
 		for _, id := range []string{"main", "wiki2"} {
 			f := filepath.Join(backupDir, "db_"+id+".sql")
-			if err := os.WriteFile(f, []byte("-- dump"), 0644); err != nil {
+			if err := os.WriteFile(f, []byte("-- dump"), 0600); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -117,7 +117,7 @@ func TestGetWikiIDsForRestore(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Only create dump for wiki2, not main
-		if err := os.WriteFile(filepath.Join(backupDir, "db_wiki2.sql"), []byte("-- dump"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(backupDir, "db_wiki2.sql"), []byte("-- dump"), 0600); err != nil {
 			t.Fatal(err)
 		}
 
@@ -145,13 +145,13 @@ func TestRestorePreservesDBPasswords(t *testing.T) {
 
 	// Write an initial .env with known passwords.
 	original := "MYSQL_PASSWORD=original_root_pw\nWIKI_DB_PASSWORD=original_wiki_pw\nMW_SITE_SERVER=https://example.com\n"
-	if err := os.WriteFile(envPath, []byte(original), 0644); err != nil {
+	if err := os.WriteFile(envPath, []byte(original), 0600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Simulate the backup overwriting .env with different passwords.
 	overwritten := "MYSQL_PASSWORD=backup_root_pw\nWIKI_DB_PASSWORD=backup_wiki_pw\nMW_SITE_SERVER=https://backup.example.com\n"
-	if err := os.WriteFile(envPath, []byte(overwritten), 0644); err != nil {
+	if err := os.WriteFile(envPath, []byte(overwritten), 0600); err != nil {
 		t.Fatal(err)
 	}
 

@@ -175,12 +175,12 @@ func TestUpdateWikisYamlPorts(t *testing.T) {
   url: dev.example.com:8443/wiki
   name: Dev Wiki
 `
-	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(wikisYaml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(wikisYaml), 0600); err != nil {
 		t.Fatal(err)
 	}
 
 	envContent := "MW_SITE_SERVER=https://example.com:8443\nMW_SITE_FQDN=example.com:8443\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, ".env"), []byte(envContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, ".env"), []byte(envContent), 0600); err != nil {
 		t.Fatal(err)
 	}
 

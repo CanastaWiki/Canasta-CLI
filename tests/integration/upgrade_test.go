@@ -43,7 +43,7 @@ func TestUpgrade_MigrationsRun(t *testing.T) {
 			filteredLines = append(filteredLines, line)
 		}
 	}
-	if err := os.WriteFile(envPath, []byte(strings.Join(filteredLines, "\n")), 0644); err != nil {
+	if err := os.WriteFile(envPath, []byte(strings.Join(filteredLines, "\n")), 0600); err != nil {
 		t.Fatalf("failed to write modified .env: %v", err)
 	}
 

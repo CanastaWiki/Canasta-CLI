@@ -141,7 +141,7 @@ func TestGetPortsFromEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			if tt.envContent != "" {
-				if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(tt.envContent), 0644); err != nil {
+				if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(tt.envContent), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
