@@ -66,7 +66,7 @@ func dumpMySQL8Data(installPath string) (string, error) {
 
 	// Always clean up the temporary container
 	defer func() {
-		execute.Run("", "docker", "rm", "-f", containerName)
+		_, _ = execute.Run("", "docker", "rm", "-f", containerName)
 	}()
 
 	// Wait for MySQL to be ready

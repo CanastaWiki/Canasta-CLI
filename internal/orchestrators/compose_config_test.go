@@ -77,8 +77,12 @@ func TestComposeMigrateConfig_NothingToMigrate(t *testing.T) {
 	dir := setupTestInstall(t, "COMPOSE_PROFILES=web\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create both Caddyfiles so no migration is needed
-	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
-	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	c := &ComposeOrchestrator{}
 	changed, err := c.MigrateConfig(dir, false)
@@ -172,8 +176,12 @@ func TestComposeMigrateConfig_Observable(t *testing.T) {
 	dir := setupTestInstall(t, "CANASTA_ENABLE_OBSERVABILITY=true\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
-	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
-	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	c := &ComposeOrchestrator{}
 	changed, err := c.MigrateConfig(dir, false)
@@ -196,8 +204,12 @@ func TestComposeMigrateConfig_ObservableDryRun(t *testing.T) {
 	dir := setupTestInstall(t, "CANASTA_ENABLE_OBSERVABILITY=true\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
-	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
-	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	c := &ComposeOrchestrator{}
 	changed, err := c.MigrateConfig(dir, true)
@@ -220,8 +232,12 @@ func TestComposeMigrateConfig_ObservableAlreadyConfigured(t *testing.T) {
 	dir := setupTestInstall(t, env, "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
-	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
-	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	c := &ComposeOrchestrator{}
 	changed, err := c.MigrateConfig(dir, false)
@@ -280,8 +296,12 @@ func TestComposeMigrateConfig_OldProfileMigration(t *testing.T) {
 	dir := setupTestInstall(t, "COMPOSE_PROFILES=web,observable\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
-	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644)
-	os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	c := &ComposeOrchestrator{}
 	changed, err := c.MigrateConfig(dir, false)
