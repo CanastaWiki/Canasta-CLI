@@ -27,6 +27,10 @@ var reservedNames = []string{"settings", "images", "w", "wiki", "wikis"}
 
 // ValidateWikiID validates that wikiID doesn't contain invalid characters or reserved names
 func ValidateWikiID(wikiID string) error {
+	if wikiID == "" {
+		return fmt.Errorf("wikiID cannot be empty")
+	}
+
 	// Check if wikiID contains a hyphen (-)
 	if strings.Contains(wikiID, "-") {
 		return fmt.Errorf("The character '-' is not allowed in wikiID")
