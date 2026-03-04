@@ -67,7 +67,8 @@ func TestGenerateCmd(t *testing.T) {
 
 	wikiFlag := cmd.Flags().Lookup("wiki")
 	if wikiFlag == nil {
-		t.Error("expected flag 'wiki'")
+		t.Fatal("expected flag 'wiki'")
+		return
 	}
 	if wikiFlag.Shorthand != "w" {
 		t.Errorf("expected wiki shorthand 'w', got %q", wikiFlag.Shorthand)
@@ -84,7 +85,8 @@ func TestRemoveCmd(t *testing.T) {
 
 	wikiFlag := cmd.Flags().Lookup("wiki")
 	if wikiFlag == nil {
-		t.Error("expected flag 'wiki'")
+		t.Fatal("expected flag 'wiki'")
+		return
 	}
 	if wikiFlag.Shorthand != "w" {
 		t.Errorf("expected wiki shorthand 'w', got %q", wikiFlag.Shorthand)
@@ -92,7 +94,8 @@ func TestRemoveCmd(t *testing.T) {
 
 	yesFlag := cmd.Flags().Lookup("yes")
 	if yesFlag == nil {
-		t.Error("expected flag 'yes'")
+		t.Fatal("expected flag 'yes'")
+		return
 	}
 	if yesFlag.Shorthand != "y" {
 		t.Errorf("expected yes shorthand 'y', got %q", yesFlag.Shorthand)
