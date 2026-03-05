@@ -85,7 +85,7 @@ func runMaintenanceUpdate(instance config.Installation, wikiID string, skipJobs,
 		fmt.Printf("Running runJobs.php%s...\n", wikiMsg)
 		if err := orch.ExecStreaming(instance.Path, orchestrators.ServiceWeb,
 			"php maintenance/runJobs.php"+wikiFlag); err != nil {
-			return fmt.Errorf("runJobs.php failed%s: %v", wikiMsg, err)
+			return fmt.Errorf("runJobs.php failed%s: %w", wikiMsg, err)
 		}
 	}
 

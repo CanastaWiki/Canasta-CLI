@@ -133,7 +133,7 @@ func GetWikiIDs(installPath string) ([]string, error) {
 	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 	ids, _, _, err := ReadWikisYaml(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read wikis.yaml: %v", err)
+		return nil, fmt.Errorf("failed to read wikis.yaml: %w", err)
 	}
 	return ids, nil
 }

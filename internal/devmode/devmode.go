@@ -132,7 +132,7 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Clean up container on failure
 		_, _ = execute.Run("", "docker", "rm", "-f", containerName)
-		return fmt.Errorf("failed to copy code from container: %s (output: %s)", err, string(output))
+		return fmt.Errorf("failed to copy code from container: %w (output: %s)", err, string(output))
 	}
 
 	// Remove the temporary container

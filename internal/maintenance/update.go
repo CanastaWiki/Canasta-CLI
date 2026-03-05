@@ -22,7 +22,7 @@ func RunUpdatePhp(instance config.Installation, orch orchestrators.Orchestrator,
 	fmt.Printf("Running update.php%s...\n", wikiMsg)
 	if err := orch.ExecStreaming(instance.Path, orchestrators.ServiceWeb,
 		"php maintenance/update.php --quick"+wikiFlag); err != nil {
-		return fmt.Errorf("update.php failed%s: %v", wikiMsg, err)
+		return fmt.Errorf("update.php failed%s: %w", wikiMsg, err)
 	}
 	return nil
 }
