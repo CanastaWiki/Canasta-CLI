@@ -14,7 +14,9 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/cmd/version"
 )
 
-const githubAPIURL = "https://api.github.com/repos/CanastaWiki/Canasta-CLI/releases/latest"
+// githubAPIURL is a variable (not a constant) so that tests can override it
+// with a local httptest server URL.
+var githubAPIURL = "https://api.github.com/repos/CanastaWiki/Canasta-CLI/releases/latest"
 
 type githubRelease struct {
 	TagName string `json:"tag_name"`
@@ -132,6 +134,7 @@ func reexec(execPath string) error {
 }
 
 func getLatestVersion() (string, error) {
+	//nolint:gosec // URL is a package-level variable intentionally overridable in tests
 	resp, err := http.Get(githubAPIURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to check for updates: %w\nPlease check your network connectivity", err)
