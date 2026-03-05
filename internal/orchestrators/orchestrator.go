@@ -2,12 +2,20 @@ package orchestrators
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
+
+// currentUser returns "UID:GID" for the current process, used with
+// docker run --user so that files written to bind-mounted host paths
+// are owned by the invoking user rather than root.
+func currentUser() string {
+	return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+}
 
 // Service name constants for container orchestration.
 const (

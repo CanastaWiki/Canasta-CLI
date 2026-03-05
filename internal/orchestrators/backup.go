@@ -62,7 +62,7 @@ func runResticDocker(installPath, envPath, volName string, args ...string) (stri
 		"-v", volName + ":/currentsnapshot",
 	}
 
-	cmdArgs = append(cmdArgs, "restic/restic")
+	cmdArgs = append(cmdArgs, "restic/restic", "--cache-dir", "/tmp/restic-cache")
 	cmdArgs = append(cmdArgs, args...)
 
 	output, err := execute.Run(installPath, cmdArgs[0], cmdArgs[1:]...)
@@ -80,6 +80,7 @@ func runResticDocker(installPath, envPath, volName string, args ...string) (stri
 // "/currentsnapshot/config") to a host path.
 func restoreFromVolume(volName, installPath string, dirs map[string]string) error {
 	cmdArgs := []string{"docker", "run", "--rm",
+		"--user", currentUser(),
 		"-v", volName + ":/currentsnapshot:ro",
 		"-v", installPath + ":/install",
 	}
