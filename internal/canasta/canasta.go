@@ -23,7 +23,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 )
 
-type Variables struct {
+type CanastaVariables struct {
 	ID             string
 	AdminPassword  string
 	AdminName      string
@@ -652,7 +652,7 @@ func warnIfProblematicPassword(varName, value string) {
 
 // GenerateDBPasswords generates database passwords (root and wiki DB).
 // This should always be called, even when importing a database.
-func GenerateDBPasswords(canastaInfo Variables) (Variables, error) {
+func GenerateDBPasswords(canastaInfo CanastaVariables) (CanastaVariables, error) {
 	var err error
 
 	gen, err := safePasswordGenerator()
@@ -685,7 +685,7 @@ func GenerateDBPasswords(canastaInfo Variables) (Variables, error) {
 
 // GenerateAdminPassword generates an admin password if not provided.
 // This should only be called when NOT importing a database (i.e., running install.php).
-func GenerateAdminPassword(canastaInfo Variables) (Variables, error) {
+func GenerateAdminPassword(canastaInfo CanastaVariables) (CanastaVariables, error) {
 	var err error
 
 	gen, err := safePasswordGenerator()

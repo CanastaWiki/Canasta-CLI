@@ -31,7 +31,7 @@ func NewCmd() *cobra.Command {
 		yamlPath           string
 		err                error
 		keepConfig         bool
-		canastaInfo        canasta.Variables
+		canastaInfo        canasta.CanastaVariables
 		override           string
 		envFile            string
 		canastaImage       string // custom Canasta image reference
@@ -214,7 +214,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 }
 
 type createOptions struct {
-	CanastaInfo        canasta.Variables
+	CanastaInfo        canasta.CanastaVariables
 	Orch               orchestrators.Orchestrator
 	WorkingDir         string
 	Path               string

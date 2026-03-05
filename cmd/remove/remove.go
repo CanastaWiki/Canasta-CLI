@@ -54,7 +54,7 @@ for confirmation before any data is deleted.`,
 			}
 
 			fmt.Printf("Removing wiki '%s' from Canasta instance '%s'...\n", wikiID, instance.ID)
-			if err := Wiki(instance, wikiID, yes); err != nil {
+			if err := RemoveWiki(instance, wikiID, yes); err != nil {
 				return err
 			}
 			fmt.Println("Done.")
@@ -68,8 +68,8 @@ for confirmation before any data is deleted.`,
 	return addCmd
 }
 
-// Wiki removes a wiki with the given wikiID from a Canasta instance.
-func Wiki(instance config.Installation, wikiID string, yes bool) error {
+// RemoveWiki removes a wiki with the given wikiID from a Canasta instance.
+func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
 		return err

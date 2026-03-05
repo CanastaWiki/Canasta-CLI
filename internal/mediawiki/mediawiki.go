@@ -35,7 +35,7 @@ func WaitForDB(path string, orch orchestrators.Orchestrator) error {
 	return nil
 }
 
-func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo canasta.Variables) (canasta.Variables, error) {
+func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo canasta.CanastaVariables) (canasta.CanastaVariables, error) {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")

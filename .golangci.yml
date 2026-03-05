@@ -2,3 +2,8 @@ linters-settings:
   gosec:
     excludes:
       - G306
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - disableStutteringCheck

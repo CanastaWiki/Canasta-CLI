@@ -137,7 +137,7 @@ an existing database dump instead of running the installer.`,
 			}
 
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.ID)
-			err = Wiki(WikiOptions{
+			err = AddWiki(AddWikiOptions{
 				Instance:         instance,
 				WikiID:           wikiID,
 				SiteName:         siteName,
@@ -175,8 +175,8 @@ an existing database dump instead of running the installer.`,
 	return addCmd
 }
 
-// WikiOptions contains the parameters needed to add a wiki to a Canasta instance.
-type WikiOptions struct {
+// AddWikiOptions contains the parameters needed to add a wiki to a Canasta instance.
+type AddWikiOptions struct {
 	Instance         config.Installation
 	WikiID           string
 	SiteName         string
@@ -190,8 +190,8 @@ type WikiOptions struct {
 	WorkingDir       string
 }
 
-// Wiki accepts the Canasta instance info, wiki ID, site name, domain and path of the new wiki, database info, and the initial admin info, then creates a new wiki in the Canasta instance.
-func Wiki(opts WikiOptions) error {
+// AddWiki accepts the Canasta instance info, wiki ID, site name, domain and path of the new wiki, database info, and the initial admin info, then creates a new wiki in the Canasta instance.
+func AddWiki(opts AddWikiOptions) error {
 	orch, err := orchestrators.New(opts.Instance.Orchestrator)
 	if err != nil {
 		return err

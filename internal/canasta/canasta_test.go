@@ -195,7 +195,7 @@ func TestDeleteEnvVariable(t *testing.T) {
 }
 
 func TestGenerateAdminAndDBPasswords(t *testing.T) {
-	info := Variables{
+	info := CanastaVariables{
 		ID:        "test",
 		AdminName: "admin",
 	}
@@ -255,7 +255,7 @@ func TestGenerateAdminAndDBPasswords(t *testing.T) {
 }
 
 func TestGeneratePasswordsPreserveExisting(t *testing.T) {
-	info := Variables{
+	info := CanastaVariables{
 		ID:             "test",
 		AdminName:      "admin",
 		AdminPassword:  "myadminpass",
@@ -285,7 +285,7 @@ func TestGeneratePasswordsPreserveExisting(t *testing.T) {
 }
 
 func TestGenerateDBPasswordsRootUser(t *testing.T) {
-	info := Variables{
+	info := CanastaVariables{
 		WikiDBUsername: "root",
 	}
 
