@@ -115,6 +115,10 @@ func CheckMemoryInGB(minGB int) error {
 }
 
 func gbToByte(gb int) uint64 {
+	if gb < 0 {
+		return 0
+	}
+	//nolint:gosec // gb is validated non-negative above
 	return uint64(gb) * 1024 * 1024 * 1024
 }
 
