@@ -296,91 +296,36 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	return nil
 }
 
+// migrationStep is a function that checks and optionally applies a single
+// config migration. It returns true if the migration is needed (and was
+// applied unless dryRun is set).
+type migrationStep func(installPath string, dryRun bool) (bool, error)
+
 // runMigration orchestrates all migration steps
 func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bool) (bool, error) {
 	fmt.Println("Checking for config migrations...")
 
+	steps := []migrationStep{
+		extractSecretKey,          // 1. Extract or generate MW_SECRET_KEY
+		migrateDirectoryStructure, // 2. Migrate directory structure
+		fixVectorDefaultSkin,      // 3. Fix Vector.php default skin
+		func(p string, d bool) (bool, error) { return orch.MigrateConfig(p, d) }, // 4. Orchestrator-specific migrations
+		removeEmptyComposerLocal,  // 5. Remove empty composer.local.json
+		removeLegacyGitDir,        // 6. Remove legacy .git directory
+		removeSkipBinaryAsHex,     // 7. Remove skip-binary-as-hex from my.cnf
+		backfillCanastaImage,      // 8. Backfill CANASTA_IMAGE in .env
+		addVclSpecialRandomBypass, // 9. Add Special:Random cache bypass
+	}
+
 	changed := false
-
-	// Step 1: Extract or generate MW_SECRET_KEY
-	keyChanged, err := extractSecretKey(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if keyChanged {
-		changed = true
-	}
-
-	// Step 2: Migrate directory structure
-	dirChanged, err := migrateDirectoryStructure(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if dirChanged {
-		changed = true
-	}
-
-	// Step 3: Fix Vector.php default skin
-	vectorChanged, err := fixVectorDefaultSkin(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if vectorChanged {
-		changed = true
-	}
-
-	// Step 4: Orchestrator-specific config migrations (Caddyfiles, etc.)
-	orchChanged, err := orch.MigrateConfig(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if orchChanged {
-		changed = true
-	}
-
-	// Step 5: Remove empty composer.local.json so the image's version is synced
-	composerChanged, err := removeEmptyComposerLocal(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if composerChanged {
-		changed = true
-	}
-
-	// Step 6: Remove legacy .git directory (installations are no longer git repos)
-	gitChanged, err := removeLegacyGitDir(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if gitChanged {
-		changed = true
-	}
-
-	// Step 7: Remove skip-binary-as-hex from my.cnf (breaks mariadb-admin health check)
-	mycnfChanged, err := removeSkipBinaryAsHex(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if mycnfChanged {
-		changed = true
-	}
-
-	// Step 8: Backfill CANASTA_IMAGE in .env for legacy installations
-	imageChanged, err := backfillCanastaImage(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if imageChanged {
-		changed = true
-	}
-
-	// Step 9: Add Special:Random cache bypass to default.vcl
-	vclChanged, err := addVclSpecialRandomBypass(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if vclChanged {
-		changed = true
+	for _, step := range steps {
+		stepChanged, err := step(installPath, dryRun)
+		if err != nil {
+			return false, err
+		}
+		if stepChanged {
+			changed = true
+		}
 	}
 
 	switch {
