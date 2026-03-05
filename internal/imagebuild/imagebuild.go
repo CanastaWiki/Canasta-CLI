@@ -33,7 +33,8 @@ func BuildFromSource(workspacePath string) (string, error) {
 	// Check if Canasta has a Dockerfile
 	canastaDockerfile := filepath.Join(canastaPath, "Dockerfile")
 	if _, err := os.Stat(canastaDockerfile); os.IsNotExist(err) {
-		//nolint:stylecheck // Dockerfile is a proper noun (filename)
+		// Dockerfile is a proper noun (filename).
+		//nolint:stylecheck
 		return "", fmt.Errorf("Dockerfile not found in Canasta repo at %s", canastaDockerfile)
 	}
 
