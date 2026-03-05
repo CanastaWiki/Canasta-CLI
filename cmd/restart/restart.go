@@ -30,7 +30,7 @@ restart. Use 'canasta devmode enable' or 'canasta devmode disable' to
 change the development mode setting.`,
 		Example: `  # Restart an installation by ID
   canasta restart -i myinstance`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta restart --id %s)", args[0], args[0])
 			}

@@ -27,7 +27,7 @@ generator will automatically refresh them.`,
 
   # Generate sitemaps for all wikis
   canasta sitemap generate -i myinstance`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			return runGenerate(*instance, *orch, wikiID)
 		},
 	}

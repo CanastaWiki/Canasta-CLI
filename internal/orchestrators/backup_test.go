@@ -29,7 +29,7 @@ func TestBackupVolumeName(t *testing.T) {
 func captureShellArg(t *testing.T) *string {
 	t.Helper()
 	var captured string
-	execute.Run = func(path, command string, args ...string) (string, error) {
+	execute.Run = func(_, _ string, args ...string) (string, error) {
 		for i, a := range args {
 			if a == "-c" && i > 0 && args[i-1] == "sh" && i+1 < len(args) {
 				captured = args[i+1]

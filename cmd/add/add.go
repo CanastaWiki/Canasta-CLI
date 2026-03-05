@@ -87,7 +87,7 @@ an existing database dump instead of running the installer.`,
 
   # Add a wiki with an existing database dump
   canasta add -i myinstance -w docs -u localhost/docs -d /path/to/dump.sql`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return fmt.Errorf("unknown argument %q; use flags to specify options (e.g. canasta add --wiki <wiki> --url <url>)", args[0])
 			}
@@ -175,7 +175,7 @@ an existing database dump instead of running the installer.`,
 	return addCmd
 }
 
-// AddWikiOptions contains all the parameters needed to add a wiki to a Canasta instance.
+// AddWikiOptions contains the parameters needed to add a wiki to a Canasta instance.
 type AddWikiOptions struct {
 	Instance         config.Installation
 	WikiID           string
@@ -254,7 +254,7 @@ func AddWiki(opts AddWikiOptions) error {
 
 	// Run MediaWiki installer only if not importing a database
 	if opts.DatabasePath == "" {
-		err = mediawiki.InstallOne(opts.Instance.Path, opts.WikiID, opts.Domain, opts.Admin, opts.AdminPassword, opts.WikiDBUser, opts.WorkingDir, orch)
+		err = mediawiki.InstallOne(opts.Instance.Path, opts.WikiID, opts.Domain, opts.Admin, opts.AdminPassword, opts.WikiDBUser, orch)
 		if err != nil {
 			return err
 		}

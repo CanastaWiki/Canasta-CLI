@@ -40,7 +40,7 @@ for confirmation before any data is deleted.`,
 
   # Remove without confirmation prompt
   canasta remove -i myinstance -w docs -y`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if wikiID == "" {
 				if len(args) > 0 {
 					return fmt.Errorf("unknown argument %q; use --wiki to specify the wiki ID (e.g. canasta remove --wiki %s)", args[0], args[0])
@@ -68,7 +68,7 @@ for confirmation before any data is deleted.`,
 	return addCmd
 }
 
-// RemoveWiki removes a wiki with the given wikiID from a Canasta instance
+// RemoveWiki removes a wiki with the given wikiID from a Canasta instance.
 func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {

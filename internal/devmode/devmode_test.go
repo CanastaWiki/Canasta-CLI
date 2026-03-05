@@ -26,7 +26,7 @@ func TestIsDevModeSetup(t *testing.T) {
 		},
 		{
 			name: "neither file present",
-			setup: func(t *testing.T, dir string) {
+			setup: func(_ *testing.T, _ string) {
 			},
 			want: false,
 		},

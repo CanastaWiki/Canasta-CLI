@@ -38,11 +38,11 @@ and backing up multiple Canasta instances, including wiki farms with multiple
 wikis per instance.`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+	PersistentPreRun: func(_ *cobra.Command, _ []string) {
 		logging.SetVerbose(verbose)
 		logging.Print("Verbose logging enabled")
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(cmd *cobra.Command, _ []string) {
 		_ = cmd.Help()
 	},
 }

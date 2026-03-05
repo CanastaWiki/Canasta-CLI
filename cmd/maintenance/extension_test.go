@@ -18,24 +18,24 @@ type extMockOrchestrator struct {
 	streamingErr   error
 }
 
-func (m *extMockOrchestrator) CheckDependencies() error                 { return nil }
-func (m *extMockOrchestrator) WriteStackFiles(installPath string) error { return nil }
-func (m *extMockOrchestrator) UpdateStackFiles(installPath string, dryRun bool) (bool, error) {
+func (m *extMockOrchestrator) CheckDependencies() error       { return nil }
+func (m *extMockOrchestrator) WriteStackFiles(_ string) error { return nil }
+func (m *extMockOrchestrator) UpdateStackFiles(_ string, _ bool) (bool, error) {
 	return false, nil
 }
-func (m *extMockOrchestrator) Start(inst config.Installation) error {
+func (m *extMockOrchestrator) Start(_ config.Installation) error {
 	return nil
 }
-func (m *extMockOrchestrator) Stop(inst config.Installation) error {
+func (m *extMockOrchestrator) Stop(_ config.Installation) error {
 	return nil
 }
-func (m *extMockOrchestrator) Update(installPath string) (*orchestrators.UpdateReport, error) {
+func (m *extMockOrchestrator) Update(_ string) (*orchestrators.UpdateReport, error) {
 	return nil, nil
 }
-func (m *extMockOrchestrator) Destroy(installPath string) (string, error) {
+func (m *extMockOrchestrator) Destroy(_ string) (string, error) {
 	return "", nil
 }
-func (m *extMockOrchestrator) ExecWithError(installPath, service, command string) (string, error) {
+func (m *extMockOrchestrator) ExecWithError(_, _, command string) (string, error) {
 	m.calls = append(m.calls, command)
 	if m.execOutputs != nil {
 		for key, output := range m.execOutputs {
@@ -46,47 +46,47 @@ func (m *extMockOrchestrator) ExecWithError(installPath, service, command string
 	}
 	return "", m.execErr
 }
-func (m *extMockOrchestrator) ExecStreaming(installPath, service, command string) error {
+func (m *extMockOrchestrator) ExecStreaming(_, _, command string) error {
 	m.streamingCalls = append(m.streamingCalls, command)
 	return m.streamingErr
 }
-func (m *extMockOrchestrator) CheckRunningStatus(inst config.Installation) error {
+func (m *extMockOrchestrator) CheckRunningStatus(_ config.Installation) error {
 	return nil
 }
-func (m *extMockOrchestrator) CopyFrom(installPath, service, containerPath, hostPath string) error {
+func (m *extMockOrchestrator) CopyFrom(_, _, _, _ string) error {
 	return nil
 }
-func (m *extMockOrchestrator) CopyTo(installPath, service, hostPath, containerPath string) error {
+func (m *extMockOrchestrator) CopyTo(_, _, _, _ string) error {
 	return nil
 }
 
-func (m *extMockOrchestrator) RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
+func (m *extMockOrchestrator) RunBackup(_, _ string, _ map[string]string, _ ...string) (string, error) {
 	return "", nil
 }
 
-func (m *extMockOrchestrator) RestoreFromBackupVolume(installPath string, dirs map[string]string) error {
+func (m *extMockOrchestrator) RestoreFromBackupVolume(_ string, _ map[string]string) error {
 	return nil
 }
-func (m *extMockOrchestrator) InitConfig(installPath string) error {
+func (m *extMockOrchestrator) InitConfig(_ string) error {
 	return nil
 }
-func (m *extMockOrchestrator) UpdateConfig(installPath string) error {
+func (m *extMockOrchestrator) UpdateConfig(_ string) error {
 	return nil
 }
-func (m *extMockOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool, error) {
+func (m *extMockOrchestrator) MigrateConfig(_ string, _ bool) (bool, error) {
 	return false, nil
 }
 
-func (m *extMockOrchestrator) ListServices(inst config.Installation) ([]string, error) {
+func (m *extMockOrchestrator) ListServices(_ config.Installation) ([]string, error) {
 	return nil, nil
 }
-func (m *extMockOrchestrator) ExecInteractive(inst config.Installation, service string, command []string) error {
+func (m *extMockOrchestrator) ExecInteractive(_ config.Installation, _ string, _ []string) error {
 	return nil
 }
 func (m *extMockOrchestrator) Name() string            { return "Mock" }
 func (m *extMockOrchestrator) SupportsDevMode() bool   { return true }
 func (m *extMockOrchestrator) SupportsImagePull() bool { return true }
-func (m *extMockOrchestrator) StopAndStart(inst config.Installation) error {
+func (m *extMockOrchestrator) StopAndStart(_ config.Installation) error {
 	return nil
 }
 

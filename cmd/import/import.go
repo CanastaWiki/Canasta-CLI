@@ -36,7 +36,7 @@ To create a new wiki from a database dump, use the --database flag with
 
   # Import a gzipped dump and replace the wiki's Settings.php
   canasta import -i myinstance -w main -d /path/to/dump.sql.gz -l /path/to/Settings.php`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 
 			instance, err = canasta.CheckCanastaID(instance)

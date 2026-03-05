@@ -42,7 +42,7 @@ installation directory.`,
   # Schedule hourly backups
   canasta backup schedule set -i myinstance "0 * * * *"`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			return scheduleBackup(*instance, strings.Join(args, " "))
 		},
 	}
@@ -54,7 +54,7 @@ func newScheduleListCmd(instance *config.Installation) *cobra.Command {
 		Short:   "Show the backup schedule",
 		Long:    `Show the current backup schedule for this installation, if one exists.`,
 		Example: `  canasta backup schedule list -i myinstance`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			return listSchedule(*instance)
 		},
 	}
@@ -66,7 +66,7 @@ func newScheduleRemoveCmd(instance *config.Installation) *cobra.Command {
 		Short:   "Remove a scheduled backup",
 		Long:    `Remove the crontab entry for recurring backups of this installation.`,
 		Example: `  canasta backup schedule remove -i myinstance`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			return unscheduleBackup(*instance)
 		},
 	}

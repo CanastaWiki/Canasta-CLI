@@ -75,7 +75,7 @@ func TestScriptAcceptsZeroArgs(t *testing.T) {
 	// script accepts 0 args (lists scripts) or 1 arg (runs a script)
 	// override PreRunE/RunE to isolate arg validation
 	scriptCmd.PreRunE = nil
-	scriptCmd.RunE = func(cmd *cobra.Command, args []string) error { return nil }
+	scriptCmd.RunE = func(_ *cobra.Command, _ []string) error { return nil }
 
 	cmd.SetArgs([]string{"script"})
 	if err := cmd.Execute(); err != nil {

@@ -35,12 +35,12 @@ Use --wiki to target a specific wiki in a farm.`,
   # Run a script for a specific wiki in a farm
   canasta maintenance script "rebuildrecentchanges.php" -i myinstance --wiki=docs`,
 		Args: cobra.RangeArgs(0, 1),
-		PreRunE: func(cmd *cobra.Command, args []string) error {
+		PreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return listMaintenanceScripts(*instance)
 			}

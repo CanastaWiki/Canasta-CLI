@@ -30,7 +30,7 @@ func NewCmd() *cobra.Command {
 Sitemaps improve search engine indexing by listing all pages on your wiki.
 Use "canasta sitemap generate" to create sitemaps and "canasta sitemap remove"
 to delete them.`,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {

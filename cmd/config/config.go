@@ -79,7 +79,7 @@ Other settings (database passwords, secret keys, etc.) are generated
 by "canasta create" and should not be changed directly.
 To change the domain, first edit config/wikis.yaml, then use
 "canasta config set" to update MW_SITE_SERVER and MW_SITE_FQDN.`,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {

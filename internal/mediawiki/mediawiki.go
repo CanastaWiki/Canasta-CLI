@@ -131,7 +131,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 	return canastaInfo, nil
 }
 
-func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDir string, orch orchestrators.Orchestrator) error {
+func InstallOne(installPath, id, domain, admin, adminPassword, dbuser string, orch orchestrators.Orchestrator) error {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
