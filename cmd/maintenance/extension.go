@@ -111,7 +111,7 @@ func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst con
 	for _, id := range wikiIDs {
 		exts, err := getLoadedExtensions(orch, inst.Path, id)
 		if err != nil {
-			return fmt.Errorf("failed to query loaded extensions for wiki %q: %v", id, err)
+			return fmt.Errorf("failed to query loaded extensions for wiki %q: %w", id, err)
 		}
 		for _, ext := range exts {
 			loaded[ext] = true
@@ -168,7 +168,7 @@ func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Insta
 	for _, id := range wikiIDs {
 		exts, err := getLoadedExtensions(orch, inst.Path, id)
 		if err != nil {
-			return fmt.Errorf("failed to query loaded extensions for wiki %q: %v", id, err)
+			return fmt.Errorf("failed to query loaded extensions for wiki %q: %w", id, err)
 		}
 		for _, ext := range exts {
 			if ext == extName {
@@ -235,7 +235,7 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 	// Check that the extension is loaded for the target wiki
 	exts, err := getLoadedExtensions(orch, inst.Path, checkWiki)
 	if err != nil {
-		return fmt.Errorf("failed to query loaded extensions for wiki %q: %v", checkWiki, err)
+		return fmt.Errorf("failed to query loaded extensions for wiki %q: %w", checkWiki, err)
 	}
 	loaded := false
 	for _, ext := range exts {
@@ -273,7 +273,7 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 
 	fmt.Printf("Running %s%s...\n", cleanedScript, wikiMsg)
 	if err := orch.ExecStreaming(inst.Path, orchestrators.ServiceWeb, cmd); err != nil {
-		return fmt.Errorf("%s failed%s: %v", cleanedScript, wikiMsg, err)
+		return fmt.Errorf("%s failed%s: %w", cleanedScript, wikiMsg, err)
 	}
 
 	fmt.Printf("Completed %s%s\n", cleanedScript, wikiMsg)

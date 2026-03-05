@@ -358,7 +358,7 @@ func GetConfigDir() (string, error) {
 		// Checks if this is running as root
 		currentUser, err := user.Current()
 		if err != nil {
-			return "", fmt.Errorf("unable to get the current user: %s", err)
+			return "", fmt.Errorf("unable to get the current user: %w", err)
 		}
 
 		if currentUser.Username == "root" {

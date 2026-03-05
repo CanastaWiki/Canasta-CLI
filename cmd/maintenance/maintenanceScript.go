@@ -107,7 +107,7 @@ func runMaintenanceScriptWith(orch orchestrators.Orchestrator, inst config.Insta
 	fmt.Println("Running maintenance script " + cleanedScript)
 	if err := orch.ExecStreaming(inst.Path, orchestrators.ServiceWeb,
 		"php maintenance/"+cleanedScript+wikiFlag); err != nil {
-		return fmt.Errorf("maintenance script failed: %v", err)
+		return fmt.Errorf("maintenance script failed: %w", err)
 	}
 	fmt.Println("Completed running maintenance script")
 	return nil

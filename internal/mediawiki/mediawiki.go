@@ -275,7 +275,7 @@ func RemoveDatabase(installPath, id string, orch orchestrators.Orchestrator) err
 	command := fmt.Sprintf("echo 'DROP DATABASE IF EXISTS %s;' | mariadb -h db -u root -p%s", orchestrators.ShellQuote(id), orchestrators.ShellQuote(envVariables["MYSQL_PASSWORD"]))
 	output, err := orch.ExecWithError(installPath, orchestrators.ServiceDB, command)
 	if err != nil {
-		return fmt.Errorf("error while dropping database '%s': %v. Output: %s", id, err, output)
+		return fmt.Errorf("error while dropping database '%s': %w. Output: %s", id, err, output)
 	}
 
 	return nil

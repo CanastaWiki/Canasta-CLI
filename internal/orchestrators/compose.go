@@ -60,7 +60,7 @@ func (c *ComposeOrchestrator) CheckDependencies() error {
 	}
 	cmd := composeCommand(compose, "version")
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker compose is not available (%s)", err)
+		return fmt.Errorf("docker compose is not available: %w", err)
 	}
 	return nil
 }
