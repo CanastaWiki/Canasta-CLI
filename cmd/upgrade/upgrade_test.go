@@ -349,7 +349,8 @@ func TestRemoveEmptyComposerLocalPreservesPopulated(t *testing.T) {
 }
 
 func TestAddVclSpecialRandomBypass(t *testing.T) {
-	//nolint:gosec // G101: not credentials, VCL config for tests
+	// Not credentials, VCL config for tests.
+	//nolint:gosec
 	vclWithoutBypass := `vcl 4.0;
 
 backend default {
@@ -366,7 +367,8 @@ sub vcl_recv {
     call mobile_detect;
 }`
 
-	//nolint:gosec // G101: not credentials, VCL config for tests
+	// Not credentials, VCL config for tests.
+	//nolint:gosec
 	vclWithBypass := `vcl 4.0;
 
 backend default {
