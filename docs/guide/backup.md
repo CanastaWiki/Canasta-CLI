@@ -109,20 +109,20 @@ If the new instance uses a different domain name than the original, you must upd
 
 1. Edit `config/wikis.yaml` and change the `url` field for each wiki to the new domain:
 
-   ```yaml
-   wikis:
-   - id: main
-     url: newdomain.example.com
-     name: main
-   ```
+    ```yaml
+    wikis:
+    - id: main
+      url: newdomain.example.com
+      name: main
+    ```
 
 2. Update the `.env` file to match:
 
-   ```bash
-   canasta config set -i other-instance MW_SITE_SERVER=https://newdomain.example.com MW_SITE_FQDN=newdomain.example.com
-   ```
+    ```bash
+    canasta config set -i other-instance MW_SITE_SERVER=https://newdomain.example.com MW_SITE_FQDN=newdomain.example.com
+    ```
 
-   This also regenerates the Caddyfile and restarts the instance.
+    This also regenerates the Caddyfile and restarts the instance.
 
 ### Inspecting a backup
 
