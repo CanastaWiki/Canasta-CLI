@@ -108,7 +108,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	var err error
 
 	// Check installation existence
-	instance, err = canasta.CheckCanastaId(instance)
+	instance, err = canasta.CheckCanastaID(instance)
 	if err != nil {
 		return err
 	}

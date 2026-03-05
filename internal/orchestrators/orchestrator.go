@@ -80,7 +80,7 @@ type UpdateReport struct {
 // DeleteConfig removes the installation directory from disk.
 // This is a pure filesystem operation, not orchestrator-specific.
 func DeleteConfig(installPath string) (string, error) {
-	err, output := execute.Run("", "rm", "-rf", installPath)
+	output, err := execute.Run("", "rm", "-rf", installPath)
 	return output, err
 }
 

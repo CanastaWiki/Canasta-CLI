@@ -54,7 +54,7 @@ Use --wiki to target a specific wiki.`,
 		Args: cobra.ArbitraryArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			*instance, err = canasta.CheckCanastaId(*instance)
+			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -181,7 +181,7 @@ func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Insta
 		}
 	}
 	if !loaded {
-		return fmt.Errorf("Extension %q is not loaded for the target wiki(s)", extName)
+		return fmt.Errorf("extension %q is not loaded for the target wiki(s)", extName)
 	}
 
 	// Check that the extension has a maintenance directory
@@ -245,7 +245,7 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 		}
 	}
 	if !loaded {
-		return fmt.Errorf("Extension %q is not loaded for wiki %q", extName, checkWiki)
+		return fmt.Errorf("extension %q is not loaded for wiki %q", extName, checkWiki)
 	}
 
 	// Determine which path the extension is at

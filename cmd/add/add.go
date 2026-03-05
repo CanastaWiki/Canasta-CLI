@@ -103,12 +103,12 @@ an existing database dump instead of running the installer.`,
 			if !strings.HasPrefix(urlString, "http://") && !strings.HasPrefix(urlString, "https://") {
 				urlString = "https://" + urlString
 			}
-			parsedUrl, err := urlpkg.Parse(urlString)
+			parsedURL, err := urlpkg.Parse(urlString)
 			if err != nil {
 				return fmt.Errorf("failed to parse URL: %w", err)
 			}
-			domainName = parsedUrl.Host
-			wikiPath = strings.Trim(parsedUrl.Path, "/")
+			domainName = parsedURL.Host
+			wikiPath = strings.Trim(parsedURL.Path, "/")
 
 			// Validate wiki URL path
 			if err := farmsettings.ValidateWikiPath(wikiPath); err != nil {
@@ -131,12 +131,12 @@ an existing database dump instead of running the installer.`,
 				fmt.Printf("Generated admin password for wiki '%s'\n", wikiID)
 			}
 
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
 
-			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.Id)
+			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.ID)
 			err = AddWiki(AddWikiOptions{
 				Instance:         instance,
 				WikiID:           wikiID,
@@ -161,7 +161,7 @@ an existing database dump instead of running the installer.`,
 	addCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the new wiki")
 	addCmd.Flags().StringVarP(&url, "url", "u", "", "URL of the new wiki (domain/path format, e.g., 'localhost/wiki2' or 'example.com/mywiki'; do not include protocol/scheme)")
 	addCmd.Flags().StringVarP(&siteName, "site-name", "t", "", "Display name of the wiki (optional, defaults to wiki ID)")
-	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	addCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	addCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
 	addCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
 	addCmd.Flags().StringVarP(&admin, "admin", "a", "WikiSysop", "Admin name of the new wiki (default: \"WikiSysop\")")
@@ -215,15 +215,15 @@ func AddWiki(opts AddWikiOptions) error {
 		return err
 	}
 	if wikiIDExists {
-		return fmt.Errorf("A wiki with the ID '%s' exists", opts.WikiID)
+		return fmt.Errorf("a wiki with the ID '%s' exists", opts.WikiID)
 	}
 
-	urlExists, err := farmsettings.WikiUrlExists(opts.Instance.Path, opts.Domain, opts.WikiPath)
+	urlExists, err := farmsettings.WikiURLExists(opts.Instance.Path, opts.Domain, opts.WikiPath)
 	if err != nil {
 		return err
 	}
 	if urlExists {
-		return fmt.Errorf("A wiki with the same installation path '%s' in the Canasta instance '%s' exists", opts.WikiID+": "+opts.Domain+"/"+opts.WikiPath, opts.Instance.Id)
+		return fmt.Errorf("a wiki with the same installation path '%s' in the Canasta instance '%s' exists", opts.WikiID+": "+opts.Domain+"/"+opts.WikiPath, opts.Instance.ID)
 	}
 
 	// Import the database if databasePath is specified
@@ -277,7 +277,7 @@ func AddWiki(opts AddWikiOptions) error {
 		return err
 	}
 
-	fmt.Println("Successfully added wiki '" + opts.WikiID + "' in Canasta instance '" + opts.Instance.Id + "'...")
+	fmt.Println("Successfully added wiki '" + opts.WikiID + "' in Canasta instance '" + opts.Instance.ID + "'...")
 
 	return nil
 }

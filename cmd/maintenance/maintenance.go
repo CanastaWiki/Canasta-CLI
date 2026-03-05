@@ -34,7 +34,7 @@ arbitrary core maintenance scripts, or run extension-specific maintenance script
 	maintenanceCmd.AddCommand(newExtensionCmd(&instance, &wiki))
 	maintenanceCmd.AddCommand(newExecCmd(&instance))
 
-	maintenanceCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	maintenanceCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	maintenanceCmd.PersistentFlags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on (default: all wikis)")
 	return maintenanceCmd
 }

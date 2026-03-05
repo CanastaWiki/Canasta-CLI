@@ -122,7 +122,7 @@ func scheduleBackup(instance config.Installation, cronExpression string) error {
 	logPath := filepath.Join(instance.Path, "backup.log")
 	quotedLogPath := orchestrators.ShellQuote(logPath)
 	rotateCmd := fmt.Sprintf("find %s -size +10M -exec mv {} %s \\;", quotedLogPath, orchestrators.ShellQuote(logPath+".1"))
-	cmdStr := fmt.Sprintf("%s %s && %s backup create -i %s --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> %s 2>&1", cronExpression, rotateCmd, executable, instance.Id, quotedLogPath)
+	cmdStr := fmt.Sprintf("%s %s && %s backup create -i %s --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> %s 2>&1", cronExpression, rotateCmd, executable, instance.ID, quotedLogPath)
 
 	logging.Print(fmt.Sprintf("Scheduling backup with cron: %s", cronExpression))
 
@@ -133,12 +133,12 @@ func scheduleBackup(instance config.Installation, cronExpression string) error {
 
 	var newLines []string
 	updated := false
-	identifier := jobIdentifierForInstance(instance.Id)
+	identifier := jobIdentifierForInstance(instance.ID)
 
 	for _, line := range lines {
 		if strings.Contains(line, identifier) {
 			oldCron := cronFromLine(line)
-			fmt.Printf("Replacing existing schedule '%s' with '%s' for instance '%s'.\n", oldCron, cronExpression, instance.Id)
+			fmt.Printf("Replacing existing schedule '%s' with '%s' for instance '%s'.\n", oldCron, cronExpression, instance.ID)
 			fmt.Println("Tip: to schedule multiple times, combine them in one expression (e.g., \"0 0 * * 2,5\" for Tuesdays and Fridays).")
 			newLines = append(newLines, cmdStr)
 			updated = true
@@ -165,24 +165,24 @@ func listSchedule(instance config.Installation) error {
 		return err
 	}
 
-	identifier := jobIdentifierForInstance(instance.Id)
+	identifier := jobIdentifierForInstance(instance.ID)
 	for _, line := range lines {
 		if strings.Contains(line, identifier) {
-			fmt.Printf("Instance '%s' is scheduled for backup at: %s\n", instance.Id, cronFromLine(line))
+			fmt.Printf("Instance '%s' is scheduled for backup at: %s\n", instance.ID, cronFromLine(line))
 			return nil
 		}
 	}
 
-	return fmt.Errorf("no backup schedule found for instance '%s'", instance.Id)
+	return fmt.Errorf("no backup schedule found for instance '%s'", instance.ID)
 }
 
 func unscheduleBackup(instance config.Installation) error {
-	removed, err := RemoveSchedule(instance.Id)
+	removed, err := RemoveSchedule(instance.ID)
 	if err != nil {
 		return err
 	}
 	if !removed {
-		return fmt.Errorf("no backup schedule found for instance '%s'", instance.Id)
+		return fmt.Errorf("no backup schedule found for instance '%s'", instance.ID)
 	}
 	fmt.Println("Backup schedule removed.")
 	return nil

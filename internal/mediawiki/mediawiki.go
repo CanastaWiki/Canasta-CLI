@@ -213,7 +213,7 @@ func backupLegacySettings(installPath string) (useNewArchitecture bool, original
 	wikisYamlExists, _ := fileExists(filepath.Join(installPath, "config", "wikis.yaml"))
 
 	if !localExists && !commonExists && !wikisYamlExists {
-		return false, "", fmt.Errorf("No valid configuration found (wikis.yaml, LocalSettings.php, or CommonSettings.php)")
+		return false, "", fmt.Errorf("no valid configuration found (wikis.yaml, LocalSettings.php, or CommonSettings.php)")
 	}
 
 	useNewArchitecture = wikisYamlExists && !localExists && !commonExists
@@ -235,11 +235,11 @@ func backupLegacySettings(installPath string) (useNewArchitecture bool, original
 		backupFile = localSettingsBackup
 	}
 
-	err, _ = execute.Run(installPath, "cp", filepath.Join(configDir, originalSettingsFile), filepath.Join(configDir, backupFile))
+	_, err = execute.Run(installPath, "cp", filepath.Join(configDir, originalSettingsFile), filepath.Join(configDir, backupFile))
 	if err != nil {
 		return false, "", err
 	}
-	err, _ = execute.Run(installPath, "rm", filepath.Join(configDir, originalSettingsFile))
+	_, err = execute.Run(installPath, "rm", filepath.Join(configDir, originalSettingsFile))
 	if err != nil {
 		return false, "", err
 	}
@@ -263,7 +263,7 @@ func restoreLegacySettings(installPath string, useNewArchitecture bool, original
 	}
 
 	// Restore as CommonSettings.php (both cases: existing farm or single→farm conversion)
-	err, _ := execute.Run(installPath, "mv", filepath.Join(configDir, backupFile), filepath.Join(configDir, commonSettingsFile))
+	_, err := execute.Run(installPath, "mv", filepath.Join(configDir, backupFile), filepath.Join(configDir, commonSettingsFile))
 	return err
 }
 
@@ -275,7 +275,7 @@ func RemoveDatabase(installPath, id string, orch orchestrators.Orchestrator) err
 	command := fmt.Sprintf("echo 'DROP DATABASE IF EXISTS %s;' | mariadb -h db -u root -p%s", orchestrators.ShellQuote(id), orchestrators.ShellQuote(envVariables["MYSQL_PASSWORD"]))
 	output, err := orch.ExecWithError(installPath, orchestrators.ServiceDB, command)
 	if err != nil {
-		return fmt.Errorf("Error while dropping database '%s': %v. Output: %s", id, err, output)
+		return fmt.Errorf("error while dropping database '%s': %v. Output: %s", id, err, output)
 	}
 
 	return nil

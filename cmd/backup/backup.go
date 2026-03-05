@@ -37,7 +37,7 @@ and schedule recurring backups. Requires RESTIC_REPOSITORY (or AWS S3 settings)
 and RESTIC_PASSWORD to be configured in the installation's .env file.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -67,7 +67,7 @@ and RESTIC_PASSWORD to be configured in the installation's .env file.`,
 	backupCmd.AddCommand(newDiffCmd(&orch, &instance, &envPath, &repoURL))
 	backupCmd.AddCommand(newScheduleCmd(&instance))
 
-	backupCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	backupCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	return backupCmd
 
 }
@@ -92,7 +92,7 @@ func getWikiIDs(installPath string) ([]string, error) {
 	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
 	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read wikis.yaml: %w", err)
+		return nil, fmt.Errorf("failed to read wikis.yaml: %w", err)
 	}
 	return ids, nil
 }

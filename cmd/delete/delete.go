@@ -43,13 +43,13 @@ prompted for confirmation before any data is deleted.`,
 				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta delete --id %s)", args[0], args[0])
 			}
 			var err error
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
 			if !yes {
 				reader := bufio.NewReader(os.Stdin)
-				fmt.Printf("This will permanently delete the Canasta installation '%s' and all its data. Continue? [y/N] ", instance.Id)
+				fmt.Printf("This will permanently delete the Canasta installation '%s' and all its data. Continue? [y/N] ", instance.ID)
 				text, _ := reader.ReadString('\n')
 				text = strings.ToLower(strings.TrimSpace(text))
 				if text != "y" {
@@ -63,13 +63,13 @@ prompted for confirmation before any data is deleted.`,
 			return nil
 		},
 	}
-	deleteCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	deleteCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	deleteCmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
 	return deleteCmd
 }
 
 func Delete(instance config.Installation) error {
-	description := "Deleting Canasta installation '" + instance.Id + "'..."
+	description := "Deleting Canasta installation '" + instance.ID + "'..."
 	stopSpinner := spinner.New(description)
 	defer stopSpinner() // ensure cleanup on error paths
 
@@ -107,14 +107,14 @@ func Delete(instance config.Installation) error {
 	}
 
 	// Remove any scheduled backup crontab entry
-	if removed, err := backupCmd.RemoveSchedule(instance.Id); err != nil {
+	if removed, err := backupCmd.RemoveSchedule(instance.ID); err != nil {
 		logging.Print(fmt.Sprintf("Warning: could not clean up backup schedule: %v\n", err))
 	} else if removed {
 		logging.Print("Removed backup schedule.\n")
 	}
 
 	// Deleting installation details from conf.json
-	if err = config.Delete(instance.Id); err != nil {
+	if err = config.Delete(instance.ID); err != nil {
 		return err
 	}
 

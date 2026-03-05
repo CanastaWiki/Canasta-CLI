@@ -91,7 +91,7 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 	// Local images (e.g., "canasta:local") don't need pulling
 	if strings.Contains(baseImage, "/") {
 		logging.Print(fmt.Sprintf("Pulling image %s...\n", baseImage))
-		if err, output := execute.Run("", "docker", "pull", baseImage); err != nil {
+		if output, err := execute.Run("", "docker", "pull", baseImage); err != nil {
 			return fmt.Errorf("failed to pull image: %s", output)
 		}
 	} else {
@@ -111,13 +111,13 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 	_, _ = execute.Run("", "docker", "rm", "-f", containerName)
 
 	logging.Print("Starting temporary container for code extraction...\n")
-	if err, output := execute.Run("", "docker", "run", "-d", "--name", containerName, baseImage, "sleep", "infinity"); err != nil {
+	if output, err := execute.Run("", "docker", "run", "-d", "--name", containerName, baseImage, "sleep", "infinity"); err != nil {
 		return fmt.Errorf("failed to start temporary container: %s", output)
 	}
 
 	// Run the symlinks script to create extensions/ and skins/ symlinks
 	logging.Print("Creating extension and skin symlinks...\n")
-	if err, output := execute.Run("", "docker", "exec", containerName, "/create-symlinks.sh"); err != nil {
+	if output, err := execute.Run("", "docker", "exec", containerName, "/create-symlinks.sh"); err != nil {
 		_, _ = execute.Run("", "docker", "rm", "-f", containerName)
 		return fmt.Errorf("failed to create symlinks: %s", output)
 	}
@@ -136,7 +136,7 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 
 	// Remove the temporary container
 	logging.Print("Removing temporary container...\n")
-	if err, output := execute.Run("", "docker", "rm", "-f", containerName); err != nil {
+	if output, err := execute.Run("", "docker", "rm", "-f", containerName); err != nil {
 		return fmt.Errorf("failed to remove temporary container: %s", output)
 	}
 
@@ -200,7 +200,7 @@ func consolidateUserDir(installPath, codeDir, dirName, userDirName string) error
 			}
 
 			// Copy directory recursively using cp -r
-			if err, output := execute.Run("", "cp", "-r", srcPath, dstPath); err != nil {
+			if output, err := execute.Run("", "cp", "-r", srcPath, dstPath); err != nil {
 				return fmt.Errorf("failed to copy %s: %s", entry.Name(), output)
 			}
 		}
@@ -326,8 +326,8 @@ func WriteIDEConfigs(installPath string) error {
 	if err := os.MkdirAll(vscodeDir, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("failed to create .vscode directory: %w", err)
 	}
-	launchJsonPath := filepath.Join(vscodeDir, "launch.json")
-	if err := os.WriteFile(launchJsonPath, []byte(vscodeLaunchContent), permissions.FilePermission); err != nil {
+	launchJSONPath := filepath.Join(vscodeDir, "launch.json")
+	if err := os.WriteFile(launchJSONPath, []byte(vscodeLaunchContent), permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to create VSCode launch.json: %w", err)
 	}
 
@@ -340,10 +340,10 @@ func WriteIDEConfigs(installPath string) error {
 	if err := os.MkdirAll(runConfDir, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("failed to create .idea/runConfigurations directory: %w", err)
 	}
-	phpXmlContent := strings.Replace(phpstormServerConfig, `host="localhost"`, fmt.Sprintf(`host="%s"`, host), 1)
-	phpXmlContent = strings.Replace(phpXmlContent, `port="80"`, fmt.Sprintf(`port="%s"`, port), 1)
-	phpXmlPath := filepath.Join(ideaDir, "php.xml")
-	if err := os.WriteFile(phpXmlPath, []byte(phpXmlContent), permissions.FilePermission); err != nil {
+	phpXMLContent := strings.Replace(phpstormServerConfig, `host="localhost"`, fmt.Sprintf(`host="%s"`, host), 1)
+	phpXMLContent = strings.Replace(phpXMLContent, `port="80"`, fmt.Sprintf(`port="%s"`, port), 1)
+	phpXMLPath := filepath.Join(ideaDir, "php.xml")
+	if err := os.WriteFile(phpXMLPath, []byte(phpXMLContent), permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to create PHPStorm php.xml: %w", err)
 	}
 
@@ -471,7 +471,7 @@ func restoreUserDir(installPath, dirName, userDirName string) error {
 			dstPath := filepath.Join(symlinkPath, entry.Name())
 
 			logging.Print(fmt.Sprintf("  Copying %s to %s/...\n", entry.Name(), dirName))
-			if err, output := execute.Run("", "cp", "-r", srcPath, dstPath); err != nil {
+			if output, err := execute.Run("", "cp", "-r", srcPath, dstPath); err != nil {
 				return fmt.Errorf("failed to copy %s: %s", entry.Name(), output)
 			}
 		}

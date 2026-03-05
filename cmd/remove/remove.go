@@ -48,12 +48,12 @@ for confirmation before any data is deleted.`,
 				return fmt.Errorf("--wiki flag is required")
 			}
 
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
 
-			fmt.Printf("Removing wiki '%s' from Canasta instance '%s'...\n", wikiID, instance.Id)
+			fmt.Printf("Removing wiki '%s' from Canasta instance '%s'...\n", wikiID, instance.ID)
 			if err := RemoveWiki(instance, wikiID, yes); err != nil {
 				return err
 			}
@@ -63,7 +63,7 @@ for confirmation before any data is deleted.`,
 	}
 
 	addCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki")
-	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	addCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	addCmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
 	return addCmd
 }
@@ -96,12 +96,12 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 		return err
 	}
 	if !exists {
-		return fmt.Errorf("A wiki with the ID '%s' does not exist", wikiID)
+		return fmt.Errorf("a wiki with the ID '%s' does not exist", wikiID)
 	}
 
 	if !yes {
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("This will delete the wiki " + wikiID + " in the Canasta instance " + instance.Id + " and the corresponding database. Continue? [y/N] ")
+		fmt.Print("This will delete the wiki " + wikiID + " in the Canasta instance " + instance.ID + " and the corresponding database. Continue? [y/N] ")
 		text, _ := reader.ReadString('\n')
 		text = strings.ToLower(strings.TrimSpace(text))
 
@@ -159,7 +159,7 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 		return err
 	}
 
-	fmt.Println("Successfully removed wiki " + wikiID + " from Canasta instance " + instance.Id + ".")
+	fmt.Println("Successfully removed wiki " + wikiID + " from Canasta instance " + instance.ID + ".")
 
 	return nil
 }

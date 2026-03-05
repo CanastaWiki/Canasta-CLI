@@ -17,7 +17,7 @@ import (
 func newRestoreCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
 
 	var (
-		snapshotId         string
+		snapshotID         string
 		skipBeforeSnapshot bool
 		wikiID             string
 	)
@@ -41,18 +41,18 @@ images, and public assets from the backup, leaving shared files untouched.`,
   # Restore only a single wiki's database
   canasta backup restore -i myinstance -s abc123 -w wiki2`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return restoreSnapshot(*orch, *instance, *envPath, *repoURL, snapshotId, skipBeforeSnapshot, wikiID)
+			return restoreSnapshot(*orch, *instance, *envPath, *repoURL, snapshotID, skipBeforeSnapshot, wikiID)
 		},
 	}
 
-	restoreCmd.Flags().StringVarP(&snapshotId, "snapshot", "s", "", "Snapshot ID (required)")
+	restoreCmd.Flags().StringVarP(&snapshotID, "snapshot", "s", "", "Snapshot ID (required)")
 	restoreCmd.Flags().BoolVar(&skipBeforeSnapshot, "skip-safety-backup", false, "Skip taking a safety backup before restore")
 	restoreCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "Restore only this wiki's database and per-wiki files")
 	_ = restoreCmd.MarkFlagRequired("snapshot")
 	return restoreCmd
 }
 
-func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Installation, envPath, repoURL, snapshotId string, skipBeforeSnapshot bool, wikiID string) error {
+func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Installation, envPath, repoURL, snapshotID string, skipBeforeSnapshot bool, wikiID string) error {
 	envVariables, envErr := canasta.GetEnvVariable(envPath)
 	if envErr != nil {
 		return envErr
@@ -60,14 +60,14 @@ func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Installati
 
 	if !skipBeforeSnapshot {
 		logging.Print("Taking snapshot...")
-		if err := takeSnapshot(orch, instance, envPath, repoURL, "BeforeRestoring-"+snapshotId); err != nil {
+		if err := takeSnapshot(orch, instance, envPath, repoURL, "BeforeRestoring-"+snapshotID); err != nil {
 			return err
 		}
 		logging.Print("Snapshot taken...")
 	}
 
 	logging.Print("Restoring snapshot to backup volume...")
-	_, err := runBackup(orch, instance.Path, envPath, nil, "-r", repoURL, "restore", snapshotId, "--target", "/")
+	_, err := runBackup(orch, instance.Path, envPath, nil, "-r", repoURL, "restore", snapshotID, "--target", "/")
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, 
 	_, restoreErr := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, command)
 	if restoreErr != nil {
 		cleanupBackupDir(instance.Path)
-		return fmt.Errorf("Database restore failed for wiki '%s': %w", wikiID, restoreErr)
+		return fmt.Errorf("database restore failed for wiki '%s': %w", wikiID, restoreErr)
 	}
 
 	// Clean up the database dump directory
@@ -173,7 +173,7 @@ func restoreFull(orch orchestrators.Orchestrator, instance config.Installation, 
 			orchestrators.ShellQuote(env["MYSQL_PASSWORD"]), dumpPath(id))
 		_, restoreErr := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, command)
 		if restoreErr != nil {
-			return fmt.Errorf("Database restore failed for wiki '%s': %w", id, restoreErr)
+			return fmt.Errorf("database restore failed for wiki '%s': %w", id, restoreErr)
 		}
 	}
 
@@ -198,7 +198,7 @@ func getWikiIDsForRestore(installPath string) ([]string, error) {
 	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
 	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read wikis.yaml: %w", err)
+		return nil, fmt.Errorf("failed to read wikis.yaml: %w", err)
 	}
 
 	var result []string
@@ -210,7 +210,7 @@ func getWikiIDsForRestore(installPath string) ([]string, error) {
 	}
 
 	if len(result) == 0 {
-		return nil, fmt.Errorf("No database dump files found in backup")
+		return nil, fmt.Errorf("no database dump files found in backup")
 	}
 	return result, nil
 }

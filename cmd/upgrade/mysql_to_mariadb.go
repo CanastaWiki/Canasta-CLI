@@ -30,7 +30,7 @@ func composeVolumeName(installPath, volume string) string {
 //nolint:unparam
 func detectMySQL8Data(installPath string) (bool, error) {
 	volName := composeVolumeName(installPath, "mysql-data-volume")
-	err, _ := execute.Run("", "docker", "run", "--rm",
+	_, err := execute.Run("", "docker", "run", "--rm",
 		"-v", volName+":/data",
 		"alpine", "test", "-f", "/data/mysql.ibd")
 	return err == nil, nil
@@ -58,7 +58,7 @@ func dumpMySQL8Data(installPath string) (string, error) {
 
 	// Start a temporary MySQL 8.0 container with the existing data volume
 	fmt.Println("  Starting temporary MySQL 8.0 container for dump...")
-	err, output := execute.Run("", "docker", "run", "-d",
+	output, err := execute.Run("", "docker", "run", "-d",
 		"--name", containerName,
 		"-v", volName+":/var/lib/mysql",
 		"-e", "MYSQL_ROOT_PASSWORD="+password,
@@ -74,7 +74,7 @@ func dumpMySQL8Data(installPath string) (string, error) {
 
 	// Wait for MySQL to be ready
 	fmt.Println("  Waiting for MySQL 8.0 to be ready...")
-	err, output = execute.Run("", "docker", "exec", containerName,
+	output, err = execute.Run("", "docker", "exec", containerName,
 		"mysqladmin", "ping", "-h", "localhost",
 		"--user=root", "--password="+password,
 		"--wait=60")
@@ -84,7 +84,7 @@ func dumpMySQL8Data(installPath string) (string, error) {
 
 	// List user databases (exclude system databases)
 	fmt.Println("  Listing user databases...")
-	err, output = execute.Run("", "docker", "exec", containerName,
+	output, err = execute.Run("", "docker", "exec", containerName,
 		"mysql", "--user=root", "--password="+password,
 		"--skip-column-names", "--batch",
 		"-e", "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('mysql','information_schema','performance_schema','sys')")
@@ -113,7 +113,7 @@ func dumpMySQL8Data(installPath string) (string, error) {
 	// Dump all user databases into a single file inside the container
 	dumpCmd := fmt.Sprintf("mysqldump --user=root --password=%s --databases %s --single-transaction --routines --triggers --events > /tmp/dump.sql",
 		shellEscape(password), strings.Join(databases, " "))
-	err, output = execute.Run("", "docker", "exec", containerName,
+	output, err = execute.Run("", "docker", "exec", containerName,
 		"bash", "-c", dumpCmd)
 	if err != nil {
 		return "", fmt.Errorf("mysqldump failed: %s", output)
@@ -126,7 +126,7 @@ func dumpMySQL8Data(installPath string) (string, error) {
 	}
 	tmpFile.Close()
 
-	err, output = execute.Run("", "docker", "cp",
+	output, err = execute.Run("", "docker", "cp",
 		containerName+":/tmp/dump.sql", tmpFile.Name())
 	if err != nil {
 		os.Remove(tmpFile.Name())
@@ -142,7 +142,7 @@ func dumpMySQL8Data(installPath string) (string, error) {
 func clearMySQLDataVolume(installPath string) error {
 	volName := composeVolumeName(installPath, "mysql-data-volume")
 	fmt.Println("  Clearing MySQL data volume for fresh MariaDB initialization...")
-	err, output := execute.Run("", "docker", "run", "--rm",
+	output, err := execute.Run("", "docker", "run", "--rm",
 		"-v", volName+":/data",
 		"alpine", "sh", "-c", "rm -rf /data/*")
 	if err != nil {

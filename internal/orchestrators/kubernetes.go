@@ -422,7 +422,7 @@ func (k *KubernetesOrchestrator) RunBackup(installPath, envPath string, volumes 
 	volName := backupVolumeName(installPath)
 
 	// Docker is available (required by kind), so create the staging volume
-	err, output := execute.Run("", "docker", "volume", "create", volName)
+	output, err := execute.Run("", "docker", "volume", "create", volName)
 	if err != nil {
 		return "", fmt.Errorf("failed to create backup volume: %s", output)
 	}

@@ -154,7 +154,7 @@ func TestExecError(t *testing.T) {
 
 func TestStopAndStart(t *testing.T) {
 	mock := &mockOrchestrator{}
-	instance := config.Installation{Id: "test", Path: "/tmp/test"}
+	instance := config.Installation{ID: "test", Path: "/tmp/test"}
 
 	err := StopAndStart(mock, instance)
 	if err != nil {
@@ -168,7 +168,7 @@ func TestStopAndStart(t *testing.T) {
 
 func TestStopAndStartStopError(t *testing.T) {
 	mock := &mockOrchestrator{stopErr: fmt.Errorf("stop failed")}
-	instance := config.Installation{Id: "test", Path: "/tmp/test"}
+	instance := config.Installation{ID: "test", Path: "/tmp/test"}
 
 	err := StopAndStart(mock, instance)
 	if err == nil {
@@ -185,7 +185,7 @@ func TestStopAndStartStopError(t *testing.T) {
 
 func TestImportDatabase(t *testing.T) {
 	mock := &mockOrchestrator{}
-	instance := config.Installation{Id: "test", Path: "/tmp/test"}
+	instance := config.Installation{ID: "test", Path: "/tmp/test"}
 
 	err := ImportDatabase(mock, "mywiki", "/path/to/dump.sql", "secret", instance)
 	if err != nil {
@@ -221,7 +221,7 @@ func TestImportDatabase(t *testing.T) {
 
 func TestImportDatabaseCompressed(t *testing.T) {
 	mock := &mockOrchestrator{}
-	instance := config.Installation{Id: "test", Path: "/tmp/test"}
+	instance := config.Installation{ID: "test", Path: "/tmp/test"}
 
 	err := ImportDatabase(mock, "mywiki", "/path/to/dump.sql.gz", "secret", instance)
 	if err != nil {
@@ -242,7 +242,7 @@ func TestImportDatabaseCompressed(t *testing.T) {
 
 func TestImportDatabaseCopyError(t *testing.T) {
 	mock := &mockOrchestrator{copyToErr: fmt.Errorf("copy failed")}
-	instance := config.Installation{Id: "test", Path: "/tmp/test"}
+	instance := config.Installation{ID: "test", Path: "/tmp/test"}
 
 	err := ImportDatabase(mock, "mywiki", "/path/to/dump.sql", "secret", instance)
 	if err == nil {
@@ -252,7 +252,7 @@ func TestImportDatabaseCopyError(t *testing.T) {
 
 func TestImportDatabaseDefaultPassword(t *testing.T) {
 	mock := &mockOrchestrator{}
-	instance := config.Installation{Id: "test", Path: "/tmp/test"}
+	instance := config.Installation{ID: "test", Path: "/tmp/test"}
 
 	err := ImportDatabase(mock, "mywiki", "/path/to/dump.sql", "", instance)
 	if err != nil {

@@ -39,7 +39,7 @@ To create a new wiki from a database dump, use the --database flag with
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
 
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -60,7 +60,7 @@ To create a new wiki from a database dump, use the --database flag with
 				return err
 			}
 			if !exists {
-				return fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.Id)
+				return fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.ID)
 			}
 
 			// Validate database path
@@ -73,7 +73,7 @@ To create a new wiki from a database dump, use the --database flag with
 				return err
 			}
 
-			fmt.Printf("Importing database into wiki '%s' in Canasta instance '%s'...\n", wikiID, instance.Id)
+			fmt.Printf("Importing database into wiki '%s' in Canasta instance '%s'...\n", wikiID, instance.ID)
 			if err := importDatabase(orch, instance, wikiID, databasePath, settingsPath, workingDir); err != nil {
 				return err
 			}
@@ -88,7 +88,7 @@ To create a new wiki from a database dump, use the --database flag with
 	}
 	instance.Path = workingDir
 
-	importCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	importCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	importCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to import into")
 	importCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to SQL dump file (.sql or .sql.gz)")
 	importCmd.Flags().StringVarP(&settingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to replace the existing one")

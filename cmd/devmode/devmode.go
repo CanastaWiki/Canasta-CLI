@@ -32,7 +32,7 @@ mode extracts MediaWiki code for live editing and enables Xdebug for step
 debugging. This is only supported with Docker Compose.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -47,7 +47,7 @@ debugging. This is only supported with Docker Compose.`,
 		},
 	}
 
-	devmodeCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	devmodeCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 
 	devmodeCmd.AddCommand(newEnableCmd(&instance, &orch))
 	devmodeCmd.AddCommand(newDisableCmd(&instance, &orch))

@@ -37,7 +37,7 @@ Use --wiki to target a specific wiki in a farm.`,
 		Args: cobra.RangeArgs(0, 1),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			*instance, err = canasta.CheckCanastaId(*instance)
+			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {

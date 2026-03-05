@@ -33,11 +33,11 @@ development mode setting.`,
 			if len(args) > 0 {
 				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta start --id %s)", args[0], args[0])
 			}
-			resolvedInstance, err := canasta.CheckCanastaId(instance)
+			resolvedInstance, err := canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
-			fmt.Println("Starting Canasta installation '" + resolvedInstance.Id + "'...")
+			fmt.Println("Starting Canasta installation '" + resolvedInstance.ID + "'...")
 			if err := Start(resolvedInstance); err != nil {
 				return err
 			}
@@ -45,7 +45,7 @@ development mode setting.`,
 			return nil
 		},
 	}
-	startCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	startCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	return startCmd
 }
 

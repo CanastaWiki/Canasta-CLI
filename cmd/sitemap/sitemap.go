@@ -32,7 +32,7 @@ Use "canasta sitemap generate" to create sitemaps and "canasta sitemap remove"
 to delete them.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -47,7 +47,7 @@ to delete them.`,
 	sitemapCmd.AddCommand(newGenerateCmd(&instance, &orch))
 	sitemapCmd.AddCommand(newRemoveCmd(&instance, &orch))
 
-	sitemapCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	sitemapCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 
 	return sitemapCmd
 }

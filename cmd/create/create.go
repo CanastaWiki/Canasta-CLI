@@ -72,13 +72,13 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 
 			// Validate Canasta instance ID format
 			validString := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$`)
-			if !validString.MatchString(canastaInfo.Id) {
-				return fmt.Errorf("Canasta instance ID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed")
+			if !validString.MatchString(canastaInfo.ID) {
+				return fmt.Errorf("canasta instance ID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed")
 			}
 
 			// Check for duplicate ID before doing any work
-			if _, err := config.GetDetails(canastaInfo.Id); err == nil {
-				return fmt.Errorf("Canasta installation with ID '%s' already exists", canastaInfo.Id)
+			if _, err := config.GetDetails(canastaInfo.ID); err == nil {
+				return fmt.Errorf("canasta installation with ID '%s' already exists", canastaInfo.ID)
 			}
 
 			// Validate --canasta-image and --build-from are mutually exclusive
@@ -127,7 +127,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 				}
 			}
 
-			stopSpinner := spinner.New("Creating Canasta installation '" + canastaInfo.Id + "'...")
+			stopSpinner := spinner.New("Creating Canasta installation '" + canastaInfo.ID + "'...")
 
 			orch, err := orchestrators.New(orchestrator)
 			if err != nil {
@@ -167,10 +167,10 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 				stopSpinner()
 				fmt.Print(err.Error(), "\n")
 				if !keepConfig {
-					deleteConfigAndContainers(filepath.Join(path, canastaInfo.Id), orch)
-					return fmt.Errorf("Installation failed and files were cleaned up")
+					deleteConfigAndContainers(filepath.Join(path, canastaInfo.ID), orch)
+					return fmt.Errorf("installation failed and files were cleaned up")
 				}
-				return fmt.Errorf("Installation failed. Keeping all the containers and config files")
+				return fmt.Errorf("installation failed. Keeping all the containers and config files")
 			}
 			stopSpinner()
 			fmt.Println("\033[32mPlease note that mailing does not currently work on this wiki, because Canasta requires $wgSMTP to be set in order to send emails (see https://www.mediawiki.org/wiki/Manual:$wgSMTP).\033[0m")
@@ -185,7 +185,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 
 	createCmd.Flags().StringVarP(&path, "path", "p", workingDir, "Canasta directory")
 	createCmd.Flags().StringVarP(&orchestrator, "orchestrator", "o", "compose", "Orchestrator to use (compose or kubernetes)")
-	createCmd.Flags().StringVarP(&canastaInfo.Id, "id", "i", "", "Canasta instance ID")
+	createCmd.Flags().StringVarP(&canastaInfo.ID, "id", "i", "", "Canasta instance ID")
 	createCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki")
 	createCmd.Flags().StringVarP(&siteName, "site-name", "t", "", "Display name of the wiki (optional, defaults to wiki ID)")
 	createCmd.Flags().StringVarP(&domain, "domain-name", "n", "localhost", "Domain name")
@@ -259,7 +259,7 @@ func createCanasta(opts createOptions) error {
 	}
 
 	// Create the installation directory and write orchestrator stack files
-	path := filepath.Join(opts.Path, opts.CanastaInfo.Id)
+	path := filepath.Join(opts.Path, opts.CanastaInfo.ID)
 	if err := os.MkdirAll(path, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("failed to create installation directory: %w", err)
 	}
@@ -321,7 +321,7 @@ func createCanasta(opts createOptions) error {
 	var kindClusterName string
 	if opts.CreateCluster && isK8s {
 		httpPort, httpsPort := orchestrators.GetPortsFromEnv(path)
-		kindClusterName = orchestrators.KindClusterName(opts.CanastaInfo.Id)
+		kindClusterName = orchestrators.KindClusterName(opts.CanastaInfo.ID)
 		if err := orchestrators.CreateKindCluster(kindClusterName, httpPort, httpsPort); err != nil {
 			return fmt.Errorf("failed to create kind cluster: %w", err)
 		}
@@ -402,7 +402,7 @@ func createCanasta(opts createOptions) error {
 	if isK8s {
 		reg = opts.Registry
 	}
-	instance := config.Installation{Id: opts.CanastaInfo.Id, Path: path, Orchestrator: opts.Orchestrator, DevMode: false, ManagedCluster: opts.CreateCluster, Registry: reg, KindCluster: kindClusterName, BuildFrom: opts.BuildFromPath}
+	instance := config.Installation{ID: opts.CanastaInfo.ID, Path: path, Orchestrator: opts.Orchestrator, DevMode: false, ManagedCluster: opts.CreateCluster, Registry: reg, KindCluster: kindClusterName, BuildFrom: opts.BuildFromPath}
 	if err := config.Add(instance); err != nil {
 		return err
 	}
