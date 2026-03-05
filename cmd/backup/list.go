@@ -17,7 +17,7 @@ func newListCmd(orch *orchestrators.Orchestrator, instance *config.Installation,
 		Long: `List all snapshots stored in the backup repository. Displays
 each snapshot's ID, timestamp, hostname, and tags.`,
 		Example: `  canasta backup list -i myinstance`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			output, err := runBackup(*orch, instance.Path, *envPath, nil, "-r", *repoURL, "snapshots")
 			if err != nil {
 				return err

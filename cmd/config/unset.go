@@ -30,7 +30,7 @@ is removed. The instance is then restarted unless --no-restart is specified.`,
   canasta config unset HTTP_PORT HTTPS_PORT -i myinstance
   canasta config unset CANASTA_ENABLE_OBSERVABILITY -i myinstance --no-restart`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			envPath := filepath.Join(instance.Path, ".env")
 			envVars, err := canasta.GetEnvVariable(envPath)
 			if err != nil {

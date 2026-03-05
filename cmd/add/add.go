@@ -87,7 +87,7 @@ an existing database dump instead of running the installer.`,
 
   # Add a wiki with an existing database dump
   canasta add -i myinstance -w docs -u localhost/docs -d /path/to/dump.sql`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return fmt.Errorf("unknown argument %q; use flags to specify options (e.g. canasta add --wiki <wiki> --url <url>)", args[0])
 			}
@@ -137,7 +137,7 @@ an existing database dump instead of running the installer.`,
 			}
 
 			fmt.Printf("Adding wiki '%s' to Canasta instance '%s'...\n", wikiID, instance.ID)
-			err = AddWiki(AddWikiOptions{
+			err = Wiki(WikiOptions{
 				Instance:         instance,
 				WikiID:           wikiID,
 				SiteName:         siteName,
@@ -175,8 +175,8 @@ an existing database dump instead of running the installer.`,
 	return addCmd
 }
 
-// AddWikiOptions contains all the parameters needed to add a wiki to a Canasta instance.
-type AddWikiOptions struct {
+// WikiOptions contains the parameters needed to add a wiki to a Canasta instance.
+type WikiOptions struct {
 	Instance         config.Installation
 	WikiID           string
 	SiteName         string
@@ -190,8 +190,8 @@ type AddWikiOptions struct {
 	WorkingDir       string
 }
 
-// AddWiki accepts the Canasta instance info, wiki ID, site name, domain and path of the new wiki, database info, and the initial admin info, then creates a new wiki in the Canasta instance.
-func AddWiki(opts AddWikiOptions) error {
+// Wiki accepts the Canasta instance info, wiki ID, site name, domain and path of the new wiki, database info, and the initial admin info, then creates a new wiki in the Canasta instance.
+func Wiki(opts WikiOptions) error {
 	orch, err := orchestrators.New(opts.Instance.Orchestrator)
 	if err != nil {
 		return err
@@ -254,7 +254,7 @@ func AddWiki(opts AddWikiOptions) error {
 
 	// Run MediaWiki installer only if not importing a database
 	if opts.DatabasePath == "" {
-		err = mediawiki.InstallOne(opts.Instance.Path, opts.WikiID, opts.Domain, opts.Admin, opts.AdminPassword, opts.WikiDBUser, opts.WorkingDir, orch)
+		err = mediawiki.InstallOne(opts.Instance.Path, opts.WikiID, opts.Domain, opts.Admin, opts.AdminPassword, opts.WikiDBUser, orch)
 		if err != nil {
 			return err
 		}

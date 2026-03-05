@@ -26,7 +26,7 @@ with .env, docker-compose.override.yml, and my.cnf (if present), then
 uploads the snapshot to the backup repository with the specified tag.`,
 		Example: `  # Create a backup with a descriptive tag
   canasta backup create -i myinstance -t before-upgrade`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if err := takeSnapshot(*orch, *instance, *envPath, *repoURL, tag); err != nil {
 				return err
 			}

@@ -29,7 +29,7 @@ has development mode enabled, it starts with Xdebug automatically. Use
 development mode setting.`,
 		Example: `  # Start an installation by ID
   canasta start -i myinstance`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta start --id %s)", args[0], args[0])
 			}

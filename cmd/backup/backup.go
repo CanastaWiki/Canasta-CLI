@@ -35,7 +35,7 @@ func NewCmd() *cobra.Command {
 a backup repository, create and restore backups, list and compare backups,
 and schedule recurring backups. Requires RESTIC_REPOSITORY (or AWS S3 settings)
 and RESTIC_PASSWORD to be configured in the installation's .env file.`,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {

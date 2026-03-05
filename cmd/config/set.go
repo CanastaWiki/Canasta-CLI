@@ -119,7 +119,7 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
   canasta config set HTTP_PORT=8080 HTTPS_PORT=8443 -i myinstance
   canasta config set CANASTA_ENABLE_OBSERVABILITY=true -i myinstance`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			envPath := filepath.Join(instance.Path, ".env")
 			envVars, err := canasta.GetEnvVariable(envPath)
 			if err != nil {
@@ -211,7 +211,7 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 }
 
 // validatePort checks that the value is a valid port number.
-func validatePort(inst config.Installation, value string) error {
+func validatePort(_ config.Installation, value string) error {
 	port, err := strconv.Atoi(value)
 	if err != nil || port < 1 || port > 65535 {
 		return fmt.Errorf("invalid port number: %s", value)

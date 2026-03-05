@@ -23,7 +23,7 @@ With no arguments, prints all settings sorted alphabetically as KEY=VALUE lines.
 With a KEY argument, prints just the value (no KEY= prefix) for easy scripting.
 Key lookup is case-insensitive.`,
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			envPath := filepath.Join(instance.Path, ".env")
 			envVars, err := canasta.GetEnvVariable(envPath)
 			if err != nil {

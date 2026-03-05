@@ -18,7 +18,7 @@ func newFilesCmd(orch *orchestrators.Orchestrator, instance *config.Installation
 		Long: `List all files contained in a specific backup snapshot. This is useful
 for inspecting what was backed up before performing a restore.`,
 		Example: `  canasta backup files -i myinstance -s abc123`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			output, err := runBackup(*orch, instance.Path, *envPath, nil, "-r", *repoURL, "ls", snapshot)
 			if err != nil {
 				return err

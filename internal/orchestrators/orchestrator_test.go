@@ -19,81 +19,81 @@ type mockOrchestrator struct {
 }
 
 func (m *mockOrchestrator) CheckDependencies() error                 { return nil }
-func (m *mockOrchestrator) WriteStackFiles(installPath string) error { return nil }
-func (m *mockOrchestrator) UpdateStackFiles(installPath string, dryRun bool) (bool, error) {
+func (m *mockOrchestrator) WriteStackFiles(_ string) error { return nil }
+func (m *mockOrchestrator) UpdateStackFiles(_ string, _ bool) (bool, error) {
 	return false, nil
 }
 
-func (m *mockOrchestrator) Start(instance config.Installation) error {
+func (m *mockOrchestrator) Start(_ config.Installation) error {
 	m.calls = append(m.calls, "Start")
 	return m.startErr
 }
 
-func (m *mockOrchestrator) Stop(instance config.Installation) error {
+func (m *mockOrchestrator) Stop(_ config.Installation) error {
 	m.calls = append(m.calls, "Stop")
 	return m.stopErr
 }
 
-func (m *mockOrchestrator) Update(installPath string) (*UpdateReport, error) {
+func (m *mockOrchestrator) Update(_ string) (*UpdateReport, error) {
 	return nil, nil
 }
 
-func (m *mockOrchestrator) Destroy(installPath string) (string, error) {
+func (m *mockOrchestrator) Destroy(_ string) (string, error) {
 	return "", nil
 }
 
-func (m *mockOrchestrator) ExecWithError(installPath, service, command string) (string, error) {
+func (m *mockOrchestrator) ExecWithError(_, service, command string) (string, error) {
 	m.calls = append(m.calls, fmt.Sprintf("ExecWithError:%s:%s", service, command))
 	return m.execOutput, m.execErr
 }
 
-func (m *mockOrchestrator) ExecStreaming(installPath, service, command string) error {
+func (m *mockOrchestrator) ExecStreaming(_, _, _ string) error {
 	return nil
 }
 
-func (m *mockOrchestrator) CheckRunningStatus(instance config.Installation) error {
+func (m *mockOrchestrator) CheckRunningStatus(_ config.Installation) error {
 	return nil
 }
 
-func (m *mockOrchestrator) CopyFrom(installPath, service, containerPath, hostPath string) error {
+func (m *mockOrchestrator) CopyFrom(_, service, containerPath, hostPath string) error {
 	m.calls = append(m.calls, fmt.Sprintf("CopyFrom:%s:%s:%s", service, containerPath, hostPath))
 	return nil
 }
 
-func (m *mockOrchestrator) CopyTo(installPath, service, hostPath, containerPath string) error {
+func (m *mockOrchestrator) CopyTo(_, service, hostPath, containerPath string) error {
 	m.calls = append(m.calls, fmt.Sprintf("CopyTo:%s:%s:%s", service, hostPath, containerPath))
 	return m.copyToErr
 }
 
-func (m *mockOrchestrator) RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
+func (m *mockOrchestrator) RunBackup(_, _ string, _ map[string]string, args ...string) (string, error) {
 	m.calls = append(m.calls, fmt.Sprintf("RunBackup:%s", strings.Join(args, " ")))
 	return m.execOutput, m.execErr
 }
 
-func (m *mockOrchestrator) RestoreFromBackupVolume(installPath string, dirs map[string]string) error {
+func (m *mockOrchestrator) RestoreFromBackupVolume(_ string, _ map[string]string) error {
 	m.calls = append(m.calls, "RestoreFromBackupVolume")
 	return nil
 }
 
-func (m *mockOrchestrator) InitConfig(installPath string) error {
+func (m *mockOrchestrator) InitConfig(_ string) error {
 	m.calls = append(m.calls, "InitConfig")
 	return nil
 }
 
-func (m *mockOrchestrator) UpdateConfig(installPath string) error {
+func (m *mockOrchestrator) UpdateConfig(_ string) error {
 	m.calls = append(m.calls, "UpdateConfig")
 	return nil
 }
 
-func (m *mockOrchestrator) MigrateConfig(installPath string, dryRun bool) (bool, error) {
+func (m *mockOrchestrator) MigrateConfig(_ string, _ bool) (bool, error) {
 	m.calls = append(m.calls, "MigrateConfig")
 	return false, nil
 }
 
-func (m *mockOrchestrator) ListServices(instance config.Installation) ([]string, error) {
+func (m *mockOrchestrator) ListServices(_ config.Installation) ([]string, error) {
 	return nil, nil
 }
-func (m *mockOrchestrator) ExecInteractive(instance config.Installation, service string, command []string) error {
+func (m *mockOrchestrator) ExecInteractive(_ config.Installation, _ string, _ []string) error {
 	return nil
 }
 func (m *mockOrchestrator) Name() string            { return "Mock" }

@@ -36,12 +36,12 @@ The default service is "web" (the MediaWiki container).`,
 
   # Default service is "web", so this also works
   canasta maintenance exec -i myinstance -- php -v`,
-		PreRunE: func(cmd *cobra.Command, args []string) error {
+		PreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			orch, err := orchestrators.New(instance.Orchestrator)
 			if err != nil {
 				return err

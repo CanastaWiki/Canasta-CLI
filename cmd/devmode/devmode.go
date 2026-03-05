@@ -30,7 +30,7 @@ func NewCmd() *cobra.Command {
 		Long: `Enable or disable development mode on a Canasta installation. Development
 mode extracts MediaWiki code for live editing and enables Xdebug for step
 debugging. This is only supported with Docker Compose.`,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {

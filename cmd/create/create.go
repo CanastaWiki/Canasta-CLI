@@ -31,7 +31,7 @@ func NewCmd() *cobra.Command {
 		yamlPath           string
 		err                error
 		keepConfig         bool
-		canastaInfo        canasta.CanastaVariables
+		canastaInfo        canasta.Variables
 		override           string
 		envFile            string
 		canastaImage       string // custom Canasta image reference
@@ -55,7 +55,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 
   # Create with an existing database dump
   canasta create -i myinstance -w main -d /path/to/dump.sql -n example.com`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Check if the system has at least 4GB of memory
 			if err := system.CheckMemoryInGB(4); err != nil {
 				return err
@@ -214,7 +214,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 }
 
 type createOptions struct {
-	CanastaInfo        canasta.CanastaVariables
+	CanastaInfo        canasta.Variables
 	Orch               orchestrators.Orchestrator
 	WorkingDir         string
 	Path               string

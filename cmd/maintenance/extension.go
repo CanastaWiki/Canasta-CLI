@@ -52,12 +52,12 @@ Use --wiki to target a specific wiki.`,
   # Run for a specific wiki in a farm
   canasta maintenance extension -i myinstance --wiki=docs CirrusSearch UpdateSearchIndexConfig.php`,
 		Args: cobra.ArbitraryArgs,
-		PreRunE: func(cmd *cobra.Command, args []string) error {
+		PreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			switch {
 			case len(args) == 0:
 				return listExtensionsWithMaintenance(*instance, *wiki)
