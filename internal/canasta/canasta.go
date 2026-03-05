@@ -180,6 +180,9 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 	if err != nil {
 		return err
 	}
+	if len(domainNames) == 0 {
+		return fmt.Errorf("no domain names found in wikis.yaml")
+	}
 	if err := SaveEnvVariable(filepath.Join(installPath, ".env"), "MW_SITE_SERVER", "https://"+domainNames[0]); err != nil {
 		return err
 	}
@@ -790,6 +793,10 @@ func GetEnvVariable(envPath string) (map[string]string, error) {
 	data := strings.TrimSuffix(string(fileData), "\n")
 	variableList := strings.Split(data, "\n")
 	for _, variable := range variableList {
+		line := strings.TrimSpace(variable)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
 		// Use SplitN to only split on first "=" - values may contain "=" characters
 		list := strings.SplitN(variable, "=", 2)
 		if len(list) < 2 {

@@ -164,30 +164,14 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 				return nil
 			}
 
-			// Restart: UpdateConfig → Stop → (recreate kind cluster if needed) → Start
-			fmt.Println("Applying configuration and restarting...")
-			if err := (*orch).UpdateConfig(instance.Path); err != nil {
-				return fmt.Errorf("failed to update config: %w", err)
-			}
-			if err := (*orch).Stop(*instance); err != nil {
-				return fmt.Errorf("failed to stop instance: %w", err)
-			}
-			// Recreate kind cluster at most once if any port key changed
-			if instance.KindCluster != "" {
-				for _, s := range settings {
-					if portKeys[s.key] {
-						if err := recreateKindCluster(*instance); err != nil {
-							return err
-						}
-						break
-					}
+			portKeyChanged := false
+			for _, s := range settings {
+				if portKeys[s.key] {
+					portKeyChanged = true
+					break
 				}
 			}
-			if err := (*orch).Start(*instance); err != nil {
-				return fmt.Errorf("failed to start instance: %w", err)
-			}
-			fmt.Println("Done.")
-			return nil
+			return restartInstance(orch, *instance, portKeyChanged)
 		},
 	}
 

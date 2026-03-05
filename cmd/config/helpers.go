@@ -1,6 +1,12 @@
 package config
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+)
 
 // resolveKey finds the actual key in envVars using case-insensitive matching
 // with hyphens treated as underscores. If no match is found, returns the
@@ -27,4 +33,26 @@ func isKnownKey(key string) bool {
 		}
 	}
 	return false
+}
+
+// restartInstance performs the UpdateConfig → Stop → optional kind cluster
+// recreation → Start sequence shared by config set and config unset.
+func restartInstance(orch *orchestrators.Orchestrator, instance config.Installation, portKeyChanged bool) error {
+	fmt.Println("Applying configuration and restarting...")
+	if err := (*orch).UpdateConfig(instance.Path); err != nil {
+		return fmt.Errorf("failed to update config: %w", err)
+	}
+	if err := (*orch).Stop(instance); err != nil {
+		return fmt.Errorf("failed to stop instance: %w", err)
+	}
+	if instance.KindCluster != "" && portKeyChanged {
+		if err := recreateKindCluster(instance); err != nil {
+			return err
+		}
+	}
+	if err := (*orch).Start(instance); err != nil {
+		return fmt.Errorf("failed to start instance: %w", err)
+	}
+	fmt.Println("Done.")
+	return nil
 }

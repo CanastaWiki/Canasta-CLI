@@ -16,7 +16,7 @@ func TestGetEnvVariable(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 
-	content := "KEY1=value1\n# this is a comment\nKEY2=value2\n\nEMPTY=\nKEY_WITH_EQUALS=abc=def\nKEY=a=b\nQUOTED=\"hello world\"\n"
+	content := "KEY1=value1\n# this is a comment\n# COMMENTED_OUT=hidden\nKEY2=value2\n\nEMPTY=\nKEY_WITH_EQUALS=abc=def\nKEY=a=b\nQUOTED=\"hello world\"\n"
 	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +41,11 @@ func TestGetEnvVariable(t *testing.T) {
 		if got := vars[tt.key]; got != tt.want {
 			t.Errorf("GetEnvVariable()[%s] = %q, want %q", tt.key, got, tt.want)
 		}
+	}
+
+	// Comments with = signs should not be parsed as key-value pairs
+	if _, ok := vars["# COMMENTED_OUT"]; ok {
+		t.Error("comment line with = sign should not be parsed as key-value pair")
 	}
 }
 
