@@ -6,17 +6,15 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"syscall"
 
 	"github.com/CanastaWiki/Canasta-CLI/cmd/version"
 )
 
-const (
-	githubAPIURL = "https://api.github.com/repos/CanastaWiki/Canasta-CLI/releases/latest"
-	installShURL = "https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/install.sh"
-)
+const githubAPIURL = "https://api.github.com/repos/CanastaWiki/Canasta-CLI/releases/latest"
 
 type githubRelease struct {
 	TagName string `json:"tag_name"`
@@ -56,7 +54,7 @@ func CheckAndUpdate() (bool, error) {
 		return false, fmt.Errorf("failed to resolve binary path: %w", err)
 	}
 
-	// Download and run install.sh to update the binary
+	// Download and install the updated binary
 	if err := downloadAndInstall(latestVersion, execPath); err != nil {
 		return false, err
 	}
@@ -68,59 +66,58 @@ func CheckAndUpdate() (bool, error) {
 }
 
 func downloadAndInstall(latestVersion, execPath string) error {
-	// Download install.sh to a temp file
-	tmpFile, err := os.CreateTemp("", "canasta-install-*.sh")
+	// Build download URL for the platform-specific binary
+	url := fmt.Sprintf(
+		"https://github.com/CanastaWiki/Canasta-CLI/releases/download/%s/canasta-%s-%s",
+		latestVersion, runtime.GOOS, runtime.GOARCH,
+	)
+
+	tmpFile, err := os.CreateTemp("", ".canasta-update-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
 
-	resp, err := http.Get(installShURL)
+	// URL is constructed from trusted constants and runtime.GOOS/GOARCH
+	//nolint:gosec
+	resp, err := http.Get(url)
 	if err != nil {
-		return fmt.Errorf("failed to download install script: %w", err)
+		return fmt.Errorf("failed to download update: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download install script: HTTP %d", resp.StatusCode)
+		return fmt.Errorf("failed to download update: HTTP %d from %s", resp.StatusCode, url)
 	}
 
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		return fmt.Errorf("failed to write install script: %w", err)
+		return fmt.Errorf("failed to write update: %w", err)
 	}
 	tmpFile.Close()
 
-	// Strip "v" prefix for install.sh: "v1.58.0" -> "1.58.0"
-	ver := strings.TrimPrefix(latestVersion, "v")
-
-	// Run install.sh with flags to perform the update
-	// We use a subprocess here rather than exec because we need to continue after
-	bashPath, err := findBash()
+	// Preserve permissions of the existing binary
+	info, err := os.Stat(execPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to stat current binary: %w", err)
+	}
+	if err := os.Chmod(tmpPath, info.Mode()); err != nil {
+		return fmt.Errorf("failed to set permissions: %w", err)
 	}
 
-	// Use os/exec to run the install script
-	cmd := &syscall.ProcAttr{
-		Dir:   "",
-		Env:   os.Environ(),
-		Files: []uintptr{os.Stdin.Fd(), os.Stdout.Fd(), os.Stderr.Fd()},
+	// Try direct rename first (works if same filesystem and user has write access)
+	if err := os.Rename(tmpPath, execPath); err == nil {
+		return nil
 	}
 
-	pid, err := syscall.ForkExec(bashPath, []string{"bash", tmpFile.Name(), "-v", ver, "-t", execPath, "--skip-checks"}, cmd)
-	if err != nil {
-		return fmt.Errorf("failed to run install script: %w", err)
-	}
-
-	// Wait for the install script to complete
-	var ws syscall.WaitStatus
-	_, err = syscall.Wait4(pid, &ws, 0, nil)
-	if err != nil {
-		return fmt.Errorf("failed waiting for install script: %w", err)
-	}
-
-	if !ws.Exited() || ws.ExitStatus() != 0 {
-		return fmt.Errorf("install script failed with status %d", ws.ExitStatus())
+	// Rename failed (permission denied or cross-filesystem) — use sudo mv
+	fmt.Println("Elevated permissions required to update the binary.")
+	cmd := exec.Command("sudo", "mv", tmpPath, execPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to move updated binary to %s: %w", execPath, err)
 	}
 
 	return nil
@@ -132,16 +129,6 @@ func reexec(execPath string) error {
 
 	// Use syscall.Exec to replace this process with the new binary
 	return syscall.Exec(execPath, args, os.Environ())
-}
-
-func findBash() (string, error) {
-	paths := []string{"/bin/bash", "/usr/bin/bash", "/usr/local/bin/bash"}
-	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
-		}
-	}
-	return "", fmt.Errorf("bash not found")
 }
 
 func getLatestVersion() (string, error) {
