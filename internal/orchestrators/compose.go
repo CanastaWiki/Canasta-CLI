@@ -383,11 +383,12 @@ func (c *ComposeOrchestrator) RunBackup(installPath, envPath string, volumes map
 // local repository path. This is Compose-specific since K8s rejects local repos.
 func runResticDockerWithBindMount(installPath, envPath, volName, repoPath string, args ...string) (string, error) {
 	cmdArgs := []string{"docker", "run", "--rm", "-i", "--env-file", envPath,
+		"--user", currentUser(),
 		"-v", volName + ":/currentsnapshot",
 		"-v", repoPath + ":" + repoPath,
 	}
 
-	cmdArgs = append(cmdArgs, "restic/restic")
+	cmdArgs = append(cmdArgs, "restic/restic", "--cache-dir", "/tmp/restic-cache")
 	cmdArgs = append(cmdArgs, args...)
 
 	output, err := execute.Run(installPath, cmdArgs[0], cmdArgs[1:]...)
