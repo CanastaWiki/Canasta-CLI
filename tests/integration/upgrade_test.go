@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 // TestUpgrade_MigrationsRun creates a fresh instance, simulates a pre-migration
@@ -45,8 +43,7 @@ func TestUpgrade_MigrationsRun(t *testing.T) {
 			filteredLines = append(filteredLines, line)
 		}
 	}
-	//nolint:gosec
-	if err := os.WriteFile(envPath, []byte(strings.Join(filteredLines, "\n")), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, []byte(strings.Join(filteredLines, "\n")), 0644); err != nil {
 		t.Fatalf("failed to write modified .env: %v", err)
 	}
 

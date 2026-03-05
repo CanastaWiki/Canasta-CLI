@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 func TestKindClusterName(t *testing.T) {
@@ -143,8 +141,7 @@ func TestGetPortsFromEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			if tt.envContent != "" {
-				//nolint:gosec
-				if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(tt.envContent), permissions.FilePermission); err != nil {
+				if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(tt.envContent), 0644); err != nil {
 					t.Fatal(err)
 				}
 			}

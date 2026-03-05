@@ -10,8 +10,6 @@ import (
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
-
-	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 func TestGetEnvVariable(t *testing.T) {
@@ -19,8 +17,7 @@ func TestGetEnvVariable(t *testing.T) {
 	envPath := filepath.Join(dir, ".env")
 
 	content := "KEY1=value1\n# this is a comment\nKEY2=value2\n\nEMPTY=\nKEY_WITH_EQUALS=abc=def\nKEY=a=b\nQUOTED=\"hello world\"\n"
-	//nolint:gosec
-	if err := os.WriteFile(envPath, []byte(content), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,8 +48,7 @@ func TestGetEnvVariableEmpty(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 
-	//nolint:gosec
-	if err := os.WriteFile(envPath, []byte(""), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, []byte(""), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -78,8 +74,7 @@ func TestSaveEnvVariable(t *testing.T) {
 
 	// Start with a file
 	initial := "KEY1=old\nKEY2=keep\n"
-	//nolint:gosec
-	if err := os.WriteFile(envPath, []byte(initial), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, []byte(initial), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -180,8 +175,7 @@ func TestDeleteEnvVariable(t *testing.T) {
 			dir := t.TempDir()
 			envPath := filepath.Join(dir, ".env")
 
-			//nolint:gosec
-			if err := os.WriteFile(envPath, []byte(tt.content), permissions.FilePermission); err != nil {
+			if err := os.WriteFile(envPath, []byte(tt.content), 0644); err != nil {
 				t.Fatal(err)
 			}
 
@@ -359,8 +353,7 @@ func TestGenerateAndSaveSecretKey_AlreadySet(t *testing.T) {
 	envPath := filepath.Join(dir, ".env")
 	existingKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	content := []byte("KEY1=value1\nMW_SECRET_KEY=" + existingKey + "\n")
-	//nolint:gosec
-	if err := os.WriteFile(envPath, content, permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, content, 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -383,8 +376,7 @@ func TestGenerateAndSaveSecretKey_GeneratesNew(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 	content := "KEY1=value1\n"
-	//nolint:gosec
-	if err := os.WriteFile(envPath, []byte(content), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -483,8 +475,7 @@ func TestIsObservabilityEnabled(t *testing.T) {
 func TestEnsureObservabilityCredentials_NotObservable(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	//nolint:gosec
-	if err := os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web\n"), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -500,8 +491,7 @@ func TestEnsureObservabilityCredentials_NotObservable(t *testing.T) {
 func TestEnsureObservabilityCredentials_GeneratesCredentials(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	//nolint:gosec
-	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -528,8 +518,7 @@ func TestEnsureObservabilityCredentials_GeneratesCredentials(t *testing.T) {
 func TestEnsureObservabilityCredentials_PreservesExisting(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	//nolint:gosec
-	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=myuser\nOS_PASSWORD=mypass\nOS_PASSWORD_HASH=$2a$10$fakehash\n"), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=myuser\nOS_PASSWORD=mypass\nOS_PASSWORD_HASH=$2a$10$fakehash\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -559,12 +548,10 @@ func TestRewriteCaddy_Observable(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	//nolint:gosec
-	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	//nolint:gosec
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=admin\nOS_PASSWORD_HASH=$2a$10$testhash\n"), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=admin\nOS_PASSWORD_HASH=$2a$10$testhash\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -598,12 +585,10 @@ func TestRewriteCaddy_ObservableMissingCredentials(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	//nolint:gosec
-	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	//nolint:gosec
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -619,8 +604,7 @@ func TestRewriteCaddy_ObservableMissingCredentials(t *testing.T) {
 func TestEnsureObservabilityCredentials_ValidBcryptHash(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	//nolint:gosec
-	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -640,8 +624,7 @@ func TestEnsureObservabilityCredentials_PartialCredentials(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 	// OS_USER set but OS_PASSWORD and OS_PASSWORD_HASH missing
-	//nolint:gosec
-	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=customuser\n"), permissions.FilePermission); err != nil {
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=customuser\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
