@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -58,17 +57,4 @@ Key lookup is case-insensitive.`,
 
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow querying unrecognized keys")
 	return cmd
-}
-
-// resolveKey finds the actual key in envVars using case-insensitive matching
-// with hyphens treated as underscores. If no match is found, returns the
-// input uppercased with hyphens replaced by underscores.
-func resolveKey(envVars map[string]string, input string) string {
-	normalized := strings.ReplaceAll(input, "-", "_")
-	for k := range envVars {
-		if strings.EqualFold(k, normalized) {
-			return k
-		}
-	}
-	return strings.ToUpper(normalized)
 }

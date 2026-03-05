@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
@@ -227,18 +228,15 @@ func consolidateUserDir(installPath, codeDir, dirName, userDirName string) error
 func SetupDevEnvironment(installPath, baseImage string) error {
 	logging.Print("Setting up development environment...\n")
 
-	// Update .env file to set DEV_CODE_PATH and CANASTA_IMAGE
+	// Update .env file to set DEV_CODE_PATH and CANASTA_IMAGE.
+	// Uses SaveEnvVariable so that re-enabling dev mode updates
+	// existing entries rather than appending duplicates.
 	envPath := filepath.Join(installPath, ".env")
-	envContent, err := os.ReadFile(envPath)
-	if err != nil {
-		return fmt.Errorf("failed to read .env file: %w", err)
+	if err := canasta.SaveEnvVariable(envPath, "DEV_CODE_PATH", "./mediawiki-code"); err != nil {
+		return fmt.Errorf("failed to save DEV_CODE_PATH: %w", err)
 	}
-
-	// Append dev settings to .env
-	devSettings := fmt.Sprintf("\n# Development mode settings\nDEV_CODE_PATH=./mediawiki-code\nCANASTA_IMAGE=%s\n", baseImage)
-	envContent = append(envContent, []byte(devSettings)...)
-	if err := os.WriteFile(envPath, envContent, permissions.FilePermission); err != nil {
-		return fmt.Errorf("failed to update .env file: %w", err)
+	if err := canasta.SaveEnvVariable(envPath, "CANASTA_IMAGE", baseImage); err != nil {
+		return fmt.Errorf("failed to save CANASTA_IMAGE: %w", err)
 	}
 
 	// Write IDE configs with current host/port from .env
