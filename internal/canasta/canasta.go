@@ -762,22 +762,24 @@ func SaveEnvVariable(envPath, key, value string) error {
 	data := string(file)
 	list := strings.Split(data, "\n")
 	found := false
-	for index, line := range list {
+	result := make([]string, 0, len(list))
+	for _, line := range list {
 		if strings.HasPrefix(line, key+"=") {
-			list[index] = fmt.Sprintf("%s=%s", key, value)
+			if found {
+				// Skip duplicate entries for the same key
+				continue
+			}
+			result = append(result, fmt.Sprintf("%s=%s", key, value))
 			found = true
-			break
+			continue
 		}
+		result = append(result, line)
 	}
 	if !found {
-		// Append new key=value pair
-		list = append(list, fmt.Sprintf("%s=%s", key, value))
+		result = append(result, fmt.Sprintf("%s=%s", key, value))
 	}
-	lines := strings.Join(list, "\n")
-	if err := os.WriteFile(envPath, []byte(lines), permissions.FilePermission); err != nil {
-		return err
-	}
-	return nil
+	lines := strings.Join(result, "\n")
+	return os.WriteFile(envPath, []byte(lines), permissions.FilePermission)
 }
 
 // Get values saved inside the .env at the envPath
