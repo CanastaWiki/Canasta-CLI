@@ -72,18 +72,9 @@ func downloadAndInstall(latestVersion, execPath string) error {
 		latestVersion, runtime.GOOS, runtime.GOARCH,
 	)
 
-	// Try to create temp file in the same directory as the target binary
-	// (same filesystem enables atomic os.Rename). Fall back to OS temp dir
-	// if the directory isn't writable — sudo mv will handle the final move.
-	dir := filepath.Dir(execPath)
-	tmpFile, err := os.CreateTemp(dir, ".canasta-update-*")
+	tmpFile, err := os.CreateTemp("", ".canasta-update-*")
 	if err != nil {
-		if os.IsPermission(err) {
-			tmpFile, err = os.CreateTemp("", ".canasta-update-*")
-		}
-		if err != nil {
-			return fmt.Errorf("failed to create temp file: %w", err)
-		}
+		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath)
