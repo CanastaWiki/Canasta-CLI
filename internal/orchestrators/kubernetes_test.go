@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 func TestGetNamespaceFromPath(t *testing.T) {
@@ -55,7 +57,8 @@ func TestGetNamespaceFromPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			err := os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte(tt.content), 0600)
+			//nolint:gosec
+			err := os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte(tt.content), permissions.FilePermission)
 			if err != nil {
 				t.Fatalf("failed to write test file: %v", err)
 			}
@@ -137,7 +140,8 @@ func TestWriteStackFilesNoClobber(t *testing.T) {
 	// Overwrite one file with custom content
 	customPath := filepath.Join(dir, "kubernetes", "namespace.yaml")
 	customContent := []byte("# custom content\n")
-	if err := os.WriteFile(customPath, customContent, 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(customPath, customContent, permissions.FilePermission); err != nil {
 		t.Fatalf("failed to write custom content: %v", err)
 	}
 
@@ -175,7 +179,8 @@ func TestUpdateStackFilesDetectsChanges(t *testing.T) {
 
 	// Modify a file
 	modifiedPath := filepath.Join(dir, "kubernetes", "namespace.yaml")
-	if err := os.WriteFile(modifiedPath, []byte("# modified\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(modifiedPath, []byte("# modified\n"), permissions.FilePermission); err != nil {
 		t.Fatalf("failed to modify file: %v", err)
 	}
 
@@ -200,7 +205,8 @@ func TestUpdateStackFilesDryRun(t *testing.T) {
 
 	// Modify a file
 	modifiedPath := filepath.Join(dir, "kubernetes", "namespace.yaml")
-	if err := os.WriteFile(modifiedPath, []byte("# modified\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(modifiedPath, []byte("# modified\n"), permissions.FilePermission); err != nil {
 		t.Fatalf("failed to modify file: %v", err)
 	}
 
@@ -229,10 +235,12 @@ func TestInitConfigGeneratesKustomization(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatalf("failed to create dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MW_SITE_SERVER=https://example.com\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MW_SITE_SERVER=https://example.com\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -292,10 +300,12 @@ func TestInitConfigNamespaceFromPath(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatalf("failed to create dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MW_SITE_SERVER=https://example.com\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MW_SITE_SERVER=https://example.com\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -324,17 +334,21 @@ func setupTestInstallation(t *testing.T) string {
 	if err := os.MkdirAll(globalDir, 0755); err != nil {
 		t.Fatalf("failed to create dirs: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MW_SITE_SERVER=https://example.com\nMW_SITE_FQDN=example.com\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MW_SITE_SERVER=https://example.com\nMW_SITE_FQDN=example.com\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 	// Create default global settings files
-	if err := os.WriteFile(filepath.Join(globalDir, "Vector.php"), []byte("<?php\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(globalDir, "Vector.php"), []byte("<?php\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(globalDir, "CanastaFooterIcon.php"), []byte("<?php\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(globalDir, "CanastaFooterIcon.php"), []byte("<?php\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -385,11 +399,13 @@ func TestGenerateKustomizationCustomGlobalFile(t *testing.T) {
 
 	// Add a custom PHP file
 	globalDir := filepath.Join(dir, "config", "settings", "global")
-	if err := os.WriteFile(filepath.Join(globalDir, "Custom.php"), []byte("<?php\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(globalDir, "Custom.php"), []byte("<?php\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 	// Add a README that should be excluded
-	if err := os.WriteFile(filepath.Join(globalDir, "README"), []byte("readme\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(globalDir, "README"), []byte("readme\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -420,7 +436,8 @@ func TestGenerateKustomizationPerWikiSettings(t *testing.T) {
 	if err := os.MkdirAll(wikiDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(wikiDir, "Settings.php"), []byte("<?php\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(wikiDir, "Settings.php"), []byte("<?php\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -457,7 +474,8 @@ func TestGenerateKustomizationEmptyWikiDir(t *testing.T) {
 	if err := os.MkdirAll(wikiDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(wikiDir, "README"), []byte("readme\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(wikiDir, "README"), []byte("readme\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -482,7 +500,8 @@ func TestGenerateKustomizationLocalSettings(t *testing.T) {
 	dir := setupTestInstallation(t)
 
 	// Create LocalSettings.php
-	if err := os.WriteFile(filepath.Join(dir, "config", "LocalSettings.php"), []byte("<?php\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "LocalSettings.php"), []byte("<?php\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -584,7 +603,8 @@ func TestGenerateKustomizationObservabilityEnabled(t *testing.T) {
 	dir := setupTestInstallation(t)
 	// Enable observability
 	envPath := filepath.Join(dir, ".env")
-	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_OBSERVABILITY=true\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_OBSERVABILITY=true\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -652,7 +672,8 @@ func TestKubernetesMigrateConfigObservability(t *testing.T) {
 	dir := setupTestInstallation(t)
 	// Enable observability but don't provide credentials
 	envPath := filepath.Join(dir, ".env")
-	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -696,7 +717,8 @@ func TestGenerateKustomizationElasticsearchEnabled(t *testing.T) {
 	dir := setupTestInstallation(t)
 	// Enable Elasticsearch
 	envPath := filepath.Join(dir, ".env")
-	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_ELASTICSEARCH=true\n"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_ELASTICSEARCH=true\n"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 

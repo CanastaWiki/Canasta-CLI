@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 // canastaBin is the path to the built CLI binary, set once in TestMain.
@@ -96,7 +98,8 @@ func createTestInstance(t *testing.T, id string) *testInstance {
 		"HTTP_PORT=%s\nHTTPS_PORT=%s\nCADDY_AUTO_HTTPS=off\n",
 		httpPort, httpsPort,
 	)
-	if err := os.WriteFile(envFile, []byte(envContent), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(envFile, []byte(envContent), permissions.FilePermission); err != nil {
 		t.Fatalf("failed to write test .env: %v", err)
 	}
 

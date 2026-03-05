@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 // setupTestInstall creates a minimal installation directory with .env and wikis.yaml
@@ -15,10 +17,12 @@ func setupTestInstall(t *testing.T, envContent, wikisYaml string) string {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(envContent), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(envContent), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(wikisYaml), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(wikisYaml), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -77,10 +81,12 @@ func TestComposeMigrateConfig_NothingToMigrate(t *testing.T) {
 	dir := setupTestInstall(t, "COMPOSE_PROFILES=web\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create both Caddyfiles so no migration is needed
-	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -176,10 +182,12 @@ func TestComposeMigrateConfig_Observable(t *testing.T) {
 	dir := setupTestInstall(t, "CANASTA_ENABLE_OBSERVABILITY=true\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
-	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,10 +212,12 @@ func TestComposeMigrateConfig_ObservableDryRun(t *testing.T) {
 	dir := setupTestInstall(t, "CANASTA_ENABLE_OBSERVABILITY=true\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
-	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -232,10 +242,12 @@ func TestComposeMigrateConfig_ObservableAlreadyConfigured(t *testing.T) {
 	dir := setupTestInstall(t, env, "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
-	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -296,10 +308,12 @@ func TestComposeMigrateConfig_OldProfileMigration(t *testing.T) {
 	dir := setupTestInstall(t, "COMPOSE_PROFILES=web,observable\n", "wikis:\n  - id: main\n    url: example.com\n")
 
 	// Create Caddyfiles so caddy migration doesn't trigger
-	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.site"), []byte("# site"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(dir, "config", "Caddyfile.global"), []byte("# global"), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 

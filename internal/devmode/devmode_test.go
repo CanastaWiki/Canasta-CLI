@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 func TestIsDevModeSetup(t *testing.T) {
@@ -15,10 +17,12 @@ func TestIsDevModeSetup(t *testing.T) {
 		{
 			name: "both files present",
 			setup: func(t *testing.T, dir string) {
-				if err := os.WriteFile(filepath.Join(dir, "docker-compose.dev.yml"), []byte{}, 0600); err != nil {
+				//nolint:gosec
+				if err := os.WriteFile(filepath.Join(dir, "docker-compose.dev.yml"), []byte{}, permissions.FilePermission); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(dir, "Dockerfile.xdebug"), []byte{}, 0600); err != nil {
+				//nolint:gosec
+				if err := os.WriteFile(filepath.Join(dir, "Dockerfile.xdebug"), []byte{}, permissions.FilePermission); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -33,7 +37,8 @@ func TestIsDevModeSetup(t *testing.T) {
 		{
 			name: "only docker-compose.dev.yml present",
 			setup: func(t *testing.T, dir string) {
-				if err := os.WriteFile(filepath.Join(dir, "docker-compose.dev.yml"), []byte{}, 0600); err != nil {
+				//nolint:gosec
+				if err := os.WriteFile(filepath.Join(dir, "docker-compose.dev.yml"), []byte{}, permissions.FilePermission); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -42,7 +47,8 @@ func TestIsDevModeSetup(t *testing.T) {
 		{
 			name: "only Dockerfile.xdebug present",
 			setup: func(t *testing.T, dir string) {
-				if err := os.WriteFile(filepath.Join(dir, "Dockerfile.xdebug"), []byte{}, 0600); err != nil {
+				//nolint:gosec
+				if err := os.WriteFile(filepath.Join(dir, "Dockerfile.xdebug"), []byte{}, permissions.FilePermission); err != nil {
 					t.Fatal(err)
 				}
 			},

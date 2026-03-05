@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 func TestRemoveSkipBinaryAsHex(t *testing.T) {
@@ -62,7 +64,8 @@ func TestRemoveSkipBinaryAsHex(t *testing.T) {
 			filePath := filepath.Join(tmpDir, "my.cnf")
 
 			if tt.content != "" {
-				if err := os.WriteFile(filePath, []byte(tt.content), 0600); err != nil {
+				//nolint:gosec
+				if err := os.WriteFile(filePath, []byte(tt.content), permissions.FilePermission); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -92,7 +95,8 @@ func TestRemoveSkipBinaryAsHexDryRun(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "my.cnf")
 	content := "[client]\nskip-binary-as-hex = true\n"
-	if err := os.WriteFile(filePath, []byte(content), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filePath, []byte(content), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -175,7 +179,8 @@ func TestRemoveEmptyComposerLocal(t *testing.T) {
 
 			filePath := filepath.Join(configDir, "composer.local.json")
 			if tt.content != "" {
-				if err := os.WriteFile(filePath, []byte(tt.content), 0600); err != nil {
+				//nolint:gosec
+				if err := os.WriteFile(filePath, []byte(tt.content), permissions.FilePermission); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -209,7 +214,8 @@ func TestRemoveEmptyComposerLocalDryRun(t *testing.T) {
 
 	filePath := filepath.Join(configDir, "composer.local.json")
 	content := `{"extra":{"merge-plugin":{"include":[]}}}`
-	if err := os.WriteFile(filePath, []byte(content), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filePath, []byte(content), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -254,7 +260,8 @@ func TestBackfillCanastaImage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			envPath := filepath.Join(tmpDir, ".env")
-			if err := os.WriteFile(envPath, []byte(tt.envContent), 0600); err != nil {
+			//nolint:gosec
+			if err := os.WriteFile(envPath, []byte(tt.envContent), permissions.FilePermission); err != nil {
 				t.Fatal(err)
 			}
 
@@ -283,7 +290,8 @@ func TestBackfillCanastaImageDryRun(t *testing.T) {
 	tmpDir := t.TempDir()
 	envPath := filepath.Join(tmpDir, ".env")
 	content := "MW_SITE_SERVER=https://localhost\n"
-	if err := os.WriteFile(envPath, []byte(content), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(envPath, []byte(content), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -326,7 +334,8 @@ func TestRemoveEmptyComposerLocalPreservesPopulated(t *testing.T) {
 	content, _ := json.MarshalIndent(data, "", "    ")
 
 	filePath := filepath.Join(configDir, "composer.local.json")
-	if err := os.WriteFile(filePath, content, 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filePath, content, permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
@@ -417,7 +426,8 @@ sub vcl_recv {
 
 			vclPath := filepath.Join(configDir, "default.vcl")
 			if tt.content != "" {
-				if err := os.WriteFile(vclPath, []byte(tt.content), 0600); err != nil {
+				//nolint:gosec
+				if err := os.WriteFile(vclPath, []byte(tt.content), permissions.FilePermission); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -458,7 +468,8 @@ func TestAddVclSpecialRandomBypassDryRun(t *testing.T) {
     call mobile_detect;
 }`
 	vclPath := filepath.Join(configDir, "default.vcl")
-	if err := os.WriteFile(vclPath, []byte(content), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(vclPath, []byte(content), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 func TestResolveKey(t *testing.T) {
@@ -175,12 +176,14 @@ func TestUpdateWikisYamlPorts(t *testing.T) {
   url: dev.example.com:8443/wiki
   name: Dev Wiki
 `
-	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(wikisYaml), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(wikisYaml), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
 	envContent := "MW_SITE_SERVER=https://example.com:8443\nMW_SITE_FQDN=example.com:8443\n"
-	if err := os.WriteFile(filepath.Join(tmpDir, ".env"), []byte(envContent), 0600); err != nil {
+	//nolint:gosec
+	if err := os.WriteFile(filepath.Join(tmpDir, ".env"), []byte(envContent), permissions.FilePermission); err != nil {
 		t.Fatal(err)
 	}
 
