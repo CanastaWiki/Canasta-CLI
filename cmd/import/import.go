@@ -73,8 +73,15 @@ To create a new wiki from a database dump, use the --database flag with
 				return err
 			}
 
+			// Resolve relative file paths to absolute
+			for _, p := range []*string{&databasePath, &settingsPath} {
+				if *p != "" && !filepath.IsAbs(*p) {
+					*p = filepath.Join(workingDir, *p)
+				}
+			}
+
 			fmt.Printf("Importing database into wiki '%s' in Canasta instance '%s'...\n", wikiID, instance.ID)
-			if err := importDatabase(orch, instance, wikiID, databasePath, settingsPath, workingDir); err != nil {
+			if err := importDatabase(orch, instance, wikiID, databasePath, settingsPath); err != nil {
 				return err
 			}
 			fmt.Println("Done.")
@@ -99,7 +106,7 @@ To create a new wiki from a database dump, use the --database flag with
 	return importCmd
 }
 
-func importDatabase(orch orchestrators.Orchestrator, instance config.Installation, wikiID, databasePath, settingsPath, workingDir string) error {
+func importDatabase(orch orchestrators.Orchestrator, instance config.Installation, wikiID, databasePath, settingsPath string) error {
 	// Read database password from .env
 	envVariables, err := canasta.GetEnvVariable(filepath.Join(instance.Path, ".env"))
 	if err != nil {
@@ -115,7 +122,7 @@ func importDatabase(orch orchestrators.Orchestrator, instance config.Installatio
 
 	// If settings file provided, copy it to the wiki's config directory
 	if settingsPath != "" {
-		err = canasta.CopyWikiSettingFile(instance.Path, wikiID, settingsPath, workingDir)
+		err = canasta.CopyWikiSettingFile(instance.Path, wikiID, settingsPath)
 		if err != nil {
 			return err
 		}

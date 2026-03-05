@@ -131,6 +131,13 @@ an existing database dump instead of running the installer.`,
 				fmt.Printf("Generated admin password for wiki '%s'\n", wikiID)
 			}
 
+			// Resolve relative file paths to absolute
+			for _, p := range []*string{&databasePath, &wikiSettingsPath} {
+				if *p != "" && !filepath.IsAbs(*p) {
+					*p = filepath.Join(workingDir, *p)
+				}
+			}
+
 			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
@@ -148,7 +155,6 @@ an existing database dump instead of running the installer.`,
 				Admin:            admin,
 				AdminPassword:    adminPassword,
 				WikiDBUser:       wikidbuser,
-				WorkingDir:       workingDir,
 			})
 			if err != nil {
 				return err
@@ -187,7 +193,6 @@ type AddWikiOptions struct {
 	Admin            string
 	AdminPassword    string
 	WikiDBUser       string
-	WorkingDir       string
 }
 
 // AddWiki accepts the Canasta instance info, wiki ID, site name, domain and path of the new wiki, database info, and the initial admin info, then creates a new wiki in the Canasta instance.
@@ -241,7 +246,7 @@ func AddWiki(opts AddWikiOptions) error {
 
 	// Copy Settings.php - use custom file if provided, otherwise use template
 	if opts.WikiSettingsPath != "" {
-		err = canasta.CopyWikiSettingFile(opts.Instance.Path, opts.WikiID, opts.WikiSettingsPath, opts.WorkingDir)
+		err = canasta.CopyWikiSettingFile(opts.Instance.Path, opts.WikiID, opts.WikiSettingsPath)
 		if err != nil {
 			return err
 		}
