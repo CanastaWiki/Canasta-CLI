@@ -104,6 +104,42 @@ func TestSaveEnvVariable(t *testing.T) {
 	}
 }
 
+func TestSaveEnvVariableDeduplicates(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+
+	// Start with a file that has duplicate keys (e.g., from prior raw appends)
+	initial := "KEY1=first\nKEY2=keep\nKEY1=second\nKEY1=third\n"
+	if err := os.WriteFile(envPath, []byte(initial), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Save should update the first occurrence and remove duplicates
+	if err := SaveEnvVariable(envPath, "KEY1", "updated"); err != nil {
+		t.Fatalf("SaveEnvVariable() error = %v", err)
+	}
+
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := strings.Count(string(data), "KEY1=")
+	if count != 1 {
+		t.Errorf("expected 1 occurrence of KEY1, got %d in:\n%s", count, data)
+	}
+
+	vars, err := GetEnvVariable(envPath)
+	if err != nil {
+		t.Fatalf("GetEnvVariable() error = %v", err)
+	}
+	if vars["KEY1"] != "updated" {
+		t.Errorf("KEY1 = %q, want \"updated\"", vars["KEY1"])
+	}
+	if vars["KEY2"] != "keep" {
+		t.Errorf("KEY2 = %q, want \"keep\"", vars["KEY2"])
+	}
+}
+
 func TestDeleteEnvVariable(t *testing.T) {
 	tests := []struct {
 		name      string
