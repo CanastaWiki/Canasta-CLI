@@ -35,23 +35,34 @@ func (c *ComposeOrchestrator) getCompose() (config.Orchestrator, error) {
 	return config.GetOrchestrator("compose")
 }
 
+// runCompose runs a compose command via execute.Run and returns the output.
+func runCompose(installPath string, compose config.Orchestrator, args ...string) (string, error) {
+	if compose.Path != "" {
+		return execute.Run(installPath, compose.Path, args...)
+	}
+	allArgs := append([]string{"compose"}, args...)
+	return execute.Run(installPath, "docker", allArgs...)
+}
+
+// composeCommand returns an exec.Cmd configured for the compose orchestrator.
+func composeCommand(compose config.Orchestrator, args ...string) *exec.Cmd {
+	if compose.Path != "" {
+		// compose.Path is from system lookup.
+		//nolint:gosec
+		return exec.Command(compose.Path, args...)
+	}
+	allArgs := append([]string{"compose"}, args...)
+	return exec.Command("docker", allArgs...)
+}
+
 func (c *ComposeOrchestrator) CheckDependencies() error {
 	compose, err := c.getCompose()
 	if err != nil {
 		return err
 	}
-	if compose.Path != "" {
-		// compose.Path is from system lookup.
-		//nolint:gosec
-		cmd := exec.Command(compose.Path, "version")
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("unable to execute compose (%s)", err)
-		}
-	} else {
-		cmd := exec.Command("docker", "compose", "version")
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("docker compose should be installed! (%s)", err)
-		}
+	cmd := composeCommand(compose, "version")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("docker compose is not available (%s)", err)
 	}
 	return nil
 }
@@ -188,17 +199,9 @@ func (c *ComposeOrchestrator) Start(instance config.Installation) error {
 		args = append(args, "-f", f)
 	}
 	args = append(args, "up", "-d")
-	if compose.Path != "" {
-		output, err := execute.Run(instance.Path, compose.Path, args...)
-		if err != nil {
-			return fmt.Errorf("failed to start containers at %s: %s", instance.Path, output)
-		}
-	} else {
-		allArgs := append([]string{"compose"}, args...)
-		output, err := execute.Run(instance.Path, "docker", allArgs...)
-		if err != nil {
-			return fmt.Errorf("failed to start containers at %s: %s", instance.Path, output)
-		}
+	output, err := runCompose(instance.Path, compose, args...)
+	if err != nil {
+		return fmt.Errorf("failed to start containers at %s: %s", instance.Path, output)
 	}
 	return nil
 }
@@ -221,17 +224,9 @@ func (c *ComposeOrchestrator) Stop(instance config.Installation) error {
 		args = append(args, "-f", f)
 	}
 	args = append(args, "down")
-	if compose.Path != "" {
-		output, err := execute.Run(instance.Path, compose.Path, args...)
-		if err != nil {
-			return fmt.Errorf("failed to stop containers at %s: %s", instance.Path, output)
-		}
-	} else {
-		allArgs := append([]string{"compose"}, args...)
-		output, err := execute.Run(instance.Path, "docker", allArgs...)
-		if err != nil {
-			return fmt.Errorf("failed to stop containers at %s: %s", instance.Path, output)
-		}
+	output, err := runCompose(instance.Path, compose, args...)
+	if err != nil {
+		return fmt.Errorf("failed to stop containers at %s: %s", instance.Path, output)
 	}
 	return nil
 }
@@ -242,16 +237,9 @@ func (c *ComposeOrchestrator) Pull(installPath string) error {
 	if err != nil {
 		return err
 	}
-	if compose.Path != "" {
-		output, err := execute.Run(installPath, compose.Path, "pull", "--ignore-buildable", "--ignore-pull-failures")
-		if err != nil {
-			return fmt.Errorf("failed to pull images at %s: %s", installPath, output)
-		}
-	} else {
-		output, err := execute.Run(installPath, "docker", "compose", "pull", "--ignore-buildable", "--ignore-pull-failures")
-		if err != nil {
-			return fmt.Errorf("failed to pull images at %s: %s", installPath, output)
-		}
+	output, err := runCompose(installPath, compose, "pull", "--ignore-buildable", "--ignore-pull-failures")
+	if err != nil {
+		return fmt.Errorf("failed to pull images at %s: %s", installPath, output)
 	}
 	return nil
 }
@@ -270,16 +258,9 @@ func (c *ComposeOrchestrator) Update(installPath string) (*UpdateReport, error) 
 	}
 
 	// Run pull
-	if compose.Path != "" {
-		output, err := execute.Run(installPath, compose.Path, "pull", "--ignore-buildable", "--ignore-pull-failures")
-		if err != nil {
-			return nil, fmt.Errorf("failed to pull images for update at %s: %s", installPath, output)
-		}
-	} else {
-		output, err := execute.Run(installPath, "docker", "compose", "pull", "--ignore-buildable", "--ignore-pull-failures")
-		if err != nil {
-			return nil, fmt.Errorf("failed to pull images for update at %s: %s", installPath, output)
-		}
+	output, err := runCompose(installPath, compose, "pull", "--ignore-buildable", "--ignore-pull-failures")
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull images for update at %s: %s", installPath, output)
 	}
 
 	// Get image info after pull
@@ -315,17 +296,9 @@ func (c *ComposeOrchestrator) Build(installPath string, files ...string) error {
 		args = append(args, "-f", f)
 	}
 	args = append(args, "build")
-	if compose.Path != "" {
-		output, err := execute.Run(installPath, compose.Path, args...)
-		if err != nil {
-			return fmt.Errorf("failed to build images at %s: %s", installPath, output)
-		}
-	} else {
-		allArgs := append([]string{"compose"}, args...)
-		output, err := execute.Run(installPath, "docker", allArgs...)
-		if err != nil {
-			return fmt.Errorf("failed to build images at %s: %s", installPath, output)
-		}
+	output, err := runCompose(installPath, compose, args...)
+	if err != nil {
+		return fmt.Errorf("failed to build images at %s: %s", installPath, output)
 	}
 	return nil
 }
@@ -335,12 +308,7 @@ func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var output string
-	if compose.Path != "" {
-		output, err = execute.Run(installPath, compose.Path, "down", "-v")
-	} else {
-		output, err = execute.Run(installPath, "docker", "compose", "down", "-v")
-	}
+	output, err := runCompose(installPath, compose, "down", "-v")
 	if err != nil {
 		return output, err
 	}
@@ -358,14 +326,7 @@ func (c *ComposeOrchestrator) ListServices(instance config.Installation) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	var cmd *exec.Cmd
-	if compose.Path != "" {
-		// compose.Path is from system lookup.
-		//nolint:gosec
-		cmd = exec.Command(compose.Path, "ps", "--services")
-	} else {
-		cmd = exec.Command("docker", "compose", "ps", "--services")
-	}
+	cmd := composeCommand(compose, "ps", "--services")
 	cmd.Dir = instance.Path
 	outputByte, err := cmd.CombinedOutput()
 	if err != nil {
@@ -386,21 +347,8 @@ func (c *ComposeOrchestrator) ExecInteractive(instance config.Installation, serv
 	if err != nil {
 		return err
 	}
-	var args []string
-	if compose.Path != "" {
-		args = append(args, "exec", service)
-		args = append(args, command...)
-		// compose.Path is from system lookup.
-		//nolint:gosec
-		cmd := exec.Command(compose.Path, args...)
-		cmd.Dir = instance.Path
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
-	}
-	args = append([]string{"compose", "exec", service}, command...)
-	cmd := exec.Command("docker", args...)
+	args := append([]string{"exec", service}, command...)
+	cmd := composeCommand(compose, args...)
 	cmd.Dir = instance.Path
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -413,14 +361,7 @@ func (c *ComposeOrchestrator) ExecWithError(installPath, service, command string
 	if err != nil {
 		return "", err
 	}
-	var cmd *exec.Cmd
-	if compose.Path != "" {
-		// compose.Path is from system lookup.
-		//nolint:gosec
-		cmd = exec.Command(compose.Path, "exec", "-T", service, "/bin/bash", "-c", command)
-	} else {
-		cmd = exec.Command("docker", "compose", "exec", "-T", service, "/bin/bash", "-c", command)
-	}
+	cmd := composeCommand(compose, "exec", "-T", service, "/bin/bash", "-c", command)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -435,14 +376,7 @@ func (c *ComposeOrchestrator) ExecStreaming(installPath, service, command string
 	if err != nil {
 		return err
 	}
-	var cmd *exec.Cmd
-	if compose.Path != "" {
-		// compose.Path is from system lookup.
-		//nolint:gosec
-		cmd = exec.Command(compose.Path, "exec", "-T", service, "/bin/bash", "-c", command)
-	} else {
-		cmd = exec.Command("docker", "compose", "exec", "-T", service, "/bin/bash", "-c", command)
-	}
+	cmd := composeCommand(compose, "exec", "-T", service, "/bin/bash", "-c", command)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -460,12 +394,7 @@ func (c *ComposeOrchestrator) CheckRunningStatus(instance config.Installation) e
 	if err != nil {
 		return err
 	}
-	var output string
-	if compose.Path != "" {
-		output, err = execute.Run(instance.Path, compose.Path, "ps", "-q", containerName)
-	} else {
-		output, err = execute.Run(instance.Path, "docker", "compose", "ps", "-q", containerName)
-	}
+	output, err := runCompose(instance.Path, compose, "ps", "-q", containerName)
 	if err != nil || output == "" {
 		return fmt.Errorf("container %s is not running", containerName)
 	}
@@ -477,16 +406,7 @@ func (c *ComposeOrchestrator) CopyFrom(installPath, service, containerPath, host
 	if err != nil {
 		return err
 	}
-	var cmd *exec.Cmd
-	if compose.Path != "" {
-		// compose.Path is from system lookup.
-		//nolint:gosec
-		cmd = exec.Command(compose.Path, "cp", service+":"+containerPath, hostPath)
-	} else {
-		// Args from trusted caller.
-		//nolint:gosec
-		cmd = exec.Command("docker", "compose", "cp", service+":"+containerPath, hostPath)
-	}
+	cmd := composeCommand(compose, "cp", service+":"+containerPath, hostPath)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -502,16 +422,7 @@ func (c *ComposeOrchestrator) CopyTo(installPath, service, hostPath, containerPa
 	if err != nil {
 		return err
 	}
-	var cmd *exec.Cmd
-	if compose.Path != "" {
-		// compose.Path is from system lookup.
-		//nolint:gosec
-		cmd = exec.Command(compose.Path, "cp", hostPath, service+":"+containerPath)
-	} else {
-		// Args from trusted caller.
-		//nolint:gosec
-		cmd = exec.Command("docker", "compose", "cp", hostPath, service+":"+containerPath)
-	}
+	cmd := composeCommand(compose, "cp", hostPath, service+":"+containerPath)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -591,13 +502,7 @@ func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename, work
 func getComposeImages(installPath string, compose config.Orchestrator) (map[string]ImageInfo, error) {
 	images := make(map[string]ImageInfo)
 
-	var output string
-	var err error
-	if compose.Path != "" {
-		output, err = execute.Run(installPath, compose.Path, "images")
-	} else {
-		output, err = execute.Run(installPath, "docker", "compose", "images")
-	}
+	output, err := runCompose(installPath, compose, "images")
 	if err != nil {
 		return nil, fmt.Errorf("failed to run docker compose images: %s", output)
 	}
