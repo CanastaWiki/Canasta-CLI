@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"syscall"
@@ -71,15 +72,18 @@ func downloadAndInstall(latestVersion, execPath string) error {
 		latestVersion, runtime.GOOS, runtime.GOARCH,
 	)
 
-	// Create temp file in the same directory as the target binary
-	// (same filesystem ensures os.Rename is atomic)
+	// Try to create temp file in the same directory as the target binary
+	// (same filesystem enables atomic os.Rename). Fall back to OS temp dir
+	// if the directory isn't writable — sudo mv will handle the final move.
 	dir := filepath.Dir(execPath)
 	tmpFile, err := os.CreateTemp(dir, ".canasta-update-*")
 	if err != nil {
 		if os.IsPermission(err) {
-			return fmt.Errorf("permission denied writing to %s\nTry: sudo canasta upgrade, or fix ownership of the binary directory", dir)
+			tmpFile, err = os.CreateTemp("", ".canasta-update-*")
 		}
-		return fmt.Errorf("failed to create temp file: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to create temp file: %w", err)
+		}
 	}
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath)
@@ -110,12 +114,19 @@ func downloadAndInstall(latestVersion, execPath string) error {
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
 
-	// Atomic replace
-	if err := os.Rename(tmpPath, execPath); err != nil {
-		if os.IsPermission(err) {
-			return fmt.Errorf("permission denied replacing %s\nTry: sudo canasta upgrade, or fix ownership of the binary", execPath)
-		}
-		return fmt.Errorf("failed to replace binary: %w", err)
+	// Try direct rename first (works if same filesystem and user has write access)
+	if err := os.Rename(tmpPath, execPath); err == nil {
+		return nil
+	}
+
+	// Rename failed (permission denied or cross-filesystem) — use sudo mv
+	fmt.Println("Elevated permissions required to update the binary.")
+	cmd := exec.Command("sudo", "mv", tmpPath, execPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to move updated binary to %s: %w", execPath, err)
 	}
 
 	return nil
