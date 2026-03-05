@@ -1,6 +1,7 @@
 package orchestrators
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -419,70 +420,56 @@ func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename, work
 	return nil
 }
 
-// getComposeImages returns a map of service name to ImageInfo
-func getComposeImages(installPath string, compose config.Orchestrator) (map[string]ImageInfo, error) {
-	images := make(map[string]ImageInfo)
+// composeImageEntry represents one element from "docker compose images --format json".
+type composeImageEntry struct {
+	ContainerName string `json:"ContainerName"`
+	Repository    string `json:"Repository"`
+	Tag           string `json:"Tag"`
+	ID            string `json:"ID"`
+}
 
-	output, err := runCompose(installPath, compose, "images")
+// getComposeImages returns a map of service name to ImageInfo.
+func getComposeImages(installPath string, compose config.Orchestrator) (map[string]ImageInfo, error) {
+	output, err := runCompose(installPath, compose, "images", "--format", "json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to run docker compose images: %s", output)
 	}
 
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	headerFound := false
-	for _, line := range lines {
-		if line == "" || strings.HasPrefix(line, "time=") || strings.Contains(line, "level=") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "CONTAINER") {
-			headerFound = true
-			continue
-		}
-
-		if !headerFound {
-			continue
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) >= 4 {
-			containerName := fields[0]
-			parts := strings.Split(containerName, "-")
-			var service string
-			switch {
-			case len(parts) >= 3:
-				service = strings.Join(parts[1:len(parts)-1], "-")
-			case len(parts) == 2:
-				service = parts[0]
-			default:
-				parts = strings.Split(containerName, "_")
-				switch {
-				case len(parts) >= 3:
-					service = strings.Join(parts[1:len(parts)-1], "_")
-				case len(parts) == 2:
-					service = parts[0]
-				default:
-					service = containerName
-				}
-			}
-
-			if service == "" {
-				continue
-			}
-
-			imageRepo := fields[1]
-			imageTag := fields[2]
-			imageID := fields[3]
-
-			images[service] = ImageInfo{
-				Service: service,
-				Image:   imageRepo + ":" + imageTag,
-				ID:      imageID,
-			}
-		}
+	var entries []composeImageEntry
+	if err := json.Unmarshal([]byte(output), &entries); err != nil {
+		return nil, fmt.Errorf("failed to parse docker compose images output: %w", err)
 	}
 
+	project := filepath.Base(installPath)
+	images := make(map[string]ImageInfo, len(entries))
+	for _, e := range entries {
+		service := serviceFromContainer(e.ContainerName, project)
+		images[service] = ImageInfo{
+			Service: service,
+			Image:   e.Repository + ":" + e.Tag,
+			ID:      e.ID,
+		}
+	}
 	return images, nil
+}
+
+// serviceFromContainer extracts the service name from a Docker Compose
+// container name. Compose v2 uses "{project}-{service}-{number}".
+func serviceFromContainer(containerName, project string) string {
+	// Strip the project prefix and separator
+	after, found := strings.CutPrefix(containerName, project+"-")
+	if !found {
+		// Legacy underscore separator: {project}_{service}_{number}
+		after, found = strings.CutPrefix(containerName, project+"_")
+		if !found {
+			return containerName
+		}
+	}
+	// Strip the trailing "-{number}" or "_{number}"
+	if idx := strings.LastIndexAny(after, "-_"); idx > 0 {
+		return after[:idx]
+	}
+	return after
 }
 
 // syncComposeProfiles ensures COMPOSE_PROFILES matches the feature flags in
