@@ -3,7 +3,6 @@ package execute
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os/exec"
 	"strings"
 
@@ -46,8 +45,8 @@ func defaultRun(path, command string, cmdArgs ...string) (string, error) {
 
 	logging.Print(fmt.Sprint(command, " ", strings.Join(cmdArgs, " ")))
 	cmd := exec.Command(command, cmdArgs...)
-	cmd.Stdout = io.MultiWriter(outWriter)
-	cmd.Stderr = io.MultiWriter(errWriter)
+	cmd.Stdout = outWriter
+	cmd.Stderr = errWriter
 
 	if path != "" {
 		cmd.Dir = path

@@ -9,6 +9,7 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
@@ -47,7 +48,7 @@ func takeSnapshot(orch orchestrators.Orchestrator, instance config.Installation,
 		return err
 	}
 
-	wikiIDs, err := getWikiIDs(instance.Path)
+	wikiIDs, err := farmsettings.GetWikiIDs(instance.Path)
 	if err != nil {
 		return err
 	}

@@ -112,7 +112,7 @@ func dumpMySQL8Data(installPath string) (string, error) {
 
 	// Dump all user databases into a single file inside the container
 	dumpCmd := fmt.Sprintf("mysqldump --user=root --password=%s --databases %s --single-transaction --routines --triggers --events > /tmp/dump.sql",
-		shellEscape(password), strings.Join(databases, " "))
+		orchestrators.ShellQuote(password), strings.Join(databases, " "))
 	output, err = execute.Run("", "docker", "exec", containerName,
 		"bash", "-c", dumpCmd)
 	if err != nil {
@@ -185,11 +185,4 @@ func importMariaDBDump(installPath string, orch orchestrators.Orchestrator, dump
 
 	fmt.Println("  Database import complete")
 	return nil
-}
-
-// shellEscape escapes a string for use in a shell command passed to bash -c
-// via docker exec (not via the orchestrator's ExecWithError which uses
-// ShellQuote). We use single quotes here as well.
-func shellEscape(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

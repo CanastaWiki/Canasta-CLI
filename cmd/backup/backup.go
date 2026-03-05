@@ -9,7 +9,6 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
@@ -46,7 +45,10 @@ and RESTIC_PASSWORD to be configured in the installation's .env file.`,
 			if envErr != nil {
 				return envErr
 			}
-			repoURL = getRepoURL(envVariables)
+			repoURL, err = getRepoURL(envVariables)
+			if err != nil {
+				return err
+			}
 
 			orch, err = orchestrators.New(instance.Orchestrator)
 			if err != nil {
@@ -72,29 +74,24 @@ and RESTIC_PASSWORD to be configured in the installation's .env file.`,
 
 }
 
-func getRepoURL(env map[string]string) string {
+func getRepoURL(env map[string]string) (string, error) {
 	if val, ok := env["RESTIC_REPOSITORY"]; ok && val != "" {
-		return val
+		return val, nil
 	}
 	if val, ok := env["RESTIC_REPO"]; ok && val != "" {
-		return val
+		return val, nil
 	}
-	return "s3:" + env["AWS_S3_API"] + "/" + env["AWS_S3_BUCKET"]
+	api := env["AWS_S3_API"]
+	bucket := env["AWS_S3_BUCKET"]
+	if api == "" && bucket == "" {
+		return "", fmt.Errorf("no backup repository configured: set RESTIC_REPOSITORY or AWS_S3_API/AWS_S3_BUCKET in .env")
+	}
+	return "s3:" + api + "/" + bucket, nil
 }
 
 // runBackup is a convenience wrapper for orch.RunBackup.
 func runBackup(orch orchestrators.Orchestrator, installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
 	return orch.RunBackup(installPath, envPath, volumes, args...)
-}
-
-// getWikiIDs reads wikis.yaml and returns all wiki IDs.
-func getWikiIDs(installPath string) ([]string, error) {
-	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
-	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read wikis.yaml: %w", err)
-	}
-	return ids, nil
 }
 
 // dumpPath returns the container path for a wiki's database dump file.

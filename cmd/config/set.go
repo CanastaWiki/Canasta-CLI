@@ -81,20 +81,6 @@ var knownKeys = map[string]bool{
 // of these prefixes is treated as known.
 var resticPrefixes = []string{"AWS_", "AZURE_", "B2_", "GOOGLE_", "OS_", "ST_", "RCLONE_"}
 
-// isKnownKey reports whether key is in the knownKeys set or matches a
-// Restic backend prefix.
-func isKnownKey(key string) bool {
-	if knownKeys[key] {
-		return true
-	}
-	for _, prefix := range resticPrefixes {
-		if strings.HasPrefix(key, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 // setting is a parsed KEY=VALUE pair.
 type setting struct {
 	key   string

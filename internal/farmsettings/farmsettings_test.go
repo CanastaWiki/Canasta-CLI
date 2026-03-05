@@ -313,6 +313,41 @@ func TestWikiIDExistsNoFile(t *testing.T) {
 	}
 }
 
+func TestGetWikiIDs(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(configDir, "wikis.yaml")
+
+	_, err := GenerateWikisYaml(filePath, "main", "localhost", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AddWiki("wiki2", dir, "localhost/wiki2", "", "wiki2"); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("returns all wikis", func(t *testing.T) {
+		ids, err := GetWikiIDs(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ids) != 2 || ids[0] != "main" || ids[1] != "wiki2" {
+			t.Errorf("got %v, want [main wiki2]", ids)
+		}
+	})
+
+	t.Run("missing wikis.yaml", func(t *testing.T) {
+		emptyDir := t.TempDir()
+		_, err := GetWikiIDs(emptyDir)
+		if err == nil {
+			t.Fatal("expected error for missing wikis.yaml")
+		}
+	})
+}
+
 func TestWikiURLExists(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")

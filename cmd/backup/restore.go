@@ -82,7 +82,7 @@ func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Installati
 // and public assets from a backup, leaving shared files untouched.
 func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, wikiID string, env map[string]string) error {
 	// Validate that the wiki ID exists in the current installation's wikis.yaml
-	wikiIDs, err := getWikiIDs(instance.Path)
+	wikiIDs, err := farmsettings.GetWikiIDs(instance.Path)
 	if err != nil {
 		return err
 	}
