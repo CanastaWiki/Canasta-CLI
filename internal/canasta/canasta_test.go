@@ -475,7 +475,9 @@ func TestIsObservabilityEnabled(t *testing.T) {
 func TestEnsureObservabilityCredentials_NotObservable(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
@@ -489,7 +491,9 @@ func TestEnsureObservabilityCredentials_NotObservable(t *testing.T) {
 func TestEnsureObservabilityCredentials_GeneratesCredentials(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
@@ -514,7 +518,9 @@ func TestEnsureObservabilityCredentials_GeneratesCredentials(t *testing.T) {
 func TestEnsureObservabilityCredentials_PreservesExisting(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=myuser\nOS_PASSWORD=mypass\nOS_PASSWORD_HASH=$2a$10$fakehash\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=myuser\nOS_PASSWORD=mypass\nOS_PASSWORD_HASH=$2a$10$fakehash\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
@@ -539,9 +545,15 @@ func TestEnsureObservabilityCredentials_PreservesExisting(t *testing.T) {
 func TestRewriteCaddy_Observable(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")
-	os.MkdirAll(configDir, 0755)
-	os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=admin\nOS_PASSWORD_HASH=$2a$10$testhash\n"), 0644)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=admin\nOS_PASSWORD_HASH=$2a$10$testhash\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := RewriteCaddy(dir); err != nil {
 		t.Fatalf("RewriteCaddy() error = %v", err)
@@ -570,9 +582,15 @@ func TestRewriteCaddy_Observable(t *testing.T) {
 func TestRewriteCaddy_ObservableMissingCredentials(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")
-	os.MkdirAll(configDir, 0755)
-	os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	err := RewriteCaddy(dir)
 	if err == nil {
@@ -586,7 +604,9 @@ func TestRewriteCaddy_ObservableMissingCredentials(t *testing.T) {
 func TestEnsureObservabilityCredentials_ValidBcryptHash(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
@@ -604,7 +624,9 @@ func TestEnsureObservabilityCredentials_PartialCredentials(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 	// OS_USER set but OS_PASSWORD and OS_PASSWORD_HASH missing
-	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=customuser\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=customuser\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {

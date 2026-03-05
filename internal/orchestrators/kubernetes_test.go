@@ -584,7 +584,9 @@ func TestGenerateKustomizationObservabilityEnabled(t *testing.T) {
 	dir := setupTestInstallation(t)
 	// Enable observability
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, false); err != nil {
@@ -650,7 +652,9 @@ func TestKubernetesMigrateConfigObservability(t *testing.T) {
 	dir := setupTestInstallation(t)
 	// Enable observability but don't provide credentials
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	k := &KubernetesOrchestrator{}
 	changed, err := k.MigrateConfig(dir, false)
@@ -692,7 +696,9 @@ func TestGenerateKustomizationElasticsearchEnabled(t *testing.T) {
 	dir := setupTestInstallation(t)
 	// Enable Elasticsearch
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_ELASTICSEARCH=true\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_ELASTICSEARCH=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, false); err != nil {

@@ -197,19 +197,19 @@ func AddWiki(opts AddWikiOptions) error {
 		return err
 	}
 
-	//Migrate to the new version Canasta
+	// Migrate to the new version Canasta
 	err = canasta.MigrateToNewVersion(opts.Instance.Path)
 	if err != nil {
 		return err
 	}
 
-	//Checking Running status
+	// Checking Running status
 	err = orch.CheckRunningStatus(opts.Instance)
 	if err != nil {
 		return err
 	}
 
-	//Checking Wiki existence
+	// Checking Wiki existence
 	wikiIDExists, err := farmsettings.WikiIDExists(opts.Instance.Path, opts.WikiID)
 	if err != nil {
 		return err
@@ -260,13 +260,13 @@ func AddWiki(opts AddWikiOptions) error {
 		}
 	}
 
-	//Add the wiki in farmsettings (only after successful installation)
+	// Add the wiki in farmsettings (only after successful installation)
 	err = farmsettings.AddWiki(opts.WikiID, opts.Instance.Path, opts.Domain, opts.WikiPath, opts.SiteName)
 	if err != nil {
 		return err
 	}
 
-	//Rewrite the Caddyfile (only after adding to wikis.yaml)
+	// Rewrite the Caddyfile (only after adding to wikis.yaml)
 	err = orch.UpdateConfig(opts.Instance.Path)
 	if err != nil {
 		return err

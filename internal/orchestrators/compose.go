@@ -289,11 +289,12 @@ func (c *ComposeOrchestrator) Update(installPath string) (*UpdateReport, error) 
 	// Compare before and after
 	for service, after := range afterImages {
 		before, existed := beforeImages[service]
-		if !existed {
+		switch {
+		case !existed:
 			report.UpdatedImages = append(report.UpdatedImages, after)
-		} else if before.ID != after.ID {
+		case before.ID != after.ID:
 			report.UpdatedImages = append(report.UpdatedImages, after)
-		} else {
+		default:
 			report.UnchangedImages = append(report.UnchangedImages, after)
 		}
 	}
@@ -604,17 +605,19 @@ func getComposeImages(installPath string, compose config.Orchestrator) (map[stri
 			containerName := fields[0]
 			parts := strings.Split(containerName, "-")
 			var service string
-			if len(parts) >= 3 {
+			switch {
+			case len(parts) >= 3:
 				service = strings.Join(parts[1:len(parts)-1], "-")
-			} else if len(parts) == 2 {
+			case len(parts) == 2:
 				service = parts[0]
-			} else {
+			default:
 				parts = strings.Split(containerName, "_")
-				if len(parts) >= 3 {
+				switch {
+				case len(parts) >= 3:
 					service = strings.Join(parts[1:len(parts)-1], "_")
-				} else if len(parts) == 2 {
+				case len(parts) == 2:
 					service = parts[0]
-				} else {
+				default:
 					service = containerName
 				}
 			}

@@ -141,7 +141,8 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	envPath := filepath.Join(instance.Path, ".env")
 
 	if !dryRun {
-		if instance.BuildFrom != "" {
+		switch {
+		case instance.BuildFrom != "":
 			// Rebuild Canasta image from stored source path
 			fmt.Printf("Rebuilding Canasta image from %s...\n", instance.BuildFrom)
 			imageTag, err := imagebuild.BuildFromSource(instance.BuildFrom)
@@ -174,13 +175,13 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 			}
 
 			imagesUpdated = true
-		} else if !orch.SupportsImagePull() {
+		case !orch.SupportsImagePull():
 			fmt.Println("Regenerating configuration and re-applying manifests...")
 			if err := orch.UpdateConfig(instance.Path); err != nil {
 				return err
 			}
 			imagesUpdated = true
-		} else {
+		default:
 			fmt.Println("Pulling Canasta container images...")
 			report, err := orch.Update(instance.Path)
 			if err != nil {
@@ -382,11 +383,12 @@ func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bo
 		changed = true
 	}
 
-	if !changed {
+	switch {
+	case !changed:
 		fmt.Println("No config migrations needed.")
-	} else if dryRun {
+	case dryRun:
 		fmt.Println("Config migrations would be applied.")
-	} else {
+	default:
 		fmt.Println("Migrations applied.")
 	}
 
