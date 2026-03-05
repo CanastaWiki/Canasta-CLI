@@ -867,31 +867,15 @@ func MigrateToNewVersion(installPath string) error {
 		return err
 	}
 
-	// Open the .env file
-	envFile, err := os.Open(filepath.Join(installPath, ".env"))
+	// Read the environment variables from the .env file
+	envPath := filepath.Join(installPath, ".env")
+	envMap, err := GetEnvVariable(envPath)
 	if err != nil {
 		return err
 	}
-	defer envFile.Close()
 
-	// Read the environment variables from the .env file
-	envMap := make(map[string]string)
-	scanner := bufio.NewScanner(envFile)
 	// Default wiki ID for migration from old single-wiki installations
 	id := "my_wiki"
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		splitLine := strings.SplitN(line, "=", 2)
-		if len(splitLine) != 2 {
-			continue
-		}
-		envMap[splitLine[0]] = splitLine[1]
-	}
-
-	if err := scanner.Err(); err != nil {
-		return err
-	}
 
 	// Remove the "http://" or "https://" prefix from MW_SITE_SERVER variable
 	mwSiteServer := strings.TrimPrefix(envMap["MW_SITE_SERVER"], "http://")
