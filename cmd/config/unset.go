@@ -76,24 +76,7 @@ is removed. The instance is then restarted unless --no-restart is specified.`,
 				return nil
 			}
 
-			// Restart: UpdateConfig → Stop → (recreate kind cluster if port key) → Start
-			fmt.Println("Applying configuration and restarting...")
-			if err := (*orch).UpdateConfig(instance.Path); err != nil {
-				return fmt.Errorf("failed to update config: %w", err)
-			}
-			if err := (*orch).Stop(*instance); err != nil {
-				return fmt.Errorf("failed to stop instance: %w", err)
-			}
-			if instance.KindCluster != "" && portKeyChanged {
-				if err := recreateKindCluster(*instance); err != nil {
-					return err
-				}
-			}
-			if err := (*orch).Start(*instance); err != nil {
-				return fmt.Errorf("failed to start instance: %w", err)
-			}
-			fmt.Println("Done.")
-			return nil
+			return restartInstance(orch, *instance, portKeyChanged)
 		},
 	}
 
