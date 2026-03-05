@@ -404,12 +404,9 @@ func (c *ComposeOrchestrator) RestoreFromBackupVolume(installPath string, dirs m
 	return restoreFromVolume(backupVolumeName(installPath), installPath, dirs)
 }
 
-func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename, workingDir string) error {
+func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename string) error {
 	if sourceFilename != "" {
 		logging.Print("Copying override file\n")
-		if !filepath.IsAbs(sourceFilename) {
-			sourceFilename = filepath.Join(workingDir, sourceFilename)
-		}
 		var overrideFilename = filepath.Join(installPath, "docker-compose.override.yml")
 		logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, overrideFilename))
 		output, err := execute.Run("", "cp", sourceFilename, overrideFilename)

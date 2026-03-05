@@ -143,14 +143,11 @@ func copyTemplate(destPath string, upgrading bool) error {
 // The base .env is provided by the installation template (CopyInstallationTemplate).
 // This function merges any custom env file if provided,
 // and then applies the DB passwords and domain configuration.
-func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpass string) error {
+func UpdateEnvFile(customEnvPath, installPath, rootDBpass, wikiDBpass string) error {
 	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
 
 	// If custom env file provided, merge its values
 	if customEnvPath != "" {
-		if !filepath.IsAbs(customEnvPath) {
-			customEnvPath = filepath.Join(workingDir, customEnvPath)
-		}
 		logging.Print(fmt.Sprintf("Merging overrides from %s into %s/.env\n", customEnvPath, installPath))
 
 		// Read custom env file
@@ -286,12 +283,7 @@ func CopySetting(installPath, id string) error {
 
 // CopyWikiSettingFile copies a user-provided Settings.php file to the wiki's config directory
 // Used when importing a wiki with a custom Settings.php
-func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir string) error {
-	// Make path absolute if it's relative
-	if !filepath.IsAbs(settingsFilePath) {
-		settingsFilePath = filepath.Join(workingDir, settingsFilePath)
-	}
-
+func CopyWikiSettingFile(installPath, wikiID, settingsFilePath string) error {
 	id := NormalizeWikiID(wikiID)
 	dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
@@ -313,12 +305,7 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 
 // CopyGlobalSettingFile copies a user-provided settings file to config/settings/global/ directory
 // The original filename is preserved
-func CopyGlobalSettingFile(installPath, settingsFilePath, workingDir string) error {
-	// Make path absolute if it's relative
-	if !filepath.IsAbs(settingsFilePath) {
-		settingsFilePath = filepath.Join(workingDir, settingsFilePath)
-	}
-
+func CopyGlobalSettingFile(installPath, settingsFilePath string) error {
 	// Get the original filename
 	filename := filepath.Base(settingsFilePath)
 	dirPath := filepath.Join(installPath, "config", "settings", "global")
@@ -611,10 +598,7 @@ func CreateCaddyfileGlobal(installPath string) error {
 }
 
 // CopyComposerFile copies a user-provided composer.local.json to config/composer.local.json.
-func CopyComposerFile(installPath, sourceFilename, workingDir string) error {
-	if !filepath.IsAbs(sourceFilename) {
-		sourceFilename = filepath.Join(workingDir, sourceFilename)
-	}
+func CopyComposerFile(installPath, sourceFilename string) error {
 	destPath := filepath.Join(installPath, "config", "composer.local.json")
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, destPath))
 	output, err := execute.Run("", "cp", sourceFilename, destPath)

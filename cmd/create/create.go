@@ -93,9 +93,11 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 				}
 			}
 
-			// Resolve relative database path to absolute (relative to working directory)
-			if databasePath != "" && !filepath.IsAbs(databasePath) {
-				databasePath = filepath.Join(workingDir, databasePath)
+			// Resolve all relative file paths to absolute (relative to working directory)
+			for _, p := range []*string{&databasePath, &envFile, &wikiSettingsPath, &globalSettingsPath, &composerFile, &override} {
+				if *p != "" && !filepath.IsAbs(*p) {
+					*p = filepath.Join(workingDir, *p)
+				}
 			}
 
 			// Always generate database passwords
@@ -114,11 +116,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 			// non-standard HTTPS port, append the port to the default domain
 			// so that wikis.yaml is generated with the correct URL.
 			if !cmd.Flags().Changed("domain-name") && envFile != "" {
-				envFilePath := envFile
-				if !filepath.IsAbs(envFilePath) {
-					envFilePath = filepath.Join(workingDir, envFilePath)
-				}
-				envVars, envErr := canasta.GetEnvVariable(envFilePath)
+				envVars, envErr := canasta.GetEnvVariable(envFile)
 				if envErr != nil {
 					return envErr
 				}
@@ -146,7 +144,6 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 			if err = createCanasta(createOptions{
 				CanastaInfo:        canastaInfo,
 				Orch:               orch,
-				WorkingDir:         workingDir,
 				Path:               path,
 				WikiID:             wikiID,
 				SiteName:           siteName,
@@ -216,7 +213,6 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 type createOptions struct {
 	CanastaInfo        canasta.CanastaVariables
 	Orch               orchestrators.Orchestrator
-	WorkingDir         string
 	Path               string
 	WikiID             string
 	SiteName           string
@@ -286,7 +282,7 @@ func createCanasta(opts createOptions) error {
 			return err
 		}
 	}
-	if err := canasta.UpdateEnvFile(opts.EnvFile, path, opts.WorkingDir, opts.CanastaInfo.RootDBPassword, opts.CanastaInfo.WikiDBPassword); err != nil {
+	if err := canasta.UpdateEnvFile(opts.EnvFile, path, opts.CanastaInfo.RootDBPassword, opts.CanastaInfo.WikiDBPassword); err != nil {
 		return err
 	}
 	// Always set CANASTA_IMAGE in .env so the installation is pinned to a
@@ -300,18 +296,18 @@ func createCanasta(opts createOptions) error {
 	}
 	// If custom per-wiki settings file provided, overwrite the Settings.php for this wiki
 	if opts.WikiSettingsPath != "" && opts.WikiID != "" {
-		if err := canasta.CopyWikiSettingFile(path, opts.WikiID, opts.WikiSettingsPath, opts.WorkingDir); err != nil {
+		if err := canasta.CopyWikiSettingFile(path, opts.WikiID, opts.WikiSettingsPath); err != nil {
 			return err
 		}
 	}
 	// If custom global settings file provided, copy to config/settings/
 	if opts.GlobalSettingsPath != "" {
-		if err := canasta.CopyGlobalSettingFile(path, opts.GlobalSettingsPath, opts.WorkingDir); err != nil {
+		if err := canasta.CopyGlobalSettingFile(path, opts.GlobalSettingsPath); err != nil {
 			return err
 		}
 	}
 	if opts.ComposerFile != "" {
-		if err := canasta.CopyComposerFile(path, opts.ComposerFile, opts.WorkingDir); err != nil {
+		if err := canasta.CopyComposerFile(path, opts.ComposerFile); err != nil {
 			return err
 		}
 	}
@@ -358,7 +354,7 @@ func createCanasta(opts createOptions) error {
 		if !ok {
 			return fmt.Errorf("--override is only supported with Docker Compose")
 		}
-		if err := compose.CopyOverrideFile(path, opts.Override, opts.WorkingDir); err != nil {
+		if err := compose.CopyOverrideFile(path, opts.Override); err != nil {
 			return err
 		}
 	}
