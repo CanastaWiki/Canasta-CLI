@@ -18,7 +18,7 @@ type extMockOrchestrator struct {
 	streamingErr   error
 }
 
-func (m *extMockOrchestrator) CheckDependencies() error                 { return nil }
+func (m *extMockOrchestrator) CheckDependencies() error       { return nil }
 func (m *extMockOrchestrator) WriteStackFiles(_ string) error { return nil }
 func (m *extMockOrchestrator) UpdateStackFiles(_ string, _ bool) (bool, error) {
 	return false, nil

@@ -18,7 +18,7 @@ type mockOrchestrator struct {
 	stopErr    error
 }
 
-func (m *mockOrchestrator) CheckDependencies() error                 { return nil }
+func (m *mockOrchestrator) CheckDependencies() error       { return nil }
 func (m *mockOrchestrator) WriteStackFiles(_ string) error { return nil }
 func (m *mockOrchestrator) UpdateStackFiles(_ string, _ bool) (bool, error) {
 	return false, nil
