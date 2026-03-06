@@ -59,12 +59,17 @@ func runPush(installPath, message string) (*gitops.PushResult, error) {
 		return nil, err
 	}
 
-	hasChanges, _, err := gitops.HasUncommittedChanges(installPath)
+	hasChanges, files, err := gitops.HasUncommittedChanges(installPath)
 	if err != nil {
 		return nil, err
 	}
 	if !hasChanges {
 		return &gitops.PushResult{NoChanges: true}, nil
+	}
+
+	fmt.Printf("Files to be committed (%d):\n", len(files))
+	for _, f := range files {
+		fmt.Printf("  %s\n", f)
 	}
 
 	if message == "" {

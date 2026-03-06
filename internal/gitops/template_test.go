@@ -1,6 +1,7 @@
 package gitops
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -45,7 +46,7 @@ C={{baz}}`
 	}
 
 	errMsg := err.Error()
-	if !contains(errMsg, "bar") || !contains(errMsg, "baz") {
+	if !strings.Contains(errMsg, "bar") || !strings.Contains(errMsg, "baz") {
 		t.Errorf("error should list missing keys bar and baz, got: %s", errMsg)
 	}
 }
@@ -64,16 +65,16 @@ HTTPS_PORT=443`
 	tmpl, vars := ExtractTemplate(env, placeholderKeys)
 
 	// Check that the template has placeholders
-	if !contains(tmpl, "{{mw_site_server}}") {
+	if !strings.Contains(tmpl, "{{mw_site_server}}") {
 		t.Error("template should contain {{mw_site_server}}")
 	}
-	if !contains(tmpl, "{{mysql_password}}") {
+	if !strings.Contains(tmpl, "{{mysql_password}}") {
 		t.Error("template should contain {{mysql_password}}")
 	}
-	if !contains(tmpl, "SOME_LITERAL=hello") {
+	if !strings.Contains(tmpl, "SOME_LITERAL=hello") {
 		t.Error("template should preserve literal values")
 	}
-	if !contains(tmpl, "# A comment") {
+	if !strings.Contains(tmpl, "# A comment") {
 		t.Error("template should preserve comments")
 	}
 
@@ -138,17 +139,4 @@ func TestFindMissingCustomKeys(t *testing.T) {
 	if len(missing) != 0 {
 		t.Errorf("expected no missing keys for nil input, got %v", missing)
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
-
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
