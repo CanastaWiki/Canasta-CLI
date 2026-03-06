@@ -59,6 +59,7 @@ nav:
     - Upgrading: guide/upgrading.md
     - Email: guide/email.md
     - Sitemaps: guide/sitemaps.md
+    - GitOps configuration: guide/gitops.md
     - Kubernetes: guide/kubernetes.md
     - Orchestrators: guide/orchestrators.md
     - Best practices: guide/best-practices.md
