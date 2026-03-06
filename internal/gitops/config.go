@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"gopkg.in/yaml.v2"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 const (
