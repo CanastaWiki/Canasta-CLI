@@ -75,9 +75,15 @@ canasta-config/
 
 ## Initial setup
 
-### 1. Create your Canasta installation
+Gitops works with any existing Canasta installation — single wiki or wiki farm. You don't need to reinstall or recreate anything. The `init` command examines your running installation and builds the gitops repository around it.
 
-If you haven't already, create the installation as usual:
+### 1. Verify your installation
+
+Make sure your installation is working and that `.env`, `config/`, and any extensions/skins are in their final state. Gitops will snapshot the current configuration as its starting point.
+
+If you have a wiki farm, ensure `config/wikis.yaml` and all per-wiki settings under `config/settings/` are in place. Admin passwords (`config/admin-password_*`) are automatically captured into the encrypted per-host vars.
+
+If you don't have an installation yet:
 
 ```bash
 canasta create -i mywiki -w main -n wiki.example.com
@@ -285,7 +291,7 @@ canasta create -i mywiki -w main -n production.example.com
 canasta backup restore -i mywiki -b /path/to/backup.tar.gz
 ```
 
-This ensures the new server has all wikis and their databases, with its own passwords.
+This ensures the new server has all wikis and their databases. The restore gives the new server its own generated passwords (in `.env` and `config/admin-password_*`), which are then captured as that host's vars during the join step below.
 
 ### 3. Set any custom environment variables
 
