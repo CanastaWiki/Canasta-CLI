@@ -49,7 +49,7 @@ git-crypt, extracts host-specific values, and overlays shared configuration.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&hostName, "name", "", "Name for this host in hosts.yaml (required)")
+	cmd.Flags().StringVarP(&hostName, "name", "n", "", "Name for this host in hosts.yaml (required)")
 	cmd.Flags().StringVar(&role, "role", gitops.RoleBoth, "Host role: source, sink, or both")
 	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL to join (omit to bootstrap a new repo)")
 	cmd.Flags().StringVar(&keyFile, "key", "", "Path to git-crypt key file (required with --repo)")
