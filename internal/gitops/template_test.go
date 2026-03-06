@@ -1,0 +1,132 @@
+package gitops
+
+import (
+	"testing"
+)
+
+func TestRenderTemplate(t *testing.T) {
+	tmpl := `MW_SITE_SERVER=https://{{domain}}
+MW_SITE_FQDN={{domain}}
+MYSQL_PASSWORD={{mysql_password}}
+SOME_LITERAL=hello`
+
+	vars := VarsMap{
+		"domain":         "wiki.example.com",
+		"mysql_password": "secret123",
+	}
+
+	result, err := RenderTemplate(tmpl, vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `MW_SITE_SERVER=https://wiki.example.com
+MW_SITE_FQDN=wiki.example.com
+MYSQL_PASSWORD=secret123
+SOME_LITERAL=hello`
+
+	if result != expected {
+		t.Errorf("got:\n%s\nwant:\n%s", result, expected)
+	}
+}
+
+func TestRenderTemplateMissingKeys(t *testing.T) {
+	tmpl := `A={{foo}}
+B={{bar}}
+C={{baz}}`
+
+	vars := VarsMap{
+		"foo": "1",
+	}
+
+	_, err := RenderTemplate(tmpl, vars)
+	if err == nil {
+		t.Fatal("expected error for missing keys")
+	}
+
+	errMsg := err.Error()
+	if !contains(errMsg, "bar") || !contains(errMsg, "baz") {
+		t.Errorf("error should list missing keys bar and baz, got: %s", errMsg)
+	}
+}
+
+func TestExtractTemplate(t *testing.T) {
+	env := `MW_SITE_SERVER=https://wiki.example.com
+MW_SITE_FQDN=wiki.example.com
+MYSQL_PASSWORD=secret123
+SOME_LITERAL=hello
+# A comment
+
+HTTPS_PORT=443`
+
+	placeholderKeys := []string{"MW_SITE_SERVER", "MW_SITE_FQDN", "MYSQL_PASSWORD", "HTTPS_PORT"}
+
+	tmpl, vars := ExtractTemplate(env, placeholderKeys)
+
+	// Check that the template has placeholders
+	if !contains(tmpl, "{{mw_site_server}}") {
+		t.Error("template should contain {{mw_site_server}}")
+	}
+	if !contains(tmpl, "{{mysql_password}}") {
+		t.Error("template should contain {{mysql_password}}")
+	}
+	if !contains(tmpl, "SOME_LITERAL=hello") {
+		t.Error("template should preserve literal values")
+	}
+	if !contains(tmpl, "# A comment") {
+		t.Error("template should preserve comments")
+	}
+
+	// Check vars
+	if vars["mw_site_server"] != "https://wiki.example.com" {
+		t.Errorf("mw_site_server = %q, want %q", vars["mw_site_server"], "https://wiki.example.com")
+	}
+	if vars["mysql_password"] != "secret123" {
+		t.Errorf("mysql_password = %q, want %q", vars["mysql_password"], "secret123")
+	}
+	if vars["https_port"] != "443" {
+		t.Errorf("https_port = %q, want %q", vars["https_port"], "443")
+	}
+}
+
+func TestExtractAndRenderRoundTrip(t *testing.T) {
+	env := `MW_SITE_SERVER=https://wiki.example.com
+MYSQL_PASSWORD=secret123
+SOME_LITERAL=hello`
+
+	placeholderKeys := []string{"MW_SITE_SERVER", "MYSQL_PASSWORD"}
+
+	tmpl, vars := ExtractTemplate(env, placeholderKeys)
+
+	rendered, err := RenderTemplate(tmpl, vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rendered != env {
+		t.Errorf("round-trip failed.\ngot:\n%s\nwant:\n%s", rendered, env)
+	}
+}
+
+func TestAllPlaceholderKeys(t *testing.T) {
+	custom := []string{"MY_API_KEY", "SMTP_PASSWORD"}
+	keys := AllPlaceholderKeys(custom)
+
+	expected := len(BuiltinSecretKeys) + len(BuiltinHostKeys) + 2
+	if len(keys) != expected {
+		t.Errorf("got %d keys, want %d", len(keys), expected)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

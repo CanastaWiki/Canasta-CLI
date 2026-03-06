@@ -8,6 +8,7 @@ import (
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI/cmd/delete"
 	devmodeCmd "github.com/CanastaWiki/Canasta-CLI/cmd/devmode"
 	exportCmd "github.com/CanastaWiki/Canasta-CLI/cmd/export"
+	gitopsCmd "github.com/CanastaWiki/Canasta-CLI/cmd/gitops"
 	extensionCmd "github.com/CanastaWiki/Canasta-CLI/cmd/extension"
 	importCmd "github.com/CanastaWiki/Canasta-CLI/cmd/import"
 	listCmd "github.com/CanastaWiki/Canasta-CLI/cmd/list"
@@ -68,6 +69,7 @@ func init() {
 	rootCmd.AddCommand(devmodeCmd.NewCmd())
 	rootCmd.AddCommand(exportCmd.NewCmd())
 	rootCmd.AddCommand(extensionCmd.NewCmd())
+	rootCmd.AddCommand(gitopsCmd.NewCmd())
 	rootCmd.AddCommand(importCmd.NewCmd())
 	rootCmd.AddCommand(listCmd.NewCmd())
 	rootCmd.AddCommand(maintenanceCmd.NewCmd())
