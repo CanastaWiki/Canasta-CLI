@@ -13,6 +13,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/gitops"
 	"github.com/CanastaWiki/Canasta-CLI/internal/gitops/defaults"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 func newInitCmd(instance *config.Installation) *cobra.Command {
@@ -38,8 +39,11 @@ git-crypt, extracts host-specific values, and overlays shared configuration.`,
 			if hostName == "" {
 				return fmt.Errorf("--host is required")
 			}
+			if err := gitops.ValidateRole(role); err != nil {
+				return err
+			}
 			if repoURL != "" {
-				return runInitJoin(instance.Path, hostName, repoURL, keyFile)
+				return runInitJoin(instance.Path, hostName, role, repoURL, keyFile)
 			}
 			return runInitBootstrap(instance.Path, hostName, role)
 		},
@@ -57,6 +61,11 @@ func runInitBootstrap(installPath, hostName, role string) error {
 		return err
 	}
 
+	// Check for existing git repo.
+	if _, err := os.Stat(filepath.Join(installPath, ".git")); err == nil {
+		return fmt.Errorf("directory is already a git repository — cannot bootstrap gitops")
+	}
+
 	fmt.Println("Initializing gitops repository...")
 
 	// 1. Initialize git repo.
@@ -65,10 +74,10 @@ func runInitBootstrap(installPath, hostName, role string) error {
 	}
 
 	// 2. Write .gitignore and .gitattributes.
-	if err := os.WriteFile(filepath.Join(installPath, ".gitignore"), []byte(defaults.Gitignore), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(installPath, ".gitignore"), []byte(defaults.Gitignore), permissions.FilePermission); err != nil {
 		return fmt.Errorf("writing .gitignore: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(installPath, ".gitattributes"), []byte(defaults.Gitattributes), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(installPath, ".gitattributes"), []byte(defaults.Gitattributes), permissions.FilePermission); err != nil {
 		return fmt.Errorf("writing .gitattributes: %w", err)
 	}
 
@@ -97,6 +106,13 @@ func runInitBootstrap(installPath, hostName, role string) error {
 	}
 	placeholderKeys := gitops.AllPlaceholderKeys(customKeys)
 	template, vars := gitops.ExtractTemplate(string(envContent), placeholderKeys)
+
+	// Verify all custom keys were found in .env.
+	if missing := gitops.FindMissingCustomKeys(customKeys, vars); len(missing) > 0 {
+		return fmt.Errorf("custom keys not found in .env: %s\nSet them with: canasta config set %s",
+			strings.Join(missing, ", "),
+			strings.Join(missing, "=... ")+"=...")
+	}
 
 	if err := gitops.SaveEnvTemplate(installPath, template); err != nil {
 		return err
@@ -161,12 +177,17 @@ func runInitBootstrap(installPath, hostName, role string) error {
 	return nil
 }
 
-func runInitJoin(installPath, hostName, repoURL, keyFile string) error {
+func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 	if keyFile == "" {
 		return fmt.Errorf("--key is required when joining an existing repo (--repo)")
 	}
 	if err := gitops.CheckPrereqs(false); err != nil {
 		return err
+	}
+
+	// Check for existing git repo.
+	if _, err := os.Stat(filepath.Join(installPath, ".git")); err == nil {
+		return fmt.Errorf("directory is already a git repository — cannot join gitops repo")
 	}
 
 	fmt.Println("Joining existing gitops repository...")
@@ -195,10 +216,13 @@ func runInitJoin(installPath, hostName, repoURL, keyFile string) error {
 		return err
 	}
 
-	// Reset working tree to get repo files without overwriting installation files.
-	// Use git checkout for files that don't conflict.
+	// Unlock git-crypt in the installation directory and checkout tracked files
+	// from the repo (env.template, hosts.yaml, .gitattributes, config files, etc.).
 	if err := gitops.GitCryptUnlock(installPath, absKeyFile); err != nil {
 		return fmt.Errorf("unlocking git-crypt in installation: %w", err)
+	}
+	if err := gitops.CheckoutHead(installPath); err != nil {
+		return fmt.Errorf("checking out repo files: %w", err)
 	}
 
 	// 2. Load the hosts config from the repo.
@@ -210,7 +234,7 @@ func runInitJoin(installPath, hostName, repoURL, keyFile string) error {
 	// 3. Add this host.
 	cfg.Hosts[hostName] = gitops.HostEntry{
 		Hostname: mustHostname(),
-		Role:     gitops.RoleSink,
+		Role:     role,
 	}
 	if err := gitops.SaveHostsConfig(installPath, cfg); err != nil {
 		return err
@@ -229,6 +253,13 @@ func runInitJoin(installPath, hostName, repoURL, keyFile string) error {
 	}
 	placeholderKeys := gitops.AllPlaceholderKeys(customKeys)
 	_, vars := gitops.ExtractTemplate(string(envContent), placeholderKeys)
+
+	// Verify all custom keys were found in .env.
+	if missing := gitops.FindMissingCustomKeys(customKeys, vars); len(missing) > 0 {
+		return fmt.Errorf("custom keys not found in .env: %s\nSet them with: canasta config set %s",
+			strings.Join(missing, ", "),
+			strings.Join(missing, "=... ")+"=...")
+	}
 
 	passwords, err := gitops.ReadAdminPasswords(installPath)
 	if err != nil {

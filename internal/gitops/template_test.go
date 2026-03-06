@@ -112,9 +112,31 @@ func TestAllPlaceholderKeys(t *testing.T) {
 	custom := []string{"MY_API_KEY", "SMTP_PASSWORD"}
 	keys := AllPlaceholderKeys(custom)
 
-	expected := len(BuiltinSecretKeys) + len(BuiltinHostKeys) + 2
+	expected := len(builtinSecretKeys) + len(builtinHostKeys) + 2
 	if len(keys) != expected {
 		t.Errorf("got %d keys, want %d", len(keys), expected)
+	}
+}
+
+func TestFindMissingCustomKeys(t *testing.T) {
+	vars := VarsMap{"my_api_key": "val1", "smtp_password": "val2"}
+
+	// All present.
+	missing := FindMissingCustomKeys([]string{"MY_API_KEY", "SMTP_PASSWORD"}, vars)
+	if len(missing) != 0 {
+		t.Errorf("expected no missing keys, got %v", missing)
+	}
+
+	// One missing.
+	missing = FindMissingCustomKeys([]string{"MY_API_KEY", "NONEXISTENT"}, vars)
+	if len(missing) != 1 || missing[0] != "NONEXISTENT" {
+		t.Errorf("expected [NONEXISTENT], got %v", missing)
+	}
+
+	// Empty custom keys.
+	missing = FindMissingCustomKeys(nil, vars)
+	if len(missing) != 0 {
+		t.Errorf("expected no missing keys for nil input, got %v", missing)
 	}
 }
 

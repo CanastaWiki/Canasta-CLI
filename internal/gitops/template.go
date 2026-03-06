@@ -86,12 +86,24 @@ func ExtractTemplate(envContent string, placeholderKeys []string) (template stri
 	return template, vars
 }
 
+// FindMissingCustomKeys returns custom key names whose placeholder equivalents
+// are not present in the vars map (i.e., they were not found in .env).
+func FindMissingCustomKeys(customKeys []string, vars VarsMap) []string {
+	var missing []string
+	for _, key := range customKeys {
+		if _, ok := vars[placeholderName(key)]; !ok {
+			missing = append(missing, key)
+		}
+	}
+	return missing
+}
+
 // AllPlaceholderKeys returns the combined list of built-in secret keys,
 // built-in host keys, and any custom keys.
 func AllPlaceholderKeys(customKeys []string) []string {
-	keys := make([]string, 0, len(BuiltinSecretKeys)+len(BuiltinHostKeys)+len(customKeys))
-	keys = append(keys, BuiltinSecretKeys...)
-	keys = append(keys, BuiltinHostKeys...)
+	keys := make([]string, 0, len(builtinSecretKeys)+len(builtinHostKeys)+len(customKeys))
+	keys = append(keys, builtinSecretKeys...)
+	keys = append(keys, builtinHostKeys...)
 	keys = append(keys, customKeys...)
 	return keys
 }

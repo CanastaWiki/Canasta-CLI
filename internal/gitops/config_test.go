@@ -224,3 +224,30 @@ func TestReadWriteAdminPasswords(t *testing.T) {
 		t.Error("non-password key should not create a file")
 	}
 }
+
+func TestFindCurrentHostOverride(t *testing.T) {
+	cfg := &HostsConfig{
+		Hosts: map[string]HostEntry{
+			"prod":    {Hostname: "prod.example.com", Role: RoleSink},
+			"staging": {Hostname: "staging.example.com", Role: RoleSource},
+		},
+	}
+
+	// Override should return the named host regardless of system hostname.
+	entry, name, err := FindCurrentHost(cfg, "prod")
+	if err != nil {
+		t.Fatalf("FindCurrentHost with override: %v", err)
+	}
+	if name != "prod" {
+		t.Errorf("name = %q, want %q", name, "prod")
+	}
+	if entry.Role != RoleSink {
+		t.Errorf("role = %q, want %q", entry.Role, RoleSink)
+	}
+
+	// Override with nonexistent host should error.
+	_, _, err = FindCurrentHost(cfg, "nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent host override")
+	}
+}

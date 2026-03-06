@@ -7,24 +7,19 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 )
 
-// InitRepo initializes a new git repository at the given path.
+// InitRepo initializes a new git repository at the given path with "main"
+// as the default branch.
 func InitRepo(path string) error {
-	_, err := execute.Run(path, "git", "init")
+	_, err := execute.Run(path, "git", "init", "-b", "main")
 	if err != nil {
 		return fmt.Errorf("git init: %w", err)
-	}
-	// Create initial branch as "main".
-	_, err = execute.Run(path, "git", "checkout", "-b", "main")
-	if err != nil {
-		return fmt.Errorf("git checkout -b main: %w", err)
 	}
 	return nil
 }
 
 // Clone clones a repository into the given path. The path must already
-// exist; the repo contents are cloned into it (not a subdirectory).
+// exist; the repo contents are cloned directly into it.
 func Clone(repoURL, path string) error {
-	// Clone into a temp directory, then move contents.
 	_, err := execute.Run(path, "git", "clone", repoURL, ".")
 	if err != nil {
 		return fmt.Errorf("git clone: %w", err)
@@ -191,6 +186,16 @@ func DiffNameOnly(path, ref string) ([]string, error) {
 		return nil, nil
 	}
 	return strings.Split(output, "\n"), nil
+}
+
+// CheckoutHead checks out all tracked files from HEAD into the working tree
+// without overwriting untracked files.
+func CheckoutHead(path string) error {
+	_, err := execute.Run(path, "git", "checkout", "HEAD", "--", ".")
+	if err != nil {
+		return fmt.Errorf("git checkout HEAD: %w", err)
+	}
+	return nil
 }
 
 // CreatePR uses the gh CLI to create a pull request.

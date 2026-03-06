@@ -42,7 +42,7 @@ func runPush(installPath, message string) (*gitops.PushResult, error) {
 		return nil, err
 	}
 
-	entry, hostName, err := gitops.FindCurrentHost(cfg)
+	entry, hostName, err := gitops.FindCurrentHost(cfg, hostFlag)
 	if err != nil {
 		return nil, err
 	}

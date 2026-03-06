@@ -10,6 +10,8 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/gitops"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 func newPullCmd(instance *config.Installation) *cobra.Command {
@@ -32,6 +34,19 @@ report what changed and whether a restart is needed.`,
 }
 
 func runPull(installPath string) (*gitops.PullResult, error) {
+	// 0. Verify this host's role allows pulling.
+	cfg, err := gitops.LoadHostsConfig(installPath)
+	if err != nil {
+		return nil, err
+	}
+	entry, _, err := gitops.FindCurrentHost(cfg, hostFlag)
+	if err != nil {
+		return nil, err
+	}
+	if !gitops.CanPull(entry.Role) {
+		return nil, fmt.Errorf("host has role %q and cannot pull", entry.Role)
+	}
+
 	// 1. Check for uncommitted local changes.
 	hasChanges, files, err := gitops.HasUncommittedChanges(installPath)
 	if err != nil {
@@ -76,13 +91,13 @@ func runPull(installPath string) (*gitops.PullResult, error) {
 		}, nil
 	}
 
-	// 4. Find current host.
-	cfg, err := gitops.LoadHostsConfig(installPath)
+	// 4. Re-read hosts config (may have changed in the pull) and find current host.
+	cfg, err = gitops.LoadHostsConfig(installPath)
 	if err != nil {
 		return nil, err
 	}
 
-	_, hostName, err := gitops.FindCurrentHost(cfg)
+	_, hostName, err := gitops.FindCurrentHost(cfg, hostFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +118,7 @@ func runPull(installPath string) (*gitops.PullResult, error) {
 		return nil, fmt.Errorf("rendering env.template: %w", err)
 	}
 
-	if err := os.WriteFile(envPath, []byte(newEnvContent), 0644); err != nil {
+	if err := os.WriteFile(envPath, []byte(newEnvContent), permissions.SecretFilePermission); err != nil {
 		return nil, fmt.Errorf("writing .env: %w", err)
 	}
 
@@ -128,8 +143,7 @@ func runPull(installPath string) (*gitops.PullResult, error) {
 
 	// 8. Save the applied commit.
 	if err := gitops.SaveAppliedCommit(installPath, newCommit); err != nil {
-		// Non-fatal.
-		_ = err
+		logging.Print(fmt.Sprintf("Warning: could not save applied commit: %v\n", err))
 	}
 
 	return &gitops.PullResult{

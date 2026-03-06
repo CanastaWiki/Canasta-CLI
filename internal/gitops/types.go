@@ -1,5 +1,7 @@
 package gitops
 
+import "fmt"
+
 // HostsConfig represents the top-level hosts.yaml structure.
 type HostsConfig struct {
 	CanastaID    string               `yaml:"canasta_id"`
@@ -57,17 +59,27 @@ const RoleSink = "sink"
 // RoleBoth indicates a host that can both push and pull.
 const RoleBoth = "both"
 
-// BuiltinSecretKeys are .env keys whose values are secrets and must
+// ValidateRole returns an error if the role is not one of the known values.
+func ValidateRole(role string) error {
+	switch role {
+	case RoleSource, RoleSink, RoleBoth:
+		return nil
+	default:
+		return fmt.Errorf("invalid role %q: must be %q, %q, or %q", role, RoleSource, RoleSink, RoleBoth)
+	}
+}
+
+// builtinSecretKeys are .env keys whose values are secrets and must
 // differ per host. These become {{placeholders}} in env.template.
-var BuiltinSecretKeys = []string{
+var builtinSecretKeys = []string{
 	"MYSQL_PASSWORD",
 	"WIKI_DB_PASSWORD",
 	"MW_SECRET_KEY",
 }
 
-// BuiltinHostKeys are .env keys whose values are host-specific but not
+// builtinHostKeys are .env keys whose values are host-specific but not
 // necessarily secret. These also become {{placeholders}} in env.template.
-var BuiltinHostKeys = []string{
+var builtinHostKeys = []string{
 	"MW_SITE_SERVER",
 	"MW_SITE_FQDN",
 	"HTTPS_PORT",

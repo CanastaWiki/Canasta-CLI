@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"gopkg.in/yaml.v2"
 )
 
@@ -44,7 +45,7 @@ func SaveHostsConfig(installPath string, cfg *HostsConfig) error {
 	if err != nil {
 		return fmt.Errorf("marshaling %s: %w", hostsFile, err)
 	}
-	return os.WriteFile(filepath.Join(installPath, hostsFile), data, 0644)
+	return os.WriteFile(filepath.Join(installPath, hostsFile), data, permissions.FilePermission)
 }
 
 // LoadVars reads and parses a host's vars.yaml.
@@ -64,14 +65,14 @@ func LoadVars(installPath, hostName string) (VarsMap, error) {
 // SaveVars writes a host's vars.yaml.
 func SaveVars(installPath, hostName string, vars VarsMap) error {
 	dir := filepath.Join(installPath, "hosts", hostName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("creating host directory %q: %w", hostName, err)
 	}
 	data, err := yaml.Marshal(vars)
 	if err != nil {
 		return fmt.Errorf("marshaling vars for host %q: %w", hostName, err)
 	}
-	return os.WriteFile(varsPath(installPath, hostName), data, 0644)
+	return os.WriteFile(varsPath(installPath, hostName), data, permissions.SecretFilePermission)
 }
 
 // LoadCustomKeys reads custom-keys.yaml if it exists. Returns an empty
@@ -103,12 +104,21 @@ func LoadEnvTemplate(installPath string) (string, error) {
 
 // SaveEnvTemplate writes the env.template file to the installation directory.
 func SaveEnvTemplate(installPath, content string) error {
-	return os.WriteFile(filepath.Join(installPath, envTemplateFile), []byte(content), 0644)
+	return os.WriteFile(filepath.Join(installPath, envTemplateFile), []byte(content), permissions.FilePermission)
 }
 
 // FindCurrentHost matches the system hostname against hosts in the config.
-// Returns the host entry, the host name key, and any error.
-func FindCurrentHost(cfg *HostsConfig) (*HostEntry, string, error) {
+// If hostOverride is non-empty, it is used as the host name instead of
+// matching by system hostname. Returns the host entry, the host name key,
+// and any error.
+func FindCurrentHost(cfg *HostsConfig, hostOverride string) (*HostEntry, string, error) {
+	if hostOverride != "" {
+		entry, ok := cfg.Hosts[hostOverride]
+		if !ok {
+			return nil, "", fmt.Errorf("host %q not found in %s", hostOverride, hostsFile)
+		}
+		return &entry, hostOverride, nil
+	}
 	hostname, err := os.Hostname()
 	if err != nil {
 		return nil, "", fmt.Errorf("getting system hostname: %w", err)
@@ -118,7 +128,7 @@ func FindCurrentHost(cfg *HostsConfig) (*HostEntry, string, error) {
 			return &entry, name, nil
 		}
 	}
-	return nil, "", fmt.Errorf("no host entry in %s matches hostname %q", hostsFile, hostname)
+	return nil, "", fmt.Errorf("no host entry in %s matches hostname %q — use --host to specify", hostsFile, hostname)
 }
 
 // ReadAdminPasswords reads all config/admin-password_* files and returns
@@ -149,7 +159,7 @@ func ReadAdminPasswords(installPath string) (map[string]string, error) {
 // the corresponding files.
 func WriteAdminPasswords(installPath string, vars VarsMap) error {
 	configDir := filepath.Join(installPath, "config")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 	for key, value := range vars {
@@ -159,7 +169,7 @@ func WriteAdminPasswords(installPath string, vars VarsMap) error {
 		wikiID := strings.TrimPrefix(key, "admin_password_")
 		filename := fmt.Sprintf("admin-password_%s", wikiID)
 		path := filepath.Join(configDir, filename)
-		if err := os.WriteFile(path, []byte(value+"\n"), 0600); err != nil {
+		if err := os.WriteFile(path, []byte(value+"\n"), permissions.SecretFilePermission); err != nil {
 			return fmt.Errorf("writing %s: %w", filename, err)
 		}
 	}
@@ -169,7 +179,7 @@ func WriteAdminPasswords(installPath string, vars VarsMap) error {
 // SaveAppliedCommit records the last successfully applied commit hash.
 func SaveAppliedCommit(installPath, commitHash string) error {
 	path := filepath.Join(installPath, appliedFile)
-	return os.WriteFile(path, []byte(commitHash+"\n"), 0644)
+	return os.WriteFile(path, []byte(commitHash+"\n"), permissions.FilePermission)
 }
 
 // LoadAppliedCommit reads the last successfully applied commit hash.

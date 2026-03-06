@@ -102,3 +102,14 @@ func TestCanPull(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateRole(t *testing.T) {
+	for _, role := range []string{RoleSource, RoleSink, RoleBoth} {
+		if err := ValidateRole(role); err != nil {
+			t.Errorf("ValidateRole(%q) = %v, want nil", role, err)
+		}
+	}
+	if err := ValidateRole("primary"); err == nil {
+		t.Error("ValidateRole(\"primary\") = nil, want error")
+	}
+}
