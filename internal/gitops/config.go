@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	hostsFile      = "hosts.yaml"
-	customKeysFile = "custom-keys.yaml"
+	hostsFile       = "hosts.yaml"
+	customKeysFile  = "custom-keys.yaml"
 	envTemplateFile = "env.template"
-	appliedFile    = ".gitops-applied"
+	appliedFile     = ".gitops-applied"
 )
 
 // LoadHostsConfig reads and parses hosts.yaml from the installation directory.

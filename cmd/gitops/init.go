@@ -359,4 +359,3 @@ func moveGitDir(srcDir, dstDir string) error {
 	}
 	return nil
 }
-

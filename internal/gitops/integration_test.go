@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 )
 
 // TestFullConfigWorkflow exercises the end-to-end config workflow:
@@ -152,6 +154,10 @@ func TestGitInitAndCommit(t *testing.T) {
 	if err := InitRepo(dir); err != nil {
 		t.Fatalf("InitRepo: %v", err)
 	}
+
+	// Configure git user for CI environments where global config may not exist.
+	execute.Run(dir, "git", "config", "user.name", "Test")
+	execute.Run(dir, "git", "config", "user.email", "test@test.com")
 
 	// Verify .git exists.
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
