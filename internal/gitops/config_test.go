@@ -226,6 +226,7 @@ func TestReadWriteAdminPasswords(t *testing.T) {
 }
 
 func TestFindCurrentHostOverride(t *testing.T) {
+	dir := t.TempDir()
 	cfg := &HostsConfig{
 		Hosts: map[string]HostEntry{
 			"prod":    {Hostname: "prod.example.com", Role: RoleSink},
@@ -234,7 +235,7 @@ func TestFindCurrentHostOverride(t *testing.T) {
 	}
 
 	// Override should return the named host regardless of system hostname.
-	entry, name, err := FindCurrentHost(cfg, "prod")
+	entry, name, err := FindCurrentHost(cfg, dir, "prod")
 	if err != nil {
 		t.Fatalf("FindCurrentHost with override: %v", err)
 	}
@@ -246,8 +247,44 @@ func TestFindCurrentHostOverride(t *testing.T) {
 	}
 
 	// Override with nonexistent host should error.
-	_, _, err = FindCurrentHost(cfg, "nonexistent")
+	_, _, err = FindCurrentHost(cfg, dir, "nonexistent")
 	if err == nil {
 		t.Error("expected error for nonexistent host override")
+	}
+}
+
+func TestFindCurrentHostFromFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &HostsConfig{
+		Hosts: map[string]HostEntry{
+			"prod":    {Hostname: "prod.example.com", Role: RoleSink},
+			"staging": {Hostname: "staging.example.com", Role: RoleSource},
+		},
+	}
+
+	// Write .gitops-host file.
+	if err := SaveLocalHost(dir, "staging"); err != nil {
+		t.Fatalf("SaveLocalHost: %v", err)
+	}
+
+	// Should find staging from file, not from hostname matching.
+	entry, name, err := FindCurrentHost(cfg, dir, "")
+	if err != nil {
+		t.Fatalf("FindCurrentHost from file: %v", err)
+	}
+	if name != "staging" {
+		t.Errorf("name = %q, want %q", name, "staging")
+	}
+	if entry.Role != RoleSource {
+		t.Errorf("role = %q, want %q", entry.Role, RoleSource)
+	}
+
+	// --host override should still take priority over file.
+	_, name, err = FindCurrentHost(cfg, dir, "prod")
+	if err != nil {
+		t.Fatalf("FindCurrentHost with override over file: %v", err)
+	}
+	if name != "prod" {
+		t.Errorf("name = %q, want %q", name, "prod")
 	}
 }

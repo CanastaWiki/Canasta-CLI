@@ -11,5 +11,6 @@ config/Caddyfile
 # Uploaded files (use canasta backup)
 images/
 
-# Gitops state
+# Gitops state (host-specific, not shared)
 .gitops-applied
+.gitops-host

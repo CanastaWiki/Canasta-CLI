@@ -158,7 +158,12 @@ func runInitBootstrap(installPath, hostName, role string) error {
 		return err
 	}
 
-	// 9. Convert extensions and skins to submodules.
+	// 9. Save local host identity.
+	if err := gitops.SaveLocalHost(installPath, hostName); err != nil {
+		return err
+	}
+
+	// 10. Convert extensions and skins to submodules.
 	if err := convertToSubmodules(installPath, "extensions"); err != nil {
 		logging.Print(fmt.Sprintf("Warning: could not convert extensions to submodules: %v\n", err))
 	}
@@ -166,7 +171,7 @@ func runInitBootstrap(installPath, hostName, role string) error {
 		logging.Print(fmt.Sprintf("Warning: could not convert skins to submodules: %v\n", err))
 	}
 
-	// 10. Initial commit.
+	// 11. Initial commit.
 	if err := gitops.AddAll(installPath); err != nil {
 		return err
 	}
@@ -221,11 +226,9 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 		return err
 	}
 
-	// Unlock git-crypt in the installation directory and checkout tracked files
-	// from the repo (env.template, hosts.yaml, .gitattributes, config files, etc.).
-	if err := gitops.GitCryptUnlock(installPath, absKeyFile); err != nil {
-		return fmt.Errorf("unlocking git-crypt in installation: %w", err)
-	}
+	// Checkout tracked files from the repo into the installation directory.
+	// git-crypt is already unlocked (carried over from the temp clone), so
+	// the checked-out files will be decrypted.
 	if err := gitops.CheckoutHead(installPath); err != nil {
 		return fmt.Errorf("checking out repo files: %w", err)
 	}
@@ -281,7 +284,12 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 		return err
 	}
 
-	// 4b. Render .env from the repo's env.template with this host's vars.
+	// 4b. Save local host identity.
+	if err := gitops.SaveLocalHost(installPath, hostName); err != nil {
+		return err
+	}
+
+	// 4d. Render .env from the repo's env.template with this host's vars.
 	tmpl, err := gitops.LoadEnvTemplate(installPath)
 	if err != nil {
 		return err
@@ -294,7 +302,7 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 		return fmt.Errorf("writing .env: %w", err)
 	}
 
-	// 4c. Write admin password files from vars.
+	// 4e. Write admin password files from vars.
 	if err := gitops.WriteAdminPasswords(installPath, vars); err != nil {
 		return err
 	}

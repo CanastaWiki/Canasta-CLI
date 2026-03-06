@@ -39,7 +39,7 @@ func runPull(installPath string) (*gitops.PullResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	entry, _, err := gitops.FindCurrentHost(cfg, hostFlag)
+	entry, _, err := gitops.FindCurrentHost(cfg, installPath, hostFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func runPull(installPath string) (*gitops.PullResult, error) {
 		return nil, err
 	}
 
-	_, hostName, err := gitops.FindCurrentHost(cfg, hostFlag)
+	_, hostName, err := gitops.FindCurrentHost(cfg, installPath, hostFlag)
 	if err != nil {
 		return nil, err
 	}

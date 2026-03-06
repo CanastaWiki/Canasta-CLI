@@ -27,7 +27,7 @@ func runStatus(installPath string) error {
 		return err
 	}
 
-	entry, hostName, err := gitops.FindCurrentHost(cfg, hostFlag)
+	entry, hostName, err := gitops.FindCurrentHost(cfg, installPath, hostFlag)
 	if err != nil {
 		return err
 	}

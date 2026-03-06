@@ -16,6 +16,7 @@ const (
 	customKeysFile  = "custom-keys.yaml"
 	envTemplateFile = "env.template"
 	appliedFile     = ".gitops-applied"
+	hostFile        = ".gitops-host"
 )
 
 // LoadHostsConfig reads and parses hosts.yaml from the installation directory.
@@ -117,11 +118,31 @@ func SaveEnvTemplate(installPath, content string) error {
 	return os.WriteFile(filepath.Join(installPath, envTemplateFile), []byte(content), permissions.FilePermission)
 }
 
-// FindCurrentHost matches the system hostname against hosts in the config.
-// If hostOverride is non-empty, it is used as the host name instead of
-// matching by system hostname. Returns the host entry, the host name key,
-// and any error.
-func FindCurrentHost(cfg *HostsConfig, hostOverride string) (*HostEntry, string, error) {
+// SaveLocalHost writes the .gitops-host file to record which host name
+// this installation corresponds to. The file is gitignored.
+func SaveLocalHost(installPath, hostName string) error {
+	path := filepath.Join(installPath, hostFile)
+	return os.WriteFile(path, []byte(hostName+"\n"), permissions.FilePermission)
+}
+
+// LoadLocalHost reads the .gitops-host file. Returns an empty string if
+// the file does not exist.
+func LoadLocalHost(installPath string) (string, error) {
+	path := filepath.Join(installPath, hostFile)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// FindCurrentHost identifies this server's host entry in the config.
+// Priority: 1) hostOverride flag, 2) .gitops-host file, 3) system hostname matching.
+// Returns the host entry, the host name key, and any error.
+func FindCurrentHost(cfg *HostsConfig, installPath, hostOverride string) (*HostEntry, string, error) {
 	if hostOverride != "" {
 		entry, ok := cfg.Hosts[hostOverride]
 		if !ok {
@@ -129,6 +150,19 @@ func FindCurrentHost(cfg *HostsConfig, hostOverride string) (*HostEntry, string,
 		}
 		return &entry, hostOverride, nil
 	}
+	// Check .gitops-host file.
+	localHost, err := LoadLocalHost(installPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("reading %s: %w", hostFile, err)
+	}
+	if localHost != "" {
+		entry, ok := cfg.Hosts[localHost]
+		if !ok {
+			return nil, "", fmt.Errorf("host %q (from %s) not found in %s", localHost, hostFile, hostsFile)
+		}
+		return &entry, localHost, nil
+	}
+	// Fall back to hostname matching.
 	hostname, err := os.Hostname()
 	if err != nil {
 		return nil, "", fmt.Errorf("getting system hostname: %w", err)
