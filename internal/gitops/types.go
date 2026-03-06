@@ -42,12 +42,13 @@ type PushResult struct {
 	NoChanges  bool
 }
 
-// InitResult contains the outcome of an init operation.
-type InitResult struct {
-	KeyFile     string
-	HostName    string
-	Role        string
-	TemplateVar int // number of placeholders created
+// ShortHash returns the first 8 characters of a commit hash,
+// or the full string if it is shorter than 8 characters.
+func ShortHash(hash string) string {
+	if len(hash) > 8 {
+		return hash[:8]
+	}
+	return hash
 }
 
 // RoleSource indicates a host that can push to the repo.

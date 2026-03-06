@@ -162,7 +162,7 @@ func printPullResult(result *gitops.PullResult) {
 		return
 	}
 
-	fmt.Printf("Updated: %s → %s\n", result.PreviousCommit[:8], result.CurrentCommit[:8])
+	fmt.Printf("Updated: %s → %s\n", gitops.ShortHash(result.PreviousCommit), gitops.ShortHash(result.CurrentCommit))
 
 	if len(result.ChangedFiles) > 0 {
 		fmt.Println("Changed files:")

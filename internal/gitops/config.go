@@ -28,13 +28,22 @@ func LoadHostsConfig(installPath string) (*HostsConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", hostsFile, err)
 	}
-	// Apply default role for single-host configs.
+	// Apply default role for single-host configs; validate roles for multi-host.
 	if len(cfg.Hosts) == 1 {
 		for name, entry := range cfg.Hosts {
 			if entry.Role == "" {
 				entry.Role = RoleBoth
 				cfg.Hosts[name] = entry
 			}
+		}
+	}
+	for name, entry := range cfg.Hosts {
+		if entry.Role == "" {
+			return nil, fmt.Errorf("host %q in %s has no role — set it to %q, %q, or %q",
+				name, hostsFile, RoleSource, RoleSink, RoleBoth)
+		}
+		if err := ValidateRole(entry.Role); err != nil {
+			return nil, fmt.Errorf("host %q in %s: %w", name, hostsFile, err)
 		}
 	}
 	return &cfg, nil

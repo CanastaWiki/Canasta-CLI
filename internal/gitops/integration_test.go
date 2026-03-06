@@ -222,8 +222,37 @@ func TestGitInitAndCommit(t *testing.T) {
 }
 
 // TestHostsConfigWithMultipleHosts verifies that roles are preserved
-// for multi-host configs (no default override).
+// for multi-host configs and that missing roles produce an error.
 func TestHostsConfigWithMultipleHosts(t *testing.T) {
+	dir := t.TempDir()
+
+	// Valid multi-host config with all roles set.
+	cfg := &HostsConfig{
+		CanastaID: "test",
+		Hosts: map[string]HostEntry{
+			"source": {Hostname: "s1.example.com", Role: RoleSource},
+			"sink":   {Hostname: "s2.example.com", Role: RoleSink},
+		},
+	}
+	if err := SaveHostsConfig(dir, cfg); err != nil {
+		t.Fatalf("SaveHostsConfig: %v", err)
+	}
+
+	loaded, err := LoadHostsConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadHostsConfig: %v", err)
+	}
+	if loaded.Hosts["source"].Role != RoleSource {
+		t.Errorf("source role = %q, want %q", loaded.Hosts["source"].Role, RoleSource)
+	}
+	if loaded.Hosts["sink"].Role != RoleSink {
+		t.Errorf("sink role = %q, want %q", loaded.Hosts["sink"].Role, RoleSink)
+	}
+}
+
+// TestHostsConfigMissingRoleError verifies that a multi-host config with
+// a missing role produces an error.
+func TestHostsConfigMissingRoleError(t *testing.T) {
 	dir := t.TempDir()
 
 	cfg := &HostsConfig{
@@ -237,16 +266,29 @@ func TestHostsConfigWithMultipleHosts(t *testing.T) {
 		t.Fatalf("SaveHostsConfig: %v", err)
 	}
 
-	loaded, err := LoadHostsConfig(dir)
-	if err != nil {
-		t.Fatalf("LoadHostsConfig: %v", err)
+	_, err := LoadHostsConfig(dir)
+	if err == nil {
+		t.Fatal("expected error for multi-host config with missing role")
+	}
+}
+
+// TestHostsConfigInvalidRoleError verifies that an invalid role produces
+// an error.
+func TestHostsConfigInvalidRoleError(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg := &HostsConfig{
+		CanastaID: "test",
+		Hosts: map[string]HostEntry{
+			"prod": {Hostname: "s1.example.com", Role: "primary"},
+		},
+	}
+	if err := SaveHostsConfig(dir, cfg); err != nil {
+		t.Fatalf("SaveHostsConfig: %v", err)
 	}
 
-	// Multi-host: no default role applied.
-	if loaded.Hosts["source"].Role != RoleSource {
-		t.Errorf("source role = %q, want %q", loaded.Hosts["source"].Role, RoleSource)
-	}
-	if loaded.Hosts["sink"].Role != "" {
-		t.Errorf("sink role = %q, want empty (no default for multi-host)", loaded.Hosts["sink"].Role)
+	_, err := LoadHostsConfig(dir)
+	if err == nil {
+		t.Fatal("expected error for invalid role")
 	}
 }

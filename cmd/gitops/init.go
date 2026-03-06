@@ -37,7 +37,7 @@ With --repo: join an existing gitops repository. Clones the repo, unlocks
 git-crypt, extracts host-specific values, and overlays shared configuration.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if hostName == "" {
-				return fmt.Errorf("--host is required")
+				return fmt.Errorf("--name is required")
 			}
 			if err := gitops.ValidateRole(role); err != nil {
 				return err
@@ -49,7 +49,7 @@ git-crypt, extracts host-specific values, and overlays shared configuration.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&hostName, "host", "", "Name for this host in hosts.yaml (required)")
+	cmd.Flags().StringVar(&hostName, "name", "", "Name for this host in hosts.yaml (required)")
 	cmd.Flags().StringVar(&role, "role", gitops.RoleBoth, "Host role: source, sink, or both")
 	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL to join (omit to bootstrap a new repo)")
 	cmd.Flags().StringVar(&keyFile, "key", "", "Path to git-crypt key file (required with --repo)")
@@ -135,11 +135,16 @@ func runInitBootstrap(installPath, hostName, role string) error {
 		canastaID = details.ID
 	}
 
+	hostname, err := systemHostname()
+	if err != nil {
+		return err
+	}
+
 	cfg := &gitops.HostsConfig{
 		CanastaID: canastaID,
 		Hosts: map[string]gitops.HostEntry{
 			hostName: {
-				Hostname: mustHostname(),
+				Hostname: hostname,
 				Role:     role,
 			},
 		},
@@ -232,8 +237,12 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 	}
 
 	// 3. Add this host.
+	hostname, err := systemHostname()
+	if err != nil {
+		return err
+	}
 	cfg.Hosts[hostName] = gitops.HostEntry{
-		Hostname: mustHostname(),
+		Hostname: hostname,
 		Role:     role,
 	}
 	if err := gitops.SaveHostsConfig(installPath, cfg); err != nil {
@@ -269,6 +278,24 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 		vars["admin_password_"+wikiID] = password
 	}
 	if err := gitops.SaveVars(installPath, hostName, vars); err != nil {
+		return err
+	}
+
+	// 4b. Render .env from the repo's env.template with this host's vars.
+	tmpl, err := gitops.LoadEnvTemplate(installPath)
+	if err != nil {
+		return err
+	}
+	newEnv, err := gitops.RenderTemplate(tmpl, vars)
+	if err != nil {
+		return fmt.Errorf("rendering env.template: %w", err)
+	}
+	if err := os.WriteFile(envPath, []byte(newEnv), permissions.SecretFilePermission); err != nil {
+		return fmt.Errorf("writing .env: %w", err)
+	}
+
+	// 4c. Write admin password files from vars.
+	if err := gitops.WriteAdminPasswords(installPath, vars); err != nil {
 		return err
 	}
 
@@ -374,19 +401,62 @@ func getGitRemoteURL(repoPath string) string {
 	return strings.TrimSpace(output)
 }
 
-func mustHostname() string {
+func systemHostname() (string, error) {
 	h, err := os.Hostname()
 	if err != nil {
-		return "unknown"
+		return "", fmt.Errorf("getting system hostname: %w", err)
 	}
-	return h
+	return h, nil
 }
 
 func moveGitDir(srcDir, dstDir string) error {
 	srcGit := filepath.Join(srcDir, ".git")
 	dstGit := filepath.Join(dstDir, ".git")
 	if err := os.Rename(srcGit, dstGit); err != nil {
-		return fmt.Errorf("moving .git directory: %w", err)
+		// os.Rename fails across filesystems; fall back to copy + remove.
+		if err := copyDir(srcGit, dstGit); err != nil {
+			return fmt.Errorf("copying .git directory: %w", err)
+		}
+		if err := os.RemoveAll(srcGit); err != nil {
+			return fmt.Errorf("removing source .git directory: %w", err)
+		}
+	}
+	return nil
+}
+
+// copyDir recursively copies a directory tree.
+func copyDir(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, info.Mode()); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			data, err := os.ReadFile(srcPath)
+			if err != nil {
+				return err
+			}
+			eInfo, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(dstPath, data, eInfo.Mode()); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

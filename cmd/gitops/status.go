@@ -41,13 +41,13 @@ func runStatus(installPath string) error {
 	// Current commit.
 	commit, err := gitops.CurrentCommitHash(installPath)
 	if err == nil {
-		fmt.Printf("Current commit: %s\n", commit[:8])
+		fmt.Printf("Current commit: %s\n", gitops.ShortHash(commit))
 	}
 
 	// Last applied commit.
 	applied, err := gitops.LoadAppliedCommit(installPath)
 	if err == nil && applied != "" {
-		fmt.Printf("Last applied:   %s\n", applied[:8])
+		fmt.Printf("Last applied:   %s\n", gitops.ShortHash(applied))
 	}
 
 	// Uncommitted changes.

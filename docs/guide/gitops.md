@@ -102,7 +102,7 @@ canasta config set -i mywiki MY_API_KEY=... SMTP_PASSWORD=...
 ### 3. Initialize gitops
 
 ```bash
-canasta gitops init -i mywiki --host myserver
+canasta gitops init -i mywiki --name myserver
 ```
 
 This bootstraps a new gitops repository from the existing installation:
@@ -149,6 +149,9 @@ admin_password_main: "my-admin-pass"
 ```
 
 At deploy time, `canasta gitops pull` renders the template with the host's vars to produce `.env`, and writes `config/admin-password_*` files from the corresponding vars.
+
+!!! warning "Do not edit `.env` directly"
+    The `.env` file is regenerated from `env.template` + `vars.yaml` on every pull. Manual edits to `.env` will be overwritten. To change a host-specific value, update `hosts/{name}/vars.yaml`. To change the structure of the `.env` (add or remove keys), edit `env.template`.
 
 ### Built-in placeholder keys
 
@@ -295,7 +298,7 @@ canasta config set -i mywiki MY_API_KEY=...
 ### 4. Join the gitops repo
 
 ```bash
-canasta gitops init -i mywiki --repo git@github.com:yourorg/mywiki-config.git --host production --key /path/to/gitops-key
+canasta gitops init -i mywiki --repo git@github.com:yourorg/mywiki-config.git --name production --key /path/to/gitops-key
 ```
 
 This clones the repo, unlocks git-crypt, adds the host to `hosts.yaml`, extracts host-specific values into `vars.yaml`, updates submodules, and pushes the new host entry back to the repo.
