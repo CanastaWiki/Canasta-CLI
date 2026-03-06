@@ -91,14 +91,16 @@ var skinConstants = Item{
 }
 
 func TestConfigPath(t *testing.T) {
-	got := configPath("/srv/canasta/myinstance", "")
-	want := "/srv/canasta/myinstance/config/settings/global/settings.yaml"
+	base := filepath.Join("/srv", "canasta", "myinstance")
+
+	got := configPath(base, "")
+	want := filepath.Join(base, "config", "settings", "global", "settings.yaml")
 	if got != want {
 		t.Errorf("configPath global = %q, want %q", got, want)
 	}
 
-	got = configPath("/srv/canasta/myinstance", "docs")
-	want = "/srv/canasta/myinstance/config/settings/wikis/docs/settings.yaml"
+	got = configPath(base, "docs")
+	want = filepath.Join(base, "config", "settings", "wikis", "docs", "settings.yaml")
 	if got != want {
 		t.Errorf("configPath per-wiki = %q, want %q", got, want)
 	}
@@ -316,5 +318,69 @@ func TestCheckEnabled(t *testing.T) {
 	_, err = CheckEnabled("Missing", "", inst, extConstants)
 	if err == nil {
 		t.Error("expected error for non-enabled extension")
+	}
+}
+
+func TestDisableSkin(t *testing.T) {
+	inst := newTestInstance(t)
+	_ = Enable("Vector", "", inst, skinConstants)
+	_ = Enable("Timeless", "", inst, skinConstants)
+
+	if err := Disable("Vector", "", inst, skinConstants); err != nil {
+		t.Fatalf("Disable skin: %v", err)
+	}
+
+	cfg, _ := readConfig(configPath(inst.Path, ""))
+	if slices.Contains(cfg.Skins, "Vector") {
+		t.Error("Vector should be removed from skins")
+	}
+	if !slices.Contains(cfg.Skins, "Timeless") {
+		t.Error("Timeless should still be present in skins")
+	}
+	if len(cfg.Extensions) != 0 {
+		t.Errorf("extensions should be unaffected, got %v", cfg.Extensions)
+	}
+}
+
+func TestDisablePerWikiExtension(t *testing.T) {
+	inst := newTestInstance(t)
+	_ = Enable("Cite", "docs", inst, extConstants)
+	_ = Enable("VisualEditor", "docs", inst, extConstants)
+
+	if err := Disable("Cite", "docs", inst, extConstants); err != nil {
+		t.Fatalf("Disable per-wiki extension: %v", err)
+	}
+
+	// Per-wiki config should have Cite removed but VisualEditor intact.
+	wikiCfg, _ := readConfig(configPath(inst.Path, "docs"))
+	if slices.Contains(wikiCfg.Extensions, "Cite") {
+		t.Error("Cite should be removed from per-wiki config")
+	}
+	if !slices.Contains(wikiCfg.Extensions, "VisualEditor") {
+		t.Error("VisualEditor should still be present in per-wiki config")
+	}
+
+	// Global config must not have been created.
+	globalPath := configPath(inst.Path, "")
+	if _, err := os.Stat(globalPath); !os.IsNotExist(err) {
+		t.Error("global config should not exist after per-wiki disable")
+	}
+}
+
+func TestCheckEnabledSkin(t *testing.T) {
+	inst := newTestInstance(t)
+	_ = Enable("Vector", "", inst, skinConstants)
+
+	name, err := CheckEnabled("Vector", "", inst, skinConstants)
+	if err != nil {
+		t.Fatalf("CheckEnabled skin: %v", err)
+	}
+	if name != "Vector" {
+		t.Errorf("expected 'Vector', got %q", name)
+	}
+
+	_, err = CheckEnabled("Timeless", "", inst, skinConstants)
+	if err == nil {
+		t.Error("expected error for non-enabled skin")
 	}
 }
