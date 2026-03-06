@@ -156,8 +156,12 @@ func TestGitInitAndCommit(t *testing.T) {
 	}
 
 	// Configure git user for CI environments where global config may not exist.
-	execute.Run(dir, "git", "config", "user.name", "Test")
-	execute.Run(dir, "git", "config", "user.email", "test@test.com")
+	if _, err := execute.Run(dir, "git", "config", "user.name", "Test"); err != nil {
+		t.Fatalf("git config user.name: %v", err)
+	}
+	if _, err := execute.Run(dir, "git", "config", "user.email", "test@test.com"); err != nil {
+		t.Fatalf("git config user.email: %v", err)
+	}
 
 	// Verify .git exists.
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
