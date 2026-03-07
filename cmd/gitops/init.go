@@ -22,6 +22,7 @@ func newInitCmd(instance *config.Installation) *cobra.Command {
 		role     string
 		repoURL  string
 		keyFile  string
+		force    bool
 	)
 
 	cmd := &cobra.Command{
@@ -29,34 +30,39 @@ func newInitCmd(instance *config.Installation) *cobra.Command {
 		Short: "Initialize gitops for an installation",
 		Long: `Initialize git-based configuration management for a Canasta installation.
 
-Without --repo: bootstrap a new gitops repository from the existing installation.
-Sets up git, git-crypt, env.template, hosts.yaml, and converts extensions/skins
-to submodules.
+Without --key: bootstrap a new gitops repository from the existing installation.
+Sets up git, git-crypt, env.template, hosts.yaml, converts extensions/skins
+to submodules, and pushes to the remote. The remote repository must be empty
+(no commits). Use --force to overwrite a non-empty remote.
 
-With --repo: join an existing gitops repository. Clones the repo, unlocks
+With --key: join an existing gitops repository. Clones the repo, unlocks
 git-crypt, extracts host-specific values, and overlays shared configuration.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if hostName == "" {
 				return fmt.Errorf("--name is required")
 			}
+			if repoURL == "" {
+				return fmt.Errorf("--repo is required")
+			}
 			if err := gitops.ValidateRole(role); err != nil {
 				return err
 			}
-			if repoURL != "" {
+			if keyFile != "" {
 				return runInitJoin(instance.Path, hostName, role, repoURL, keyFile)
 			}
-			return runInitBootstrap(instance.Path, hostName, role)
+			return runInitBootstrap(instance.Path, hostName, role, repoURL, force)
 		},
 	}
 
 	cmd.Flags().StringVarP(&hostName, "name", "n", "", "Name for this host in hosts.yaml (required)")
 	cmd.Flags().StringVar(&role, "role", gitops.RoleBoth, "Host role: source, sink, or both")
-	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL to join (omit to bootstrap a new repo)")
-	cmd.Flags().StringVar(&keyFile, "key", "", "Path to git-crypt key file (required with --repo)")
+	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL (required)")
+	cmd.Flags().StringVar(&keyFile, "key", "", "Path to git-crypt key file (required to join an existing repo)")
+	cmd.Flags().BoolVar(&force, "force", false, "Force push to a non-empty remote repository (bootstrap only)")
 	return cmd
 }
 
-func runInitBootstrap(installPath, hostName, role string) error {
+func runInitBootstrap(installPath, hostName, role, repoURL string, force bool) error {
 	if err := gitops.CheckPrereqs(false); err != nil {
 		return err
 	}
@@ -180,10 +186,29 @@ func runInitBootstrap(installPath, hostName, role string) error {
 		return err
 	}
 
-	fmt.Println("Gitops initialized successfully.")
-	fmt.Println("Next steps:")
-	fmt.Println("  git remote add origin <your-repo-url>")
-	fmt.Println("  git push -u origin main")
+	// 12. Add remote and push.
+	if err := gitops.AddRemote(installPath, "origin", repoURL); err != nil {
+		return err
+	}
+	empty, err := gitops.IsRemoteEmpty(installPath, "origin")
+	if err != nil {
+		return fmt.Errorf("checking remote repository: %w", err)
+	}
+	if !empty && !force {
+		return fmt.Errorf("remote repository is not empty — bootstrap requires an empty repo\n" +
+			"Use --force to overwrite the remote, or --key to join an existing gitops repo")
+	}
+	if !empty {
+		if err := gitops.ForcePush(installPath, "main"); err != nil {
+			return err
+		}
+	} else {
+		if err := gitops.Push(installPath, "main"); err != nil {
+			return err
+		}
+	}
+
+	fmt.Println("Gitops initialized and pushed to remote successfully.")
 	return nil
 }
 

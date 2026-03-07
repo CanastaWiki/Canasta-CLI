@@ -36,11 +36,39 @@ func Pull(path string) error {
 	return nil
 }
 
+// AddRemote adds a named remote to the repository.
+func AddRemote(path, name, url string) error {
+	_, err := execute.Run(path, "git", "remote", "add", name, url)
+	if err != nil {
+		return fmt.Errorf("git remote add %s: %w", name, err)
+	}
+	return nil
+}
+
+// IsRemoteEmpty returns true if the remote has no refs (no commits).
+func IsRemoteEmpty(path, remote string) (bool, error) {
+	output, err := execute.Run(path, "git", "ls-remote", remote)
+	if err != nil {
+		return false, fmt.Errorf("git ls-remote %s: %w", remote, err)
+	}
+	return strings.TrimSpace(output) == "", nil
+}
+
 // Push pushes the given branch to the remote.
 func Push(path, branch string) error {
 	_, err := execute.Run(path, "git", "push", "-u", "origin", branch)
 	if err != nil {
 		return fmt.Errorf("git push: %w", err)
+	}
+	return nil
+}
+
+// ForcePush force-pushes the given branch to the remote, overwriting
+// remote history.
+func ForcePush(path, branch string) error {
+	_, err := execute.Run(path, "git", "push", "--force", "-u", "origin", branch)
+	if err != nil {
+		return fmt.Errorf("git push --force: %w", err)
 	}
 	return nil
 }

@@ -108,8 +108,10 @@ canasta config set -i mywiki MY_API_KEY=... SMTP_PASSWORD=...
 ### 3. Initialize gitops
 
 ```bash
-canasta gitops init -i mywiki --name myserver
+canasta gitops init -i mywiki -n myserver --repo git@github.com:yourorg/mywiki-config.git
 ```
+
+The remote repository must be empty (no commits, no README). Create an empty repository on GitHub/GitLab first, then pass its URL with `--repo`.
 
 This bootstraps a new gitops repository from the existing installation:
 
@@ -121,15 +123,9 @@ This bootstraps a new gitops repository from the existing installation:
 6. Creates `hosts/myserver/vars.yaml` with the actual values extracted from `.env` and admin password files
 7. Converts user-installed extensions and skins to git submodules
 8. Makes an initial commit
+9. Pushes to the remote
 
 **Store the exported git-crypt key securely** — it is needed to unlock the repo on other servers and must never be committed to the repo.
-
-### 4. Push to a remote
-
-```bash
-git remote add origin git@github.com:yourorg/mywiki-config.git
-git push -u origin main
-```
 
 ## Environment template and variables
 
