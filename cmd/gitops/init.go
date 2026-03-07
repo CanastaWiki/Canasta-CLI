@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -16,6 +17,24 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
+var validHostName = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_-]*[a-zA-Z0-9])?$`)
+
+func validateInitFlags(hostName, repoURL, keyFile string) error {
+	if hostName == "" {
+		return fmt.Errorf("--name is required")
+	}
+	if !validHostName.MatchString(hostName) {
+		return fmt.Errorf("invalid host name %q: must contain only alphanumeric characters, hyphens, and underscores", hostName)
+	}
+	if repoURL == "" {
+		return fmt.Errorf("--repo is required")
+	}
+	if keyFile == "" {
+		return fmt.Errorf("--key is required")
+	}
+	return nil
+}
+
 func newInitCmd(instance *config.Installation) *cobra.Command {
 	var (
 		hostName string
@@ -27,42 +46,37 @@ func newInitCmd(instance *config.Installation) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize gitops for an installation",
-		Long: `Initialize git-based configuration management for a Canasta installation.
+		Short: "Bootstrap a new gitops repository from an existing installation",
+		Long: `Bootstrap git-based configuration management for a Canasta installation.
 
-Without --key: bootstrap a new gitops repository from the existing installation.
 Sets up git, git-crypt, env.template, hosts.yaml, converts extensions/skins
 to submodules, and pushes to the remote. The remote repository must be empty
 (no commits). Use --force to overwrite a non-empty remote.
 
-With --key: join an existing gitops repository. Clones the repo, unlocks
-git-crypt, extracts host-specific values, and overlays shared configuration.`,
+The git-crypt key is exported to the path specified by --key. Store this key
+securely — it is needed to unlock the repo on other servers.
+
+To join an existing gitops repository instead, use "canasta gitops join".`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if hostName == "" {
-				return fmt.Errorf("--name is required")
-			}
-			if repoURL == "" {
-				return fmt.Errorf("--repo is required")
+			if err := validateInitFlags(hostName, repoURL, keyFile); err != nil {
+				return err
 			}
 			if err := gitops.ValidateRole(role); err != nil {
 				return err
 			}
-			if keyFile != "" {
-				return runInitJoin(instance.Path, hostName, role, repoURL, keyFile)
-			}
-			return runInitBootstrap(instance.Path, hostName, role, repoURL, force)
+			return runInitBootstrap(instance.Path, hostName, role, repoURL, keyFile, force)
 		},
 	}
 
 	cmd.Flags().StringVarP(&hostName, "name", "n", "", "Name for this host in hosts.yaml (required)")
 	cmd.Flags().StringVar(&role, "role", gitops.RoleBoth, "Host role: source, sink, or both")
 	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL (required)")
-	cmd.Flags().StringVar(&keyFile, "key", "", "Path to git-crypt key file (required to join an existing repo)")
-	cmd.Flags().BoolVar(&force, "force", false, "Force push to a non-empty remote repository (bootstrap only)")
+	cmd.Flags().StringVar(&keyFile, "key", "", "Path to export the git-crypt key (required)")
+	cmd.Flags().BoolVar(&force, "force", false, "Force push to a non-empty remote repository")
 	return cmd
 }
 
-func runInitBootstrap(installPath, hostName, role, repoURL string, force bool) error {
+func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, force bool) error {
 	if err := gitops.CheckPrereqs(false); err != nil {
 		return err
 	}
@@ -72,14 +86,23 @@ func runInitBootstrap(installPath, hostName, role, repoURL string, force bool) e
 		return fmt.Errorf("directory is already a git repository — gitops may already be initialized")
 	}
 
-	// 0. Check the remote before doing any work.
+	// Check that the key file won't overwrite an existing file.
+	absKeyFile, err := filepath.Abs(keyFile)
+	if err != nil {
+		return fmt.Errorf("resolving key file path: %w", err)
+	}
+	if _, err := os.Stat(absKeyFile); err == nil {
+		return fmt.Errorf("key file already exists: %s\nRemove it first if you want to re-initialize", absKeyFile)
+	}
+
+	// Check the remote before doing any work.
 	empty, err := gitops.IsRemoteEmpty("", repoURL)
 	if err != nil {
 		return fmt.Errorf("cannot access remote repository %s: %w", repoURL, err)
 	}
 	if !empty && !force {
 		return fmt.Errorf("remote repository is not empty — bootstrap requires an empty repo\n" +
-			"Use --force to overwrite the remote, or --key to join an existing gitops repo")
+			"Use --force to overwrite the remote, or use \"canasta gitops join\" to join an existing repo")
 	}
 
 	fmt.Println("Initializing gitops repository...")
@@ -101,11 +124,10 @@ func runInitBootstrap(installPath, hostName, role, repoURL string, force bool) e
 	if err := gitops.GitCryptInit(installPath); err != nil {
 		return err
 	}
-	keyFile := filepath.Join(installPath, "..", fmt.Sprintf("gitops-key-%s", hostName))
-	if err := gitops.GitCryptExportKey(installPath, keyFile); err != nil {
+	if err := gitops.GitCryptExportKey(installPath, absKeyFile); err != nil {
 		return err
 	}
-	fmt.Printf("git-crypt key exported to: %s\n", keyFile)
+	fmt.Printf("git-crypt key exported to: %s\n", absKeyFile)
 	fmt.Println("Store this key securely — it is needed to unlock the repo on other servers.")
 
 	// 4. Load custom keys if present.
@@ -208,182 +230,6 @@ func runInitBootstrap(installPath, hostName, role, repoURL string, force bool) e
 	return nil
 }
 
-func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
-	if keyFile == "" {
-		return fmt.Errorf("--key is required when joining an existing repo (--repo)")
-	}
-	if err := gitops.CheckPrereqs(false); err != nil {
-		return err
-	}
-
-	// Check for existing git repo.
-	if _, err := os.Stat(filepath.Join(installPath, ".git")); err == nil {
-		return fmt.Errorf("directory is already a git repository — cannot join gitops repo")
-	}
-
-	fmt.Println("Joining existing gitops repository...")
-
-	// 1. Clone the repo to a temp dir, then merge into the installation.
-	tmpDir, err := os.MkdirTemp("", "canasta-gitops-*")
-	if err != nil {
-		return fmt.Errorf("creating temp directory: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	if err := gitops.Clone(repoURL, tmpDir); err != nil {
-		return err
-	}
-
-	absKeyFile, err := filepath.Abs(keyFile)
-	if err != nil {
-		return fmt.Errorf("resolving key file path: %w", err)
-	}
-	if err := gitops.GitCryptUnlock(tmpDir, absKeyFile); err != nil {
-		return err
-	}
-
-	// 2. Load the hosts config from the cloned repo and validate
-	// the host name before modifying the installation directory.
-	cfg, err := gitops.LoadHostsConfig(tmpDir)
-	if err != nil {
-		return err
-	}
-	if _, exists := cfg.Hosts[hostName]; exists {
-		return fmt.Errorf("host %q already exists in %s — choose a different name with --name", hostName, "hosts.yaml")
-	}
-
-	// Move .git directory into the installation.
-	if err := moveGitDir(tmpDir, installPath); err != nil {
-		return err
-	}
-
-	// Checkout tracked files from the repo into the installation directory.
-	// git-crypt is already unlocked (carried over from the temp clone), so
-	// the checked-out files will be decrypted.
-	if err := gitops.CheckoutHead(installPath); err != nil {
-		return fmt.Errorf("checking out repo files: %w", err)
-	}
-
-	// 3. Add this host.
-	cfg.Hosts[hostName] = gitops.HostEntry{
-		Role: role,
-	}
-	if err := gitops.SaveHostsConfig(installPath, cfg); err != nil {
-		return err
-	}
-
-	// 4. Extract current values into vars.yaml.
-	customKeys, err := gitops.LoadCustomKeys(installPath)
-	if err != nil {
-		return err
-	}
-
-	envPath := filepath.Join(installPath, ".env")
-	envContent, err := os.ReadFile(envPath)
-	if err != nil {
-		return fmt.Errorf("reading .env: %w", err)
-	}
-	placeholderKeys := gitops.AllPlaceholderKeys(customKeys)
-	_, vars := gitops.ExtractTemplate(string(envContent), placeholderKeys)
-
-	// Verify all custom keys were found in .env.
-	if missing := gitops.FindMissingCustomKeys(customKeys, vars); len(missing) > 0 {
-		return fmt.Errorf("custom keys not found in .env: %s\nSet them with: canasta config set %s",
-			strings.Join(missing, ", "),
-			strings.Join(missing, "=... ")+"=...")
-	}
-
-	passwords, err := gitops.ReadAdminPasswords(installPath)
-	if err != nil {
-		logging.Print(fmt.Sprintf("Warning: could not read admin passwords: %v\n", err))
-	}
-	for wikiID, password := range passwords {
-		vars["admin_password_"+wikiID] = password
-	}
-	if err := gitops.SaveVars(installPath, hostName, vars); err != nil {
-		return err
-	}
-
-	// 4b. Save local host identity.
-	if err := gitops.SaveLocalHost(installPath, hostName); err != nil {
-		return err
-	}
-
-	// 4d. Render .env from the repo's env.template with this host's vars.
-	tmpl, err := gitops.LoadEnvTemplate(installPath)
-	if err != nil {
-		return err
-	}
-	newEnv, err := gitops.RenderTemplate(tmpl, vars)
-	if err != nil {
-		return fmt.Errorf("rendering env.template: %w", err)
-	}
-	if err := os.WriteFile(envPath, []byte(newEnv), permissions.SecretFilePermission); err != nil {
-		return fmt.Errorf("writing .env: %w", err)
-	}
-
-	// 4e. Write admin password files from vars.
-	if err := gitops.WriteAdminPasswords(installPath, vars); err != nil {
-		return err
-	}
-
-	// 5. Update submodules.
-	if err := gitops.SubmoduleUpdate(installPath); err != nil {
-		logging.Print(fmt.Sprintf("Warning: submodule update: %v\n", err))
-	}
-
-	// 6. Commit and push.
-	if err := gitops.AddAll(installPath); err != nil {
-		return err
-	}
-
-	hasChanges, _, err := gitops.HasUncommittedChanges(installPath)
-	if err != nil {
-		return err
-	}
-	if !hasChanges {
-		fmt.Println("No changes to commit.")
-		return nil
-	}
-
-	message := fmt.Sprintf("Add host %s", hostName)
-
-	if cfg.PullRequests {
-		if !gitops.IsGHInstalled() {
-			return fmt.Errorf("pull_requests is enabled but gh CLI is not installed")
-		}
-		branchName := fmt.Sprintf("add-host-%s", hostName)
-		if err := gitops.CreateBranch(installPath, branchName); err != nil {
-			return err
-		}
-		if _, err := gitops.Commit(installPath, message); err != nil {
-			return err
-		}
-		if err := gitops.Push(installPath, branchName); err != nil {
-			return err
-		}
-		prURL, err := gitops.CreatePR(installPath, message, fmt.Sprintf("Add host %s to gitops management.", hostName))
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Pull request created: %s\n", prURL)
-		fmt.Println("After the PR is merged, run: canasta gitops pull")
-		if err := gitops.CheckoutMain(installPath); err != nil {
-			return err
-		}
-	} else {
-		if _, err := gitops.Commit(installPath, message); err != nil {
-			return err
-		}
-		if err := gitops.Push(installPath, "main"); err != nil {
-			return err
-		}
-	}
-
-	fmt.Println("Successfully joined the gitops repository.")
-	return nil
-}
-
 // convertToSubmodules scans a directory (e.g., "extensions") for
 // subdirectories that are git repositories and converts them to submodules.
 func convertToSubmodules(installPath, dirName string) error {
@@ -427,56 +273,4 @@ func getGitRemoteURL(repoPath string) string {
 		return ""
 	}
 	return strings.TrimSpace(output)
-}
-
-func moveGitDir(srcDir, dstDir string) error {
-	srcGit := filepath.Join(srcDir, ".git")
-	dstGit := filepath.Join(dstDir, ".git")
-	if err := os.Rename(srcGit, dstGit); err != nil {
-		// os.Rename fails across filesystems; fall back to copy + remove.
-		if err := copyDir(srcGit, dstGit); err != nil {
-			return fmt.Errorf("copying .git directory: %w", err)
-		}
-		if err := os.RemoveAll(srcGit); err != nil {
-			return fmt.Errorf("removing source .git directory: %w", err)
-		}
-	}
-	return nil
-}
-
-// copyDir recursively copies a directory tree.
-func copyDir(src, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dst, info.Mode()); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-		if entry.IsDir() {
-			if err := copyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-		} else {
-			data, err := os.ReadFile(srcPath)
-			if err != nil {
-				return err
-			}
-			eInfo, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			if err := os.WriteFile(dstPath, data, eInfo.Mode()); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }

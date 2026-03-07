@@ -27,8 +27,8 @@ func runDiff(installPath string) error {
 		return err
 	}
 
-	// Compare HEAD to origin/main.
-	files, err := gitops.DiffNameOnly(installPath, "origin/main")
+	// Compare HEAD to the upstream tracking branch.
+	files, err := gitops.DiffNameOnly(installPath, "@{upstream}")
 	if err != nil {
 		return err
 	}

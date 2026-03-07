@@ -108,10 +108,10 @@ canasta config set -i mywiki MY_API_KEY=... SMTP_PASSWORD=...
 ### 3. Initialize gitops
 
 ```bash
-canasta gitops init -i mywiki -n myserver --repo git@github.com:yourorg/mywiki-config.git
+canasta gitops init -i mywiki -n myserver --repo git@github.com:yourorg/mywiki-config.git --key /path/to/gitops-key
 ```
 
-The remote repository must be empty (no commits, no README). Create an empty repository on GitHub/GitLab first, then pass its URL with `--repo`.
+The remote repository must be empty (no commits, no README). Create an empty repository on GitHub/GitLab first, then pass its URL with `--repo`. The `--key` flag specifies where to export the git-crypt symmetric key.
 
 This bootstraps a new gitops repository from the existing installation:
 
@@ -132,7 +132,7 @@ This bootstraps a new gitops repository from the existing installation:
 The `env.template` is the single source of truth for what configuration exists. Host-specific values (secrets, domain names, ports) are replaced with `{{placeholders}}`:
 
 ```
-MW_SITE_SERVER=https://{{mw_site_fqdn}}
+MW_SITE_SERVER={{mw_site_server}}
 MW_SITE_FQDN={{mw_site_fqdn}}
 MYSQL_PASSWORD={{mysql_password}}
 MW_SECRET_KEY={{mw_secret_key}}
@@ -298,7 +298,7 @@ canasta config set -i mywiki MY_API_KEY=...
 ### 4. Join the gitops repo
 
 ```bash
-canasta gitops init -i mywiki --repo git@github.com:yourorg/mywiki-config.git --name production --key /path/to/gitops-key
+canasta gitops join -i mywiki -n production --repo git@github.com:yourorg/mywiki-config.git --key /path/to/gitops-key
 ```
 
 This clones the repo, unlocks git-crypt, adds the host to `hosts.yaml`, extracts host-specific values into `vars.yaml`, updates submodules, and pushes the new host entry back to the repo.
