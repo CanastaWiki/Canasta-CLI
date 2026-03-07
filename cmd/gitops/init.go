@@ -141,17 +141,11 @@ func runInitBootstrap(installPath, hostName, role, repoURL string, force bool) e
 		canastaID = details.ID
 	}
 
-	hostname, err := systemHostname()
-	if err != nil {
-		return err
-	}
-
 	cfg := &gitops.HostsConfig{
 		CanastaID: canastaID,
 		Hosts: map[string]gitops.HostEntry{
 			hostName: {
-				Hostname: hostname,
-				Role:     role,
+				Role: role,
 			},
 		},
 	}
@@ -265,13 +259,8 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 	}
 
 	// 3. Add this host.
-	hostname, err := systemHostname()
-	if err != nil {
-		return err
-	}
 	cfg.Hosts[hostName] = gitops.HostEntry{
-		Hostname: hostname,
-		Role:     role,
+		Role: role,
 	}
 	if err := gitops.SaveHostsConfig(installPath, cfg); err != nil {
 		return err
@@ -432,14 +421,6 @@ func getGitRemoteURL(repoPath string) string {
 		return ""
 	}
 	return strings.TrimSpace(output)
-}
-
-func systemHostname() (string, error) {
-	h, err := os.Hostname()
-	if err != nil {
-		return "", fmt.Errorf("getting system hostname: %w", err)
-	}
-	return h, nil
 }
 
 func moveGitDir(srcDir, dstDir string) error {

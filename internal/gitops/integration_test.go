@@ -230,8 +230,8 @@ func TestHostsConfigWithMultipleHosts(t *testing.T) {
 	cfg := &HostsConfig{
 		CanastaID: "test",
 		Hosts: map[string]HostEntry{
-			"source": {Hostname: "s1.example.com", Role: RoleSource},
-			"sink":   {Hostname: "s2.example.com", Role: RoleSink},
+			"source": {Role: RoleSource},
+			"sink":   {Role: RoleSink},
 		},
 	}
 	if err := SaveHostsConfig(dir, cfg); err != nil {
@@ -258,8 +258,8 @@ func TestHostsConfigMissingRoleError(t *testing.T) {
 	cfg := &HostsConfig{
 		CanastaID: "test",
 		Hosts: map[string]HostEntry{
-			"source": {Hostname: "s1.example.com", Role: RoleSource},
-			"sink":   {Hostname: "s2.example.com"},
+			"source": {Role: RoleSource},
+			"sink":   {},
 		},
 	}
 	if err := SaveHostsConfig(dir, cfg); err != nil {
@@ -280,7 +280,7 @@ func TestHostsConfigInvalidRoleError(t *testing.T) {
 	cfg := &HostsConfig{
 		CanastaID: "test",
 		Hosts: map[string]HostEntry{
-			"prod": {Hostname: "s1.example.com", Role: "primary"},
+			"prod": {Role: "primary"},
 		},
 	}
 	if err := SaveHostsConfig(dir, cfg); err != nil {

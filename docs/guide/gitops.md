@@ -177,7 +177,7 @@ The `hosts.yaml` file defines the deployment targets:
 canasta_id: mywiki
 hosts:
   myserver:
-    hostname: wiki.example.com
+    role: both
 ```
 
 When there is only one host, the role defaults to `both` and can be omitted.
@@ -189,10 +189,8 @@ canasta_id: mywiki
 pull_requests: true
 hosts:
   staging:
-    hostname: staging.example.com
     role: source
   production:
-    hostname: wiki.example.com
     role: sink
 ```
 

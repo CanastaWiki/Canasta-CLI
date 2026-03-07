@@ -11,8 +11,7 @@ type HostsConfig struct {
 
 // HostEntry represents a single host in hosts.yaml.
 type HostEntry struct {
-	Hostname string `yaml:"hostname"`
-	Role     string `yaml:"role"`
+	Role string `yaml:"role"`
 }
 
 // CustomKeys represents the custom-keys.yaml structure.

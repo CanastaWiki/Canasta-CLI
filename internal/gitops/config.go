@@ -139,40 +139,22 @@ func LoadLocalHost(installPath string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// FindCurrentHost identifies this server's host entry in the config.
-// Priority: 1) hostOverride flag, 2) .gitops-host file, 3) system hostname matching.
+// FindCurrentHost identifies this server's host entry in the config
+// by reading the .gitops-host file written during init.
 // Returns the host entry, the host name key, and any error.
-func FindCurrentHost(cfg *HostsConfig, installPath, hostOverride string) (*HostEntry, string, error) {
-	if hostOverride != "" {
-		entry, ok := cfg.Hosts[hostOverride]
-		if !ok {
-			return nil, "", fmt.Errorf("host %q not found in %s", hostOverride, hostsFile)
-		}
-		return &entry, hostOverride, nil
-	}
-	// Check .gitops-host file.
+func FindCurrentHost(cfg *HostsConfig, installPath string) (*HostEntry, string, error) {
 	localHost, err := LoadLocalHost(installPath)
 	if err != nil {
 		return nil, "", fmt.Errorf("reading %s: %w", hostFile, err)
 	}
-	if localHost != "" {
-		entry, ok := cfg.Hosts[localHost]
-		if !ok {
-			return nil, "", fmt.Errorf("host %q (from %s) not found in %s", localHost, hostFile, hostsFile)
-		}
-		return &entry, localHost, nil
+	if localHost == "" {
+		return nil, "", fmt.Errorf("%s not found — run \"canasta gitops init\" first", hostFile)
 	}
-	// Fall back to hostname matching.
-	hostname, err := os.Hostname()
-	if err != nil {
-		return nil, "", fmt.Errorf("getting system hostname: %w", err)
+	entry, ok := cfg.Hosts[localHost]
+	if !ok {
+		return nil, "", fmt.Errorf("host %q (from %s) not found in %s", localHost, hostFile, hostsFile)
 	}
-	for name, entry := range cfg.Hosts {
-		if entry.Hostname == hostname {
-			return &entry, name, nil
-		}
-	}
-	return nil, "", fmt.Errorf("no host entry in %s matches hostname %q — use --host to specify", hostsFile, hostname)
+	return &entry, localHost, nil
 }
 
 // ReadAdminPasswords reads all config/admin-password_* files and returns

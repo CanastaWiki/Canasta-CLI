@@ -10,9 +10,6 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 )
 
-// hostFlag stores the --host override for identifying this server in hosts.yaml.
-var hostFlag string
-
 // NewCmd creates the "canasta gitops" parent command.
 func NewCmd() *cobra.Command {
 	var instance config.Installation
@@ -43,6 +40,5 @@ git-crypt, and multi-server deployments with push/pull workflows.`,
 	gitopsCmd.AddCommand(newDiffCmd(&instance))
 
 	gitopsCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
-	gitopsCmd.PersistentFlags().StringVar(&hostFlag, "host", "", "Host name in hosts.yaml (overrides hostname matching)")
 	return gitopsCmd
 }

@@ -27,13 +27,12 @@ func runStatus(installPath string) error {
 		return err
 	}
 
-	entry, hostName, err := gitops.FindCurrentHost(cfg, installPath, hostFlag)
+	entry, hostName, err := gitops.FindCurrentHost(cfg, installPath)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Host:           %s\n", hostName)
-	fmt.Printf("Hostname:       %s\n", entry.Hostname)
 	fmt.Printf("Role:           %s\n", entry.Role)
 	fmt.Printf("Canasta ID:     %s\n", cfg.CanastaID)
 	fmt.Printf("Pull requests:  %v\n", cfg.PullRequests)
