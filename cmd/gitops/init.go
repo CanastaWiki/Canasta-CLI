@@ -69,7 +69,17 @@ func runInitBootstrap(installPath, hostName, role, repoURL string, force bool) e
 
 	// Check for existing git repo.
 	if _, err := os.Stat(filepath.Join(installPath, ".git")); err == nil {
-		return fmt.Errorf("directory is already a git repository — cannot bootstrap gitops")
+		return fmt.Errorf("directory is already a git repository — gitops may already be initialized")
+	}
+
+	// 0. Check the remote before doing any work.
+	empty, err := gitops.IsRemoteEmpty("", repoURL)
+	if err != nil {
+		return fmt.Errorf("cannot access remote repository %s: %w", repoURL, err)
+	}
+	if !empty && !force {
+		return fmt.Errorf("remote repository is not empty — bootstrap requires an empty repo\n" +
+			"Use --force to overwrite the remote, or --key to join an existing gitops repo")
 	}
 
 	fmt.Println("Initializing gitops repository...")
@@ -184,14 +194,6 @@ func runInitBootstrap(installPath, hostName, role, repoURL string, force bool) e
 	if err := gitops.AddRemote(installPath, "origin", repoURL); err != nil {
 		return err
 	}
-	empty, err := gitops.IsRemoteEmpty(installPath, "origin")
-	if err != nil {
-		return fmt.Errorf("checking remote repository: %w", err)
-	}
-	if !empty && !force {
-		return fmt.Errorf("remote repository is not empty — bootstrap requires an empty repo\n" +
-			"Use --force to overwrite the remote, or --key to join an existing gitops repo")
-	}
 	if !empty {
 		if err := gitops.ForcePush(installPath, "main"); err != nil {
 			return err
@@ -240,6 +242,16 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 		return err
 	}
 
+	// 2. Load the hosts config from the cloned repo and validate
+	// the host name before modifying the installation directory.
+	cfg, err := gitops.LoadHostsConfig(tmpDir)
+	if err != nil {
+		return err
+	}
+	if _, exists := cfg.Hosts[hostName]; exists {
+		return fmt.Errorf("host %q already exists in %s — choose a different name with --name", hostName, "hosts.yaml")
+	}
+
 	// Move .git directory into the installation.
 	if err := moveGitDir(tmpDir, installPath); err != nil {
 		return err
@@ -250,12 +262,6 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 	// the checked-out files will be decrypted.
 	if err := gitops.CheckoutHead(installPath); err != nil {
 		return fmt.Errorf("checking out repo files: %w", err)
-	}
-
-	// 2. Load the hosts config from the repo.
-	cfg, err := gitops.LoadHostsConfig(installPath)
-	if err != nil {
-		return err
 	}
 
 	// 3. Add this host.

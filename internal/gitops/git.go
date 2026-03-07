@@ -46,7 +46,11 @@ func AddRemote(path, name, url string) error {
 }
 
 // IsRemoteEmpty returns true if the remote has no refs (no commits).
+// The path parameter can be empty — git ls-remote works without a local repo.
 func IsRemoteEmpty(path, remote string) (bool, error) {
+	if path == "" {
+		path = "."
+	}
 	output, err := execute.Run(path, "git", "ls-remote", remote)
 	if err != nil {
 		return false, fmt.Errorf("git ls-remote %s: %w", remote, err)

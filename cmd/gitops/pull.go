@@ -137,7 +137,7 @@ func runPull(installPath string) (*gitops.PullResult, error) {
 	needsRestart, needsMaintenance, submodulesUpdated := gitops.AnalyzeChanges(changedFiles)
 
 	// Also check if .env content actually changed.
-	if string(oldEnv) != newEnvContent {
+	if strings.TrimSpace(string(oldEnv)) != strings.TrimSpace(newEnvContent) {
 		needsRestart = true
 	}
 
