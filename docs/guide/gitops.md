@@ -77,6 +77,8 @@ canasta-config/
 
 Gitops works with any existing Canasta installation — single wiki or wiki farm. You don't need to reinstall or recreate anything. The `init` command examines your running installation and builds the gitops repository around it.
 
+All gitops commands accept `-i <id>` to specify the installation by its Canasta ID. If omitted, the command uses the current working directory.
+
 ### 1. Verify your installation
 
 Make sure your installation is working and that `.env`, `config/`, and any extensions/skins are in their final state. Gitops will snapshot the current configuration as its starting point.

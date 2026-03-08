@@ -149,7 +149,7 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 		return err
 	}
 
-	// 6. Render .env from the repo's env.template with this host's vars.
+	// 6. Render .env in memory (written to disk after push succeeds).
 	tmpl, err := gitops.LoadEnvTemplate(installPath)
 	if err != nil {
 		return err
@@ -158,21 +158,13 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 	if err != nil {
 		return fmt.Errorf("rendering env.template: %w", err)
 	}
-	if err := os.WriteFile(envPath, []byte(newEnv), permissions.SecretFilePermission); err != nil {
-		return fmt.Errorf("writing .env: %w", err)
-	}
 
-	// 7. Write admin password files from vars.
-	if err := gitops.WriteAdminPasswords(installPath, vars); err != nil {
-		return err
-	}
-
-	// 8. Update submodules.
+	// 7. Update submodules.
 	if err := gitops.SubmoduleUpdate(installPath); err != nil {
 		logging.Print(fmt.Sprintf("Warning: submodule update: %v\n", err))
 	}
 
-	// 9. Commit and push.
+	// 8. Commit and push.
 	if err := gitops.AddAll(installPath); err != nil {
 		return err
 	}
@@ -218,6 +210,14 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 		if err := gitops.Push(installPath, "main"); err != nil {
 			return err
 		}
+	}
+
+	// 9. Write .env and admin passwords now that the push succeeded.
+	if err := os.WriteFile(envPath, []byte(newEnv), permissions.SecretFilePermission); err != nil {
+		return fmt.Errorf("writing .env: %w", err)
+	}
+	if err := gitops.WriteAdminPasswords(installPath, vars); err != nil {
+		return err
 	}
 
 	fmt.Println("Successfully joined the gitops repository.")

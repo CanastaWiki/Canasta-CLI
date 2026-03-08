@@ -75,7 +75,7 @@ func ExtractTemplate(envContent string, placeholderKeys []string) (template stri
 
 		if keySet[key] {
 			phName := placeholderName(key)
-			vars[phName] = value
+			vars[phName] = stripQuotes(value)
 			lines = append(lines, key+"={{"+phName+"}}")
 		} else {
 			lines = append(lines, line)
@@ -84,6 +84,15 @@ func ExtractTemplate(envContent string, placeholderKeys []string) (template stri
 
 	template = strings.Join(lines, "\n")
 	return template, vars
+}
+
+// stripQuotes removes surrounding double quotes from a value, matching the
+// behavior of canasta.GetEnvVariable.
+func stripQuotes(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	return s
 }
 
 // FindMissingCustomKeys returns custom key names whose placeholder equivalents
