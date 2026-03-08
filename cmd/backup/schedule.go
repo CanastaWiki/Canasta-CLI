@@ -267,7 +267,7 @@ func purgeFromLine(line string) string {
 	if len(fields) == 0 {
 		return ""
 	}
-	return fields[0]
+	return strings.Trim(fields[0], "'\"")
 }
 
 func validateCron(cron string) error {

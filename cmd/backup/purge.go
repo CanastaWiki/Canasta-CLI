@@ -38,7 +38,7 @@ is required.`,
 				return fmt.Errorf("at least one of --older-than or --keep-last is required")
 			}
 
-			args := []string{"-r", *repoURL, "forget", "--prune"}
+			args := []string{"-r", *repoURL, "forget", "--group-by", "paths", "--prune"}
 
 			if olderThan != "" {
 				args = append(args, "--keep-within", olderThan)
