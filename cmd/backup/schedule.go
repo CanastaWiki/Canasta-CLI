@@ -29,23 +29,34 @@ logged to backup.log in the installation directory.`,
 }
 
 func newScheduleSetCmd(instance *config.Installation) *cobra.Command {
-	return &cobra.Command{
+	var purgeOlderThan string
+
+	cmd := &cobra.Command{
 		Use:   "set [cron expression]",
 		Short: "Set a recurring backup schedule",
 		Long: `Schedule recurring backups using a cron expression. This adds or
 updates a crontab entry that runs 'canasta backup create' on the
 specified schedule. Backup output is logged to backup.log in the
-installation directory.`,
+installation directory.
+
+Use --purge-older-than to automatically purge old backups after each
+scheduled backup.`,
 		Example: `  # Schedule daily backups at 2:00 AM
   canasta backup schedule set -i myinstance "0 2 * * *"
 
   # Schedule hourly backups
-  canasta backup schedule set -i myinstance "0 * * * *"`,
+  canasta backup schedule set -i myinstance "0 * * * *"
+
+  # Schedule daily backups and purge anything older than 30 days
+  canasta backup schedule set -i myinstance --purge-older-than 30d "0 2 * * *"`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return scheduleBackup(*instance, strings.Join(args, " "))
+			return scheduleBackup(*instance, strings.Join(args, " "), purgeOlderThan)
 		},
 	}
+
+	cmd.Flags().StringVar(&purgeOlderThan, "purge-older-than", "", "Purge backups older than this after each scheduled backup (e.g., 30d, 6m)")
+	return cmd
 }
 
 func newScheduleListCmd(instance *config.Installation) *cobra.Command {
@@ -109,7 +120,7 @@ func writeCrontab(lines []string) error {
 	return nil
 }
 
-func scheduleBackup(instance config.Installation, cronExpression string) error {
+func scheduleBackup(instance config.Installation, cronExpression, purgeOlderThan string) error {
 	if err := validateCron(cronExpression); err != nil {
 		return err
 	}
@@ -122,7 +133,11 @@ func scheduleBackup(instance config.Installation, cronExpression string) error {
 	logPath := filepath.Join(instance.Path, "backup.log")
 	quotedLogPath := orchestrators.ShellQuote(logPath)
 	rotateCmd := fmt.Sprintf("find %s -size +10M -exec mv {} %s \\;", quotedLogPath, orchestrators.ShellQuote(logPath+".1"))
-	cmdStr := fmt.Sprintf("%s %s && %s backup create -i %s --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S) >> %s 2>&1", cronExpression, rotateCmd, executable, instance.ID, quotedLogPath)
+	backupCmd := fmt.Sprintf("%s backup create -i %s --tag scheduled-$(date +\\%%Y\\%%m\\%%d\\%%H\\%%M\\%%S)", executable, instance.ID)
+	if purgeOlderThan != "" {
+		backupCmd += fmt.Sprintf(" && %s backup purge -i %s --older-than %s", executable, instance.ID, orchestrators.ShellQuote(purgeOlderThan))
+	}
+	cmdStr := fmt.Sprintf("%s %s && %s >> %s 2>&1", cronExpression, rotateCmd, backupCmd, quotedLogPath)
 
 	logging.Print(fmt.Sprintf("Scheduling backup with cron: %s", cronExpression))
 
@@ -169,6 +184,9 @@ func listSchedule(instance config.Installation) error {
 	for _, line := range lines {
 		if strings.Contains(line, identifier) {
 			fmt.Printf("Instance '%s' is scheduled for backup at: %s\n", instance.ID, cronFromLine(line))
+			if purge := purgeFromLine(line); purge != "" {
+				fmt.Printf("Auto-purge: snapshots older than %s\n", purge)
+			}
 			return nil
 		}
 	}
@@ -235,6 +253,21 @@ func cronFromLine(line string) string {
 		return strings.Join(fields[:5], " ")
 	}
 	return line
+}
+
+// purgeFromLine extracts the --older-than value from a crontab line, if present.
+func purgeFromLine(line string) string {
+	const flag = "--older-than "
+	idx := strings.Index(line, flag)
+	if idx < 0 {
+		return ""
+	}
+	rest := line[idx+len(flag):]
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Trim(fields[0], "'\"")
 }
 
 func validateCron(cron string) error {

@@ -116,6 +116,7 @@ nav:
       - check: cli/canasta_backup_check.md
       - diff: cli/canasta_backup_diff.md
       - unlock: cli/canasta_backup_unlock.md
+      - purge: cli/canasta_backup_purge.md
       - schedule: cli/canasta_backup_schedule.md
     - sitemap:
       - Overview: cli/canasta_sitemap.md

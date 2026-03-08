@@ -67,6 +67,7 @@ and RESTIC_PASSWORD to be configured in the installation's .env file.`,
 	backupCmd.AddCommand(newFilesCmd(&orch, &instance, &envPath, &repoURL))
 	backupCmd.AddCommand(newCheckCmd(&orch, &instance, &envPath, &repoURL))
 	backupCmd.AddCommand(newDiffCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newPurgeCmd(&orch, &instance, &envPath, &repoURL))
 	backupCmd.AddCommand(newScheduleCmd(&instance))
 
 	backupCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
