@@ -14,9 +14,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/cmd/version"
 )
 
-// githubAPIURL is a variable (not a constant) so that tests can override it
-// with a local httptest server URL.
-var githubAPIURL = "https://api.github.com/repos/CanastaWiki/Canasta-CLI/releases/latest"
+const githubAPIURL = "https://api.github.com/repos/CanastaWiki/Canasta-CLI/releases/latest"
 
 type githubRelease struct {
 	TagName string `json:"tag_name"`
@@ -134,7 +132,7 @@ func reexec(execPath string) error {
 }
 
 func getLatestVersion() (string, error) {
-	//nolint:gosec // URL is a package-level variable intentionally overridable in tests
+	//nolint:gosec // URL is a compile-time constant
 	resp, err := http.Get(githubAPIURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to check for updates: %w\nPlease check your network connectivity", err)
@@ -145,8 +143,15 @@ func getLatestVersion() (string, error) {
 		return "", fmt.Errorf("failed to check for updates: GitHub API returned status %d", resp.StatusCode)
 	}
 
+	return parseLatestVersion(resp.Body)
+}
+
+// parseLatestVersion decodes a GitHub release JSON payload from r and returns
+// the tag_name. It is split out from getLatestVersion so it can be unit-tested
+// without requiring an HTTP server.
+func parseLatestVersion(r io.Reader) (string, error) {
 	var release githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(r).Decode(&release); err != nil {
 		return "", fmt.Errorf("failed to parse release info: %w", err)
 	}
 
