@@ -37,11 +37,12 @@ func validateInitFlags(hostName, repoURL, keyFile string) error {
 
 func newInitCmd(instance *config.Installation) *cobra.Command {
 	var (
-		hostName string
-		role     string
-		repoURL  string
-		keyFile  string
-		force    bool
+		hostName     string
+		role         string
+		repoURL      string
+		keyFile      string
+		force        bool
+		pullRequests bool
 	)
 
 	cmd := &cobra.Command{
@@ -56,6 +57,10 @@ to submodules, and pushes to the remote. The remote repository must be empty
 The git-crypt key is exported to the path specified by --key. Store this key
 securely — it is needed to unlock the repo on other servers.
 
+Use --pull-requests to require changes to go through pull requests instead of
+pushing directly to main. This enables review workflows for multi-server
+deployments.
+
 To join an existing gitops repository instead, use "canasta gitops join".`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if err := validateInitFlags(hostName, repoURL, keyFile); err != nil {
@@ -64,7 +69,7 @@ To join an existing gitops repository instead, use "canasta gitops join".`,
 			if err := gitops.ValidateRole(role); err != nil {
 				return err
 			}
-			return runInitBootstrap(instance.Path, hostName, role, repoURL, keyFile, force)
+			return runInitBootstrap(instance.Path, hostName, role, repoURL, keyFile, force, pullRequests)
 		},
 	}
 
@@ -73,10 +78,11 @@ To join an existing gitops repository instead, use "canasta gitops join".`,
 	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL (required)")
 	cmd.Flags().StringVar(&keyFile, "key", "", "Path to export the git-crypt key (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force push to a non-empty remote repository")
+	cmd.Flags().BoolVar(&pullRequests, "pull-requests", false, "Require pull requests instead of pushing directly to main")
 	return cmd
 }
 
-func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, force bool) error {
+func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, force, pullRequests bool) error {
 	if err := gitops.CheckPrereqs(false); err != nil {
 		return err
 	}
@@ -174,7 +180,8 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 	}
 
 	cfg := &gitops.HostsConfig{
-		CanastaID: canastaID,
+		CanastaID:    canastaID,
+		PullRequests: pullRequests,
 		Hosts: map[string]gitops.HostEntry{
 			hostName: {
 				Role: role,

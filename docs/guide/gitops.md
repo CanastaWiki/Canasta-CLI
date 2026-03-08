@@ -111,6 +111,12 @@ canasta config set -i mywiki MY_API_KEY=... SMTP_PASSWORD=...
 canasta gitops init -i mywiki -n myserver --repo git@github.com:yourorg/mywiki-config.git --key /path/to/gitops-key
 ```
 
+To require pull requests for all changes instead of pushing directly to main:
+
+```bash
+canasta gitops init -i mywiki -n myserver --repo git@github.com:yourorg/mywiki-config.git --key /path/to/gitops-key --pull-requests
+```
+
 The remote repository must be empty (no commits, no README). Create an empty repository on GitHub/GitLab first, then pass its URL with `--repo`. The `--key` flag specifies where to export the git-crypt symmetric key.
 
 This bootstraps a new gitops repository from the existing installation:
