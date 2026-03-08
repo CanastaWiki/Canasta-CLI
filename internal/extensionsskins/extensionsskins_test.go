@@ -330,7 +330,10 @@ func TestDisableSkin(t *testing.T) {
 		t.Fatalf("Disable skin: %v", err)
 	}
 
-	cfg, _ := readConfig(configPath(inst.Path, ""))
+	cfg, err := readConfig(configPath(inst.Path, ""))
+	if err != nil {
+		t.Fatalf("readConfig: %v", err)
+	}
 	if slices.Contains(cfg.Skins, "Vector") {
 		t.Error("Vector should be removed from skins")
 	}
@@ -352,7 +355,10 @@ func TestDisablePerWikiExtension(t *testing.T) {
 	}
 
 	// Per-wiki config should have Cite removed but VisualEditor intact.
-	wikiCfg, _ := readConfig(configPath(inst.Path, "docs"))
+	wikiCfg, err := readConfig(configPath(inst.Path, "docs"))
+	if err != nil {
+		t.Fatalf("readConfig: %v", err)
+	}
 	if slices.Contains(wikiCfg.Extensions, "Cite") {
 		t.Error("Cite should be removed from per-wiki config")
 	}
