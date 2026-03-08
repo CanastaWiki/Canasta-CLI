@@ -144,6 +144,27 @@ canasta backup diff -i myinstance --snapshot1 abc123 --snapshot2 def456
 canasta backup delete -i myinstance -s abc123
 ```
 
+### Purging old backups
+
+Remove backups that exceed a retention policy:
+
+```bash
+# Remove backups older than 30 days
+canasta backup purge -i myinstance --older-than 30d
+
+# Keep only the 10 most recent backups
+canasta backup purge -i myinstance --keep-last 10
+
+# Combine both: keep last 5 and anything within 14 days
+canasta backup purge -i myinstance --older-than 14d --keep-last 5
+```
+
+Use `--dry-run` to preview what would be removed without actually deleting anything:
+
+```bash
+canasta backup purge -i myinstance --older-than 30d --dry-run
+```
+
 ### Scheduling recurring backups
 
 Set up automatic backups using a cron expression:
@@ -154,6 +175,13 @@ canasta backup schedule set -i myinstance "0 2 * * *"
 
 # Every 6 hours
 canasta backup schedule set -i myinstance "0 */6 * * *"
+```
+
+To automatically purge old backups after each scheduled backup, add `--purge-older-than`:
+
+```bash
+# Daily backups, keeping the last 30 days
+canasta backup schedule set -i myinstance --purge-older-than 30d "0 2 * * *"
 ```
 
 If you reschedule with a new expression, the existing schedule is replaced. To schedule multiple times, combine them in one expression (e.g., `"0 0 * * 2,5"` for Tuesdays and Fridays).
