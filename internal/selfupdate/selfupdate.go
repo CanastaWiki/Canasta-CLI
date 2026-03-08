@@ -142,8 +142,15 @@ func getLatestVersion() (string, error) {
 		return "", fmt.Errorf("failed to check for updates: GitHub API returned status %d", resp.StatusCode)
 	}
 
+	return parseLatestVersion(resp.Body)
+}
+
+// parseLatestVersion decodes a GitHub release JSON payload from r and returns
+// the tag_name. It is split out from getLatestVersion so it can be unit-tested
+// without requiring an HTTP server.
+func parseLatestVersion(r io.Reader) (string, error) {
 	var release githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(r).Decode(&release); err != nil {
 		return "", fmt.Errorf("failed to parse release info: %w", err)
 	}
 
