@@ -132,7 +132,6 @@ func reexec(execPath string) error {
 }
 
 func getLatestVersion() (string, error) {
-	//nolint:gosec // URL is a compile-time constant
 	resp, err := http.Get(githubAPIURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to check for updates: %w\nPlease check your network connectivity", err)
