@@ -3,6 +3,7 @@ package system
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -28,8 +29,11 @@ func getLinuxAvailableMemory() (uint64, error) {
 		return 0, err
 	}
 	defer file.Close()
+	return parseLinuxMemAvailable(file)
+}
 
-	scanner := bufio.NewScanner(file)
+func parseLinuxMemAvailable(r io.Reader) (uint64, error) {
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "MemAvailable:") {
@@ -97,7 +101,11 @@ func getDarwinAvailableMemory() (uint64, error) {
 
 // CheckMemoryInGB verifies if the system has at least minGB of available memory.
 func CheckMemoryInGB(minGB int) error {
-	availMem, err := GetAvailableMemory()
+	return checkMemoryInGBWithGetter(minGB, GetAvailableMemory)
+}
+
+func checkMemoryInGBWithGetter(minGB int, getter func() (uint64, error)) error {
+	availMem, err := getter()
 	if err != nil {
 		return fmt.Errorf("failed to determine system memory: %w", err)
 	}
