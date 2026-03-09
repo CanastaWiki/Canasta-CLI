@@ -239,6 +239,8 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 
 // convertToSubmodules scans a directory (e.g., "extensions") for
 // subdirectories that are git repositories and converts them to submodules.
+// Directories with uncommitted changes are skipped. The commit that was
+// checked out is preserved after conversion.
 func convertToSubmodules(installPath, dirName string) error {
 	dir := filepath.Join(installPath, dirName)
 	entries, err := os.ReadDir(dir)
@@ -257,18 +259,41 @@ func convertToSubmodules(installPath, dirName string) error {
 		if _, err := os.Stat(gitDir); os.IsNotExist(err) {
 			continue
 		}
-		remoteURL := getGitRemoteURL(subDir)
-		if remoteURL == "" {
-			logging.Print(fmt.Sprintf("Skipping %s/%s: no remote URL found\n", dirName, entry.Name()))
+		relativePath := filepath.Join(dirName, entry.Name())
+
+		// Skip directories with uncommitted changes.
+		if dirty, err := isDirtyRepo(subDir); err != nil {
+			logging.Print(fmt.Sprintf("Skipping %s: could not check status: %v\n", relativePath, err))
+			continue
+		} else if dirty {
+			logging.Print(fmt.Sprintf("Skipping %s: has uncommitted changes\n", relativePath))
 			continue
 		}
-		relativePath := filepath.Join(dirName, entry.Name())
+
+		remoteURL := getGitRemoteURL(subDir)
+		if remoteURL == "" {
+			logging.Print(fmt.Sprintf("Skipping %s: no remote URL found\n", relativePath))
+			continue
+		}
+
+		// Record the current commit so we can restore it after conversion.
+		commitHash := getHeadCommit(subDir)
+
 		if err := os.RemoveAll(subDir); err != nil {
 			return fmt.Errorf("removing %s: %w", relativePath, err)
 		}
 		if err := gitops.SubmoduleAdd(installPath, remoteURL, relativePath); err != nil {
 			return fmt.Errorf("adding submodule %s: %w", relativePath, err)
 		}
+
+		// Check out the original commit so the submodule is pinned to the
+		// same version the user had, not the remote's default branch.
+		if commitHash != "" {
+			if _, err := execute.Run(subDir, "git", "checkout", commitHash); err != nil {
+				logging.Print(fmt.Sprintf("Warning: could not restore %s to commit %s: %v\n", relativePath, commitHash[:8], err))
+			}
+		}
+
 		logging.Print(fmt.Sprintf("Converted %s to submodule\n", relativePath))
 	}
 	return nil
@@ -276,6 +301,22 @@ func convertToSubmodules(installPath, dirName string) error {
 
 func getGitRemoteURL(repoPath string) string {
 	output, err := execute.Run(repoPath, "git", "remote", "get-url", "origin")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(output)
+}
+
+func isDirtyRepo(repoPath string) (bool, error) {
+	output, err := execute.Run(repoPath, "git", "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(output) != "", nil
+}
+
+func getHeadCommit(repoPath string) string {
+	output, err := execute.Run(repoPath, "git", "rev-parse", "HEAD")
 	if err != nil {
 		return ""
 	}
