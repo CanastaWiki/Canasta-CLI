@@ -118,6 +118,12 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 			strings.Join(dirty, "\n  "))
 	}
 
+	// Remove legacy .gitignore files from extensions/ and skins/ that were
+	// created by the old Canasta-DockerCompose template. These ignore
+	// everything in the directory, which prevents gitops from tracking
+	// extensions and skins.
+	removeLegacyGitignores(installPath)
+
 	fmt.Println("Initializing gitops repository...")
 
 	// 1. Initialize git repo.
@@ -322,6 +328,21 @@ func convertToSubmodules(installPath, dirName string) error {
 		logging.Print(fmt.Sprintf("Converted %s to submodule\n", relativePath))
 	}
 	return nil
+}
+
+// removeLegacyGitignores removes .gitignore files from extensions/ and skins/
+// that were created by the old Canasta-DockerCompose installation template.
+// These files ignore everything except .gitignore itself, which would prevent
+// gitops from tracking extensions and skins.
+func removeLegacyGitignores(installPath string) {
+	for _, dirName := range []string{"extensions", "skins"} {
+		gi := filepath.Join(installPath, dirName, ".gitignore")
+		if _, err := os.Stat(gi); err == nil {
+			if err := os.Remove(gi); err == nil {
+				fmt.Printf("Removed legacy %s/.gitignore\n", dirName)
+			}
+		}
+	}
 }
 
 func getGitRemoteURL(repoPath string) string {
