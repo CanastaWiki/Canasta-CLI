@@ -111,6 +111,13 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 			"Use --force to overwrite the remote, or use \"canasta gitops join\" to join an existing repo")
 	}
 
+	// Check for extensions/skins with uncommitted changes before doing any work.
+	if dirty := findDirtyRepos(installPath); len(dirty) > 0 {
+		return fmt.Errorf("the following extensions/skins have uncommitted changes:\n  %s\n"+
+			"Commit or discard the changes, then re-run gitops init",
+			strings.Join(dirty, "\n  "))
+	}
+
 	fmt.Println("Initializing gitops repository...")
 
 	// 1. Initialize git repo.
@@ -237,10 +244,37 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 	return nil
 }
 
+// findDirtyRepos scans extensions/ and skins/ for git repositories with
+// uncommitted changes. Returns a list of relative paths (e.g.,
+// "extensions/Foo") that are dirty.
+func findDirtyRepos(installPath string) []string {
+	var dirty []string
+	for _, dirName := range []string{"extensions", "skins"} {
+		dir := filepath.Join(installPath, dirName)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			subDir := filepath.Join(dir, entry.Name())
+			if _, err := os.Stat(filepath.Join(subDir, ".git")); os.IsNotExist(err) {
+				continue
+			}
+			if isDirty, err := isDirtyRepo(subDir); err == nil && isDirty {
+				dirty = append(dirty, filepath.Join(dirName, entry.Name()))
+			}
+		}
+	}
+	return dirty
+}
+
 // convertToSubmodules scans a directory (e.g., "extensions") for
 // subdirectories that are git repositories and converts them to submodules.
-// Directories with uncommitted changes are skipped. The commit that was
-// checked out is preserved after conversion.
+// The commit that was checked out is preserved after conversion.
+// Callers must check for dirty repos before calling this function.
 func convertToSubmodules(installPath, dirName string) error {
 	dir := filepath.Join(installPath, dirName)
 	entries, err := os.ReadDir(dir)
@@ -260,15 +294,6 @@ func convertToSubmodules(installPath, dirName string) error {
 			continue
 		}
 		relativePath := filepath.Join(dirName, entry.Name())
-
-		// Skip directories with uncommitted changes.
-		if dirty, err := isDirtyRepo(subDir); err != nil {
-			logging.Print(fmt.Sprintf("Skipping %s: could not check status: %v\n", relativePath, err))
-			continue
-		} else if dirty {
-			logging.Print(fmt.Sprintf("Skipping %s: has uncommitted changes\n", relativePath))
-			continue
-		}
 
 		remoteURL := getGitRemoteURL(subDir)
 		if remoteURL == "" {
