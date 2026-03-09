@@ -3,7 +3,6 @@ package remove
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -18,14 +17,14 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
 	var instance config.Installation
 	var wikiID string
 	var yes bool
 
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	instance.Path = workingDir
 
@@ -41,7 +40,7 @@ for confirmation before any data is deleted.`,
 
   # Remove without confirmation prompt
   canasta remove -i myinstance -w docs -y`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if wikiID == "" {
 				if len(args) > 0 {
 					return fmt.Errorf("unknown argument %q; use --wiki to specify the wiki ID (e.g. canasta remove --wiki %s)", args[0], args[0])
@@ -49,12 +48,12 @@ for confirmation before any data is deleted.`,
 				return fmt.Errorf("--wiki flag is required")
 			}
 
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
 
-			fmt.Printf("Removing wiki '%s' from Canasta instance '%s'...\n", wikiID, instance.Id)
+			fmt.Printf("Removing wiki '%s' from Canasta instance '%s'...\n", wikiID, instance.ID)
 			if err := RemoveWiki(instance, wikiID, yes); err != nil {
 				return err
 			}
@@ -64,12 +63,12 @@ for confirmation before any data is deleted.`,
 	}
 
 	addCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki")
-	addCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	addCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	addCmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
 	return addCmd
 }
 
-// RemoveWiki removes a wiki with the given wikiID from a Canasta instance
+// RemoveWiki removes a wiki with the given wikiID from a Canasta instance.
 func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
@@ -91,18 +90,18 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 		fmt.Println("These may require manual removal.")
 	}
 
-	//Checking Wiki existence
+	// Checking Wiki existence
 	exists, err := farmsettings.WikiIDExists(instance.Path, wikiID)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		return fmt.Errorf("A wiki with the ID '%s' does not exist", wikiID)
+		return fmt.Errorf("a wiki with the ID '%s' does not exist", wikiID)
 	}
 
 	if !yes {
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("This will delete the wiki " + wikiID + " in the Canasta instance " + instance.Id + " and the corresponding database. Continue? [y/N] ")
+		fmt.Print("This will delete the wiki " + wikiID + " in the Canasta instance " + instance.ID + " and the corresponding database. Continue? [y/N] ")
 		text, _ := reader.ReadString('\n')
 		text = strings.ToLower(strings.TrimSpace(text))
 
@@ -112,7 +111,7 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 		}
 	}
 
-	//Remove the wiki
+	// Remove the wiki
 	err = farmsettings.RemoveWiki(wikiID, instance.Path)
 	if err != nil {
 		return err
@@ -126,7 +125,7 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 		}
 	}
 
-	//Remove the Localsettings
+	// Remove the Localsettings
 	err = canasta.RemoveSettings(instance.Path, wikiID)
 	if err != nil {
 		return err
@@ -134,8 +133,8 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 
 	// Remove the Images (from inside container first to handle www-data ownership on Linux)
 	if containersRunning {
-		cleanupCmd := fmt.Sprintf("rm -rf /mediawiki/images/%s", wikiID)
-		_, _ = orch.ExecWithError(instance.Path, "web", cleanupCmd)
+		cleanupCmd := fmt.Sprintf("rm -rf %s", orchestrators.ShellQuote("/mediawiki/images/"+wikiID))
+		_, _ = orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, cleanupCmd)
 	}
 	err = canasta.RemoveImages(instance.Path, wikiID)
 	if err != nil {
@@ -148,19 +147,19 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 		return err
 	}
 
-	//Rewrite the Caddyfile
+	// Rewrite the Caddyfile
 	err = orch.UpdateConfig(instance.Path)
 	if err != nil {
 		return err
 	}
 
-	//Restart the Canasta Instance
+	// Restart the Canasta Instance
 	err = restart.Restart(instance)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("Successfully removed wiki " + wikiID + " from Canasta instance " + instance.Id + ".")
+	fmt.Println("Successfully removed wiki " + wikiID + " from Canasta instance " + instance.ID + ".")
 
 	return nil
 }

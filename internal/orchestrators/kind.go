@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/template"
@@ -186,7 +187,7 @@ func GetPortsFromEnv(installPath string) (httpPort int, httpsPort int) {
 	httpPort = 80
 	httpsPort = 443
 
-	envPath := installPath + "/.env"
+	envPath := filepath.Join(installPath, ".env")
 	envVars, err := canasta.GetEnvVariable(envPath)
 	if err != nil {
 		return

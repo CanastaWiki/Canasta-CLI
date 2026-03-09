@@ -7,10 +7,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func generateCmdCreate() *cobra.Command {
+func newGenerateCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
 	var wikiID string
 
 	cmd := &cobra.Command{
@@ -25,8 +27,8 @@ generator will automatically refresh them.`,
 
   # Generate sitemaps for all wikis
   canasta sitemap generate -i myinstance`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGenerate(wikiID)
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runGenerate(*instance, *orch, wikiID)
 		},
 	}
 
@@ -35,7 +37,7 @@ generator will automatically refresh them.`,
 	return cmd
 }
 
-func runGenerate(wikiID string) error {
+func runGenerate(instance config.Installation, orch orchestrators.Orchestrator, wikiID string) error {
 	// Check containers are running
 	if err := orch.CheckRunningStatus(instance); err != nil {
 		return fmt.Errorf("containers are not running: %w", err)
@@ -94,7 +96,7 @@ func runGenerate(wikiID string) error {
 
 		// Create the sitemap directory
 		mkdirCmd := fmt.Sprintf("mkdir -p %s && chown www-data:www-data %s", fspath, fspath)
-		if _, err := orch.ExecWithError(instance.Path, "web", mkdirCmd); err != nil {
+		if _, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, mkdirCmd); err != nil {
 			return fmt.Errorf("failed to create sitemap directory for wiki '%s': %w", wiki.id, err)
 		}
 
@@ -104,7 +106,7 @@ func runGenerate(wikiID string) error {
 			"php maintenance/generateSitemap.php --wiki=%s --fspath=%s --urlpath=/public_assets/sitemap --compress yes --server=%s --skip-redirects --identifier=%s",
 			wiki.id, fspath, serverURL, wiki.id,
 		)
-		if err := orch.ExecStreaming(instance.Path, "web", genCmd); err != nil {
+		if err := orch.ExecStreaming(instance.Path, orchestrators.ServiceWeb, genCmd); err != nil {
 			return fmt.Errorf("failed to generate sitemap for wiki '%s': %w", wiki.id, err)
 		}
 		fmt.Printf("Sitemap generated for wiki '%s'.\n", wiki.id)

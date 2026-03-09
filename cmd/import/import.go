@@ -1,9 +1,11 @@
+// Package importcmd implements the "canasta import" command.
+// The name avoids conflicting with Go's "import" keyword.
 package importcmd
 
 import (
 	"fmt"
-	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -11,10 +13,11 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
 	var instance config.Installation
 	var wikiID string
 	var databasePath string
@@ -33,10 +36,10 @@ To create a new wiki from a database dump, use the --database flag with
 
   # Import a gzipped dump and replace the wiki's Settings.php
   canasta import -i myinstance -w main -d /path/to/dump.sql.gz -l /path/to/Settings.php`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -57,7 +60,7 @@ To create a new wiki from a database dump, use the --database flag with
 				return err
 			}
 			if !exists {
-				return fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.Id)
+				return fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.ID)
 			}
 
 			// Validate database path
@@ -70,8 +73,15 @@ To create a new wiki from a database dump, use the --database flag with
 				return err
 			}
 
-			fmt.Printf("Importing database into wiki '%s' in Canasta instance '%s'...\n", wikiID, instance.Id)
-			if err := importDatabase(orch, instance, wikiID, databasePath, settingsPath, workingDir); err != nil {
+			// Resolve relative file paths to absolute
+			for _, p := range []*string{&databasePath, &settingsPath} {
+				if *p != "" && !filepath.IsAbs(*p) {
+					*p = filepath.Join(workingDir, *p)
+				}
+			}
+
+			fmt.Printf("Importing database into wiki '%s' in Canasta instance '%s'...\n", wikiID, instance.ID)
+			if err := importDatabase(orch, instance, wikiID, databasePath, settingsPath); err != nil {
 				return err
 			}
 			fmt.Println("Done.")
@@ -81,11 +91,11 @@ To create a new wiki from a database dump, use the --database flag with
 
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	instance.Path = workingDir
 
-	importCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	importCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	importCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to import into")
 	importCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to SQL dump file (.sql or .sql.gz)")
 	importCmd.Flags().StringVarP(&settingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to replace the existing one")
@@ -96,9 +106,9 @@ To create a new wiki from a database dump, use the --database flag with
 	return importCmd
 }
 
-func importDatabase(orch orchestrators.Orchestrator, instance config.Installation, wikiID, databasePath, settingsPath, workingDir string) error {
+func importDatabase(orch orchestrators.Orchestrator, instance config.Installation, wikiID, databasePath, settingsPath string) error {
 	// Read database password from .env
-	envVariables, err := canasta.GetEnvVariable(instance.Path + "/.env")
+	envVariables, err := canasta.GetEnvVariable(filepath.Join(instance.Path, ".env"))
 	if err != nil {
 		return err
 	}
@@ -112,7 +122,7 @@ func importDatabase(orch orchestrators.Orchestrator, instance config.Installatio
 
 	// If settings file provided, copy it to the wiki's config directory
 	if settingsPath != "" {
-		err = canasta.CopyWikiSettingFile(instance.Path, wikiID, settingsPath, workingDir)
+		err = canasta.CopyWikiSettingFile(instance.Path, wikiID, settingsPath)
 		if err != nil {
 			return err
 		}

@@ -1,39 +1,38 @@
 package sitemap
 
 import (
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var (
-	instance   config.Installation
-	orch       orchestrators.Orchestrator
-	sitemapCmd *cobra.Command
-)
+func NewCmd() *cobra.Command {
+	var (
+		instance config.Installation
+		orch     orchestrators.Orchestrator
+	)
 
-func NewCmdCreate() *cobra.Command {
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
-		log.Fatal(wdErr)
+		logging.Fatal(wdErr)
 	}
 	instance.Path = workingDir
 
-	sitemapCmd = &cobra.Command{
+	sitemapCmd := &cobra.Command{
 		Use:   "sitemap",
 		Short: "Manage sitemaps for a Canasta instance",
 		Long: `Generate or remove XML sitemaps for wikis in a Canasta installation.
 Sitemaps improve search engine indexing by listing all pages on your wiki.
 Use "canasta sitemap generate" to create sitemaps and "canasta sitemap remove"
 to delete them.`,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -45,10 +44,10 @@ to delete them.`,
 		},
 	}
 
-	sitemapCmd.AddCommand(generateCmdCreate())
-	sitemapCmd.AddCommand(removeCmdCreate())
+	sitemapCmd.AddCommand(newGenerateCmd(&instance, &orch))
+	sitemapCmd.AddCommand(newRemoveCmd(&instance, &orch))
 
-	sitemapCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	sitemapCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 
 	return sitemapCmd
 }

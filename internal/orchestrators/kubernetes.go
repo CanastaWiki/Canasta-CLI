@@ -1,14 +1,14 @@
 package orchestrators
 
 import (
-	"bytes"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	yaml "gopkg.in/yaml.v2"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
@@ -16,7 +16,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators/kubernetes"
-	yaml "gopkg.in/yaml.v2"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 // webDeployment is the Kubernetes deployment name for the MediaWiki web service.
@@ -34,9 +34,9 @@ type KubernetesOrchestrator struct {
 	ManagedCluster bool
 }
 
-func (k *KubernetesOrchestrator) Name() string              { return "Kubernetes" }
-func (k *KubernetesOrchestrator) SupportsDevMode() bool     { return false }
-func (k *KubernetesOrchestrator) SupportsImagePull() bool   { return false }
+func (k *KubernetesOrchestrator) Name() string            { return "Kubernetes" }
+func (k *KubernetesOrchestrator) SupportsDevMode() bool   { return false }
+func (k *KubernetesOrchestrator) SupportsImagePull() bool { return false }
 
 func (k *KubernetesOrchestrator) CheckDependencies() error {
 	if _, err := exec.LookPath("kubectl"); err != nil {
@@ -62,50 +62,7 @@ func (k *KubernetesOrchestrator) WriteStackFiles(installPath string) error {
 }
 
 func (k *KubernetesOrchestrator) UpdateStackFiles(installPath string, dryRun bool) (bool, error) {
-	changed := false
-	err := fs.WalkDir(kubernetes.StackFiles, "files/kubernetes", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		relPath, err := filepath.Rel("files", path)
-		if err != nil {
-			return err
-		}
-		if relPath == "." {
-			return nil
-		}
-		targetPath := filepath.Join(installPath, relPath)
-		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
-		}
-		if d.Name() == ".gitkeep" {
-			return nil
-		}
-		embedded, err := kubernetes.StackFiles.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
-		}
-		existing, readErr := os.ReadFile(targetPath)
-		if readErr == nil && bytes.Equal(existing, embedded) {
-			return nil // unchanged
-		}
-		changed = true
-		if dryRun {
-			if readErr != nil {
-				fmt.Printf("  Would create %s\n", relPath)
-			} else {
-				fmt.Printf("  Would update %s\n", relPath)
-			}
-			return nil
-		}
-		if readErr != nil {
-			fmt.Printf("  Creating %s\n", relPath)
-		} else {
-			fmt.Printf("  Updating %s\n", relPath)
-		}
-		return os.WriteFile(targetPath, embedded, 0644)
-	})
-	return changed, err
+	return updateStackFiles(kubernetes.StackFiles, "files/kubernetes", installPath, dryRun)
 }
 
 func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
@@ -417,7 +374,7 @@ func (k *KubernetesOrchestrator) RunBackup(installPath, envPath string, volumes 
 	volName := backupVolumeName(installPath)
 
 	// Docker is available (required by kind), so create the staging volume
-	err, output := execute.Run("", "docker", "volume", "create", volName)
+	output, err := execute.Run("", "docker", "volume", "create", volName)
 	if err != nil {
 		return "", fmt.Errorf("failed to create backup volume: %s", output)
 	}
@@ -473,7 +430,7 @@ func (k *KubernetesOrchestrator) syncClusterDataToHost(installPath string) error
 	}
 
 	for _, s := range syncs {
-		if err := os.MkdirAll(s.hostDir, 0755); err != nil {
+		if err := os.MkdirAll(s.hostDir, permissions.DirectoryPermission); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", s.hostDir, err)
 		}
 		if err := k.copyDirContentsFrom(installPath, "web", s.containerDir, s.hostDir); err != nil {
@@ -622,13 +579,13 @@ func (k *KubernetesOrchestrator) UpdateConfig(installPath string) error {
 
 // kustomization is the Go representation of kustomization.yaml.
 type kustomization struct {
-	APIVersion         string              `yaml:"apiVersion"`
-	Kind               string              `yaml:"kind"`
-	Namespace          string              `yaml:"namespace"`
-	Resources          []string            `yaml:"resources"`
-	ConfigMapGenerator []configMapEntry    `yaml:"configMapGenerator"`
-	Images             []kustomizeImage    `yaml:"images,omitempty"`
-	Patches            []kustomizePatch    `yaml:"patches,omitempty"`
+	APIVersion         string           `yaml:"apiVersion"`
+	Kind               string           `yaml:"kind"`
+	Namespace          string           `yaml:"namespace"`
+	Resources          []string         `yaml:"resources"`
+	ConfigMapGenerator []configMapEntry `yaml:"configMapGenerator"`
+	Images             []kustomizeImage `yaml:"images,omitempty"`
+	Patches            []kustomizePatch `yaml:"patches,omitempty"`
 }
 
 // defaultCanastaImage is the image reference hardcoded in web.yaml.
@@ -740,9 +697,10 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 		kust.Patches = append(kust.Patches, buildNodePortPatch())
 	}
 
-	// 6. Observability stack (OpenSearch + Fluent Bit + Dashboards)
+	// 6–8. Read .env once for observability, elasticsearch, and image override checks
 	envPath := filepath.Join(installPath, ".env")
 	if envVars, err := canasta.GetEnvVariable(envPath); err == nil {
+		// 6. Observability stack (OpenSearch + Fluent Bit + Dashboards)
 		if canasta.IsObservabilityEnabled(envVars) {
 			kust.Resources = append(kust.Resources,
 				"kubernetes/log-pvcs.yaml",
@@ -755,21 +713,17 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 			kust.Patches = append(kust.Patches,
 				buildLogVolumePatch("web", "/var/log/mediawiki", "mediawiki-logs"),
 				buildLogVolumePatch("caddy", "/var/log/caddy", "caddy-logs"),
-				buildLogVolumePatch("db", "/var/log/mysql", "mysql-logs"),
+				buildLogVolumePatch("db", "/var/log/mysql", "mariadb-logs"),
 			)
 		}
-	}
 
-	// 7. Elasticsearch (optional)
-	if envVars, err := canasta.GetEnvVariable(envPath); err == nil {
+		// 7. Elasticsearch (optional)
 		if canasta.IsElasticsearchEnabled(envVars) {
 			kust.Resources = append(kust.Resources, "kubernetes/elasticsearch.yaml")
 			kust.Patches = append(kust.Patches, buildElasticsearchInitPatch())
 		}
-	}
 
-	// 8. Image override (for local builds pushed to a registry)
-	if envVars, err := canasta.GetEnvVariable(envPath); err == nil {
+		// 8. Image override (for local builds pushed to a registry)
 		if canastaImage := envVars["CANASTA_IMAGE"]; canastaImage != "" {
 			// Parse "registry/repo:tag" into newName and newTag
 			newName := canastaImage
@@ -793,7 +747,7 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 	}
 
 	content := "# Auto-generated by Canasta CLI — do not edit manually\n" + string(data)
-	return os.WriteFile(filepath.Join(installPath, "kustomization.yaml"), []byte(content), 0644)
+	return os.WriteFile(filepath.Join(installPath, "kustomization.yaml"), []byte(content), permissions.FilePermission)
 }
 
 // scanSettingsDir scans a directory relative to installPath and returns
@@ -964,35 +918,7 @@ func (k *KubernetesOrchestrator) MigrateConfig(installPath string, dryRun bool) 
 // Only manifest YAMLs under files/kubernetes/ are written; the template is skipped.
 // If overwrite is false (create mode), existing files are skipped.
 func (k *KubernetesOrchestrator) walkStackFiles(installPath string, overwrite bool) error {
-	return fs.WalkDir(kubernetes.StackFiles, "files/kubernetes", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		relPath, err := filepath.Rel("files", path)
-		if err != nil {
-			return err
-		}
-		if relPath == "." {
-			return nil
-		}
-		targetPath := filepath.Join(installPath, relPath)
-		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
-		}
-		if d.Name() == ".gitkeep" {
-			return nil
-		}
-		if !overwrite {
-			if _, err := os.Stat(targetPath); err == nil {
-				return nil // no-clobber
-			}
-		}
-		data, err := kubernetes.StackFiles.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
-		}
-		return os.WriteFile(targetPath, data, 0644)
-	})
+	return writeStackFiles(kubernetes.StackFiles, "files/kubernetes", installPath, overwrite)
 }
 
 // getRunningPod finds a running pod for the given service label in a namespace.

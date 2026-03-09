@@ -88,10 +88,10 @@ func TestRenderKindConfig(t *testing.T) {
 
 func TestGetPortsFromEnv(t *testing.T) {
 	tests := []struct {
-		name      string
+		name       string
 		envContent string
-		wantHTTP  int
-		wantHTTPS int
+		wantHTTP   int
+		wantHTTPS  int
 	}{
 		{
 			name:       "defaults when no env file",

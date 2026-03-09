@@ -2,8 +2,8 @@ package export
 
 import (
 	"fmt"
-	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,10 +11,11 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
 	var instance config.Installation
 	var wikiID string
 	var outputPath string
@@ -33,10 +34,10 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 
   # Export as gzipped SQL
   canasta export -i myinstance -w main -f /backups/main-backup.sql.gz`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -57,7 +58,7 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 				return err
 			}
 			if !exists {
-				return fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.Id)
+				return fmt.Errorf("wiki '%s' does not exist in Canasta instance '%s'", wikiID, instance.ID)
 			}
 
 			// Default output path
@@ -76,11 +77,11 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	instance.Path = workingDir
 
-	exportCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	exportCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	exportCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to export")
 	exportCmd.Flags().StringVarP(&outputPath, "file", "f", "", "Output file path (default: <wikiID>.sql)")
 
@@ -96,7 +97,7 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 	}
 
 	// Read the database password from .env
-	envVariables, err := canasta.GetEnvVariable(instance.Path + "/.env")
+	envVariables, err := canasta.GetEnvVariable(filepath.Join(instance.Path, ".env"))
 	if err != nil {
 		return err
 	}
@@ -105,14 +106,11 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 		dbPassword = "mediawiki"
 	}
 
-	// Escape single quotes in password for shell safety
-	escapedPassword := strings.ReplaceAll(dbPassword, "'", "'\\''")
-
 	tempFile := fmt.Sprintf("/tmp/%s.sql", wikiID)
 
-	// Run mysqldump inside the db container (no --databases flag to avoid USE statements)
-	dumpCmd := fmt.Sprintf("mysqldump -u root -p'%s' %s > %s", escapedPassword, wikiID, tempFile)
-	output, err := orch.ExecWithError(instance.Path, "db", dumpCmd)
+	// Run mariadb-dump inside the db container (no --databases flag to avoid USE statements)
+	dumpCmd := fmt.Sprintf("mariadb-dump -u root -p%s %s > %s", orchestrators.ShellQuote(dbPassword), orchestrators.ShellQuote(wikiID), tempFile)
+	output, err := orch.ExecWithError(instance.Path, orchestrators.ServiceDB, dumpCmd)
 	if err != nil {
 		return fmt.Errorf("failed to export database: %s", output)
 	}
@@ -121,7 +119,7 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 	copyFile := tempFile
 	if strings.HasSuffix(outputPath, ".gz") {
 		gzipCmd := fmt.Sprintf("gzip -f %s", tempFile)
-		output, err = orch.ExecWithError(instance.Path, "db", gzipCmd)
+		output, err = orch.ExecWithError(instance.Path, orchestrators.ServiceDB, gzipCmd)
 		if err != nil {
 			return fmt.Errorf("failed to compress export file: %s", output)
 		}
@@ -129,14 +127,14 @@ func exportDatabase(instance config.Installation, wikiID, outputPath string) err
 	}
 
 	// Copy the dump file from the container to the host
-	err = orch.CopyFrom(instance.Path, "db", copyFile, outputPath)
+	err = orch.CopyFrom(instance.Path, orchestrators.ServiceDB, copyFile, outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to copy export file from container: %w", err)
 	}
 
 	// Clean up temp files in the container
 	rmCmd := fmt.Sprintf("rm -f %s %s.gz", tempFile, tempFile)
-	_, _ = orch.ExecWithError(instance.Path, "db", rmCmd)
+	_, _ = orch.ExecWithError(instance.Path, orchestrators.ServiceDB, rmCmd)
 
 	return nil
 }

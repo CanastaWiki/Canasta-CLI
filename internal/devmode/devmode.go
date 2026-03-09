@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 const (
@@ -47,19 +49,19 @@ func CreateDevModeFiles(installPath string) error {
 
 	// Create Dockerfile.xdebug
 	dockerfilePath := filepath.Join(installPath, "Dockerfile.xdebug")
-	if err := os.WriteFile(dockerfilePath, []byte(dockerfileXdebugContent), 0644); err != nil {
+	if err := os.WriteFile(dockerfilePath, []byte(dockerfileXdebugContent), permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to create Dockerfile.xdebug: %w", err)
 	}
 
 	// Create docker-compose.dev.yml
 	devComposePath := filepath.Join(installPath, DevComposeFile)
-	if err := os.WriteFile(devComposePath, []byte(dockerComposeDevContent), 0644); err != nil {
+	if err := os.WriteFile(devComposePath, []byte(dockerComposeDevContent), permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to create docker-compose.dev.yml: %w", err)
 	}
 
 	// Create config/xdebug.ini
 	xdebugIniPath := filepath.Join(installPath, "config", "xdebug.ini")
-	if err := os.WriteFile(xdebugIniPath, []byte(xdebugIniContent), 0644); err != nil {
+	if err := os.WriteFile(xdebugIniPath, []byte(xdebugIniContent), permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to create xdebug.ini: %w", err)
 	}
 
@@ -90,7 +92,7 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 	// Local images (e.g., "canasta:local") don't need pulling
 	if strings.Contains(baseImage, "/") {
 		logging.Print(fmt.Sprintf("Pulling image %s...\n", baseImage))
-		if err, output := execute.Run("", "docker", "pull", baseImage); err != nil {
+		if output, err := execute.Run("", "docker", "pull", baseImage); err != nil {
 			return fmt.Errorf("failed to pull image: %s", output)
 		}
 	} else {
@@ -98,40 +100,44 @@ func ExtractMediaWikiCode(installPath, baseImage string) error {
 	}
 
 	// Create the destination directory
-	if err := os.MkdirAll(codeDir, 0755); err != nil {
+	if err := os.MkdirAll(codeDir, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("failed to create code directory: %w", err)
 	}
 
 	// Start a container and run the symlinks script to create extension/skin symlinks
 	// (normally /create-symlinks.sh runs as part of the entrypoint, but we bypass it with sleep)
 	containerName := "canasta-code-extract-temp"
+
+	// Remove any orphaned container from a previous failed extraction
+	_, _ = execute.Run("", "docker", "rm", "-f", containerName)
+
 	logging.Print("Starting temporary container for code extraction...\n")
-	if err, output := execute.Run("", "docker", "run", "-d", "--name", containerName, baseImage, "sleep", "infinity"); err != nil {
+	if output, err := execute.Run("", "docker", "run", "-d", "--name", containerName, baseImage, "sleep", "infinity"); err != nil {
 		return fmt.Errorf("failed to start temporary container: %s", output)
 	}
 
 	// Run the symlinks script to create extensions/ and skins/ symlinks
 	logging.Print("Creating extension and skin symlinks...\n")
-	if err, output := execute.Run("", "docker", "exec", containerName, "/create-symlinks.sh"); err != nil {
+	if output, err := execute.Run("", "docker", "exec", containerName, "/create-symlinks.sh"); err != nil {
 		_, _ = execute.Run("", "docker", "rm", "-f", containerName)
 		return fmt.Errorf("failed to create symlinks: %s", output)
 	}
 
 	// Copy code from container to host, preserving symlinks
 	// CanastaBase uses relative symlinks (../canasta-extensions/X, ../user-extensions/X)
-	// Note: Can't use execute.Run here because it wraps commands in bash -c which breaks pipes
+	// Uses bash -c directly because this command requires a shell pipe
 	logging.Print(fmt.Sprintf("Copying MediaWiki code to %s...\n", codeDir))
 	tarCmd := fmt.Sprintf("docker exec %s tar -cf - -C /var/www/mediawiki/w . | tar -xf - -C %s", containerName, codeDir)
 	cmd := exec.Command("bash", "-c", tarCmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Clean up container on failure
 		_, _ = execute.Run("", "docker", "rm", "-f", containerName)
-		return fmt.Errorf("failed to copy code from container: %s (output: %s)", err, string(output))
+		return fmt.Errorf("failed to copy code from container: %w (output: %s)", err, string(output))
 	}
 
 	// Remove the temporary container
 	logging.Print("Removing temporary container...\n")
-	if err, output := execute.Run("", "docker", "rm", "-f", containerName); err != nil {
+	if output, err := execute.Run("", "docker", "rm", "-f", containerName); err != nil {
 		return fmt.Errorf("failed to remove temporary container: %s", output)
 	}
 
@@ -163,7 +169,7 @@ func consolidateUserDir(installPath, codeDir, dirName, userDirName string) error
 	targetDir := filepath.Join(codeDir, userDirName)
 
 	// Ensure target directory exists (should exist from extraction)
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("failed to create %s directory: %w", userDirName, err)
 	}
 
@@ -195,7 +201,7 @@ func consolidateUserDir(installPath, codeDir, dirName, userDirName string) error
 			}
 
 			// Copy directory recursively using cp -r
-			if err, output := execute.Run("", "cp", "-r", srcPath, dstPath); err != nil {
+			if output, err := execute.Run("", "cp", "-r", srcPath, dstPath); err != nil {
 				return fmt.Errorf("failed to copy %s: %s", entry.Name(), output)
 			}
 		}
@@ -222,18 +228,15 @@ func consolidateUserDir(installPath, codeDir, dirName, userDirName string) error
 func SetupDevEnvironment(installPath, baseImage string) error {
 	logging.Print("Setting up development environment...\n")
 
-	// Update .env file to set DEV_CODE_PATH and CANASTA_IMAGE
+	// Update .env file to set DEV_CODE_PATH and CANASTA_IMAGE.
+	// Uses SaveEnvVariable so that re-enabling dev mode updates
+	// existing entries rather than appending duplicates.
 	envPath := filepath.Join(installPath, ".env")
-	envContent, err := os.ReadFile(envPath)
-	if err != nil {
-		return fmt.Errorf("failed to read .env file: %w", err)
+	if err := canasta.SaveEnvVariable(envPath, "DEV_CODE_PATH", "./mediawiki-code"); err != nil {
+		return fmt.Errorf("failed to save DEV_CODE_PATH: %w", err)
 	}
-
-	// Append dev settings to .env
-	devSettings := fmt.Sprintf("\n# Development mode settings\nDEV_CODE_PATH=./mediawiki-code\nCANASTA_IMAGE=%s\n", baseImage)
-	envContent = append(envContent, []byte(devSettings)...)
-	if err := os.WriteFile(envPath, envContent, 0644); err != nil {
-		return fmt.Errorf("failed to update .env file: %w", err)
+	if err := canasta.SaveEnvVariable(envPath, "CANASTA_IMAGE", baseImage); err != nil {
+		return fmt.Errorf("failed to save CANASTA_IMAGE: %w", err)
 	}
 
 	// Write IDE configs with current host/port from .env
@@ -318,33 +321,33 @@ func WriteIDEConfigs(installPath string) error {
 
 	// VSCode launch.json
 	vscodeDir := filepath.Join(installPath, VSCodeDir)
-	if err := os.MkdirAll(vscodeDir, 0755); err != nil {
+	if err := os.MkdirAll(vscodeDir, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("failed to create .vscode directory: %w", err)
 	}
-	launchJsonPath := filepath.Join(vscodeDir, "launch.json")
-	if err := os.WriteFile(launchJsonPath, []byte(vscodeLaunchContent), 0644); err != nil {
+	launchJSONPath := filepath.Join(vscodeDir, "launch.json")
+	if err := os.WriteFile(launchJSONPath, []byte(vscodeLaunchContent), permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to create VSCode launch.json: %w", err)
 	}
 
 	// PHPStorm php.xml — substitute host and port
 	ideaDir := filepath.Join(installPath, PHPStormDir)
-	if err := os.MkdirAll(ideaDir, 0755); err != nil {
+	if err := os.MkdirAll(ideaDir, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("failed to create .idea directory: %w", err)
 	}
 	runConfDir := filepath.Join(installPath, PHPStormRunConfDir)
-	if err := os.MkdirAll(runConfDir, 0755); err != nil {
+	if err := os.MkdirAll(runConfDir, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("failed to create .idea/runConfigurations directory: %w", err)
 	}
-	phpXmlContent := strings.Replace(phpstormServerConfig, `host="localhost"`, fmt.Sprintf(`host="%s"`, host), 1)
-	phpXmlContent = strings.Replace(phpXmlContent, `port="80"`, fmt.Sprintf(`port="%s"`, port), 1)
-	phpXmlPath := filepath.Join(ideaDir, "php.xml")
-	if err := os.WriteFile(phpXmlPath, []byte(phpXmlContent), 0644); err != nil {
+	phpXMLContent := strings.Replace(phpstormServerConfig, `host="localhost"`, fmt.Sprintf(`host="%s"`, host), 1)
+	phpXMLContent = strings.Replace(phpXMLContent, `port="80"`, fmt.Sprintf(`port="%s"`, port), 1)
+	phpXMLPath := filepath.Join(ideaDir, "php.xml")
+	if err := os.WriteFile(phpXMLPath, []byte(phpXMLContent), permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to create PHPStorm php.xml: %w", err)
 	}
 
 	// PHPStorm run configuration
 	runConfigPath := filepath.Join(runConfDir, "Listen_for_Xdebug.xml")
-	if err := os.WriteFile(runConfigPath, []byte(phpstormRunConfig), 0644); err != nil {
+	if err := os.WriteFile(runConfigPath, []byte(phpstormRunConfig), permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to create PHPStorm run configuration: %w", err)
 	}
 
@@ -434,7 +437,7 @@ func restoreUserDir(installPath, dirName, userDirName string) error {
 	if err != nil {
 		// Directory doesn't exist, create empty one
 		logging.Print(fmt.Sprintf("  %s/ doesn't exist, creating empty directory\n", dirName))
-		return os.MkdirAll(symlinkPath, 0755)
+		return os.MkdirAll(symlinkPath, permissions.DirectoryPermission)
 	}
 
 	if info.Mode()&os.ModeSymlink == 0 {
@@ -450,7 +453,7 @@ func restoreUserDir(installPath, dirName, userDirName string) error {
 	}
 
 	// Create new directory
-	if err := os.MkdirAll(symlinkPath, 0755); err != nil {
+	if err := os.MkdirAll(symlinkPath, permissions.DirectoryPermission); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
@@ -466,7 +469,7 @@ func restoreUserDir(installPath, dirName, userDirName string) error {
 			dstPath := filepath.Join(symlinkPath, entry.Name())
 
 			logging.Print(fmt.Sprintf("  Copying %s to %s/...\n", entry.Name(), dirName))
-			if err, output := execute.Run("", "cp", "-r", srcPath, dstPath); err != nil {
+			if output, err := execute.Run("", "cp", "-r", srcPath, dstPath); err != nil {
 				return fmt.Errorf("failed to copy %s: %s", entry.Name(), output)
 			}
 		}

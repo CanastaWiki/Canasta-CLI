@@ -17,7 +17,7 @@ func findSubcommand(parent interface{ Commands() []*cobra.Command }, name string
 }
 
 func TestMaintenanceSubcommands(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 
 	expected := []string{"update", "script", "extension", "exec"}
 	for _, name := range expected {
@@ -28,7 +28,7 @@ func TestMaintenanceSubcommands(t *testing.T) {
 }
 
 func TestMaintenancePersistentFlags(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 
 	flags := []struct {
 		name      string
@@ -36,7 +36,6 @@ func TestMaintenancePersistentFlags(t *testing.T) {
 	}{
 		{"id", "i"},
 		{"wiki", "w"},
-		{"all", ""},
 	}
 
 	for _, f := range flags {
@@ -52,7 +51,7 @@ func TestMaintenancePersistentFlags(t *testing.T) {
 }
 
 func TestUpdateFlags(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 	updateCmd := findSubcommand(cmd, "update")
 	if updateCmd == nil {
 		t.Fatal("update subcommand not found")
@@ -66,16 +65,17 @@ func TestUpdateFlags(t *testing.T) {
 }
 
 func TestScriptAcceptsZeroArgs(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 	scriptCmd := findSubcommand(cmd, "script")
 	if scriptCmd == nil {
 		t.Fatal("script subcommand not found")
+		return
 	}
 
 	// script accepts 0 args (lists scripts) or 1 arg (runs a script)
 	// override PreRunE/RunE to isolate arg validation
 	scriptCmd.PreRunE = nil
-	scriptCmd.RunE = func(cmd *cobra.Command, args []string) error { return nil }
+	scriptCmd.RunE = func(_ *cobra.Command, _ []string) error { return nil }
 
 	cmd.SetArgs([]string{"script"})
 	if err := cmd.Execute(); err != nil {
@@ -84,52 +84,29 @@ func TestScriptAcceptsZeroArgs(t *testing.T) {
 }
 
 func TestUpdateFlagParsing(t *testing.T) {
-	cmd := NewCmdCreate()
+	cmd := NewCmd()
 	updateCmd := findSubcommand(cmd, "update")
 	if updateCmd == nil {
 		t.Fatal("update subcommand not found")
 	}
-
-	// Reset package-level variables
-	skipJobs = false
-	skipSMW = false
 
 	if err := updateCmd.ParseFlags([]string{"--skip-jobs", "--skip-smw"}); err != nil {
 		t.Fatalf("ParseFlags error: %v", err)
 	}
 
+	skipJobs, err := updateCmd.Flags().GetBool("skip-jobs")
+	if err != nil {
+		t.Fatalf("GetBool skip-jobs error: %v", err)
+	}
 	if !skipJobs {
-		t.Error("--skip-jobs should set skipJobs to true")
+		t.Error("--skip-jobs should be true after parsing")
+	}
+
+	skipSMW, err := updateCmd.Flags().GetBool("skip-smw")
+	if err != nil {
+		t.Fatalf("GetBool skip-smw error: %v", err)
 	}
 	if !skipSMW {
-		t.Error("--skip-smw should set skipSMW to true")
-	}
-}
-
-func TestWikiAndAllConflict(t *testing.T) {
-	cmd := NewCmdCreate()
-	updateCmd := findSubcommand(cmd, "update")
-	if updateCmd == nil {
-		t.Fatal("update subcommand not found")
-	}
-
-	// Override PreRunE to skip CheckCanastaId
-	updateCmd.PreRunE = nil
-
-	// Set wiki and all flags, then execute
-	wiki = "docs"
-	all = true
-	defer func() {
-		wiki = ""
-		all = false
-	}()
-
-	cmd.SetArgs([]string{"update", "--wiki=docs", "--all"})
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when --wiki and --all are both set")
-	}
-	if err.Error() != "cannot use --wiki with --all" {
-		t.Errorf("unexpected error: %v", err)
+		t.Error("--skip-smw should be true after parsing")
 	}
 }

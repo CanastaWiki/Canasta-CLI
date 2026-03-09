@@ -22,6 +22,9 @@ func TestValidateWikiID(t *testing.T) {
 		{"reserved wiki", "wiki", true},
 		{"reserved wikis", "wikis", true},
 		{"contains hyphen", "my-wiki", true},
+		{"empty string", "", true},
+		{"only hyphens", "---", true},
+		{"mixed case and numbers", "MyWiki123", false},
 	}
 
 	for _, tt := range tests {
@@ -180,6 +183,43 @@ func TestAddAndRemoveWiki(t *testing.T) {
 	}
 }
 
+func TestAddWikiWithPath(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(configDir, "wikis.yaml")
+
+	// Generate initial wiki (no path)
+	_, err := GenerateWikisYaml(filePath, "wiki1", "example.com", "Wiki 1")
+	if err != nil {
+		t.Fatalf("GenerateWikisYaml() error = %v", err)
+	}
+
+	// Add a wiki with a URL path
+	err = AddWiki("wiki2", dir, "example.com", "blog", "Blog Wiki")
+	if err != nil {
+		t.Fatalf("AddWiki() error = %v", err)
+	}
+
+	ids, serverNames, paths, err := ReadWikisYaml(filePath)
+	if err != nil {
+		t.Fatalf("ReadWikisYaml() error = %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 wikis, got %d", len(ids))
+	}
+
+	// The second wiki should have serverName=example.com and path=/blog
+	if serverNames[1] != "example.com" {
+		t.Errorf("expected serverName=example.com, got %s", serverNames[1])
+	}
+	if paths[1] != "/blog" {
+		t.Errorf("expected path=/blog, got %s", paths[1])
+	}
+}
+
 func TestRemoveLastWikiFails(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")
@@ -196,6 +236,38 @@ func TestRemoveLastWikiFails(t *testing.T) {
 	err = RemoveWiki("onlywiki", dir)
 	if err == nil {
 		t.Fatal("expected error when removing last wiki, got nil")
+	}
+}
+
+func TestRemoveWikiNonexistent(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(configDir, "wikis.yaml")
+
+	_, err := GenerateWikisYaml(filePath, "wiki1", "example.com", "Wiki 1")
+	if err != nil {
+		t.Fatalf("GenerateWikisYaml() error = %v", err)
+	}
+
+	err = AddWiki("wiki2", dir, "other.com", "", "Wiki 2")
+	if err != nil {
+		t.Fatalf("AddWiki() error = %v", err)
+	}
+
+	err = RemoveWiki("nonexistent", dir)
+	if err != nil {
+		t.Fatalf("RemoveWiki() error = %v", err)
+	}
+
+	ids, _, _, err := ReadWikisYaml(filePath)
+	if err != nil {
+		t.Fatalf("ReadWikisYaml() error = %v", err)
+	}
+	if len(ids) != 2 || ids[0] != "wiki1" || ids[1] != "wiki2" {
+		t.Errorf("expected [wiki1, wiki2], got %v", ids)
 	}
 }
 
@@ -241,7 +313,42 @@ func TestWikiIDExistsNoFile(t *testing.T) {
 	}
 }
 
-func TestWikiUrlExists(t *testing.T) {
+func TestGetWikiIDs(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(configDir, "wikis.yaml")
+
+	_, err := GenerateWikisYaml(filePath, "main", "localhost", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AddWiki("wiki2", dir, "localhost/wiki2", "", "wiki2"); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("returns all wikis", func(t *testing.T) {
+		ids, err := GetWikiIDs(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ids) != 2 || ids[0] != "main" || ids[1] != "wiki2" {
+			t.Errorf("got %v, want [main wiki2]", ids)
+		}
+	})
+
+	t.Run("missing wikis.yaml", func(t *testing.T) {
+		emptyDir := t.TempDir()
+		_, err := GetWikiIDs(emptyDir)
+		if err == nil {
+			t.Fatal("expected error for missing wikis.yaml")
+		}
+	})
+}
+
+func TestWikiURLExists(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
@@ -254,17 +361,17 @@ func TestWikiUrlExists(t *testing.T) {
 		t.Fatalf("GenerateWikisYaml() error = %v", err)
 	}
 
-	exists, err := WikiUrlExists(dir, "example.com", "wiki")
+	exists, err := WikiURLExists(dir, "example.com", "wiki")
 	if err != nil {
-		t.Fatalf("WikiUrlExists() error = %v", err)
+		t.Fatalf("WikiURLExists() error = %v", err)
 	}
 	if !exists {
 		t.Error("expected URL to exist")
 	}
 
-	exists, err = WikiUrlExists(dir, "other.com", "wiki")
+	exists, err = WikiURLExists(dir, "other.com", "wiki")
 	if err != nil {
-		t.Fatalf("WikiUrlExists() error = %v", err)
+		t.Fatalf("WikiURLExists() error = %v", err)
 	}
 	if exists {
 		t.Error("expected other.com URL to not exist")

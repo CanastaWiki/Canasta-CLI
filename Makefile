@@ -8,10 +8,12 @@ build:
 		@./build.sh
 		@go mod tidy
 		@go mod verify
-		@sudo cp ${OUTPUT} /usr/local/bin/${APP_NAME}
 		@echo "Build complete: ${OUTPUT}"
+		@echo "To run the CLI, use \033[0;32m./${APP_NAME}\033[0m or run 'make install' to install system-wide"
+
+install: build
+		@sudo cp ${OUTPUT} /usr/local/bin/${APP_NAME}
 		@echo "Installed to: /usr/local/bin/${APP_NAME}"
-		@echo "To run the CLI, use \033[0;32m${APP_NAME}\033[0m"
 
 clean:
 		@echo "Cleaning build artifacts..."
@@ -35,6 +37,7 @@ help:
 		@printf "\n"
 		@printf "\e[1mBuild\e[0m\n"
 		@printf "  \e[36mbuild\e[0m                    Build binary (outputs to build/ directory and creates symlink).\n"
+		@printf "  \e[36minstall\e[0m                  Build and install to /usr/local/bin/ (requires sudo).\n"
 		@printf "  \e[36mclean\e[0m                    Remove build artifacts and symlink.\n"
 		@printf "\n"
 		@printf "\e[1mTest\e[0m\n"
@@ -42,4 +45,4 @@ help:
 		@printf "  \e[36mlint\e[0m                     Run lint.\n"
 		@printf "\n"
 
-.PHONY: build clean prepare-lint lint help
+.PHONY: build install clean prepare-lint lint help

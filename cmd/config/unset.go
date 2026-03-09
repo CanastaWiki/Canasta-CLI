@@ -7,11 +7,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func unsetCmdCreate() *cobra.Command {
+func newUnsetCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
 	var force bool
+	var noRestart bool
 	cmd := &cobra.Command{
 		Use:   "unset KEY [KEY ...]",
 		Short: "Remove a configuration setting",
@@ -27,7 +30,7 @@ is removed. The instance is then restarted unless --no-restart is specified.`,
   canasta config unset HTTP_PORT HTTPS_PORT -i myinstance
   canasta config unset CANASTA_ENABLE_OBSERVABILITY -i myinstance --no-restart`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			envPath := filepath.Join(instance.Path, ".env")
 			envVars, err := canasta.GetEnvVariable(envPath)
 			if err != nil {
@@ -50,7 +53,7 @@ is removed. The instance is then restarted unless --no-restart is specified.`,
 			// Run unapply side effects before removing keys
 			for _, key := range keys {
 				if se, ok := sideEffects[key]; ok && se.unapply != nil {
-					if err := se.unapply(instance); err != nil {
+					if err := se.unapply(*instance); err != nil {
 						return fmt.Errorf("unapply side effect for %s failed: %w", key, err)
 					}
 				}
@@ -73,24 +76,7 @@ is removed. The instance is then restarted unless --no-restart is specified.`,
 				return nil
 			}
 
-			// Restart: UpdateConfig → Stop → (recreate kind cluster if port key) → Start
-			fmt.Println("Applying configuration and restarting...")
-			if err := orch.UpdateConfig(instance.Path); err != nil {
-				return fmt.Errorf("failed to update config: %w", err)
-			}
-			if err := orch.Stop(instance); err != nil {
-				return fmt.Errorf("failed to stop instance: %w", err)
-			}
-			if instance.KindCluster != "" && portKeyChanged {
-				if err := recreateKindCluster(instance); err != nil {
-					return err
-				}
-			}
-			if err := orch.Start(instance); err != nil {
-				return fmt.Errorf("failed to start instance: %w", err)
-			}
-			fmt.Println("Done.")
-			return nil
+			return restartInstance(orch, *instance, portKeyChanged)
 		},
 	}
 

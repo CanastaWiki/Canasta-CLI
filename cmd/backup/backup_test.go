@@ -41,33 +41,6 @@ func TestDumpPath(t *testing.T) {
 	}
 }
 
-func TestGetWikiIDs(t *testing.T) {
-	dir := t.TempDir()
-	wikis := []farmsettings.Wiki{
-		{ID: "main", URL: "localhost", NAME: "main"},
-		{ID: "wiki2", URL: "localhost/wiki2", NAME: "wiki2"},
-	}
-	writeWikisYaml(t, dir, wikis)
-
-	t.Run("returns all wikis", func(t *testing.T) {
-		ids, err := getWikiIDs(dir)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(ids) != 2 || ids[0] != "main" || ids[1] != "wiki2" {
-			t.Errorf("got %v, want [main wiki2]", ids)
-		}
-	})
-
-	t.Run("missing wikis.yaml", func(t *testing.T) {
-		emptyDir := t.TempDir()
-		_, err := getWikiIDs(emptyDir)
-		if err == nil {
-			t.Fatal("expected error for missing wikis.yaml")
-		}
-	})
-}
-
 func TestGetWikiIDsForRestore(t *testing.T) {
 	dir := t.TempDir()
 	wikis := []farmsettings.Wiki{
@@ -182,5 +155,88 @@ func TestRestorePreservesDBPasswords(t *testing.T) {
 	// Non-password variables should retain the backup's values.
 	if !strings.Contains(content, "MW_SITE_SERVER=https://backup.example.com") {
 		t.Errorf("expected MW_SITE_SERVER from backup to be preserved, got:\n%s", content)
+	}
+}
+
+func TestGetRepoURL(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		env     map[string]string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "RESTIC_REPOSITORY is set",
+			env: map[string]string{
+				"RESTIC_REPOSITORY": "rest:http://repo.example/repo",
+				"RESTIC_REPO":       "rest:http://repo.example/other",
+				"AWS_S3_API":        "https://s3.example",
+				"AWS_S3_BUCKET":     "bucket",
+			},
+			want: "rest:http://repo.example/repo",
+		},
+		{
+			name: "RESTIC_REPO is set",
+			env: map[string]string{
+				"RESTIC_REPOSITORY": "",
+				"RESTIC_REPO":       "rest:http://repo.example/repo",
+				"AWS_S3_API":        "https://s3.example",
+				"AWS_S3_BUCKET":     "bucket",
+			},
+			want: "rest:http://repo.example/repo",
+		},
+		{
+			name: "AWS S3 settings are set",
+			env: map[string]string{
+				"AWS_S3_API":    "https://s3.example",
+				"AWS_S3_BUCKET": "bucket",
+			},
+			want: "s3:https://s3.example/bucket",
+		},
+		{
+			name: "only AWS_S3_API is set",
+			env: map[string]string{
+				"AWS_S3_API": "https://s3.example",
+			},
+			want: "s3:https://s3.example/",
+		},
+		{
+			name: "only AWS_S3_BUCKET is set",
+			env: map[string]string{
+				"AWS_S3_BUCKET": "bucket",
+			},
+			want: "s3:/bucket",
+		},
+		{
+			name: "all vars empty strings",
+			env: map[string]string{
+				"RESTIC_REPOSITORY": "",
+				"RESTIC_REPO":       "",
+				"AWS_S3_API":        "",
+				"AWS_S3_BUCKET":     "",
+			},
+			wantErr: true,
+		},
+		{
+			name:    "all vars absent",
+			env:     map[string]string{},
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := getRepoURL(tc.env)
+			if tc.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("getRepoURL() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

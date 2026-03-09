@@ -18,12 +18,13 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/imagebuild"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/selfupdate"
 )
 
-var dryRun bool
+func NewCmd() *cobra.Command {
+	var dryRun bool
 
-func NewCmdCreate() *cobra.Command {
 	var upgradeCmd = &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade the Canasta CLI and all registered installations",
@@ -50,7 +51,7 @@ distributed using the stored configuration.`,
 
   # Preview what would change without applying
   canasta upgrade --dry-run`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			// Check for CLI updates first (skipped automatically for dev builds and dry-run)
 			if !dryRun {
 				if _, err := selfupdate.CheckAndUpdate(); err != nil {
@@ -107,7 +108,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	var err error
 
 	// Check installation existence
-	instance, err = canasta.CheckCanastaId(instance)
+	instance, err = canasta.CheckCanastaID(instance)
 	if err != nil {
 		return err
 	}
@@ -140,7 +141,8 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	envPath := filepath.Join(instance.Path, ".env")
 
 	if !dryRun {
-		if instance.BuildFrom != "" {
+		switch {
+		case instance.BuildFrom != "":
 			// Rebuild Canasta image from stored source path
 			fmt.Printf("Rebuilding Canasta image from %s...\n", instance.BuildFrom)
 			imageTag, err := imagebuild.BuildFromSource(instance.BuildFrom)
@@ -173,13 +175,13 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 			}
 
 			imagesUpdated = true
-		} else if !orch.SupportsImagePull() {
+		case !orch.SupportsImagePull():
 			fmt.Println("Regenerating configuration and re-applying manifests...")
 			if err := orch.UpdateConfig(instance.Path); err != nil {
 				return err
 			}
 			imagesUpdated = true
-		} else {
+		default:
 			fmt.Println("Pulling Canasta container images...")
 			report, err := orch.Update(instance.Path)
 			if err != nil {
@@ -203,9 +205,30 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
+	// MySQL 8.0 → MariaDB migration: detect now (read-only file check),
+	// but dump after containers are stopped so the data volume isn't locked.
+	var mysqlMigrationNeeded bool
+	if instance.Orchestrator == "compose" {
+		mysqlMigrationNeeded, err = detectMySQL8Data(instance.Path)
+		if err != nil {
+			return err
+		}
+		if mysqlMigrationNeeded {
+			fmt.Println("  Detected MySQL 8.0 data — migration to MariaDB required")
+			if dryRun {
+				fmt.Println("  Would dump MySQL 8.0 databases and re-import into MariaDB")
+			}
+		}
+	} else if !dryRun {
+		// Kubernetes: automatic migration is not supported. Warn the user
+		// so they can manually dump and restore if they were on MySQL 8.0.
+		fmt.Println("  Note: If this installation was using MySQL 8.0, the database must be")
+		fmt.Println("  manually migrated to MariaDB. See https://canasta.wiki/setup/ for details.")
+	}
+
 	if dryRun {
 		fmt.Println()
-		if stackChanged || migrationsNeeded {
+		if stackChanged || migrationsNeeded || mysqlMigrationNeeded {
 			fmt.Println("Run 'canasta upgrade' to apply these changes.")
 		} else {
 			fmt.Println("Installation is up to date. No upgrade needed.")
@@ -214,19 +237,51 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Only restart if something changed
-	if stackChanged || migrationsNeeded || imagesUpdated {
+	if stackChanged || migrationsNeeded || imagesUpdated || mysqlMigrationNeeded {
 		// Restart the containers
 		fmt.Println("Restarting containers...")
 		if err = orch.Stop(instance); err != nil {
 			return err
 		}
+
+		// Now that containers are stopped, dump MySQL 8.0 data if needed
+		var mysqlDumpPath string
+		if mysqlMigrationNeeded {
+			mysqlDumpPath, err = dumpMySQL8Data(instance.Path)
+			if err != nil {
+				return err
+			}
+		}
+
+		// If we dumped MySQL 8.0 data, clear the volume before MariaDB starts
+		if mysqlDumpPath != "" {
+			if err = clearMySQLDataVolume(instance.Path); err != nil {
+				fmt.Printf("  Dump file preserved at %s for manual recovery\n", mysqlDumpPath)
+				return err
+			}
+		}
+
 		if err = orch.Start(instance); err != nil {
+			if mysqlDumpPath != "" {
+				fmt.Printf("  Dump file preserved at %s for manual recovery\n", mysqlDumpPath)
+			}
 			return err
+		}
+
+		// Import the MySQL dump into MariaDB
+		if mysqlDumpPath != "" {
+			if err = importMariaDBDump(instance.Path, orch, mysqlDumpPath); err != nil {
+				fmt.Printf("  Dump file preserved at %s for manual import\n", mysqlDumpPath)
+				return err
+			}
+			// Clean up the temporary dump file on success
+			os.Remove(mysqlDumpPath)
+			fmt.Println("  MySQL 8.0 → MariaDB migration complete")
 		}
 
 		// Touch LocalSettings.php to flush cache
 		fmt.Print("Running 'touch LocalSettings.php' to flush cache\n")
-		_, err = orch.ExecWithError(instance.Path, "web", "touch LocalSettings.php")
+		_, err = orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, "touch LocalSettings.php")
 		if err != nil {
 			return err
 		}
@@ -241,71 +296,44 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	return nil
 }
 
+// migrationStep is a function that checks and optionally applies a single
+// config migration. It returns true if the migration is needed (and was
+// applied unless dryRun is set).
+type migrationStep func(installPath string, dryRun bool) (bool, error)
+
 // runMigration orchestrates all migration steps
 func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bool) (bool, error) {
 	fmt.Println("Checking for config migrations...")
 
+	steps := []migrationStep{
+		extractSecretKey,          // 1. Extract or generate MW_SECRET_KEY
+		migrateDirectoryStructure, // 2. Migrate directory structure
+		fixVectorDefaultSkin,      // 3. Fix Vector.php default skin
+		func(p string, d bool) (bool, error) { return orch.MigrateConfig(p, d) }, // 4. Orchestrator-specific migrations
+		removeEmptyComposerLocal,  // 5. Remove empty composer.local.json
+		removeLegacyGitDir,        // 6. Remove legacy .git directory
+		removeSkipBinaryAsHex,     // 7. Remove skip-binary-as-hex from my.cnf
+		backfillCanastaImage,      // 8. Backfill CANASTA_IMAGE in .env
+		addVclSpecialRandomBypass, // 9. Add Special:Random cache bypass
+	}
+
 	changed := false
-
-	// Step 1: Extract or generate MW_SECRET_KEY
-	keyChanged, err := extractSecretKey(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if keyChanged {
-		changed = true
-	}
-
-	// Step 2: Migrate directory structure
-	dirChanged, err := migrateDirectoryStructure(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if dirChanged {
-		changed = true
+	for _, step := range steps {
+		stepChanged, err := step(installPath, dryRun)
+		if err != nil {
+			return false, err
+		}
+		if stepChanged {
+			changed = true
+		}
 	}
 
-	// Step 3: Fix Vector.php default skin
-	vectorChanged, err := fixVectorDefaultSkin(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if vectorChanged {
-		changed = true
-	}
-
-	// Step 4: Orchestrator-specific config migrations (Caddyfiles, etc.)
-	orchChanged, err := orch.MigrateConfig(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if orchChanged {
-		changed = true
-	}
-
-	// Step 5: Remove empty composer.local.json so the image's version is synced
-	composerChanged, err := removeEmptyComposerLocal(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if composerChanged {
-		changed = true
-	}
-
-	// Step 6: Remove legacy .git directory (installations are no longer git repos)
-	gitChanged, err := removeLegacyGitDir(installPath, dryRun)
-	if err != nil {
-		return false, err
-	}
-	if gitChanged {
-		changed = true
-	}
-
-	if !changed {
+	switch {
+	case !changed:
 		fmt.Println("No config migrations needed.")
-	} else if dryRun {
+	case dryRun:
 		fmt.Println("Config migrations would be applied.")
-	} else {
+	default:
 		fmt.Println("Migrations applied.")
 	}
 
@@ -337,8 +365,7 @@ func extractSecretKey(installPath string, dryRun bool) (bool, error) {
 	wikiIDs, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err == nil {
 		for _, wikiID := range wikiIDs {
-			id := strings.Replace(wikiID, " ", "_", -1)
-			id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
+			id := canasta.NormalizeWikiID(wikiID)
 			// Check new path first, fall back to legacy (same pattern as canasta.go)
 			newPath := filepath.Join(installPath, "config", "settings", "wikis", id, "LocalSettings.php")
 			legacyPath := filepath.Join(installPath, "config", id, "LocalSettings.php")
@@ -408,9 +435,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 	}
 
 	for _, wikiID := range wikiIDs {
-		// Normalize wikiID (same as in canasta.go)
-		id := strings.Replace(wikiID, " ", "_", -1)
-		id = regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(id, "")
+		id := canasta.NormalizeWikiID(wikiID)
 
 		legacyPath := filepath.Join(installPath, "config", id)
 		newPath := filepath.Join(installPath, "config", "settings", "wikis", id)
@@ -423,7 +448,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 				} else {
 					fmt.Printf("  Moving %s -> %s\n", legacyPath, newPath)
 					// Create parent directory
-					if err := os.MkdirAll(filepath.Dir(newPath), os.ModePerm); err != nil {
+					if err := os.MkdirAll(filepath.Dir(newPath), permissions.DirectoryPermission); err != nil {
 						return false, fmt.Errorf("failed to create directory: %w", err)
 					}
 					// Move directory
@@ -454,7 +479,7 @@ func migrateDirectoryStructure(installPath string, dryRun bool) (bool, error) {
 					} else {
 						fmt.Printf("  Moving %s -> %s\n", legacyFile, newFile)
 						// Create global directory if needed
-						if err := os.MkdirAll(globalPath, os.ModePerm); err != nil {
+						if err := os.MkdirAll(globalPath, permissions.DirectoryPermission); err != nil {
 							return false, fmt.Errorf("failed to create directory: %w", err)
 						}
 						// Move file
@@ -536,9 +561,103 @@ func fixVectorDefaultSkin(installPath string, dryRun bool) (bool, error) {
 			"$wgDefaultSkin = \"vector-2022\";\nwfLoadSkin( 'Vector' );",
 			1,
 		)
-		if err := os.WriteFile(vectorPath, []byte(newContent), 0644); err != nil {
+		if err := os.WriteFile(vectorPath, []byte(newContent), permissions.FilePermission); err != nil {
 			return false, fmt.Errorf("failed to update Vector.php: %w", err)
 		}
+	}
+
+	return true, nil
+}
+
+// removeSkipBinaryAsHex removes skip-binary-as-hex lines from sections other
+// than [mysql] in my.cnf. The option is valid for the mysql client but is not
+// recognized by mariadb-admin, which causes the db container's health check to
+// fail when it appears in [client] or other sections.
+func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
+	mycnfPath := filepath.Join(installPath, "my.cnf")
+
+	content, err := os.ReadFile(mycnfPath)
+	if err != nil {
+		return false, nil // File doesn't exist, nothing to do
+	}
+
+	if !strings.Contains(string(content), "skip-binary-as-hex") {
+		return false, nil
+	}
+
+	// Track current section and only remove skip-binary-as-hex outside [mysql]
+	var filtered []string
+	changed := false
+	currentSection := ""
+	for _, line := range strings.Split(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.Contains(trimmed, "]") {
+			currentSection = trimmed
+		}
+		if strings.Contains(line, "skip-binary-as-hex") && currentSection != "[mysql]" {
+			changed = true
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+
+	if !changed {
+		return false, nil
+	}
+
+	newContent := strings.Join(filtered, "\n")
+
+	if dryRun {
+		fmt.Println("  Would remove skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mariadb-admin health check)")
+	} else {
+		fmt.Println("  Removing skip-binary-as-hex from non-[mysql] sections in my.cnf (breaks mariadb-admin health check)")
+		if err := os.WriteFile(mycnfPath, []byte(newContent), permissions.FilePermission); err != nil {
+			return false, fmt.Errorf("failed to update my.cnf: %w", err)
+		}
+	}
+
+	return true, nil
+}
+
+// addVclSpecialRandomBypass patches default.vcl to bypass Varnish cache for
+// Special:Random. Without this, Varnish caches the redirect and every user
+// gets the same "random" page until the cache TTL expires.
+func addVclSpecialRandomBypass(installPath string, dryRun bool) (bool, error) {
+	vclPath := filepath.Join(installPath, "config", "default.vcl")
+
+	content, err := os.ReadFile(vclPath)
+	if err != nil {
+		return false, nil // File doesn't exist, nothing to patch
+	}
+
+	if strings.Contains(string(content), "Special:Random") {
+		return false, nil // Already has the bypass
+	}
+
+	// Insert the bypass block after the "Pass API" block
+	marker := `if (req.url ~ "/w/api.php") {
+        return(pass);
+    }`
+	bypass := marker + `
+
+    # Bypass cache for Special:Random
+    if (req.url ~ "^/(w/index\.php\?title=|wiki/)Special:Random") {
+        return (pass);
+    }`
+
+	if !strings.Contains(string(content), marker) {
+		// VCL has been customized beyond recognition, skip
+		return false, nil
+	}
+
+	if dryRun {
+		fmt.Println("  Would add Special:Random cache bypass to default.vcl")
+	} else {
+		newContent := strings.Replace(string(content), marker, bypass, 1)
+		if err := os.WriteFile(vclPath, []byte(newContent), permissions.FilePermission); err != nil {
+			return false, fmt.Errorf("failed to update default.vcl: %w", err)
+		}
+		fmt.Println("  Added Special:Random cache bypass to default.vcl")
 	}
 
 	return true, nil
@@ -562,6 +681,34 @@ func removeLegacyGitDir(installPath string, dryRun bool) (bool, error) {
 		if err := os.RemoveAll(gitDir); err != nil {
 			return false, fmt.Errorf("failed to remove .git directory: %w", err)
 		}
+	}
+
+	return true, nil
+}
+
+// backfillCanastaImage sets CANASTA_IMAGE in .env for installations that
+// predate the canasta create change that writes it. Without this variable,
+// docker-compose falls back to the "latest" tag, bypassing version pinning.
+func backfillCanastaImage(installPath string, dryRun bool) (bool, error) {
+	envPath := filepath.Join(installPath, ".env")
+
+	envVars, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		return false, err
+	}
+	if val, ok := envVars["CANASTA_IMAGE"]; ok && val != "" {
+		return false, nil
+	}
+
+	image := canasta.GetDefaultImage()
+
+	if dryRun {
+		fmt.Printf("  Would set CANASTA_IMAGE=%s in .env\n", image)
+	} else {
+		if err := canasta.SaveEnvVariable(envPath, "CANASTA_IMAGE", image); err != nil {
+			return false, fmt.Errorf("failed to set CANASTA_IMAGE in .env: %w", err)
+		}
+		fmt.Printf("  Set CANASTA_IMAGE=%s in .env\n", image)
 	}
 
 	return true, nil

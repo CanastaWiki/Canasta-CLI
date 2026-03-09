@@ -45,9 +45,9 @@ func stageToVolume(volName string, volumes map[string]string) error {
 	}
 
 	shellCmd := "rm -rf /currentsnapshot/* && " + strings.Join(copyParts, " && ")
-	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", "'"+shellCmd+"'")
+	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", shellCmd)
 
-	err, output := execute.Run("", cmdArgs[0], cmdArgs[1:]...)
+	output, err := execute.Run("", cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
 		return fmt.Errorf("failed to stage files to backup volume: %s", output)
 	}
@@ -62,10 +62,10 @@ func runResticDocker(installPath, envPath, volName string, args ...string) (stri
 		"-v", volName + ":/currentsnapshot",
 	}
 
-	cmdArgs = append(cmdArgs, "restic/restic")
+	cmdArgs = append(cmdArgs, "restic/restic", "--cache-dir", "/tmp/restic-cache")
 	cmdArgs = append(cmdArgs, args...)
 
-	err, output := execute.Run(installPath, cmdArgs[0], cmdArgs[1:]...)
+	output, err := execute.Run(installPath, cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
 		if strings.Contains(output, "repository does not exist") {
 			return output, fmt.Errorf("backup repository not found. Run 'canasta backup init' to create it")
@@ -80,6 +80,7 @@ func runResticDocker(installPath, envPath, volName string, args ...string) (stri
 // "/currentsnapshot/config") to a host path.
 func restoreFromVolume(volName, installPath string, dirs map[string]string) error {
 	cmdArgs := []string{"docker", "run", "--rm",
+		"--user", currentUser(),
 		"-v", volName + ":/currentsnapshot:ro",
 		"-v", installPath + ":/install",
 	}
@@ -100,9 +101,9 @@ func restoreFromVolume(volName, installPath string, dirs map[string]string) erro
 	}
 
 	shellCmd := strings.Join(copyParts, " && ")
-	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", "'"+shellCmd+"'")
+	cmdArgs = append(cmdArgs, "alpine", "sh", "-c", shellCmd)
 
-	err, output := execute.Run("", cmdArgs[0], cmdArgs[1:]...)
+	output, err := execute.Run("", cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
 		return fmt.Errorf("failed to restore files from backup volume: %s", output)
 	}

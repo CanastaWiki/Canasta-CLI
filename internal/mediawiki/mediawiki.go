@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	dbServer             = "db"
 	confPath             = "/tmp/canasta-install/"
 	scriptPath           = "/w"
 	localSettingsFile    = "LocalSettings.php"
@@ -29,7 +28,7 @@ const (
 // The orchestrator's health checks handle the real wait; this is a short
 // safety-net check that runs after the container is already started.
 func WaitForDB(path string, orch orchestrators.Orchestrator) error {
-	output, err := orch.ExecWithError(path, "web", "/wait-for-it.sh -t 10 db:3306")
+	output, err := orch.ExecWithError(path, orchestrators.ServiceWeb, "/wait-for-it.sh -t 10 db:3306")
 	if err != nil {
 		return fmt.Errorf("database not ready: %s", output)
 	}
@@ -52,7 +51,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 
 	// Create writable temp directory for install.php output (needed because
 	// /mediawiki/config/ may be a read-only ConfigMap mount in Kubernetes)
-	if _, err := orch.ExecWithError(path, "web", "mkdir -p "+confPath); err != nil {
+	if _, err := orch.ExecWithError(path, orchestrators.ServiceWeb, "mkdir -p "+confPath); err != nil {
 		return canastaInfo, fmt.Errorf("failed to create install temp directory: %w", err)
 	}
 
@@ -61,12 +60,12 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 		domainName := domainNames[i]
 
 		// Unset MW_SECRET_KEY so CanastaDefaultSettings.php doesn't think wiki is already configured
-		installCmd := fmt.Sprintf("env -u MW_SECRET_KEY php maintenance/install.php --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s' --pass='%s' '%s' '%s'",
-			dbServer, wikiID, confPath, scriptPath, domainName, "root", canastaInfo.RootDBPassword, canastaInfo.WikiDBUsername, canastaInfo.WikiDBPassword, canastaInfo.AdminPassword, wikiID, canastaInfo.AdminName)
+		installCmd := fmt.Sprintf("env -u MW_SECRET_KEY php maintenance/install.php --skins='Vector' --dbserver=%s --dbname=%s --confpath=%s --scriptpath=%s --server=%s --installdbuser='%s' --installdbpass=%s --dbuser='%s' --dbpass=%s --pass=%s %s %s",
+			orchestrators.ServiceDB, orchestrators.ShellQuote(wikiID), confPath, scriptPath, orchestrators.ShellQuote("https://"+domainName), "root", orchestrators.ShellQuote(canastaInfo.RootDBPassword), canastaInfo.WikiDBUsername, orchestrators.ShellQuote(canastaInfo.WikiDBPassword), orchestrators.ShellQuote(canastaInfo.AdminPassword), orchestrators.ShellQuote(wikiID), orchestrators.ShellQuote(canastaInfo.AdminName))
 
-		output, err := orch.ExecWithError(path, "web", installCmd)
+		output, err := orch.ExecWithError(path, orchestrators.ServiceWeb, installCmd)
 		if err != nil {
-			return canastaInfo, fmt.Errorf("%s", output)
+			return canastaInfo, fmt.Errorf("failed to run install.php: %s", output)
 		}
 
 		// Save admin password to config/admin-password_{wikiid}
@@ -91,7 +90,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 				// Read LocalSettings.php from inside the container (works for
 				// both bind-mount and ConfigMap-based orchestrators)
 				catCmd := fmt.Sprintf("cat %s%s", confPath, localSettingsFile)
-				content, catErr := orch.ExecWithError(path, "web", catCmd)
+				content, catErr := orch.ExecWithError(path, orchestrators.ServiceWeb, catCmd)
 				if catErr != nil {
 					return canastaInfo, fmt.Errorf("failed to read LocalSettings.php: %w", catErr)
 				}
@@ -116,7 +115,7 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 		// generated files are unnecessary—Canasta uses its own LocalSettings.php that reads
 		// MW_SECRET_KEY from the environment.
 		rmCmd := fmt.Sprintf("rm -f %s%s", confPath, localSettingsFile)
-		if _, rmErr := orch.ExecWithError(path, "web", rmCmd); rmErr != nil {
+		if _, rmErr := orch.ExecWithError(path, orchestrators.ServiceWeb, rmCmd); rmErr != nil {
 			return canastaInfo, fmt.Errorf("failed to remove LocalSettings.php: %w", rmErr)
 		}
 
@@ -125,18 +124,18 @@ func Install(path, yamlPath string, orch orchestrators.Orchestrator, canastaInfo
 
 	// Clean up the temporary install directory
 	rmCmd := fmt.Sprintf("rm -rf %s", confPath)
-	if _, err := orch.ExecWithError(path, "web", rmCmd); err != nil {
+	if _, err := orch.ExecWithError(path, orchestrators.ServiceWeb, rmCmd); err != nil {
 		return canastaInfo, fmt.Errorf("failed to remove install temp directory: %w", err)
 	}
 
 	return canastaInfo, nil
 }
 
-func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDir string, orch orchestrators.Orchestrator) error {
+func InstallOne(installPath, id, domain, admin, adminPassword, dbuser string, orch orchestrators.Orchestrator) error {
 	var err error
 	logging.Print("Configuring MediaWiki Installation\n")
 	logging.Print("Running install.php\n")
-	envVariables, err := canasta.GetEnvVariable(installPath + "/.env")
+	envVariables, err := canasta.GetEnvVariable(filepath.Join(installPath, ".env"))
 	if err != nil {
 		return err
 	}
@@ -147,53 +146,13 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 
 	// Create writable temp directory for install.php output (needed because
 	// /mediawiki/config/ may be a read-only ConfigMap mount in Kubernetes)
-	if _, err := orch.ExecWithError(installPath, "web", "mkdir -p "+confPath); err != nil {
+	if _, err := orch.ExecWithError(installPath, orchestrators.ServiceWeb, "mkdir -p "+confPath); err != nil {
 		return fmt.Errorf("failed to create install temp directory: %w", err)
 	}
 
-	localExists, _ := fileExists(filepath.Join(installPath, "config", localSettingsFile))
-	commonExists, _ := fileExists(filepath.Join(installPath, "config", commonSettingsFile))
-	wikisYamlExists, _ := fileExists(filepath.Join(installPath, "config", "wikis.yaml"))
-
-	if !localExists && !commonExists && !wikisYamlExists {
-		return fmt.Errorf("No valid configuration found (wikis.yaml, LocalSettings.php, or CommonSettings.php)")
-	}
-
-	// New architecture uses wikis.yaml without config/LocalSettings.php
-	useNewArchitecture := wikisYamlExists && !localExists && !commonExists
-
-	// Track which settings file we're preserving (legacy architecture only)
-	var originalSettingsFile string
-	if useNewArchitecture {
-		// New architecture: no config files to backup/remove
-		// We'll unset MW_SECRET_KEY when running install.php so CanastaDefaultSettings.php
-		// doesn't think the wiki is already configured
-	} else if commonExists {
-		// Farm already exists with CommonSettings.php - preserve it
-		originalSettingsFile = commonSettingsFile
-		// Backup the file
-		err, _ = execute.Run(installPath, "cp", filepath.Join(installPath, "config", commonSettingsFile), filepath.Join(installPath, "config", commonSettingsBackup))
-		if err != nil {
-			return err
-		}
-		// Remove the original so installer doesn't see it
-		err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", commonSettingsFile))
-		if err != nil {
-			return err
-		}
-	} else if localExists {
-		// Converting from single wiki (LocalSettings.php) to farm
-		originalSettingsFile = localSettingsFile
-		// Backup the file
-		err, _ = execute.Run(installPath, "cp", filepath.Join(installPath, "config", localSettingsFile), filepath.Join(installPath, "config", localSettingsBackup))
-		if err != nil {
-			return err
-		}
-		// Remove the original so installer doesn't see it
-		err, _ = execute.Run(installPath, "rm", filepath.Join(installPath, "config", localSettingsFile))
-		if err != nil {
-			return err
-		}
+	useNewArchitecture, originalSettingsFile, err := backupLegacySettings(installPath)
+	if err != nil {
+		return err
 	}
 
 	installdbuser := "root"
@@ -217,11 +176,11 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 	} else {
 		installCmd = "php maintenance/install.php"
 	}
-	command := fmt.Sprintf("%s --skins='Vector' --dbserver=%s --dbname='%s' --confpath=%s --scriptpath=%s --server='https://%s' --installdbuser='%s' --installdbpass='%s' --dbuser='%s' --dbpass='%s'  --pass='%s' '%s' '%s'",
-		installCmd, dbServer, id, confPath, scriptPath, domain, installdbuser, installdbpass, dbuser, dbpass, adminPassword, id, admin)
-	output, err := orch.ExecWithError(installPath, "web", command)
+	command := fmt.Sprintf("%s --skins='Vector' --dbserver=%s --dbname=%s --confpath=%s --scriptpath=%s --server=%s --installdbuser='%s' --installdbpass=%s --dbuser='%s' --dbpass=%s --pass=%s %s %s",
+		installCmd, orchestrators.ServiceDB, orchestrators.ShellQuote(id), confPath, scriptPath, orchestrators.ShellQuote("https://"+domain), installdbuser, orchestrators.ShellQuote(installdbpass), dbuser, orchestrators.ShellQuote(dbpass), orchestrators.ShellQuote(adminPassword), orchestrators.ShellQuote(id), orchestrators.ShellQuote(admin))
+	output, err := orch.ExecWithError(installPath, orchestrators.ServiceWeb, command)
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to run install.php for wiki %q: %s", id, output)
 	}
 
 	// Save admin password to config/admin-password_{wikiid}
@@ -231,41 +190,92 @@ func InstallOne(installPath, id, domain, admin, adminPassword, dbuser, workingDi
 		return err
 	}
 
-	// Restore the original settings file as CommonSettings.php (legacy architecture only)
-	if useNewArchitecture {
-		// New architecture: nothing to restore
-	} else if originalSettingsFile == commonSettingsFile {
-		// Farm already existed, restore CommonSettings.php from backup
-		err, _ = execute.Run(installPath, "mv", filepath.Join(installPath, "config", commonSettingsBackup), filepath.Join(installPath, "config", commonSettingsFile))
-		if err != nil {
-			return err
-		}
-	} else if originalSettingsFile == localSettingsFile {
-		// Converting single wiki to farm: rename backup to CommonSettings.php
-		err, _ = execute.Run(installPath, "mv", filepath.Join(installPath, "config", localSettingsBackup), filepath.Join(installPath, "config", commonSettingsFile))
-		if err != nil {
-			return err
-		}
+	if err := restoreLegacySettings(installPath, useNewArchitecture, originalSettingsFile); err != nil {
+		return err
 	}
 
 	// Clean up the temporary install directory
 	rmCmd := fmt.Sprintf("rm -rf %s", confPath)
-	if _, rmErr := orch.ExecWithError(installPath, "web", rmCmd); rmErr != nil {
+	if _, rmErr := orch.ExecWithError(installPath, orchestrators.ServiceWeb, rmCmd); rmErr != nil {
 		return fmt.Errorf("failed to remove install temp directory: %w", rmErr)
 	}
 
 	return nil
 }
 
+// backupLegacySettings detects the configuration architecture and, for legacy
+// setups (LocalSettings.php or CommonSettings.php), backs up the settings file
+// and removes the original so the installer doesn't see it.
+// Returns whether the new architecture is in use and which original file was backed up.
+func backupLegacySettings(installPath string) (useNewArchitecture bool, originalSettingsFile string, err error) {
+	localExists, _ := fileExists(filepath.Join(installPath, "config", localSettingsFile))
+	commonExists, _ := fileExists(filepath.Join(installPath, "config", commonSettingsFile))
+	wikisYamlExists, _ := fileExists(filepath.Join(installPath, "config", "wikis.yaml"))
+
+	if !localExists && !commonExists && !wikisYamlExists {
+		return false, "", fmt.Errorf("no valid configuration found (wikis.yaml, LocalSettings.php, or CommonSettings.php)")
+	}
+
+	useNewArchitecture = wikisYamlExists && !localExists && !commonExists
+	if useNewArchitecture {
+		return true, "", nil
+	}
+
+	if commonExists {
+		originalSettingsFile = commonSettingsFile
+	} else if localExists {
+		originalSettingsFile = localSettingsFile
+	}
+
+	configDir := filepath.Join(installPath, "config")
+	var backupFile string
+	if originalSettingsFile == commonSettingsFile {
+		backupFile = commonSettingsBackup
+	} else {
+		backupFile = localSettingsBackup
+	}
+
+	_, err = execute.Run(installPath, "cp", filepath.Join(configDir, originalSettingsFile), filepath.Join(configDir, backupFile))
+	if err != nil {
+		return false, "", err
+	}
+	_, err = execute.Run(installPath, "rm", filepath.Join(configDir, originalSettingsFile))
+	if err != nil {
+		return false, "", err
+	}
+
+	return false, originalSettingsFile, nil
+}
+
+// restoreLegacySettings restores the backed-up settings file as
+// CommonSettings.php after install.php has run.
+func restoreLegacySettings(installPath string, useNewArchitecture bool, originalSettingsFile string) error {
+	if useNewArchitecture || originalSettingsFile == "" {
+		return nil
+	}
+
+	configDir := filepath.Join(installPath, "config")
+	var backupFile string
+	if originalSettingsFile == commonSettingsFile {
+		backupFile = commonSettingsBackup
+	} else {
+		backupFile = localSettingsBackup
+	}
+
+	// Restore as CommonSettings.php (both cases: existing farm or single→farm conversion)
+	_, err := execute.Run(installPath, "mv", filepath.Join(configDir, backupFile), filepath.Join(configDir, commonSettingsFile))
+	return err
+}
+
 func RemoveDatabase(installPath, id string, orch orchestrators.Orchestrator) error {
-	envVariables, err := canasta.GetEnvVariable(installPath + "/.env")
+	envVariables, err := canasta.GetEnvVariable(filepath.Join(installPath, ".env"))
 	if err != nil {
 		return err
 	}
-	command := fmt.Sprintf("echo 'DROP DATABASE IF EXISTS %s;' | mysql -h db -u root -p'%s'", id, envVariables["MYSQL_PASSWORD"])
-	output, err := orch.ExecWithError(installPath, "db", command)
+	command := fmt.Sprintf("echo 'DROP DATABASE IF EXISTS %s;' | mariadb -h db -u root -p%s", orchestrators.ShellQuote(id), orchestrators.ShellQuote(envVariables["MYSQL_PASSWORD"]))
+	output, err := orch.ExecWithError(installPath, orchestrators.ServiceDB, command)
 	if err != nil {
-		return fmt.Errorf("Error while dropping database '%s': %v. Output: %s", id, err, output)
+		return fmt.Errorf("error while dropping database '%s': %w. Output: %s", id, err, output)
 	}
 
 	return nil

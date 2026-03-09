@@ -7,10 +7,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func execCmdCreate() *cobra.Command {
+func newExecCmd(instance *config.Installation) *cobra.Command {
 	var service string
 
 	cmd := &cobra.Command{
@@ -35,11 +36,12 @@ The default service is "web" (the MediaWiki container).`,
 
   # Default service is "web", so this also works
   canasta maintenance exec -i myinstance -- php -v`,
-		PreRunE: func(cmd *cobra.Command, args []string) error {
-			instance, err = canasta.CheckCanastaId(instance)
+		PreRunE: func(_ *cobra.Command, _ []string) error {
+			var err error
+			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			orch, err := orchestrators.New(instance.Orchestrator)
 			if err != nil {
 				return err
@@ -47,7 +49,7 @@ The default service is "web" (the MediaWiki container).`,
 
 			// No service flag and no args: list services
 			if service == "" && len(args) == 0 {
-				services, err := orch.ListServices(instance)
+				services, err := orch.ListServices(*instance)
 				if err != nil {
 					return err
 				}
@@ -65,11 +67,11 @@ The default service is "web" (the MediaWiki container).`,
 
 			// Default service to "web" if not specified
 			if service == "" {
-				service = "web"
+				service = orchestrators.ServiceWeb
 			}
 
 			// Ensure containers are running
-			if err := orch.CheckRunningStatus(instance); err != nil {
+			if err := orch.CheckRunningStatus(*instance); err != nil {
 				return fmt.Errorf("containers are not running: %w", err)
 			}
 
@@ -85,7 +87,7 @@ The default service is "web" (the MediaWiki container).`,
 				command = []string{"/bin/bash"}
 			}
 
-			return orch.ExecInteractive(instance, service, command)
+			return orch.ExecInteractive(*instance, service, command)
 		},
 	}
 

@@ -2,11 +2,25 @@ package orchestrators
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+)
+
+// currentUser returns "UID:GID" for the current process, used with
+// docker run --user so that files written to bind-mounted host paths
+// are owned by the invoking user rather than root.
+func currentUser() string {
+	return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+}
+
+// Service name constants for container orchestration.
+const (
+	ServiceWeb = "web"
+	ServiceDB  = "db"
 )
 
 // Orchestrator defines the interface for container orchestration backends.
@@ -74,7 +88,7 @@ type UpdateReport struct {
 // DeleteConfig removes the installation directory from disk.
 // This is a pure filesystem operation, not orchestrator-specific.
 func DeleteConfig(installPath string) (string, error) {
-	err, output := execute.Run("", "rm", "-rf", installPath)
+	output, err := execute.Run("", "rm", "-rf", installPath)
 	return output, err
 }
 
@@ -82,7 +96,7 @@ func DeleteConfig(installPath string) (string, error) {
 func Exec(orch Orchestrator, installPath, service, command string) (string, error) {
 	output, err := orch.ExecWithError(installPath, service, command)
 	if err != nil {
-		return output, fmt.Errorf("%s", output)
+		return output, fmt.Errorf("command failed in service %q: %s", service, output)
 	}
 	return output, nil
 }
@@ -113,7 +127,8 @@ func ImportDatabase(orch Orchestrator, databaseName, databasePath, dbPassword st
 		dbPassword = "mediawiki"
 	}
 
-	escapedPassword := strings.ReplaceAll(dbPassword, "'", "'\\''")
+	quotedPassword := ShellQuote(dbPassword)
+	quotedDBName := ShellQuote(databaseName)
 
 	isCompressed := strings.HasSuffix(databasePath, ".sql.gz")
 
@@ -124,32 +139,32 @@ func ImportDatabase(orch Orchestrator, databaseName, databasePath, dbPassword st
 		containerFile = fmt.Sprintf("/tmp/%s.sql", databaseName)
 	}
 
-	err := orch.CopyTo(instance.Path, "db", databasePath, containerFile)
+	err := orch.CopyTo(instance.Path, ServiceDB, databasePath, containerFile)
 	if err != nil {
 		return fmt.Errorf("error copying database file to container: %w", err)
 	}
 
 	defer func() {
 		rmCmdStr := fmt.Sprintf("rm -f /tmp/%s.sql /tmp/%s.sql.gz", databaseName, databaseName)
-		_, _ = orch.ExecWithError(instance.Path, "db", rmCmdStr)
+		_, _ = orch.ExecWithError(instance.Path, ServiceDB, rmCmdStr)
 	}()
 
 	if isCompressed {
 		decompressCmd := fmt.Sprintf("gunzip -f %s", containerFile)
-		_, err = orch.ExecWithError(instance.Path, "db", decompressCmd)
+		_, err = orch.ExecWithError(instance.Path, ServiceDB, decompressCmd)
 		if err != nil {
 			return fmt.Errorf("error decompressing database file: %w", err)
 		}
 	}
 
-	createCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p'%s' -e 'CREATE DATABASE IF NOT EXISTS %s'", dbUser, escapedPassword, databaseName)
-	_, err = orch.ExecWithError(instance.Path, "db", createCmdStr)
+	createCmdStr := fmt.Sprintf("mariadb --no-defaults -u%s -p%s -e 'CREATE DATABASE IF NOT EXISTS %s'", dbUser, quotedPassword, quotedDBName)
+	_, err = orch.ExecWithError(instance.Path, ServiceDB, createCmdStr)
 	if err != nil {
 		return fmt.Errorf("error creating database: %w", err)
 	}
 
-	importCmdStr := fmt.Sprintf("mysql --no-defaults -u%s -p'%s' %s < /tmp/%s.sql", dbUser, escapedPassword, databaseName, databaseName)
-	_, err = orch.ExecWithError(instance.Path, "db", importCmdStr)
+	importCmdStr := fmt.Sprintf("mariadb --no-defaults -u%s -p%s %s < /tmp/%s.sql", dbUser, quotedPassword, quotedDBName, databaseName)
+	_, err = orch.ExecWithError(instance.Path, ServiceDB, importCmdStr)
 	if err != nil {
 		return fmt.Errorf("error importing database: %w", err)
 	}

@@ -2,13 +2,13 @@ package farmsettings
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 
 	yaml "gopkg.in/yaml.v2"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 )
 
@@ -22,15 +22,21 @@ type Wikis struct {
 	Wikis []Wiki `yaml:"wikis"`
 }
 
+// reservedNames are wiki IDs and URL paths that conflict with internal routes.
+var reservedNames = []string{"settings", "images", "w", "wiki", "wikis"}
+
 // ValidateWikiID validates that wikiID doesn't contain invalid characters or reserved names
 func ValidateWikiID(wikiID string) error {
+	if wikiID == "" {
+		return fmt.Errorf("wikiID cannot be empty")
+	}
+
 	// Check if wikiID contains a hyphen (-)
 	if strings.Contains(wikiID, "-") {
-		return fmt.Errorf("The character '-' is not allowed in wikiID")
+		return fmt.Errorf("the character '-' is not allowed in wikiID")
 	}
 
 	// Check if wikiID is one of the reserved names
-	reservedNames := []string{"settings", "images", "w", "wiki", "wikis"}
 	for _, name := range reservedNames {
 		if wikiID == name {
 			return fmt.Errorf("%s cannot be used as wikiID", wikiID)
@@ -47,8 +53,7 @@ func ValidateWikiPath(wikiPath string) error {
 		return nil
 	}
 
-	reservedPaths := []string{"settings", "images", "w", "wiki", "wikis"}
-	for _, name := range reservedPaths {
+	for _, name := range reservedNames {
 		if wikiPath == name {
 			return fmt.Errorf("%q cannot be used as a wiki URL path", wikiPath)
 		}
@@ -69,7 +74,7 @@ func GenerateWikisYaml(filePath, wikiID, domain, siteName string) (string, error
 		return "", err
 	}
 
-	err = ioutil.WriteFile(filePath, out, 0644)
+	err = os.WriteFile(filePath, out, permissions.FilePermission)
 	if err != nil {
 		return "", err
 	}
@@ -85,7 +90,7 @@ func GenerateWikisYaml(filePath, wikiID, domain, siteName string) (string, error
 
 func ReadWikisYaml(filePath string) ([]string, []string, []string, error) {
 	// Read the YAML file
-	data, err := ioutil.ReadFile(filePath)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -123,6 +128,16 @@ func ReadWikisYaml(filePath string) ([]string, []string, []string, error) {
 	return ids, serverNames, paths, nil
 }
 
+// GetWikiIDs returns the list of wiki IDs from the installation's wikis.yaml.
+func GetWikiIDs(installPath string) ([]string, error) {
+	filePath := filepath.Join(installPath, "config", "wikis.yaml")
+	ids, _, _, err := ReadWikisYaml(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read wikis.yaml: %w", err)
+	}
+	return ids, nil
+}
+
 // WikiIDExists checks if a wiki with the given wikiID exists in the installation
 func WikiIDExists(installPath, wikiID string) (bool, error) {
 	// Get the absolute path to the wikis.yaml file
@@ -150,8 +165,8 @@ func WikiIDExists(installPath, wikiID string) (bool, error) {
 	return false, nil
 }
 
-// WikiUrlExists checks if a wiki with the given URL (domain/path combo) exists in the installation
-func WikiUrlExists(installPath, domain, wikiPath string) (bool, error) {
+// WikiURLExists checks if a wiki with the given URL (domain/path combo) exists in the installation
+func WikiURLExists(installPath, domain, wikiPath string) (bool, error) {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 
@@ -168,9 +183,9 @@ func WikiUrlExists(installPath, domain, wikiPath string) (bool, error) {
 	}
 
 	// Check if a wiki with the given URL exists
-	targetUrl := domain + "/" + wikiPath
+	targetURL := domain + "/" + wikiPath
 	for i := range serverNames {
-		if serverNames[i]+paths[i] == targetUrl {
+		if serverNames[i]+paths[i] == targetURL {
 			return true, nil
 		}
 	}
@@ -191,7 +206,7 @@ func AddWiki(wikiID, installPath, domain, wikiPath, siteName string) error {
 	// Check if the file exists before trying to read it
 	if _, err := os.Stat(filePath); err == nil {
 		// File exists, read it
-		data, err := ioutil.ReadFile(filePath)
+		data, err := os.ReadFile(filePath)
 		if err != nil {
 			return err
 		}
@@ -207,7 +222,11 @@ func AddWiki(wikiID, installPath, domain, wikiPath, siteName string) error {
 	}
 
 	// Create a new wiki
-	newWiki := Wiki{ID: wikiID, URL: filepath.Join(domain, wikiPath), NAME: siteName}
+	url := domain
+	if wikiPath != "" {
+		url = domain + "/" + wikiPath
+	}
+	newWiki := Wiki{ID: wikiID, URL: url, NAME: siteName}
 
 	// Append the new wiki to the list of wikis
 	wikis.Wikis = append(wikis.Wikis, newWiki)
@@ -219,7 +238,7 @@ func AddWiki(wikiID, installPath, domain, wikiPath, siteName string) error {
 	}
 
 	// Write the updated data back to the file
-	err = ioutil.WriteFile(filePath, updatedData, 0644)
+	err = os.WriteFile(filePath, updatedData, permissions.FilePermission)
 	if err != nil {
 		return err
 	}
@@ -233,7 +252,7 @@ func RemoveWiki(wikiID, installPath string) error {
 
 	// Read the existing wikis from the YAML file
 	wikis := Wikis{}
-	data, err := ioutil.ReadFile(filePath)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
 	}
@@ -269,7 +288,7 @@ func RemoveWiki(wikiID, installPath string) error {
 	}
 
 	// Write the updated data back to the file
-	err = ioutil.WriteFile(filePath, updatedData, 0644)
+	err = os.WriteFile(filePath, updatedData, permissions.FilePermission)
 	if err != nil {
 		return err
 	}

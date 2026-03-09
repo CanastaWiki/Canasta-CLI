@@ -6,7 +6,7 @@ Canasta includes backup and restore support powered by [restic](https://restic.n
 
 Each backup includes:
 
-- **Database** — a full MySQL dump of each wiki's database
+- **Database** — a full MariaDB dump of each wiki's database
 - **Configuration** — the `config/` directory (Caddyfile, settings, wikis.yaml)
 - **Extensions and skins** — the `extensions/` and `skins/` directories
 - **Uploaded files** — the `images/` directory
@@ -105,6 +105,25 @@ canasta backup restore -i other-instance -s abc123
 
 The target instance will receive all files and databases from the snapshot, replacing its current contents.
 
+If the new instance uses a different domain name than the original, you must update the URLs after restoring:
+
+1. Edit `config/wikis.yaml` and change the `url` field for each wiki to the new domain:
+
+    ```yaml
+    wikis:
+    - id: main
+      url: newdomain.example.com
+      name: main
+    ```
+
+2. Update the `.env` file to match:
+
+    ```bash
+    canasta config set -i other-instance MW_SITE_SERVER=https://newdomain.example.com MW_SITE_FQDN=newdomain.example.com
+    ```
+
+    This also regenerates the Caddyfile and restarts the instance.
+
 ### Inspecting a backup
 
 To see what files are in a specific snapshot:
@@ -125,6 +144,27 @@ canasta backup diff -i myinstance --snapshot1 abc123 --snapshot2 def456
 canasta backup delete -i myinstance -s abc123
 ```
 
+### Purging old backups
+
+Remove backups that exceed a retention policy:
+
+```bash
+# Remove backups older than 30 days
+canasta backup purge -i myinstance --older-than 30d
+
+# Keep only the 10 most recent backups
+canasta backup purge -i myinstance --keep-last 10
+
+# Combine both: keep last 5 and anything within 14 days
+canasta backup purge -i myinstance --older-than 14d --keep-last 5
+```
+
+Use `--dry-run` to preview what would be removed without actually deleting anything:
+
+```bash
+canasta backup purge -i myinstance --older-than 30d --dry-run
+```
+
 ### Scheduling recurring backups
 
 Set up automatic backups using a cron expression:
@@ -135,6 +175,13 @@ canasta backup schedule set -i myinstance "0 2 * * *"
 
 # Every 6 hours
 canasta backup schedule set -i myinstance "0 */6 * * *"
+```
+
+To automatically purge old backups after each scheduled backup, add `--purge-older-than`:
+
+```bash
+# Daily backups, keeping the last 30 days
+canasta backup schedule set -i myinstance --purge-older-than 30d "0 2 * * *"
 ```
 
 If you reschedule with a new expression, the existing schedule is replaced. To schedule multiple times, combine them in one expression (e.g., `"0 0 * * 2,5"` for Tuesdays and Fridays).

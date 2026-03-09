@@ -2,7 +2,6 @@ package devmode
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -13,17 +12,15 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var (
-	instance config.Installation
-	orch     orchestrators.Orchestrator
-	err      error
-	verbose  bool
-)
+func NewCmd() *cobra.Command {
+	var (
+		instance config.Installation
+		orch     orchestrators.Orchestrator
+	)
 
-func NewCmdCreate() *cobra.Command {
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
-		log.Fatal(wdErr)
+		logging.Fatal(wdErr)
 	}
 	instance.Path = workingDir
 
@@ -33,9 +30,9 @@ func NewCmdCreate() *cobra.Command {
 		Long: `Enable or disable development mode on a Canasta installation. Development
 mode extracts MediaWiki code for live editing and enables Xdebug for step
 debugging. This is only supported with Docker Compose.`,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			logging.SetVerbose(verbose)
-			instance, err = canasta.CheckCanastaId(instance)
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			var err error
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
@@ -50,11 +47,10 @@ debugging. This is only supported with Docker Compose.`,
 		},
 	}
 
-	devmodeCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	devmodeCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
+	devmodeCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 
-	devmodeCmd.AddCommand(enableCmdCreate())
-	devmodeCmd.AddCommand(disableCmdCreate())
+	devmodeCmd.AddCommand(newEnableCmd(&instance, &orch))
+	devmodeCmd.AddCommand(newDisableCmd(&instance, &orch))
 
 	return devmodeCmd
 }

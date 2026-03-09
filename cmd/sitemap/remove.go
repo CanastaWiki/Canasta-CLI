@@ -9,10 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func removeCmdCreate() *cobra.Command {
+func newRemoveCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
 	var wikiID string
 	var yes bool
 
@@ -30,8 +32,8 @@ for all wikis. Once removed, the background generator will skip those wikis.`,
 
   # Remove sitemaps for all wikis without prompting
   canasta sitemap remove -i myinstance -y`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRemove(wikiID, yes)
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runRemove(*instance, *orch, wikiID, yes)
 		},
 	}
 
@@ -41,7 +43,7 @@ for all wikis. Once removed, the background generator will skip those wikis.`,
 	return cmd
 }
 
-func runRemove(wikiID string, yes bool) error {
+func runRemove(instance config.Installation, orch orchestrators.Orchestrator, wikiID string, yes bool) error {
 	// Check containers are running
 	if err := orch.CheckRunningStatus(instance); err != nil {
 		return fmt.Errorf("containers are not running: %w", err)
@@ -84,9 +86,9 @@ func runRemove(wikiID string, yes bool) error {
 	}
 
 	for _, id := range wikiIDs {
-		fspath := "/mediawiki/public_assets/" + id + "/sitemap"
+		fspath := orchestrators.ShellQuote("/mediawiki/public_assets/" + id + "/sitemap")
 		rmCmd := fmt.Sprintf("find %s -mindepth 1 -delete 2>/dev/null; true", fspath)
-		if _, err := orch.ExecWithError(instance.Path, "web", rmCmd); err != nil {
+		if _, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, rmCmd); err != nil {
 			return fmt.Errorf("failed to remove sitemap files for wiki '%s': %w", id, err)
 		}
 		fmt.Printf("Removed sitemap for wiki '%s'.\n", id)

@@ -2,6 +2,7 @@ package devmode
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -9,9 +10,10 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	devmodePkg "github.com/CanastaWiki/Canasta-CLI/internal/devmode"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func enableCmdCreate() *cobra.Command {
+func newEnableCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
 	return &cobra.Command{
 		Use:   "enable",
 		Short: "Enable development mode",
@@ -20,12 +22,12 @@ MediaWiki code for live editing, builds an Xdebug-enabled image, and restarts
 the instance with dev mode compose files. Only supported with Docker Compose.`,
 		Example: `  # Enable dev mode on an installation
   canasta devmode enable -i myinstance`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("Enabling development mode on '%s'...\n", instance.Id)
+		RunE: func(_ *cobra.Command, _ []string) error {
+			fmt.Printf("Enabling development mode on '%s'...\n", instance.ID)
 
 			// Determine the base image: check .env for CANASTA_IMAGE, fall back to default
 			baseImage := canasta.GetDefaultImage()
-			envVars, envErr := canasta.GetEnvVariable(instance.Path + "/.env")
+			envVars, envErr := canasta.GetEnvVariable(filepath.Join(instance.Path, ".env"))
 			if envErr == nil {
 				if img, ok := envVars["CANASTA_IMAGE"]; ok && img != "" {
 					baseImage = img
@@ -33,26 +35,26 @@ the instance with dev mode compose files. Only supported with Docker Compose.`,
 			}
 
 			// Enable dev mode (extract code, create files, build xdebug image)
-			if err := devmodePkg.EnableDevMode(instance.Path, orch, baseImage); err != nil {
+			if err := devmodePkg.EnableDevMode(instance.Path, *orch, baseImage); err != nil {
 				return err
 			}
 
 			// Update config registry
 			instance.DevMode = true
-			if instance.Id != "" {
-				if err := config.Update(instance); err != nil {
+			if instance.ID != "" {
+				if err := config.Update(*instance); err != nil {
 					logging.Print(fmt.Sprintf("Warning: could not update config: %v\n", err))
 				}
 			}
 
 			// Regenerate orchestrator config and restart
-			if err := orch.UpdateConfig(instance.Path); err != nil {
+			if err := (*orch).UpdateConfig(instance.Path); err != nil {
 				return err
 			}
-			if err := orch.Stop(instance); err != nil {
+			if err := (*orch).Stop(*instance); err != nil {
 				return err
 			}
-			if err := orch.Start(instance); err != nil {
+			if err := (*orch).Start(*instance); err != nil {
 				return err
 			}
 

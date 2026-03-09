@@ -7,23 +7,24 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/sethvargo/go-password/password"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
-	"github.com/sethvargo/go-password/password"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type CanastaVariables struct {
-	Id             string
+	ID             string
 	AdminPassword  string
 	AdminName      string
 	RootDBPassword string
@@ -36,17 +37,17 @@ const (
 	DefaultImageRegistry = "ghcr.io/canastawiki"
 	// DefaultImageName is the name of the Canasta image
 	DefaultImageName = "canasta"
-	// DefaultImageTag is the default tag to use for the Canasta image.
-	// This should match the current stable Canasta release. Update it
-	// when cutting a new CLI release to pair with a new Canasta version.
-	DefaultImageTag = "3.2.1"
 )
+
+// DefaultImageTag is the default tag to use for the Canasta image.
+// It is set via ldflags at build time from the VERSION file.
+// The "latest" fallback is used for dev builds (when ldflags aren't applied).
+var DefaultImageTag = "latest"
 
 // GetDefaultImage returns the full default Canasta image reference
 func GetDefaultImage() string {
 	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, DefaultImageTag)
 }
-
 
 // installationTemplate contains the shared installation directory structure.
 // These files are common to all orchestrators (Docker Compose, Kubernetes, etc.)
@@ -55,20 +56,15 @@ func GetDefaultImage() string {
 //go:embed all:installation-template
 var installationTemplate embed.FS
 
-// GetImageWithTag returns the Canasta image reference with the specified tag
-func GetImageWithTag(tag string) string {
-	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, tag)
-}
-
 // userEditablePaths lists template files that users may customize.
 // These are only written during create (no-clobber) and never overwritten during upgrade.
 var userEditablePaths = map[string]bool{
-	".env":                                       true,
-	"my.cnf":                                     true,
-	"config/default.vcl":                         true,
-	"config/Caddyfile.site":                      true,
-	"config/Caddyfile.global":                    true,
-	"config/settings/global/Vector.php":          true,
+	".env":                              true,
+	"my.cnf":                            true,
+	"config/default.vcl":                true,
+	"config/Caddyfile.site":             true,
+	"config/Caddyfile.global":           true,
+	"config/settings/global/Vector.php": true,
 	"config/settings/global/CanastaFooterIcon.php": true,
 }
 
@@ -82,7 +78,7 @@ func CopyInstallationTemplate(destPath string) error {
 }
 
 // UpdateInstallationTemplate re-applies the embedded template during upgrade.
-// User-editable files are only created if missing (no-clobber).
+// User-editable files are skipped entirely (they may have been intentionally deleted).
 // CLI-managed files (READMEs, etc.) are always updated to match the current CLI version.
 func UpdateInstallationTemplate(destPath string) error {
 	logging.Print("Updating installation template files\n")
@@ -90,8 +86,8 @@ func UpdateInstallationTemplate(destPath string) error {
 }
 
 // copyTemplate walks the embedded installation template and copies files to destPath.
-// If upgrading is true, CLI-managed files are force-updated while user-editable files
-// use no-clobber. If upgrading is false, all files use no-clobber.
+// If upgrading is true, CLI-managed files are force-updated and user-editable files
+// are skipped. If upgrading is false (create), all files use no-clobber.
 func copyTemplate(destPath string, upgrading bool) error {
 	return fs.WalkDir(installationTemplate, "installation-template", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -112,7 +108,7 @@ func copyTemplate(destPath string, upgrading bool) error {
 		targetPath := filepath.Join(destPath, relPath)
 
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
+			return os.MkdirAll(targetPath, permissions.DirectoryPermission)
 		}
 
 		// Skip .gitkeep files — they're only used to preserve directory
@@ -121,8 +117,14 @@ func copyTemplate(destPath string, upgrading bool) error {
 			return nil
 		}
 
-		// No-clobber for user-editable files (always) and all files (during create)
-		if !upgrading || userEditablePaths[relPath] {
+		// During upgrade, skip user-editable files entirely — they are only
+		// created during "canasta create". This avoids recreating files that
+		// the user intentionally deleted.
+		if upgrading && userEditablePaths[relPath] {
+			return nil
+		}
+		// During create, all files use no-clobber (skip if exists)
+		if !upgrading {
 			if _, err := os.Stat(targetPath); err == nil {
 				return nil
 			}
@@ -133,7 +135,7 @@ func copyTemplate(destPath string, upgrading bool) error {
 			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
 		}
 
-		return os.WriteFile(targetPath, data, 0644)
+		return os.WriteFile(targetPath, data, permissions.FilePermission)
 	})
 }
 
@@ -141,14 +143,11 @@ func copyTemplate(destPath string, upgrading bool) error {
 // The base .env is provided by the installation template (CopyInstallationTemplate).
 // This function merges any custom env file if provided,
 // and then applies the DB passwords and domain configuration.
-func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpass string) error {
-	yamlPath := installPath + "/config/wikis.yaml"
+func UpdateEnvFile(customEnvPath, installPath, rootDBpass, wikiDBpass string) error {
+	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
 
 	// If custom env file provided, merge its values
 	if customEnvPath != "" {
-		if !strings.HasPrefix(customEnvPath, "/") {
-			customEnvPath = workingDir + "/" + customEnvPath
-		}
 		logging.Print(fmt.Sprintf("Merging overrides from %s into %s/.env\n", customEnvPath, installPath))
 
 		// Read custom env file
@@ -167,7 +166,7 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 
 		// Apply each override to .env
 		for key, value := range customEnv {
-			if err := SaveEnvVariable(installPath+"/.env", key, value); err != nil {
+			if err := SaveEnvVariable(filepath.Join(installPath, ".env"), key, value); err != nil {
 				return err
 			}
 		}
@@ -178,10 +177,13 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 	if err != nil {
 		return err
 	}
-	if err := SaveEnvVariable(installPath+"/.env", "MW_SITE_SERVER", "https://"+domainNames[0]); err != nil {
+	if len(domainNames) == 0 {
+		return fmt.Errorf("no domain names found in wikis.yaml")
+	}
+	if err := SaveEnvVariable(filepath.Join(installPath, ".env"), "MW_SITE_SERVER", "https://"+domainNames[0]); err != nil {
 		return err
 	}
-	if err := SaveEnvVariable(installPath+"/.env", "MW_SITE_FQDN", domainNames[0]); err != nil {
+	if err := SaveEnvVariable(filepath.Join(installPath, ".env"), "MW_SITE_FQDN", domainNames[0]); err != nil {
 		return err
 	}
 
@@ -189,13 +191,13 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 	// Note: Don't wrap in quotes - docker-compose includes quotes as part of the value,
 	// causing a mismatch with the CLI which strips quotes when reading.
 	if rootDBpass != "" {
-		if err := SaveEnvVariable(installPath+"/.env", "MYSQL_PASSWORD", rootDBpass); err != nil {
+		if err := SaveEnvVariable(filepath.Join(installPath, ".env"), "MYSQL_PASSWORD", rootDBpass); err != nil {
 			return err
 		}
 	}
 
 	if wikiDBpass != "" {
-		if err := SaveEnvVariable(installPath+"/.env", "WIKI_DB_PASSWORD", wikiDBpass); err != nil {
+		if err := SaveEnvVariable(filepath.Join(installPath, ".env"), "WIKI_DB_PASSWORD", wikiDBpass); err != nil {
 			return err
 		}
 	}
@@ -203,25 +205,27 @@ func UpdateEnvFile(customEnvPath, installPath, workingDir, rootDBpass, wikiDBpas
 	return nil
 }
 
-
 func CopyYaml(yamlPath, installPath string) error {
 	logging.Print(fmt.Sprintf("Copying %s to %s/config/wikis.yaml\n", yamlPath, installPath))
-	err, output := execute.Run("", "cp", yamlPath, installPath+"/config/wikis.yaml")
+	output, err := execute.Run("", "cp", yamlPath, filepath.Join(installPath, "config", "wikis.yaml"))
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to copy wikis.yaml from %s: %s", yamlPath, output)
 	}
 	return nil
 }
 
+// normalizeWikiIDRe strips characters that are not alphanumeric or underscore.
+var normalizeWikiIDRe = regexp.MustCompile("[^a-zA-Z0-9_]+")
+
 // NormalizeWikiID converts a wiki ID to a filesystem-safe form by replacing
 // spaces with underscores and stripping non-alphanumeric characters.
 func NormalizeWikiID(id string) string {
-	normalized := strings.Replace(id, " ", "_", -1)
-	return regexp.MustCompile("[^a-zA-Z0-9_]+").ReplaceAllString(normalized, "")
+	normalized := strings.ReplaceAll(id, " ", "_")
+	return normalizeWikiIDRe.ReplaceAllString(normalized, "")
 }
 
 func CopySettings(installPath string) error {
-	yamlPath := installPath + "/config/wikis.yaml"
+	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
 
 	logging.Print(fmt.Sprintf("Copying settings from wikis.yaml at %s\n", yamlPath))
 	WikiIDs, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
@@ -240,13 +244,13 @@ func CopySettings(installPath string) error {
 		dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
 		// Create the directory if it doesn't exist
-		if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+		if err := os.MkdirAll(dirPath, permissions.DirectoryPermission); err != nil {
 			return err
 		}
 
 		// Copy README into the wiki's settings directory
 		readmePath := filepath.Join(dirPath, "README")
-		if err := os.WriteFile(readmePath, wikiREADME, 0644); err != nil {
+		if err := os.WriteFile(readmePath, wikiREADME, permissions.FilePermission); err != nil {
 			return fmt.Errorf("failed to write README for %s: %w", id, err)
 		}
 	}
@@ -255,12 +259,12 @@ func CopySettings(installPath string) error {
 }
 
 func CopySetting(installPath, id string) error {
-	normalizedId := NormalizeWikiID(id)
+	normalizedID := NormalizeWikiID(id)
 
-	dirPath := filepath.Join(installPath, "config", "settings", "wikis", normalizedId)
+	dirPath := filepath.Join(installPath, "config", "settings", "wikis", normalizedID)
 
 	// Create the directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+	if err := os.MkdirAll(dirPath, permissions.DirectoryPermission); err != nil {
 		return err
 	}
 
@@ -270,7 +274,7 @@ func CopySetting(installPath, id string) error {
 		return fmt.Errorf("failed to read embedded wiki README: %w", err)
 	}
 	readmePath := filepath.Join(dirPath, "README")
-	if err := os.WriteFile(readmePath, wikiREADME, 0644); err != nil {
+	if err := os.WriteFile(readmePath, wikiREADME, permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to write README: %w", err)
 	}
 
@@ -279,26 +283,21 @@ func CopySetting(installPath, id string) error {
 
 // CopyWikiSettingFile copies a user-provided Settings.php file to the wiki's config directory
 // Used when importing a wiki with a custom Settings.php
-func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir string) error {
-	// Make path absolute if it's relative
-	if !strings.HasPrefix(settingsFilePath, "/") {
-		settingsFilePath = workingDir + "/" + settingsFilePath
-	}
-
+func CopyWikiSettingFile(installPath, wikiID, settingsFilePath string) error {
 	id := NormalizeWikiID(wikiID)
 	dirPath := filepath.Join(installPath, "config", "settings", "wikis", id)
 
 	// Create the directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+	if err := os.MkdirAll(dirPath, permissions.DirectoryPermission); err != nil {
 		return err
 	}
 
 	// Copy the provided file as Settings.php
 	destPath := filepath.Join(dirPath, "Settings.php")
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", settingsFilePath, destPath))
-	err, output := execute.Run("", "cp", settingsFilePath, destPath)
+	output, err := execute.Run("", "cp", settingsFilePath, destPath)
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to copy wiki settings file to %s: %s", destPath, output)
 	}
 
 	return nil
@@ -306,27 +305,22 @@ func CopyWikiSettingFile(installPath, wikiID, settingsFilePath, workingDir strin
 
 // CopyGlobalSettingFile copies a user-provided settings file to config/settings/global/ directory
 // The original filename is preserved
-func CopyGlobalSettingFile(installPath, settingsFilePath, workingDir string) error {
-	// Make path absolute if it's relative
-	if !strings.HasPrefix(settingsFilePath, "/") {
-		settingsFilePath = workingDir + "/" + settingsFilePath
-	}
-
+func CopyGlobalSettingFile(installPath, settingsFilePath string) error {
 	// Get the original filename
 	filename := filepath.Base(settingsFilePath)
 	dirPath := filepath.Join(installPath, "config", "settings", "global")
 
 	// Create the directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+	if err := os.MkdirAll(dirPath, permissions.DirectoryPermission); err != nil {
 		return err
 	}
 
 	// Copy the provided file preserving its name
 	destPath := filepath.Join(dirPath, filename)
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", settingsFilePath, destPath))
-	err, output := execute.Run("", "cp", settingsFilePath, destPath)
+	output, err := execute.Run("", "cp", settingsFilePath, destPath)
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to copy global settings file to %s: %s", destPath, output)
 	}
 
 	return nil
@@ -352,7 +346,7 @@ func generateSecretKey() (string, error) {
 // GenerateAndSaveSecretKey generates a secret key and saves it to .env as MW_SECRET_KEY,
 // unless MW_SECRET_KEY is already set (e.g. provided by the user via -e flag).
 func GenerateAndSaveSecretKey(installPath string) error {
-	envPath := installPath + "/.env"
+	envPath := filepath.Join(installPath, ".env")
 	envVars, err := GetEnvVariable(envPath)
 	if err != nil {
 		return err
@@ -397,7 +391,7 @@ func IsElasticsearchEnabled(envVars map[string]string) bool {
 // If active, it ensures OS_USER, OS_PASSWORD, and OS_PASSWORD_HASH are set.
 // Returns true if observability is enabled.
 func EnsureObservabilityCredentials(installPath string) (bool, error) {
-	envPath := installPath + "/.env"
+	envPath := filepath.Join(installPath, ".env")
 	envVars, err := GetEnvVariable(envPath)
 	if err != nil {
 		return false, err
@@ -417,7 +411,7 @@ func EnsureObservabilityCredentials(installPath string) (bool, error) {
 
 	// Generate OS_PASSWORD if not present
 	if envVars["OS_PASSWORD"] == "" {
-		pw, err := GeneratePassword("OpenSearch")
+		pw, err := GeneratePassword()
 		if err != nil {
 			return true, fmt.Errorf("failed to generate OS_PASSWORD: %w", err)
 		}
@@ -459,14 +453,14 @@ func removeDuplicates(slice []string) []string {
 }
 
 func RewriteCaddy(installPath string) error {
-	_, ServerNames, _, err := farmsettings.ReadWikisYaml(installPath + "/config/wikis.yaml")
+	_, ServerNames, _, err := farmsettings.ReadWikisYaml(filepath.Join(installPath, "config", "wikis.yaml"))
 	if err != nil {
 		return err
 	}
-	filePath := installPath + "/config/Caddyfile"
+	filePath := filepath.Join(installPath, "config", "Caddyfile")
 
 	// Check if CADDY_AUTO_HTTPS is set to "off" in .env (SSL terminated upstream)
-	envPath := installPath + "/.env"
+	envPath := filepath.Join(installPath, ".env")
 	envVars, err := GetEnvVariable(envPath)
 	if err != nil {
 		return err
@@ -583,7 +577,7 @@ func CreateCaddyfileSite(installPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read embedded Caddyfile.site: %w", err)
 	}
-	return os.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, permissions.FilePermission)
 }
 
 // CreateCaddyfileGlobal creates config/Caddyfile.global from the installation template.
@@ -600,19 +594,16 @@ func CreateCaddyfileGlobal(installPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read embedded Caddyfile.global: %w", err)
 	}
-	return os.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, permissions.FilePermission)
 }
 
 // CopyComposerFile copies a user-provided composer.local.json to config/composer.local.json.
-func CopyComposerFile(installPath, sourceFilename, workingDir string) error {
-	if !strings.HasPrefix(sourceFilename, "/") {
-		sourceFilename = filepath.Join(workingDir, sourceFilename)
-	}
+func CopyComposerFile(installPath, sourceFilename string) error {
 	destPath := filepath.Join(installPath, "config", "composer.local.json")
 	logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, destPath))
-	err, output := execute.Run("", "cp", sourceFilename, destPath)
+	output, err := execute.Run("", "cp", sourceFilename, destPath)
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return fmt.Errorf("failed to copy composer file from %s: %s", sourceFilename, output)
 	}
 	return nil
 }
@@ -626,6 +617,9 @@ func safePasswordGenerator() (*password.Generator, error) {
 }
 
 // problematicPasswordChars are characters that may cause issues in .env files or shell commands
+// Not credentials — character filter list.
+//
+//nolint:gosec
 const problematicPasswordChars = "=#$\"'`\\!&|;<>"
 
 // warnIfProblematicPassword checks if a password contains characters that may cause issues
@@ -665,14 +659,12 @@ func GenerateDBPasswords(canastaInfo CanastaVariables) (CanastaVariables, error)
 	// Wiki DB password: flag → auto-generate (per-farm, saved to .env only)
 	if canastaInfo.WikiDBUsername == "root" {
 		canastaInfo.WikiDBPassword = canastaInfo.RootDBPassword
-	} else {
-		if canastaInfo.WikiDBPassword == "" {
-			canastaInfo.WikiDBPassword, err = gen.Generate(30, 4, 6, false, true)
-			if err != nil {
-				return canastaInfo, err
-			}
-			fmt.Printf("Generated wiki database password (will be saved to .env)\n")
+	} else if canastaInfo.WikiDBPassword == "" {
+		canastaInfo.WikiDBPassword, err = gen.Generate(30, 4, 6, false, true)
+		if err != nil {
+			return canastaInfo, err
 		}
+		fmt.Printf("Generated wiki database password (will be saved to .env)\n")
 	}
 
 	return canastaInfo, nil
@@ -700,26 +692,8 @@ func GenerateAdminPassword(canastaInfo CanastaVariables) (CanastaVariables, erro
 	return canastaInfo, nil
 }
 
-// GeneratePasswords generates all passwords (admin and database).
-// For backward compatibility - calls both GenerateAdminPassword and GenerateDBPasswords.
-func GeneratePasswords(workingDir string, canastaInfo CanastaVariables) (CanastaVariables, error) {
-	var err error
-
-	canastaInfo, err = GenerateAdminPassword(canastaInfo)
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	canastaInfo, err = GenerateDBPasswords(canastaInfo)
-	if err != nil {
-		return canastaInfo, err
-	}
-
-	return canastaInfo, nil
-}
-
-// GeneratePassword generates a random password for the specified purpose
-func GeneratePassword(purpose string) (string, error) {
+// GeneratePassword generates a random password.
+func GeneratePassword() (string, error) {
 	gen, err := safePasswordGenerator()
 	if err != nil {
 		return "", err
@@ -739,7 +713,6 @@ func SavePasswordToFile(directory, filename, password string) error {
 	_, err = file.WriteString(password)
 	return err
 }
-
 
 // DeleteEnvVariable removes a key from the .env file.
 // Returns an error if the key is not found.
@@ -763,7 +736,7 @@ func DeleteEnvVariable(envPath, key string) error {
 		return fmt.Errorf("key %q not found in %s", key, envPath)
 	}
 	lines := strings.Join(result, "\n")
-	return ioutil.WriteFile(envPath, []byte(lines), 0644)
+	return os.WriteFile(envPath, []byte(lines), permissions.FilePermission)
 }
 
 // Make changes to the .env file at the installation directory
@@ -776,34 +749,40 @@ func SaveEnvVariable(envPath, key, value string) error {
 	data := string(file)
 	list := strings.Split(data, "\n")
 	found := false
-	for index, line := range list {
+	result := make([]string, 0, len(list))
+	for _, line := range list {
 		if strings.HasPrefix(line, key+"=") {
-			list[index] = fmt.Sprintf("%s=%s", key, value)
+			if found {
+				// Skip duplicate entries for the same key
+				continue
+			}
+			result = append(result, fmt.Sprintf("%s=%s", key, value))
 			found = true
-			break
+			continue
 		}
+		result = append(result, line)
 	}
 	if !found {
-		// Append new key=value pair
-		list = append(list, fmt.Sprintf("%s=%s", key, value))
+		result = append(result, fmt.Sprintf("%s=%s", key, value))
 	}
-	lines := strings.Join(list, "\n")
-	if err := ioutil.WriteFile(envPath, []byte(lines), 0644); err != nil {
-		return err
-	}
-	return nil
+	lines := strings.Join(result, "\n")
+	return os.WriteFile(envPath, []byte(lines), permissions.FilePermission)
 }
 
 // Get values saved inside the .env at the envPath
 func GetEnvVariable(envPath string) (map[string]string, error) {
-	EnvVariables := make(map[string]string)
-	file_data, err := os.ReadFile(envPath)
+	envVariables := make(map[string]string)
+	fileData, err := os.ReadFile(envPath)
 	if err != nil {
 		return nil, err
 	}
-	data := strings.TrimSuffix(string(file_data), "\n")
-	variable_list := strings.Split(data, "\n")
-	for _, variable := range variable_list {
+	data := strings.TrimSuffix(string(fileData), "\n")
+	variableList := strings.Split(data, "\n")
+	for _, variable := range variableList {
+		line := strings.TrimSpace(variable)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
 		// Use SplitN to only split on first "=" - values may contain "=" characters
 		list := strings.SplitN(variable, "=", 2)
 		if len(list) < 2 {
@@ -814,46 +793,36 @@ func GetEnvVariable(envPath string) (map[string]string, error) {
 		if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
 			value = value[1 : len(value)-1]
 		}
-		EnvVariables[list[0]] = value
+		envVariables[list[0]] = value
 	}
-	return EnvVariables, nil
+	return envVariables, nil
 }
 
 // Checking Installation existence
-func CheckCanastaId(instance config.Installation) (config.Installation, error) {
+func CheckCanastaID(instance config.Installation) (config.Installation, error) {
 	var err error
-	if instance.Id != "" {
-		if instance, err = config.GetDetails(instance.Id); err != nil {
+	if instance.ID != "" {
+		if instance, err = config.GetDetails(instance.ID); err != nil {
 			return instance, err
 		}
 	} else {
-		if instance.Id, err = config.GetCanastaID(instance.Path); err != nil {
+		if instance.ID, err = config.GetCanastaID(instance.Path); err != nil {
 			return instance, err
 		}
-		if instance, err = config.GetDetails(instance.Id); err != nil {
+		if instance, err = config.GetDetails(instance.ID); err != nil {
 			return instance, err
 		}
 	}
 	return instance, nil
 }
 
-func RemoveSettings(installPath, id string) error {
-	// Check new path first (config/settings/wikis/<id>)
-	newPath := filepath.Join(installPath, "config", "settings", "wikis", id)
-	if _, err := os.Stat(newPath); err == nil {
-		err, output := execute.Run("", "rm", "-rf", newPath)
+// removeWikiDir removes a per-wiki subdirectory if it exists.
+func removeWikiDir(installPath, subdir, id string) error {
+	dirPath := filepath.Join(installPath, subdir, id)
+	if _, err := os.Stat(dirPath); err == nil {
+		output, err := execute.Run("", "rm", "-rf", dirPath)
 		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
-		return nil
-	}
-
-	// Check legacy path (config/<id>)
-	legacyPath := filepath.Join(installPath, "config", id)
-	if _, err := os.Stat(legacyPath); err == nil {
-		err, output := execute.Run("", "rm", "-rf", legacyPath)
-		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to remove %s for wiki %q: %s", subdir, id, output)
 		}
 	} else if !os.IsNotExist(err) {
 		return err
@@ -861,46 +830,21 @@ func RemoveSettings(installPath, id string) error {
 	return nil
 }
 
-func RemoveImages(installPath, id string) error {
-	// Prepare the file path
-	filePath := filepath.Join(installPath, "images", id)
-
-	// Check if the file exists
-	if _, err := os.Stat(filePath); err == nil {
-		// If the file exists, remove it
-		err, output := execute.Run("", "rm", "-rf", filePath)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
-	} else if os.IsNotExist(err) {
-		// File does not exist, do nothing
-		return nil
-	} else {
-		// File may or may not exist. See the specific error
-		return err
+func RemoveSettings(installPath, id string) error {
+	// New path takes precedence; fall back to legacy path
+	newPath := filepath.Join(installPath, "config", "settings", "wikis", id)
+	if _, err := os.Stat(newPath); err == nil {
+		return removeWikiDir(installPath, filepath.Join("config", "settings", "wikis"), id)
 	}
-	return nil
+	return removeWikiDir(installPath, "config", id)
+}
+
+func RemoveImages(installPath, id string) error {
+	return removeWikiDir(installPath, "images", id)
 }
 
 func RemovePublicAssets(installPath, id string) error {
-	// Prepare the file path
-	filePath := filepath.Join(installPath, "public_assets", id)
-
-	// Check if the file exists
-	if _, err := os.Stat(filePath); err == nil {
-		// If the file exists, remove it
-		err, output := execute.Run("", "rm", "-rf", filePath)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
-	} else if os.IsNotExist(err) {
-		// File does not exist, do nothing
-		return nil
-	} else {
-		// File may or may not exist. See the specific error
-		return err
-	}
-	return nil
+	return removeWikiDir(installPath, "public_assets", id)
 }
 
 func MigrateToNewVersion(installPath string) error {
@@ -916,31 +860,15 @@ func MigrateToNewVersion(installPath string) error {
 		return err
 	}
 
-	// Open the .env file
-	envFile, err := os.Open(filepath.Join(installPath, ".env"))
+	// Read the environment variables from the .env file
+	envPath := filepath.Join(installPath, ".env")
+	envMap, err := GetEnvVariable(envPath)
 	if err != nil {
 		return err
 	}
-	defer envFile.Close()
 
-	// Read the environment variables from the .env file
-	envMap := make(map[string]string)
-	scanner := bufio.NewScanner(envFile)
 	// Default wiki ID for migration from old single-wiki installations
 	id := "my_wiki"
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		splitLine := strings.SplitN(line, "=", 2)
-		if len(splitLine) != 2 {
-			continue
-		}
-		envMap[splitLine[0]] = splitLine[1]
-	}
-
-	if err := scanner.Err(); err != nil {
-		return err
-	}
 
 	// Remove the "http://" or "https://" prefix from MW_SITE_SERVER variable
 	mwSiteServer := strings.TrimPrefix(envMap["MW_SITE_SERVER"], "http://")
@@ -955,7 +883,7 @@ func MigrateToNewVersion(installPath string) error {
 
 	// Create config/settings/wikis directory
 	wikisDir := filepath.Join(installPath, "config", "settings", "wikis")
-	if err := os.MkdirAll(wikisDir, os.ModePerm); err != nil {
+	if err := os.MkdirAll(wikisDir, permissions.DirectoryPermission); err != nil {
 		return err
 	}
 

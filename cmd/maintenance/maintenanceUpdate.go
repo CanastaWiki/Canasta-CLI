@@ -2,7 +2,6 @@ package maintenance
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -10,15 +9,15 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	maint "github.com/CanastaWiki/Canasta-CLI/internal/maintenance"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var (
-	skipJobs bool
-	skipSMW  bool
-)
-
-func updateCmdCreate() *cobra.Command {
+func newUpdateCmd(instance *config.Installation, wiki *string) *cobra.Command {
+	var (
+		skipJobs bool
+		skipSMW  bool
+	)
 
 	updateCmd := &cobra.Command{
 		Use:   "update",
@@ -30,46 +29,27 @@ needed after upgrading MediaWiki or enabling new extensions.
 By default, all three scripts are run. Use --skip-jobs to skip runJobs.php
 and --skip-smw to skip rebuildData.php.
 
-In a wiki farm, use --wiki to target a specific wiki, or --all to run
-maintenance on every wiki. If there is only one wiki, it is selected
-automatically.`,
+In a wiki farm, runs on all wikis by default. Use --wiki to target a
+specific wiki.`,
 		Example: `  canasta maintenance update -i myinstance
   canasta maintenance update -i myinstance --wiki=docs
-  canasta maintenance update -i myinstance --all
   canasta maintenance update -i myinstance --skip-jobs --skip-smw`,
-		PreRunE: func(cmd *cobra.Command, args []string) error {
-			instance, err = canasta.CheckCanastaId(instance)
+		PreRunE: func(_ *cobra.Command, _ []string) error {
+			var err error
+			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if wiki != "" && all {
-				return fmt.Errorf("cannot use --wiki with --all")
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if *wiki != "" {
+				return runMaintenanceUpdate(*instance, *wiki, skipJobs, skipSMW)
 			}
-			if all {
-				wikiIDs, err := getWikiIDs(instance)
-				if err != nil {
+			wikiIDs, err := farmsettings.GetWikiIDs(instance.Path)
+			if err != nil {
+				return err
+			}
+			for _, id := range wikiIDs {
+				if err := runMaintenanceUpdate(*instance, id, skipJobs, skipSMW); err != nil {
 					return err
-				}
-				for _, id := range wikiIDs {
-					if err := runMaintenanceUpdate(instance, id); err != nil {
-						return err
-					}
-				}
-			} else if wiki != "" {
-				if err := runMaintenanceUpdate(instance, wiki); err != nil {
-					return err
-				}
-			} else {
-				wikiIDs, err := getWikiIDs(instance)
-				if err != nil {
-					return err
-				}
-				if len(wikiIDs) == 1 {
-					if err := runMaintenanceUpdate(instance, wikiIDs[0]); err != nil {
-						return err
-					}
-				} else {
-					return fmt.Errorf("multiple wikis found; use --wiki=<id> or --all")
 				}
 			}
 			return nil
@@ -82,18 +62,13 @@ automatically.`,
 	return updateCmd
 }
 
-func getWikiIDs(instance config.Installation) ([]string, error) {
-	yamlPath := filepath.Join(instance.Path, "config", "wikis.yaml")
-	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read wikis.yaml: %v", err)
-	}
-	return ids, nil
-}
-
-func runMaintenanceUpdate(instance config.Installation, wikiID string) error {
+func runMaintenanceUpdate(instance config.Installation, wikiID string, skipJobs, skipSMW bool) error {
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
+		return err
+	}
+
+	if err := maint.RunUpdatePhp(instance, orch, wikiID); err != nil {
 		return err
 	}
 
@@ -106,29 +81,23 @@ func runMaintenanceUpdate(instance config.Installation, wikiID string) error {
 		wikiMsg = " for wiki '" + wikiID + "'"
 	}
 
-	fmt.Printf("Running update.php%s...\n", wikiMsg)
-	if err := orch.ExecStreaming(instance.Path, "web",
-		"php maintenance/update.php --quick"+wikiFlag); err != nil {
-		return fmt.Errorf("update.php failed%s: %v", wikiMsg, err)
-	}
-
 	if !skipJobs {
 		fmt.Printf("Running runJobs.php%s...\n", wikiMsg)
-		if err := orch.ExecStreaming(instance.Path, "web",
+		if err := orch.ExecStreaming(instance.Path, orchestrators.ServiceWeb,
 			"php maintenance/runJobs.php"+wikiFlag); err != nil {
-			return fmt.Errorf("runJobs.php failed%s: %v", wikiMsg, err)
+			return fmt.Errorf("runJobs.php failed%s: %w", wikiMsg, err)
 		}
 	}
 
 	if !skipSMW {
 		const rebuildScript = "extensions/SemanticMediaWiki/maintenance/rebuildData.php"
 		checkCmd := fmt.Sprintf("test -f %s && echo exists", rebuildScript)
-		checkOutput, _ := orch.ExecWithError(instance.Path, "web", checkCmd)
+		checkOutput, _ := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, checkCmd)
 		if !strings.Contains(checkOutput, "exists") {
 			fmt.Printf("Semantic MediaWiki not installed%s, skipping rebuildData.php\n", wikiMsg)
 		} else {
 			fmt.Printf("Running rebuildData.php%s...\n", wikiMsg)
-			if err := orch.ExecStreaming(instance.Path, "web",
+			if err := orch.ExecStreaming(instance.Path, orchestrators.ServiceWeb,
 				"php "+rebuildScript+wikiFlag); err != nil {
 				fmt.Printf("rebuildData.php failed%s: %v\n", wikiMsg, err)
 			}

@@ -1,9 +1,8 @@
 package orchestrators
 
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,13 +24,33 @@ const (
 // ComposeOrchestrator implements Orchestrator using Docker Compose.
 type ComposeOrchestrator struct{}
 
-func (c *ComposeOrchestrator) Name() string              { return "Docker Compose" }
-func (c *ComposeOrchestrator) SupportsDevMode() bool     { return true }
-func (c *ComposeOrchestrator) SupportsImagePull() bool   { return true }
+func (c *ComposeOrchestrator) Name() string            { return "Docker Compose" }
+func (c *ComposeOrchestrator) SupportsDevMode() bool   { return true }
+func (c *ComposeOrchestrator) SupportsImagePull() bool { return true }
 
 // getCompose returns the configured compose orchestrator path.
 func (c *ComposeOrchestrator) getCompose() (config.Orchestrator, error) {
 	return config.GetOrchestrator("compose")
+}
+
+// runCompose runs a compose command via execute.Run and returns the output.
+func runCompose(installPath string, compose config.Orchestrator, args ...string) (string, error) {
+	if compose.Path != "" {
+		return execute.Run(installPath, compose.Path, args...)
+	}
+	allArgs := append([]string{"compose"}, args...)
+	return execute.Run(installPath, "docker", allArgs...)
+}
+
+// composeCommand returns an exec.Cmd configured for the compose orchestrator.
+func composeCommand(compose config.Orchestrator, args ...string) *exec.Cmd {
+	if compose.Path != "" {
+		// compose.Path is from system lookup.
+		//nolint:gosec
+		return exec.Command(compose.Path, args...)
+	}
+	allArgs := append([]string{"compose"}, args...)
+	return exec.Command("docker", allArgs...)
 }
 
 func (c *ComposeOrchestrator) CheckDependencies() error {
@@ -39,16 +58,9 @@ func (c *ComposeOrchestrator) CheckDependencies() error {
 	if err != nil {
 		return err
 	}
-	if compose.Path != "" {
-		cmd := exec.Command(compose.Path, "version")
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("unable to execute compose (%s)", err)
-		}
-	} else {
-		cmd := exec.Command("docker", "compose", "version")
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("docker compose should be installed! (%s)", err)
-		}
+	cmd := composeCommand(compose, "version")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("docker compose is not available: %w", err)
 	}
 	return nil
 }
@@ -62,84 +74,11 @@ func (c *ComposeOrchestrator) WriteStackFiles(installPath string) error {
 // UpdateStackFiles compares embedded Docker Compose files with on-disk versions
 // and overwrites any that differ. Returns true if anything changed.
 func (c *ComposeOrchestrator) UpdateStackFiles(installPath string, dryRun bool) (bool, error) {
-	changed := false
-	err := fs.WalkDir(compose.StackFiles, "files", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		relPath, err := filepath.Rel("files", path)
-		if err != nil {
-			return err
-		}
-		if relPath == "." {
-			return nil
-		}
-		targetPath := filepath.Join(installPath, relPath)
-		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
-		}
-		if d.Name() == ".gitkeep" {
-			return nil
-		}
-		embedded, err := compose.StackFiles.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
-		}
-		existing, readErr := os.ReadFile(targetPath)
-		if readErr == nil && bytes.Equal(existing, embedded) {
-			return nil // unchanged
-		}
-		changed = true
-		if dryRun {
-			if readErr != nil {
-				fmt.Printf("  Would create %s\n", relPath)
-			} else {
-				fmt.Printf("  Would update %s\n", relPath)
-			}
-			return nil
-		}
-		if readErr != nil {
-			fmt.Printf("  Creating %s\n", relPath)
-		} else {
-			fmt.Printf("  Updating %s\n", relPath)
-		}
-		return os.WriteFile(targetPath, embedded, 0644)
-	})
-	return changed, err
+	return updateStackFiles(compose.StackFiles, "files", installPath, dryRun)
 }
 
-// walkStackFiles walks the embedded stack files and writes them to installPath.
-// If noClobber is true (create mode), existing files are skipped.
 func (c *ComposeOrchestrator) walkStackFiles(installPath string, overwrite bool) error {
-	return fs.WalkDir(compose.StackFiles, "files", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		relPath, err := filepath.Rel("files", path)
-		if err != nil {
-			return err
-		}
-		if relPath == "." {
-			return nil
-		}
-		targetPath := filepath.Join(installPath, relPath)
-		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
-		}
-		if d.Name() == ".gitkeep" {
-			return nil
-		}
-		if !overwrite {
-			if _, err := os.Stat(targetPath); err == nil {
-				return nil // no-clobber
-			}
-		}
-		data, err := compose.StackFiles.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
-		}
-		return os.WriteFile(targetPath, data, 0644)
-	})
+	return writeStackFiles(compose.StackFiles, "files", installPath, overwrite)
 }
 
 // GetDevFiles returns the list of compose files needed for dev mode.
@@ -182,17 +121,9 @@ func (c *ComposeOrchestrator) Start(instance config.Installation) error {
 		args = append(args, "-f", f)
 	}
 	args = append(args, "up", "-d")
-	if compose.Path != "" {
-		err, output := execute.Run(instance.Path, compose.Path, args...)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
-	} else {
-		allArgs := append([]string{"compose"}, args...)
-		err, output := execute.Run(instance.Path, "docker", allArgs...)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
+	output, err := runCompose(instance.Path, compose, args...)
+	if err != nil {
+		return fmt.Errorf("failed to start containers at %s: %s", instance.Path, output)
 	}
 	return nil
 }
@@ -215,17 +146,9 @@ func (c *ComposeOrchestrator) Stop(instance config.Installation) error {
 		args = append(args, "-f", f)
 	}
 	args = append(args, "down")
-	if compose.Path != "" {
-		err, output := execute.Run(instance.Path, compose.Path, args...)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
-	} else {
-		allArgs := append([]string{"compose"}, args...)
-		err, output := execute.Run(instance.Path, "docker", allArgs...)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
+	output, err := runCompose(instance.Path, compose, args...)
+	if err != nil {
+		return fmt.Errorf("failed to stop containers at %s: %s", instance.Path, output)
 	}
 	return nil
 }
@@ -236,16 +159,9 @@ func (c *ComposeOrchestrator) Pull(installPath string) error {
 	if err != nil {
 		return err
 	}
-	if compose.Path != "" {
-		err, output := execute.Run(installPath, compose.Path, "pull", "--ignore-buildable", "--ignore-pull-failures")
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
-	} else {
-		err, output := execute.Run(installPath, "docker", "compose", "pull", "--ignore-buildable", "--ignore-pull-failures")
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
+	output, err := runCompose(installPath, compose, "pull", "--ignore-buildable", "--ignore-pull-failures")
+	if err != nil {
+		return fmt.Errorf("failed to pull images at %s: %s", installPath, output)
 	}
 	return nil
 }
@@ -264,16 +180,9 @@ func (c *ComposeOrchestrator) Update(installPath string) (*UpdateReport, error) 
 	}
 
 	// Run pull
-	if compose.Path != "" {
-		err, output := execute.Run(installPath, compose.Path, "pull", "--ignore-buildable", "--ignore-pull-failures")
-		if err != nil {
-			return nil, fmt.Errorf("%s", output)
-		}
-	} else {
-		err, output := execute.Run(installPath, "docker", "compose", "pull", "--ignore-buildable", "--ignore-pull-failures")
-		if err != nil {
-			return nil, fmt.Errorf("%s", output)
-		}
+	output, err := runCompose(installPath, compose, "pull", "--ignore-buildable", "--ignore-pull-failures")
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull images for update at %s: %s", installPath, output)
 	}
 
 	// Get image info after pull
@@ -285,11 +194,12 @@ func (c *ComposeOrchestrator) Update(installPath string) (*UpdateReport, error) 
 	// Compare before and after
 	for service, after := range afterImages {
 		before, existed := beforeImages[service]
-		if !existed {
+		switch {
+		case !existed:
 			report.UpdatedImages = append(report.UpdatedImages, after)
-		} else if before.ID != after.ID {
+		case before.ID != after.ID:
 			report.UpdatedImages = append(report.UpdatedImages, after)
-		} else {
+		default:
 			report.UnchangedImages = append(report.UnchangedImages, after)
 		}
 	}
@@ -308,17 +218,9 @@ func (c *ComposeOrchestrator) Build(installPath string, files ...string) error {
 		args = append(args, "-f", f)
 	}
 	args = append(args, "build")
-	if compose.Path != "" {
-		err, output := execute.Run(installPath, compose.Path, args...)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
-	} else {
-		allArgs := append([]string{"compose"}, args...)
-		err, output := execute.Run(installPath, "docker", allArgs...)
-		if err != nil {
-			return fmt.Errorf("%s", output)
-		}
+	output, err := runCompose(installPath, compose, args...)
+	if err != nil {
+		return fmt.Errorf("failed to build images at %s: %s", installPath, output)
 	}
 	return nil
 }
@@ -328,18 +230,15 @@ func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var output string
-	if compose.Path != "" {
-		err, output = execute.Run(installPath, compose.Path, "down", "-v")
-	} else {
-		err, output = execute.Run(installPath, "docker", "compose", "down", "-v")
-	}
+	output, err := runCompose(installPath, compose, "down", "-v")
 	if err != nil {
 		return output, err
 	}
 
 	// Remove the backup staging volume (not part of docker-compose.yml)
-	execute.Run("", "docker", "volume", "rm", backupVolumeName(installPath))
+	if rmOutput, rmErr := execute.Run("", "docker", "volume", "rm", backupVolumeName(installPath)); rmErr != nil {
+		logging.Print(fmt.Sprintf("Warning: failed to remove backup volume: %s\n", rmOutput))
+	}
 
 	return output, nil
 }
@@ -349,12 +248,7 @@ func (c *ComposeOrchestrator) ListServices(instance config.Installation) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	var cmd *exec.Cmd
-	if compose.Path != "" {
-		cmd = exec.Command(compose.Path, "ps", "--services")
-	} else {
-		cmd = exec.Command("docker", "compose", "ps", "--services")
-	}
+	cmd := composeCommand(compose, "ps", "--services")
 	cmd.Dir = instance.Path
 	outputByte, err := cmd.CombinedOutput()
 	if err != nil {
@@ -375,19 +269,8 @@ func (c *ComposeOrchestrator) ExecInteractive(instance config.Installation, serv
 	if err != nil {
 		return err
 	}
-	var args []string
-	if compose.Path != "" {
-		args = append(args, "exec", service)
-		args = append(args, command...)
-		cmd := exec.Command(compose.Path, args...)
-		cmd.Dir = instance.Path
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
-	}
-	args = append([]string{"compose", "exec", service}, command...)
-	cmd := exec.Command("docker", args...)
+	args := append([]string{"exec", service}, command...)
+	cmd := composeCommand(compose, args...)
 	cmd.Dir = instance.Path
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -400,12 +283,7 @@ func (c *ComposeOrchestrator) ExecWithError(installPath, service, command string
 	if err != nil {
 		return "", err
 	}
-	var cmd *exec.Cmd
-	if compose.Path != "" {
-		cmd = exec.Command(compose.Path, "exec", "-T", service, "/bin/bash", "-c", command)
-	} else {
-		cmd = exec.Command("docker", "compose", "exec", "-T", service, "/bin/bash", "-c", command)
-	}
+	cmd := composeCommand(compose, "exec", "-T", service, "/bin/bash", "-c", command)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -420,12 +298,7 @@ func (c *ComposeOrchestrator) ExecStreaming(installPath, service, command string
 	if err != nil {
 		return err
 	}
-	var cmd *exec.Cmd
-	if compose.Path != "" {
-		cmd = exec.Command(compose.Path, "exec", "-T", service, "/bin/bash", "-c", command)
-	} else {
-		cmd = exec.Command("docker", "compose", "exec", "-T", service, "/bin/bash", "-c", command)
-	}
+	cmd := composeCommand(compose, "exec", "-T", service, "/bin/bash", "-c", command)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -443,14 +316,9 @@ func (c *ComposeOrchestrator) CheckRunningStatus(instance config.Installation) e
 	if err != nil {
 		return err
 	}
-	var output string
-	if compose.Path != "" {
-		err, output = execute.Run(instance.Path, compose.Path, "ps", "-q", containerName)
-	} else {
-		err, output = execute.Run(instance.Path, "docker", "compose", "ps", "-q", containerName)
-	}
+	output, err := runCompose(instance.Path, compose, "ps", "-q", containerName)
 	if err != nil || output == "" {
-		return fmt.Errorf("Container %s is not running", containerName)
+		return fmt.Errorf("container %s is not running", containerName)
 	}
 	return nil
 }
@@ -460,12 +328,7 @@ func (c *ComposeOrchestrator) CopyFrom(installPath, service, containerPath, host
 	if err != nil {
 		return err
 	}
-	var cmd *exec.Cmd
-	if compose.Path != "" {
-		cmd = exec.Command(compose.Path, "cp", service+":"+containerPath, hostPath)
-	} else {
-		cmd = exec.Command("docker", "compose", "cp", service+":"+containerPath, hostPath)
-	}
+	cmd := composeCommand(compose, "cp", service+":"+containerPath, hostPath)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -481,12 +344,7 @@ func (c *ComposeOrchestrator) CopyTo(installPath, service, hostPath, containerPa
 	if err != nil {
 		return err
 	}
-	var cmd *exec.Cmd
-	if compose.Path != "" {
-		cmd = exec.Command(compose.Path, "cp", hostPath, service+":"+containerPath)
-	} else {
-		cmd = exec.Command("docker", "compose", "cp", hostPath, service+":"+containerPath)
-	}
+	cmd := composeCommand(compose, "cp", hostPath, service+":"+containerPath)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -501,7 +359,7 @@ func (c *ComposeOrchestrator) RunBackup(installPath, envPath string, volumes map
 	volName := backupVolumeName(installPath)
 
 	// Ensure the persistent backup volume exists (idempotent)
-	err, output := execute.Run("", "docker", "volume", "create", volName)
+	output, err := execute.Run("", "docker", "volume", "create", volName)
 	if err != nil {
 		return "", fmt.Errorf("failed to create backup volume: %s", output)
 	}
@@ -525,14 +383,15 @@ func (c *ComposeOrchestrator) RunBackup(installPath, envPath string, volumes map
 // local repository path. This is Compose-specific since K8s rejects local repos.
 func runResticDockerWithBindMount(installPath, envPath, volName, repoPath string, args ...string) (string, error) {
 	cmdArgs := []string{"docker", "run", "--rm", "-i", "--env-file", envPath,
+		"--user", currentUser(),
 		"-v", volName + ":/currentsnapshot",
 		"-v", repoPath + ":" + repoPath,
 	}
 
-	cmdArgs = append(cmdArgs, "restic/restic")
+	cmdArgs = append(cmdArgs, "restic/restic", "--cache-dir", "/tmp/restic-cache")
 	cmdArgs = append(cmdArgs, args...)
 
-	err, output := execute.Run(installPath, cmdArgs[0], cmdArgs[1:]...)
+	output, err := execute.Run(installPath, cmdArgs[0], cmdArgs[1:]...)
 	if err != nil {
 		if strings.Contains(output, "repository does not exist") {
 			return output, fmt.Errorf("backup repository not found. Run 'canasta backup init' to create it")
@@ -546,90 +405,69 @@ func (c *ComposeOrchestrator) RestoreFromBackupVolume(installPath string, dirs m
 	return restoreFromVolume(backupVolumeName(installPath), installPath, dirs)
 }
 
-func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename, workingDir string) error {
+func (c *ComposeOrchestrator) CopyOverrideFile(installPath, sourceFilename string) error {
 	if sourceFilename != "" {
 		logging.Print("Copying override file\n")
-		if !strings.HasPrefix(sourceFilename, "/") {
-			sourceFilename = workingDir + "/" + sourceFilename
-		}
-		var overrideFilename = installPath + "/docker-compose.override.yml"
+		var overrideFilename = filepath.Join(installPath, "docker-compose.override.yml")
 		logging.Print(fmt.Sprintf("Copying %s to %s\n", sourceFilename, overrideFilename))
-		err, output := execute.Run("", "cp", sourceFilename, overrideFilename)
+		output, err := execute.Run("", "cp", sourceFilename, overrideFilename)
 		if err != nil {
-			return fmt.Errorf("%s", output)
+			return fmt.Errorf("failed to copy override file from %s: %s", sourceFilename, output)
 		}
 	}
 	return nil
 }
 
-// getComposeImages returns a map of service name to ImageInfo
-func getComposeImages(installPath string, compose config.Orchestrator) (map[string]ImageInfo, error) {
-	images := make(map[string]ImageInfo)
+// composeImageEntry represents one element from "docker compose images --format json".
+type composeImageEntry struct {
+	ContainerName string `json:"ContainerName"`
+	Repository    string `json:"Repository"`
+	Tag           string `json:"Tag"`
+	ID            string `json:"ID"`
+}
 
-	var output string
-	var err error
-	if compose.Path != "" {
-		err, output = execute.Run(installPath, compose.Path, "images")
-	} else {
-		err, output = execute.Run(installPath, "docker", "compose", "images")
-	}
+// getComposeImages returns a map of service name to ImageInfo.
+func getComposeImages(installPath string, compose config.Orchestrator) (map[string]ImageInfo, error) {
+	output, err := runCompose(installPath, compose, "images", "--format", "json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to run docker compose images: %s", output)
 	}
 
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	headerFound := false
-	for _, line := range lines {
-		if line == "" || strings.HasPrefix(line, "time=") || strings.Contains(line, "level=") {
-			continue
-		}
-
-		if strings.HasPrefix(line, "CONTAINER") {
-			headerFound = true
-			continue
-		}
-
-		if !headerFound {
-			continue
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) >= 4 {
-			containerName := fields[0]
-			parts := strings.Split(containerName, "-")
-			var service string
-			if len(parts) >= 3 {
-				service = strings.Join(parts[1:len(parts)-1], "-")
-			} else if len(parts) == 2 {
-				service = parts[0]
-			} else {
-				parts = strings.Split(containerName, "_")
-				if len(parts) >= 3 {
-					service = strings.Join(parts[1:len(parts)-1], "_")
-				} else if len(parts) == 2 {
-					service = parts[0]
-				} else {
-					service = containerName
-				}
-			}
-
-			if service == "" {
-				continue
-			}
-
-			imageRepo := fields[1]
-			imageTag := fields[2]
-			imageID := fields[3]
-
-			images[service] = ImageInfo{
-				Service: service,
-				Image:   imageRepo + ":" + imageTag,
-				ID:      imageID,
-			}
-		}
+	var entries []composeImageEntry
+	if err := json.Unmarshal([]byte(output), &entries); err != nil {
+		return nil, fmt.Errorf("failed to parse docker compose images output: %w", err)
 	}
 
+	project := filepath.Base(installPath)
+	images := make(map[string]ImageInfo, len(entries))
+	for _, e := range entries {
+		service := serviceFromContainer(e.ContainerName, project)
+		images[service] = ImageInfo{
+			Service: service,
+			Image:   e.Repository + ":" + e.Tag,
+			ID:      e.ID,
+		}
+	}
 	return images, nil
+}
+
+// serviceFromContainer extracts the service name from a Docker Compose
+// container name. Compose v2 uses "{project}-{service}-{number}".
+func serviceFromContainer(containerName, project string) string {
+	// Strip the project prefix and separator
+	after, found := strings.CutPrefix(containerName, project+"-")
+	if !found {
+		// Legacy underscore separator: {project}_{service}_{number}
+		after, found = strings.CutPrefix(containerName, project+"_")
+		if !found {
+			return containerName
+		}
+	}
+	// Strip the trailing "-{number}" or "_{number}"
+	if idx := strings.LastIndexAny(after, "-_"); idx > 0 {
+		return after[:idx]
+	}
+	return after
 }
 
 // syncComposeProfiles ensures COMPOSE_PROFILES matches the feature flags in
@@ -722,20 +560,52 @@ func (c *ComposeOrchestrator) MigrateConfig(installPath string, dryRun bool) (bo
 	return changed, nil
 }
 
-// migrateCaddyFiles creates Caddyfile.site and Caddyfile.global if they don't exist
-// and rewrites the Caddyfile to include the import directives.
+// migrateCaddyFiles creates Caddyfile.site and Caddyfile.global if they don't exist,
+// renames legacy Caddyfile.custom to Caddyfile.site, and rewrites the Caddyfile to
+// use the current import directives.
 func (c *ComposeOrchestrator) migrateCaddyFiles(installPath string, dryRun bool) (bool, error) {
-	customPath := filepath.Join(installPath, "config", "Caddyfile.site")
+	sitePath := filepath.Join(installPath, "config", "Caddyfile.site")
 	globalPath := filepath.Join(installPath, "config", "Caddyfile.global")
+	legacyCustomPath := filepath.Join(installPath, "config", "Caddyfile.custom")
 
-	_, customErr := os.Stat(customPath)
+	changed := false
+
+	// Rename legacy Caddyfile.custom → Caddyfile.site if the old name exists
+	if _, err := os.Stat(legacyCustomPath); err == nil {
+		if dryRun {
+			fmt.Println("  Would rename config/Caddyfile.custom to config/Caddyfile.site")
+		} else {
+			fmt.Println("  Renaming config/Caddyfile.custom to config/Caddyfile.site")
+			if err := os.Rename(legacyCustomPath, sitePath); err != nil {
+				return false, fmt.Errorf("failed to rename Caddyfile.custom: %w", err)
+			}
+		}
+		changed = true
+	}
+
+	// Check whether the Caddyfile still references the old name
+	caddyfilePath := filepath.Join(installPath, "config", "Caddyfile")
+	if content, err := os.ReadFile(caddyfilePath); err == nil {
+		if strings.Contains(string(content), "Caddyfile.custom") {
+			changed = true
+		}
+	}
+
+	_, siteErr := os.Stat(sitePath)
 	_, globalErr := os.Stat(globalPath)
-	if customErr == nil && globalErr == nil {
+	if siteErr != nil {
+		changed = true
+	}
+	if globalErr != nil {
+		changed = true
+	}
+
+	if !changed {
 		return false, nil
 	}
 
 	if dryRun {
-		if customErr != nil {
+		if siteErr != nil {
 			fmt.Println("  Would create config/Caddyfile.site")
 		}
 		if globalErr != nil {
@@ -743,7 +613,7 @@ func (c *ComposeOrchestrator) migrateCaddyFiles(installPath string, dryRun bool)
 		}
 		fmt.Println("  Would update config/Caddyfile with import directives")
 	} else {
-		if customErr != nil {
+		if siteErr != nil {
 			fmt.Println("  Creating config/Caddyfile.site")
 			if err := canasta.CreateCaddyfileSite(installPath); err != nil {
 				return false, fmt.Errorf("failed to create Caddyfile.site: %w", err)

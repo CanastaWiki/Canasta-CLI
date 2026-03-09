@@ -11,8 +11,8 @@ import (
 
 func TestResolveKey(t *testing.T) {
 	envVars := map[string]string{
-		"HTTPS_PORT":  "443",
-		"HTTP_PORT":   "80",
+		"HTTPS_PORT":     "443",
+		"HTTP_PORT":      "80",
 		"MYSQL_PASSWORD": "secret",
 	}
 
@@ -163,7 +163,9 @@ func TestUpdateWikisYamlPorts(t *testing.T) {
 	// Create a temp dir with a wikis.yaml and .env
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "config")
-	os.MkdirAll(configDir, 0755)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	wikisYaml := `wikis:
 - id: main
@@ -173,10 +175,14 @@ func TestUpdateWikisYamlPorts(t *testing.T) {
   url: dev.example.com:8443/wiki
   name: Dev Wiki
 `
-	os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(wikisYaml), 0644)
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(wikisYaml), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	envContent := "MW_SITE_SERVER=https://example.com:8443\nMW_SITE_FQDN=example.com:8443\n"
-	os.WriteFile(filepath.Join(tmpDir, ".env"), []byte(envContent), 0644)
+	if err := os.WriteFile(filepath.Join(tmpDir, ".env"), []byte(envContent), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	inst := config.Installation{Path: tmpDir}
 

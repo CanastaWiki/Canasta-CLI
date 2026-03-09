@@ -8,14 +8,16 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func restoreCmdCreate() *cobra.Command {
+func newRestoreCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
 
 	var (
-		snapshotId         string
+		snapshotID         string
 		skipBeforeSnapshot bool
 		wikiID             string
 	)
@@ -38,49 +40,49 @@ images, and public assets from the backup, leaving shared files untouched.`,
 
   # Restore only a single wiki's database
   canasta backup restore -i myinstance -s abc123 -w wiki2`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return restoreSnapshot(snapshotId, skipBeforeSnapshot, wikiID)
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return restoreSnapshot(*orch, *instance, *envPath, *repoURL, snapshotID, skipBeforeSnapshot, wikiID)
 		},
 	}
 
-	restoreCmd.Flags().StringVarP(&snapshotId, "snapshot", "s", "", "Snapshot ID (required)")
+	restoreCmd.Flags().StringVarP(&snapshotID, "snapshot", "s", "", "Snapshot ID (required)")
 	restoreCmd.Flags().BoolVar(&skipBeforeSnapshot, "skip-safety-backup", false, "Skip taking a safety backup before restore")
 	restoreCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "Restore only this wiki's database and per-wiki files")
 	_ = restoreCmd.MarkFlagRequired("snapshot")
 	return restoreCmd
 }
 
-func restoreSnapshot(snapshotId string, skipBeforeSnapshot bool, wikiID string) error {
-	EnvVariables, envErr := canasta.GetEnvVariable(envPath)
+func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Installation, envPath, repoURL, snapshotID string, skipBeforeSnapshot bool, wikiID string) error {
+	envVariables, envErr := canasta.GetEnvVariable(envPath)
 	if envErr != nil {
 		return envErr
 	}
 
 	if !skipBeforeSnapshot {
 		logging.Print("Taking snapshot...")
-		if err := takeSnapshot("BeforeRestoring-" + snapshotId); err != nil {
+		if err := takeSnapshot(orch, instance, envPath, repoURL, "BeforeRestoring-"+snapshotID); err != nil {
 			return err
 		}
 		logging.Print("Snapshot taken...")
 	}
 
 	logging.Print("Restoring snapshot to backup volume...")
-	_, err := runBackup(nil, "-r", repoURL, "restore", snapshotId, "--target", "/")
+	_, err := runBackup(orch, instance.Path, envPath, nil, "-r", repoURL, "restore", snapshotID, "--target", "/")
 	if err != nil {
 		return err
 	}
 
 	if wikiID != "" {
-		return restoreWiki(wikiID, EnvVariables)
+		return restoreWiki(orch, instance, wikiID, envVariables)
 	}
-	return restoreFull(EnvVariables)
+	return restoreFull(orch, instance, envVariables)
 }
 
 // restoreWiki restores a single wiki's database, per-wiki settings, images,
 // and public assets from a backup, leaving shared files untouched.
-func restoreWiki(wikiID string, env map[string]string) error {
+func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, wikiID string, env map[string]string) error {
 	// Validate that the wiki ID exists in the current installation's wikis.yaml
-	wikiIDs, err := getWikiIDs(instance.Path)
+	wikiIDs, err := farmsettings.GetWikiIDs(instance.Path)
 	if err != nil {
 		return err
 	}
@@ -102,7 +104,7 @@ func restoreWiki(wikiID string, env map[string]string) error {
 	// - per-wiki public assets from public_assets/{wikiID}/
 	logging.Print("Copying per-wiki files from backup volume...")
 	paths := map[string]string{
-		"/currentsnapshot/config/backup": filepath.Join(instance.Path, "config", "backup"),
+		"/currentsnapshot/config/backup":                                 filepath.Join(instance.Path, "config", "backup"),
 		fmt.Sprintf("/currentsnapshot/config/settings/wikis/%s", wikiID): filepath.Join(instance.Path, "config", "settings", "wikis", wikiID),
 		fmt.Sprintf("/currentsnapshot/images/%s", wikiID):                filepath.Join(instance.Path, "images", wikiID),
 		fmt.Sprintf("/currentsnapshot/public_assets/%s", wikiID):         filepath.Join(instance.Path, "public_assets", wikiID),
@@ -114,22 +116,22 @@ func restoreWiki(wikiID string, env map[string]string) error {
 	// Validate that the dump file exists
 	hostDumpPath := filepath.Join(instance.Path, "config", "backup", fmt.Sprintf("db_%s.sql", wikiID))
 	if _, err := os.Stat(hostDumpPath); err != nil {
-		os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
+		cleanupBackupDir(instance.Path)
 		return fmt.Errorf("database dump file for wiki '%s' not found in backup snapshot", wikiID)
 	}
 
 	// Import the database
 	logging.Print(fmt.Sprintf("Restoring database for wiki '%s'...", wikiID))
-	command := fmt.Sprintf("mysql -h db -u root -p%s < %s",
-		env["MYSQL_PASSWORD"], dumpPath(wikiID))
-	_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
+	command := fmt.Sprintf("mariadb -h db -u root -p%s < %s",
+		orchestrators.ShellQuote(env["MYSQL_PASSWORD"]), dumpPath(wikiID))
+	_, restoreErr := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, command)
 	if restoreErr != nil {
-		os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
-		return fmt.Errorf("Database restore failed for wiki '%s': %w", wikiID, restoreErr)
+		cleanupBackupDir(instance.Path)
+		return fmt.Errorf("database restore failed for wiki '%s': %w", wikiID, restoreErr)
 	}
 
 	// Clean up the database dump directory
-	os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
+	cleanupBackupDir(instance.Path)
 
 	logging.Print("Per-wiki restore completed")
 	fmt.Printf("Restore completed for wiki '%s'\n", wikiID)
@@ -137,7 +139,7 @@ func restoreWiki(wikiID string, env map[string]string) error {
 }
 
 // restoreFull performs a full restore of all files and databases from a backup.
-func restoreFull(env map[string]string) error {
+func restoreFull(orch orchestrators.Orchestrator, instance config.Installation, env map[string]string) error {
 	logging.Print("Copying files from backup volume...")
 	paths := make(map[string]string)
 	for _, dir := range []string{"config", "extensions", "images", "skins", "public_assets"} {
@@ -167,20 +169,27 @@ func restoreFull(env map[string]string) error {
 	}
 	for _, id := range wikiIDs {
 		logging.Print(fmt.Sprintf("Restoring database for wiki '%s'...", id))
-		command := fmt.Sprintf("mysql -h db -u root -p%s < %s",
-			env["MYSQL_PASSWORD"], dumpPath(id))
-		_, restoreErr := orch.ExecWithError(instance.Path, "web", command)
+		command := fmt.Sprintf("mariadb -h db -u root -p%s < %s",
+			orchestrators.ShellQuote(env["MYSQL_PASSWORD"]), dumpPath(id))
+		_, restoreErr := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, command)
 		if restoreErr != nil {
-			return fmt.Errorf("Database restore failed for wiki '%s': %w", id, restoreErr)
+			return fmt.Errorf("database restore failed for wiki '%s': %w", id, restoreErr)
 		}
 	}
 
 	// Clean up the backup directory containing database dumps
-	os.RemoveAll(filepath.Join(instance.Path, "config", "backup"))
+	cleanupBackupDir(instance.Path)
 
 	logging.Print("Database restore completed")
 	fmt.Println("Restore completed")
 	return nil
+}
+
+// cleanupBackupDir removes the temporary backup directory, logging a warning on failure.
+func cleanupBackupDir(installPath string) {
+	if err := os.RemoveAll(filepath.Join(installPath, "config", "backup")); err != nil {
+		logging.Print(fmt.Sprintf("Warning: failed to clean up backup directory: %v\n", err))
+	}
 }
 
 // getWikiIDsForRestore determines which wiki databases have per-wiki dump files
@@ -189,7 +198,7 @@ func getWikiIDsForRestore(installPath string) ([]string, error) {
 	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
 	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read wikis.yaml: %w", err)
+		return nil, fmt.Errorf("failed to read wikis.yaml: %w", err)
 	}
 
 	var result []string
@@ -201,7 +210,7 @@ func getWikiIDsForRestore(installPath string) ([]string, error) {
 	}
 
 	if len(result) == 0 {
-		return nil, fmt.Errorf("No database dump files found in backup")
+		return nil, fmt.Errorf("no database dump files found in backup")
 	}
 	return result, nil
 }

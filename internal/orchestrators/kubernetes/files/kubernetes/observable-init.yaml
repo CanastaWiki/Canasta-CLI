@@ -13,7 +13,7 @@ data:
     DASHBOARDS_URL="http://opensearch-dashboards:5601/opensearch"
     RETRY_INTERVAL=5
 
-    PATTERNS="mediawiki-logs-* caddy-logs-* mysql-logs-*"
+    PATTERNS="mediawiki-logs-* caddy-logs-* mariadb-logs-*"
 
     # Wait indefinitely for Dashboards to report green. On a fresh install
     # this can take several minutes while images are pulled and pods start.

@@ -2,7 +2,6 @@ package backup
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -10,47 +9,46 @@ import (
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
-	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var (
-	instance  config.Installation
-	err       error
-	verbose   bool
-	backupCmd *cobra.Command
-	orch      orchestrators.Orchestrator
-	envPath   string
-	repoURL   string
-)
+func NewCmd() *cobra.Command {
+	var (
+		instance config.Installation
+		orch     orchestrators.Orchestrator
+		envPath  string
+		repoURL  string
+	)
 
-func NewCmdCreate() *cobra.Command {
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
-		log.Fatal(wdErr)
+		logging.Fatal(wdErr)
 	}
 	instance.Path = workingDir
 
-	backupCmd = &cobra.Command{
+	backupCmd := &cobra.Command{
 		Use:   "backup",
 		Short: "Backup and restore Canasta installations",
 		Long: `Manage backups of a Canasta installation. Subcommands allow you to initialize
 a backup repository, create and restore backups, list and compare backups,
 and schedule recurring backups. Requires RESTIC_REPOSITORY (or AWS S3 settings)
 and RESTIC_PASSWORD to be configured in the installation's .env file.`,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			logging.SetVerbose(verbose)
-			instance, err = canasta.CheckCanastaId(instance)
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			var err error
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
-			envPath = instance.Path + "/.env"
-			EnvVariables, envErr := canasta.GetEnvVariable(envPath)
+			envPath = filepath.Join(instance.Path, ".env")
+			envVariables, envErr := canasta.GetEnvVariable(envPath)
 			if envErr != nil {
 				return envErr
 			}
-			repoURL = getRepoURL(EnvVariables)
+			repoURL, err = getRepoURL(envVariables)
+			if err != nil {
+				return err
+			}
 
 			orch, err = orchestrators.New(instance.Orchestrator)
 			if err != nil {
@@ -60,47 +58,41 @@ and RESTIC_PASSWORD to be configured in the installation's .env file.`,
 		},
 	}
 
-	backupCmd.AddCommand(initCmdCreate())
-	backupCmd.AddCommand(listCmdCreate())
-	backupCmd.AddCommand(createBackupCmdCreate())
-	backupCmd.AddCommand(restoreCmdCreate())
-	backupCmd.AddCommand(deleteCmdCreate())
-	backupCmd.AddCommand(unlockCmdCreate())
-	backupCmd.AddCommand(filesCmdCreate())
-	backupCmd.AddCommand(checkCmdCreate())
-	backupCmd.AddCommand(diffCmdCreate())
-	backupCmd.AddCommand(scheduleCmdCreate())
+	backupCmd.AddCommand(newInitCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newListCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newCreateCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newRestoreCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newDeleteCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newUnlockCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newFilesCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newCheckCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newDiffCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newPurgeCmd(&orch, &instance, &envPath, &repoURL))
+	backupCmd.AddCommand(newScheduleCmd(&instance))
 
-	backupCmd.PersistentFlags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
-	backupCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose Output")
+	backupCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	return backupCmd
 
 }
 
-func getRepoURL(env map[string]string) string {
+func getRepoURL(env map[string]string) (string, error) {
 	if val, ok := env["RESTIC_REPOSITORY"]; ok && val != "" {
-		return val
+		return val, nil
 	}
 	if val, ok := env["RESTIC_REPO"]; ok && val != "" {
-		return val
+		return val, nil
 	}
-	return "s3:" + env["AWS_S3_API"] + "/" + env["AWS_S3_BUCKET"]
+	api := env["AWS_S3_API"]
+	bucket := env["AWS_S3_BUCKET"]
+	if api == "" && bucket == "" {
+		return "", fmt.Errorf("no backup repository configured: set RESTIC_REPOSITORY or AWS_S3_API/AWS_S3_BUCKET in .env")
+	}
+	return "s3:" + api + "/" + bucket, nil
 }
 
-// runBackup is a convenience wrapper for orch.RunBackup
-// using the package-level orchestrator, install path, and env path.
-func runBackup(volumes map[string]string, args ...string) (string, error) {
-	return orch.RunBackup(instance.Path, envPath, volumes, args...)
-}
-
-// getWikiIDs reads wikis.yaml and returns all wiki IDs.
-func getWikiIDs(installPath string) ([]string, error) {
-	yamlPath := filepath.Join(installPath, "config", "wikis.yaml")
-	ids, _, _, err := farmsettings.ReadWikisYaml(yamlPath)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to read wikis.yaml: %w", err)
-	}
-	return ids, nil
+// runBackup is a convenience wrapper for orch.RunBackup.
+func runBackup(orch orchestrators.Orchestrator, installPath, envPath string, volumes map[string]string, args ...string) (string, error) {
+	return orch.RunBackup(installPath, envPath, volumes, args...)
 }
 
 // dumpPath returns the container path for a wiki's database dump file.

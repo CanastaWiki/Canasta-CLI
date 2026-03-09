@@ -1,9 +1,8 @@
-package start
+package delete
 
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -17,12 +16,11 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/spinner"
 )
 
-var instance config.Installation
-
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
+	var instance config.Installation
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	instance.Path = workingDir
 
@@ -40,18 +38,18 @@ prompted for confirmation before any data is deleted.`,
 
   # Delete without confirmation prompt
   canasta delete -i myinstance -y`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta delete --id %s)", args[0], args[0])
 			}
 			var err error
-			instance, err = canasta.CheckCanastaId(instance)
+			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
 			if !yes {
 				reader := bufio.NewReader(os.Stdin)
-				fmt.Printf("This will permanently delete the Canasta installation '%s' and all its data. Continue? [y/N] ", instance.Id)
+				fmt.Printf("This will permanently delete the Canasta installation '%s' and all its data. Continue? [y/N] ", instance.ID)
 				text, _ := reader.ReadString('\n')
 				text = strings.ToLower(strings.TrimSpace(text))
 				if text != "y" {
@@ -65,13 +63,13 @@ prompted for confirmation before any data is deleted.`,
 			return nil
 		},
 	}
-	deleteCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	deleteCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	deleteCmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
 	return deleteCmd
 }
 
 func Delete(instance config.Installation) error {
-	description := "Deleting Canasta installation '" + instance.Id + "'..."
+	description := "Deleting Canasta installation '" + instance.ID + "'..."
 	stopSpinner := spinner.New(description)
 	defer stopSpinner() // ensure cleanup on error paths
 
@@ -93,30 +91,30 @@ func Delete(instance config.Installation) error {
 	} else {
 		// Clean up images from inside the container before stopping
 		cleanupCmd := "find /mediawiki/images -mindepth 1 -delete"
-		if _, err := orch.ExecWithError(instance.Path, "web", cleanupCmd); err != nil {
+		if _, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, cleanupCmd); err != nil {
 			logging.Print(fmt.Sprintf("Warning: could not clean up images: %v\n", err))
 		}
 	}
 
-	//Stopping and deleting Contianers and it's volumes
+	// Stopping and deleting Containers and their volumes
 	if _, err := orch.Destroy(instance.Path); err != nil {
 		return err
 	}
 
-	//Delete config files
+	// Delete config files
 	if _, err := orchestrators.DeleteConfig(instance.Path); err != nil {
 		return err
 	}
 
 	// Remove any scheduled backup crontab entry
-	if removed, err := backupCmd.RemoveSchedule(instance.Id); err != nil {
+	if removed, err := backupCmd.RemoveSchedule(instance.ID); err != nil {
 		logging.Print(fmt.Sprintf("Warning: could not clean up backup schedule: %v\n", err))
 	} else if removed {
 		logging.Print("Removed backup schedule.\n")
 	}
 
-	//Deleting installation details from conf.json
-	if err = config.Delete(instance.Id); err != nil {
+	// Deleting installation details from conf.json
+	if err = config.Delete(instance.ID); err != nil {
 		return err
 	}
 

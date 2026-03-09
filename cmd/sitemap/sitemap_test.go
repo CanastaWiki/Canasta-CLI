@@ -1,6 +1,11 @@
 package sitemap
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+)
 
 func TestExtractScheme(t *testing.T) {
 	tests := []struct {
@@ -26,8 +31,8 @@ func TestExtractScheme(t *testing.T) {
 	}
 }
 
-func TestNewCmdCreate(t *testing.T) {
-	cmd := NewCmdCreate()
+func TestNewCmd(t *testing.T) {
+	cmd := NewCmd()
 	if cmd.Use != "sitemap" {
 		t.Errorf("expected Use='sitemap', got %q", cmd.Use)
 	}
@@ -53,14 +58,17 @@ func TestNewCmdCreate(t *testing.T) {
 }
 
 func TestGenerateCmd(t *testing.T) {
-	cmd := generateCmdCreate()
+	var instance config.Installation
+	var orch orchestrators.Orchestrator
+	cmd := newGenerateCmd(&instance, &orch)
 	if cmd.Use != "generate" {
 		t.Errorf("expected Use='generate', got %q", cmd.Use)
 	}
 
 	wikiFlag := cmd.Flags().Lookup("wiki")
 	if wikiFlag == nil {
-		t.Error("expected flag 'wiki'")
+		t.Fatal("expected flag 'wiki'")
+		return
 	}
 	if wikiFlag.Shorthand != "w" {
 		t.Errorf("expected wiki shorthand 'w', got %q", wikiFlag.Shorthand)
@@ -68,14 +76,17 @@ func TestGenerateCmd(t *testing.T) {
 }
 
 func TestRemoveCmd(t *testing.T) {
-	cmd := removeCmdCreate()
+	var instance config.Installation
+	var orch orchestrators.Orchestrator
+	cmd := newRemoveCmd(&instance, &orch)
 	if cmd.Use != "remove" {
 		t.Errorf("expected Use='remove', got %q", cmd.Use)
 	}
 
 	wikiFlag := cmd.Flags().Lookup("wiki")
 	if wikiFlag == nil {
-		t.Error("expected flag 'wiki'")
+		t.Fatal("expected flag 'wiki'")
+		return
 	}
 	if wikiFlag.Shorthand != "w" {
 		t.Errorf("expected wiki shorthand 'w', got %q", wikiFlag.Shorthand)
@@ -83,7 +94,8 @@ func TestRemoveCmd(t *testing.T) {
 
 	yesFlag := cmd.Flags().Lookup("yes")
 	if yesFlag == nil {
-		t.Error("expected flag 'yes'")
+		t.Fatal("expected flag 'yes'")
+		return
 	}
 	if yesFlag.Shorthand != "y" {
 		t.Errorf("expected yes shorthand 'y', got %q", yesFlag.Shorthand)

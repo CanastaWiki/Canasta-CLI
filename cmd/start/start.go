@@ -2,22 +2,21 @@ package start
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var instance config.Installation
-
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
+	var instance config.Installation
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	instance.Path = workingDir
 
@@ -30,15 +29,15 @@ has development mode enabled, it starts with Xdebug automatically. Use
 development mode setting.`,
 		Example: `  # Start an installation by ID
   canasta start -i myinstance`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta start --id %s)", args[0], args[0])
 			}
-			resolvedInstance, err := canasta.CheckCanastaId(instance)
+			resolvedInstance, err := canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
-			fmt.Println("Starting Canasta installation '" + resolvedInstance.Id + "'...")
+			fmt.Println("Starting Canasta installation '" + resolvedInstance.ID + "'...")
 			if err := Start(resolvedInstance); err != nil {
 				return err
 			}
@@ -46,7 +45,7 @@ development mode setting.`,
 			return nil
 		},
 	}
-	startCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	startCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	return startCmd
 }
 

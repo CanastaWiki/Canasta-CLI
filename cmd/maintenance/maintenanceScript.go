@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/spf13/cobra"
+
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
-	"github.com/spf13/cobra"
 )
 
-func scriptCmdCreate() *cobra.Command {
+func newScriptCmd(instance *config.Installation, wiki *string) *cobra.Command {
 
 	scriptCmd := &cobra.Command{
 		Use:   `script ["scriptname.php [args]"]`,
@@ -34,15 +35,16 @@ Use --wiki to target a specific wiki in a farm.`,
   # Run a script for a specific wiki in a farm
   canasta maintenance script "rebuildrecentchanges.php" -i myinstance --wiki=docs`,
 		Args: cobra.RangeArgs(0, 1),
-		PreRunE: func(cmd *cobra.Command, args []string) error {
-			instance, err = canasta.CheckCanastaId(instance)
+		PreRunE: func(_ *cobra.Command, _ []string) error {
+			var err error
+			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return listMaintenanceScripts(instance)
+				return listMaintenanceScripts(*instance)
 			}
-			return runMaintenanceScript(instance, args[0], wiki)
+			return runMaintenanceScript(*instance, args[0], *wiki)
 		},
 	}
 
@@ -63,7 +65,7 @@ func listMaintenanceScriptsWith(orch orchestrators.Orchestrator, inst config.Ins
 	}
 
 	cmd := `find maintenance/ -maxdepth 1 -name '*.php' -type f 2>/dev/null`
-	output, _ := orch.ExecWithError(inst.Path, "web", cmd)
+	output, _ := orch.ExecWithError(inst.Path, orchestrators.ServiceWeb, cmd)
 
 	scripts := parseScriptNames(output)
 	if len(scripts) == 0 {
@@ -103,9 +105,9 @@ func runMaintenanceScriptWith(orch orchestrators.Orchestrator, inst config.Insta
 		wikiFlag = " --wiki=" + resolvedWiki
 	}
 	fmt.Println("Running maintenance script " + cleanedScript)
-	if err := orch.ExecStreaming(inst.Path, "web",
+	if err := orch.ExecStreaming(inst.Path, orchestrators.ServiceWeb,
 		"php maintenance/"+cleanedScript+wikiFlag); err != nil {
-		return fmt.Errorf("maintenance script failed: %v", err)
+		return fmt.Errorf("maintenance script failed: %w", err)
 	}
 	fmt.Println("Completed running maintenance script")
 	return nil

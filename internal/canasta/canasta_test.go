@@ -1,8 +1,11 @@
 package canasta
 
 import (
+	"bytes"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -13,7 +16,7 @@ func TestGetEnvVariable(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 
-	content := "KEY1=value1\nKEY2=value2\nKEY_WITH_EQUALS=abc=def\nQUOTED=\"hello world\"\n"
+	content := "KEY1=value1\n# this is a comment\n# COMMENTED_OUT=hidden\nKEY2=value2\n\nEMPTY=\nKEY_WITH_EQUALS=abc=def\nKEY=a=b\nQUOTED=\"hello world\"\n"
 	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +31,9 @@ func TestGetEnvVariable(t *testing.T) {
 	}{
 		{"KEY1", "value1"},
 		{"KEY2", "value2"},
+		{"EMPTY", ""},
 		{"KEY_WITH_EQUALS", "abc=def"},
+		{"KEY", "a=b"},
 		{"QUOTED", "hello world"},
 	}
 
@@ -36,6 +41,11 @@ func TestGetEnvVariable(t *testing.T) {
 		if got := vars[tt.key]; got != tt.want {
 			t.Errorf("GetEnvVariable()[%s] = %q, want %q", tt.key, got, tt.want)
 		}
+	}
+
+	// Comments with = signs should not be parsed as key-value pairs
+	if _, ok := vars["# COMMENTED_OUT"]; ok {
+		t.Error("comment line with = sign should not be parsed as key-value pair")
 	}
 }
 
@@ -99,15 +109,146 @@ func TestSaveEnvVariable(t *testing.T) {
 	}
 }
 
-func TestGeneratePasswords(t *testing.T) {
+func TestSaveEnvVariableDeduplicates(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+
+	// Start with a file that has duplicate keys (e.g., from prior raw appends)
+	initial := "KEY1=first\nKEY2=keep\nKEY1=second\nKEY1=third\n"
+	if err := os.WriteFile(envPath, []byte(initial), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Save should update the first occurrence and remove duplicates
+	if err := SaveEnvVariable(envPath, "KEY1", "updated"); err != nil {
+		t.Fatalf("SaveEnvVariable() error = %v", err)
+	}
+
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := strings.Count(string(data), "KEY1=")
+	if count != 1 {
+		t.Errorf("expected 1 occurrence of KEY1, got %d in:\n%s", count, data)
+	}
+
+	vars, err := GetEnvVariable(envPath)
+	if err != nil {
+		t.Fatalf("GetEnvVariable() error = %v", err)
+	}
+	if vars["KEY1"] != "updated" {
+		t.Errorf("KEY1 = %q, want \"updated\"", vars["KEY1"])
+	}
+	if vars["KEY2"] != "keep" {
+		t.Errorf("KEY2 = %q, want \"keep\"", vars["KEY2"])
+	}
+}
+
+func TestDeleteEnvVariable(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		key       string
+		wantErr   bool
+		assertMap func(t *testing.T, vars map[string]string)
+	}{
+		{
+			name:    "remove existing key from multi-key file",
+			content: "KEY1=value1\nKEY2=value2\nKEY3=value3\n",
+			key:     "KEY2",
+			wantErr: false,
+			assertMap: func(t *testing.T, vars map[string]string) {
+				if _, exists := vars["KEY2"]; exists {
+					t.Errorf("expected KEY2 to be deleted, but still present")
+				}
+				if vars["KEY1"] != "value1" {
+					t.Errorf("KEY1 = %q, want \"value1\"", vars["KEY1"])
+				}
+				if vars["KEY3"] != "value3" {
+					t.Errorf("KEY3 = %q, want \"value3\"", vars["KEY3"])
+				}
+			},
+		},
+		{
+			name:    "remove non-existent key returns error",
+			content: "KEY1=value1\n",
+			key:     "MISSING",
+			wantErr: true,
+			assertMap: func(t *testing.T, vars map[string]string) {
+				if vars["KEY1"] != "value1" {
+					t.Errorf("KEY1 = %q, want \"value1\"", vars["KEY1"])
+				}
+			},
+		},
+		{
+			name:    "remove only key leaves empty file",
+			content: "KEY1=value1\n",
+			key:     "KEY1",
+			wantErr: false,
+			assertMap: func(t *testing.T, vars map[string]string) {
+				if len(vars) != 0 {
+					t.Errorf("expected empty map after deleting only key, got %v", vars)
+				}
+			},
+		},
+		{
+			name:    "remove key does not match key with same prefix",
+			content: "KEY=value\nKEY1=value1\nKEY2=value2\n",
+			key:     "KEY",
+			wantErr: false,
+			assertMap: func(t *testing.T, vars map[string]string) {
+				if _, exists := vars["KEY"]; exists {
+					t.Errorf("expected KEY to be deleted, but still present")
+				}
+				if vars["KEY1"] != "value1" {
+					t.Errorf("KEY1 = %q, want \"value1\"", vars["KEY1"])
+				}
+				if vars["KEY2"] != "value2" {
+					t.Errorf("KEY2 = %q, want \"value2\"", vars["KEY2"])
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			envPath := filepath.Join(dir, ".env")
+
+			if err := os.WriteFile(envPath, []byte(tt.content), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			err := DeleteEnvVariable(envPath, tt.key)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("DeleteEnvVariable() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			vars, err := GetEnvVariable(envPath)
+			if err != nil {
+				t.Fatalf("GetEnvVariable() error = %v", err)
+			}
+
+			tt.assertMap(t, vars)
+		})
+	}
+}
+
+func TestGenerateAdminAndDBPasswords(t *testing.T) {
 	info := CanastaVariables{
-		Id:        "test",
+		ID:        "test",
 		AdminName: "admin",
 	}
 
-	result, err := GeneratePasswords(t.TempDir(), info)
+	result, err := GenerateAdminPassword(info)
 	if err != nil {
-		t.Fatalf("GeneratePasswords() error = %v", err)
+		t.Fatalf("GenerateAdminPassword() error = %v", err)
+	}
+
+	result, err = GenerateDBPasswords(result)
+	if err != nil {
+		t.Fatalf("GenerateDBPasswords() error = %v", err)
 	}
 
 	// Check admin password
@@ -130,21 +271,47 @@ func TestGeneratePasswords(t *testing.T) {
 		if strings.Contains(pw, "$") {
 			t.Errorf("password contains $: %s", pw)
 		}
+
+		digits := 0
+		for _, c := range pw {
+			if c >= '0' && c <= '9' {
+				digits++
+			}
+		}
+
+		symbols := 0
+		for _, c := range pw {
+			if strings.ContainsRune("@%^-_+.,:", c) {
+				symbols++
+			}
+		}
+
+		if digits < 4 {
+			t.Errorf("password has %d digits, want >= 4: %s", digits, pw)
+		}
+		if symbols < 6 {
+			t.Errorf("password has %d symbols, want >= 6: %s", symbols, pw)
+		}
 	}
 }
 
 func TestGeneratePasswordsPreserveExisting(t *testing.T) {
 	info := CanastaVariables{
-		Id:             "test",
+		ID:             "test",
 		AdminName:      "admin",
 		AdminPassword:  "myadminpass",
 		RootDBPassword: "myrootpass",
 		WikiDBPassword: "mywikipass",
 	}
 
-	result, err := GeneratePasswords(t.TempDir(), info)
+	result, err := GenerateAdminPassword(info)
 	if err != nil {
-		t.Fatalf("GeneratePasswords() error = %v", err)
+		t.Fatalf("GenerateAdminPassword() error = %v", err)
+	}
+
+	result, err = GenerateDBPasswords(result)
+	if err != nil {
+		t.Fatalf("GenerateDBPasswords() error = %v", err)
 	}
 
 	if result.AdminPassword != "myadminpass" {
@@ -222,6 +389,69 @@ func TestGenerateSecretKey(t *testing.T) {
 	}
 }
 
+func TestGenerateAndSaveSecretKey_AlreadySet(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	existingKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	content := []byte("KEY1=value1\nMW_SECRET_KEY=" + existingKey + "\n")
+	if err := os.WriteFile(envPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := GenerateAndSaveSecretKey(dir)
+	if err != nil {
+		t.Fatalf("GenerateAndSaveSecretKey() error = %v", err)
+	}
+
+	newContent, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("Failed to read .env file: %v", err)
+	}
+
+	if !bytes.Equal(content, newContent) {
+		t.Errorf("expected .env file to be unmodified. Got:\n%s\nWant:\n%s", newContent, content)
+	}
+}
+
+func TestGenerateAndSaveSecretKey_GeneratesNew(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	content := "KEY1=value1\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := GenerateAndSaveSecretKey(dir)
+	if err != nil {
+		t.Fatalf("GenerateAndSaveSecretKey() error = %v", err)
+	}
+
+	vars, err := GetEnvVariable(envPath)
+	if err != nil {
+		t.Fatalf("GetEnvVariable() error = %v", err)
+	}
+
+	key := vars["MW_SECRET_KEY"]
+	if key == "" {
+		t.Fatal("expected MW_SECRET_KEY to be set in .env")
+	}
+	if len(key) != 64 {
+		t.Errorf("expected 64-character MW_SECRET_KEY, got length %d", len(key))
+	}
+	if _, err := hex.DecodeString(key); err != nil {
+		t.Errorf("expected MW_SECRET_KEY to be valid hex, got error: %v", err)
+	}
+}
+
+func TestGenerateAndSaveSecretKey_MissingEnv(t *testing.T) {
+	dir := t.TempDir()
+
+	err := GenerateAndSaveSecretKey(dir)
+	if err == nil {
+		t.Fatal("expected error when .env file does not exist")
+	}
+}
+
 func TestContainsProfile(t *testing.T) {
 	tests := []struct {
 		profiles string
@@ -238,6 +468,24 @@ func TestContainsProfile(t *testing.T) {
 	for _, tt := range tests {
 		if got := ContainsProfile(tt.profiles, tt.target); got != tt.want {
 			t.Errorf("ContainsProfile(%q, %q) = %v, want %v", tt.profiles, tt.target, got, tt.want)
+		}
+	}
+}
+
+func TestRemoveDuplicates(t *testing.T) {
+	tests := []struct {
+		input []string
+		want  []string
+	}{
+		{[]string{"a", "b", "a", "c"}, []string{"a", "b", "c"}},
+		{[]string{"a", "b", "c"}, []string{"a", "b", "c"}},
+		{[]string{}, []string{}},
+		{[]string{"a"}, []string{"a"}},
+		{[]string{"x", "x", "x"}, []string{"x"}},
+	}
+	for _, tt := range tests {
+		if got := removeDuplicates(tt.input); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("removeDuplicates(%v) = %v, want %v", tt.input, got, tt.want)
 		}
 	}
 }
@@ -268,7 +516,9 @@ func TestIsObservabilityEnabled(t *testing.T) {
 func TestEnsureObservabilityCredentials_NotObservable(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("COMPOSE_PROFILES=web\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
@@ -282,7 +532,9 @@ func TestEnsureObservabilityCredentials_NotObservable(t *testing.T) {
 func TestEnsureObservabilityCredentials_GeneratesCredentials(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
@@ -307,7 +559,9 @@ func TestEnsureObservabilityCredentials_GeneratesCredentials(t *testing.T) {
 func TestEnsureObservabilityCredentials_PreservesExisting(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=myuser\nOS_PASSWORD=mypass\nOS_PASSWORD_HASH=$2a$10$fakehash\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=myuser\nOS_PASSWORD=mypass\nOS_PASSWORD_HASH=$2a$10$fakehash\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
@@ -332,9 +586,15 @@ func TestEnsureObservabilityCredentials_PreservesExisting(t *testing.T) {
 func TestRewriteCaddy_Observable(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")
-	os.MkdirAll(configDir, 0755)
-	os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=admin\nOS_PASSWORD_HASH=$2a$10$testhash\n"), 0644)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=admin\nOS_PASSWORD_HASH=$2a$10$testhash\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := RewriteCaddy(dir); err != nil {
 		t.Fatalf("RewriteCaddy() error = %v", err)
@@ -363,9 +623,15 @@ func TestRewriteCaddy_Observable(t *testing.T) {
 func TestRewriteCaddy_ObservableMissingCredentials(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")
-	os.MkdirAll(configDir, 0755)
-	os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte("wikis:\n  - id: main\n    url: example.com\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	err := RewriteCaddy(dir)
 	if err == nil {
@@ -379,7 +645,9 @@ func TestRewriteCaddy_ObservableMissingCredentials(t *testing.T) {
 func TestEnsureObservabilityCredentials_ValidBcryptHash(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
@@ -397,7 +665,9 @@ func TestEnsureObservabilityCredentials_PartialCredentials(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 	// OS_USER set but OS_PASSWORD and OS_PASSWORD_HASH missing
-	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=customuser\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\nOS_USER=customuser\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	active, err := EnsureObservabilityCredentials(dir)
 	if err != nil {
@@ -557,7 +827,7 @@ func TestUpdateEnvFile(t *testing.T) {
 				}
 			}
 
-			err := UpdateEnvFile(customPath, subDir, subDir, tt.argRootDB, tt.argWikiDB)
+			err := UpdateEnvFile(customPath, subDir, tt.argRootDB, tt.argWikiDB)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("UpdateEnvFile() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -573,6 +843,28 @@ func TestUpdateEnvFile(t *testing.T) {
 						t.Errorf("env[%q] = %q, want %q", k, gotV, wantV)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestNormalizeWikiID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{name: "spaces to underscores", id: "my wiki", want: "my_wiki"},
+		{name: "strip non alphanumeric", id: "my@wiki!", want: "mywiki"},
+		{name: "already normalized", id: "my_wiki", want: "my_wiki"},
+		{name: "empty", id: "", want: ""},
+		{name: "multiple spaces", id: "my  wiki  name", want: "my__wiki__name"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NormalizeWikiID(tc.id); got != tc.want {
+				t.Errorf("NormalizeWikiID(%q) = %q, want %q", tc.id, got, tc.want)
 			}
 		})
 	}

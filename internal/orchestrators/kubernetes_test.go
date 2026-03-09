@@ -9,10 +9,10 @@ import (
 
 func TestGetNamespaceFromPath(t *testing.T) {
 	tests := []struct {
-		name      string
-		content   string
-		wantNS    string
-		wantErr   bool
+		name    string
+		content string
+		wantNS  string
+		wantErr bool
 	}{
 		{
 			name:    "standard namespace",
@@ -316,9 +316,9 @@ func TestInitConfigNamespaceFromPath(t *testing.T) {
 
 // setupTestInstallation creates a minimal installation directory for testing
 // generateKustomization. Returns the install path.
-func setupTestInstallation(t *testing.T, name string) string {
+func setupTestInstallation(t *testing.T) string {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), name)
+	dir := filepath.Join(t.TempDir(), "test-wiki")
 	configDir := filepath.Join(dir, "config")
 	globalDir := filepath.Join(configDir, "settings", "global")
 	if err := os.MkdirAll(globalDir, 0755); err != nil {
@@ -341,7 +341,7 @@ func setupTestInstallation(t *testing.T, name string) string {
 }
 
 func TestGenerateKustomizationGlobalSettings(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, false); err != nil {
@@ -381,7 +381,7 @@ func TestGenerateKustomizationGlobalSettings(t *testing.T) {
 }
 
 func TestGenerateKustomizationCustomGlobalFile(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	// Add a custom PHP file
 	globalDir := filepath.Join(dir, "config", "settings", "global")
@@ -413,7 +413,7 @@ func TestGenerateKustomizationCustomGlobalFile(t *testing.T) {
 }
 
 func TestGenerateKustomizationPerWikiSettings(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	// Create per-wiki settings directory with a file
 	wikiDir := filepath.Join(dir, "config", "settings", "wikis", "main")
@@ -450,7 +450,7 @@ func TestGenerateKustomizationPerWikiSettings(t *testing.T) {
 }
 
 func TestGenerateKustomizationEmptyWikiDir(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	// Create wiki settings directory with only a README (should be excluded)
 	wikiDir := filepath.Join(dir, "config", "settings", "wikis", "main")
@@ -479,7 +479,7 @@ func TestGenerateKustomizationEmptyWikiDir(t *testing.T) {
 }
 
 func TestGenerateKustomizationLocalSettings(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	// Create LocalSettings.php
 	if err := os.WriteFile(filepath.Join(dir, "config", "LocalSettings.php"), []byte("<?php\n"), 0644); err != nil {
@@ -509,7 +509,7 @@ func TestGenerateKustomizationLocalSettings(t *testing.T) {
 }
 
 func TestGenerateKustomizationNoLocalSettings(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, false); err != nil {
@@ -529,7 +529,7 @@ func TestGenerateKustomizationNoLocalSettings(t *testing.T) {
 }
 
 func TestGenerateKustomizationNodePort(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, true); err != nil {
@@ -551,7 +551,7 @@ func TestGenerateKustomizationNodePort(t *testing.T) {
 }
 
 func TestGenerateKustomizationNoNodePort(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, false); err != nil {
@@ -581,10 +581,12 @@ func TestRunBackupRejectsLocalRepo(t *testing.T) {
 }
 
 func TestGenerateKustomizationObservabilityEnabled(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 	// Enable observability
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, false); err != nil {
@@ -618,13 +620,13 @@ func TestGenerateKustomizationObservabilityEnabled(t *testing.T) {
 	if !strings.Contains(text, "caddy-logs") {
 		t.Error("kustomization.yaml should contain caddy-logs PVC reference")
 	}
-	if !strings.Contains(text, "mysql-logs") {
-		t.Error("kustomization.yaml should contain mysql-logs PVC reference")
+	if !strings.Contains(text, "mariadb-logs") {
+		t.Error("kustomization.yaml should contain mariadb-logs PVC reference")
 	}
 }
 
 func TestGenerateKustomizationObservabilityDisabled(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, false); err != nil {
@@ -647,10 +649,12 @@ func TestGenerateKustomizationObservabilityDisabled(t *testing.T) {
 }
 
 func TestKubernetesMigrateConfigObservability(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 	// Enable observability but don't provide credentials
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("CANASTA_ENABLE_OBSERVABILITY=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	k := &KubernetesOrchestrator{}
 	changed, err := k.MigrateConfig(dir, false)
@@ -676,7 +680,7 @@ func TestKubernetesMigrateConfigObservability(t *testing.T) {
 }
 
 func TestKubernetesMigrateConfigNoObservability(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	k := &KubernetesOrchestrator{}
 	changed, err := k.MigrateConfig(dir, false)
@@ -689,10 +693,12 @@ func TestKubernetesMigrateConfigNoObservability(t *testing.T) {
 }
 
 func TestGenerateKustomizationElasticsearchEnabled(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 	// Enable Elasticsearch
 	envPath := filepath.Join(dir, ".env")
-	os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_ELASTICSEARCH=true\n"), 0644)
+	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://example.com\nCANASTA_ENABLE_ELASTICSEARCH=true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, false); err != nil {
@@ -717,7 +723,7 @@ func TestGenerateKustomizationElasticsearchEnabled(t *testing.T) {
 }
 
 func TestGenerateKustomizationElasticsearchDisabled(t *testing.T) {
-	dir := setupTestInstallation(t, "test-wiki")
+	dir := setupTestInstallation(t)
 
 	k := &KubernetesOrchestrator{}
 	if err := k.generateKustomization(dir, false); err != nil {

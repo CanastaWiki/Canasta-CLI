@@ -3,7 +3,6 @@ package execute
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os/exec"
 	"strings"
 
@@ -24,7 +23,7 @@ func (w *writerWithPrint) String() string {
 }
 
 // RunFunc is the signature for the command execution function.
-type RunFunc func(path, command string, cmdArgs ...string) (error, string)
+type RunFunc func(path, command string, cmdArgs ...string) (string, error)
 
 // Run is the package-level function variable for executing commands.
 // Tests can replace this with a mock implementation.
@@ -33,7 +32,7 @@ var Run RunFunc = defaultRun
 // ResetForTesting restores Run to the default implementation.
 func ResetForTesting() { Run = defaultRun }
 
-func defaultRun(path, command string, cmdArgs ...string) (error, string) {
+func defaultRun(path, command string, cmdArgs ...string) (string, error) {
 	outWriter := &writerWithPrint{}
 	errWriter := &writerWithPrint{}
 
@@ -45,20 +44,20 @@ func defaultRun(path, command string, cmdArgs ...string) (error, string) {
 	}
 
 	logging.Print(fmt.Sprint(command, " ", strings.Join(cmdArgs, " ")))
-	cmd := exec.Command("bash", "-c", command+" "+strings.Join(cmdArgs, " "))
-	cmd.Stdout = io.MultiWriter(outWriter)
-	cmd.Stderr = io.MultiWriter(errWriter)
+	cmd := exec.Command(command, cmdArgs...)
+	cmd.Stdout = outWriter
+	cmd.Stderr = errWriter
 
 	if path != "" {
 		cmd.Dir = path
 	}
 
 	if err := cmd.Start(); err != nil {
-		return err, ""
+		return "", err
 	}
 
 	err := cmd.Wait()
 	output := outWriter.String() + errWriter.String()
 
-	return err, output
+	return output, err
 }

@@ -20,7 +20,7 @@
 
 A wiki farm is a single Canasta installation that hosts multiple wikis. All wikis in a farm share the same MediaWiki software, Docker containers, Caddy reverse proxy, and can share global PHP settings, extensions, and skins. At the same time, each wiki has its own:
 
-- **Database** — a separate MySQL database named after the wiki ID
+- **Database** — a separate MariaDB database named after the wiki ID
 - **Image directory** — uploaded files are stored per-wiki
 - **Settings** — each wiki can have its own PHP settings files and can enable or disable extensions and skins independently
 - **Admin account** — each wiki gets its own admin user and password
@@ -45,7 +45,8 @@ canasta create -i myfarm -w mainwiki -n example.com
 # Add a second wiki at example.com/docs
 canasta add -i myfarm -w docs -u example.com/docs
 # Add a third wiki at example.com/internal
-canasta add -i myfarm -w internal -u example.com/internal```
+canasta add -i myfarm -w internal -u example.com/internal
+```
 
 Users access these at `https://example.com`, `https://example.com/docs`, and `https://example.com/internal`.
 
@@ -54,14 +55,20 @@ Users access these at `https://example.com`, `https://example.com/docs`, and `ht
 Each wiki uses a different subdomain. This requires DNS records pointing each subdomain to your Canasta server. Caddy handles SSL/HTTPS automatically for all configured domains.
 
 ```bash
-canasta create -i myfarm -w mainwiki -n wiki.example.comcanasta add -i myfarm -w docs -u docs.example.comcanasta add -i myfarm -w community -u community.example.com```
+canasta create -i myfarm -w mainwiki -n wiki.example.com
+canasta add -i myfarm -w docs -u docs.example.com
+canasta add -i myfarm -w community -u community.example.com
+```
 
 ### Mixed
 
 You can combine both approaches:
 
 ```bash
-canasta create -i myfarm -w mainwiki -n example.comcanasta add -i myfarm -w docs -u example.com/docscanasta add -i myfarm -w community -u community.example.com```
+canasta create -i myfarm -w mainwiki -n example.com
+canasta add -i myfarm -w docs -u example.com/docs
+canasta add -i myfarm -w community -u community.example.com
+```
 
 ---
 

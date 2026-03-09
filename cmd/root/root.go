@@ -2,18 +2,19 @@ package cmd
 
 import (
 	addCmd "github.com/CanastaWiki/Canasta-CLI/cmd/add"
+	backupCmd "github.com/CanastaWiki/Canasta-CLI/cmd/backup"
 	configCmd "github.com/CanastaWiki/Canasta-CLI/cmd/config"
 	createCmd "github.com/CanastaWiki/Canasta-CLI/cmd/create"
 	deleteCmd "github.com/CanastaWiki/Canasta-CLI/cmd/delete"
 	devmodeCmd "github.com/CanastaWiki/Canasta-CLI/cmd/devmode"
 	exportCmd "github.com/CanastaWiki/Canasta-CLI/cmd/export"
 	extensionCmd "github.com/CanastaWiki/Canasta-CLI/cmd/extension"
+	gitopsCmd "github.com/CanastaWiki/Canasta-CLI/cmd/gitops"
 	importCmd "github.com/CanastaWiki/Canasta-CLI/cmd/import"
 	listCmd "github.com/CanastaWiki/Canasta-CLI/cmd/list"
-	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI/cmd/maintenanceUpdate"
+	maintenanceCmd "github.com/CanastaWiki/Canasta-CLI/cmd/maintenance"
 	removeCmd "github.com/CanastaWiki/Canasta-CLI/cmd/remove"
 	restartCmd "github.com/CanastaWiki/Canasta-CLI/cmd/restart"
-	backupCmd "github.com/CanastaWiki/Canasta-CLI/cmd/backup"
 	sitemapCmd "github.com/CanastaWiki/Canasta-CLI/cmd/sitemap"
 	skinCmd "github.com/CanastaWiki/Canasta-CLI/cmd/skin"
 	startCmd "github.com/CanastaWiki/Canasta-CLI/cmd/start"
@@ -38,11 +39,11 @@ and backing up multiple Canasta instances, including wiki farms with multiple
 wikis per instance.`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+	PersistentPreRun: func(_ *cobra.Command, _ []string) {
 		logging.SetVerbose(verbose)
-		logging.Print("Setting verbose")
+		logging.Print("Verbose logging enabled")
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(cmd *cobra.Command, _ []string) {
 		_ = cmd.Help()
 	},
 }
@@ -62,25 +63,26 @@ func GetRootCmd() *cobra.Command {
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 
-	rootCmd.AddCommand(configCmd.NewCmdCreate())
-	rootCmd.AddCommand(createCmd.NewCmdCreate())
-	rootCmd.AddCommand(deleteCmd.NewCmdCreate())
-	rootCmd.AddCommand(devmodeCmd.NewCmdCreate())
-	rootCmd.AddCommand(exportCmd.NewCmdCreate())
-	rootCmd.AddCommand(extensionCmd.NewCmdCreate())
-	rootCmd.AddCommand(importCmd.NewCmdCreate())
-	rootCmd.AddCommand(listCmd.NewCmdCreate())
-	rootCmd.AddCommand(maintenanceCmd.NewCmdCreate())
-	rootCmd.AddCommand(restartCmd.NewCmdCreate())
-	rootCmd.AddCommand(backupCmd.NewCmdCreate())
-	rootCmd.AddCommand(sitemapCmd.NewCmdCreate())
-	rootCmd.AddCommand(skinCmd.NewCmdCreate())
-	rootCmd.AddCommand(startCmd.NewCmdCreate())
-	rootCmd.AddCommand(stopCmd.NewCmdCreate())
-	rootCmd.AddCommand(upgradeCmd.NewCmdCreate())
-	rootCmd.AddCommand(versionCmd.NewCmdCreate())
-	rootCmd.AddCommand(addCmd.NewCmdCreate())
-	rootCmd.AddCommand(removeCmd.NewCmdCreate())
+	rootCmd.AddCommand(configCmd.NewCmd())
+	rootCmd.AddCommand(createCmd.NewCmd())
+	rootCmd.AddCommand(deleteCmd.NewCmd())
+	rootCmd.AddCommand(devmodeCmd.NewCmd())
+	rootCmd.AddCommand(exportCmd.NewCmd())
+	rootCmd.AddCommand(extensionCmd.NewCmd())
+	rootCmd.AddCommand(gitopsCmd.NewCmd())
+	rootCmd.AddCommand(importCmd.NewCmd())
+	rootCmd.AddCommand(listCmd.NewCmd())
+	rootCmd.AddCommand(maintenanceCmd.NewCmd())
+	rootCmd.AddCommand(restartCmd.NewCmd())
+	rootCmd.AddCommand(backupCmd.NewCmd())
+	rootCmd.AddCommand(sitemapCmd.NewCmd())
+	rootCmd.AddCommand(skinCmd.NewCmd())
+	rootCmd.AddCommand(startCmd.NewCmd())
+	rootCmd.AddCommand(stopCmd.NewCmd())
+	rootCmd.AddCommand(upgradeCmd.NewCmd())
+	rootCmd.AddCommand(versionCmd.NewCmd())
+	rootCmd.AddCommand(addCmd.NewCmd())
+	rootCmd.AddCommand(removeCmd.NewCmd())
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	// Add config file location to help output

@@ -4,6 +4,7 @@ This page covers foundational concepts that apply to all Canasta installations, 
 
 ## Contents
 
+- [System requirements](#system-requirements)
 - [Installation IDs](#installation-ids)
 - [Wiki IDs](#wiki-ids)
 - [Installation directory structure](#installation-directory-structure)
@@ -18,6 +19,16 @@ This page covers foundational concepts that apply to all Canasta installations, 
 - [Custom Canasta images](#custom-canasta-images)
 - [Deploying behind a reverse proxy](#deploying-behind-a-reverse-proxy)
 - [Running on non-standard ports](#running-on-non-standard-ports)
+  - [TLS certificates and non-standard ports](#tls-certificates-and-non-standard-ports)
+- [Changing the domain name](#changing-the-domain-name)
+
+---
+
+## System requirements
+
+Canasta requires at least **4 GB of available memory** to run. The `canasta create` command checks available memory before proceeding and will exit with an error if the system does not meet this requirement.
+
+For production use, 8 GB or more of total system memory is recommended, especially if Elasticsearch is enabled.
 
 ---
 
@@ -26,7 +37,8 @@ This page covers foundational concepts that apply to all Canasta installations, 
 Every Canasta installation has an **installation ID** — a name you choose when creating it with the `-i` flag:
 
 ```bash
-canasta create -i myinstance -w main -n localhost```
+canasta create -i myinstance -w main -n localhost
+```
 
 The installation ID is used to refer to the installation in all subsequent commands:
 
@@ -35,7 +47,7 @@ canasta start -i myinstance
 canasta extension list -i myinstance
 ```
 
-The `-i` flag is required for `canasta create` (since the installation directory doesn't exist yet). For all other commands, `-i` is optional if you run the command from within the installation directory.
+The `-i` flag is required for `canasta create` (since the installation directory doesn't exist yet). For all other commands, `-i` is optional if you run the command from within the installation directory or any of its subdirectories (e.g., `config/settings/`).
 
 Installation IDs must start and end with an alphanumeric character and may contain letters, digits, hyphens (`-`), and underscores (`_`).
 
@@ -50,7 +62,7 @@ canasta create -i myinstance -w main -n localhost
 ```
 Even a single-wiki installation requires a wiki ID. The wiki ID is used as:
 
-- The MySQL database name for that wiki
+- The MariaDB database name for that wiki
 - The directory name under `config/settings/wikis/`
 - The suffix in the admin password file (`config/admin-password_{wikiid}`)
 - The value passed to `-w` in commands like `canasta extension`, `canasta remove`, and `canasta export`
@@ -93,6 +105,14 @@ The CLI maintains a registry of all installations in a `conf.json` file. The loc
 - **Linux (root)**: `/etc/canasta/conf.json`
 - **Linux (non-root)**: `~/.config/canasta/conf.json`
 - **macOS**: `~/Library/Application Support/canasta/conf.json`
+
+To override the default location, set the `CANASTA_CONFIG_DIR` environment variable. This takes priority over the platform defaults and is useful when multiple sysops need to share a single installation registry:
+
+```bash
+export CANASTA_CONFIG_DIR=/shared/canasta-config
+```
+
+The directory is created automatically if it does not exist.
 
 Example:
 
@@ -139,7 +159,7 @@ The `url` field uses `domain/path` format without the protocol. The Caddyfile is
 The `name` field in `wikis.yaml` controls the wiki's display name (`$wgSitename` in MediaWiki). It defaults to the wiki ID if not set. The name is initially set with the `-t` (`--site-name`) flag of `canasta create` or `canasta add`:
 
 ```bash
-canasta create -i myinstance -w docs -n example.com-t "Project Documentation"
+canasta create -i myinstance -w docs -n example.com -t "Project Documentation"
 ```
 
 To change it later, edit the `name` field directly in `config/wikis.yaml`:
@@ -168,6 +188,14 @@ Example `Caddyfile.site`:
 ```
 header X-Frame-Options "SAMEORIGIN"
 header X-Content-Type-Options "nosniff"
+```
+
+Example `Caddyfile.global` — redirect `www.example.com` to `example.com` so both domains reach the same wiki:
+
+```
+www.example.com {
+    redir https://example.com{uri} permanent
+}
 ```
 
 See the [Caddy documentation](https://caddyserver.com/docs/caddyfile/directives) for available directives.
@@ -264,19 +292,22 @@ Use this option for fully private wikis where the logo should not be visible to 
 To migrate an existing MediaWiki installation into Canasta, prepare a database dump (`.sql` or `.sql.gz` file) and pass it with the `-d` flag:
 
 ```bash
-canasta create -i myinstance -w main -n localhost -d ./backup.sql.gz```
+canasta create -i myinstance -w main -n localhost -d ./backup.sql.gz
+```
 
 You can also provide a per-wiki settings file and an environment file with password overrides:
 
 ```bash
-canasta create -i myinstance -w main -n localhost -d ./backup.sql.gz -l ./my-settings.php -e ./custom.env```
+canasta create -i myinstance -w main -n localhost -d ./backup.sql.gz -l ./my-settings.php -e ./custom.env
+```
 
 The `-l` flag (`--wiki-settings`) copies the specified file to `config/settings/wikis/{wiki-id}/`, preserving the filename. Use it to bring over custom settings from an existing wiki.
 
 To import a database into an additional wiki in an existing installation, use `canasta add` with the `--database` flag:
 
 ```bash
-canasta add -i myinstance -w docs -u example.com/docs -d ./docs-backup.sql.gz```
+canasta add -i myinstance -w docs -u example.com/docs -d ./docs-backup.sql.gz
+```
 
 See the [CLI Reference](../cli/canasta_create.md) for the full list of flags.
 
@@ -439,7 +470,7 @@ CADDY_AUTO_HTTPS=off
 ```
 
 ```bash
-canasta create -i myinstance -w main -n example.com-e custom.env
+canasta create -i myinstance -w main -n example.com -e custom.env
 ```
 
 This generates a Caddyfile with `http://` site addresses so Caddy listens on port 80 only.
@@ -471,7 +502,7 @@ HTTPS_PORT=8443
 ```
 
 ```bash
-canasta create -i staging -w testwiki -n localhost:8443-e custom.env
+canasta create -i staging -w testwiki -n localhost:8443 -e custom.env
 ```
 
 ### Existing installation
@@ -496,27 +527,47 @@ Each installation must use unique ports. This applies to both Docker Compose and
 # Docker Compose installation on default ports (80/443)
 canasta create -i production -w mainwiki -n localhost
 # Docker Compose installation on custom ports
-canasta create -i staging -w testwiki -n localhost:8443-e custom.env
+canasta create -i staging -w testwiki -n localhost:8443 -e custom.env
 
 # Local Kubernetes installation on different custom ports
-canasta create -o k8s --create-cluster -i dev-k8s -w devwiki -n localhost:9443-e another.env
+canasta create -o k8s --create-cluster -i dev-k8s -w devwiki -n localhost:9443 -e another.env
 ```
 
 Access them at `https://localhost`, `https://localhost:8443`, and `https://localhost:9443`.
+
+### TLS certificates and non-standard ports
+
+When Canasta is configured with a real domain name, Caddy automatically obtains a TLS certificate from Let's Encrypt. This uses the ACME HTTP-01 challenge, which requires Let's Encrypt to connect to **port 80** on your server. If you set `HTTP_PORT` to a non-standard value, the challenge will fail because Let's Encrypt cannot reach Caddy on port 80.
+
+Non-standard ports are therefore intended for **local development and testing** (e.g., `localhost:8443`), not for production deployments with automatic TLS.
+
+If you need to run multiple Canasta installations with TLS on the same server, place a shared reverse proxy (such as Caddy or nginx) in front of all instances. The reverse proxy holds ports 80/443, obtains the certificates, and forwards traffic to each Canasta instance on its internal ports. In this setup, each Canasta instance should set `CADDY_AUTO_HTTPS=off` in its `.env` file so its built-in Caddy does not attempt its own ACME challenges.
 
 ---
 
 ## Changing the domain name
 
-The domain name for each wiki is stored in `config/wikis.yaml`. When you change it, you must also update `MW_SITE_SERVER` and `MW_SITE_FQDN` in `.env` and regenerate the Caddyfile.
+The domain name for each wiki is stored in `config/wikis.yaml`. The `.env` file also contains two domain-related variables:
+
+- `MW_SITE_SERVER` — the full URL of the primary wiki (e.g., `https://example.com`)
+- `MW_SITE_FQDN` — the domain name of the primary wiki (e.g., `example.com`)
+
+These refer specifically to the primary (first) wiki in the installation. In a [wiki farm](wiki-farms.md), additional wikis may use the same domain (path-based) or different domains (subdomain-based), and their URLs are managed entirely in `wikis.yaml`.
+
+### Single wiki or path-based farm
+
+When all wikis share the same domain, changing the domain requires updating both `wikis.yaml` and `.env`:
 
 1. Edit `config/wikis.yaml` and update the `url` field for each wiki:
 
    ```yaml
    wikis:
-   - id: wiki1
+   - id: main
      url: newdomain.example.com
-     name: wiki1
+     name: main
+   - id: docs
+     url: newdomain.example.com/docs
+     name: docs
    ```
 
 2. Update the `.env` variables to match and restart:
@@ -526,5 +577,15 @@ The domain name for each wiki is stored in `config/wikis.yaml`. When you change 
    ```
 
    This triggers a restart, which regenerates the Caddyfile from the updated `wikis.yaml`.
+
+### Subdomain-based farm
+
+When wikis use different subdomains, you only need to update `MW_SITE_SERVER` and `MW_SITE_FQDN` if the primary wiki's domain is changing. To change another wiki's domain, edit its `url` in `wikis.yaml` and restart:
+
+```bash
+canasta restart -i myinstance
+```
+
+### Port changes
 
 If you are also changing the port, use `canasta config set HTTPS_PORT=<port>` instead — it updates `wikis.yaml`, `MW_SITE_SERVER`, and `MW_SITE_FQDN` automatically. See [Running on non-standard ports](#running-on-non-standard-ports).

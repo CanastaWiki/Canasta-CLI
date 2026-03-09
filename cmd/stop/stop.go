@@ -2,21 +2,21 @@ package stop
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func NewCmdCreate() *cobra.Command {
+func NewCmd() *cobra.Command {
 	var instance config.Installation
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		logging.Fatal(err)
 	}
 	instance.Path = workingDir
 
@@ -27,15 +27,15 @@ func NewCmdCreate() *cobra.Command {
 are stopped gracefully, preserving all data in Docker volumes.`,
 		Example: `  # Stop an installation by ID
   canasta stop -i myinstance`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta stop --id %s)", args[0], args[0])
 			}
-			resolvedInstance, err := canasta.CheckCanastaId(instance)
+			resolvedInstance, err := canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
 			}
-			fmt.Println("Stopping Canasta installation '" + resolvedInstance.Id + "'...")
+			fmt.Println("Stopping Canasta installation '" + resolvedInstance.ID + "'...")
 			if err = Stop(resolvedInstance); err != nil {
 				return err
 			}
@@ -43,7 +43,7 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 			return nil
 		},
 	}
-	stopCmd.Flags().StringVarP(&instance.Id, "id", "i", "", "Canasta instance ID")
+	stopCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
 	return stopCmd
 }
 

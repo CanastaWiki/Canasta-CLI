@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 )
 
-func getCmdCreate() *cobra.Command {
+func newGetCmd(instance *config.Installation) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "get [KEY]",
@@ -22,7 +22,7 @@ With no arguments, prints all settings sorted alphabetically as KEY=VALUE lines.
 With a KEY argument, prints just the value (no KEY= prefix) for easy scripting.
 Key lookup is case-insensitive.`,
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			envPath := filepath.Join(instance.Path, ".env")
 			envVars, err := canasta.GetEnvVariable(envPath)
 			if err != nil {
@@ -57,17 +57,4 @@ Key lookup is case-insensitive.`,
 
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow querying unrecognized keys")
 	return cmd
-}
-
-// resolveKey finds the actual key in envVars using case-insensitive matching
-// with hyphens treated as underscores. If no match is found, returns the
-// input uppercased with hyphens replaced by underscores.
-func resolveKey(envVars map[string]string, input string) string {
-	normalized := strings.ReplaceAll(input, "-", "_")
-	for k := range envVars {
-		if strings.EqualFold(k, normalized) {
-			return k
-		}
-	}
-	return strings.ToUpper(normalized)
 }

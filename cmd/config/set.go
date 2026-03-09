@@ -2,8 +2,8 @@ package config
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,6 +16,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
+	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
 type sideEffect struct {
@@ -63,8 +64,9 @@ var knownKeys = map[string]bool{
 	"CANASTA_ENABLE_ELASTICSEARCH":  true,
 	"CANASTA_ENABLE_OBSERVABILITY":  true,
 	"CANASTA_ENABLE_WIKI_DIRECTORY": true,
-	// Email
-	"MW_ENABLE_POSTFIX": true,
+	// MediaWiki site
+	"MW_SITE_SERVER": true,
+	"MW_SITE_FQDN":   true,
 	// Caddy / TLS
 	"CADDY_AUTO_HTTPS": true,
 	// Docker Image
@@ -79,30 +81,15 @@ var knownKeys = map[string]bool{
 // of these prefixes is treated as known.
 var resticPrefixes = []string{"AWS_", "AZURE_", "B2_", "GOOGLE_", "OS_", "ST_", "RCLONE_"}
 
-// isKnownKey reports whether key is in the knownKeys set or matches a
-// Restic backend prefix.
-func isKnownKey(key string) bool {
-	if knownKeys[key] {
-		return true
-	}
-	for _, prefix := range resticPrefixes {
-		if strings.HasPrefix(key, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-var noRestart bool
-
 // setting is a parsed KEY=VALUE pair.
 type setting struct {
 	key   string
 	value string
 }
 
-func setCmdCreate() *cobra.Command {
+func newSetCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
 	var force bool
+	var noRestart bool
 	cmd := &cobra.Command{
 		Use:   "set KEY=VALUE [KEY=VALUE ...]",
 		Short: "Change a configuration setting",
@@ -118,7 +105,7 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
   canasta config set HTTP_PORT=8080 HTTPS_PORT=8443 -i myinstance
   canasta config set CANASTA_ENABLE_OBSERVABILITY=true -i myinstance`,
 		Args: cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			envPath := filepath.Join(instance.Path, ".env")
 			envVars, err := canasta.GetEnvVariable(envPath)
 			if err != nil {
@@ -149,7 +136,7 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 			// Validate all before saving any
 			for _, s := range settings {
 				if se, ok := sideEffects[s.key]; ok && se.validate != nil {
-					if err := se.validate(instance, s.value); err != nil {
+					if err := se.validate(*instance, s.value); err != nil {
 						return err
 					}
 				}
@@ -166,7 +153,7 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 			// Apply side effects
 			for _, s := range settings {
 				if se, ok := sideEffects[s.key]; ok && se.apply != nil {
-					if err := se.apply(instance, s.value); err != nil {
+					if err := se.apply(*instance, s.value); err != nil {
 						return fmt.Errorf("side effect for %s failed: %w", s.key, err)
 					}
 				}
@@ -177,30 +164,14 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 				return nil
 			}
 
-			// Restart: UpdateConfig → Stop → (recreate kind cluster if needed) → Start
-			fmt.Println("Applying configuration and restarting...")
-			if err := orch.UpdateConfig(instance.Path); err != nil {
-				return fmt.Errorf("failed to update config: %w", err)
-			}
-			if err := orch.Stop(instance); err != nil {
-				return fmt.Errorf("failed to stop instance: %w", err)
-			}
-			// Recreate kind cluster at most once if any port key changed
-			if instance.KindCluster != "" {
-				for _, s := range settings {
-					if portKeys[s.key] {
-						if err := recreateKindCluster(instance); err != nil {
-							return err
-						}
-						break
-					}
+			portKeyChanged := false
+			for _, s := range settings {
+				if portKeys[s.key] {
+					portKeyChanged = true
+					break
 				}
 			}
-			if err := orch.Start(instance); err != nil {
-				return fmt.Errorf("failed to start instance: %w", err)
-			}
-			fmt.Println("Done.")
-			return nil
+			return restartInstance(orch, *instance, portKeyChanged)
 		},
 	}
 
@@ -210,7 +181,7 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 }
 
 // validatePort checks that the value is a valid port number.
-func validatePort(inst config.Installation, value string) error {
+func validatePort(_ config.Installation, value string) error {
 	port, err := strconv.Atoi(value)
 	if err != nil || port < 1 || port > 65535 {
 		return fmt.Errorf("invalid port number: %s", value)
@@ -225,7 +196,7 @@ func applyHTTPSPortChange(inst config.Installation, newPort string) error {
 	envPath := filepath.Join(inst.Path, ".env")
 
 	// Read wikis.yaml
-	data, err := ioutil.ReadFile(wikisPath)
+	data, err := os.ReadFile(wikisPath)
 	if err != nil {
 		return fmt.Errorf("failed to read wikis.yaml: %w", err)
 	}
@@ -244,7 +215,7 @@ func applyHTTPSPortChange(inst config.Installation, newPort string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal wikis.yaml: %w", err)
 	}
-	if err := ioutil.WriteFile(wikisPath, out, 0644); err != nil {
+	if err := os.WriteFile(wikisPath, out, permissions.FilePermission); err != nil {
 		return fmt.Errorf("failed to write wikis.yaml: %w", err)
 	}
 	logging.Print("Updated wikis.yaml with new port\n")

@@ -10,12 +10,10 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-var (
-	instance config.Installation
-	cleanup  bool
-)
+func NewCmd() *cobra.Command {
+	var instance config.Installation
+	var cleanup bool
 
-func NewCmdCreate() *cobra.Command {
 	var listCmd = &cobra.Command{
 		Use:   "list",
 		Short: "List all Canasta installations",
@@ -25,7 +23,7 @@ ID, path, and orchestrator as recorded in the Canasta configuration file.
 Use --cleanup to remove stale entries whose installation directories no longer exist.`,
 		Example: `  canasta list
   canasta list --cleanup`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			return List(instance, cleanup)
 		},
 	}
@@ -33,7 +31,7 @@ Use --cleanup to remove stale entries whose installation directories no longer e
 	return listCmd
 }
 
-func List(instance config.Installation, cleanup bool) error {
+func List(_ config.Installation, cleanup bool) error {
 	if cleanup {
 		installations, err := config.GetAll()
 		if err != nil {
