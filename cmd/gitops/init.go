@@ -330,12 +330,18 @@ func convertToSubmodules(installPath, dirName string) error {
 	return nil
 }
 
-// removeLegacyGitignores removes .gitignore files from extensions/ and skins/
-// that were created by the old Canasta-DockerCompose installation template.
-// These files ignore everything except .gitignore itself, which would prevent
-// gitops from tracking extensions and skins.
+// removeLegacyGitignores removes .gitignore files left over from the old
+// Canasta-DockerCompose installation template. These files ignore everything
+// except .gitignore itself, which prevents gitops from tracking the contents
+// of these directories.
 func removeLegacyGitignores(installPath string) {
-	for _, dirName := range []string{"extensions", "skins"} {
+	dirs := []string{
+		"extensions",
+		"skins",
+		"config",
+		filepath.Join("config", "settings"),
+	}
+	for _, dirName := range dirs {
 		gi := filepath.Join(installPath, dirName, ".gitignore")
 		if _, err := os.Stat(gi); err == nil {
 			if err := os.Remove(gi); err == nil {
