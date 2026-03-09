@@ -91,9 +91,15 @@ If you don't have an installation yet:
 canasta create -i mywiki -w main -n wiki.example.com
 ```
 
-### 2. (Optional) Define custom keys
+### 2. Check for custom secrets
 
-If you use custom environment variables in your PHP settings (e.g., `getenv('MY_API_KEY')`), create a `custom-keys.yaml` file in the installation directory before running init:
+Before initializing gitops, review your `.env` file for any secrets or host-specific values beyond the built-in set. Gitops automatically extracts the following into encrypted per-host variables:
+
+- **Database and MediaWiki secrets:** `MYSQL_PASSWORD`, `WIKI_DB_PASSWORD`, `MW_SECRET_KEY`
+- **Backup credentials:** `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`, and any key starting with `AWS_`, `AZURE_`, `B2_`, `GOOGLE_`, `OS_`, `ST_`, or `RCLONE_`
+- **Host-specific values:** `MW_SITE_SERVER`, `MW_SITE_FQDN`, `HTTP_PORT`, `HTTPS_PORT`
+
+Any `.env` key **not** in this list is committed as a literal value in `env.template`, which is **not encrypted**. If you have additional secrets (e.g., `getenv('MY_API_KEY')` in PHP settings, SMTP credentials), create a `custom-keys.yaml` file in the installation directory before running init:
 
 ```yaml
 keys:
@@ -106,6 +112,8 @@ Then set their values:
 ```bash
 canasta config set -i mywiki MY_API_KEY=... SMTP_PASSWORD=...
 ```
+
+If you don't have any custom secrets beyond the built-in set, you can skip this step.
 
 ### 3. Initialize gitops
 
@@ -168,7 +176,10 @@ At deploy time, `canasta gitops pull` renders the template with the host's vars 
 The following `.env` keys are automatically converted to placeholders:
 
 **Secrets** (differ per host):
-`MYSQL_PASSWORD`, `WIKI_DB_PASSWORD`, `MW_SECRET_KEY`
+`MYSQL_PASSWORD`, `WIKI_DB_PASSWORD`, `MW_SECRET_KEY`, `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`
+
+**Backup backend credentials** (auto-detected by prefix):
+Any key starting with `AWS_`, `AZURE_`, `B2_`, `GOOGLE_`, `OS_`, `ST_`, or `RCLONE_`
 
 **Host-specific values:**
 `MW_SITE_SERVER`, `MW_SITE_FQDN`, `HTTPS_PORT`, `HTTP_PORT`

@@ -90,6 +90,46 @@ HTTPS_PORT=443`
 	}
 }
 
+func TestExtractTemplateSecretPrefixes(t *testing.T) {
+	// Test credentials are fake/example values from AWS documentation.
+	//nolint:gosec
+	env := `RESTIC_REPOSITORY=rest:http://repo.example/repo
+RESTIC_PASSWORD=hunter2
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+B2_ACCOUNT_ID=abc123
+SOME_LITERAL=hello`
+
+	// Use AllPlaceholderKeys (which includes RESTIC_* as built-in secrets)
+	// with no custom keys. AWS_*/B2_* are caught by prefix detection.
+	tmpl, vars := ExtractTemplate(env, AllPlaceholderKeys(nil))
+
+	// All secret keys should be replaced with placeholders.
+	for _, key := range []string{"restic_repository", "restic_password",
+		"aws_access_key_id", "aws_secret_access_key", "b2_account_id"} {
+		if _, ok := vars[key]; !ok {
+			t.Errorf("expected %s in vars", key)
+		}
+	}
+
+	// Literal should remain.
+	if strings.Contains(tmpl, "{{some_literal}}") {
+		t.Error("SOME_LITERAL should not be a placeholder")
+	}
+	if !strings.Contains(tmpl, "SOME_LITERAL=hello") {
+		t.Error("SOME_LITERAL should remain as a literal")
+	}
+
+	// Verify round-trip.
+	rendered, err := RenderTemplate(tmpl, vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rendered != env {
+		t.Errorf("round-trip failed.\ngot:\n%s\nwant:\n%s", rendered, env)
+	}
+}
+
 func TestExtractAndRenderRoundTrip(t *testing.T) {
 	env := `MW_SITE_SERVER=https://wiki.example.com
 MYSQL_PASSWORD=secret123

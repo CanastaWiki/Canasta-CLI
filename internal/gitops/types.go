@@ -75,6 +75,8 @@ var builtinSecretKeys = []string{
 	"MYSQL_PASSWORD",
 	"WIKI_DB_PASSWORD",
 	"MW_SECRET_KEY",
+	"RESTIC_REPOSITORY",
+	"RESTIC_PASSWORD",
 }
 
 // builtinHostKeys are .env keys whose values are host-specific but not
@@ -84,4 +86,18 @@ var builtinHostKeys = []string{
 	"MW_SITE_FQDN",
 	"HTTPS_PORT",
 	"HTTP_PORT",
+}
+
+// builtinSecretPrefixes are .env key prefixes for backup backend
+// credentials. Any key matching one of these prefixes is automatically
+// treated as a secret placeholder. This matches the prefix list in
+// cmd/config/set.go.
+var builtinSecretPrefixes = []string{
+	"AWS_",
+	"AZURE_",
+	"B2_",
+	"GOOGLE_",
+	"OS_",
+	"ST_",
+	"RCLONE_",
 }
