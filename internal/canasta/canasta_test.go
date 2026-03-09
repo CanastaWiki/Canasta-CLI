@@ -689,6 +689,165 @@ func TestEnsureObservabilityCredentials_PartialCredentials(t *testing.T) {
 	}
 }
 
+func TestSavePasswordToFile(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		name      string
+		directory string
+		filename  string
+		password  string
+		wantErr   bool
+	}{
+		{
+			name:      "successful save",
+			directory: dir,
+			filename:  "success_pass.txt",
+			password:  "secure123",
+			wantErr:   false,
+		},
+		{
+			name:      "nonexistent directory error",
+			directory: filepath.Join(dir, "does_not_exist"),
+			filename:  "fail_pass.txt",
+			password:  "secure123",
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := SavePasswordToFile(tt.directory, tt.filename, tt.password)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("SavePasswordToFile() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !tt.wantErr {
+				filePath := filepath.Join(tt.directory, tt.filename)
+				data, err := os.ReadFile(filePath)
+				if err != nil {
+					t.Fatalf("Failed to read saved password file: %v", err)
+				}
+
+				if string(data) != tt.password {
+					t.Errorf("expected password file to contain %q, but got %q", tt.password, string(data))
+				}
+
+				info, err := os.Stat(filePath)
+				if err != nil {
+					t.Fatalf("Failed to stat saved password file: %v", err)
+				}
+
+				if info.Mode().Perm()&0002 != 0 {
+					t.Errorf("expected file to not be world-writable, got permissions: %v", info.Mode().Perm())
+				}
+			}
+		})
+	}
+}
+
+func TestUpdateEnvFile(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	wikiYamlPath := filepath.Join(configDir, "wikis.yaml")
+	wikiYamlContent := "wikis:\n  - id: main\n    url: example.com\n"
+	if err := os.WriteFile(wikiYamlPath, []byte(wikiYamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name          string
+		baseEnv       string
+		customEnv     string
+		customEnvName string
+		argRootDB     string
+		argWikiDB     string
+		wantEnv       map[string]string
+		wantErr       bool
+	}{
+		{
+			name:          "merge custom env and arguments",
+			baseEnv:       "EXISTING_KEY=base_value\nOVERRIDE_ME=old_value\n",
+			customEnvName: "custom.env",
+			customEnv:     "OVERRIDE_ME=new_value\nNEW_KEY=custom_value\nMYSQL_PASSWORD=custom_root_pass\nWIKI_DB_PASSWORD=custom_wiki_pass\n",
+			argRootDB:     "arg_root_pass",
+			argWikiDB:     "arg_wiki_pass",
+			wantEnv: map[string]string{
+				"EXISTING_KEY":   "base_value",
+				"OVERRIDE_ME":    "new_value",
+				"NEW_KEY":        "custom_value",
+				"MW_SITE_SERVER": "https://example.com",
+				"MW_SITE_FQDN":   "example.com",
+				// Arguments have priority for database secrets
+				"MYSQL_PASSWORD":   "arg_root_pass",
+				"WIKI_DB_PASSWORD": "arg_wiki_pass",
+			},
+			wantErr: false,
+		},
+		{
+			name:          "missing custom env file",
+			baseEnv:       "EXISTING_KEY=base_value\n",
+			customEnvName: "missing.env",
+			customEnv:     "",
+			argRootDB:     "root_pass",
+			argWikiDB:     "wiki_pass",
+			wantEnv:       nil,
+			wantErr:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subDir := t.TempDir()
+
+			subConfig := filepath.Join(subDir, "config")
+			if err := os.MkdirAll(subConfig, 0755); err != nil {
+				t.Fatalf("Failed to create subConfig dir: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(subConfig, "wikis.yaml"), []byte(wikiYamlContent), 0644); err != nil {
+				t.Fatalf("Failed to write wikis.yaml: %v", err)
+			}
+
+			baseEnvPath := filepath.Join(subDir, ".env")
+			if err := os.WriteFile(baseEnvPath, []byte(tt.baseEnv), 0644); err != nil {
+				t.Fatalf("Failed to write base .env: %v", err)
+			}
+
+			customPath := ""
+			if tt.customEnvName != "" {
+				customPath = filepath.Join(subDir, tt.customEnvName)
+				if tt.customEnv != "" {
+					if err := os.WriteFile(customPath, []byte(tt.customEnv), 0644); err != nil {
+						t.Fatalf("Failed to write custom .env: %v", err)
+					}
+				}
+			}
+
+			err := UpdateEnvFile(customPath, subDir, tt.argRootDB, tt.argWikiDB)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("UpdateEnvFile() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !tt.wantErr {
+				vars, err := GetEnvVariable(baseEnvPath)
+				if err != nil {
+					t.Fatalf("GetEnvVariable() error: %v", err)
+				}
+
+				for k, wantV := range tt.wantEnv {
+					if gotV := vars[k]; gotV != wantV {
+						t.Errorf("env[%q] = %q, want %q", k, gotV, wantV)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestNormalizeWikiID(t *testing.T) {
 	tests := []struct {
 		name string
