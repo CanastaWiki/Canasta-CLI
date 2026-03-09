@@ -31,7 +31,7 @@ The git repository contains:
 - **Environment template** — `env.template` with `{{placeholders}}` for host-specific values
 - **Per-host variables** — `hosts/{name}/vars.yaml` with secrets and host-specific values (encrypted by git-crypt)
 - **Host inventory** — `hosts.yaml` defining all servers and their roles
-- **Extensions and skins** — tracked as git submodules, pinned to specific versions
+- **Extensions and skins** — tracked as git submodules pinned to specific versions, or as regular files for custom extensions without their own repository
 - **Custom files** — `custom/` directory for Dockerfiles, scripts, or other deployment files
 - **Orchestrator overrides** — `docker-compose.override.yml` (if present)
 - **Public assets** — `public_assets/` directory (logos, favicons)
@@ -63,8 +63,8 @@ canasta-config/
 │           └── {wiki-id}/
 │               └── *.php
 ├── custom/                     # user files (Dockerfiles, extra configs, scripts)
-├── extensions/                 # git submodules
-├── skins/                      # git submodules
+├── extensions/                 # git submodules (or regular files for custom extensions)
+├── skins/                      # git submodules (or regular files for custom skins)
 ├── public_assets/
 ├── docker-compose.override.yml # if used
 ├── hosts/                      # per-host variables (encrypted by git-crypt)
@@ -91,9 +91,15 @@ If you don't have an installation yet:
 canasta create -i mywiki -w main -n wiki.example.com
 ```
 
-### 2. (Optional) Define custom keys
+### 2. Check for custom secrets
 
-If you use custom environment variables in your PHP settings (e.g., `getenv('MY_API_KEY')`), create a `custom-keys.yaml` file in the installation directory before running init:
+Before initializing gitops, review your `.env` file for any secrets or host-specific values beyond the built-in set. Gitops automatically extracts the following into encrypted per-host variables:
+
+- **Database and MediaWiki secrets:** `MYSQL_PASSWORD`, `WIKI_DB_PASSWORD`, `MW_SECRET_KEY`
+- **Backup credentials:** `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`, and any key starting with `AWS_`, `AZURE_`, `B2_`, `GOOGLE_`, `OS_`, `ST_`, or `RCLONE_`
+- **Host-specific values:** `MW_SITE_SERVER`, `MW_SITE_FQDN`, `HTTP_PORT`, `HTTPS_PORT`
+
+Any `.env` key **not** in this list is committed as a literal value in `env.template`, which is **not encrypted**. If you have additional secrets (e.g., `getenv('MY_API_KEY')` in PHP settings, SMTP credentials), create a `custom-keys.yaml` file in the installation directory before running init:
 
 ```yaml
 keys:
@@ -106,6 +112,8 @@ Then set their values:
 ```bash
 canasta config set -i mywiki MY_API_KEY=... SMTP_PASSWORD=...
 ```
+
+If you don't have any custom secrets beyond the built-in set, you can skip this step.
 
 ### 3. Initialize gitops
 
@@ -168,7 +176,10 @@ At deploy time, `canasta gitops pull` renders the template with the host's vars 
 The following `.env` keys are automatically converted to placeholders:
 
 **Secrets** (differ per host):
-`MYSQL_PASSWORD`, `WIKI_DB_PASSWORD`, `MW_SECRET_KEY`
+`MYSQL_PASSWORD`, `WIKI_DB_PASSWORD`, `MW_SECRET_KEY`, `RESTIC_REPOSITORY`, `RESTIC_PASSWORD`
+
+**Backup backend credentials** (auto-detected by prefix):
+Any key starting with `AWS_`, `AZURE_`, `B2_`, `GOOGLE_`, `OS_`, `ST_`, or `RCLONE_`
 
 **Host-specific values:**
 `MW_SITE_SERVER`, `MW_SITE_FQDN`, `HTTPS_PORT`, `HTTP_PORT`
@@ -255,7 +266,35 @@ canasta gitops diff -i mywiki
 
 Fetches without applying and shows what files would change.
 
-### Updating an extension
+## Extensions and skins
+
+Extensions and skins that have their own git repositories are tracked as **git submodules**, pinning each one to an exact commit. This ensures every server runs the same version and makes updates explicit and reviewable.
+
+### How init handles extensions and skins
+
+During `canasta gitops init`, the CLI scans the `extensions/` and `skins/` directories. Each subdirectory that contains a `.git` folder is automatically converted to a git submodule using its `origin` remote URL. The original directory is removed and re-added via `git submodule add`.
+
+Subdirectories that are **not** git repositories — such as custom extensions you wrote yourself or copied in without cloning — are left as regular files and committed directly to the repo. They are tracked like any other file, not as submodules. See [Custom extensions](#custom-extensions-without-a-git-repo) below.
+
+If a directory has a `.git` folder but no `origin` remote configured, it is skipped with a warning.
+
+### Adding a new extension or skin
+
+To add a publicly available extension:
+
+```bash
+git submodule add https://github.com/wikimedia/mediawiki-extensions-Cite.git extensions/Cite
+```
+
+Then enable it in the appropriate settings file (e.g., `config/settings/global/extensions.php`), test, and push:
+
+```bash
+canasta gitops push -i mywiki -m "Add Cite extension"
+```
+
+On sink hosts after pulling, run `canasta restart -i mywiki` and then `canasta maintenance update -i mywiki` to run any database migrations.
+
+### Updating an extension or skin
 
 ```bash
 cd extensions/MyExtension
@@ -264,15 +303,53 @@ cd ../..
 canasta gitops push -i mywiki -m "Update MyExtension to v2.0.0"
 ```
 
-On sink hosts after pulling, run `canasta maintenance update` if schema changes are expected.
+The submodule reference in the parent repo now points to the new commit. On sink hosts after pulling, run `canasta maintenance update` if the extension has schema changes.
 
-### Adding a new extension
+### Removing an extension or skin
+
+Remove the submodule and its configuration:
 
 ```bash
-git submodule add https://github.com/org/NewExtension.git extensions/NewExtension
+git submodule deinit -f extensions/MyExtension
+git rm -f extensions/MyExtension
 ```
 
-Add the `wfLoadExtension` call to the appropriate settings file, test, then push.
+Remove the `wfLoadExtension` or `wfLoadSkin` call from the settings file, then push.
+
+### Submodule initialization on new servers
+
+When a new server joins the gitops repo via `canasta gitops join`, or when an existing server runs `canasta gitops pull`, the CLI runs `git submodule update --init --recursive`. This clones all submodule repositories and checks out the exact commits recorded in the repo.
+
+This is necessary because git does not automatically clone submodules when cloning or pulling a repository — the submodule directories would otherwise be empty.
+
+### Converting a cloned extension to a submodule
+
+If you cloned an extension directly with `git clone` rather than adding it as a submodule, you need to convert it before gitops can track it properly. If you haven't run `canasta gitops init` yet, the init command handles this automatically. If gitops is already initialized:
+
+```bash
+# Note the remote URL and current commit
+cd extensions/MyExtension
+git remote get-url origin
+git rev-parse HEAD
+cd ../..
+
+# Remove the cloned directory and re-add as a submodule
+rm -rf extensions/MyExtension
+git submodule add https://github.com/org/MyExtension.git extensions/MyExtension
+
+# Check out the same commit you were on
+cd extensions/MyExtension
+git checkout <commit-hash>
+cd ../..
+
+canasta gitops push -i mywiki -m "Convert MyExtension to submodule"
+```
+
+### Custom extensions without a git repo
+
+Some extensions are custom code that doesn't live in a separate git repository — for example, a small extension you wrote specifically for your wiki. These are committed directly to the gitops repo as regular files, not submodules.
+
+Since they are regular files in the repo, they are automatically synced to all servers on `canasta gitops pull` without any submodule commands. However, they cannot be independently versioned or pinned to a specific commit the way submodules can.
 
 ## Adding a server
 

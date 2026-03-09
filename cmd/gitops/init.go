@@ -111,6 +111,19 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 			"Use --force to overwrite the remote, or use \"canasta gitops join\" to join an existing repo")
 	}
 
+	// Check for extensions/skins with uncommitted changes before doing any work.
+	if dirty := findDirtyRepos(installPath); len(dirty) > 0 {
+		return fmt.Errorf("the following extensions/skins have uncommitted changes:\n  %s\n"+
+			"Commit or discard the changes, then re-run gitops init",
+			strings.Join(dirty, "\n  "))
+	}
+
+	// Remove legacy .gitignore files from extensions/ and skins/ that were
+	// created by the old Canasta-DockerCompose template. These ignore
+	// everything in the directory, which prevents gitops from tracking
+	// extensions and skins.
+	removeLegacyGitignores(installPath)
+
 	fmt.Println("Initializing gitops repository...")
 
 	// 1. Initialize git repo.
@@ -237,8 +250,37 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 	return nil
 }
 
+// findDirtyRepos scans extensions/ and skins/ for git repositories with
+// uncommitted changes. Returns a list of relative paths (e.g.,
+// "extensions/Foo") that are dirty.
+func findDirtyRepos(installPath string) []string {
+	var dirty []string
+	for _, dirName := range []string{"extensions", "skins"} {
+		dir := filepath.Join(installPath, dirName)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			subDir := filepath.Join(dir, entry.Name())
+			if _, err := os.Stat(filepath.Join(subDir, ".git")); os.IsNotExist(err) {
+				continue
+			}
+			if isDirty, err := isDirtyRepo(subDir); err == nil && isDirty {
+				dirty = append(dirty, filepath.Join(dirName, entry.Name()))
+			}
+		}
+	}
+	return dirty
+}
+
 // convertToSubmodules scans a directory (e.g., "extensions") for
 // subdirectories that are git repositories and converts them to submodules.
+// The commit that was checked out is preserved after conversion.
+// Callers must check for dirty repos before calling this function.
 func convertToSubmodules(installPath, dirName string) error {
 	dir := filepath.Join(installPath, dirName)
 	entries, err := os.ReadDir(dir)
@@ -257,25 +299,70 @@ func convertToSubmodules(installPath, dirName string) error {
 		if _, err := os.Stat(gitDir); os.IsNotExist(err) {
 			continue
 		}
+		relativePath := filepath.Join(dirName, entry.Name())
+
 		remoteURL := getGitRemoteURL(subDir)
 		if remoteURL == "" {
-			logging.Print(fmt.Sprintf("Skipping %s/%s: no remote URL found\n", dirName, entry.Name()))
+			logging.Print(fmt.Sprintf("Skipping %s: no remote URL found\n", relativePath))
 			continue
 		}
-		relativePath := filepath.Join(dirName, entry.Name())
+
+		// Record the current commit so we can restore it after conversion.
+		commitHash := getHeadCommit(subDir)
+
 		if err := os.RemoveAll(subDir); err != nil {
 			return fmt.Errorf("removing %s: %w", relativePath, err)
 		}
 		if err := gitops.SubmoduleAdd(installPath, remoteURL, relativePath); err != nil {
 			return fmt.Errorf("adding submodule %s: %w", relativePath, err)
 		}
+
+		// Check out the original commit so the submodule is pinned to the
+		// same version the user had, not the remote's default branch.
+		if commitHash != "" {
+			if _, err := execute.Run(subDir, "git", "checkout", commitHash); err != nil {
+				logging.Print(fmt.Sprintf("Warning: could not restore %s to commit %s: %v\n", relativePath, commitHash[:8], err))
+			}
+		}
+
 		logging.Print(fmt.Sprintf("Converted %s to submodule\n", relativePath))
 	}
 	return nil
 }
 
+// removeLegacyGitignores removes .gitignore files from extensions/ and skins/
+// that were created by the old Canasta-DockerCompose installation template.
+// These files ignore everything except .gitignore itself, which would prevent
+// gitops from tracking extensions and skins.
+func removeLegacyGitignores(installPath string) {
+	for _, dirName := range []string{"extensions", "skins"} {
+		gi := filepath.Join(installPath, dirName, ".gitignore")
+		if _, err := os.Stat(gi); err == nil {
+			if err := os.Remove(gi); err == nil {
+				fmt.Printf("Removed legacy %s/.gitignore\n", dirName)
+			}
+		}
+	}
+}
+
 func getGitRemoteURL(repoPath string) string {
 	output, err := execute.Run(repoPath, "git", "remote", "get-url", "origin")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(output)
+}
+
+func isDirtyRepo(repoPath string) (bool, error) {
+	output, err := execute.Run(repoPath, "git", "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(output) != "", nil
+}
+
+func getHeadCommit(repoPath string) string {
+	output, err := execute.Run(repoPath, "git", "rev-parse", "HEAD")
 	if err != nil {
 		return ""
 	}

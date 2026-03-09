@@ -43,7 +43,9 @@ func placeholderName(envKey string) string {
 
 // ExtractTemplate converts the contents of a .env file into an env.template
 // and a VarsMap. Keys listed in placeholderKeys have their values replaced
-// with {{placeholder}} syntax; all other keys are kept as literals.
+// with {{placeholder}} syntax. Keys matching any of the builtinSecretPrefixes
+// are also treated as placeholders automatically. All other keys are kept as
+// literals.
 //
 // The returned VarsMap contains the placeholder-name → original-value mapping.
 func ExtractTemplate(envContent string, placeholderKeys []string) (template string, vars VarsMap) {
@@ -73,7 +75,7 @@ func ExtractTemplate(envContent string, placeholderKeys []string) (template stri
 		key := trimmed[:eqIdx]
 		value := trimmed[eqIdx+1:]
 
-		if keySet[key] {
+		if keySet[key] || hasSecretPrefix(key) {
 			phName := placeholderName(key)
 			vars[phName] = stripQuotes(value)
 			lines = append(lines, key+"={{"+phName+"}}")
@@ -84,6 +86,17 @@ func ExtractTemplate(envContent string, placeholderKeys []string) (template stri
 
 	template = strings.Join(lines, "\n")
 	return template, vars
+}
+
+// hasSecretPrefix returns true if the key matches any of the
+// builtinSecretPrefixes (e.g., AWS_, AZURE_, B2_).
+func hasSecretPrefix(key string) bool {
+	for _, prefix := range builtinSecretPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // stripQuotes removes surrounding double quotes from a value, matching the
