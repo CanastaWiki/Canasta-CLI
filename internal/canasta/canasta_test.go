@@ -535,17 +535,25 @@ func TestUpdateEnvFile(t *testing.T) {
 			subDir := t.TempDir()
 
 			subConfig := filepath.Join(subDir, "config")
-			os.MkdirAll(subConfig, 0755)
-			os.WriteFile(filepath.Join(subConfig, "wikis.yaml"), []byte(wikiYamlContent), 0644)
+			if err := os.MkdirAll(subConfig, 0755); err != nil {
+				t.Fatalf("Failed to create subConfig dir: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(subConfig, "wikis.yaml"), []byte(wikiYamlContent), 0644); err != nil {
+				t.Fatalf("Failed to write wikis.yaml: %v", err)
+			}
 
 			baseEnvPath := filepath.Join(subDir, ".env")
-			os.WriteFile(baseEnvPath, []byte(tt.baseEnv), 0644)
+			if err := os.WriteFile(baseEnvPath, []byte(tt.baseEnv), 0644); err != nil {
+				t.Fatalf("Failed to write base .env: %v", err)
+			}
 
 			customPath := ""
 			if tt.customEnvName != "" {
 				customPath = filepath.Join(subDir, tt.customEnvName)
 				if tt.customEnv != "" {
-					os.WriteFile(customPath, []byte(tt.customEnv), 0644)
+					if err := os.WriteFile(customPath, []byte(tt.customEnv), 0644); err != nil {
+						t.Fatalf("Failed to write custom .env: %v", err)
+					}
 				}
 			}
 
