@@ -96,7 +96,7 @@ func restoreFromVolume(volName, installPath string, dirs map[string]string) erro
 		// For directories, clear contents without removing the directory itself
 		// to preserve active Docker bind mounts.
 		copyParts = append(copyParts,
-			fmt.Sprintf("if [ -d %s ]; then mkdir -p %s && rm -rf %s/* %s/.[!.]* 2>/dev/null; cp -a %s/. %s/; elif [ -f %s ]; then cp -a %s %s; fi",
+			fmt.Sprintf("if [ -d %s ]; then mkdir -p %s && rm -rf %s/* %s/.[!.]* 2>/dev/null; cp -af %s/. %s/; elif [ -f %s ]; then cp -af %s %s; fi",
 				volumePath, dst, dst, dst, volumePath, dst, volumePath, volumePath, dst))
 	}
 
