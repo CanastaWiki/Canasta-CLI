@@ -354,11 +354,16 @@ func repairBrokenSubmodules(installPath string) (int, error) {
 			os.Remove(gitFile)
 		}
 
+		// Deinit the submodule — may fail if not initialized.
+		//nolint:errcheck
+		execute.Run(installPath, "git", "submodule", "deinit", "-f", path)
+
 		// Remove from index — may fail if not tracked.
 		//nolint:errcheck
 		execute.Run(installPath, "git", "rm", "--cached", "-r", "-q", path)
 
-		// Remove directory so submodule add can clone fresh.
+		// Clean up .git/modules/ entry and working directory.
+		os.RemoveAll(filepath.Join(installPath, ".git", "modules", path))
 		if err := os.RemoveAll(filepath.Join(installPath, path)); err != nil {
 			return repaired, fmt.Errorf("removing %s: %w", path, err)
 		}
