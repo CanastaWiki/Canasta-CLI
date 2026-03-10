@@ -144,6 +144,18 @@ This bootstraps a new gitops repository from the existing installation:
 
 **Store the exported git-crypt key securely** — it is needed to unlock the repo on other servers and must never be committed to the repo.
 
+#### Repairing a broken init
+
+If `canasta gitops init` fails partway through (e.g., due to push errors or missing credentials), extensions may be left in a broken state — committed as regular directories instead of proper submodules. Running init again is blocked because the `.git` directory already exists.
+
+Use `--repair` to fix submodule registration without re-initializing:
+
+```bash
+canasta gitops init --repair -i mywiki
+```
+
+This reads `.gitmodules`, detects extensions that were committed as regular trees instead of submodules, and re-registers them properly. After repairing, push the fix with `canasta gitops push`.
+
 ## Environment template and variables
 
 The `env.template` is the single source of truth for what configuration exists. Host-specific values (secrets, domain names, ports) are replaced with `{{placeholders}}`:
