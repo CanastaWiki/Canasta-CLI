@@ -8,6 +8,9 @@ docker-compose.yml
 # Auto-generated from wikis.yaml on restart
 config/Caddyfile
 
+# Database dumps created by canasta backup
+config/backup/
+
 # Uploaded files (use canasta backup)
 images/
 

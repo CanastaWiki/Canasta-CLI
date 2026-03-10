@@ -42,6 +42,7 @@ The git repository contains:
 - `config/admin-password_*` — generated from vars at deploy time
 - `docker-compose.yml` — managed by the Canasta CLI
 - `config/Caddyfile` — auto-generated from wikis.yaml on restart
+- `config/backup/` — database dumps created by `canasta backup`
 - `images/` — uploaded files (covered by `canasta backup`)
 
 ## Repository structure
