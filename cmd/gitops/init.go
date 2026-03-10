@@ -401,7 +401,20 @@ func ensureGitignoreEntries(installPath string) error {
 		fmt.Printf("Added %s to .gitignore\n", entry.pattern)
 	}
 
-	return os.WriteFile(giPath, []byte(content), 0644)
+	if err := os.WriteFile(giPath, []byte(content), 0644); err != nil {
+		return err
+	}
+
+	// Remove any already-tracked files that are now gitignored.
+	for _, entry := range toAdd {
+		dir := filepath.Join(installPath, strings.TrimSuffix(entry.pattern, "/"))
+		if _, statErr := os.Stat(dir); statErr == nil {
+			// Ignore errors — the path may not be tracked.
+			execute.Run(installPath, "git", "rm", "-r", "--cached", "--quiet", dir)
+		}
+	}
+
+	return nil
 }
 
 func getGitRemoteURL(repoPath string) string {
