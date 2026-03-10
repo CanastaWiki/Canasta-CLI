@@ -351,6 +351,59 @@ func removeLegacyGitignores(installPath string) {
 	}
 }
 
+// requiredGitignoreEntries lists patterns that must be present in the
+// .gitignore of every gitops repo. When new entries are added to the default
+// template, add them here so existing repos get backfilled on next push.
+var requiredGitignoreEntries = []struct {
+	pattern string
+	comment string
+}{
+	{"config/backup/", "# Database dumps created by canasta backup"},
+}
+
+// ensureGitignoreEntries appends any missing required entries to the repo's
+// .gitignore. This backfills repos that were initialized before the entries
+// were added to the default template.
+func ensureGitignoreEntries(installPath string) error {
+	giPath := filepath.Join(installPath, ".gitignore")
+	data, err := os.ReadFile(giPath)
+	if err != nil {
+		return nil // no .gitignore means not a gitops repo
+	}
+	content := string(data)
+	lines := strings.Split(content, "\n")
+
+	var toAdd []struct{ pattern, comment string }
+	for _, req := range requiredGitignoreEntries {
+		found := false
+		for _, line := range lines {
+			if strings.TrimSpace(line) == req.pattern {
+				found = true
+				break
+			}
+		}
+		if !found {
+			toAdd = append(toAdd, req)
+		}
+	}
+
+	if len(toAdd) == 0 {
+		return nil
+	}
+
+	// Ensure trailing newline before appending.
+	if !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+
+	for _, entry := range toAdd {
+		content += "\n" + entry.comment + "\n" + entry.pattern + "\n"
+		fmt.Printf("Added %s to .gitignore\n", entry.pattern)
+	}
+
+	return os.WriteFile(giPath, []byte(content), 0644)
+}
+
 func getGitRemoteURL(repoPath string) string {
 	output, err := execute.Run(repoPath, "git", "remote", "get-url", "origin")
 	if err != nil {
