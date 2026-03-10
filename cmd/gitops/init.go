@@ -43,6 +43,7 @@ func newInitCmd(instance *config.Installation) *cobra.Command {
 		keyFile      string
 		force        bool
 		pullRequests bool
+		repair       bool
 	)
 
 	cmd := &cobra.Command{
@@ -61,8 +62,15 @@ Use --pull-requests to require changes to go through pull requests instead of
 pushing directly to main. This enables review workflows for multi-server
 deployments.
 
+Use --repair to fix submodule registration in an existing gitops repository
+without re-initializing. This re-converts extensions/skins that were
+committed as regular directories instead of submodules.
+
 To join an existing gitops repository instead, use "canasta gitops join".`,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			if repair {
+				return runRepairSubmodules(instance.Path)
+			}
 			if err := validateInitFlags(hostName, repoURL, keyFile); err != nil {
 				return err
 			}
@@ -79,6 +87,7 @@ To join an existing gitops repository instead, use "canasta gitops join".`,
 	cmd.Flags().StringVar(&keyFile, "key", "", "Path to export the git-crypt key (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force push to a non-empty remote repository")
 	cmd.Flags().BoolVar(&pullRequests, "pull-requests", false, "Require pull requests instead of pushing directly to main")
+	cmd.Flags().BoolVar(&repair, "repair", false, "Re-register extensions/skins as proper submodules")
 	return cmd
 }
 
@@ -217,10 +226,10 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 
 	// 10. Convert extensions and skins to submodules.
 	if err := convertToSubmodules(installPath, "extensions"); err != nil {
-		logging.Print(fmt.Sprintf("Warning: could not convert extensions to submodules: %v\n", err))
+		fmt.Printf("Warning: could not convert extensions to submodules: %v\n", err)
 	}
 	if err := convertToSubmodules(installPath, "skins"); err != nil {
-		logging.Print(fmt.Sprintf("Warning: could not convert skins to submodules: %v\n", err))
+		fmt.Printf("Warning: could not convert skins to submodules: %v\n", err)
 	}
 
 	// 11. Initial commit.
@@ -250,6 +259,121 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 	return nil
 }
 
+// runRepairSubmodules fixes submodule registration in an existing gitops repo.
+// It handles two cases:
+//  1. Broken gitlinks: .gitmodules lists submodules but they were committed as
+//     regular trees. The broken .git file is removed, the tree is removed from
+//     the index, and the submodule is re-added properly.
+//  2. Standalone git repos that need converting to submodules (same as init).
+func runRepairSubmodules(installPath string) error {
+	if _, err := os.Stat(filepath.Join(installPath, ".git")); os.IsNotExist(err) {
+		return fmt.Errorf("not a git repository — run \"canasta gitops init\" first")
+	}
+
+	fmt.Println("Repairing submodule registration...")
+
+	// First, fix broken gitlinks from .gitmodules.
+	repaired, err := repairBrokenSubmodules(installPath)
+	if err != nil {
+		return err
+	}
+
+	// Then, convert any remaining standalone repos.
+	for _, dirName := range []string{"extensions", "skins"} {
+		if err := convertToSubmodules(installPath, dirName); err != nil {
+			fmt.Printf("Warning: could not convert %s to submodules: %v\n", dirName, err)
+		}
+	}
+
+	// Stage and commit if there are changes.
+	if err := gitops.AddAll(installPath); err != nil {
+		return err
+	}
+	hasChanges, _, err := gitops.HasUncommittedChanges(installPath)
+	if err != nil {
+		return err
+	}
+	if !hasChanges && repaired == 0 {
+		fmt.Println("No submodule issues found.")
+		return nil
+	}
+	if hasChanges {
+		_, err = gitops.Commit(installPath, "Repair submodule registration")
+		if err != nil {
+			return err
+		}
+	}
+	fmt.Printf("Repaired %d submodule(s). Run \"canasta gitops push\" to push changes.\n", repaired)
+	return nil
+}
+
+// repairBrokenSubmodules reads .gitmodules and re-registers any submodules
+// that were committed as regular trees instead of gitlinks (160000 commit).
+func repairBrokenSubmodules(installPath string) (int, error) {
+	gitmodulesPath := filepath.Join(installPath, ".gitmodules")
+	if _, err := os.Stat(gitmodulesPath); os.IsNotExist(err) {
+		return 0, nil
+	}
+
+	// Parse submodule entries from .gitmodules.
+	output, err := execute.Run(installPath, "git", "config", "-f", ".gitmodules", "--get-regexp", `\.url$`)
+	if err != nil {
+		return 0, nil // no submodules defined
+	}
+
+	repaired := 0
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if line == "" {
+			continue
+		}
+		// Line format: submodule.extensions/Foo.url https://...
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		url := parts[1]
+		// Extract path from key: submodule.<path>.url
+		path := strings.TrimPrefix(key, "submodule.")
+		path = strings.TrimSuffix(path, ".url")
+
+		// Check if it's committed as a tree (040000) instead of a submodule (160000).
+		lsOutput, err := execute.Run(installPath, "git", "ls-tree", "HEAD", path)
+		if err != nil || lsOutput == "" {
+			continue
+		}
+		if !strings.HasPrefix(lsOutput, "040000") {
+			continue // already a proper submodule or not tracked
+		}
+
+		fmt.Printf("Repairing %s...\n", path)
+
+		// Remove broken .git file if present.
+		gitFile := filepath.Join(installPath, path, ".git")
+		if info, statErr := os.Stat(gitFile); statErr == nil && !info.IsDir() {
+			os.Remove(gitFile)
+		}
+
+		// Remove from index — may fail if not tracked.
+		//nolint:errcheck
+		execute.Run(installPath, "git", "rm", "--cached", "-r", "-q", path)
+
+		// Remove directory so submodule add can clone fresh.
+		if err := os.RemoveAll(filepath.Join(installPath, path)); err != nil {
+			return repaired, fmt.Errorf("removing %s: %w", path, err)
+		}
+
+		// Re-add as proper submodule.
+		if err := gitops.SubmoduleAdd(installPath, url, path); err != nil {
+			return repaired, fmt.Errorf("re-adding submodule %s: %w", path, err)
+		}
+
+		repaired++
+		fmt.Printf("Repaired %s\n", path)
+	}
+	return repaired, nil
+}
+
 // findDirtyRepos scans extensions/ and skins/ for git repositories with
 // uncommitted changes. Returns a list of relative paths (e.g.,
 // "extensions/Foo") that are dirty.
@@ -266,7 +390,8 @@ func findDirtyRepos(installPath string) []string {
 				continue
 			}
 			subDir := filepath.Join(dir, entry.Name())
-			if _, err := os.Stat(filepath.Join(subDir, ".git")); os.IsNotExist(err) {
+			info, err := os.Stat(filepath.Join(subDir, ".git"))
+			if err != nil || !info.IsDir() {
 				continue
 			}
 			if isDirty, err := isDirtyRepo(subDir); err == nil && isDirty {
@@ -296,7 +421,13 @@ func convertToSubmodules(installPath, dirName string) error {
 		}
 		subDir := filepath.Join(dir, entry.Name())
 		gitDir := filepath.Join(subDir, ".git")
-		if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		info, err := os.Stat(gitDir)
+		if os.IsNotExist(err) {
+			continue
+		}
+		// A .git file (not directory) is a gitlink from a parent
+		// submodule — skip it, only convert standalone repos.
+		if err == nil && !info.IsDir() {
 			continue
 		}
 		relativePath := filepath.Join(dirName, entry.Name())
