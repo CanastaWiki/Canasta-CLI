@@ -409,7 +409,8 @@ func ensureGitignoreEntries(installPath string) error {
 	for _, entry := range toAdd {
 		dir := filepath.Join(installPath, strings.TrimSuffix(entry.pattern, "/"))
 		if _, statErr := os.Stat(dir); statErr == nil {
-			// Ignore errors — the path may not be tracked.
+			// The path may not be tracked, so ignore errors.
+			//nolint:errcheck
 			execute.Run(installPath, "git", "rm", "-r", "--cached", "--quiet", dir)
 		}
 	}
