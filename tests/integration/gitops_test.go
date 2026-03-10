@@ -15,6 +15,10 @@ import (
 // bare repository (no SSH/credentials needed), makes a configuration change,
 // pushes it, and verifies the commit appears in the remote.
 func TestGitops_InitAndPush(t *testing.T) {
+	if _, err := exec.LookPath("git-crypt"); err != nil {
+		t.Skip("git-crypt not installed, skipping gitops test")
+	}
+
 	inst := createTestInstance(t, "inttest-gitops")
 
 	// Create a bare git repo to use as the remote
