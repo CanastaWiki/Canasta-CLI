@@ -79,8 +79,12 @@ func runResticDocker(installPath, envPath, volName string, args ...string) (stri
 // directories. Each entry in dirs maps a volume path (e.g.
 // "/currentsnapshot/config") to a host path.
 func restoreFromVolume(volName, installPath string, dirs map[string]string) error {
+	// Run as root (no --user flag) so cp -a can preserve the original file
+	// ownership from the backup volume. This matches stageToVolume, which
+	// also runs as root. The backed-up files have container-appropriate
+	// ownership (e.g. www-data) that must be preserved for the web
+	// container to read/write them after restore.
 	cmdArgs := []string{"docker", "run", "--rm",
-		"--user", currentUser(),
 		"-v", volName + ":/currentsnapshot:ro",
 		"-v", installPath + ":/install",
 	}
@@ -96,7 +100,7 @@ func restoreFromVolume(volName, installPath string, dirs map[string]string) erro
 		// For directories, clear contents without removing the directory itself
 		// to preserve active Docker bind mounts.
 		copyParts = append(copyParts,
-			fmt.Sprintf("if [ -d %s ]; then mkdir -p %s && rm -rf %s/* %s/.[!.]* 2>/dev/null; cp -af %s/. %s/; elif [ -f %s ]; then cp -af %s %s; fi",
+			fmt.Sprintf("if [ -d %s ]; then mkdir -p %s && rm -rf %s/* %s/.[!.]* 2>/dev/null; cp -a %s/. %s/; elif [ -f %s ]; then cp -a %s %s; fi",
 				volumePath, dst, dst, dst, volumePath, dst, volumePath, volumePath, dst))
 	}
 
