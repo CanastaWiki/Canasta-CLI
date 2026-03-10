@@ -686,9 +686,10 @@ func removeLegacyGitDir(installPath string, dryRun bool) (bool, error) {
 	return true, nil
 }
 
-// backfillCanastaImage sets CANASTA_IMAGE in .env for installations that
-// predate the canasta create change that writes it. Without this variable,
-// docker-compose falls back to the "latest" tag, bypassing version pinning.
+// backfillCanastaImage ensures CANASTA_IMAGE in .env matches the current
+// CLI's default image tag. This handles both installations that predate the
+// CANASTA_IMAGE variable and installations where the CLI was upgraded to a
+// newer version but the image tag was not updated.
 func backfillCanastaImage(installPath string, dryRun bool) (bool, error) {
 	envPath := filepath.Join(installPath, ".env")
 
@@ -696,11 +697,12 @@ func backfillCanastaImage(installPath string, dryRun bool) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if val, ok := envVars["CANASTA_IMAGE"]; ok && val != "" {
-		return false, nil
-	}
 
 	image := canasta.GetDefaultImage()
+
+	if val, ok := envVars["CANASTA_IMAGE"]; ok && val == image {
+		return false, nil
+	}
 
 	if dryRun {
 		fmt.Printf("  Would set CANASTA_IMAGE=%s in .env\n", image)

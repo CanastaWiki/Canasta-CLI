@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 )
 
 func TestRemoveSkipBinaryAsHex(t *testing.T) {
@@ -239,8 +241,13 @@ func TestBackfillCanastaImage(t *testing.T) {
 			wantChanged: true,
 		},
 		{
-			name:        "already set",
+			name:        "outdated version",
 			envContent:  "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:3.3.1\nMYSQL_PASSWORD=secret\n",
+			wantChanged: true,
+		},
+		{
+			name:        "already current",
+			envContent:  "CANASTA_IMAGE=" + canasta.GetDefaultImage() + "\nMYSQL_PASSWORD=secret\n",
 			wantChanged: false,
 		},
 		{
