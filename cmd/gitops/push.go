@@ -55,6 +55,12 @@ func runPush(installPath, message string) (*gitops.PushResult, error) {
 		return nil, err
 	}
 
+	// Ensure the .gitignore has all required entries (backfill for repos
+	// initialized before new entries were added to the default template).
+	if err := ensureGitignoreEntries(installPath); err != nil {
+		return nil, err
+	}
+
 	if err := gitops.AddAll(installPath); err != nil {
 		return nil, err
 	}
