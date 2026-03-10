@@ -2,7 +2,6 @@ package create
 
 import (
 	"fmt"
-	"path/filepath"
 	"regexp"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
@@ -55,11 +54,7 @@ func ValidateCreateFlags(wikiID, yamlPath, instanceID, canastaImage, buildFromPa
 // ResolveFilePaths converts each non-empty relative path to an absolute path
 // relative to baseDir.
 func ResolveFilePaths(baseDir string, paths ...*string) {
-	for _, p := range paths {
-		if *p != "" && !filepath.IsAbs(*p) {
-			*p = filepath.Join(baseDir, *p)
-		}
-	}
+	canasta.ResolveFilePaths(baseDir, paths...)
 }
 
 // BuildDomainWithPort appends a non-standard HTTPS port to the domain. If

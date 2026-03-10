@@ -2,7 +2,6 @@ package devmode
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -26,13 +25,7 @@ the instance with dev mode compose files. Only supported with Docker Compose.`,
 			fmt.Printf("Enabling development mode on '%s'...\n", instance.ID)
 
 			// Determine the base image: check .env for CANASTA_IMAGE, fall back to default
-			baseImage := canasta.GetDefaultImage()
-			envVars, envErr := canasta.GetEnvVariable(filepath.Join(instance.Path, ".env"))
-			if envErr == nil {
-				if img, ok := envVars["CANASTA_IMAGE"]; ok && img != "" {
-					baseImage = img
-				}
-			}
+			baseImage := canasta.GetBaseImage(instance.Path)
 
 			// Enable dev mode (extract code, create files, build xdebug image)
 			if err := devmodePkg.EnableDevMode(instance.Path, *orch, baseImage); err != nil {

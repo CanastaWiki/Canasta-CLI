@@ -3,8 +3,9 @@ package add
 import (
 	"fmt"
 	urlpkg "net/url"
-	"path/filepath"
 	"strings"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 )
 
 // ParsedWikiURL holds the domain and path extracted from a wiki URL string.
@@ -35,9 +36,5 @@ func ParseWikiURL(rawURL string) (ParsedWikiURL, error) {
 // resolveFilePaths converts each non-empty relative path to an absolute path
 // relative to baseDir.
 func resolveFilePaths(baseDir string, paths ...*string) {
-	for _, p := range paths {
-		if *p != "" && !filepath.IsAbs(*p) {
-			*p = filepath.Join(baseDir, *p)
-		}
-	}
+	canasta.ResolveFilePaths(baseDir, paths...)
 }

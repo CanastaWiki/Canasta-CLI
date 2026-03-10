@@ -1,10 +1,8 @@
 package delete
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -48,11 +46,7 @@ prompted for confirmation before any data is deleted.`,
 				return err
 			}
 			if !yes {
-				reader := bufio.NewReader(os.Stdin)
-				fmt.Printf("This will permanently delete the Canasta installation '%s' and all its data. Continue? [y/N] ", instance.ID)
-				text, _ := reader.ReadString('\n')
-				text = strings.ToLower(strings.TrimSpace(text))
-				if text != "y" {
+				if !canasta.ConfirmAction(fmt.Sprintf("This will permanently delete the Canasta installation '%s' and all its data. Continue? [y/N] ", instance.ID)) {
 					fmt.Println("Operation cancelled.")
 					return nil
 				}
