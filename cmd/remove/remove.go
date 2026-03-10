@@ -1,10 +1,8 @@
 package remove
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -100,12 +98,7 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 	}
 
 	if !yes {
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("This will delete the wiki " + wikiID + " in the Canasta instance " + instance.ID + " and the corresponding database. Continue? [y/N] ")
-		text, _ := reader.ReadString('\n')
-		text = strings.ToLower(strings.TrimSpace(text))
-
-		if text != "y" {
+		if !canasta.ConfirmAction("This will delete the wiki " + wikiID + " in the Canasta instance " + instance.ID + " and the corresponding database. Continue? [y/N] ") {
 			fmt.Println("Operation cancelled.")
 			return nil
 		}

@@ -74,11 +74,7 @@ To create a new wiki from a database dump, use the --database flag with
 			}
 
 			// Resolve relative file paths to absolute
-			for _, p := range []*string{&databasePath, &settingsPath} {
-				if *p != "" && !filepath.IsAbs(*p) {
-					*p = filepath.Join(workingDir, *p)
-				}
-			}
+			canasta.ResolveFilePaths(workingDir, &databasePath, &settingsPath)
 
 			fmt.Printf("Importing database into wiki '%s' in Canasta instance '%s'...\n", wikiID, instance.ID)
 			if err := importDatabase(orch, instance, wikiID, databasePath, settingsPath); err != nil {

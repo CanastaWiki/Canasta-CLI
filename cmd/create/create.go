@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 
 	"github.com/spf13/cobra"
 
@@ -60,20 +59,8 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 			if err := system.CheckMemoryInGB(4); err != nil {
 				return err
 			}
-			// Validate wiki ID if yamlPath not provided
-			if yamlPath == "" {
-				if wikiID == "" {
-					return fmt.Errorf("--wiki flag is required when --yamlfile is not provided")
-				}
-				if err := farmsettings.ValidateWikiID(wikiID); err != nil {
-					return err
-				}
-			}
-
-			// Validate Canasta instance ID format
-			validString := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$`)
-			if !validString.MatchString(canastaInfo.ID) {
-				return fmt.Errorf("canasta instance ID should not contain spaces or non-ASCII characters, only alphanumeric characters are allowed")
+			if err := ValidateCreateFlags(wikiID, yamlPath, canastaInfo.ID, canastaImage, buildFromPath, databasePath); err != nil {
+				return err
 			}
 
 			// Check for duplicate ID before doing any work
@@ -81,24 +68,8 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 				return fmt.Errorf("canasta installation with ID '%s' already exists", canastaInfo.ID)
 			}
 
-			// Validate --canasta-image and --build-from are mutually exclusive
-			if canastaImage != "" && buildFromPath != "" {
-				return fmt.Errorf("--canasta-image and --build-from are mutually exclusive")
-			}
-
-			// Validate database path if provided
-			if databasePath != "" {
-				if err := canasta.ValidateDatabasePath(databasePath); err != nil {
-					return err
-				}
-			}
-
 			// Resolve all relative file paths to absolute (relative to working directory)
-			for _, p := range []*string{&databasePath, &envFile, &wikiSettingsPath, &globalSettingsPath, &composerFile, &override} {
-				if *p != "" && !filepath.IsAbs(*p) {
-					*p = filepath.Join(workingDir, *p)
-				}
-			}
+			ResolveFilePaths(workingDir, &databasePath, &envFile, &wikiSettingsPath, &globalSettingsPath, &composerFile, &override)
 
 			// Always generate database passwords
 			if canastaInfo, err = canasta.GenerateDBPasswords(canastaInfo); err != nil {
@@ -120,9 +91,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 				if envErr != nil {
 					return envErr
 				}
-				if port, ok := envVars["HTTPS_PORT"]; ok && port != "443" && port != "" {
-					domain = domain + ":" + port
-				}
+				domain = BuildDomainWithPort(domain, envVars)
 			}
 
 			stopSpinner := spinner.New("Creating Canasta installation '" + canastaInfo.ID + "'...")

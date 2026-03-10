@@ -2,10 +2,8 @@ package add
 
 import (
 	"fmt"
-	urlpkg "net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -99,16 +97,12 @@ an existing database dump instead of running the installer.`,
 			}
 
 			// Parse URL to extract domain and path
-			urlString := url
-			if !strings.HasPrefix(urlString, "http://") && !strings.HasPrefix(urlString, "https://") {
-				urlString = "https://" + urlString
-			}
-			parsedURL, err := urlpkg.Parse(urlString)
+			parsed, err := ParseWikiURL(url)
 			if err != nil {
-				return fmt.Errorf("failed to parse URL: %w", err)
+				return err
 			}
-			domainName = parsedURL.Host
-			wikiPath = strings.Trim(parsedURL.Path, "/")
+			domainName = parsed.Domain
+			wikiPath = parsed.Path
 
 			// Validate wiki URL path
 			if err := farmsettings.ValidateWikiPath(wikiPath); err != nil {
@@ -132,11 +126,7 @@ an existing database dump instead of running the installer.`,
 			}
 
 			// Resolve relative file paths to absolute
-			for _, p := range []*string{&databasePath, &wikiSettingsPath} {
-				if *p != "" && !filepath.IsAbs(*p) {
-					*p = filepath.Join(workingDir, *p)
-				}
-			}
+			resolveFilePaths(workingDir, &databasePath, &wikiSettingsPath)
 
 			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {

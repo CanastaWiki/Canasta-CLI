@@ -895,3 +895,37 @@ func MigrateToNewVersion(installPath string) error {
 
 	return nil
 }
+
+// ResolveFilePaths converts each non-empty relative path to an absolute path
+// relative to baseDir.
+func ResolveFilePaths(baseDir string, paths ...*string) {
+	for _, p := range paths {
+		if *p != "" && !filepath.IsAbs(*p) {
+			*p = filepath.Join(baseDir, *p)
+		}
+	}
+}
+
+// GetBaseImage returns the Canasta image for an installation. It reads
+// CANASTA_IMAGE from the .env file at installPath and falls back to the
+// default image if the variable is missing or empty.
+func GetBaseImage(installPath string) string {
+	image := GetDefaultImage()
+	envVars, err := GetEnvVariable(filepath.Join(installPath, ".env"))
+	if err == nil {
+		if img, ok := envVars["CANASTA_IMAGE"]; ok && img != "" {
+			image = img
+		}
+	}
+	return image
+}
+
+// ConfirmAction prompts the user with the given message and returns true only
+// if they respond with "y". It reads from os.Stdin.
+func ConfirmAction(message string) bool {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print(message)
+	text, _ := reader.ReadString('\n')
+	text = strings.ToLower(strings.TrimSpace(text))
+	return text == "y"
+}

@@ -869,3 +869,91 @@ func TestNormalizeWikiID(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveFilePaths(t *testing.T) {
+	base := "/home/user"
+
+	t.Run("relative-becomes-absolute", func(t *testing.T) {
+		p := "dump.sql"
+		ResolveFilePaths(base, &p)
+		want := filepath.Join(base, "dump.sql")
+		if p != want {
+			t.Errorf("got %q, want %q", p, want)
+		}
+	})
+
+	t.Run("absolute-unchanged", func(t *testing.T) {
+		p := "/tmp/dump.sql"
+		ResolveFilePaths(base, &p)
+		if p != "/tmp/dump.sql" {
+			t.Errorf("got %q, want /tmp/dump.sql", p)
+		}
+	})
+
+	t.Run("empty-unchanged", func(t *testing.T) {
+		p := ""
+		ResolveFilePaths(base, &p)
+		if p != "" {
+			t.Errorf("got %q, want empty", p)
+		}
+	})
+
+	t.Run("multiple-paths", func(t *testing.T) {
+		a, b, c := "file1.sql", "/abs/file2.sql", ""
+		ResolveFilePaths(base, &a, &b, &c)
+		if a != filepath.Join(base, "file1.sql") {
+			t.Errorf("a: got %q", a)
+		}
+		if b != "/abs/file2.sql" {
+			t.Errorf("b: got %q", b)
+		}
+		if c != "" {
+			t.Errorf("c: got %q", c)
+		}
+	})
+}
+
+func TestGetBaseImage(t *testing.T) {
+	defaultImage := GetDefaultImage()
+
+	t.Run("no-env-file", func(t *testing.T) {
+		dir := t.TempDir()
+		got := GetBaseImage(dir)
+		if got != defaultImage {
+			t.Errorf("got %q, want default %q", got, defaultImage)
+		}
+	})
+
+	t.Run("env-without-canasta-image", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MYSQL_PASSWORD=secret\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		got := GetBaseImage(dir)
+		if got != defaultImage {
+			t.Errorf("got %q, want default %q", got, defaultImage)
+		}
+	})
+
+	t.Run("env-with-empty-canasta-image", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_IMAGE=\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		got := GetBaseImage(dir)
+		if got != defaultImage {
+			t.Errorf("got %q, want default %q", got, defaultImage)
+		}
+	})
+
+	t.Run("env-with-custom-image", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("CANASTA_IMAGE=ghcr.io/custom:dev\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		got := GetBaseImage(dir)
+		if got != "ghcr.io/custom:dev" {
+			t.Errorf("got %q, want %q", got, "ghcr.io/custom:dev")
+		}
+	})
+}
