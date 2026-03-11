@@ -19,7 +19,7 @@ func TestGitops_InitAndPush(t *testing.T) {
 
 	// Create a bare git repo to use as the remote
 	bareRepo := t.TempDir()
-	if out, err := exec.Command("git", "init", "--bare", bareRepo).CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "init", "--bare", "-b", "main", bareRepo).CombinedOutput(); err != nil {
 		t.Fatalf("git init --bare failed: %v\n%s", err, out)
 	}
 
