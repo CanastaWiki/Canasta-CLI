@@ -17,6 +17,10 @@ jobs:
         go-version: '1.25'
     - name: Install git-crypt
       run: sudo apt-get update && sudo apt-get install -y git-crypt
+    - name: Configure git for CI
+      run: |
+        git config --global user.name "CI"
+        git config --global user.email "ci@canasta.wiki"
     - name: Add runner to www-data group
       # Canasta containers run as www-data, so bind-mounted directories
       # (e.g. config/) become owned by that group. The host user must be
