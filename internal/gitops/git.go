@@ -160,16 +160,14 @@ func HasUncommittedChanges(path string) (bool, []string, error) {
 	}
 	var files []string
 	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		if len(line) < 4 {
 			continue
 		}
-		// porcelain format: "XY filename"
-		if len(line) > 3 {
-			files = append(files, line[3:])
-		} else {
-			files = append(files, line)
-		}
+		// porcelain format: "XY filename" where XY is a 2-char
+		// status code followed by a space — always 3 characters.
+		// Do not trim leading spaces: the first status character
+		// may itself be a space (e.g. " M file").
+		files = append(files, line[3:])
 	}
 	return true, files, nil
 }
