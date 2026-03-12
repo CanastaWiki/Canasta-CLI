@@ -96,6 +96,31 @@ func AddAll(path string) error {
 	return nil
 }
 
+// Remove stages the removal of files from the repository.
+func Remove(path string, files ...string) error {
+	args := append([]string{"rm", "-r"}, files...)
+	_, err := execute.Run(path, "git", args...)
+	if err != nil {
+		return fmt.Errorf("git rm: %w", err)
+	}
+	return nil
+}
+
+// HasStagedChanges checks whether the index has staged changes ready to
+// commit. Returns true if there are staged changes, along with a list of
+// staged file paths.
+func HasStagedChanges(path string) (bool, []string, error) {
+	output, err := execute.Run(path, "git", "diff", "--cached", "--name-only")
+	if err != nil {
+		return false, nil, fmt.Errorf("git diff --cached: %w", err)
+	}
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return false, nil, nil
+	}
+	return true, strings.Split(output, "\n"), nil
+}
+
 // Commit creates a commit with the given message. Returns the short
 // commit hash.
 func Commit(path, message string) (string, error) {

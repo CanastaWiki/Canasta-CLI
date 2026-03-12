@@ -35,6 +35,8 @@ git-crypt, and multi-server deployments with push/pull workflows.`,
 
 	gitopsCmd.AddCommand(newInitCmd(&instance))
 	gitopsCmd.AddCommand(newJoinCmd(&instance))
+	gitopsCmd.AddCommand(newAddCmd(&instance))
+	gitopsCmd.AddCommand(newRmCmd(&instance))
 	gitopsCmd.AddCommand(newPushCmd(&instance))
 	gitopsCmd.AddCommand(newPullCmd(&instance))
 	gitopsCmd.AddCommand(newStatusCmd(&instance))
