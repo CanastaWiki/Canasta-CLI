@@ -22,6 +22,10 @@ func TestParsePorcelainLines(t *testing.T) {
 		"extensions/wikivisor/skins/chameleon/custom.scss",
 	}
 
+	// Use TrimRight (not TrimSpace) to preserve leading spaces in
+	// the first line's status code.
+	porcelain = strings.TrimRight(porcelain, " \t\n\r")
+
 	var files []string
 	for _, line := range strings.Split(porcelain, "\n") {
 		if len(line) < 4 {
@@ -37,5 +41,25 @@ func TestParsePorcelainLines(t *testing.T) {
 		if f != want[i] {
 			t.Errorf("file[%d] = %q, want %q", i, f, want[i])
 		}
+	}
+}
+
+func TestParsePorcelainLeadingSpacePreserved(t *testing.T) {
+	// Regression test: when the first line starts with " M" (unstaged
+	// modification), TrimSpace on the whole output would strip the
+	// leading space, causing line[3:] to clip the first path character.
+	porcelain := " M config/.smw.json\n?? extensions/newfile\n"
+
+	trimmed := strings.TrimRight(porcelain, " \t\n\r")
+	lines := strings.Split(trimmed, "\n")
+
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	if got := lines[0][3:]; got != "config/.smw.json" {
+		t.Errorf("first file = %q, want %q", got, "config/.smw.json")
+	}
+	if got := lines[1][3:]; got != "extensions/newfile" {
+		t.Errorf("second file = %q, want %q", got, "extensions/newfile")
 	}
 }
