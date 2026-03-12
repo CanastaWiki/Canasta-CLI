@@ -154,7 +154,9 @@ func HasUncommittedChanges(path string) (bool, []string, error) {
 	if err != nil {
 		return false, nil, fmt.Errorf("git status: %w", err)
 	}
-	output = strings.TrimSpace(output)
+	// Trim only trailing whitespace — leading spaces are significant
+	// in porcelain format (e.g. " M file" means unstaged modification).
+	output = strings.TrimRight(output, " \t\n\r")
 	if output == "" {
 		return false, nil, nil
 	}
