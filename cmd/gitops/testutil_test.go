@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func setupBrokenSubmoduleRepo(t *testing.T, withBrokenGitFile bool) (string, string) {
+func setupBrokenSubmoduleRepo(t *testing.T, withBrokenGitFile bool) string {
 	t.Helper()
 
 	repoPath := t.TempDir()
@@ -40,7 +40,7 @@ func setupBrokenSubmoduleRepo(t *testing.T, withBrokenGitFile bool) (string, str
 		runGit(t, repoPath, "commit", "-m", "broken submodule committed as tree")
 	}
 
-	return repoPath, brokenGitFile
+	return repoPath
 }
 
 func writeGitmodules(t *testing.T, repoPath, submodulePath, submoduleURL string) {

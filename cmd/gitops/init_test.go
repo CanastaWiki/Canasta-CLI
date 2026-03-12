@@ -79,7 +79,7 @@ func TestRepairBrokenSubmodules(t *testing.T) {
 	t.Setenv("GIT_ALLOW_PROTOCOL", "file")
 
 	t.Run("broken submodule repaired", func(t *testing.T) {
-		repoPath, _ := setupBrokenSubmoduleRepo(t, false)
+		repoPath := setupBrokenSubmoduleRepo(t, false)
 
 		repaired, err := repairBrokenSubmodules(repoPath)
 		if err != nil {
@@ -140,7 +140,7 @@ func TestRepairBrokenSubmodules(t *testing.T) {
 	})
 
 	t.Run("broken gitlink file removed", func(t *testing.T) {
-		repoPath, _ := setupBrokenSubmoduleRepo(t, true)
+		repoPath := setupBrokenSubmoduleRepo(t, true)
 
 		repaired, err := repairBrokenSubmodules(repoPath)
 		if err != nil {
