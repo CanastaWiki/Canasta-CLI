@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v2"
 )
 
 // TestGitops_InitAndPush creates an instance, initializes gitops with a local
@@ -66,9 +68,56 @@ func TestGitops_InitAndPush(t *testing.T) {
 		t.Fatalf("hosts.yaml not found: %v", err)
 	}
 
-	// Verify wikis.yaml.template was created
-	if _, err := os.Stat(filepath.Join(installDir, "wikis.yaml.template")); err != nil {
+	// Verify wikis.yaml.template was created and contains placeholders,
+	// that vars.yaml captured the original URL, and that rendering the
+	// template produces the original wikis.yaml content.
+	wikisTemplatePath := filepath.Join(installDir, "wikis.yaml.template")
+	wikisTemplateData, err := os.ReadFile(wikisTemplatePath)
+	if err != nil {
 		t.Fatalf("wikis.yaml.template not found after gitops init: %v", err)
+	}
+	wikisTemplate := string(wikisTemplateData)
+
+	// Template should contain a placeholder, not the literal URL.
+	if !strings.Contains(wikisTemplate, "{{wiki_url_") {
+		t.Errorf("wikis.yaml.template should contain {{wiki_url_*}} placeholders, got:\n%s", wikisTemplate)
+	}
+	if strings.Contains(wikisTemplate, "localhost") {
+		t.Errorf("wikis.yaml.template should not contain literal 'localhost', got:\n%s", wikisTemplate)
+	}
+
+	// vars.yaml should contain the wiki URL value.
+	varsData, err := os.ReadFile(filepath.Join(installDir, "hosts", "testhost", "vars.yaml"))
+	if err != nil {
+		t.Fatalf("vars.yaml not found: %v", err)
+	}
+	var vars map[string]string
+	if err := yaml.Unmarshal(varsData, &vars); err != nil {
+		t.Fatalf("failed to parse vars.yaml: %v", err)
+	}
+	// The wiki created by "canasta create -w main" gets ID "main".
+	wikiURL, ok := vars["wiki_url_main"]
+	if !ok {
+		t.Fatalf("vars.yaml missing wiki_url_main key, keys: %v", keysOf(vars))
+	}
+	if wikiURL != "localhost" {
+		t.Errorf("wiki_url_main = %q, want %q", wikiURL, "localhost")
+	}
+
+	// Verify config/wikis.yaml is gitignored (not tracked in the bare repo).
+	showWikis := exec.Command("git", "--git-dir", bareRepo, "show", "HEAD:config/wikis.yaml")
+	if showOut, err := showWikis.CombinedOutput(); err == nil {
+		t.Errorf("config/wikis.yaml should be gitignored but was found in bare repo:\n%s", showOut)
+	}
+
+	// Verify wikis.yaml.template IS tracked in the bare repo.
+	showTmpl := exec.Command("git", "--git-dir", bareRepo, "show", "HEAD:wikis.yaml.template")
+	showTmplOut, err := showTmpl.CombinedOutput()
+	if err != nil {
+		t.Fatalf("wikis.yaml.template not found in bare repo: %v\n%s", err, showTmplOut)
+	}
+	if !strings.Contains(string(showTmplOut), "{{wiki_url_") {
+		t.Errorf("wikis.yaml.template in bare repo should contain placeholders, got:\n%s", showTmplOut)
 	}
 
 	// Verify the initial commit was pushed to the bare repo
@@ -125,4 +174,13 @@ func TestGitops_InitAndPush(t *testing.T) {
 	if !strings.Contains(string(showOut), "gitops integration test") {
 		t.Errorf("unexpected file content in bare repo: %s", string(showOut))
 	}
+}
+
+// keysOf returns the keys of a string map for diagnostic output.
+func keysOf(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
