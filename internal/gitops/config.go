@@ -12,13 +12,13 @@ import (
 )
 
 const (
-	hostsFile          = "hosts.yaml"
-	customKeysFile     = "custom-keys.yaml"
-	envTemplateFile    = "env.template"
-	wikisTemplateFile  = "wikis.yaml.template"
-	wikisFile          = "config/wikis.yaml"
-	appliedFile        = ".gitops-applied"
-	hostFile           = ".gitops-host"
+	hostsFile         = "hosts.yaml"
+	customKeysFile    = "custom-keys.yaml"
+	envTemplateFile   = "env.template"
+	wikisTemplateFile = "wikis.yaml.template"
+	wikisFile         = "config/wikis.yaml"
+	appliedFile       = ".gitops-applied"
+	hostFile          = ".gitops-host"
 )
 
 // LoadHostsConfig reads and parses hosts.yaml from the installation directory.
