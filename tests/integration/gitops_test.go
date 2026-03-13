@@ -84,7 +84,12 @@ func TestGitops_InitAndPush(t *testing.T) {
 		t.Fatalf("failed to write test settings file: %v", err)
 	}
 
-	// Push the change
+	// Stage and push the change
+	out, err = inst.run(t, "gitops", "add", "-i", inst.ID, "config/settings/global/GitopsTest.php")
+	if err != nil {
+		t.Fatalf("gitops add failed: %v\n%s", err, out)
+	}
+
 	out, err = inst.run(t, "gitops", "push", "-i", inst.ID, "-m", "Add test settings file")
 	if err != nil {
 		t.Fatalf("gitops push failed: %v\n%s", err, out)
