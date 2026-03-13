@@ -74,3 +74,85 @@ func TestEnsureGitignoreEntriesNoFile(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestRepairBrokenSubmodules(t *testing.T) {
+	t.Setenv("GIT_ALLOW_PROTOCOL", "file")
+
+	t.Run("broken submodule repaired", func(t *testing.T) {
+		repoPath := setupBrokenSubmoduleRepo(t, false)
+
+		repaired, err := repairBrokenSubmodules(repoPath)
+		if err != nil {
+			t.Fatalf("repairBrokenSubmodules returned error: %v", err)
+		}
+		if repaired != 1 {
+			t.Fatalf("expected 1 repaired submodule, got %d", repaired)
+		}
+
+		// index already has 160000 after submodule add, no commit needed
+		staged := runGit(t, repoPath, "ls-files", "--stage", "extensions/Foo")
+		if !strings.HasPrefix(staged, "160000") {
+			t.Fatalf("expected staged submodule to be gitlink (160000), got: %q", staged)
+		}
+	})
+
+	t.Run("healthy submodule unchanged", func(t *testing.T) {
+		repoPath := t.TempDir()
+		remotePath := createGitRepoWithCommit(t, t.TempDir(), "submodule")
+
+		initGitRepo(t, repoPath)
+		runGit(t, repoPath, "submodule", "add", remotePath, "extensions/Foo")
+		runGit(t, repoPath, "commit", "-am", "add healthy submodule")
+
+		repaired, err := repairBrokenSubmodules(repoPath)
+		if err != nil {
+			t.Fatalf("repairBrokenSubmodules returned error: %v", err)
+		}
+		if repaired != 0 {
+			t.Fatalf("expected 0 repaired submodules, got %d", repaired)
+		}
+	})
+
+	t.Run("no gitmodules file", func(t *testing.T) {
+		repoPath := t.TempDir()
+		repaired, err := repairBrokenSubmodules(repoPath)
+		if err != nil {
+			t.Fatalf("repairBrokenSubmodules returned error: %v", err)
+		}
+		if repaired != 0 {
+			t.Fatalf("expected 0 repaired submodules, got %d", repaired)
+		}
+	})
+
+	t.Run("empty gitmodules", func(t *testing.T) {
+		repoPath := t.TempDir()
+		if err := os.WriteFile(filepath.Join(repoPath, ".gitmodules"), []byte(""), 0644); err != nil {
+			t.Fatalf("writing empty .gitmodules: %v", err)
+		}
+
+		repaired, err := repairBrokenSubmodules(repoPath)
+		if err != nil {
+			t.Fatalf("repairBrokenSubmodules returned error: %v", err)
+		}
+		if repaired != 0 {
+			t.Fatalf("expected 0 repaired submodules, got %d", repaired)
+		}
+	})
+
+	t.Run("broken gitlink file removed", func(t *testing.T) {
+		repoPath := setupBrokenSubmoduleRepo(t, true)
+
+		repaired, err := repairBrokenSubmodules(repoPath)
+		if err != nil {
+			t.Fatalf("repairBrokenSubmodules returned error: %v", err)
+		}
+		if repaired != 1 {
+			t.Fatalf("expected 1 repaired submodule, got %d", repaired)
+		}
+
+		staged := runGit(t, repoPath, "ls-files", "--stage", "extensions/Foo")
+		if !strings.HasPrefix(staged, "160000") {
+			t.Fatalf("expected repaired submodule to be gitlink (160000), got: %q", staged)
+		}
+	})
+}
