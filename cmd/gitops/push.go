@@ -19,9 +19,10 @@ func newPushCmd(instance *config.Installation) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Push configuration changes to the git repository",
-		Long: `Stage all tracked configuration changes, commit, and push to the remote
-repository. When pull_requests is enabled in hosts.yaml, creates a branch
-and opens a pull request instead of pushing directly to main.`,
+		Long: `Commit staged changes and push to the remote repository. Files must be
+staged first using "canasta gitops add". When pull_requests is enabled in
+hosts.yaml, creates a branch and opens a pull request instead of pushing
+directly to main.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			result, err := runPush(instance.Path, message)
 			if err != nil {
@@ -61,15 +62,11 @@ func runPush(installPath, message string) (*gitops.PushResult, error) {
 		return nil, err
 	}
 
-	if err := gitops.AddAll(installPath); err != nil {
-		return nil, err
-	}
-
-	hasChanges, files, err := gitops.HasUncommittedChanges(installPath)
+	hasStaged, files, err := gitops.HasStagedChanges(installPath)
 	if err != nil {
 		return nil, err
 	}
-	if !hasChanges {
+	if !hasStaged {
 		return &gitops.PushResult{NoChanges: true}, nil
 	}
 

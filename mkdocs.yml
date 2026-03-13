@@ -84,6 +84,8 @@ nav:
     - gitops:
       - Overview: cli/canasta_gitops.md
       - init: cli/canasta_gitops_init.md
+      - add: cli/canasta_gitops_add.md
+      - rm: cli/canasta_gitops_rm.md
       - push: cli/canasta_gitops_push.md
       - pull: cli/canasta_gitops_pull.md
       - status: cli/canasta_gitops_status.md

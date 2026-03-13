@@ -4,7 +4,7 @@ Canasta supports git-based configuration management through the `canasta gitops`
 
 ## Overview
 
-In the simplest case, a single server uses gitops purely for version-controlled configuration backup — every change is committed and pushed to a remote repository. No pull requests, no multi-server coordination — just `canasta gitops push` after making changes.
+In the simplest case, a single server uses gitops purely for version-controlled configuration backup — every change is committed and pushed to a remote repository. No pull requests, no multi-server coordination — just `canasta gitops add` and `canasta gitops push` after making changes.
 
 The same architecture extends to multi-server deployments. Changes are made on a source server, tested, pushed to the repo with an optional pull request for peer review, and then pulled onto production servers.
 
@@ -251,10 +251,20 @@ The `pull_requests` setting controls how `canasta gitops push` behaves:
 
 1. Edit the settings file
 2. Test the change
-3. Push:
+3. Stage and push:
 
 ```bash
+canasta gitops add -i mywiki config/settings/global/MySettings.php
 canasta gitops push -i mywiki -m "Enable VisualEditor by default"
+```
+
+### Removing a file
+
+To remove a tracked file from the repository:
+
+```bash
+canasta gitops rm -i mywiki config/settings/global/OldSettings.php
+canasta gitops push -i mywiki -m "Remove obsolete settings file"
 ```
 
 If pull requests are enabled, review and merge the PR. Then on sink hosts:
@@ -299,9 +309,10 @@ To add a publicly available extension:
 git submodule add https://github.com/wikimedia/mediawiki-extensions-Cite.git extensions/Cite
 ```
 
-Then enable it in the appropriate settings file (e.g., `config/settings/global/extensions.php`), test, and push:
+Then enable it in the appropriate settings file (e.g., `config/settings/global/extensions.php`), test, stage, and push:
 
 ```bash
+canasta gitops add -i mywiki extensions/Cite config/settings/global/extensions.php
 canasta gitops push -i mywiki -m "Add Cite extension"
 ```
 
@@ -313,6 +324,7 @@ On sink hosts after pulling, run `canasta restart -i mywiki` and then `canasta m
 cd extensions/MyExtension
 git fetch && git checkout v2.0.0
 cd ../..
+canasta gitops add -i mywiki extensions/MyExtension
 canasta gitops push -i mywiki -m "Update MyExtension to v2.0.0"
 ```
 
@@ -355,6 +367,7 @@ cd extensions/MyExtension
 git checkout <commit-hash>
 cd ../..
 
+canasta gitops add -i mywiki extensions/MyExtension .gitmodules
 canasta gitops push -i mywiki -m "Convert MyExtension to submodule"
 ```
 
@@ -458,13 +471,13 @@ Each team member and server has its own GPG key. Access is granted per-identity 
 **Single server or small team** (pull requests disabled):
 
 ```
-[server] → edit & test → canasta gitops push → [git repo]
+[server] → edit & test → canasta gitops add → canasta gitops push → [git repo]
 ```
 
 **Multi-server with review** (pull requests enabled):
 
 ```
-[source] → edit & test → canasta gitops push → [PR] → review & merge → canasta gitops pull → [sink hosts]
+[source] → edit & test → canasta gitops add → canasta gitops push → [PR] → review & merge → canasta gitops pull → [sink hosts]
 ```
 
 ## Further reading

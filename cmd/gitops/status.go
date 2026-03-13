@@ -49,16 +49,25 @@ func runStatus(installPath string) error {
 		fmt.Printf("Last applied:   %s\n", gitops.ShortHash(applied))
 	}
 
+	// Staged changes.
+	hasStaged, stagedFiles, err := gitops.HasStagedChanges(installPath)
+	if err == nil && hasStaged {
+		fmt.Printf("\nStaged for push (%d files):\n", len(stagedFiles))
+		for _, f := range stagedFiles {
+			fmt.Printf("  %s\n", f)
+		}
+	}
+
 	// Uncommitted changes.
 	hasChanges, files, err := gitops.HasUncommittedChanges(installPath)
 	if err == nil {
 		if hasChanges {
-			fmt.Printf("\nUncommitted changes (%d files):\n", len(files))
+			fmt.Printf("\nUnstaged changes (%d files):\n", len(files))
 			for _, f := range files {
 				fmt.Printf("  %s\n", f)
 			}
-		} else {
-			fmt.Println("\nNo uncommitted changes.")
+		} else if !hasStaged {
+			fmt.Println("\nNo changes.")
 		}
 	}
 
