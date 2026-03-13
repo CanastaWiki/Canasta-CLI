@@ -66,6 +66,11 @@ func TestGitops_InitAndPush(t *testing.T) {
 		t.Fatalf("hosts.yaml not found: %v", err)
 	}
 
+	// Verify wikis.yaml.template was created
+	if _, err := os.Stat(filepath.Join(installDir, "wikis.yaml.template")); err != nil {
+		t.Fatalf("wikis.yaml.template not found after gitops init: %v", err)
+	}
+
 	// Verify the initial commit was pushed to the bare repo
 	logCmd := exec.Command("git", "--git-dir", bareRepo, "log", "--oneline", "-1")
 	logOut, err := logCmd.CombinedOutput()
