@@ -3,11 +3,13 @@ package maintenance
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
+	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
@@ -98,6 +100,14 @@ func runMaintenanceScriptWith(orch orchestrators.Orchestrator, inst config.Insta
 	resolvedWiki, cleanedScript, err := resolveWikiFlag(wiki, script)
 	if err != nil {
 		return err
+	}
+
+	// Require --wiki on wiki farms
+	if resolvedWiki == "" {
+		ids, err := farmsettings.GetWikiIDs(inst.Path)
+		if err == nil && len(ids) > 1 {
+			return fmt.Errorf("this is a wiki farm; use --wiki to specify a wiki (%s)", strings.Join(ids, ", "))
+		}
 	}
 
 	wikiFlag := ""
