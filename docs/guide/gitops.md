@@ -49,13 +49,13 @@ The git repository contains:
 
 ## Repository structure
 
-The tree below shows the full directory layout of a gitops-managed installation. Most files and directories are part of every Canasta installation. Files marked `†` are created by `gitops init` and only exist when gitops is in use. Files marked `‡` are generated at deploy time from templates and are not tracked in git.
+The tree below shows the full directory layout of a gitops-managed installation. Most files and directories are part of every Canasta installation. Files marked `†` are created by `gitops init` and only exist when gitops is in use. Files marked `‡` are not pushed to the gitops repository — they are either generated locally from templates, managed by the CLI, or excluded because they contain host-specific data.
 
 ```
 canasta-config/
 ├── .gitattributes †
 ├── .gitignore †
-├── .env ‡
+├── .env ‡                      # generated from env.template + vars
 ├── custom-keys.yaml †          # user-defined host-specific .env keys (optional)
 ├── env.template †              # shared .env template with {{placeholders}}
 ├── wikis.yaml.template †       # shared wikis.yaml template (wiki farms only)
@@ -64,9 +64,10 @@ canasta-config/
 │   └── myserver/ †
 │       └── vars.yaml †         # encrypted by git-crypt
 ├── config/
-│   ├── wikis.yaml ‡
-│   ├── admin-password_* ‡
-│   ├── Caddyfile               # auto-generated on restart
+│   ├── wikis.yaml ‡            # generated from wikis.yaml.template + vars
+│   ├── admin-password_* ‡      # generated from vars
+│   ├── Caddyfile ‡             # auto-generated on restart
+│   ├── backup/ ‡               # database dumps from canasta backup
 │   ├── Caddyfile.site
 │   ├── Caddyfile.global
 │   └── settings/
@@ -79,6 +80,7 @@ canasta-config/
 ├── extensions/                 # git submodules (or regular files for custom extensions)
 ├── skins/                      # git submodules (or regular files for custom skins)
 ├── public_assets/
+├── images/ ‡                   # uploaded files (covered by canasta backup)
 ├── docker-compose.yml ‡        # managed by the Canasta CLI
 └── docker-compose.override.yml # if used
 ```
