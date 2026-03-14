@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v2"
 )
 
 var placeholderRe = regexp.MustCompile(`\{\{(\w+)\}\}`)
@@ -128,4 +130,51 @@ func AllPlaceholderKeys(customKeys []string) []string {
 	keys = append(keys, builtinHostKeys...)
 	keys = append(keys, customKeys...)
 	return keys
+}
+
+// wikiURLKey returns the vars key for a wiki's URL placeholder.
+func wikiURLKey(wikiID string) string {
+	return "wiki_url_" + wikiID
+}
+
+// wikisYAML is a minimal representation of wikis.yaml used only for
+// template extraction and rendering. We intentionally keep this
+// separate from farmsettings.Wikis to avoid a circular import.
+type wikisYAML struct {
+	Wikis []wikiEntry `yaml:"wikis"`
+}
+
+type wikiEntry struct {
+	ID   string `yaml:"id"`
+	URL  string `yaml:"url"`
+	NAME string `yaml:"name"`
+}
+
+// ExtractWikisTemplate converts wikis.yaml content into a template where
+// each wiki's URL is replaced with a {{wiki_url_<id>}} placeholder.
+// Returns the template content and a VarsMap with the original URL values.
+func ExtractWikisTemplate(wikisContent string) (string, VarsMap, error) {
+	var w wikisYAML
+	if err := yaml.Unmarshal([]byte(wikisContent), &w); err != nil {
+		return "", nil, fmt.Errorf("parsing wikis.yaml: %w", err)
+	}
+
+	vars := make(VarsMap, len(w.Wikis))
+	for i, wiki := range w.Wikis {
+		key := wikiURLKey(wiki.ID)
+		vars[key] = wiki.URL
+		w.Wikis[i].URL = "{{" + key + "}}"
+	}
+
+	out, err := yaml.Marshal(&w)
+	if err != nil {
+		return "", nil, fmt.Errorf("marshaling wikis template: %w", err)
+	}
+	return string(out), vars, nil
+}
+
+// RenderWikisTemplate renders a wikis.yaml.template by replacing
+// {{wiki_url_<id>}} placeholders with values from vars.
+func RenderWikisTemplate(templateContent string, vars VarsMap) (string, error) {
+	return RenderTemplate(templateContent, vars)
 }

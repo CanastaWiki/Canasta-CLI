@@ -12,11 +12,13 @@ import (
 )
 
 const (
-	hostsFile       = "hosts.yaml"
-	customKeysFile  = "custom-keys.yaml"
-	envTemplateFile = "env.template"
-	appliedFile     = ".gitops-applied"
-	hostFile        = ".gitops-host"
+	hostsFile         = "hosts.yaml"
+	customKeysFile    = "custom-keys.yaml"
+	envTemplateFile   = "env.template"
+	wikisTemplateFile = "wikis.yaml.template"
+	wikisFile         = "config/wikis.yaml"
+	appliedFile       = ".gitops-applied"
+	hostFile          = ".gitops-host"
 )
 
 // LoadHostsConfig reads and parses hosts.yaml from the installation directory.
@@ -116,6 +118,39 @@ func LoadEnvTemplate(installPath string) (string, error) {
 // SaveEnvTemplate writes the env.template file to the installation directory.
 func SaveEnvTemplate(installPath, content string) error {
 	return os.WriteFile(filepath.Join(installPath, envTemplateFile), []byte(content), permissions.FilePermission)
+}
+
+// LoadWikisTemplate reads the wikis.yaml.template file from the
+// installation directory. Returns empty string and no error if the file
+// does not exist (for backward compatibility with repos that predate
+// wikis templating).
+func LoadWikisTemplate(installPath string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(installPath, wikisTemplateFile))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", wikisTemplateFile, err)
+	}
+	return string(data), nil
+}
+
+// SaveWikisTemplate writes the wikis.yaml.template file to the
+// installation directory.
+func SaveWikisTemplate(installPath, content string) error {
+	return os.WriteFile(filepath.Join(installPath, wikisTemplateFile), []byte(content), permissions.FilePermission)
+}
+
+// LoadWikisYAML reads the config/wikis.yaml file.
+func LoadWikisYAML(installPath string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(installPath, wikisFile))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", wikisFile, err)
+	}
+	return string(data), nil
 }
 
 // SaveLocalHost writes the .gitops-host file to record which host name

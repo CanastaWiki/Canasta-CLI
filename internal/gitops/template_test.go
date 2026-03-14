@@ -3,6 +3,8 @@ package gitops
 import (
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v2"
 )
 
 func TestRenderTemplate(t *testing.T) {
@@ -156,6 +158,76 @@ func TestAllPlaceholderKeys(t *testing.T) {
 	expected := len(builtinSecretKeys) + len(builtinHostKeys) + 2
 	if len(keys) != expected {
 		t.Errorf("got %d keys, want %d", len(keys), expected)
+	}
+}
+
+func TestExtractWikisTemplate(t *testing.T) {
+	input := `wikis:
+- id: wiki1
+  url: example.com
+  name: Main Wiki
+- id: wiki2
+  url: example.com/docs
+  name: Documentation
+`
+	tmpl, vars, err := ExtractWikisTemplate(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check that URLs were replaced with placeholders.
+	if vars["wiki_url_wiki1"] != "example.com" {
+		t.Errorf("wiki_url_wiki1 = %q, want %q", vars["wiki_url_wiki1"], "example.com")
+	}
+	if vars["wiki_url_wiki2"] != "example.com/docs" {
+		t.Errorf("wiki_url_wiki2 = %q, want %q", vars["wiki_url_wiki2"], "example.com/docs")
+	}
+
+	// Template should contain placeholders, not literal URLs.
+	if strings.Contains(tmpl, "example.com") && !strings.Contains(tmpl, "{{wiki_url_") {
+		t.Error("template should contain placeholders instead of literal URLs")
+	}
+
+	// Round-trip: render the template back with the vars.
+	rendered, err := RenderWikisTemplate(tmpl, vars)
+	if err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	// Parse both to compare semantically (YAML formatting may differ).
+	var original, roundTripped wikisYAML
+	if err := yaml.Unmarshal([]byte(input), &original); err != nil {
+		t.Fatalf("parse original: %v", err)
+	}
+	if err := yaml.Unmarshal([]byte(rendered), &roundTripped); err != nil {
+		t.Fatalf("parse rendered: %v", err)
+	}
+
+	if len(roundTripped.Wikis) != len(original.Wikis) {
+		t.Fatalf("got %d wikis, want %d", len(roundTripped.Wikis), len(original.Wikis))
+	}
+	for i, w := range roundTripped.Wikis {
+		if w.URL != original.Wikis[i].URL {
+			t.Errorf("wiki[%d].URL = %q, want %q", i, w.URL, original.Wikis[i].URL)
+		}
+		if w.ID != original.Wikis[i].ID {
+			t.Errorf("wiki[%d].ID = %q, want %q", i, w.ID, original.Wikis[i].ID)
+		}
+	}
+}
+
+func TestExtractWikisTemplateEmpty(t *testing.T) {
+	// Empty wikis list should still work.
+	input := "wikis: []\n"
+	tmpl, vars, err := ExtractWikisTemplate(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vars) != 0 {
+		t.Errorf("expected no vars, got %d", len(vars))
+	}
+	if tmpl == "" {
+		t.Error("expected non-empty template")
 	}
 }
 

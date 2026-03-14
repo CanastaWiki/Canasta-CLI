@@ -184,7 +184,25 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 		return err
 	}
 
-	// 6. Read admin passwords and add to vars.
+	// 6. Extract wikis.yaml template.
+	wikisContent, err := gitops.LoadWikisYAML(installPath)
+	if err != nil {
+		return err
+	}
+	if wikisContent != "" {
+		wikisTemplate, wikisVars, err := gitops.ExtractWikisTemplate(wikisContent)
+		if err != nil {
+			return err
+		}
+		if err := gitops.SaveWikisTemplate(installPath, wikisTemplate); err != nil {
+			return err
+		}
+		for k, v := range wikisVars {
+			vars[k] = v
+		}
+	}
+
+	// 7. Read admin passwords and add to vars.
 	passwords, err := gitops.ReadAdminPasswords(installPath)
 	if err != nil {
 		logging.Print(fmt.Sprintf("Warning: could not read admin passwords: %v\n", err))
@@ -193,7 +211,7 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 		vars["admin_password_"+wikiID] = password
 	}
 
-	// 7. Create hosts.yaml.
+	// 8. Create hosts.yaml.
 	// Use the Canasta ID from the installation registry if available.
 	canastaID := filepath.Base(installPath)
 	details, detailsErr := config.GetDetails(canastaID)
@@ -214,17 +232,17 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 		return err
 	}
 
-	// 8. Save vars.yaml.
+	// 9. Save vars.yaml.
 	if err := gitops.SaveVars(installPath, hostName, vars); err != nil {
 		return err
 	}
 
-	// 9. Save local host identity.
+	// 10. Save local host identity.
 	if err := gitops.SaveLocalHost(installPath, hostName); err != nil {
 		return err
 	}
 
-	// 10. Convert extensions and skins to submodules.
+	// 11. Convert extensions and skins to submodules.
 	if err := convertToSubmodules(installPath, "extensions"); err != nil {
 		fmt.Printf("Warning: could not convert extensions to submodules: %v\n", err)
 	}
@@ -232,7 +250,7 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 		fmt.Printf("Warning: could not convert skins to submodules: %v\n", err)
 	}
 
-	// 11. Initial commit.
+	// 12. Initial commit.
 	if err := gitops.AddAll(installPath); err != nil {
 		return err
 	}
@@ -241,7 +259,7 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 		return err
 	}
 
-	// 12. Add remote and push.
+	// 13. Add remote and push.
 	if err := gitops.AddRemote(installPath, "origin", repoURL); err != nil {
 		return err
 	}
@@ -495,6 +513,7 @@ var requiredGitignoreEntries = []struct {
 	comment string
 }{
 	{"config/backup/", "# Database dumps created by canasta backup"},
+	{"config/wikis.yaml", "# Rendered from wikis.yaml.template — host-specific URLs"},
 }
 
 // ensureGitignoreEntries appends any missing required entries to the repo's

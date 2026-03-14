@@ -27,8 +27,9 @@ The following tools must be installed:
 
 The git repository contains:
 
-- **Configuration files** — `config/` directory (wikis.yaml, Caddyfile customizations, PHP settings)
+- **Configuration files** — `config/` directory (Caddyfile customizations, PHP settings)
 - **Environment template** — `env.template` with `{{placeholders}}` for host-specific values
+- **Wiki farm template** — `wikis.yaml.template` with `{{wiki_url_<id>}}` placeholders for host-specific wiki URLs
 - **Per-host variables** — `hosts/{name}/vars.yaml` with secrets and host-specific values (encrypted by git-crypt)
 - **Host inventory** — `hosts.yaml` defining all servers and their roles
 - **Extensions and skins** — tracked as git submodules pinned to specific versions, or as regular files for custom extensions without their own repository
@@ -38,7 +39,8 @@ The git repository contains:
 
 ### What is NOT tracked (gitignored)
 
-- `.env` — generated from template + vars at deploy time
+- `.env` — generated from `env.template` + vars at deploy time
+- `config/wikis.yaml` — generated from `wikis.yaml.template` + vars at deploy time
 - `config/admin-password_*` — generated from vars at deploy time
 - `docker-compose.yml` — managed by the Canasta CLI
 - `config/Caddyfile` — auto-generated from wikis.yaml on restart
@@ -53,8 +55,8 @@ canasta-config/
 ├── .gitignore
 ├── custom-keys.yaml            # user-defined host-specific .env keys (optional)
 ├── env.template                # shared .env template with {{placeholders}}
+├── wikis.yaml.template         # shared wikis.yaml template with {{wiki_url_<id>}} placeholders
 ├── config/
-│   ├── wikis.yaml
 │   ├── Caddyfile.site
 │   ├── Caddyfile.global
 │   └── settings/
@@ -136,11 +138,12 @@ This bootstraps a new gitops repository from the existing installation:
 2. Sets up `.gitignore` and `.gitattributes`
 3. Initializes git-crypt and exports the symmetric key
 4. Creates `env.template` by extracting the current `.env` and replacing host-specific values with `{{placeholders}}`
-5. Creates `hosts.yaml` with this server as the first entry
-6. Creates `hosts/myserver/vars.yaml` with the actual values extracted from `.env` and admin password files
-7. Converts user-installed extensions and skins to git submodules
-8. Makes an initial commit
-9. Pushes to the remote
+5. Creates `wikis.yaml.template` by extracting wiki URLs from `config/wikis.yaml` and replacing them with `{{wiki_url_<id>}}` placeholders
+6. Creates `hosts.yaml` with this server as the first entry
+7. Creates `hosts/myserver/vars.yaml` with the actual values extracted from `.env`, wiki URLs, and admin password files
+8. Converts user-installed extensions and skins to git submodules
+9. Makes an initial commit
+10. Pushes to the remote
 
 **Store the exported git-crypt key securely** — it is needed to unlock the repo on other servers and must never be committed to the repo.
 
@@ -183,6 +186,40 @@ At deploy time, `canasta gitops pull` renders the template with the host's vars 
 
 !!! warning "Do not edit `.env` directly"
     The `.env` file is regenerated from `env.template` + `vars.yaml` on every pull. Manual edits to `.env` will be overwritten. To change a host-specific value, update `hosts/{name}/vars.yaml`. To change the structure of the `.env` (add or remove keys), edit `env.template`.
+
+## Wiki URL template
+
+For wiki farms, `config/wikis.yaml` contains per-wiki URLs that differ between hosts (e.g., `production.example.com` vs `localhost`). The `wikis.yaml.template` works the same way as `env.template` — wiki URLs are replaced with `{{wiki_url_<id>}}` placeholders:
+
+```yaml
+# wikis.yaml.template
+wikis:
+- id: main
+  url: "{{wiki_url_main}}"
+  name: Main Wiki
+- id: docs
+  url: "{{wiki_url_docs}}"
+  name: Documentation
+```
+
+Each host's `vars.yaml` supplies the actual URLs:
+
+```yaml
+# hosts/production/vars.yaml (in addition to .env vars)
+wiki_url_main: production.example.com
+wiki_url_docs: production.example.com/docs
+```
+
+```yaml
+# hosts/devbox/vars.yaml
+wiki_url_main: localhost
+wiki_url_docs: localhost/docs
+```
+
+At deploy time, `canasta gitops pull` renders `wikis.yaml.template` with the host's vars to produce `config/wikis.yaml`. This prevents local development from accidentally overwriting production URLs when pushing configuration changes.
+
+!!! warning "Do not edit `config/wikis.yaml` directly in a gitops-managed installation"
+    Like `.env`, `config/wikis.yaml` is regenerated from `wikis.yaml.template` + `vars.yaml` on every pull. To change a wiki's URL for a specific host, update `hosts/{name}/vars.yaml`. To add or remove wikis, edit `wikis.yaml.template`.
 
 ### Built-in placeholder keys
 
@@ -412,7 +449,7 @@ canasta config set -i mywiki MY_API_KEY=...
 canasta gitops join -i mywiki -n production --repo git@github.com:yourorg/mywiki-config.git --key /path/to/gitops-key
 ```
 
-This clones the repo, unlocks git-crypt, adds the host to `hosts.yaml`, extracts host-specific values into `vars.yaml`, updates submodules, and pushes the new host entry back to the repo.
+This clones the repo, unlocks git-crypt, adds the host to `hosts.yaml`, extracts host-specific values (including wiki URLs) into `vars.yaml`, renders `.env` and `config/wikis.yaml` from templates, updates submodules, and pushes the new host entry back to the repo.
 
 ## Removing a server
 

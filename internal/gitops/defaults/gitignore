@@ -1,5 +1,6 @@
 # Generated at deploy time — do not track
 .env
+config/wikis.yaml
 config/admin-password_*
 
 # Managed by Canasta CLI
