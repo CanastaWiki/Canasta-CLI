@@ -55,19 +55,19 @@ The tree below shows the full directory layout of a gitops-managed installation.
 canasta-config/
 ├── .gitattributes †
 ├── .gitignore †
-├── .env ‡                      # generated from env.template + vars
-├── custom-keys.yaml †          # user-defined host-specific .env keys (optional)
-├── env.template †              # shared .env template with {{placeholders}}
-├── wikis.yaml.template †       # shared wikis.yaml template (wiki farms only)
+├── .env ‡                      # rendered from env.template + vars
+├── custom-keys.yaml †          # host-specific .env keys (optional)
+├── env.template †              # .env template with {{placeholders}}
+├── wikis.yaml.template †       # wikis.yaml template (wiki farms only)
 ├── hosts.yaml †                # host inventory and settings
 ├── hosts/ †                    # per-host variables
 │   └── myserver/ †
 │       └── vars.yaml †         # encrypted by git-crypt
 ├── config/
-│   ├── wikis.yaml ‡            # generated from wikis.yaml.template + vars
-│   ├── admin-password_* ‡      # generated from vars
-│   ├── Caddyfile ‡             # auto-generated on restart
-│   ├── backup/ ‡               # database dumps from canasta backup
+│   ├── wikis.yaml ‡            # rendered from template + vars
+│   ├── admin-password_* ‡      # rendered from vars
+│   ├── Caddyfile ‡             # generated on restart
+│   ├── backup/ ‡               # database dumps
 │   ├── Caddyfile.site
 │   ├── Caddyfile.global
 │   └── settings/
@@ -80,8 +80,8 @@ canasta-config/
 ├── extensions/                 # git submodules (or regular files for custom extensions)
 ├── skins/                      # git submodules (or regular files for custom skins)
 ├── public_assets/
-├── images/ ‡                   # uploaded files (covered by canasta backup)
-├── docker-compose.yml ‡        # managed by the Canasta CLI
+├── images/ ‡                   # uploaded files
+├── docker-compose.yml ‡        # managed by CLI
 └── docker-compose.override.yml # if used
 ```
 
