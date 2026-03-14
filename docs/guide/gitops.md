@@ -49,14 +49,24 @@ The git repository contains:
 
 ## Repository structure
 
+The tree below shows the full directory layout of a gitops-managed installation. Most files and directories are part of every Canasta installation. Files marked `†` are created by `gitops init` and only exist when gitops is in use. Files marked `‡` are generated at deploy time from templates and are not tracked in git.
+
 ```
 canasta-config/
-├── .gitattributes              # git-crypt filter rules
-├── .gitignore
-├── custom-keys.yaml            # user-defined host-specific .env keys (optional)
-├── env.template                # shared .env template with {{placeholders}}
-├── wikis.yaml.template         # shared wikis.yaml template with {{wiki_url_<id>}} placeholders
+├── .gitattributes †
+├── .gitignore †
+├── .env ‡
+├── custom-keys.yaml †          # user-defined host-specific .env keys (optional)
+├── env.template †              # shared .env template with {{placeholders}}
+├── wikis.yaml.template †       # shared wikis.yaml template (wiki farms only)
+├── hosts.yaml †                # host inventory and settings
+├── hosts/ †                    # per-host variables (encrypted by git-crypt)
+│   └── myserver/
+│       └── vars.yaml
 ├── config/
+│   ├── wikis.yaml ‡
+│   ├── admin-password_* ‡
+│   ├── Caddyfile               # auto-generated on restart
 │   ├── Caddyfile.site
 │   ├── Caddyfile.global
 │   └── settings/
@@ -69,11 +79,8 @@ canasta-config/
 ├── extensions/                 # git submodules (or regular files for custom extensions)
 ├── skins/                      # git submodules (or regular files for custom skins)
 ├── public_assets/
-├── docker-compose.override.yml # if used
-├── hosts/                      # per-host variables (encrypted by git-crypt)
-│   └── myserver/
-│       └── vars.yaml
-└── hosts.yaml                  # host inventory and settings
+├── docker-compose.yml ‡        # managed by the Canasta CLI
+└── docker-compose.override.yml # if used
 ```
 
 ## Initial setup
