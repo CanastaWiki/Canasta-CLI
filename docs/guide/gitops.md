@@ -60,9 +60,9 @@ canasta-config/
 ├── env.template †              # shared .env template with {{placeholders}}
 ├── wikis.yaml.template †       # shared wikis.yaml template (wiki farms only)
 ├── hosts.yaml †                # host inventory and settings
-├── hosts/ †                    # per-host variables (encrypted by git-crypt)
-│   └── myserver/
-│       └── vars.yaml
+├── hosts/ †                    # per-host variables
+│   └── myserver/ †
+│       └── vars.yaml †         # encrypted by git-crypt
 ├── config/
 │   ├── wikis.yaml ‡
 │   ├── admin-password_* ‡
