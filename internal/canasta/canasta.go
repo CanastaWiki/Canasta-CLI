@@ -40,7 +40,7 @@ const (
 )
 
 // DefaultImageTag is the default tag to use for the Canasta image.
-// It is set via ldflags at build time from the VERSION file.
+// It is set via ldflags at build time from the CANASTA_VERSION file.
 // The "latest" fallback is used for dev builds (when ldflags aren't applied).
 var DefaultImageTag = "latest"
 

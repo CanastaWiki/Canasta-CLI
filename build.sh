@@ -7,12 +7,15 @@
 #   ./build.sh                           # Build for current platform
 #   GOOS=linux GOARCH=amd64 ./build.sh   # Cross-compile for specific platform
 
-# Read version from VERSION file if not set via environment
+# Read CLI version from VERSION file if not set via environment
 VERSION="${VERSION:-$(cat VERSION 2>/dev/null || echo "")}"
 
-# version.Version gets v prefix (git tag format); DefaultImageTag gets bare version (image tag format)
-IMAGE_TAG="${VERSION#v}"
-CLI_VERSION="v${IMAGE_TAG}"
+# Read Canasta image version from CANASTA_VERSION file
+CANASTA_VERSION="${CANASTA_VERSION:-$(cat CANASTA_VERSION 2>/dev/null || echo "")}"
+
+# version.Version gets v prefix (git tag format); DefaultImageTag gets bare Canasta version (image tag format)
+IMAGE_TAG="${CANASTA_VERSION#v}"
+CLI_VERSION="v${VERSION#v}"
 
 # Get version information
 GIT_SHA=$(git rev-parse --short HEAD)

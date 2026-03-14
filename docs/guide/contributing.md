@@ -57,17 +57,13 @@ The next CI run will see that the `v3.3.0` tag does not exist and create it. The
 
 ### 4. Update the CLI default image tag
 
-After the versioned image is published, update `DefaultImageTag` in `internal/canasta/canasta.go` to match the new version:
-
-```go
-DefaultImageTag = "3.3.0"
-```
+After the versioned image is published, update the `CANASTA_VERSION` file in the Canasta-CLI repository to match the new version (e.g., `3.3.0`). The build script reads this file and sets `DefaultImageTag` via ldflags.
 
 This ensures new installations created with `canasta create` use the new version. Existing installations keep whatever version is in their `.env` file until explicitly upgraded.
 
 ### 5. Release the CLI
 
-Tag and release the CLI via GitHub Releases. The install script (`install.sh`) downloads the latest CLI release.
+Bump the `VERSION` file in the Canasta-CLI repository to trigger a new release. The `VERSION` file controls the CLI version number, which is independent of the Canasta image version in `CANASTA_VERSION`. You can release new CLI versions without bumping the Canasta image version, and vice versa.
 
 ---
 
@@ -90,19 +86,26 @@ The CLI pins installations to the immutable `<CANASTA_VERSION>` tag (e.g., `3.2.
 
 ## Updating the CLI default image
 
-The default image tag is defined in a single place:
-
-```
-internal/canasta/canasta.go → DefaultImageTag
-```
+The default image tag is controlled by the `CANASTA_VERSION` file at the repository root. The build script reads this file and injects the value into `DefaultImageTag` via ldflags.
 
 When `canasta create` runs, it writes `CANASTA_IMAGE=ghcr.io/canastawiki/canasta:<DefaultImageTag>` to the installation's `.env` file. The `docker-compose.yml` and Kubernetes `web.yaml` templates reference `${CANASTA_IMAGE:-ghcr.io/canastawiki/canasta:latest}` — the `latest` fallback is never used in practice since `CANASTA_IMAGE` is always set.
 
 To update:
 
-1. Change `DefaultImageTag` in `internal/canasta/canasta.go`
+1. Change `CANASTA_VERSION` to the new image version
 2. Submit a PR to `Canasta-CLI`
-3. After merging, cut a new CLI release
+3. After merging, bump `VERSION` if you want a new CLI release
+
+## Version files
+
+The CLI uses two version files:
+
+| File | Controls | Example |
+|------|----------|---------|
+| `VERSION` | CLI version number (triggers release when changed) | `3.6.0` |
+| `CANASTA_VERSION` | Default Canasta Docker image tag | `3.5.1` |
+
+These are independent — you can release CLI updates (bug fixes, new commands) without bumping the Canasta image version, and update the pinned Canasta version without changing the CLI version.
 
 ---
 
