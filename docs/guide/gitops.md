@@ -425,6 +425,8 @@ Since they are regular files in the repo, they are automatically synced to all s
 
 ## Adding a server
 
+Backup and gitops are complementary systems. **Backup** (`canasta backup`) captures everything — databases, uploaded files, and configuration. **Gitops** tracks configuration only — settings files, extensions, skins, environment template, and wiki farm structure. When adding a server (whether a production replica or a local dev copy), you need both: the backup provides the database and files, while gitops gives you the shared configuration repo.
+
 To add a new server to an existing managed wiki farm:
 
 ### 1. Back up the existing wiki farm
@@ -459,6 +461,37 @@ canasta gitops join -i mywiki -n production --repo git@github.com:yourorg/mywiki
 ```
 
 This clones the repo, unlocks git-crypt, adds the host to `hosts.yaml`, extracts host-specific values (including wiki URLs) into `vars.yaml`, renders `.env` and `config/wikis.yaml` from templates, updates submodules, and pushes the new host entry back to the repo.
+
+### Setting up a local dev copy
+
+The steps above also apply when setting up a local development copy of a production wiki. The key differences are:
+
+1. **Restore from a remote backup** instead of copying a file. Add the production server's backup credentials (`RESTIC_REPOSITORY`, `RESTIC_PASSWORD`, and any `AWS_*`/`AZURE_*`/`B2_*` keys) to your local instance's `.env`, then:
+
+    ```bash
+    canasta backup list -i mywiki
+    canasta backup restore -i mywiki -s <snapshot-id>
+    ```
+
+2. **Edit `config/wikis.yaml` before joining** to replace production URLs with local addresses (e.g., `localhost`). The join command captures these URLs into your host's `vars.yaml`, so they must be correct before you run it.
+
+3. **Use `--role source`** (or `--role both`) so you can push changes back to the repo:
+
+    ```bash
+    canasta gitops join -i mywiki -n devbox --role source \
+      --repo git@github.com:yourorg/mywiki-config.git --key /path/to/gitops-key
+    ```
+
+After making and testing changes locally, push them to the repo and pull on the production server:
+
+```bash
+# Local
+canasta gitops add -i mywiki config/settings/global/MyChange.php
+canasta gitops push -i mywiki -m "Description of change"
+
+# Production
+canasta gitops pull -i mywiki
+```
 
 ## Removing a server
 
