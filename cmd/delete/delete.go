@@ -57,7 +57,7 @@ prompted for confirmation before any data is deleted.`,
 			return nil
 		},
 	}
-	deleteCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	deleteCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	deleteCmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
 	return deleteCmd
 }

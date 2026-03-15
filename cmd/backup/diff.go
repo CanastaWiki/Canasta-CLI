@@ -28,8 +28,8 @@ modified files.`,
 			return nil
 		},
 	}
-	diffCmd.Flags().StringVar(&snapshot1, "snapshot1", "", "First snapshot ID (required)")
-	diffCmd.Flags().StringVar(&snapshot2, "snapshot2", "", "Second snapshot ID (required)")
+	diffCmd.Flags().StringVar(&snapshot1, "snapshot1", "", "First snapshot ID")
+	diffCmd.Flags().StringVar(&snapshot2, "snapshot2", "", "Second snapshot ID")
 	_ = diffCmd.MarkFlagRequired("snapshot1")
 	_ = diffCmd.MarkFlagRequired("snapshot2")
 	return diffCmd

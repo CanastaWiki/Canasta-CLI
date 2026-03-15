@@ -81,7 +81,7 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 	}
 	instance.Path = workingDir
 
-	exportCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	exportCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	exportCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to export")
 	exportCmd.Flags().StringVarP(&outputPath, "file", "f", "", "Output file path (default: <wikiID>.sql)")
 

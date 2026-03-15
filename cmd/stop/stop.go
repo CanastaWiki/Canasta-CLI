@@ -43,7 +43,7 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 			return nil
 		},
 	}
-	stopCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	stopCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	return stopCmd
 }
 

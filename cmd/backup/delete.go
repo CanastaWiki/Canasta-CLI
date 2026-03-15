@@ -28,7 +28,7 @@ may still exist until a prune is run on the repository.`,
 		},
 	}
 
-	deleteCmd.Flags().StringVarP(&snapshot, "snapshot", "s", "", "Snapshot ID (required)")
+	deleteCmd.Flags().StringVarP(&snapshot, "snapshot", "s", "", "Snapshot ID")
 	_ = deleteCmd.MarkFlagRequired("snapshot")
 	return deleteCmd
 }

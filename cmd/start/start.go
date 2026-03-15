@@ -45,7 +45,7 @@ development mode setting.`,
 			return nil
 		},
 	}
-	startCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	startCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	return startCmd
 }
 

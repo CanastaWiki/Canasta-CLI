@@ -44,10 +44,15 @@ The installation must already exist and have a working .env file. Use
 		},
 	}
 
-	cmd.Flags().StringVarP(&hostName, "name", "n", "", "Name for this host in hosts.yaml (required)")
+	cmd.Flags().StringVarP(&hostName, "name", "n", "", "Name for this host in hosts.yaml")
 	cmd.Flags().StringVar(&role, "role", gitops.RoleBoth, "Host role: source, sink, or both")
-	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL (required)")
-	cmd.Flags().StringVar(&keyFile, "key", "", "Path to the git-crypt key file (required)")
+	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL")
+	cmd.Flags().StringVar(&keyFile, "key", "", "Path to the git-crypt key file")
+
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("repo")
+	_ = cmd.MarkFlagRequired("key")
+
 	return cmd
 }
 

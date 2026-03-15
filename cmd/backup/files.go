@@ -27,7 +27,7 @@ for inspecting what was backed up before performing a restore.`,
 			return nil
 		},
 	}
-	filesCmd.Flags().StringVarP(&snapshot, "snapshot", "s", "", "Snapshot ID (required)")
+	filesCmd.Flags().StringVarP(&snapshot, "snapshot", "s", "", "Snapshot ID")
 	_ = filesCmd.MarkFlagRequired("snapshot")
 	return filesCmd
 }

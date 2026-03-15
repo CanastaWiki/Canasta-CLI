@@ -20,17 +20,8 @@ import (
 var validHostName = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_-]*[a-zA-Z0-9])?$`)
 
 func validateInitFlags(hostName, repoURL, keyFile string) error {
-	if hostName == "" {
-		return fmt.Errorf("--name is required")
-	}
 	if !validHostName.MatchString(hostName) {
 		return fmt.Errorf("invalid host name %q: must contain only alphanumeric characters, hyphens, and underscores", hostName)
-	}
-	if repoURL == "" {
-		return fmt.Errorf("--repo is required")
-	}
-	if keyFile == "" {
-		return fmt.Errorf("--key is required")
 	}
 	return nil
 }
@@ -81,13 +72,18 @@ To join an existing gitops repository instead, use "canasta gitops join".`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&hostName, "name", "n", "", "Name for this host in hosts.yaml (required)")
+	cmd.Flags().StringVarP(&hostName, "name", "n", "", "Name for this host in hosts.yaml")
 	cmd.Flags().StringVar(&role, "role", gitops.RoleBoth, "Host role: source, sink, or both")
-	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL (required)")
-	cmd.Flags().StringVar(&keyFile, "key", "", "Path to export the git-crypt key (required)")
+	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL")
+	cmd.Flags().StringVar(&keyFile, "key", "", "Path to export the git-crypt key")
 	cmd.Flags().BoolVar(&force, "force", false, "Force push to a non-empty remote repository")
 	cmd.Flags().BoolVar(&pullRequests, "pull-requests", false, "Require pull requests instead of pushing directly to main")
 	cmd.Flags().BoolVar(&repair, "repair", false, "Re-register extensions/skins as proper submodules")
+
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("repo")
+	_ = cmd.MarkFlagRequired("key")
+
 	return cmd
 }
 

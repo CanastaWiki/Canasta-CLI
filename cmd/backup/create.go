@@ -36,7 +36,7 @@ uploads the snapshot to the backup repository with the specified tag.`,
 		},
 	}
 
-	createBackupCmd.Flags().StringVarP(&tag, "tag", "t", "", "Backup tag (required)")
+	createBackupCmd.Flags().StringVarP(&tag, "tag", "t", "", "Backup tag")
 	_ = createBackupCmd.MarkFlagRequired("tag")
 	return createBackupCmd
 }

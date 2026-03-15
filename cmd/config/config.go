@@ -90,7 +90,7 @@ To change the domain, first edit config/wikis.yaml, then use
 		},
 	}
 
-	configCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	configCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 
 	configCmd.AddCommand(newGetCmd(&instance))
 	configCmd.AddCommand(newSetCmd(&instance, &orch))

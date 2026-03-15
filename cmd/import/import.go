@@ -91,7 +91,7 @@ To create a new wiki from a database dump, use the --database flag with
 	}
 	instance.Path = workingDir
 
-	importCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	importCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	importCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki to import into")
 	importCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to SQL dump file (.sql or .sql.gz)")
 	importCmd.Flags().StringVarP(&settingsPath, "wiki-settings", "l", "", "Path to per-wiki Settings.php to replace the existing one")
