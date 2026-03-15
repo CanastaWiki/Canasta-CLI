@@ -15,14 +15,17 @@ func newExecCmd(instance *config.Installation) *cobra.Command {
 	var service string
 
 	cmd := &cobra.Command{
-		Use:   "exec [-- command ...]",
+		Use:   "exec [command ...]",
 		Short: "Execute a command in a running container",
 		Long: `Execute a command or open an interactive shell in a running container
 of a Canasta installation.
 
 With no arguments and no --service flag, lists the running services.
 With --service (or -s) and no command, opens an interactive bash shell.
-With --service and a command after --, runs that command.
+With --service and a command, runs that command.
+
+Flags (-i, -s) must come before the command. Everything after the first
+non-flag argument is treated as the command and its arguments.
 
 The default service is "web" (the MediaWiki container).`,
 		Example: `  # List running services
@@ -32,10 +35,10 @@ The default service is "web" (the MediaWiki container).`,
   canasta maintenance exec -i myinstance -s web
 
   # Run a command in the web container
-  canasta maintenance exec -i myinstance -s web -- ls /var/www
+  canasta maintenance exec -i myinstance -s web ls /var/www
 
   # Default service is "web", so this also works
-  canasta maintenance exec -i myinstance -- php -v`,
+  canasta maintenance exec -i myinstance php -v`,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			*instance, err = canasta.CheckCanastaID(*instance)
@@ -92,5 +95,8 @@ The default service is "web" (the MediaWiki container).`,
 	}
 
 	cmd.Flags().StringVarP(&service, "service", "s", "", "Service name (default: web)")
+	// Stop parsing flags after the first non-flag argument (the command).
+	// This allows command arguments like -v to be passed without --.
+	cmd.Flags().SetInterspersed(false)
 	return cmd
 }

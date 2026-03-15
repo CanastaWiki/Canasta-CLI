@@ -31,9 +31,8 @@ directory. With one argument (extension name), lists available maintenance
 scripts for that extension. With two or more arguments (extension name,
 script name, and optional script arguments), runs the specified script.
 
-Flags (-i, --wiki) must come before the extension name. Everything after
-the extension name is treated as the script and its arguments — no quotes
-are needed.
+Flags (-i, --wiki) must come before the extension name. Everything after the
+extension name is treated as the script and its arguments — no quotes needed.
 
 Only extensions that are currently loaded (enabled) for the target wiki are
 shown and allowed to run. In a wiki farm, runs on all wikis by default.
