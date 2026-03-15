@@ -22,8 +22,9 @@ func newExtensionCmd(instance *config.Installation) *cobra.Command {
 	var wiki string
 
 	extensionCmd := &cobra.Command{
-		Use:   "extension [extension-name] [script.php [args...]]",
-		Short: "Run extension maintenance scripts",
+		Use:                   "extension [flags] [extension-name] [script.php [args...]]",
+		DisableFlagsInUseLine: true,
+		Short:                 "Run extension maintenance scripts",
 		Long: `Run maintenance scripts provided by loaded MediaWiki extensions.
 
 With no arguments, lists all loaded extensions that have a maintenance/
@@ -31,9 +32,8 @@ directory. With one argument (extension name), lists available maintenance
 scripts for that extension. With two or more arguments (extension name,
 script name, and optional script arguments), runs the specified script.
 
-Flags (-i, --wiki) must come before the extension name. Everything after
-the extension name is treated as the script and its arguments — no quotes
-are needed.
+Flags (-i, --wiki) must come before the extension name. Everything after the
+extension name is treated as the script and its arguments — no quotes needed.
 
 Only extensions that are currently loaded (enabled) for the target wiki are
 shown and allowed to run. In a wiki farm, runs on all wikis by default.
