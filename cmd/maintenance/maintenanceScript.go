@@ -3,6 +3,7 @@ package maintenance
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,27 +15,31 @@ import (
 func newScriptCmd(instance *config.Installation, wiki *string) *cobra.Command {
 
 	scriptCmd := &cobra.Command{
-		Use:   `script ["scriptname.php [args]"]`,
-		Short: "Run maintenance scripts",
+		Use:                   "script [flags] [scriptname.php [args...]]",
+		DisableFlagsInUseLine: true,
+		Short:                 "Run maintenance scripts",
 		Long: `Run a MediaWiki core maintenance script inside the web container.
 
-With no arguments, lists all available maintenance scripts. With one argument
-(a quoted script name and optional arguments), runs that script. The script
-name is relative to the maintenance/ directory.
+With no arguments, lists all available maintenance scripts. With one or more
+arguments, runs the specified script. The script name is relative to the
+maintenance/ directory.
+
+Flags (-i, --wiki) must come before the script name. Everything after the
+script name is treated as script arguments — no quotes needed.
 
 Use --wiki to target a specific wiki in a farm.`,
 		Example: `  # List all available maintenance scripts
   canasta maintenance script -i myinstance
 
   # Run rebuildrecentchanges.php
-  canasta maintenance script "rebuildrecentchanges.php" -i myinstance
+  canasta maintenance script -i myinstance rebuildrecentchanges.php
 
   # Run a script with arguments
-  canasta maintenance script "importDump.php /path/to/dump.xml" -i myinstance
+  canasta maintenance script -i myinstance importDump.php /path/to/dump.xml
 
   # Run a script for a specific wiki in a farm
-  canasta maintenance script "rebuildrecentchanges.php" -i myinstance --wiki=docs`,
-		Args: cobra.RangeArgs(0, 1),
+  canasta maintenance script -i myinstance --wiki=docs rebuildrecentchanges.php`,
+		Args: cobra.ArbitraryArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			*instance, err = canasta.CheckCanastaID(*instance)
@@ -44,10 +49,14 @@ Use --wiki to target a specific wiki in a farm.`,
 			if len(args) == 0 {
 				return listMaintenanceScripts(*instance)
 			}
-			return runMaintenanceScript(*instance, args[0], *wiki)
+			scriptStr := strings.Join(args, " ")
+			return runMaintenanceScript(*instance, scriptStr, *wiki)
 		},
 	}
 
+	// Stop parsing flags after the first non-flag argument (the script name).
+	// This allows script arguments like -s 1000 to be passed without quotes.
+	scriptCmd.Flags().SetInterspersed(false)
 	return scriptCmd
 }
 
