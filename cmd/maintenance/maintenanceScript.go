@@ -3,7 +3,6 @@ package maintenance
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -13,7 +12,8 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newScriptCmd(instance *config.Installation, wiki *string) *cobra.Command {
+func newScriptCmd(instance *config.Installation) *cobra.Command {
+	var wiki string
 
 	scriptCmd := &cobra.Command{
 		Use:   `script ["scriptname.php [args]"]`,
@@ -24,7 +24,8 @@ With no arguments, lists all available maintenance scripts. With one argument
 (a quoted script name and optional arguments), runs that script. The script
 name is relative to the maintenance/ directory.
 
-Use --wiki to target a specific wiki in a farm.`,
+In a wiki farm, runs on all wikis by default. Use --wiki to target a
+specific wiki.`,
 		Example: `  # List all available maintenance scripts
   canasta maintenance script -i myinstance
 
@@ -46,10 +47,11 @@ Use --wiki to target a specific wiki in a farm.`,
 			if len(args) == 0 {
 				return listMaintenanceScripts(*instance)
 			}
-			return runMaintenanceScript(*instance, args[0], *wiki)
+			return runMaintenanceScript(*instance, args[0], wiki)
 		},
 	}
 
+	scriptCmd.Flags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on (default: all wikis)")
 	return scriptCmd
 }
 
@@ -102,21 +104,32 @@ func runMaintenanceScriptWith(orch orchestrators.Orchestrator, inst config.Insta
 		return err
 	}
 
-	// Require --wiki on wiki farms
-	if resolvedWiki == "" {
-		ids, err := farmsettings.GetWikiIDs(inst.Path)
-		if err == nil && len(ids) > 0 {
-			return fmt.Errorf("this is a wiki farm; use --wiki to specify a wiki (%s)", strings.Join(ids, ", "))
-		}
+	// If a specific wiki was given, run once for that wiki.
+	// Otherwise, run on all wikis in the farm.
+	if resolvedWiki != "" {
+		return runScriptForWiki(orch, inst, cleanedScript, resolvedWiki)
 	}
 
-	wikiFlag := ""
-	if resolvedWiki != "" {
-		wikiFlag = " --wiki=" + resolvedWiki
+	wikiIDs, err := farmsettings.GetWikiIDs(inst.Path)
+	if err != nil {
+		return err
 	}
-	fmt.Println("Running maintenance script " + cleanedScript)
+	for _, id := range wikiIDs {
+		if err := runScriptForWiki(orch, inst, cleanedScript, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runScriptForWiki(orch orchestrators.Orchestrator, inst config.Installation, script, wikiID string) error {
+	wikiFlag := ""
+	if wikiID != "" {
+		wikiFlag = " --wiki=" + wikiID
+	}
+	fmt.Println("Running maintenance script " + script + wikiFlag)
 	if err := orch.ExecStreaming(inst.Path, orchestrators.ServiceWeb,
-		"php maintenance/"+cleanedScript+wikiFlag); err != nil {
+		"php maintenance/"+script+wikiFlag); err != nil {
 		return fmt.Errorf("maintenance script failed: %w", err)
 	}
 	fmt.Println("Completed running maintenance script")

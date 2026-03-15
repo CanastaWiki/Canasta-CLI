@@ -40,7 +40,6 @@ func TestMaintenancePersistentFlags(t *testing.T) {
 		shorthand string
 	}{
 		{"id", "i"},
-		{"wiki", "w"},
 	}
 
 	for _, f := range flags {
@@ -99,25 +98,28 @@ func writeWikisYAML(t *testing.T, dir string, content string) {
 	}
 }
 
-func TestScriptRequiresWikiOnFarm(t *testing.T) {
+func TestScriptRunsAllWikisOnFarm(t *testing.T) {
 	dir := t.TempDir()
 	writeWikisYAML(t, dir, "wikis:\n  - id: main\n    url: http://localhost\n  - id: docs\n    url: http://localhost\n")
 
 	mock := &extMockOrchestrator{}
 	inst := config.Installation{Path: dir}
 	err := runMaintenanceScriptWith(mock, inst, "rebuildrecentchanges.php", "")
-	if err == nil {
-		t.Fatal("expected error when --wiki not specified on farm")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "wiki farm") {
-		t.Errorf("expected wiki farm error, got: %v", err)
+	if len(mock.streamingCalls) != 2 {
+		t.Fatalf("expected 2 streaming calls (one per wiki), got %d", len(mock.streamingCalls))
 	}
-	if !strings.Contains(err.Error(), "main") || !strings.Contains(err.Error(), "docs") {
-		t.Errorf("expected wiki IDs in error, got: %v", err)
+	if !strings.Contains(mock.streamingCalls[0], "--wiki=main") {
+		t.Errorf("expected --wiki=main in first call, got: %s", mock.streamingCalls[0])
+	}
+	if !strings.Contains(mock.streamingCalls[1], "--wiki=docs") {
+		t.Errorf("expected --wiki=docs in second call, got: %s", mock.streamingCalls[1])
 	}
 }
 
-func TestScriptAllowsWikiOnFarm(t *testing.T) {
+func TestScriptRunsSpecificWikiOnFarm(t *testing.T) {
 	dir := t.TempDir()
 	writeWikisYAML(t, dir, "wikis:\n  - id: main\n    url: http://localhost\n  - id: docs\n    url: http://localhost\n")
 
@@ -135,18 +137,21 @@ func TestScriptAllowsWikiOnFarm(t *testing.T) {
 	}
 }
 
-func TestScriptRequiresWikiOnSingleWikiFarm(t *testing.T) {
+func TestScriptRunsAllWikisOnSingleWikiFarm(t *testing.T) {
 	dir := t.TempDir()
 	writeWikisYAML(t, dir, "wikis:\n  - id: main\n    url: http://localhost\n")
 
 	mock := &extMockOrchestrator{}
 	inst := config.Installation{Path: dir}
 	err := runMaintenanceScriptWith(mock, inst, "rebuildrecentchanges.php", "")
-	if err == nil {
-		t.Fatal("expected error when --wiki not specified on single-wiki farm")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "wiki farm") {
-		t.Errorf("expected wiki farm error, got: %v", err)
+	if len(mock.streamingCalls) != 1 {
+		t.Fatalf("expected 1 streaming call, got %d", len(mock.streamingCalls))
+	}
+	if !strings.Contains(mock.streamingCalls[0], "--wiki=main") {
+		t.Errorf("expected --wiki=main, got: %s", mock.streamingCalls[0])
 	}
 }
 
