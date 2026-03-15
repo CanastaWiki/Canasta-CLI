@@ -17,8 +17,9 @@ func newScriptCmd(instance *config.Installation) *cobra.Command {
 	var wiki string
 
 	scriptCmd := &cobra.Command{
-		Use:   "script [scriptname.php [args...]]",
-		Short: "Run maintenance scripts",
+		Use:                   "script [flags] [scriptname.php [args...]]",
+		DisableFlagsInUseLine: true,
+		Short:                 "Run maintenance scripts",
 		Long: `Run a MediaWiki core maintenance script inside the web container.
 
 With no arguments, lists all available maintenance scripts. With one or more

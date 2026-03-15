@@ -22,8 +22,9 @@ func newExtensionCmd(instance *config.Installation) *cobra.Command {
 	var wiki string
 
 	extensionCmd := &cobra.Command{
-		Use:   "extension [extension-name] [script.php [args...]]",
-		Short: "Run extension maintenance scripts",
+		Use:                   "extension [flags] [extension-name] [script.php [args...]]",
+		DisableFlagsInUseLine: true,
+		Short:                 "Run extension maintenance scripts",
 		Long: `Run maintenance scripts provided by loaded MediaWiki extensions.
 
 With no arguments, lists all loaded extensions that have a maintenance/

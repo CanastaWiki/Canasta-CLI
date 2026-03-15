@@ -15,8 +15,9 @@ func newExecCmd(instance *config.Installation) *cobra.Command {
 	var service string
 
 	cmd := &cobra.Command{
-		Use:   "exec [command ...]",
-		Short: "Execute a command in a running container",
+		Use:                   "exec [flags] [command ...]",
+		DisableFlagsInUseLine: true,
+		Short:                 "Execute a command in a running container",
 		Long: `Execute a command or open an interactive shell in a running container
 of a Canasta installation.
 
