@@ -18,7 +18,8 @@ import (
 // wikiArgRe matches --wiki=value or --wiki value in a script argument string.
 var wikiArgRe = regexp.MustCompile(`(?:^|\s)--wiki[=\s](\S+)`)
 
-func newExtensionCmd(instance *config.Installation, wiki *string) *cobra.Command {
+func newExtensionCmd(instance *config.Installation) *cobra.Command {
+	var wiki string
 
 	extensionCmd := &cobra.Command{
 		Use:   "extension [extension-name] [script.php [args...]]",
@@ -60,13 +61,13 @@ Use --wiki to target a specific wiki.`,
 		RunE: func(_ *cobra.Command, args []string) error {
 			switch {
 			case len(args) == 0:
-				return listExtensionsWithMaintenance(*instance, *wiki)
+				return listExtensionsWithMaintenance(*instance, wiki)
 			case len(args) == 1:
-				return listExtensionScripts(*instance, args[0], *wiki)
+				return listExtensionScripts(*instance, args[0], wiki)
 			default:
 				extName := args[0]
 				scriptStr := strings.Join(args[1:], " ")
-				wikiIDs, err := resolveWikiIDs(*instance, *wiki)
+				wikiIDs, err := resolveWikiIDs(*instance, wiki)
 				if err != nil {
 					return err
 				}
@@ -80,6 +81,7 @@ Use --wiki to target a specific wiki.`,
 		},
 	}
 
+	extensionCmd.Flags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on (default: all wikis)")
 	// Stop parsing flags after the first non-flag argument (the extension name).
 	// This allows script arguments like -s 1000 to be passed without quotes.
 	extensionCmd.Flags().SetInterspersed(false)
