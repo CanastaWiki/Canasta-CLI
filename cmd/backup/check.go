@@ -17,7 +17,7 @@ func newCheckCmd(orch *orchestrators.Orchestrator, instance *config.Installation
 		Long: `Verify the integrity of the backup repository and its data. This
 checks for errors in the repository structure and snapshot data.`,
 		Example: `  canasta backup check -i myinstance`,
-		Args: cobra.NoArgs,
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			output, err := runBackup(*orch, instance.Path, *envPath, nil, "-r", *repoURL, "check")
 			if err != nil {

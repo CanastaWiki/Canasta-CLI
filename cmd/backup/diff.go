@@ -19,7 +19,7 @@ func newDiffCmd(orch *orchestrators.Orchestrator, instance *config.Installation,
 contents and metadata of both snapshots, displaying added, removed, and
 modified files.`,
 		Example: `  canasta backup diff -i myinstance --snapshot1 abc123 --snapshot2 def456`,
-		Args: cobra.NoArgs,
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			output, err := runBackup(*orch, instance.Path, *envPath, nil, "-r", *repoURL, "diff", snapshot1, snapshot2)
 			if err != nil {

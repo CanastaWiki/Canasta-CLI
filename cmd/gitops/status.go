@@ -14,7 +14,7 @@ func newStatusCmd(instance *config.Installation) *cobra.Command {
 		Use:   "status",
 		Short: "Show gitops status for the installation",
 		Long:  `Show the current host, role, uncommitted changes, and ahead/behind status relative to the remote.`,
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runStatus(instance.Path)
 		},
