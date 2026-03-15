@@ -105,7 +105,7 @@ func runMaintenanceScriptWith(orch orchestrators.Orchestrator, inst config.Insta
 	// Require --wiki on wiki farms
 	if resolvedWiki == "" {
 		ids, err := farmsettings.GetWikiIDs(inst.Path)
-		if err == nil && len(ids) > 1 {
+		if err == nil && len(ids) > 0 {
 			return fmt.Errorf("this is a wiki farm; use --wiki to specify a wiki (%s)", strings.Join(ids, ", "))
 		}
 	}

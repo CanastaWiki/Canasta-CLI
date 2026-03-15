@@ -135,15 +135,18 @@ func TestScriptAllowsWikiOnFarm(t *testing.T) {
 	}
 }
 
-func TestScriptNoWikiRequiredOnSingleWiki(t *testing.T) {
+func TestScriptRequiresWikiOnSingleWikiFarm(t *testing.T) {
 	dir := t.TempDir()
 	writeWikisYAML(t, dir, "wikis:\n  - id: main\n    url: http://localhost\n")
 
 	mock := &extMockOrchestrator{}
 	inst := config.Installation{Path: dir}
 	err := runMaintenanceScriptWith(mock, inst, "rebuildrecentchanges.php", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error when --wiki not specified on single-wiki farm")
+	}
+	if !strings.Contains(err.Error(), "wiki farm") {
+		t.Errorf("expected wiki farm error, got: %v", err)
 	}
 }
 
