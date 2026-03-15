@@ -34,7 +34,7 @@ pushes the new host entry back to the repo.
 The installation must already exist and have a working .env file. Use
 "canasta gitops init" to bootstrap a new gitops repository instead.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if err := validateInitFlags(hostName, repoURL, keyFile); err != nil {
+			if err := validateInitFlags(hostName); err != nil {
 				return err
 			}
 			if err := gitops.ValidateRole(role); err != nil {

@@ -19,7 +19,7 @@ import (
 
 var validHostName = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_-]*[a-zA-Z0-9])?$`)
 
-func validateInitFlags(hostName, repoURL, keyFile string) error {
+func validateInitFlags(hostName string) error {
 	if !validHostName.MatchString(hostName) {
 		return fmt.Errorf("invalid host name %q: must contain only alphanumeric characters, hyphens, and underscores", hostName)
 	}
@@ -62,7 +62,7 @@ To join an existing gitops repository instead, use "canasta gitops join".`,
 			if repair {
 				return runRepairSubmodules(instance.Path)
 			}
-			if err := validateInitFlags(hostName, repoURL, keyFile); err != nil {
+			if err := validateInitFlags(hostName); err != nil {
 				return err
 			}
 			if err := gitops.ValidateRole(role); err != nil {
