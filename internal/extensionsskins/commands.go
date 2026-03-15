@@ -46,7 +46,7 @@ a specific wiki in a farm.`, constants.Plural, constants.Plural),
 		},
 	}
 
-	cmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	cmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	cmd.PersistentFlags().StringVarP(&wiki, "wiki", "w", "", "ID of the specific wiki within the Canasta farm")
 
 	cmd.AddCommand(newListCmd(&instance, &orch, &wiki, &constants))

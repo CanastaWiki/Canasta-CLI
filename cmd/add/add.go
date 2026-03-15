@@ -85,10 +85,8 @@ an existing database dump instead of running the installer.`,
 
   # Add a wiki with an existing database dump
   canasta add -i myinstance -w docs -u localhost/docs -d /path/to/dump.sql`,
-		RunE: func(_ *cobra.Command, args []string) error {
-			if len(args) > 0 {
-				return fmt.Errorf("unknown argument %q; use flags to specify options (e.g. canasta add --wiki <wiki> --url <url>)", args[0])
-			}
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 
 			// Validate wiki ID
@@ -157,7 +155,7 @@ an existing database dump instead of running the installer.`,
 	addCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the new wiki")
 	addCmd.Flags().StringVarP(&url, "url", "u", "", "URL of the new wiki (domain/path format, e.g., 'localhost/wiki2' or 'example.com/mywiki'; do not include protocol/scheme)")
 	addCmd.Flags().StringVarP(&siteName, "site-name", "t", "", "Display name of the wiki (optional, defaults to wiki ID)")
-	addCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	addCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	addCmd.Flags().StringVarP(&databasePath, "database", "d", "", "Path to existing database dump (.sql or .sql.gz) to import instead of running install.php")
 	addCmd.Flags().StringVarP(&wikiSettingsPath, "wiki-settings", "l", "", "Path to per-wiki settings file to copy to config/settings/wikis/<wiki_id>/ (filename preserved)")
 	addCmd.Flags().StringVarP(&admin, "admin", "a", "WikiSysop", "Admin name of the new wiki (default: \"WikiSysop\")")

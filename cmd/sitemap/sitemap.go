@@ -47,7 +47,7 @@ to delete them.`,
 	sitemapCmd.AddCommand(newGenerateCmd(&instance, &orch))
 	sitemapCmd.AddCommand(newRemoveCmd(&instance, &orch))
 
-	sitemapCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	sitemapCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 
 	return sitemapCmd
 }

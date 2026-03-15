@@ -18,6 +18,7 @@ func newInitCmd(orch *orchestrators.Orchestrator, instance *config.Installation,
 creating any backups. The repository location is read from the
 RESTIC_REPOSITORY variable (or AWS S3 settings) in the installation's .env file.`,
 		Example: `  canasta backup init -i myinstance`,
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			fmt.Println("Initializing backup repository")
 			output, err := runBackup(*orch, instance.Path, *envPath, nil, "-r", *repoURL, "init")

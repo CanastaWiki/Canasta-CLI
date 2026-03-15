@@ -34,6 +34,7 @@ specific wiki.`,
 		Example: `  canasta maintenance update -i myinstance
   canasta maintenance update -i myinstance --wiki=docs
   canasta maintenance update -i myinstance --skip-jobs --skip-smw`,
+		Args: cobra.NoArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			*instance, err = canasta.CheckCanastaID(*instance)

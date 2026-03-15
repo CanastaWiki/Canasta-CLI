@@ -33,6 +33,7 @@ is required.`,
 
   # Preview what would be removed
   canasta backup purge -i myinstance --older-than 30d --dry-run`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if olderThan == "" && keepLast == 0 {
 				return fmt.Errorf("at least one of --older-than or --keep-last is required")

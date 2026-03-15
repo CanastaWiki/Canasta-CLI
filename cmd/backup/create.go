@@ -27,6 +27,7 @@ with .env, docker-compose.override.yml, and my.cnf (if present), then
 uploads the snapshot to the backup repository with the specified tag.`,
 		Example: `  # Create a backup with a descriptive tag
   canasta backup create -i myinstance -t before-upgrade`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if err := takeSnapshot(*orch, *instance, *envPath, *repoURL, tag); err != nil {
 				return err
@@ -36,7 +37,7 @@ uploads the snapshot to the backup repository with the specified tag.`,
 		},
 	}
 
-	createBackupCmd.Flags().StringVarP(&tag, "tag", "t", "", "Backup tag (required)")
+	createBackupCmd.Flags().StringVarP(&tag, "tag", "t", "", "Backup tag")
 	_ = createBackupCmd.MarkFlagRequired("tag")
 	return createBackupCmd
 }
