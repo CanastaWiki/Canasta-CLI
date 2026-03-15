@@ -1,9 +1,14 @@
 package maintenance
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 )
 
 // findSubcommand returns the named subcommand, or nil if not found.
@@ -35,7 +40,6 @@ func TestMaintenancePersistentFlags(t *testing.T) {
 		shorthand string
 	}{
 		{"id", "i"},
-		{"wiki", "w"},
 	}
 
 	for _, f := range flags {
@@ -80,6 +84,74 @@ func TestScriptAcceptsZeroArgs(t *testing.T) {
 	cmd.SetArgs([]string{"script"})
 	if err := cmd.Execute(); err != nil {
 		t.Errorf("expected no error with zero args, got: %v", err)
+	}
+}
+
+func writeWikisYAML(t *testing.T, dir string, content string) {
+	t.Helper()
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestScriptRunsAllWikisOnFarm(t *testing.T) {
+	dir := t.TempDir()
+	writeWikisYAML(t, dir, "wikis:\n  - id: main\n    url: http://localhost\n  - id: docs\n    url: http://localhost\n")
+
+	mock := &extMockOrchestrator{}
+	inst := config.Installation{Path: dir}
+	err := runMaintenanceScriptWith(mock, inst, "rebuildrecentchanges.php", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.streamingCalls) != 2 {
+		t.Fatalf("expected 2 streaming calls (one per wiki), got %d", len(mock.streamingCalls))
+	}
+	if !strings.Contains(mock.streamingCalls[0], "--wiki=main") {
+		t.Errorf("expected --wiki=main in first call, got: %s", mock.streamingCalls[0])
+	}
+	if !strings.Contains(mock.streamingCalls[1], "--wiki=docs") {
+		t.Errorf("expected --wiki=docs in second call, got: %s", mock.streamingCalls[1])
+	}
+}
+
+func TestScriptRunsSpecificWikiOnFarm(t *testing.T) {
+	dir := t.TempDir()
+	writeWikisYAML(t, dir, "wikis:\n  - id: main\n    url: http://localhost\n  - id: docs\n    url: http://localhost\n")
+
+	mock := &extMockOrchestrator{}
+	inst := config.Installation{Path: dir}
+	err := runMaintenanceScriptWith(mock, inst, "rebuildrecentchanges.php", "docs")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.streamingCalls) != 1 {
+		t.Fatalf("expected 1 streaming call, got %d", len(mock.streamingCalls))
+	}
+	if !strings.Contains(mock.streamingCalls[0], "--wiki=docs") {
+		t.Errorf("expected --wiki=docs, got: %s", mock.streamingCalls[0])
+	}
+}
+
+func TestScriptRunsAllWikisOnSingleWikiFarm(t *testing.T) {
+	dir := t.TempDir()
+	writeWikisYAML(t, dir, "wikis:\n  - id: main\n    url: http://localhost\n")
+
+	mock := &extMockOrchestrator{}
+	inst := config.Installation{Path: dir}
+	err := runMaintenanceScriptWith(mock, inst, "rebuildrecentchanges.php", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.streamingCalls) != 1 {
+		t.Fatalf("expected 1 streaming call, got %d", len(mock.streamingCalls))
+	}
+	if !strings.Contains(mock.streamingCalls[0], "--wiki=main") {
+		t.Errorf("expected --wiki=main, got: %s", mock.streamingCalls[0])
 	}
 }
 
