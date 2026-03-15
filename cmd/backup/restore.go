@@ -40,6 +40,7 @@ images, and public assets from the backup, leaving shared files untouched.`,
 
   # Restore only a single wiki's database
   canasta backup restore -i myinstance -s abc123 -w wiki2`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return restoreSnapshot(*orch, *instance, *envPath, *repoURL, snapshotID, skipBeforeSnapshot, wikiID)
 		},

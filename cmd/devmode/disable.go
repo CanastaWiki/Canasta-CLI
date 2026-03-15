@@ -21,6 +21,7 @@ directory is preserved so you can re-enable dev mode later without
 re-extracting code.`,
 		Example: `  # Disable dev mode on an installation
   canasta devmode disable -i myinstance`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			fmt.Printf("Disabling development mode on '%s'...\n", instance.ID)
 

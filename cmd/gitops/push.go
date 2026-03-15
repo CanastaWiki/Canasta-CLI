@@ -23,6 +23,7 @@ func newPushCmd(instance *config.Installation) *cobra.Command {
 staged first using "canasta gitops add". When pull_requests is enabled in
 hosts.yaml, creates a branch and opens a pull request instead of pushing
 directly to main.`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			result, err := runPush(instance.Path, message)
 			if err != nil {

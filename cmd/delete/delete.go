@@ -36,10 +36,8 @@ prompted for confirmation before any data is deleted.`,
 
   # Delete without confirmation prompt
   canasta delete -i myinstance -y`,
-		RunE: func(_ *cobra.Command, args []string) error {
-			if len(args) > 0 {
-				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta delete --id %s)", args[0], args[0])
-			}
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {

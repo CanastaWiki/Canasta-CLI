@@ -21,6 +21,7 @@ func newPullCmd(instance *config.Installation) *cobra.Command {
 		Long: `Pull the latest configuration from the remote repository, update submodules,
 render .env and admin password files from the template and host vars, and
 report what changed and whether a restart is needed.`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			result, err := runPull(instance.Path)
 			if err != nil {

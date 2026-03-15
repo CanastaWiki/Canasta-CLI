@@ -32,6 +32,7 @@ for all wikis. Once removed, the background generator will skip those wikis.`,
 
   # Remove sitemaps for all wikis without prompting
   canasta sitemap remove -i myinstance -y`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runRemove(*instance, *orch, wikiID, yes)
 		},

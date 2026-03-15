@@ -58,6 +58,7 @@ without re-initializing. This re-converts extensions/skins that were
 committed as regular directories instead of submodules.
 
 To join an existing gitops repository instead, use "canasta gitops join".`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if repair {
 				return runRepairSubmodules(instance.Path)

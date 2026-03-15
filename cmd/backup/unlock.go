@@ -17,6 +17,7 @@ func newUnlockCmd(orch *orchestrators.Orchestrator, instance *config.Installatio
 		Long: `Remove stale lock files from the backup repository. Use this if a previous
 backup operation was interrupted and left the repository in a locked state.`,
 		Example: `  canasta backup unlock -i myinstance`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			output, err := runBackup(*orch, instance.Path, *envPath, nil, "-r", *repoURL, "unlock")
 			if err != nil {

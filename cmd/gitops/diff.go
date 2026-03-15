@@ -14,6 +14,7 @@ func newDiffCmd(instance *config.Installation) *cobra.Command {
 		Use:   "diff",
 		Short: "Show what would change on pull (dry run)",
 		Long:  `Fetch the latest changes from the remote and show what files would be updated without actually applying them.`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runDiff(instance.Path)
 		},

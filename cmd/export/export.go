@@ -34,6 +34,7 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 
   # Export as gzipped SQL
   canasta export -i myinstance -w main -f /backups/main-backup.sql.gz`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 
