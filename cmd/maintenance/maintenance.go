@@ -31,6 +31,6 @@ arbitrary core maintenance scripts, or run extension-specific maintenance script
 	maintenanceCmd.AddCommand(newExtensionCmd(&instance))
 	maintenanceCmd.AddCommand(newExecCmd(&instance))
 
-	maintenanceCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	maintenanceCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	return maintenanceCmd
 }

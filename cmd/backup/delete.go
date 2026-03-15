@@ -18,6 +18,7 @@ func newDeleteCmd(orch *orchestrators.Orchestrator, instance *config.Installatio
 		Long: `Remove a snapshot from the backup repository by its ID. The snapshot data
 may still exist until a prune is run on the repository.`,
 		Example: `  canasta backup delete -i myinstance -s abc123`,
+		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			output, err := runBackup(*orch, instance.Path, *envPath, nil, "-r", *repoURL, "forget", snapshot)
 			if err != nil {
@@ -28,7 +29,7 @@ may still exist until a prune is run on the repository.`,
 		},
 	}
 
-	deleteCmd.Flags().StringVarP(&snapshot, "snapshot", "s", "", "Snapshot ID (required)")
+	deleteCmd.Flags().StringVarP(&snapshot, "snapshot", "s", "", "Snapshot ID")
 	_ = deleteCmd.MarkFlagRequired("snapshot")
 	return deleteCmd
 }

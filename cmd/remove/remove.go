@@ -38,14 +38,8 @@ for confirmation before any data is deleted.`,
 
   # Remove without confirmation prompt
   canasta remove -i myinstance -w docs -y`,
-		RunE: func(_ *cobra.Command, args []string) error {
-			if wikiID == "" {
-				if len(args) > 0 {
-					return fmt.Errorf("unknown argument %q; use --wiki to specify the wiki ID (e.g. canasta remove --wiki %s)", args[0], args[0])
-				}
-				return fmt.Errorf("--wiki flag is required")
-			}
-
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
 			instance, err = canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
@@ -61,8 +55,11 @@ for confirmation before any data is deleted.`,
 	}
 
 	addCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "ID of the wiki")
-	addCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	addCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	addCmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
+
+	_ = addCmd.MarkFlagRequired("wiki")
+
 	return addCmd
 }
 

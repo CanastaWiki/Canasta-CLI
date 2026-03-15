@@ -51,6 +51,7 @@ distributed using the stored configuration.`,
 
   # Preview what would change without applying
   canasta upgrade --dry-run`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			// Check for CLI updates first (skipped automatically for dev builds and dry-run)
 			if !dryRun {

@@ -70,7 +70,7 @@ and RESTIC_PASSWORD to be configured in the installation's .env file.`,
 	backupCmd.AddCommand(newPurgeCmd(&orch, &instance, &envPath, &repoURL))
 	backupCmd.AddCommand(newScheduleCmd(&instance))
 
-	backupCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	backupCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	return backupCmd
 
 }

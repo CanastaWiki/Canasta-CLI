@@ -54,6 +54,7 @@ After creating, use 'canasta devmode enable' to enable development mode.`,
 
   # Create with an existing database dump
   canasta create -i myinstance -w main -d /path/to/dump.sql -n example.com`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Check if the system has at least 4GB of memory
 			if err := system.CheckMemoryInGB(4); err != nil {

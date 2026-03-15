@@ -47,7 +47,7 @@ debugging. This is only supported with Docker Compose.`,
 		},
 	}
 
-	devmodeCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	devmodeCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 
 	devmodeCmd.AddCommand(newEnableCmd(&instance, &orch))
 	devmodeCmd.AddCommand(newDisableCmd(&instance, &orch))
