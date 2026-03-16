@@ -120,10 +120,7 @@ sub vcl_backend_response {
             return (deliver);
         }
 
-       if (beresp.ttl < 48h) {
-          set beresp.ttl = 48h;
-        }
-
+        # Respect the TTL MediaWiki sends via s-maxage rather than overriding it
         if (!beresp.ttl > 0s) {
           set beresp.uncacheable = true;
           return (deliver);
@@ -140,6 +137,14 @@ sub vcl_backend_response {
         }
 
         return (deliver);
+}
+
+# Rewrite Cache-Control before sending to browser
+# Varnish has already used s-maxage internally; tell browsers not to cache at all
+sub vcl_deliver {
+    if (resp.http.Cache-Control ~ "s-maxage") {
+        set resp.http.Cache-Control = "no-store";
+    }
 }
 
 sub mobile_detect {
