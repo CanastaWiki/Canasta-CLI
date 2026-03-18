@@ -35,9 +35,7 @@ import (
 
 const (
 	referencePrefix = "CLI:"
-	guidePrefix  = "Help:"
-	rootCategory = "Canasta CLI"
-	editDelay    = 2 * time.Second
+	editDelay       = 2 * time.Second
 )
 
 func main() {
@@ -60,89 +58,7 @@ func main() {
 	var pages []wikiPage
 	collectPages(rootCmd, &pages)
 
-	// Guide entries used in both the TOC and sidebar
-	type guideEntry struct {
-		page, label string
-	}
-	guideGroups := []struct {
-		heading string
-		entries []guideEntry
-	}{
-		{"Getting started", []guideEntry{
-			{"Quick start", "Quick start"},
-			{"Installation", "Installation"},
-			{"General concepts", "General concepts"},
-			{"Wiki farms", "Wiki farms"},
-			{"Orchestrators", "Orchestrators"},
-			{"Best practices", "Best practices"},
-		}},
-		{"Configuration", []guideEntry{
-			{"Extensions and skins", "Extensions and skins"},
-			{"Email", "Email"},
-			{"Sitemaps", "Sitemaps"},
-			{"Observability", "Observability"},
-		}},
-		{"Operations", []guideEntry{
-			{"Backup", "Backup and restore"},
-			{"Gitops", "GitOps configuration management"},
-			{"Upgrading", "Upgrading"},
-			{"Troubleshooting", "Troubleshooting"},
-		}},
-		{"Development", []guideEntry{
-			{"Devmode", "Dev mode (xdebug)"},
-			{"Contributing", "Contributing"},
-		}},
-	}
-
-	// Generate the TOC page (transcluded by Main_Page)
-	var toc strings.Builder
-
-	toc.WriteString("== Guides ==\n\n")
-	for _, g := range guideGroups {
-		toc.WriteString(";" + g.heading + "\n")
-		for _, e := range g.entries {
-			toc.WriteString(fmt.Sprintf("* [[%s%s|%s]]\n", guidePrefix, e.page, e.label))
-		}
-		toc.WriteString("\n")
-	}
-
-	toc.WriteString("== CLI Reference ==\n\n")
-	toc.WriteString(genCommandTree(rootCmd, 1))
-
-	pages = append(pages, wikiPage{
-		Title:   "Category:" + rootCategory,
-		Content: toc.String(),
-	})
-	// Generate Chameleon Menu component pages for each navbar section.
-	// All navigation is driven by Menu components in the layout XML;
-	// MediaWiki:Sidebar is no longer used.
-
-	// About Canasta
-	pages = append(pages, wikiPage{
-		Title: "MediaWiki:Menu-about-canasta",
-		Content: "* # | About Canasta\n" +
-			"** Contents | Contents\n" +
-			"** Version_history | Version history\n" +
-			"** FAQ | FAQ\n" +
-			"** Notable_usage | Notable usage\n" +
-			"** About_the_project | About the project\n",
-	})
-
-	// User Guide
-	var guide strings.Builder
-	guide.WriteString("* # | User Guide\n")
-	for _, g := range guideGroups {
-		guide.WriteString(fmt.Sprintf("** # | %s\n", g.heading))
-		for _, e := range g.entries {
-			guide.WriteString(fmt.Sprintf("*** %s%s | %s\n", guidePrefix, e.page, e.label))
-		}
-	}
-	pages = append(pages, wikiPage{
-		Title:   "MediaWiki:Menu-user-guide",
-		Content: guide.String(),
-	})
-
-	// CLI Reference — commands grouped into logical categories.
+	// CLI Reference menu — commands grouped into logical categories.
 	// Labels are prefixed with "canasta" to avoid colliding with
 	// MediaWiki system messages (e.g. "create" → "Create account").
 	type cmdGroup struct {
@@ -184,12 +100,6 @@ func main() {
 	pages = append(pages, wikiPage{
 		Title:   "MediaWiki:Menu-cli-reference",
 		Content: cliRef.String(),
-	})
-
-	// Packages
-	pages = append(pages, wikiPage{
-		Title:   "MediaWiki:Menu-packages",
-		Content: "* Packages | Packages\n",
 	})
 
 	// Optionally write to disk
@@ -434,26 +344,6 @@ func genMenuCommands(b *strings.Builder, c *cobra.Command, depth int) {
 		b.WriteString(fmt.Sprintf("%s %s | %s\n", prefix, link, label))
 		genMenuCommands(b, child, depth+1)
 	}
-}
-
-// genCommandTree generates a nested wikitext bullet list linking each command
-// to its CLI: page.
-func genCommandTree(c *cobra.Command, depth int) string {
-	var b strings.Builder
-	prefix := strings.Repeat("*", depth)
-	link := referencePrefix + strings.ReplaceAll(c.CommandPath(), " ", "_")
-	label := c.Name()
-	b.WriteString(fmt.Sprintf("%s [[%s|%s]] — %s\n", prefix, link, label, c.Short))
-
-	children := c.Commands()
-	sort.Sort(byName(children))
-	for _, child := range children {
-		if !child.IsAvailableCommand() || child.IsAdditionalHelpTopicCommand() {
-			continue
-		}
-		b.WriteString(genCommandTree(child, depth+1))
-	}
-	return b.String()
 }
 
 // --- MediaWiki API client ---
