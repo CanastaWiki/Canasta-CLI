@@ -129,12 +129,11 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
-	// Update CLI-managed template files (READMEs, new files added in this CLI version).
-	// User-editable files are only created if missing.
-	if !dryRun {
-		if err := canasta.UpdateInstallationTemplate(instance.Path); err != nil {
-			return err
-		}
+	// Update CLI-managed template files (config files, READMEs, etc.).
+	// User-editable files are skipped. Returns true if any files were updated.
+	templateChanged, err := canasta.UpdateInstallationTemplate(instance.Path, dryRun)
+	if err != nil {
+		return err
 	}
 
 	// Update container images
@@ -229,7 +228,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 
 	if dryRun {
 		fmt.Println()
-		if stackChanged || migrationsNeeded || mysqlMigrationNeeded {
+		if stackChanged || templateChanged || migrationsNeeded || mysqlMigrationNeeded {
 			fmt.Println("Run 'canasta upgrade' to apply these changes.")
 		} else {
 			fmt.Println("Installation is up to date. No upgrade needed.")
@@ -238,7 +237,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Only restart if something changed
-	if stackChanged || migrationsNeeded || imagesUpdated || mysqlMigrationNeeded {
+	if stackChanged || templateChanged || migrationsNeeded || imagesUpdated || mysqlMigrationNeeded {
 		// Restart the containers
 		fmt.Println("Restarting containers...")
 		if err = orch.Stop(instance); err != nil {

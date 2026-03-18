@@ -2,6 +2,7 @@ package canasta
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
@@ -79,10 +80,69 @@ func CopyInstallationTemplate(destPath string) error {
 
 // UpdateInstallationTemplate re-applies the embedded template during upgrade.
 // User-editable files are skipped entirely (they may have been intentionally deleted).
-// CLI-managed files (READMEs, etc.) are always updated to match the current CLI version.
-func UpdateInstallationTemplate(destPath string) error {
-	logging.Print("Updating installation template files\n")
-	return copyTemplate(destPath, true)
+// CLI-managed files are updated only when their content differs from the template.
+// Returns true if any files were changed. In dry-run mode, changes are reported
+// but not applied.
+func UpdateInstallationTemplate(destPath string, dryRun bool) (bool, error) {
+	logging.Print("Updating installation template files...\n")
+	changed := false
+	err := fs.WalkDir(installationTemplate, "installation-template", func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		relPath, err := filepath.Rel("installation-template", path)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
+			return nil
+		}
+
+		targetPath := filepath.Join(destPath, relPath)
+
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, permissions.DirectoryPermission)
+		}
+		if d.Name() == ".gitkeep" {
+			return nil
+		}
+		if userEditablePaths[relPath] {
+			return nil
+		}
+
+		data, err := installationTemplate.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
+		}
+
+		// Compare with existing file — skip if identical
+		existing, readErr := os.ReadFile(targetPath)
+		if readErr == nil && bytes.Equal(existing, data) {
+			return nil
+		}
+
+		changed = true
+		if dryRun {
+			if readErr != nil {
+				fmt.Printf("  Would create %s\n", relPath)
+			} else {
+				fmt.Printf("  Would update %s\n", relPath)
+			}
+			return nil
+		}
+
+		if readErr != nil {
+			fmt.Printf("  Creating %s\n", relPath)
+		} else {
+			fmt.Printf("  Updating %s\n", relPath)
+		}
+		return os.WriteFile(targetPath, data, permissions.FilePermission)
+	})
+	if !changed {
+		fmt.Println("  Template files are up to date.")
+	}
+	return changed, err
 }
 
 // copyTemplate walks the embedded installation template and copies files to destPath.
