@@ -310,11 +310,10 @@ func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bo
 		migrateDirectoryStructure, // 2. Migrate directory structure
 		fixVectorDefaultSkin,      // 3. Fix Vector.php default skin
 		func(p string, d bool) (bool, error) { return orch.MigrateConfig(p, d) }, // 4. Orchestrator-specific migrations
-		removeEmptyComposerLocal,  // 5. Remove empty composer.local.json
-		removeLegacyGitDir,        // 6. Remove legacy .git directory
-		removeSkipBinaryAsHex,     // 7. Remove skip-binary-as-hex from my.cnf
-		backfillCanastaImage,      // 8. Backfill CANASTA_IMAGE in .env
-		addVclSpecialRandomBypass, // 9. Add Special:Random cache bypass
+		removeEmptyComposerLocal, // 5. Remove empty composer.local.json
+		removeLegacyGitDir,       // 6. Remove legacy .git directory
+		removeSkipBinaryAsHex,    // 7. Remove skip-binary-as-hex from my.cnf
+		backfillCanastaImage,     // 8. Backfill CANASTA_IMAGE in .env
 	}
 
 	changed := false
@@ -614,50 +613,6 @@ func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
 		if err := os.WriteFile(mycnfPath, []byte(newContent), permissions.FilePermission); err != nil {
 			return false, fmt.Errorf("failed to update my.cnf: %w", err)
 		}
-	}
-
-	return true, nil
-}
-
-// addVclSpecialRandomBypass patches default.vcl to bypass Varnish cache for
-// Special:Random. Without this, Varnish caches the redirect and every user
-// gets the same "random" page until the cache TTL expires.
-func addVclSpecialRandomBypass(installPath string, dryRun bool) (bool, error) {
-	vclPath := filepath.Join(installPath, "config", "default.vcl")
-
-	content, err := os.ReadFile(vclPath)
-	if err != nil {
-		return false, nil // File doesn't exist, nothing to patch
-	}
-
-	if strings.Contains(string(content), "Special:Random") {
-		return false, nil // Already has the bypass
-	}
-
-	// Insert the bypass block after the "Pass API" block
-	marker := `if (req.url ~ "/w/api.php") {
-        return(pass);
-    }`
-	bypass := marker + `
-
-    # Bypass cache for Special:Random
-    if (req.url ~ "^/(w/index\.php\?title=|wiki/)Special:Random") {
-        return (pass);
-    }`
-
-	if !strings.Contains(string(content), marker) {
-		// VCL has been customized beyond recognition, skip
-		return false, nil
-	}
-
-	if dryRun {
-		fmt.Println("  Would add Special:Random cache bypass to default.vcl")
-	} else {
-		newContent := strings.Replace(string(content), marker, bypass, 1)
-		if err := os.WriteFile(vclPath, []byte(newContent), permissions.FilePermission); err != nil {
-			return false, fmt.Errorf("failed to update default.vcl: %w", err)
-		}
-		fmt.Println("  Added Special:Random cache bypass to default.vcl")
 	}
 
 	return true, nil

@@ -62,7 +62,6 @@ var installationTemplate embed.FS
 var userEditablePaths = map[string]bool{
 	".env":                              true,
 	"my.cnf":                            true,
-	"config/default.vcl":                true,
 	"config/Caddyfile.site":             true,
 	"config/Caddyfile.global":           true,
 	"config/settings/global/Vector.php": true,
