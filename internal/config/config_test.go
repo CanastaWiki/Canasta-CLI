@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -328,5 +330,288 @@ func TestConfFileCreated(t *testing.T) {
 	confPath := filepath.Join(dir, "conf.json")
 	if _, err := os.Stat(confPath); os.IsNotExist(err) {
 		t.Errorf("expected conf.json to be created at %s", confPath)
+	}
+}
+
+// captureOutput captures stdout output from a function call
+func captureOutput(fn func() error) (string, error) {
+	// Create a pipe for stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+
+	// Save the original stdout
+	oldStdout := os.Stdout
+	os.Stdout = w
+
+	// Run the function
+	err = fn()
+
+	// Restore stdout and close the pipe
+	os.Stdout = oldStdout
+	w.Close()
+
+	// Read the captured output
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	return buf.String(), err
+}
+
+func TestListAllNoInstallations(t *testing.T) {
+	setupTestDir(t)
+
+	// Verify no installations exist
+	all, err := GetAll()
+	if err != nil {
+		t.Fatalf("GetAll() error = %v", err)
+	}
+	if len(all) != 0 {
+		t.Fatalf("expected 0 installations, got %d", len(all))
+	}
+
+	// Capture and verify output
+	output, err := captureOutput(ListAll)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+
+	if !strings.Contains(output, "No instances found.") {
+		t.Errorf("expected 'No instances found.' in output, got: %q", output)
+	}
+
+	// Ensure no table header is printed when there are no installations
+	if strings.Contains(output, "Canasta ID") {
+		t.Error("expected no table header when there are no installations")
+	}
+}
+
+func TestListAllSingleInstallation(t *testing.T) {
+	setupTestDir(t)
+
+	// Create a temporary directory for the installation
+	tempDir := t.TempDir()
+
+	inst := Installation{
+		ID:           "single-test",
+		Path:         tempDir,
+		Orchestrator: "compose",
+	}
+
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	// Verify the installation was added
+	all, err := GetAll()
+	if err != nil {
+		t.Fatalf("GetAll() error = %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("expected 1 installation, got %d", len(all))
+	}
+
+	// Capture and verify output
+	output, err := captureOutput(ListAll)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+
+	// Verify table header is present
+	if !strings.Contains(output, "Canasta ID") {
+		t.Error("expected table header 'Canasta ID' in output")
+	}
+
+	// Verify installation details appear in output
+	if !strings.Contains(output, "single-test") {
+		t.Errorf("expected 'single-test' in output, got: %q", output)
+	}
+
+	if !strings.Contains(output, "compose") {
+		t.Errorf("expected 'compose' in output, got: %q", output)
+	}
+
+	if !strings.Contains(output, tempDir) || !strings.Contains(output, "N/A") {
+		t.Errorf("expected installation path and N/A (since no wikis.yaml) in output, got: %q", output)
+	}
+
+	// Verify "No instances found." is NOT in the output
+	if strings.Contains(output, "No instances found.") {
+		t.Error("expected 'No instances found.' to NOT be in output")
+	}
+}
+
+func TestListAllMultipleInstallations(t *testing.T) {
+	setupTestDir(t)
+
+	// Create temporary directories for installations
+	tempDir1 := t.TempDir()
+	tempDir2 := t.TempDir()
+	tempDir3 := t.TempDir()
+
+	// Add multiple installations
+	inst1 := Installation{
+		ID:           "multi-test-1",
+		Path:         tempDir1,
+		Orchestrator: "compose",
+	}
+	inst2 := Installation{
+		ID:           "multi-test-2",
+		Path:         tempDir2,
+		Orchestrator: "kubernetes",
+	}
+	inst3 := Installation{
+		ID:           "multi-test-3",
+		Path:         tempDir3,
+		Orchestrator: "compose",
+	}
+
+	if err := Add(inst1); err != nil {
+		t.Fatalf("Add(inst1) error = %v", err)
+	}
+	if err := Add(inst2); err != nil {
+		t.Fatalf("Add(inst2) error = %v", err)
+	}
+	if err := Add(inst3); err != nil {
+		t.Fatalf("Add(inst3) error = %v", err)
+	}
+
+	// Verify all installations were added
+	all, err := GetAll()
+	if err != nil {
+		t.Fatalf("GetAll() error = %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 installations, got %d", len(all))
+	}
+
+	// Capture and verify output
+	output, err := captureOutput(ListAll)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+
+	// Verify table header is present
+	if !strings.Contains(output, "Canasta ID") {
+		t.Error("expected table header 'Canasta ID' in output")
+	}
+
+	// Verify all installation IDs appear in output
+	initialInstallations := []string{"multi-test-1", "multi-test-2", "multi-test-3"}
+	for _, id := range initialInstallations {
+		if !strings.Contains(output, id) {
+			t.Errorf("expected '%s' in output, got: %q", id, output)
+		}
+	}
+
+	// Verify orchestrators appear in output
+	if !strings.Contains(output, "compose") {
+		t.Error("expected 'compose' in output")
+	}
+	if !strings.Contains(output, "kubernetes") {
+		t.Error("expected 'kubernetes' in output")
+	}
+
+	// Verify installation paths appear
+	if !strings.Contains(output, tempDir1) {
+		t.Errorf("expected tempDir1 in output")
+	}
+	if !strings.Contains(output, tempDir2) {
+		t.Errorf("expected tempDir2 in output")
+	}
+	if !strings.Contains(output, tempDir3) {
+		t.Errorf("expected tempDir3 in output")
+	}
+
+	// Verify "No instances found." is NOT in the output
+	if strings.Contains(output, "No instances found.") {
+		t.Error("expected 'No instances found.' to NOT be in output")
+	}
+}
+
+func TestListAllMissingPath(t *testing.T) {
+	setupTestDir(t)
+
+	// Create an installation with a non-existent path
+	inst := Installation{
+		ID:           "missing-path-test",
+		Path:         "/nonexistent/path/to/installation",
+		Orchestrator: "compose",
+	}
+
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	// Capture and verify output
+	output, err := captureOutput(ListAll)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+
+	// Verify table header is present
+	if !strings.Contains(output, "Canasta ID") {
+		t.Error("expected table header 'Canasta ID' in output")
+	}
+
+	// Verify the installation ID appears
+	if !strings.Contains(output, "missing-path-test") {
+		t.Errorf("expected 'missing-path-test' in output, got: %q", output)
+	}
+
+	// Verify "[not found]" marker appears for missing path
+	if !strings.Contains(output, "[not found]") {
+		t.Errorf("expected '[not found]' in output for missing path, got: %q", output)
+	}
+
+	// Verify N/A values appear for wiki details
+	if !strings.Contains(output, "N/A") {
+		t.Errorf("expected 'N/A' in output when path is missing, got: %q", output)
+	}
+}
+
+func TestListAllIntegration(t *testing.T) {
+	dir := setupTestDir(t)
+
+	// Test full workflow: add, list, delete, list again
+	tempDir := t.TempDir()
+	inst := Installation{
+		ID:           "integration-test",
+		Path:         tempDir,
+		Orchestrator: "compose",
+	}
+
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	// First list should show the installation
+	output1, err := captureOutput(ListAll)
+	if err != nil {
+		t.Fatalf("ListAll() error on first call = %v", err)
+	}
+	if !strings.Contains(output1, "integration-test") {
+		t.Errorf("expected 'integration-test' in first output")
+	}
+
+	// Delete the installation
+	if err := Delete("integration-test"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	// Second list should show "No instances found."
+	output2, err := captureOutput(ListAll)
+	if err != nil {
+		t.Fatalf("ListAll() error on second call = %v", err)
+	}
+	if !strings.Contains(output2, "No instances found.") {
+		t.Errorf("expected 'No instances found.' in second output")
+	}
+
+	// Verify the configuration file still exists
+	confPath := filepath.Join(dir, "conf.json")
+	if _, err := os.Stat(confPath); os.IsNotExist(err) {
+		t.Errorf("expected conf.json to exist at %s", confPath)
 	}
 }
