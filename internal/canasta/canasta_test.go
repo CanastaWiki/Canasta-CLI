@@ -939,8 +939,8 @@ func TestUpdateInstallationTemplate_DetectsChange(t *testing.T) {
 		t.Fatalf("CopyInstallationTemplate() error = %v", err)
 	}
 
-	// Modify a non-user-editable file (README)
-	vclPath := filepath.Join(dir, "config", "settings", "wikis", "README")
+	// Modify a non-user-editable file (default.vcl)
+	vclPath := filepath.Join(dir, "config", "default.vcl")
 	if err := os.WriteFile(vclPath, []byte("modified content"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -951,7 +951,7 @@ func TestUpdateInstallationTemplate_DetectsChange(t *testing.T) {
 		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
 	}
 	if !changed {
-		t.Error("expected change to be detected after modifying README")
+		t.Error("expected change to be detected after modifying default.vcl")
 	}
 
 	// Verify the file was restored to the template version
@@ -960,7 +960,7 @@ func TestUpdateInstallationTemplate_DetectsChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(got) == "modified content" {
-		t.Error("expected README to be restored to template version")
+		t.Error("expected default.vcl to be restored to template version")
 	}
 }
 
@@ -973,7 +973,7 @@ func TestUpdateInstallationTemplate_DryRun(t *testing.T) {
 	}
 
 	// Modify a non-user-editable file
-	vclPath := filepath.Join(dir, "config", "settings", "wikis", "README")
+	vclPath := filepath.Join(dir, "config", "default.vcl")
 	original, err := os.ReadFile(vclPath)
 	if err != nil {
 		t.Fatal(err)
@@ -1055,8 +1055,8 @@ func TestUpdateInstallationTemplate_CreatesNewFile(t *testing.T) {
 		t.Fatalf("CopyInstallationTemplate() error = %v", err)
 	}
 
-	// Delete a non-user-editable file
-	vclPath := filepath.Join(dir, "config", "settings", "wikis", "README")
+	// Delete a non-user-editable, non-noClobber file
+	vclPath := filepath.Join(dir, "config", "default.vcl")
 	if err := os.Remove(vclPath); err != nil {
 		t.Fatal(err)
 	}
@@ -1071,7 +1071,35 @@ func TestUpdateInstallationTemplate_CreatesNewFile(t *testing.T) {
 	}
 
 	if _, err := os.Stat(vclPath); err != nil {
-		t.Error("expected README to be recreated")
+		t.Error("expected default.vcl to be recreated")
+	}
+}
+
+func TestUpdateInstallationTemplate_NoClobberSkipsDeletedFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a pristine installation
+	if err := CopyInstallationTemplate(dir); err != nil {
+		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	}
+
+	// Delete a noClobber file (informational README)
+	readmePath := filepath.Join(dir, "config", "settings", "wikis", "README")
+	if err := os.Remove(readmePath); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update should NOT recreate it
+	changed, err := UpdateInstallationTemplate(dir, false)
+	if err != nil {
+		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+	}
+	if changed {
+		t.Error("expected no change when a noClobber file is deleted")
+	}
+
+	if _, err := os.Stat(readmePath); !os.IsNotExist(err) {
+		t.Error("expected deleted README to stay gone")
 	}
 }
 

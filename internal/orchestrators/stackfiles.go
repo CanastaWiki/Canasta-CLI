@@ -11,6 +11,13 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
+// noClobberStackFiles lists informational files bundled with the stack that
+// are created on first install but should not be recreated if the user
+// deletes them.
+var noClobberStackFiles = map[string]bool{
+	"docker-compose.override.yml.example": true,
+}
+
 // writeStackFiles walks an embedded FS and writes files to installPath.
 // If overwrite is false, existing files are skipped (no-clobber).
 func writeStackFiles(stackFS embed.FS, root, installPath string, overwrite bool) error {
@@ -77,6 +84,10 @@ func updateStackFiles(stackFS embed.FS, root, installPath string, dryRun bool) (
 		existing, readErr := os.ReadFile(targetPath)
 		if readErr == nil && bytes.Equal(existing, embedded) {
 			return nil // unchanged
+		}
+		// No-clobber: if the file was deleted by the user, don't recreate it.
+		if readErr != nil && noClobberStackFiles[relPath] {
+			return nil
 		}
 		changed = true
 		if dryRun {

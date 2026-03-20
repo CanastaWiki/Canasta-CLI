@@ -68,6 +68,14 @@ var userEditablePaths = map[string]bool{
 	"config/settings/global/CanastaFooterIcon.php": true,
 }
 
+// noClobberPaths lists informational template files that are created once
+// during "canasta create" but should not be recreated during upgrade. If a
+// user deletes them, they stay gone.
+var noClobberPaths = map[string]bool{
+	"config/settings/global/README": true,
+	"config/settings/wikis/README":  true,
+}
+
 // CopyInstallationTemplate copies the embedded installation template files to the
 // destination directory. These are shared files common to all orchestrators.
 // Files are only written if they don't already exist (no-clobber), so orchestrator
@@ -108,6 +116,14 @@ func UpdateInstallationTemplate(destPath string, dryRun bool) (bool, error) {
 		}
 		if userEditablePaths[relPath] {
 			return nil
+		}
+		// No-clobber informational files: create if missing, but don't
+		// recreate if the user deleted them. We detect "user deleted" by
+		// checking whether the file exists on disk.
+		if noClobberPaths[relPath] {
+			if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+				return nil
+			}
 		}
 
 		data, err := installationTemplate.ReadFile(path)
@@ -307,10 +323,12 @@ func CopySettings(installPath string) error {
 			return err
 		}
 
-		// Copy README into the wiki's settings directory
+		// Copy README into the wiki's settings directory (no-clobber)
 		readmePath := filepath.Join(dirPath, "README")
-		if err := os.WriteFile(readmePath, wikiREADME, permissions.FilePermission); err != nil {
-			return fmt.Errorf("failed to write README for %s: %w", id, err)
+		if _, err := os.Stat(readmePath); os.IsNotExist(err) {
+			if err := os.WriteFile(readmePath, wikiREADME, permissions.FilePermission); err != nil {
+				return fmt.Errorf("failed to write README for %s: %w", id, err)
+			}
 		}
 	}
 
@@ -327,14 +345,16 @@ func CopySetting(installPath, id string) error {
 		return err
 	}
 
-	// Copy README into the wiki's settings directory
-	wikiREADME, err := installationTemplate.ReadFile("installation-template/config/settings/wikis/README")
-	if err != nil {
-		return fmt.Errorf("failed to read embedded wiki README: %w", err)
-	}
+	// Copy README into the wiki's settings directory (no-clobber)
 	readmePath := filepath.Join(dirPath, "README")
-	if err := os.WriteFile(readmePath, wikiREADME, permissions.FilePermission); err != nil {
-		return fmt.Errorf("failed to write README: %w", err)
+	if _, err := os.Stat(readmePath); os.IsNotExist(err) {
+		wikiREADME, err := installationTemplate.ReadFile("installation-template/config/settings/wikis/README")
+		if err != nil {
+			return fmt.Errorf("failed to read embedded wiki README: %w", err)
+		}
+		if err := os.WriteFile(readmePath, wikiREADME, permissions.FilePermission); err != nil {
+			return fmt.Errorf("failed to write README: %w", err)
+		}
 	}
 
 	return nil
