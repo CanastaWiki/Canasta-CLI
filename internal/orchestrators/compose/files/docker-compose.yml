@@ -37,7 +37,6 @@ services:
       retries: 30
       start_period: 60s
     volumes:
-      - ./_initdb:/docker-entrypoint-initdb.d
       - mysql-data-volume:/var/lib/mysql
       - ./my.cnf:/etc/my.cnf
       - mysql-logs:/var/log/mysql

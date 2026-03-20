@@ -80,18 +80,12 @@ spec:
           periodSeconds: 30
           timeoutSeconds: 5
         volumeMounts:
-        - name: initdb-volume
-          mountPath: /docker-entrypoint-initdb.d
         - name: my-cnf-config
           mountPath: /etc/my.cnf
           subPath: my.cnf
         - name: mysql-data
           mountPath: /var/lib/mysql
       volumes:
-      - name: initdb-volume
-        hostPath:
-          path: /canasta/config-data/_initdb
-          type: DirectoryOrCreate
       - name: my-cnf-config
         configMap:
           name: canasta-config
