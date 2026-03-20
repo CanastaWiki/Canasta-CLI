@@ -621,12 +621,19 @@ func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
 // removeLegacyGitDir removes the .git directory from installations that were
 // previously cloned from the Canasta-DockerCompose repo. Stack files are now
 // embedded in the CLI binary, so installations are no longer git repos.
+// Skips removal if gitops is active (indicated by a .gitops-host file).
 func removeLegacyGitDir(installPath string, dryRun bool) (bool, error) {
 	gitDir := filepath.Join(installPath, ".git")
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
 		return false, nil
 	} else if err != nil {
 		return false, err
+	}
+
+	// Do not remove .git if gitops is using it.
+	gitopsHost := filepath.Join(installPath, ".gitops-host")
+	if _, err := os.Stat(gitopsHost); err == nil {
+		return false, nil
 	}
 
 	if dryRun {
