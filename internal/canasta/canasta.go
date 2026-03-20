@@ -466,6 +466,17 @@ func IsElasticsearchEnabled(envVars map[string]string) bool {
 	return strings.EqualFold(envVars["CANASTA_ENABLE_ELASTICSEARCH"], "true")
 }
 
+// IsVarnishEnabled returns true when CANASTA_ENABLE_VARNISH is set to "true"
+// (case-insensitive) in the given env vars map. Defaults to true when unset
+// for backward compatibility.
+func IsVarnishEnabled(envVars map[string]string) bool {
+	v, ok := envVars["CANASTA_ENABLE_VARNISH"]
+	if !ok || v == "" {
+		return true
+	}
+	return strings.EqualFold(v, "true")
+}
+
 // EnsureObservabilityCredentials checks if CANASTA_ENABLE_OBSERVABILITY=true in .env.
 // If active, it ensures OS_USER, OS_PASSWORD, and OS_PASSWORD_HASH are set.
 // Returns true if observability is enabled.
@@ -554,6 +565,12 @@ func RewriteCaddy(installPath string) error {
 		}
 	}
 
+	// Determine reverse proxy backend based on Varnish toggle
+	backend := "varnish:80"
+	if !IsVarnishEnabled(envVars) {
+		backend = "web:80"
+	}
+
 	// Remove duplicates from ServerNames
 	ServerNames = removeDuplicates(ServerNames)
 
@@ -620,10 +637,10 @@ func RewriteCaddy(installPath string) error {
 		writeLine("    }")
 		writeLine("")
 		writeLine("    handle {")
-		writeLine("        reverse_proxy varnish:80")
+		writeLine("        reverse_proxy " + backend)
 		writeLine("    }")
 	} else {
-		writeLine("    reverse_proxy varnish:80")
+		writeLine("    reverse_proxy " + backend)
 	}
 	writeLine("")
 	writeLine("    log {")
