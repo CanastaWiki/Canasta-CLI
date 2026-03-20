@@ -487,6 +487,7 @@ func syncComposeProfiles(installPath string) error {
 	managed := map[string]bool{
 		"observable":    canasta.IsObservabilityEnabled(envVars),
 		"elasticsearch": canasta.IsElasticsearchEnabled(envVars),
+		"varnish":       canasta.IsVarnishEnabled(envVars),
 	}
 
 	// Build the new profile list: keep unmanaged profiles as-is, then
@@ -502,7 +503,7 @@ func syncComposeProfiles(installPath string) error {
 		}
 		kept = append(kept, p)
 	}
-	for _, name := range []string{"observable", "elasticsearch"} {
+	for _, name := range []string{"observable", "elasticsearch", "varnish"} {
 		if managed[name] {
 			kept = append(kept, name)
 		}

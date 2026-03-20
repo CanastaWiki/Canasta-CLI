@@ -43,13 +43,13 @@ import (
 //      a single Caddyfile entry
 //    - Subdomains are treated as separate domains (e.g., example.com and docs.example.com
 //      both appear in Caddyfile)
-//    - Caddy handles SSL/HTTPS for all listed domains and routes all traffic to Varnish
+//    - Caddy handles SSL/HTTPS for all listed domains and routes traffic to Varnish (if enabled) or directly to Apache
 //
 // 4. Wiki Routing: MediaWiki uses the full URL (domain + path) from wikis.yaml to determine
 //    which wiki to serve based on the incoming request's Host header and path
 //
 // Network Flow:
-// Client → Caddy (SSL/domain routing) → Varnish (caching) → Apache → MediaWiki (wiki routing based on URL)
+// Client → Caddy (SSL/domain routing) → Varnish (caching, if enabled) → Apache → MediaWiki (wiki routing based on URL)
 
 func NewCmd() *cobra.Command {
 	var instance config.Installation

@@ -63,6 +63,7 @@ var knownKeys = map[string]bool{
 	// Features
 	"CANASTA_ENABLE_ELASTICSEARCH":  true,
 	"CANASTA_ENABLE_OBSERVABILITY":  true,
+	"CANASTA_ENABLE_VARNISH":        true,
 	"CANASTA_ENABLE_WIKI_DIRECTORY": true,
 	// MediaWiki site
 	"MW_SITE_SERVER": true,
