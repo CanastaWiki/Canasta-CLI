@@ -335,16 +335,30 @@ func TestConfFileCreated(t *testing.T) {
 
 func captureOutput(fn func() error) (string, error) {
 	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
+	r, w, err := os.Pipe()
+	if err != nil {
+		return "", err
+	}
 	os.Stdout = w
 
-	err := fn()
+	err = fn()
 
-	w.Close()
+	closeErr := w.Close()
 	os.Stdout = oldStdout
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	return buf.String(), err
+	_, copyErr := io.Copy(&buf, r)
+	_ = r.Close()
+
+	if err != nil {
+		return buf.String(), err
+	}
+	if closeErr != nil {
+		return buf.String(), closeErr
+	}
+	if copyErr != nil {
+		return buf.String(), copyErr
+	}
+	return buf.String(), nil
 }
 
 func TestListAllNoInstallations(t *testing.T) {
