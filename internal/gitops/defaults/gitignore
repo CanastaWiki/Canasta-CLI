@@ -5,6 +5,10 @@ config/admin-password_*
 
 # Managed by Canasta CLI
 docker-compose.yml
+docker-compose.override.yml.example
+config/default.vcl
+config/settings/global/README
+config/settings/wikis/*/README
 
 # Auto-generated from wikis.yaml on restart
 config/Caddyfile
