@@ -72,9 +72,8 @@ var userEditablePaths = map[string]bool{
 // during "canasta create" but should not be recreated during upgrade. If a
 // user deletes them, they stay gone.
 var noClobberPaths = map[string]bool{
-	"docker-compose.override.yml.example": true,
-	"config/settings/global/README":       true,
-	"config/settings/wikis/README":        true,
+	"config/settings/global/README": true,
+	"config/settings/wikis/README":  true,
 }
 
 // CopyInstallationTemplate copies the embedded installation template files to the
