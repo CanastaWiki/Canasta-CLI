@@ -324,7 +324,6 @@ func TestGetConfigDirEnvCreatesDir(t *testing.T) {
 func TestConfFileCreated(t *testing.T) {
 	dir := setupTestDir(t)
 
-	// Trigger initialization by calling any public function
 	_, _ = Exists("anything")
 
 	confPath := filepath.Join(dir, "conf.json")
@@ -333,9 +332,7 @@ func TestConfFileCreated(t *testing.T) {
 	}
 }
 
-// captureOutput captures stdout output from a function call
 func captureOutput(fn func() error) (string, error) {
-	// Create a pipe for stdout
 	r, w, err := os.Pipe()
 	if err != nil {
 		return "", err
@@ -345,15 +342,12 @@ func captureOutput(fn func() error) (string, error) {
 	// Save the original stdout
 	oldStdout := os.Stdout
 	os.Stdout = w
-
-	// Run the function
 	err = fn()
 
-	// Restore stdout and close the pipe
 	os.Stdout = oldStdout
 	w.Close()
 
-	// Read the captured output
+	// Read the output
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
 	return buf.String(), err
@@ -362,7 +356,6 @@ func captureOutput(fn func() error) (string, error) {
 func TestListAllNoInstallations(t *testing.T) {
 	setupTestDir(t)
 
-	// Verify no installations exist
 	all, err := GetAll()
 	if err != nil {
 		t.Fatalf("GetAll() error = %v", err)
@@ -371,7 +364,6 @@ func TestListAllNoInstallations(t *testing.T) {
 		t.Fatalf("expected 0 installations, got %d", len(all))
 	}
 
-	// Capture and verify output
 	output, err := captureOutput(ListAll)
 	if err != nil {
 		t.Fatalf("ListAll() error = %v", err)
@@ -380,8 +372,6 @@ func TestListAllNoInstallations(t *testing.T) {
 	if !strings.Contains(output, "No instances found.") {
 		t.Errorf("expected 'No instances found.' in output, got: %q", output)
 	}
-
-	// Ensure no table header is printed when there are no installations
 	if strings.Contains(output, "Canasta ID") {
 		t.Error("expected no table header when there are no installations")
 	}
@@ -390,7 +380,6 @@ func TestListAllNoInstallations(t *testing.T) {
 func TestListAllSingleInstallation(t *testing.T) {
 	setupTestDir(t)
 
-	// Create a temporary directory for the installation
 	tempDir := t.TempDir()
 
 	inst := Installation{
@@ -402,8 +391,6 @@ func TestListAllSingleInstallation(t *testing.T) {
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-
-	// Verify the installation was added
 	all, err := GetAll()
 	if err != nil {
 		t.Fatalf("GetAll() error = %v", err)
@@ -411,8 +398,6 @@ func TestListAllSingleInstallation(t *testing.T) {
 	if len(all) != 1 {
 		t.Fatalf("expected 1 installation, got %d", len(all))
 	}
-
-	// Capture and verify output
 	output, err := captureOutput(ListAll)
 	if err != nil {
 		t.Fatalf("ListAll() error = %v", err)
@@ -422,35 +407,27 @@ func TestListAllSingleInstallation(t *testing.T) {
 	if !strings.Contains(output, "Canasta ID") {
 		t.Error("expected table header 'Canasta ID' in output")
 	}
-
-	// Verify installation details appear in output
 	if !strings.Contains(output, "single-test") {
 		t.Errorf("expected 'single-test' in output, got: %q", output)
 	}
-
 	if !strings.Contains(output, "compose") {
 		t.Errorf("expected 'compose' in output, got: %q", output)
 	}
-
 	if !strings.Contains(output, tempDir) || !strings.Contains(output, "N/A") {
 		t.Errorf("expected installation path and N/A (since no wikis.yaml) in output, got: %q", output)
 	}
-
-	// Verify "No instances found." is NOT in the output
 	if strings.Contains(output, "No instances found.") {
-		t.Error("expected 'No instances found.' to NOT be in output")
+		t.Error("expected 'No instances found.' to NOT be in outputt")
 	}
 }
 
 func TestListAllMultipleInstallations(t *testing.T) {
 	setupTestDir(t)
 
-	// Create temporary directories for installations
 	tempDir1 := t.TempDir()
 	tempDir2 := t.TempDir()
 	tempDir3 := t.TempDir()
 
-	// Add multiple installations
 	inst1 := Installation{
 		ID:           "multi-test-1",
 		Path:         tempDir1,
@@ -476,8 +453,6 @@ func TestListAllMultipleInstallations(t *testing.T) {
 	if err := Add(inst3); err != nil {
 		t.Fatalf("Add(inst3) error = %v", err)
 	}
-
-	// Verify all installations were added
 	all, err := GetAll()
 	if err != nil {
 		t.Fatalf("GetAll() error = %v", err)
@@ -485,35 +460,25 @@ func TestListAllMultipleInstallations(t *testing.T) {
 	if len(all) != 3 {
 		t.Fatalf("expected 3 installations, got %d", len(all))
 	}
-
-	// Capture and verify output
 	output, err := captureOutput(ListAll)
 	if err != nil {
 		t.Fatalf("ListAll() error = %v", err)
 	}
-
-	// Verify table header is present
 	if !strings.Contains(output, "Canasta ID") {
 		t.Error("expected table header 'Canasta ID' in output")
 	}
-
-	// Verify all installation IDs appear in output
 	initialInstallations := []string{"multi-test-1", "multi-test-2", "multi-test-3"}
 	for _, id := range initialInstallations {
 		if !strings.Contains(output, id) {
 			t.Errorf("expected '%s' in output, got: %q", id, output)
 		}
 	}
-
-	// Verify orchestrators appear in output
 	if !strings.Contains(output, "compose") {
 		t.Error("expected 'compose' in output")
 	}
 	if !strings.Contains(output, "kubernetes") {
 		t.Error("expected 'kubernetes' in output")
 	}
-
-	// Verify installation paths appear
 	if !strings.Contains(output, tempDir1) {
 		t.Errorf("expected tempDir1 in output")
 	}
@@ -523,8 +488,6 @@ func TestListAllMultipleInstallations(t *testing.T) {
 	if !strings.Contains(output, tempDir3) {
 		t.Errorf("expected tempDir3 in output")
 	}
-
-	// Verify "No instances found." is NOT in the output
 	if strings.Contains(output, "No instances found.") {
 		t.Error("expected 'No instances found.' to NOT be in output")
 	}
@@ -532,8 +495,6 @@ func TestListAllMultipleInstallations(t *testing.T) {
 
 func TestListAllMissingPath(t *testing.T) {
 	setupTestDir(t)
-
-	// Create an installation with a non-existent path
 	inst := Installation{
 		ID:           "missing-path-test",
 		Path:         "/nonexistent/path/to/installation",
@@ -543,29 +504,19 @@ func TestListAllMissingPath(t *testing.T) {
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-
-	// Capture and verify output
 	output, err := captureOutput(ListAll)
 	if err != nil {
 		t.Fatalf("ListAll() error = %v", err)
 	}
-
-	// Verify table header is present
 	if !strings.Contains(output, "Canasta ID") {
 		t.Error("expected table header 'Canasta ID' in output")
 	}
-
-	// Verify the installation ID appears
 	if !strings.Contains(output, "missing-path-test") {
 		t.Errorf("expected 'missing-path-test' in output, got: %q", output)
 	}
-
-	// Verify "[not found]" marker appears for missing path
 	if !strings.Contains(output, "[not found]") {
 		t.Errorf("expected '[not found]' in output for missing path, got: %q", output)
 	}
-
-	// Verify N/A values appear for wiki details
 	if !strings.Contains(output, "N/A") {
 		t.Errorf("expected 'N/A' in output when path is missing, got: %q", output)
 	}
@@ -574,7 +525,6 @@ func TestListAllMissingPath(t *testing.T) {
 func TestListAllIntegration(t *testing.T) {
 	dir := setupTestDir(t)
 
-	// Test full workflow: add, list, delete, list again
 	tempDir := t.TempDir()
 	inst := Installation{
 		ID:           "integration-test",
@@ -586,7 +536,6 @@ func TestListAllIntegration(t *testing.T) {
 		t.Fatalf("Add() error = %v", err)
 	}
 
-	// First list should show the installation
 	output1, err := captureOutput(ListAll)
 	if err != nil {
 		t.Fatalf("ListAll() error on first call = %v", err)
@@ -595,12 +544,10 @@ func TestListAllIntegration(t *testing.T) {
 		t.Errorf("expected 'integration-test' in first output")
 	}
 
-	// Delete the installation
 	if err := Delete("integration-test"); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	// Second list should show "No instances found."
 	output2, err := captureOutput(ListAll)
 	if err != nil {
 		t.Fatalf("ListAll() error on second call = %v", err)
@@ -609,9 +556,185 @@ func TestListAllIntegration(t *testing.T) {
 		t.Errorf("expected 'No instances found.' in second output")
 	}
 
-	// Verify the configuration file still exists
 	confPath := filepath.Join(dir, "conf.json")
 	if _, err := os.Stat(confPath); os.IsNotExist(err) {
 		t.Errorf("expected conf.json to exist at %s", confPath)
+	}
+}
+
+func TestListAllWithWiki(t *testing.T) {
+	setupTestDir(t)
+	tempDir := t.TempDir()
+
+	configDir := filepath.Join(tempDir, "config")
+	if err := os.Mkdir(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	yamlContent := `
+wikis:
+- id: mywiki
+  url: wiki.example.com
+  name: My Wiki
+`
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write wikis.yaml: %v", err)
+	}
+
+	inst := Installation{
+		ID:           "wiki-test",
+		Path:         tempDir,
+		Orchestrator: "compose",
+	}
+
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	output, err := captureOutput(ListAll)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+
+	if !strings.Contains(output, "wiki-test") {
+		t.Errorf("expected installation ID 'wiki-test', got: %q", output)
+	}
+	if !strings.Contains(output, "mywiki") {
+		t.Errorf("expected wiki ID 'mywiki', got: %q", output)
+	}
+	if !strings.Contains(output, "wiki.example.com") {
+		t.Errorf("expected server name 'wiki.example.com', got: %q", output)
+	}
+}
+
+func TestListAllWithMultipleWikis(t *testing.T) {
+	setupTestDir(t)
+	tempDir := t.TempDir()
+
+	configDir := filepath.Join(tempDir, "config")
+	if err := os.Mkdir(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	yamlContent := `
+wikis:
+- id: wiki1
+  url: one.example.com
+  name: First Wiki
+- id: wiki2
+  url: two.example.com/sub
+  name: Second Wiki
+`
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write wikis.yaml: %v", err)
+	}
+
+	inst := Installation{
+		ID:           "multi-wiki-test",
+		Path:         tempDir,
+		Orchestrator: "compose",
+	}
+
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	output, err := captureOutput(ListAll)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+
+	if !strings.Contains(output, "multi-wiki-test") {
+		t.Errorf("expected installation ID 'multi-wiki-test', got: %q", output)
+	}
+	if !strings.Contains(output, "wiki1") {
+		t.Errorf("expected wiki ID 'wiki1', got: %q", output)
+	}
+	if !strings.Contains(output, "wiki2") {
+		t.Errorf("expected wiki ID 'wiki2', got: %q", output)
+	}
+	if !strings.Contains(output, "one.example.com") {
+		t.Errorf("expected server name 'one.example.com', got: %q", output)
+	}
+	if !strings.Contains(output, "/sub") {
+		t.Errorf("expected path '/sub', got: %q", output)
+	}
+	// verify that the second wiki line starts with a dash or some indicator for same installation
+	// based on implementation: fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n", "-", ...)
+	if !strings.Contains(output, "-") {
+		t.Errorf("expected dash '-' for subsequent wiki entries, got: %q", output)
+	}
+}
+
+func TestListAllBrokenWikisYaml(t *testing.T) {
+	setupTestDir(t)
+	tempDir := t.TempDir()
+
+	configDir := filepath.Join(tempDir, "config")
+	if err := os.Mkdir(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	yamlContent := `
+wikis: [
+  this is invalid yaml
+`
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write wikis.yaml: %v", err)
+	}
+
+	inst := Installation{
+		ID:           "broken-yaml-test",
+		Path:         tempDir,
+		Orchestrator: "compose",
+	}
+
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	// function prints error to stdout: fmt.Printf("Error reading wikis.yaml ...")
+	output, err := captureOutput(ListAll)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+
+	if !strings.Contains(output, "Error reading wikis.yaml") {
+		t.Errorf("expected error message in output for broken yaml, got: %q", output)
+	}
+}
+
+func TestListAllReadError(t *testing.T) {
+	dir := setupTestDir(t)
+
+	inst := Installation{ID: "test", Path: "/tmp/test", Orchestrator: "compose"}
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	confPath := filepath.Join(dir, "conf.json")
+	if err := os.WriteFile(confPath, []byte("{invalid json"), 0644); err != nil {
+		t.Fatalf("failed to corrupt conf.json: %v", err)
+	}
+
+	err := ListAll()
+	if err == nil {
+		t.Error("expected error from ListAll when conf.json is invalid, got nil")
+	}
+}
+
+func TestListAllInitError(t *testing.T) {
+	tempDir := t.TempDir()
+	readOnlyDir := filepath.Join(tempDir, "readonly")
+	if err := os.Mkdir(readOnlyDir, 0555); err != nil {
+		t.Fatalf("failed to create read-only dir: %v", err)
+	}
+
+	ResetForTesting(readOnlyDir)
+	err := ListAll()
+	if err == nil {
+		if os.Geteuid() != 0 {
+			t.Error("expected error from ListAll when config dir is read-only")
+		}
 	}
 }
