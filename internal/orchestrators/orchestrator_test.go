@@ -53,6 +53,7 @@ func (m *mockOrchestrator) ExecStreaming(_, _, _ string) error {
 }
 
 func (m *mockOrchestrator) CheckRunningStatus(_ config.Installation) error {
+	m.calls = append(m.calls, "CheckRunningStatus")
 	return m.checkRunningErr
 }
 
@@ -365,10 +366,8 @@ func TestEnsureRunningAlreadyRunning(t *testing.T) {
 		t.Fatalf("EnsureRunning() error = %v", err)
 	}
 
-	for _, call := range mock.calls {
-		if call == "Start" {
-			t.Error("Start should not be called when containers are already running")
-		}
+	if len(mock.calls) != 1 || mock.calls[0] != "CheckRunningStatus" {
+		t.Errorf("expected [CheckRunningStatus], got %v", mock.calls)
 	}
 }
 
@@ -381,14 +380,8 @@ func TestEnsureRunningNotRunning(t *testing.T) {
 		t.Fatalf("EnsureRunning() error = %v", err)
 	}
 
-	hasStart := false
-	for _, call := range mock.calls {
-		if call == "Start" {
-			hasStart = true
-		}
-	}
-	if !hasStart {
-		t.Error("Start should be called when containers are not running")
+	if len(mock.calls) != 2 || mock.calls[0] != "CheckRunningStatus" || mock.calls[1] != "Start" {
+		t.Errorf("expected [CheckRunningStatus, Start], got %v", mock.calls)
 	}
 }
 
