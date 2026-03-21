@@ -226,9 +226,13 @@ func genWikitext(c *cobra.Command) string {
 
 	if len(c.Example) > 0 {
 		b.WriteString("=== Examples ===\n\n")
-		b.WriteString("<pre>\n")
+		if hasPlaceholder(c.Example) {
+			b.WriteString("<syntaxhighlight lang=\"bash\">\n")
+		} else {
+			b.WriteString("<syntaxhighlight lang=\"bash\" copy=1>\n")
+		}
 		b.WriteString(c.Example + "\n")
-		b.WriteString("</pre>\n\n")
+		b.WriteString("</syntaxhighlight>\n\n")
 	}
 
 	// Combined flags
@@ -264,6 +268,16 @@ func hasAnyFlags(c *cobra.Command) bool {
 func isFlagRequired(f *pflag.Flag) bool {
 	ann, ok := f.Annotations[cobra.BashCompOneRequiredFlag]
 	return ok && len(ann) > 0 && ann[0] == "true"
+}
+
+// rePlaceholder matches bracket/angle-bracket placeholders like [flags], [args...],
+// <path>, etc. that indicate the example is not fully concrete.
+var rePlaceholder = regexp.MustCompile(`\[.*?\]|<.*?>`)
+
+// hasPlaceholder reports whether text contains placeholder patterns such as
+// [flags], [args...], or <path> that indicate incomplete examples.
+func hasPlaceholder(text string) bool {
+	return rePlaceholder.MatchString(text)
 }
 
 // reParenDefault matches "(default: ...)" or "(defaults to ...)" or "(optional, defaults to ...)"
