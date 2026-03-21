@@ -14,9 +14,10 @@ func newDiffCmd(instance *config.Installation) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diff",
 		Short: "Show local and remote changes since the branches diverged",
-		Long: `Fetch the latest changes from the remote and show what files have
-changed locally, what files have changed on the remote, and which
-files have changed in both (potential merge conflicts).`,
+		Long: `Show uncommitted working tree changes, then fetch the latest from
+the remote and show what files have changed locally, what files have
+changed on the remote, and which files have changed in both
+(potential merge conflicts).`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runDiff(instance.Path)
@@ -26,6 +27,12 @@ files have changed in both (potential merge conflicts).`,
 }
 
 func runDiff(installPath string) error {
+	// Check for uncommitted working tree changes first.
+	hasUncommitted, uncommittedFiles, err := gitops.HasUncommittedChanges(installPath)
+	if err != nil {
+		return err
+	}
+
 	// Fetch without merging.
 	if err := gitops.Fetch(installPath); err != nil {
 		return err
@@ -43,9 +50,17 @@ func runDiff(installPath string) error {
 		return err
 	}
 
-	if len(localFiles) == 0 && len(remoteFiles) == 0 {
+	if !hasUncommitted && len(localFiles) == 0 && len(remoteFiles) == 0 {
 		fmt.Println("No changes — local and remote are in sync.")
 		return nil
+	}
+
+	if hasUncommitted {
+		fmt.Printf("Uncommitted changes: %d file(s)\n", len(uncommittedFiles))
+		for _, f := range uncommittedFiles {
+			fmt.Printf("  %s\n", f)
+		}
+		fmt.Println()
 	}
 
 	localOnly, remoteOnly, conflicts := classifyChanges(localFiles, remoteFiles)
