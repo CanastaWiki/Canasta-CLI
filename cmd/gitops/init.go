@@ -34,7 +34,6 @@ func newInitCmd(instance *config.Installation) *cobra.Command {
 		keyFile      string
 		force        bool
 		pullRequests bool
-		repair       bool
 	)
 
 	cmd := &cobra.Command{
@@ -53,16 +52,10 @@ Use --pull-requests to require changes to go through pull requests instead of
 pushing directly to main. This enables review workflows for multi-server
 deployments.
 
-Use --repair to fix submodule registration in an existing gitops repository
-without re-initializing. This re-converts extensions/skins that were
-committed as regular directories instead of submodules.
-
-To join an existing gitops repository instead, use "canasta gitops join".`,
+To join an existing gitops repository instead, use "canasta gitops join".
+To fix submodule registration after adding extensions, use "canasta gitops fix-submodules".`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if repair {
-				return runRepairSubmodules(instance.Path)
-			}
 			if err := validateInitFlags(hostName); err != nil {
 				return err
 			}
@@ -79,7 +72,6 @@ To join an existing gitops repository instead, use "canasta gitops join".`,
 	cmd.Flags().StringVar(&keyFile, "key", "", "Path to export the git-crypt key")
 	cmd.Flags().BoolVar(&force, "force", false, "Force push to a non-empty remote repository")
 	cmd.Flags().BoolVar(&pullRequests, "pull-requests", false, "Require pull requests instead of pushing directly to main")
-	cmd.Flags().BoolVar(&repair, "repair", false, "Re-register extensions/skins as proper submodules")
 
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("repo")
