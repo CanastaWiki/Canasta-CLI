@@ -20,8 +20,8 @@ func TestRunRepairSubmodules_ConvertsStandaloneExtension(t *testing.T) {
 	runGit(t, repoPath, "commit", "-m", "initial")
 
 	// Create a standalone extension git repo inside extensions/.
-	extRemote := createGitRepoWithCommit(t, t.TempDir(), "wanda")
-	extPath := filepath.Join(repoPath, "extensions", "Wanda")
+	extRemote := createGitRepoWithCommit(t, t.TempDir(), "test-ext")
+	extPath := filepath.Join(repoPath, "extensions", "TestExtension")
 	runGit(t, repoPath, "clone", extRemote, extPath)
 	commitHash := runGit(t, extPath, "rev-parse", "HEAD")
 
@@ -31,7 +31,7 @@ func TestRunRepairSubmodules_ConvertsStandaloneExtension(t *testing.T) {
 	}
 
 	// Verify it was converted to a submodule.
-	staged := runGit(t, repoPath, "ls-files", "--stage", "extensions/Wanda")
+	staged := runGit(t, repoPath, "ls-files", "--stage", "extensions/TestExtension")
 	if !strings.HasPrefix(staged, "160000") {
 		t.Fatalf("expected submodule gitlink (160000), got: %q", staged)
 	}
