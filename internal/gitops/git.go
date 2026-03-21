@@ -171,32 +171,62 @@ func SubmoduleAdd(repoPath, submoduleURL, relativePath string) error {
 	return nil
 }
 
-// HasUncommittedChanges checks whether the working tree has uncommitted
-// changes. Returns true if there are changes, along with a list of
-// modified file paths.
-func HasUncommittedChanges(path string) (bool, []string, error) {
+// WorkingTreeStatus returns files grouped by their git status: staged
+// (index changes only) and unstaged (working tree modifications,
+// including untracked files). A file that is both staged and has
+// further working tree changes appears in both lists.
+func WorkingTreeStatus(path string) (staged, unstaged []string, err error) {
 	output, err := execute.Run(path, "git", "status", "--porcelain")
 	if err != nil {
-		return false, nil, fmt.Errorf("git status: %w", err)
+		return nil, nil, fmt.Errorf("git status: %w", err)
 	}
 	// Trim only trailing whitespace — leading spaces are significant
 	// in porcelain format (e.g. " M file" means unstaged modification).
 	output = strings.TrimRight(output, " \t\n\r")
 	if output == "" {
-		return false, nil, nil
+		return nil, nil, nil
 	}
-	var files []string
 	for _, line := range strings.Split(output, "\n") {
 		if len(line) < 4 {
 			continue
 		}
-		// porcelain format: "XY filename" where XY is a 2-char
-		// status code followed by a space — always 3 characters.
-		// Do not trim leading spaces: the first status character
-		// may itself be a space (e.g. " M file").
-		files = append(files, line[3:])
+		// porcelain format: "XY filename"
+		// X = index status, Y = working tree status
+		x, y := line[0], line[1]
+		file := line[3:]
+		if x != ' ' && x != '?' {
+			staged = append(staged, file)
+		}
+		if y != ' ' || x == '?' {
+			unstaged = append(unstaged, file)
+		}
 	}
-	return true, files, nil
+	return staged, unstaged, nil
+}
+
+// HasUncommittedChanges checks whether the working tree has uncommitted
+// changes (staged or unstaged). Returns true if there are changes, along
+// with a combined list of all modified file paths.
+func HasUncommittedChanges(path string) (bool, []string, error) {
+	staged, unstaged, err := WorkingTreeStatus(path)
+	if err != nil {
+		return false, nil, err
+	}
+	seen := make(map[string]bool)
+	var files []string
+	for _, f := range staged {
+		if !seen[f] {
+			seen[f] = true
+			files = append(files, f)
+		}
+	}
+	for _, f := range unstaged {
+		if !seen[f] {
+			seen[f] = true
+			files = append(files, f)
+		}
+	}
+	return len(files) > 0, files, nil
 }
 
 // CurrentCommitHash returns the full commit hash of HEAD.
