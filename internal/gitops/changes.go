@@ -16,7 +16,7 @@ func AnalyzeChanges(changedFiles []string) (needsRestart, needsMaintenance bool,
 		switch {
 		case f == "env.template" || f == ".env":
 			needsRestart = true
-		case f == "config/wikis.yaml":
+		case f == "config/wikis.yaml" || f == "wikis.yaml.template":
 			needsRestart = true
 		case f == "config/Caddyfile.site" || f == "config/Caddyfile.global":
 			needsRestart = true

@@ -30,10 +30,8 @@ restart. Use 'canasta devmode enable' or 'canasta devmode disable' to
 change the development mode setting.`,
 		Example: `  # Restart an installation by ID
   canasta restart -i myinstance`,
-		RunE: func(_ *cobra.Command, args []string) error {
-			if len(args) > 0 {
-				return fmt.Errorf("unknown argument %q; use --id to specify the instance ID (e.g. canasta restart --id %s)", args[0], args[0])
-			}
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
 			resolvedInstance, err := canasta.CheckCanastaID(instance)
 			if err != nil {
 				return err
@@ -46,7 +44,7 @@ change the development mode setting.`,
 			return nil
 		},
 	}
-	restartCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	restartCmd.Flags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	return restartCmd
 }
 

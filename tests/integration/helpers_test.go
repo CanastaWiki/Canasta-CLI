@@ -35,10 +35,10 @@ func TestMain(m *testing.M) {
 
 	binPath := filepath.Join(tmpDir, "canasta")
 
-	// Read the VERSION file to set DefaultImageTag
-	versionBytes, err := os.ReadFile("../../VERSION")
+	// Read the CANASTA_VERSION file to set DefaultImageTag
+	versionBytes, err := os.ReadFile("../../CANASTA_VERSION")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read VERSION file: %v\n", err)
+		fmt.Fprintf(os.Stderr, "failed to read CANASTA_VERSION file: %v\n", err)
 		os.Exit(1)
 	}
 	imageTag := strings.TrimSpace(string(versionBytes))

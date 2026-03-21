@@ -620,7 +620,6 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 			"kubernetes/namespace.yaml",
 			"kubernetes/caddy.yaml",
 			"kubernetes/db.yaml",
-			"kubernetes/varnish.yaml",
 			"kubernetes/web.yaml",
 		},
 	}
@@ -697,10 +696,15 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 		kust.Patches = append(kust.Patches, buildNodePortPatch())
 	}
 
-	// 6–8. Read .env once for observability, elasticsearch, and image override checks
+	// 6–9. Read .env once for optional services and image override checks
 	envPath := filepath.Join(installPath, ".env")
 	if envVars, err := canasta.GetEnvVariable(envPath); err == nil {
-		// 6. Observability stack (OpenSearch + Fluent Bit + Dashboards)
+		// 6. Varnish (enabled by default)
+		if canasta.IsVarnishEnabled(envVars) {
+			kust.Resources = append(kust.Resources, "kubernetes/varnish.yaml")
+		}
+
+		// 7. Observability stack (optional: OpenSearch + Fluent Bit + Dashboards)
 		if canasta.IsObservabilityEnabled(envVars) {
 			kust.Resources = append(kust.Resources,
 				"kubernetes/log-pvcs.yaml",
@@ -717,13 +721,13 @@ func (k *KubernetesOrchestrator) generateKustomization(installPath string, manag
 			)
 		}
 
-		// 7. Elasticsearch (optional)
+		// 8. Elasticsearch (optional)
 		if canasta.IsElasticsearchEnabled(envVars) {
 			kust.Resources = append(kust.Resources, "kubernetes/elasticsearch.yaml")
 			kust.Patches = append(kust.Patches, buildElasticsearchInitPatch())
 		}
 
-		// 8. Image override (for local builds pushed to a registry)
+		// 9. Image override (for local builds pushed to a registry)
 		if canastaImage := envVars["CANASTA_IMAGE"]; canastaImage != "" {
 			// Parse "registry/repo:tag" into newName and newTag
 			newName := canastaImage

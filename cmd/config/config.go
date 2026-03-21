@@ -53,6 +53,7 @@ Settings safe to change on a running installation:
   Features
     CANASTA_ENABLE_ELASTICSEARCH    Enable Elasticsearch (default: false)
     CANASTA_ENABLE_OBSERVABILITY    Enable observability stack (default: false)
+    CANASTA_ENABLE_VARNISH          Enable Varnish caching (default: true)
     CANASTA_ENABLE_WIKI_DIRECTORY   Show wiki directory on 404 pages (default: false)
 
   MediaWiki site
@@ -90,7 +91,7 @@ To change the domain, first edit config/wikis.yaml, then use
 		},
 	}
 
-	configCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	configCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 
 	configCmd.AddCommand(newGetCmd(&instance))
 	configCmd.AddCommand(newSetCmd(&instance, &orch))

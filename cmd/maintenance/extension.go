@@ -18,11 +18,13 @@ import (
 // wikiArgRe matches --wiki=value or --wiki value in a script argument string.
 var wikiArgRe = regexp.MustCompile(`(?:^|\s)--wiki[=\s](\S+)`)
 
-func newExtensionCmd(instance *config.Installation, wiki *string) *cobra.Command {
+func newExtensionCmd(instance *config.Installation) *cobra.Command {
+	var wiki string
 
 	extensionCmd := &cobra.Command{
-		Use:   "extension [extension-name] [script.php [args...]]",
-		Short: "Run extension maintenance scripts",
+		Use:                   "extension [flags] [extension-name] [script.php [args...]]",
+		DisableFlagsInUseLine: true,
+		Short:                 "Run extension maintenance scripts",
 		Long: `Run maintenance scripts provided by loaded MediaWiki extensions.
 
 With no arguments, lists all loaded extensions that have a maintenance/
@@ -30,9 +32,8 @@ directory. With one argument (extension name), lists available maintenance
 scripts for that extension. With two or more arguments (extension name,
 script name, and optional script arguments), runs the specified script.
 
-Flags (-i, --wiki) must come before the extension name. Everything after
-the extension name is treated as the script and its arguments — no quotes
-are needed.
+Flags (-i, --wiki) must come before the extension name. Everything after the
+extension name is treated as the script and its arguments — no quotes needed.
 
 Only extensions that are currently loaded (enabled) for the target wiki are
 shown and allowed to run. In a wiki farm, runs on all wikis by default.
@@ -60,13 +61,13 @@ Use --wiki to target a specific wiki.`,
 		RunE: func(_ *cobra.Command, args []string) error {
 			switch {
 			case len(args) == 0:
-				return listExtensionsWithMaintenance(*instance, *wiki)
+				return listExtensionsWithMaintenance(*instance, wiki)
 			case len(args) == 1:
-				return listExtensionScripts(*instance, args[0], *wiki)
+				return listExtensionScripts(*instance, args[0], wiki)
 			default:
 				extName := args[0]
 				scriptStr := strings.Join(args[1:], " ")
-				wikiIDs, err := resolveWikiIDs(*instance, *wiki)
+				wikiIDs, err := resolveWikiIDs(*instance, wiki)
 				if err != nil {
 					return err
 				}
@@ -80,6 +81,7 @@ Use --wiki to target a specific wiki.`,
 		},
 	}
 
+	extensionCmd.Flags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on (default: all wikis)")
 	// Stop parsing flags after the first non-flag argument (the extension name).
 	// This allows script arguments like -s 1000 to be passed without quotes.
 	extensionCmd.Flags().SetInterspersed(false)

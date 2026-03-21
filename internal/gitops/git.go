@@ -96,6 +96,31 @@ func AddAll(path string) error {
 	return nil
 }
 
+// Remove stages the removal of files from the repository.
+func Remove(path string, files ...string) error {
+	args := append([]string{"rm", "-r"}, files...)
+	_, err := execute.Run(path, "git", args...)
+	if err != nil {
+		return fmt.Errorf("git rm: %w", err)
+	}
+	return nil
+}
+
+// HasStagedChanges checks whether the index has staged changes ready to
+// commit. Returns true if there are staged changes, along with a list of
+// staged file paths.
+func HasStagedChanges(path string) (bool, []string, error) {
+	output, err := execute.Run(path, "git", "diff", "--cached", "--name-only")
+	if err != nil {
+		return false, nil, fmt.Errorf("git diff --cached: %w", err)
+	}
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return false, nil, nil
+	}
+	return true, strings.Split(output, "\n"), nil
+}
+
 // Commit creates a commit with the given message. Returns the short
 // commit hash.
 func Commit(path, message string) (string, error) {
@@ -154,22 +179,22 @@ func HasUncommittedChanges(path string) (bool, []string, error) {
 	if err != nil {
 		return false, nil, fmt.Errorf("git status: %w", err)
 	}
-	output = strings.TrimSpace(output)
+	// Trim only trailing whitespace — leading spaces are significant
+	// in porcelain format (e.g. " M file" means unstaged modification).
+	output = strings.TrimRight(output, " \t\n\r")
 	if output == "" {
 		return false, nil, nil
 	}
 	var files []string
 	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		if len(line) < 4 {
 			continue
 		}
-		// porcelain format: "XY filename"
-		if len(line) > 3 {
-			files = append(files, line[3:])
-		} else {
-			files = append(files, line)
-		}
+		// porcelain format: "XY filename" where XY is a 2-char
+		// status code followed by a space — always 3 characters.
+		// Do not trim leading spaces: the first status character
+		// may itself be a space (e.g. " M file").
+		files = append(files, line[3:])
 	}
 	return true, files, nil
 }

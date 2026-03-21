@@ -913,6 +913,196 @@ func TestResolveFilePaths(t *testing.T) {
 	})
 }
 
+func TestUpdateInstallationTemplate_NoChanges(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a pristine installation
+	if err := CopyInstallationTemplate(dir); err != nil {
+		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	}
+
+	// Update should report no changes
+	changed, err := UpdateInstallationTemplate(dir, false)
+	if err != nil {
+		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+	}
+	if changed {
+		t.Error("expected no changes on a freshly created installation")
+	}
+}
+
+func TestUpdateInstallationTemplate_DetectsChange(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a pristine installation
+	if err := CopyInstallationTemplate(dir); err != nil {
+		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	}
+
+	// Modify a non-user-editable file (default.vcl)
+	vclPath := filepath.Join(dir, "config", "default.vcl")
+	if err := os.WriteFile(vclPath, []byte("modified content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update should detect the change
+	changed, err := UpdateInstallationTemplate(dir, false)
+	if err != nil {
+		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+	}
+	if !changed {
+		t.Error("expected change to be detected after modifying default.vcl")
+	}
+
+	// Verify the file was restored to the template version
+	got, err := os.ReadFile(vclPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) == "modified content" {
+		t.Error("expected default.vcl to be restored to template version")
+	}
+}
+
+func TestUpdateInstallationTemplate_DryRun(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a pristine installation
+	if err := CopyInstallationTemplate(dir); err != nil {
+		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	}
+
+	// Modify a non-user-editable file
+	vclPath := filepath.Join(dir, "config", "default.vcl")
+	original, err := os.ReadFile(vclPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(vclPath, []byte("modified content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dry run should report change but not modify the file
+	changed, err := UpdateInstallationTemplate(dir, true)
+	if err != nil {
+		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+	}
+	if !changed {
+		t.Error("dry run should report changed = true")
+	}
+
+	// File should still have the modified content
+	got, err := os.ReadFile(vclPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "modified content" {
+		t.Error("dry run should not modify files")
+	}
+
+	// Now apply for real
+	changed, err = UpdateInstallationTemplate(dir, false)
+	if err != nil {
+		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+	}
+	if !changed {
+		t.Error("expected change after dry run")
+	}
+
+	got, err = os.ReadFile(vclPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Error("expected file to be restored to template version after apply")
+	}
+}
+
+func TestUpdateInstallationTemplate_SkipsUserEditable(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a pristine installation
+	if err := CopyInstallationTemplate(dir); err != nil {
+		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	}
+
+	// Modify a user-editable file (.env)
+	envPath := filepath.Join(dir, ".env")
+	if err := os.WriteFile(envPath, []byte("CUSTOM=value"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update should not touch user-editable files
+	_, err := UpdateInstallationTemplate(dir, false)
+	if err != nil {
+		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+	}
+
+	got, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "CUSTOM=value" {
+		t.Error("expected user-editable .env to be preserved")
+	}
+}
+
+func TestUpdateInstallationTemplate_CreatesNewFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a pristine installation
+	if err := CopyInstallationTemplate(dir); err != nil {
+		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	}
+
+	// Delete a non-user-editable, non-noClobber file
+	vclPath := filepath.Join(dir, "config", "default.vcl")
+	if err := os.Remove(vclPath); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update should recreate it
+	changed, err := UpdateInstallationTemplate(dir, false)
+	if err != nil {
+		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+	}
+	if !changed {
+		t.Error("expected change when file is missing")
+	}
+
+	if _, err := os.Stat(vclPath); err != nil {
+		t.Error("expected default.vcl to be recreated")
+	}
+}
+
+func TestUpdateInstallationTemplate_NoClobberSkipsDeletedFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a pristine installation
+	if err := CopyInstallationTemplate(dir); err != nil {
+		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	}
+
+	// Delete a noClobber file (informational README)
+	readmePath := filepath.Join(dir, "config", "settings", "wikis", "README")
+	if err := os.Remove(readmePath); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update should NOT recreate it
+	changed, err := UpdateInstallationTemplate(dir, false)
+	if err != nil {
+		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+	}
+	if changed {
+		t.Error("expected no change when a noClobber file is deleted")
+	}
+
+	if _, err := os.Stat(readmePath); !os.IsNotExist(err) {
+		t.Error("expected deleted README to stay gone")
+	}
+}
+
 func TestGetBaseImage(t *testing.T) {
 	defaultImage := GetDefaultImage()
 

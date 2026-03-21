@@ -23,6 +23,7 @@ ID, path, and orchestrator as recorded in the Canasta configuration file.
 Use --cleanup to remove stale entries whose installation directories no longer exist.`,
 		Example: `  canasta list
   canasta list --cleanup`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return List(instance, cleanup)
 		},

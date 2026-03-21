@@ -2,6 +2,7 @@ package canasta
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
@@ -40,7 +41,7 @@ const (
 )
 
 // DefaultImageTag is the default tag to use for the Canasta image.
-// It is set via ldflags at build time from the VERSION file.
+// It is set via ldflags at build time from the CANASTA_VERSION file.
 // The "latest" fallback is used for dev builds (when ldflags aren't applied).
 var DefaultImageTag = "latest"
 
@@ -61,11 +62,18 @@ var installationTemplate embed.FS
 var userEditablePaths = map[string]bool{
 	".env":                              true,
 	"my.cnf":                            true,
-	"config/default.vcl":                true,
 	"config/Caddyfile.site":             true,
 	"config/Caddyfile.global":           true,
 	"config/settings/global/Vector.php": true,
 	"config/settings/global/CanastaFooterIcon.php": true,
+}
+
+// noClobberPaths lists informational template files that are created once
+// during "canasta create" but should not be recreated during upgrade. If a
+// user deletes them, they stay gone.
+var noClobberPaths = map[string]bool{
+	"config/settings/global/README": true,
+	"config/settings/wikis/README":  true,
 }
 
 // CopyInstallationTemplate copies the embedded installation template files to the
@@ -79,10 +87,77 @@ func CopyInstallationTemplate(destPath string) error {
 
 // UpdateInstallationTemplate re-applies the embedded template during upgrade.
 // User-editable files are skipped entirely (they may have been intentionally deleted).
-// CLI-managed files (READMEs, etc.) are always updated to match the current CLI version.
-func UpdateInstallationTemplate(destPath string) error {
-	logging.Print("Updating installation template files\n")
-	return copyTemplate(destPath, true)
+// CLI-managed files are updated only when their content differs from the template.
+// Returns true if any files were changed. In dry-run mode, changes are reported
+// but not applied.
+func UpdateInstallationTemplate(destPath string, dryRun bool) (bool, error) {
+	logging.Print("Updating installation template files...\n")
+	changed := false
+	err := fs.WalkDir(installationTemplate, "installation-template", func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		relPath, err := filepath.Rel("installation-template", path)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
+			return nil
+		}
+
+		targetPath := filepath.Join(destPath, relPath)
+
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, permissions.DirectoryPermission)
+		}
+		if d.Name() == ".gitkeep" {
+			return nil
+		}
+		if userEditablePaths[relPath] {
+			return nil
+		}
+		// No-clobber informational files: create if missing, but don't
+		// recreate if the user deleted them. We detect "user deleted" by
+		// checking whether the file exists on disk.
+		if noClobberPaths[relPath] {
+			if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+				return nil
+			}
+		}
+
+		data, err := installationTemplate.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
+		}
+
+		// Compare with existing file — skip if identical
+		existing, readErr := os.ReadFile(targetPath)
+		if readErr == nil && bytes.Equal(existing, data) {
+			return nil
+		}
+
+		changed = true
+		if dryRun {
+			if readErr != nil {
+				fmt.Printf("  Would create %s\n", relPath)
+			} else {
+				fmt.Printf("  Would update %s\n", relPath)
+			}
+			return nil
+		}
+
+		if readErr != nil {
+			fmt.Printf("  Creating %s\n", relPath)
+		} else {
+			fmt.Printf("  Updating %s\n", relPath)
+		}
+		return os.WriteFile(targetPath, data, permissions.FilePermission)
+	})
+	if !changed {
+		fmt.Println("  Template files are up to date.")
+	}
+	return changed, err
 }
 
 // copyTemplate walks the embedded installation template and copies files to destPath.
@@ -248,10 +323,12 @@ func CopySettings(installPath string) error {
 			return err
 		}
 
-		// Copy README into the wiki's settings directory
+		// Copy README into the wiki's settings directory (no-clobber)
 		readmePath := filepath.Join(dirPath, "README")
-		if err := os.WriteFile(readmePath, wikiREADME, permissions.FilePermission); err != nil {
-			return fmt.Errorf("failed to write README for %s: %w", id, err)
+		if _, err := os.Stat(readmePath); os.IsNotExist(err) {
+			if err := os.WriteFile(readmePath, wikiREADME, permissions.FilePermission); err != nil {
+				return fmt.Errorf("failed to write README for %s: %w", id, err)
+			}
 		}
 	}
 
@@ -268,14 +345,16 @@ func CopySetting(installPath, id string) error {
 		return err
 	}
 
-	// Copy README into the wiki's settings directory
-	wikiREADME, err := installationTemplate.ReadFile("installation-template/config/settings/wikis/README")
-	if err != nil {
-		return fmt.Errorf("failed to read embedded wiki README: %w", err)
-	}
+	// Copy README into the wiki's settings directory (no-clobber)
 	readmePath := filepath.Join(dirPath, "README")
-	if err := os.WriteFile(readmePath, wikiREADME, permissions.FilePermission); err != nil {
-		return fmt.Errorf("failed to write README: %w", err)
+	if _, err := os.Stat(readmePath); os.IsNotExist(err) {
+		wikiREADME, err := installationTemplate.ReadFile("installation-template/config/settings/wikis/README")
+		if err != nil {
+			return fmt.Errorf("failed to read embedded wiki README: %w", err)
+		}
+		if err := os.WriteFile(readmePath, wikiREADME, permissions.FilePermission); err != nil {
+			return fmt.Errorf("failed to write README: %w", err)
+		}
 	}
 
 	return nil
@@ -387,6 +466,17 @@ func IsElasticsearchEnabled(envVars map[string]string) bool {
 	return strings.EqualFold(envVars["CANASTA_ENABLE_ELASTICSEARCH"], "true")
 }
 
+// IsVarnishEnabled returns true when CANASTA_ENABLE_VARNISH is set to "true"
+// (case-insensitive) in the given env vars map. Defaults to true when unset
+// for backward compatibility.
+func IsVarnishEnabled(envVars map[string]string) bool {
+	v, ok := envVars["CANASTA_ENABLE_VARNISH"]
+	if !ok || v == "" {
+		return true
+	}
+	return strings.EqualFold(v, "true")
+}
+
 // EnsureObservabilityCredentials checks if CANASTA_ENABLE_OBSERVABILITY=true in .env.
 // If active, it ensures OS_USER, OS_PASSWORD, and OS_PASSWORD_HASH are set.
 // Returns true if observability is enabled.
@@ -475,6 +565,12 @@ func RewriteCaddy(installPath string) error {
 		}
 	}
 
+	// Determine reverse proxy backend based on Varnish toggle
+	backend := "varnish:80"
+	if !IsVarnishEnabled(envVars) {
+		backend = "web:80"
+	}
+
 	// Remove duplicates from ServerNames
 	ServerNames = removeDuplicates(ServerNames)
 
@@ -541,10 +637,10 @@ func RewriteCaddy(installPath string) error {
 		writeLine("    }")
 		writeLine("")
 		writeLine("    handle {")
-		writeLine("        reverse_proxy varnish:80")
+		writeLine("        reverse_proxy " + backend)
 		writeLine("    }")
 	} else {
-		writeLine("    reverse_proxy varnish:80")
+		writeLine("    reverse_proxy " + backend)
 	}
 	writeLine("")
 	writeLine("    log {")

@@ -37,7 +37,6 @@ services:
       retries: 30
       start_period: 60s
     volumes:
-      - ./_initdb:/docker-entrypoint-initdb.d
       - mysql-data-volume:/var/lib/mysql
       - ./my.cnf:/etc/my.cnf
       - mysql-logs:/var/log/mysql
@@ -59,6 +58,7 @@ services:
       - PHP_UPLOAD_MAX_FILESIZE=${PHP_UPLOAD_MAX_FILESIZE:-10M}
       - PHP_POST_MAX_SIZE=${PHP_UPLOAD_MAX_FILESIZE:-10M}
       - PHP_MAX_INPUT_VARS=${PHP_MAX_INPUT_VARS:-1000}
+      - CANASTA_ENABLE_VARNISH=${CANASTA_ENABLE_VARNISH:-true}
       - CANASTA_ENABLE_WIKI_DIRECTORY=${CANASTA_ENABLE_WIKI_DIRECTORY:-false}
       - MW_SITEMAP_PAUSE_DAYS=${MW_SITEMAP_PAUSE_DAYS:-1}
     volumes:
@@ -110,6 +110,8 @@ services:
 
   varnish:
     image: docker.io/library/varnish:7.0.2-alpine
+    profiles:
+      - varnish
     restart: unless-stopped
     logging: *default-logging
     depends_on:

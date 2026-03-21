@@ -13,8 +13,9 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newUpdateCmd(instance *config.Installation, wiki *string) *cobra.Command {
+func newUpdateCmd(instance *config.Installation) *cobra.Command {
 	var (
+		wiki     string
 		skipJobs bool
 		skipSMW  bool
 	)
@@ -34,14 +35,15 @@ specific wiki.`,
 		Example: `  canasta maintenance update -i myinstance
   canasta maintenance update -i myinstance --wiki=docs
   canasta maintenance update -i myinstance --skip-jobs --skip-smw`,
+		Args: cobra.NoArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			*instance, err = canasta.CheckCanastaID(*instance)
 			return err
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if *wiki != "" {
-				return runMaintenanceUpdate(*instance, *wiki, skipJobs, skipSMW)
+			if wiki != "" {
+				return runMaintenanceUpdate(*instance, wiki, skipJobs, skipSMW)
 			}
 			wikiIDs, err := farmsettings.GetWikiIDs(instance.Path)
 			if err != nil {
@@ -56,6 +58,7 @@ specific wiki.`,
 		},
 	}
 
+	updateCmd.Flags().StringVarP(&wiki, "wiki", "w", "", "Wiki ID to run maintenance on (default: all wikis)")
 	updateCmd.Flags().BoolVar(&skipJobs, "skip-jobs", false, "Skip running runJobs.php")
 	updateCmd.Flags().BoolVar(&skipSMW, "skip-smw", false, "Skip running Semantic MediaWiki rebuildData.php")
 

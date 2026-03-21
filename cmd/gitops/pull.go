@@ -21,6 +21,7 @@ func newPullCmd(instance *config.Installation) *cobra.Command {
 		Long: `Pull the latest configuration from the remote repository, update submodules,
 render .env and admin password files from the template and host vars, and
 report what changed and whether a restart is needed.`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			result, err := runPull(instance.Path)
 			if err != nil {
@@ -122,12 +123,31 @@ func runPull(installPath string) (*gitops.PullResult, error) {
 		return nil, fmt.Errorf("writing .env: %w", err)
 	}
 
-	// 6. Write admin password files.
+	// 6. Render wikis.yaml from template if it exists.
+	var wikisChanged bool
+	wikisTmpl, err := gitops.LoadWikisTemplate(installPath)
+	if err != nil {
+		return nil, err
+	}
+	if wikisTmpl != "" {
+		newWikis, err := gitops.RenderWikisTemplate(wikisTmpl, vars)
+		if err != nil {
+			return nil, fmt.Errorf("rendering wikis.yaml.template: %w", err)
+		}
+		wikisPath := filepath.Join(installPath, "config", "wikis.yaml")
+		oldWikis, _ := os.ReadFile(wikisPath)
+		if err := os.WriteFile(wikisPath, []byte(newWikis), permissions.FilePermission); err != nil {
+			return nil, fmt.Errorf("writing wikis.yaml: %w", err)
+		}
+		wikisChanged = strings.TrimSpace(string(oldWikis)) != strings.TrimSpace(newWikis)
+	}
+
+	// 7. Write admin password files.
 	if err := gitops.WriteAdminPasswords(installPath, vars); err != nil {
 		return nil, err
 	}
 
-	// 7. Determine what changed.
+	// 8. Determine what changed.
 	changedFiles, err := gitops.DiffNameOnly(installPath, prevCommit)
 	if err != nil {
 		// Non-fatal: we can still report success without the diff.
@@ -136,12 +156,15 @@ func runPull(installPath string) (*gitops.PullResult, error) {
 
 	needsRestart, needsMaintenance, submodulesUpdated := gitops.AnalyzeChanges(changedFiles)
 
-	// Also check if .env content actually changed.
+	// Also check if .env or wikis.yaml content actually changed.
 	if strings.TrimSpace(string(oldEnv)) != strings.TrimSpace(newEnvContent) {
 		needsRestart = true
 	}
+	if wikisChanged {
+		needsRestart = true
+	}
 
-	// 8. Save the applied commit.
+	// 9. Save the applied commit.
 	if err := gitops.SaveAppliedCommit(installPath, newCommit); err != nil {
 		logging.Print(fmt.Sprintf("Warning: could not save applied commit: %v\n", err))
 	}

@@ -21,6 +21,7 @@ MediaWiki code for live editing, builds an Xdebug-enabled image, and restarts
 the instance with dev mode compose files. Only supported with Docker Compose.`,
 		Example: `  # Enable dev mode on an installation
   canasta devmode enable -i myinstance`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			fmt.Printf("Enabling development mode on '%s'...\n", instance.ID)
 

@@ -35,11 +35,13 @@ git-crypt, and multi-server deployments with push/pull workflows.`,
 
 	gitopsCmd.AddCommand(newInitCmd(&instance))
 	gitopsCmd.AddCommand(newJoinCmd(&instance))
+	gitopsCmd.AddCommand(newAddCmd(&instance))
+	gitopsCmd.AddCommand(newRmCmd(&instance))
 	gitopsCmd.AddCommand(newPushCmd(&instance))
 	gitopsCmd.AddCommand(newPullCmd(&instance))
 	gitopsCmd.AddCommand(newStatusCmd(&instance))
 	gitopsCmd.AddCommand(newDiffCmd(&instance))
 
-	gitopsCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID")
+	gitopsCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	return gitopsCmd
 }

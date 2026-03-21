@@ -33,8 +33,9 @@ pushes the new host entry back to the repo.
 
 The installation must already exist and have a working .env file. Use
 "canasta gitops init" to bootstrap a new gitops repository instead.`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if err := validateInitFlags(hostName, repoURL, keyFile); err != nil {
+			if err := validateInitFlags(hostName); err != nil {
 				return err
 			}
 			if err := gitops.ValidateRole(role); err != nil {
@@ -44,10 +45,15 @@ The installation must already exist and have a working .env file. Use
 		},
 	}
 
-	cmd.Flags().StringVarP(&hostName, "name", "n", "", "Name for this host in hosts.yaml (required)")
+	cmd.Flags().StringVarP(&hostName, "name", "n", "", "Name for this host in hosts.yaml")
 	cmd.Flags().StringVar(&role, "role", gitops.RoleBoth, "Host role: source, sink, or both")
-	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL (required)")
-	cmd.Flags().StringVar(&keyFile, "key", "", "Path to the git-crypt key file (required)")
+	cmd.Flags().StringVar(&repoURL, "repo", "", "Git repository URL")
+	cmd.Flags().StringVar(&keyFile, "key", "", "Path to the git-crypt key file")
+
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("repo")
+	_ = cmd.MarkFlagRequired("key")
+
 	return cmd
 }
 
@@ -133,6 +139,21 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 			strings.Join(missing, "=... ")+"=...")
 	}
 
+	// Extract wiki URLs from the local wikis.yaml into vars.
+	wikisContent, err := gitops.LoadWikisYAML(installPath)
+	if err != nil {
+		return err
+	}
+	if wikisContent != "" {
+		_, wikisVars, err := gitops.ExtractWikisTemplate(wikisContent)
+		if err != nil {
+			return err
+		}
+		for k, v := range wikisVars {
+			vars[k] = v
+		}
+	}
+
 	passwords, err := gitops.ReadAdminPasswords(installPath)
 	if err != nil {
 		logging.Print(fmt.Sprintf("Warning: could not read admin passwords: %v\n", err))
@@ -149,7 +170,7 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 		return err
 	}
 
-	// 6. Render .env in memory (written to disk after push succeeds).
+	// 6. Render .env and wikis.yaml in memory (written to disk after push succeeds).
 	tmpl, err := gitops.LoadEnvTemplate(installPath)
 	if err != nil {
 		return err
@@ -157,6 +178,18 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 	newEnv, err := gitops.RenderTemplate(tmpl, vars)
 	if err != nil {
 		return fmt.Errorf("rendering env.template: %w", err)
+	}
+
+	var newWikis string
+	wikisTmpl, err := gitops.LoadWikisTemplate(installPath)
+	if err != nil {
+		return err
+	}
+	if wikisTmpl != "" {
+		newWikis, err = gitops.RenderWikisTemplate(wikisTmpl, vars)
+		if err != nil {
+			return fmt.Errorf("rendering wikis.yaml.template: %w", err)
+		}
 	}
 
 	// 7. Update submodules.
@@ -212,9 +245,15 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 		}
 	}
 
-	// 9. Write .env and admin passwords now that the push succeeded.
+	// 9. Write .env, wikis.yaml, and admin passwords now that the push succeeded.
 	if err := os.WriteFile(envPath, []byte(newEnv), permissions.SecretFilePermission); err != nil {
 		return fmt.Errorf("writing .env: %w", err)
+	}
+	if newWikis != "" {
+		wikisPath := filepath.Join(installPath, "config", "wikis.yaml")
+		if err := os.WriteFile(wikisPath, []byte(newWikis), permissions.FilePermission); err != nil {
+			return fmt.Errorf("writing wikis.yaml: %w", err)
+		}
 	}
 	if err := gitops.WriteAdminPasswords(installPath, vars); err != nil {
 		return err

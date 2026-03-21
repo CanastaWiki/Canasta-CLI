@@ -40,12 +40,13 @@ images, and public assets from the backup, leaving shared files untouched.`,
 
   # Restore only a single wiki's database
   canasta backup restore -i myinstance -s abc123 -w wiki2`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return restoreSnapshot(*orch, *instance, *envPath, *repoURL, snapshotID, skipBeforeSnapshot, wikiID)
 		},
 	}
 
-	restoreCmd.Flags().StringVarP(&snapshotID, "snapshot", "s", "", "Snapshot ID (required)")
+	restoreCmd.Flags().StringVarP(&snapshotID, "snapshot", "s", "", "Snapshot ID")
 	restoreCmd.Flags().BoolVar(&skipBeforeSnapshot, "skip-safety-backup", false, "Skip taking a safety backup before restore")
 	restoreCmd.Flags().StringVarP(&wikiID, "wiki", "w", "", "Restore only this wiki's database and per-wiki files")
 	_ = restoreCmd.MarkFlagRequired("snapshot")

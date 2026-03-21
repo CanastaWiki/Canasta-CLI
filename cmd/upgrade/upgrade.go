@@ -51,6 +51,7 @@ distributed using the stored configuration.`,
 
   # Preview what would change without applying
   canasta upgrade --dry-run`,
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			// Check for CLI updates first (skipped automatically for dev builds and dry-run)
 			if !dryRun {
@@ -128,12 +129,11 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		return err
 	}
 
-	// Update CLI-managed template files (READMEs, new files added in this CLI version).
-	// User-editable files are only created if missing.
-	if !dryRun {
-		if err := canasta.UpdateInstallationTemplate(instance.Path); err != nil {
-			return err
-		}
+	// Update CLI-managed template files (config files, READMEs, etc.).
+	// User-editable files are skipped. Returns true if any files were updated.
+	templateChanged, err := canasta.UpdateInstallationTemplate(instance.Path, dryRun)
+	if err != nil {
+		return err
 	}
 
 	// Update container images
@@ -228,7 +228,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 
 	if dryRun {
 		fmt.Println()
-		if stackChanged || migrationsNeeded || mysqlMigrationNeeded {
+		if stackChanged || templateChanged || migrationsNeeded || mysqlMigrationNeeded {
 			fmt.Println("Run 'canasta upgrade' to apply these changes.")
 		} else {
 			fmt.Println("Installation is up to date. No upgrade needed.")
@@ -237,7 +237,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 	}
 
 	// Only restart if something changed
-	if stackChanged || migrationsNeeded || imagesUpdated || mysqlMigrationNeeded {
+	if stackChanged || templateChanged || migrationsNeeded || imagesUpdated || mysqlMigrationNeeded {
 		// Restart the containers
 		fmt.Println("Restarting containers...")
 		if err = orch.Stop(instance); err != nil {
@@ -310,11 +310,10 @@ func runMigration(installPath string, orch orchestrators.Orchestrator, dryRun bo
 		migrateDirectoryStructure, // 2. Migrate directory structure
 		fixVectorDefaultSkin,      // 3. Fix Vector.php default skin
 		func(p string, d bool) (bool, error) { return orch.MigrateConfig(p, d) }, // 4. Orchestrator-specific migrations
-		removeEmptyComposerLocal,  // 5. Remove empty composer.local.json
-		removeLegacyGitDir,        // 6. Remove legacy .git directory
-		removeSkipBinaryAsHex,     // 7. Remove skip-binary-as-hex from my.cnf
-		backfillCanastaImage,      // 8. Backfill CANASTA_IMAGE in .env
-		addVclSpecialRandomBypass, // 9. Add Special:Random cache bypass
+		removeEmptyComposerLocal, // 5. Remove empty composer.local.json
+		removeLegacyGitDir,       // 6. Remove legacy .git directory
+		removeSkipBinaryAsHex,    // 7. Remove skip-binary-as-hex from my.cnf
+		backfillCanastaImage,     // 8. Backfill CANASTA_IMAGE in .env
 	}
 
 	changed := false
@@ -619,59 +618,22 @@ func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
 	return true, nil
 }
 
-// addVclSpecialRandomBypass patches default.vcl to bypass Varnish cache for
-// Special:Random. Without this, Varnish caches the redirect and every user
-// gets the same "random" page until the cache TTL expires.
-func addVclSpecialRandomBypass(installPath string, dryRun bool) (bool, error) {
-	vclPath := filepath.Join(installPath, "config", "default.vcl")
-
-	content, err := os.ReadFile(vclPath)
-	if err != nil {
-		return false, nil // File doesn't exist, nothing to patch
-	}
-
-	if strings.Contains(string(content), "Special:Random") {
-		return false, nil // Already has the bypass
-	}
-
-	// Insert the bypass block after the "Pass API" block
-	marker := `if (req.url ~ "/w/api.php") {
-        return(pass);
-    }`
-	bypass := marker + `
-
-    # Bypass cache for Special:Random
-    if (req.url ~ "^/(w/index\.php\?title=|wiki/)Special:Random") {
-        return (pass);
-    }`
-
-	if !strings.Contains(string(content), marker) {
-		// VCL has been customized beyond recognition, skip
-		return false, nil
-	}
-
-	if dryRun {
-		fmt.Println("  Would add Special:Random cache bypass to default.vcl")
-	} else {
-		newContent := strings.Replace(string(content), marker, bypass, 1)
-		if err := os.WriteFile(vclPath, []byte(newContent), permissions.FilePermission); err != nil {
-			return false, fmt.Errorf("failed to update default.vcl: %w", err)
-		}
-		fmt.Println("  Added Special:Random cache bypass to default.vcl")
-	}
-
-	return true, nil
-}
-
 // removeLegacyGitDir removes the .git directory from installations that were
 // previously cloned from the Canasta-DockerCompose repo. Stack files are now
 // embedded in the CLI binary, so installations are no longer git repos.
+// Skips removal if gitops is active (indicated by a .gitops-host file).
 func removeLegacyGitDir(installPath string, dryRun bool) (bool, error) {
 	gitDir := filepath.Join(installPath, ".git")
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
 		return false, nil
 	} else if err != nil {
 		return false, err
+	}
+
+	// Do not remove .git if gitops is using it.
+	gitopsHost := filepath.Join(installPath, ".gitops-host")
+	if _, err := os.Stat(gitopsHost); err == nil {
+		return false, nil
 	}
 
 	if dryRun {
