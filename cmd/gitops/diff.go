@@ -48,33 +48,7 @@ func runDiff(installPath string) error {
 		return nil
 	}
 
-	// Build sets for conflict detection.
-	localSet := make(map[string]bool, len(localFiles))
-	for _, f := range localFiles {
-		localSet[f] = true
-	}
-	remoteSet := make(map[string]bool, len(remoteFiles))
-	for _, f := range remoteFiles {
-		remoteSet[f] = true
-	}
-
-	var conflicts, localOnly, remoteOnly []string
-	for _, f := range localFiles {
-		if remoteSet[f] {
-			conflicts = append(conflicts, f)
-		} else {
-			localOnly = append(localOnly, f)
-		}
-	}
-	for _, f := range remoteFiles {
-		if !localSet[f] {
-			remoteOnly = append(remoteOnly, f)
-		}
-	}
-
-	sort.Strings(localOnly)
-	sort.Strings(remoteOnly)
-	sort.Strings(conflicts)
+	localOnly, remoteOnly, conflicts := classifyChanges(localFiles, remoteFiles)
 
 	if len(localOnly) > 0 {
 		fmt.Printf("Local changes (not yet pushed): %d file(s)\n", len(localOnly))
@@ -123,4 +97,36 @@ func runDiff(installPath string) error {
 	}
 
 	return nil
+}
+
+// classifyChanges partitions local and remote file lists into three sorted
+// slices: files changed only locally, files changed only on the remote,
+// and files changed in both (potential conflicts).
+func classifyChanges(localFiles, remoteFiles []string) (localOnly, remoteOnly, conflicts []string) {
+	localSet := make(map[string]bool, len(localFiles))
+	for _, f := range localFiles {
+		localSet[f] = true
+	}
+	remoteSet := make(map[string]bool, len(remoteFiles))
+	for _, f := range remoteFiles {
+		remoteSet[f] = true
+	}
+
+	for _, f := range localFiles {
+		if remoteSet[f] {
+			conflicts = append(conflicts, f)
+		} else {
+			localOnly = append(localOnly, f)
+		}
+	}
+	for _, f := range remoteFiles {
+		if !localSet[f] {
+			remoteOnly = append(remoteOnly, f)
+		}
+	}
+
+	sort.Strings(localOnly)
+	sort.Strings(remoteOnly)
+	sort.Strings(conflicts)
+	return
 }
