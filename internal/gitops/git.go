@@ -245,6 +245,20 @@ func DiffNameOnly(path, ref string) ([]string, error) {
 	return strings.Split(output, "\n"), nil
 }
 
+// DiffThreeDot returns files changed on refB since its merge base with refA.
+// This is equivalent to `git diff --name-only refA...refB`.
+func DiffThreeDot(path, refA, refB string) ([]string, error) {
+	output, err := execute.Run(path, "git", "diff", "--name-only", refA+"..."+refB)
+	if err != nil {
+		return nil, fmt.Errorf("git diff --name-only %s...%s: %w", refA, refB, err)
+	}
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return nil, nil
+	}
+	return strings.Split(output, "\n"), nil
+}
+
 // CheckoutHead checks out all tracked files from HEAD into the working tree
 // without overwriting untracked files.
 func CheckoutHead(path string) error {
