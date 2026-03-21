@@ -13,7 +13,9 @@ func TestRunRepairSubmodules_ConvertsStandaloneExtension(t *testing.T) {
 	// Set up a gitops repo with an initial commit.
 	repoPath := t.TempDir()
 	initGitRepo(t, repoPath)
-	os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(".env\n"), 0644)
+	if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(".env\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, repoPath, "add", "-A")
 	runGit(t, repoPath, "commit", "-m", "initial")
 
@@ -58,7 +60,9 @@ func TestRunRepairSubmodules_NoExtensions(t *testing.T) {
 	// A gitops repo with no extensions — should be a no-op.
 	repoPath := t.TempDir()
 	initGitRepo(t, repoPath)
-	os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(".env\n"), 0644)
+	if err := os.WriteFile(filepath.Join(repoPath, ".gitignore"), []byte(".env\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, repoPath, "add", "-A")
 	runGit(t, repoPath, "commit", "-m", "initial")
 
