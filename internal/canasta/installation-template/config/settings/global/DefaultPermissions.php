@@ -8,3 +8,4 @@
 // config/settings/wikis/<wiki-id>/.
 $wgGroupPermissions['*']['read'] = false;
 $wgGroupPermissions['*']['edit'] = false;
+$wgGroupPermissions['*']['createaccount'] = false;
