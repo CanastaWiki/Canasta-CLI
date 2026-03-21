@@ -178,3 +178,66 @@ func ExtractWikisTemplate(wikisContent string) (string, VarsMap, error) {
 func RenderWikisTemplate(templateContent string, vars VarsMap) (string, error) {
 	return RenderTemplate(templateContent, vars)
 }
+
+// SyncWikisTemplate regenerates wikis.yaml.template from the current
+// config/wikis.yaml and updates the current host's vars with any new or
+// removed wiki_url_* entries. This is a no-op if gitops is not active
+// (i.e., wikis.yaml.template does not exist).
+func SyncWikisTemplate(installPath string) error {
+	// Check if gitops is active by looking for the template file.
+	existingTemplate, err := LoadWikisTemplate(installPath)
+	if err != nil {
+		return err
+	}
+	if existingTemplate == "" {
+		return nil
+	}
+
+	// Read the current wikis.yaml.
+	wikisContent, err := LoadWikisYAML(installPath)
+	if err != nil {
+		return err
+	}
+	if wikisContent == "" {
+		return nil
+	}
+
+	// Regenerate the template.
+	newTemplate, newVars, err := ExtractWikisTemplate(wikisContent)
+	if err != nil {
+		return err
+	}
+	if err := SaveWikisTemplate(installPath, newTemplate); err != nil {
+		return err
+	}
+
+	// Update the current host's vars with the new wiki URL entries.
+	hostName, err := LoadLocalHost(installPath)
+	if err != nil || hostName == "" {
+		// No host configured — nothing more to do.
+		return nil
+	}
+
+	vars, err := LoadVars(installPath, hostName)
+	if err != nil {
+		return err
+	}
+
+	// Remove old wiki_url_* entries that are no longer in the template.
+	for key := range vars {
+		if strings.HasPrefix(key, "wiki_url_") {
+			if _, ok := newVars[key]; !ok {
+				delete(vars, key)
+			}
+		}
+	}
+
+	// Add new wiki_url_* entries that are not yet in the vars.
+	for key, value := range newVars {
+		if _, ok := vars[key]; !ok {
+			vars[key] = value
+		}
+	}
+
+	return SaveVars(installPath, hostName, vars)
+}
