@@ -41,6 +41,7 @@ git-crypt, and multi-server deployments with push/pull workflows.`,
 	gitopsCmd.AddCommand(newPullCmd(&instance))
 	gitopsCmd.AddCommand(newStatusCmd(&instance))
 	gitopsCmd.AddCommand(newDiffCmd(&instance))
+	gitopsCmd.AddCommand(newFixSubmodulesCmd(&instance))
 
 	gitopsCmd.PersistentFlags().StringVarP(&instance.ID, "id", "i", "", "Canasta instance ID (defaults to instance associated with current directory)")
 	return gitopsCmd
