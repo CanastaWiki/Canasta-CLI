@@ -200,9 +200,9 @@ func genWikitext(c *cobra.Command) string {
 	}
 
 	if c.Runnable() {
-		b.WriteString("<pre>\n")
+		b.WriteString("<syntaxhighlight lang=\"bash\">\n")
 		b.WriteString(c.UseLine() + "\n")
-		b.WriteString("</pre>\n\n")
+		b.WriteString("</syntaxhighlight>\n\n")
 	}
 
 	// Subcommands section for non-runnable commands
