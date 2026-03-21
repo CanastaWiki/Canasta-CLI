@@ -1,6 +1,7 @@
 package maintenance
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -14,6 +15,10 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
+
+// errExtNotLoaded is returned by runExtensionScript when the extension
+// is not loaded for a particular wiki.
+var errExtNotLoaded = errors.New("extension not loaded")
 
 // wikiArgRe matches --wiki=value or --wiki value in a script argument string.
 var wikiArgRe = regexp.MustCompile(`(?:^|\s)--wiki[=\s](\S+)`)
@@ -71,10 +76,24 @@ Use --wiki to target a specific wiki.`,
 				if err != nil {
 					return err
 				}
+				ran := false
 				for _, id := range wikiIDs {
-					if err := runExtensionScript(*instance, extName, scriptStr, id); err != nil {
-						return err
+					err := runExtensionScript(*instance, extName, scriptStr, id)
+					if err == nil {
+						ran = true
+						continue
 					}
+					// When -w was explicitly given, always return the error.
+					// When iterating all wikis, skip wikis where the extension
+					// is not loaded and continue to the next.
+					if errors.Is(err, errExtNotLoaded) && wiki == "" {
+						fmt.Printf("Skipping wiki %q: %s is not loaded\n", id, extName)
+						continue
+					}
+					return err
+				}
+				if !ran {
+					return fmt.Errorf("extension %q is not loaded on any wiki", extName)
 				}
 				return nil
 			}
@@ -247,7 +266,7 @@ func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Install
 		}
 	}
 	if !loaded {
-		return fmt.Errorf("extension %q is not loaded for wiki %q", extName, checkWiki)
+		return fmt.Errorf("%w: %q is not loaded for wiki %q", errExtNotLoaded, extName, checkWiki)
 	}
 
 	// Determine which path the extension is at
