@@ -1,6 +1,7 @@
 package maintenance
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -494,5 +495,137 @@ func TestRunExtensionScriptWikiConflict(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "conflicting") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// --- errExtNotLoaded sentinel ---
+
+func TestRunExtensionScriptNotLoadedReturnsSentinel(t *testing.T) {
+	mock := &extMockOrchestrator{
+		execOutputs: map[string]string{
+			"eval.php": "VisualEditor\nCite\n",
+		},
+	}
+	inst := config.Installation{Path: "/test"}
+	err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php", "main")
+	if err == nil {
+		t.Fatal("expected error for extension not loaded")
+	}
+	if !errors.Is(err, errExtNotLoaded) {
+		t.Errorf("expected errExtNotLoaded sentinel, got: %v", err)
+	}
+}
+
+// --- Multi-wiki skip behavior ---
+
+// multiWikiMockOrchestrator returns different loaded extensions per wiki.
+type multiWikiMockOrchestrator struct {
+	extMockOrchestrator
+	// wikiExtensions maps wikiID -> eval.php output
+	wikiExtensions map[string]string
+}
+
+func (m *multiWikiMockOrchestrator) ExecWithError(_, _, command string) (string, error) {
+	m.calls = append(m.calls, command)
+	// Route eval.php calls by wiki ID
+	for wikiID, exts := range m.wikiExtensions {
+		if strings.Contains(command, "eval.php") && strings.Contains(command, "--wiki="+wikiID) {
+			return exts, nil
+		}
+	}
+	// Fall back to base behavior for non-eval commands
+	if m.execOutputs != nil {
+		for key, output := range m.execOutputs {
+			if strings.Contains(command, key) {
+				return output, m.execErr
+			}
+		}
+	}
+	return "", m.execErr
+}
+
+func TestRunExtensionScriptSkipsUnloadedWikis(t *testing.T) {
+	// SMW loaded on "docs" but not on "main"
+	mock := &multiWikiMockOrchestrator{
+		wikiExtensions: map[string]string{
+			"main": "VisualEditor\nCite\n",
+			"docs": "SemanticMediaWiki\nVisualEditor\n",
+		},
+	}
+	mock.execOutputs = map[string]string{
+		"test -d extensions/SemanticMediaWiki": "exists",
+	}
+	inst := config.Installation{Path: "/test"}
+
+	// Simulate what RunE does when wiki == "" (no -w flag)
+	wikiIDs := []string{"main", "docs"}
+	ran := false
+	for _, id := range wikiIDs {
+		err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php", id)
+		if err == nil {
+			ran = true
+			continue
+		}
+		if errors.Is(err, errExtNotLoaded) {
+			// This is the skip path
+			continue
+		}
+		t.Fatalf("unexpected error for wiki %q: %v", id, err)
+	}
+	if !ran {
+		t.Fatal("expected script to run on at least one wiki")
+	}
+	// Should have run only on "docs"
+	if len(mock.streamingCalls) != 1 {
+		t.Fatalf("expected 1 streaming call, got %d", len(mock.streamingCalls))
+	}
+	if !strings.Contains(mock.streamingCalls[0], "--wiki=docs") {
+		t.Errorf("expected script to run for docs, got: %s", mock.streamingCalls[0])
+	}
+}
+
+func TestRunExtensionScriptNotLoadedOnAnyWiki(t *testing.T) {
+	// Extension not loaded on any wiki
+	mock := &multiWikiMockOrchestrator{
+		wikiExtensions: map[string]string{
+			"main": "VisualEditor\nCite\n",
+			"docs": "VisualEditor\nCite\n",
+		},
+	}
+	inst := config.Installation{Path: "/test"}
+
+	wikiIDs := []string{"main", "docs"}
+	ran := false
+	for _, id := range wikiIDs {
+		err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php", id)
+		if err == nil {
+			ran = true
+			continue
+		}
+		if errors.Is(err, errExtNotLoaded) {
+			continue
+		}
+		t.Fatalf("unexpected error for wiki %q: %v", id, err)
+	}
+	if ran {
+		t.Fatal("expected script to not run on any wiki")
+	}
+}
+
+func TestRunExtensionScriptExplicitWikiStillErrors(t *testing.T) {
+	// When -w is explicitly given for a wiki where extension is not loaded,
+	// the error should be returned (not skipped)
+	mock := &extMockOrchestrator{
+		execOutputs: map[string]string{
+			"eval.php": "VisualEditor\nCite\n",
+		},
+	}
+	inst := config.Installation{Path: "/test"}
+	err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php", "main")
+	if err == nil {
+		t.Fatal("expected error when extension not loaded on explicitly targeted wiki")
+	}
+	if !errors.Is(err, errExtNotLoaded) {
+		t.Errorf("expected errExtNotLoaded, got: %v", err)
 	}
 }
