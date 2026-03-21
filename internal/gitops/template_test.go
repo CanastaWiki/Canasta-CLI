@@ -1,6 +1,7 @@
 package gitops
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -229,6 +230,119 @@ func TestExtractWikisTemplateEmpty(t *testing.T) {
 	if tmpl == "" {
 		t.Error("expected non-empty template")
 	}
+}
+
+func TestSyncWikisTemplate_AddsNewWiki(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set up an existing template with one wiki.
+	oldTemplate := "wikis:\n- id: wiki1\n  url: '{{wiki_url_wiki1}}'\n  name: Main Wiki\n"
+	if err := SaveWikisTemplate(dir, oldTemplate); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up host config.
+	if err := SaveLocalHost(dir, "server1"); err != nil {
+		t.Fatal(err)
+	}
+	oldVars := VarsMap{"wiki_url_wiki1": "example.com", "mysql_password": "secret"}
+	if err := SaveVars(dir, "server1", oldVars); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write an updated wikis.yaml with two wikis.
+	wikisContent := "wikis:\n- id: wiki1\n  url: example.com\n  name: Main Wiki\n- id: wiki2\n  url: example.com/docs\n  name: Docs\n"
+	if err := saveWikisYAML(dir, wikisContent); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SyncWikisTemplate(dir); err != nil {
+		t.Fatalf("SyncWikisTemplate: %v", err)
+	}
+
+	// Verify template was updated.
+	tmpl, err := LoadWikisTemplate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(tmpl, "{{wiki_url_wiki2}}") {
+		t.Error("template should contain {{wiki_url_wiki2}}")
+	}
+
+	// Verify vars were updated.
+	vars, err := LoadVars(dir, "server1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vars["wiki_url_wiki2"] != "example.com/docs" {
+		t.Errorf("wiki_url_wiki2 = %q, want %q", vars["wiki_url_wiki2"], "example.com/docs")
+	}
+	// Existing non-wiki vars should be preserved.
+	if vars["mysql_password"] != "secret" {
+		t.Errorf("mysql_password = %q, want %q", vars["mysql_password"], "secret")
+	}
+}
+
+func TestSyncWikisTemplate_RemovesWiki(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set up template with two wikis.
+	oldTemplate := "wikis:\n- id: wiki1\n  url: '{{wiki_url_wiki1}}'\n  name: Main\n- id: wiki2\n  url: '{{wiki_url_wiki2}}'\n  name: Docs\n"
+	if err := SaveWikisTemplate(dir, oldTemplate); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SaveLocalHost(dir, "server1"); err != nil {
+		t.Fatal(err)
+	}
+	oldVars := VarsMap{"wiki_url_wiki1": "example.com", "wiki_url_wiki2": "example.com/docs", "mysql_password": "secret"}
+	if err := SaveVars(dir, "server1", oldVars); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write wikis.yaml with only one wiki (wiki2 removed).
+	wikisContent := "wikis:\n- id: wiki1\n  url: example.com\n  name: Main\n"
+	if err := saveWikisYAML(dir, wikisContent); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SyncWikisTemplate(dir); err != nil {
+		t.Fatalf("SyncWikisTemplate: %v", err)
+	}
+
+	// Verify wiki2 var was removed.
+	vars, err := LoadVars(dir, "server1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := vars["wiki_url_wiki2"]; ok {
+		t.Error("wiki_url_wiki2 should have been removed from vars")
+	}
+	if vars["wiki_url_wiki1"] != "example.com" {
+		t.Errorf("wiki_url_wiki1 = %q, want %q", vars["wiki_url_wiki1"], "example.com")
+	}
+	if vars["mysql_password"] != "secret" {
+		t.Errorf("mysql_password should be preserved")
+	}
+}
+
+func TestSyncWikisTemplate_NoopWithoutGitops(t *testing.T) {
+	dir := t.TempDir()
+
+	// No wikis.yaml.template — SyncWikisTemplate should be a no-op.
+	err := SyncWikisTemplate(dir)
+	if err != nil {
+		t.Fatalf("expected no error when gitops is not active, got: %v", err)
+	}
+}
+
+// saveWikisYAML is a test helper that writes config/wikis.yaml.
+func saveWikisYAML(installPath, content string) error {
+	dir := installPath + "/config"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dir+"/wikis.yaml", []byte(content), 0o644)
 }
 
 func TestFindMissingCustomKeys(t *testing.T) {
