@@ -11,6 +11,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/gitops"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
@@ -256,6 +257,11 @@ func AddWiki(opts AddWikiOptions) error {
 	// Add the wiki in farmsettings (only after successful installation)
 	err = farmsettings.AddWiki(opts.WikiID, opts.Instance.Path, opts.Domain, opts.WikiPath, opts.SiteName)
 	if err != nil {
+		return err
+	}
+
+	// Update wikis.yaml.template if gitops is active.
+	if err := gitops.SyncWikisTemplate(opts.Instance.Path); err != nil {
 		return err
 	}
 

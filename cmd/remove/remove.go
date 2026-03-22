@@ -10,6 +10,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/canasta"
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 	"github.com/CanastaWiki/Canasta-CLI/internal/farmsettings"
+	"github.com/CanastaWiki/Canasta-CLI/internal/gitops"
 	"github.com/CanastaWiki/Canasta-CLI/internal/logging"
 	"github.com/CanastaWiki/Canasta-CLI/internal/mediawiki"
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
@@ -104,6 +105,11 @@ func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
 	// Remove the wiki
 	err = farmsettings.RemoveWiki(wikiID, instance.Path)
 	if err != nil {
+		return err
+	}
+
+	// Update wikis.yaml.template if gitops is active.
+	if err := gitops.SyncWikisTemplate(instance.Path); err != nil {
 		return err
 	}
 
