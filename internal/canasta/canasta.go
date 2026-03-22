@@ -65,8 +65,8 @@ var userEditablePaths = map[string]bool{
 	"config/Caddyfile.site":             true,
 	"config/Caddyfile.global":           true,
 	"config/settings/global/Vector.php": true,
-	"config/settings/global/CanastaFooterIcon.php":  true,
-	"config/settings/global/DefaultSettings.php":    true,
+	"config/settings/global/CanastaFooterIcon.php": true,
+	"config/settings/global/DefaultSettings.php":   true,
 }
 
 // noClobberPaths lists informational template files that are created once
