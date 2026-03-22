@@ -20,7 +20,7 @@ func TestResolveToInstallPath(t *testing.T) {
 	}
 
 	t.Run("absolute path inside install dir", func(t *testing.T) {
-		rel, err := resolveToInstallPath(installDir, testFile)
+		rel, err := resolveToInstallPath(installDir, testFile, true)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -46,7 +46,7 @@ func TestResolveToInstallPath(t *testing.T) {
 			t.Fatalf("chdir: %v", err)
 		}
 
-		rel, err := resolveToInstallPath(installDir, "test.php")
+		rel, err := resolveToInstallPath(installDir, "test.php", true)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -62,16 +62,26 @@ func TestResolveToInstallPath(t *testing.T) {
 			t.Fatalf("writing file: %v", err)
 		}
 
-		_, err := resolveToInstallPath(installDir, outsideFile)
+		_, err := resolveToInstallPath(installDir, outsideFile, true)
 		if err == nil {
 			t.Fatal("expected error for file outside install dir")
 		}
 	})
 
-	t.Run("nonexistent file", func(t *testing.T) {
-		_, err := resolveToInstallPath(installDir, filepath.Join(installDir, "nope.txt"))
+	t.Run("nonexistent file requireExists", func(t *testing.T) {
+		_, err := resolveToInstallPath(installDir, filepath.Join(installDir, "nope.txt"), true)
 		if err == nil {
-			t.Fatal("expected error for nonexistent file")
+			t.Fatal("expected error for nonexistent file with requireExists")
+		}
+	})
+
+	t.Run("nonexistent file allowed for rm", func(t *testing.T) {
+		rel, err := resolveToInstallPath(installDir, filepath.Join(installDir, "deleted.txt"), false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if rel != "deleted.txt" {
+			t.Errorf("got %q, want %q", rel, "deleted.txt")
 		}
 	})
 }

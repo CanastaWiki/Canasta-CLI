@@ -27,7 +27,7 @@ directory or to the installation root.`,
 func runRm(installPath string, files []string) error {
 	resolved := make([]string, 0, len(files))
 	for _, f := range files {
-		rel, err := resolveToInstallPath(installPath, f)
+		rel, err := resolveToInstallPath(installPath, f, false)
 		if err != nil {
 			return err
 		}

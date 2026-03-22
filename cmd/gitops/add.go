@@ -30,22 +30,35 @@ installation root.`,
 
 // resolveToInstallPath converts a file path (which may be relative to the
 // user's current directory) into a path relative to the installation root.
-func resolveToInstallPath(installPath, file string) (string, error) {
+// When requireExists is true the file must exist on disk (used by add);
+// when false, deleted-but-tracked files are allowed (used by rm).
+func resolveToInstallPath(installPath, file string, requireExists bool) (string, error) {
 	// Make the file path absolute based on the current working directory.
 	absFile, err := filepath.Abs(file)
 	if err != nil {
 		return "", fmt.Errorf("resolving path %q: %w", file, err)
 	}
 
-	// Verify the file actually exists before resolving symlinks.
-	if _, err := os.Stat(absFile); os.IsNotExist(err) {
-		return "", fmt.Errorf("file not found: %s", absFile)
-	}
-
-	// Resolve symlinks so paths compare correctly (e.g. /var vs /private/var on macOS).
-	absFile, err = filepath.EvalSymlinks(absFile)
-	if err != nil {
-		return "", fmt.Errorf("resolving path %q: %w", file, err)
+	// Resolve symlinks so paths compare correctly (e.g. /var vs /private/var
+	// on macOS). When the file doesn't exist we fall back to the absolute
+	// path, which is fine for git rm on deleted files.
+	if _, statErr := os.Stat(absFile); os.IsNotExist(statErr) {
+		if requireExists {
+			return "", fmt.Errorf("file not found: %s", absFile)
+		}
+		// File was deleted — resolve symlinks on the parent directory so
+		// the prefix check works (e.g. /var vs /private/var on macOS).
+		dir, base := filepath.Split(absFile)
+		resolvedDir, evalErr := filepath.EvalSymlinks(dir)
+		if evalErr != nil {
+			return "", fmt.Errorf("resolving parent directory %q: %w", dir, evalErr)
+		}
+		absFile = filepath.Join(resolvedDir, base)
+	} else {
+		absFile, err = filepath.EvalSymlinks(absFile)
+		if err != nil {
+			return "", fmt.Errorf("resolving path %q: %w", file, err)
+		}
 	}
 
 	absInstall, err := filepath.EvalSymlinks(installPath)
@@ -68,7 +81,7 @@ func resolveToInstallPath(installPath, file string) (string, error) {
 func runAdd(installPath string, files []string) error {
 	resolved := make([]string, 0, len(files))
 	for _, f := range files {
-		rel, err := resolveToInstallPath(installPath, f)
+		rel, err := resolveToInstallPath(installPath, f, true)
 		if err != nil {
 			return err
 		}
