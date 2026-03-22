@@ -132,7 +132,11 @@ func ListAll() error {
 	}
 
 	if len(existingInstallations.Installations) == 0 {
-		fmt.Println("No instances found.")
+		fmt.Printf("No instances found (looked in %s)\n", confFile)
+		if IsRunningAsRoot() {
+			fmt.Println("Note: Running as root uses /etc/canasta/conf.json. Installations")
+			fmt.Println("registered by a non-root user are stored in ~/.config/canasta/conf.json.")
+		}
 		return nil
 	}
 
@@ -210,6 +214,21 @@ func GetAll() (map[string]Installation, error) {
 		return nil, err
 	}
 	return existingInstallations.Installations, nil
+}
+
+// GetConfFilePath returns the path to the conf.json file currently in use.
+// Must be called after GetAll or any other function that triggers initialization.
+func GetConfFilePath() string {
+	return confFile
+}
+
+// IsRunningAsRoot returns true if the current process is running as root.
+func IsRunningAsRoot() bool {
+	currentUser, err := user.Current()
+	if err != nil {
+		return false
+	}
+	return currentUser.Username == "root"
 }
 
 func GetDetails(canastaID string) (Installation, error) {

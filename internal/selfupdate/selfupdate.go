@@ -111,7 +111,8 @@ func downloadAndInstall(latestVersion, execPath string) error {
 	}
 
 	// Rename failed (permission denied or cross-filesystem) — use sudo mv
-	fmt.Println("Elevated permissions required to update the binary.")
+	fmt.Printf("Elevated permissions required to update %s.\n", execPath)
+	fmt.Println("You may be prompted for your password.")
 	cmd := exec.Command("sudo", "mv", tmpPath, execPath)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

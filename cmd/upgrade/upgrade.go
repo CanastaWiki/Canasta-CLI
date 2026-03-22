@@ -74,7 +74,12 @@ func upgradeAllInstances(dryRun bool) error {
 		return err
 	}
 	if len(installations) == 0 {
-		fmt.Println("No registered installations found")
+		fmt.Printf("No registered installations found (looked in %s)\n", config.GetConfFilePath())
+		if config.IsRunningAsRoot() {
+			fmt.Println("Note: Running as root uses /etc/canasta/conf.json. Installations")
+			fmt.Println("registered by a non-root user are stored in ~/.config/canasta/conf.json.")
+			fmt.Println("Try running without sudo if your installations were created as a regular user.")
+		}
 		return nil
 	}
 
@@ -219,11 +224,6 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 				fmt.Println("  Would dump MySQL 8.0 databases and re-import into MariaDB")
 			}
 		}
-	} else if !dryRun {
-		// Kubernetes: automatic migration is not supported. Warn the user
-		// so they can manually dump and restore if they were on MySQL 8.0.
-		fmt.Println("  Note: If this installation was using MySQL 8.0, the database must be")
-		fmt.Println("  manually migrated to MariaDB. See https://canasta.wiki/setup/ for details.")
 	}
 
 	if dryRun {
