@@ -103,7 +103,7 @@ func TestScriptRunsAllWikisOnFarm(t *testing.T) {
 	writeWikisYAML(t, dir, "wikis:\n  - id: main\n    url: http://localhost\n  - id: docs\n    url: http://localhost\n")
 
 	mock := &extMockOrchestrator{}
-	inst := config.Installation{Path: dir}
+	inst := config.Instance{Path: dir}
 	err := runMaintenanceScriptWith(mock, inst, "rebuildrecentchanges.php", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -124,7 +124,7 @@ func TestScriptRunsSpecificWikiOnFarm(t *testing.T) {
 	writeWikisYAML(t, dir, "wikis:\n  - id: main\n    url: http://localhost\n  - id: docs\n    url: http://localhost\n")
 
 	mock := &extMockOrchestrator{}
-	inst := config.Installation{Path: dir}
+	inst := config.Instance{Path: dir}
 	err := runMaintenanceScriptWith(mock, inst, "rebuildrecentchanges.php", "docs")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -142,7 +142,7 @@ func TestScriptRunsAllWikisOnSingleWikiFarm(t *testing.T) {
 	writeWikisYAML(t, dir, "wikis:\n  - id: main\n    url: http://localhost\n")
 
 	mock := &extMockOrchestrator{}
-	inst := config.Installation{Path: dir}
+	inst := config.Instance{Path: dir}
 	err := runMaintenanceScriptWith(mock, inst, "rebuildrecentchanges.php", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

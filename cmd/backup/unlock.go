@@ -9,7 +9,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newUnlockCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
+func newUnlockCmd(orch *orchestrators.Orchestrator, instance *config.Instance, envPath, repoURL *string) *cobra.Command {
 
 	unlockCmd := &cobra.Command{
 		Use:   "unlock",

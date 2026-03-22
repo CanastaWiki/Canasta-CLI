@@ -17,7 +17,7 @@ func setupTestDir(t *testing.T) string {
 func TestAddAndGetDetails(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{
+	inst := Instance{
 		ID:           "test1",
 		Path:         "/tmp/test1",
 		Orchestrator: "compose",
@@ -39,7 +39,7 @@ func TestAddAndGetDetails(t *testing.T) {
 func TestExists(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{ID: "exists1", Path: "/tmp/exists1", Orchestrator: "compose"}
+	inst := Instance{ID: "exists1", Path: "/tmp/exists1", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -64,7 +64,7 @@ func TestExists(t *testing.T) {
 func TestDelete(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{ID: "del1", Path: "/tmp/del1", Orchestrator: "compose"}
+	inst := Instance{ID: "del1", Path: "/tmp/del1", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -85,7 +85,7 @@ func TestDelete(t *testing.T) {
 func TestUpdate(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{ID: "upd1", Path: "/tmp/upd1", Orchestrator: "compose"}
+	inst := Instance{ID: "upd1", Path: "/tmp/upd1", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -107,7 +107,7 @@ func TestUpdate(t *testing.T) {
 func TestDuplicateAdd(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{ID: "dup1", Path: "/tmp/dup1", Orchestrator: "compose"}
+	inst := Instance{ID: "dup1", Path: "/tmp/dup1", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -130,8 +130,8 @@ func TestDeleteNonexistent(t *testing.T) {
 func TestGetAll(t *testing.T) {
 	setupTestDir(t)
 
-	inst1 := Installation{ID: "all1", Path: "/tmp/all1", Orchestrator: "compose"}
-	inst2 := Installation{ID: "all2", Path: "/tmp/all2", Orchestrator: "compose"}
+	inst1 := Instance{ID: "all1", Path: "/tmp/all1", Orchestrator: "compose"}
+	inst2 := Instance{ID: "all2", Path: "/tmp/all2", Orchestrator: "compose"}
 	if err := Add(inst1); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -144,14 +144,14 @@ func TestGetAll(t *testing.T) {
 		t.Fatalf("GetAll() error = %v", err)
 	}
 	if len(all) != 2 {
-		t.Errorf("expected 2 installations, got %d", len(all))
+		t.Errorf("expected 2 instances, got %d", len(all))
 	}
 }
 
 func TestGetCanastaID(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{ID: "pathtest", Path: "/tmp/pathtest", Orchestrator: "compose"}
+	inst := Instance{ID: "pathtest", Path: "/tmp/pathtest", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -173,7 +173,7 @@ func TestGetCanastaID(t *testing.T) {
 func TestGetCanastaIDFromSubdirectory(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{ID: "subdir-test", Path: "/srv/canasta/my-wiki", Orchestrator: "compose"}
+	inst := Instance{ID: "subdir-test", Path: "/srv/canasta/my-wiki", Orchestrator: "compose"}
 	if err := Add(inst); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -234,7 +234,7 @@ func TestAddOrchestratorSupported(t *testing.T) {
 func TestBuildFromRoundTrip(t *testing.T) {
 	dir := setupTestDir(t)
 
-	inst := Installation{
+	inst := Instance{
 		ID:           "bf1",
 		Path:         "/tmp/bf1",
 		Orchestrator: "compose",
@@ -265,7 +265,7 @@ func TestBuildFromRoundTrip(t *testing.T) {
 func TestBuildFromOmittedWhenEmpty(t *testing.T) {
 	dir := setupTestDir(t)
 
-	inst := Installation{
+	inst := Instance{
 		ID:           "nobf1",
 		Path:         "/tmp/nobf1",
 		Orchestrator: "compose",

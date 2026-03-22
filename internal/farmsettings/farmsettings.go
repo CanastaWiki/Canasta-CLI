@@ -128,7 +128,7 @@ func ReadWikisYaml(filePath string) ([]string, []string, []string, error) {
 	return ids, serverNames, paths, nil
 }
 
-// GetWikiIDs returns the list of wiki IDs from the installation's wikis.yaml.
+// GetWikiIDs returns the list of wiki IDs from the instance's wikis.yaml.
 func GetWikiIDs(installPath string) ([]string, error) {
 	filePath := filepath.Join(installPath, "config", "wikis.yaml")
 	ids, _, _, err := ReadWikisYaml(filePath)
@@ -138,7 +138,7 @@ func GetWikiIDs(installPath string) ([]string, error) {
 	return ids, nil
 }
 
-// WikiIDExists checks if a wiki with the given wikiID exists in the installation
+// WikiIDExists checks if a wiki with the given wikiID exists in the instance
 func WikiIDExists(installPath, wikiID string) (bool, error) {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(installPath, "config", "wikis.yaml")
@@ -165,7 +165,7 @@ func WikiIDExists(installPath, wikiID string) (bool, error) {
 	return false, nil
 }
 
-// WikiURLExists checks if a wiki with the given URL (domain/path combo) exists in the installation
+// WikiURLExists checks if a wiki with the given URL (domain/path combo) exists in the instance
 func WikiURLExists(installPath, domain, wikiPath string) (bool, error) {
 	// Get the absolute path to the wikis.yaml file
 	filePath := filepath.Join(installPath, "config", "wikis.yaml")

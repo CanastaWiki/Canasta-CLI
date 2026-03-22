@@ -27,26 +27,26 @@ func NewCmd() *cobra.Command {
 
 	var upgradeCmd = &cobra.Command{
 		Use:   "upgrade",
-		Short: "Upgrade the Canasta CLI and all registered installations",
-		Long: `Upgrade the Canasta CLI binary and all registered installations.
+		Short: "Upgrade the Canasta CLI and all registered instances",
+		Long: `Upgrade the Canasta CLI binary and all registered instances.
 
-Each installation is updated by refreshing configuration files, pulling the
+Each instance is updated by refreshing configuration files, pulling the
 latest container images, running any necessary migrations, and restarting
 the containers.
 
 The CLI itself is also updated to the latest version before upgrading instances.
 Dev builds (compiled without version ldflags) skip the CLI self-update automatically.
 
-If an installation fails to upgrade, the error is printed and the remaining
-installations are still upgraded. A summary at the end reports how many succeeded.
+If an instance fails to upgrade, the error is printed and the remaining
+instances are still upgraded. A summary at the end reports how many succeeded.
 
 Use --dry-run to preview migrations without applying them.
 
-Installations created with --build-from automatically rebuild the Canasta image
-from the stored source path during upgrade. For Kubernetes installations created
+Instances created with --build-from automatically rebuild the Canasta image
+from the stored source path during upgrade. For Kubernetes instances created
 with a kind cluster or custom registry, the rebuilt image is automatically
 distributed using the stored configuration.`,
-		Example: `  # Upgrade the CLI and all installations
+		Example: `  # Upgrade the CLI and all instances
   canasta upgrade
 
   # Preview what would change without applying
@@ -74,11 +74,11 @@ func upgradeAllInstances(dryRun bool) error {
 		return err
 	}
 	if len(installations) == 0 {
-		fmt.Printf("No registered installations found (looked in %s)\n", config.GetConfFilePath())
+		fmt.Printf("No registered instances found (looked in %s)\n", config.GetConfFilePath())
 		if config.IsRunningAsRoot() {
-			fmt.Println("Note: Running as root uses /etc/canasta/conf.json. Installations")
+			fmt.Println("Note: Running as root uses /etc/canasta/conf.json. Instances")
 			fmt.Println("registered by a non-root user are stored in ~/.config/canasta/conf.json.")
-			fmt.Println("Try running without sudo if your installations were created as a regular user.")
+			fmt.Println("Try running without sudo if your instances were created as a regular user.")
 		}
 		return nil
 	}
@@ -110,10 +110,10 @@ func upgradeAllInstances(dryRun bool) error {
 	return nil
 }
 
-func Upgrade(instance config.Installation, dryRun bool) error {
+func Upgrade(instance config.Instance, dryRun bool) error {
 	var err error
 
-	// Check installation existence
+	// Check instance existence
 	instance, err = canasta.CheckCanastaID(instance)
 	if err != nil {
 		return err
@@ -231,7 +231,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		if stackChanged || templateChanged || migrationsNeeded || mysqlMigrationNeeded {
 			fmt.Println("Run 'canasta upgrade' to apply these changes.")
 		} else {
-			fmt.Println("Installation is up to date. No upgrade needed.")
+			fmt.Println("Instance is up to date. No upgrade needed.")
 		}
 		return nil
 	}
@@ -290,7 +290,7 @@ func Upgrade(instance config.Installation, dryRun bool) error {
 		fmt.Println("Canasta upgraded successfully!")
 	} else {
 		fmt.Println()
-		fmt.Println("Installation is already up to date.")
+		fmt.Println("Instance is already up to date.")
 	}
 
 	return nil
@@ -618,9 +618,9 @@ func removeSkipBinaryAsHex(installPath string, dryRun bool) (bool, error) {
 	return true, nil
 }
 
-// removeLegacyGitDir removes the .git directory from installations that were
+// removeLegacyGitDir removes the .git directory from instances that were
 // previously cloned from the Canasta-DockerCompose repo. Stack files are now
-// embedded in the CLI binary, so installations are no longer git repos.
+// embedded in the CLI binary, so instances are no longer git repos.
 // Skips removal if gitops is active (indicated by a .gitops-host file).
 func removeLegacyGitDir(installPath string, dryRun bool) (bool, error) {
 	gitDir := filepath.Join(installPath, ".git")
@@ -649,8 +649,8 @@ func removeLegacyGitDir(installPath string, dryRun bool) (bool, error) {
 }
 
 // backfillCanastaImage ensures CANASTA_IMAGE in .env matches the current
-// CLI's default image tag. This handles both installations that predate the
-// CANASTA_IMAGE variable and installations where the CLI was upgraded to a
+// CLI's default image tag. This handles both instances that predate the
+// CANASTA_IMAGE variable and instances where the CLI was upgraded to a
 // newer version but the image tag was not updated.
 func backfillCanastaImage(installPath string, dryRun bool) (bool, error) {
 	envPath := filepath.Join(installPath, ".env")

@@ -23,7 +23,7 @@ var errExtNotLoaded = errors.New("extension not loaded")
 // wikiArgRe matches --wiki=value or --wiki value in a script argument string.
 var wikiArgRe = regexp.MustCompile(`(?:^|\s)--wiki[=\s](\S+)`)
 
-func newExtensionCmd(instance *config.Installation) *cobra.Command {
+func newExtensionCmd(instance *config.Instance) *cobra.Command {
 	var wiki string
 
 	extensionCmd := &cobra.Command{
@@ -108,11 +108,11 @@ Use --wiki to target a specific wiki.`,
 	return extensionCmd
 }
 
-func listExtensionsWithMaintenance(inst config.Installation, wikiFlag string) error {
+func listExtensionsWithMaintenance(inst config.Instance, wikiFlag string) error {
 	return listExtensionsWithMaintenanceWith(nil, inst, wikiFlag)
 }
 
-func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst config.Installation, wikiFlag string) error {
+func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst config.Instance, wikiFlag string) error {
 	if orch == nil {
 		var err error
 		orch, err = orchestrators.New(inst.Orchestrator)
@@ -165,11 +165,11 @@ func listExtensionsWithMaintenanceWith(orch orchestrators.Orchestrator, inst con
 	return nil
 }
 
-func listExtensionScripts(inst config.Installation, extName, wikiFlag string) error {
+func listExtensionScripts(inst config.Instance, extName, wikiFlag string) error {
 	return listExtensionScriptsWith(nil, inst, extName, wikiFlag)
 }
 
-func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Installation, extName, wikiFlag string) error {
+func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Instance, extName, wikiFlag string) error {
 	if orch == nil {
 		var err error
 		orch, err = orchestrators.New(inst.Orchestrator)
@@ -232,11 +232,11 @@ func listExtensionScriptsWith(orch orchestrators.Orchestrator, inst config.Insta
 	return nil
 }
 
-func runExtensionScript(inst config.Installation, extName, scriptStr, wikiID string) error {
+func runExtensionScript(inst config.Instance, extName, scriptStr, wikiID string) error {
 	return runExtensionScriptWith(nil, inst, extName, scriptStr, wikiID)
 }
 
-func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Installation, extName, scriptStr, wikiID string) error {
+func runExtensionScriptWith(orch orchestrators.Orchestrator, inst config.Instance, extName, scriptStr, wikiID string) error {
 	if orch == nil {
 		var err error
 		orch, err = orchestrators.New(inst.Orchestrator)
@@ -327,7 +327,7 @@ func resolveWikiFlag(cliWiki, scriptStr string) (resolvedWiki, cleanedScript str
 
 // resolveWikiIDs returns the list of wiki IDs to operate on.
 // If wikiFlag is set, returns just that wiki; otherwise returns all wikis.
-func resolveWikiIDs(inst config.Installation, wikiFlag string) ([]string, error) {
+func resolveWikiIDs(inst config.Instance, wikiFlag string) ([]string, error) {
 	if wikiFlag != "" {
 		return []string{wikiFlag}, nil
 	}

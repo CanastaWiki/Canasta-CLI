@@ -26,7 +26,7 @@ func validateInitFlags(hostName string) error {
 	return nil
 }
 
-func newInitCmd(instance *config.Installation) *cobra.Command {
+func newInitCmd(instance *config.Instance) *cobra.Command {
 	var (
 		hostName     string
 		role         string
@@ -38,8 +38,8 @@ func newInitCmd(instance *config.Installation) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Bootstrap a new gitops repository from an existing installation",
-		Long: `Bootstrap git-based configuration management for a Canasta installation.
+		Short: "Bootstrap a new gitops repository from an existing instance",
+		Long: `Bootstrap git-based configuration management for a Canasta instance.
 
 Sets up git, git-crypt, env.template, hosts.yaml, converts extensions/skins
 to submodules, and pushes to the remote. The remote repository must be empty

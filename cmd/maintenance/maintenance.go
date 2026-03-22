@@ -10,7 +10,7 @@ import (
 )
 
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
@@ -21,7 +21,7 @@ func NewCmd() *cobra.Command {
 	maintenanceCmd := &cobra.Command{
 		Use:   "maintenance",
 		Short: "Use to run update and other maintenance scripts",
-		Long: `Run MediaWiki maintenance operations on a Canasta installation. This command
+		Long: `Run MediaWiki maintenance operations on a Canasta instance. This command
 group provides subcommands to run the standard update sequence, execute
 arbitrary core maintenance scripts, or run extension-specific maintenance scripts.`,
 	}

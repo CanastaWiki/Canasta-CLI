@@ -13,7 +13,7 @@ import (
 )
 
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -23,12 +23,12 @@ func NewCmd() *cobra.Command {
 
 	var restartCmd = &cobra.Command{
 		Use:   "restart",
-		Short: "Restart the Canasta installation",
-		Long: `Restart a Canasta installation by stopping and then starting all Docker
+		Short: "Restart the Canasta instance",
+		Long: `Restart a Canasta instance by stopping and then starting all Docker
 containers. Any pending configuration migrations are applied during the
 restart. Use 'canasta devmode enable' or 'canasta devmode disable' to
 change the development mode setting.`,
-		Example: `  # Restart an installation by ID
+		Example: `  # Restart an instance by ID
   canasta restart -i myinstance`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -36,7 +36,7 @@ change the development mode setting.`,
 			if err != nil {
 				return err
 			}
-			fmt.Println("Restarting Canasta installation '" + resolvedInstance.ID + "'...")
+			fmt.Println("Restarting Canasta instance '" + resolvedInstance.ID + "'...")
 			if err = Restart(resolvedInstance); err != nil {
 				return err
 			}
@@ -48,7 +48,7 @@ change the development mode setting.`,
 	return restartCmd
 }
 
-func Restart(instance config.Installation) error {
+func Restart(instance config.Instance) error {
 	orch, err := orchestrators.NewFromInstance(instance)
 	if err != nil {
 		return err

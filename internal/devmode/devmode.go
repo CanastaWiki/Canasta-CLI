@@ -43,7 +43,7 @@ var phpstormServerConfig string
 //go:embed files/phpstorm/Listen_for_Xdebug.xml
 var phpstormRunConfig string
 
-// CreateDevModeFiles creates all the xdebug-related files in the installation directory
+// CreateDevModeFiles creates all the xdebug-related files in the instance directory
 func CreateDevModeFiles(installPath string) error {
 	logging.Print("Creating development mode files...\n")
 
@@ -355,7 +355,7 @@ func WriteIDEConfigs(installPath string) error {
 	return nil
 }
 
-// IsDevModeSetup checks if dev mode files exist in the installation
+// IsDevModeSetup checks if dev mode files exist in the instance
 func IsDevModeSetup(installPath string) bool {
 	devComposePath := filepath.Join(installPath, DevComposeFile)
 	dockerfilePath := filepath.Join(installPath, "Dockerfile.xdebug")
@@ -366,7 +366,7 @@ func IsDevModeSetup(installPath string) bool {
 	return err1 == nil && err2 == nil
 }
 
-// EnableDevMode enables dev mode on an existing installation
+// EnableDevMode enables dev mode on an existing instance
 // If dev mode files exist but symlinks need to be restored, it handles that
 // baseImage is the full Canasta image name (e.g., "ghcr.io/canastawiki/canasta:latest" or "canasta:local")
 func EnableDevMode(installPath string, orch orchestrators.Orchestrator, baseImage string) error {
@@ -385,7 +385,7 @@ func EnableDevMode(installPath string, orch orchestrators.Orchestrator, baseImag
 	}
 
 	// Full dev mode setup needed
-	logging.Print("Setting up dev mode for existing installation...\n")
+	logging.Print("Setting up dev mode for existing instance...\n")
 	return SetupFullDevMode(installPath, orch, baseImage)
 }
 
@@ -407,7 +407,7 @@ func ensureDevModeSymlinks(installPath, codeDir string) error {
 	return nil
 }
 
-// DisableDevMode disables dev mode on an installation
+// DisableDevMode disables dev mode on an instance
 // This reverses the symlinks created by EnableDevMode, restoring extensions/ and skins/
 // as real directories with their contents copied from mediawiki-code/
 func DisableDevMode(installPath string) error {

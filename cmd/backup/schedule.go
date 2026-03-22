@@ -14,12 +14,12 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newScheduleCmd(instance *config.Installation) *cobra.Command {
+func newScheduleCmd(instance *config.Instance) *cobra.Command {
 	scheduleCmd := &cobra.Command{
 		Use:   "schedule",
 		Short: "Manage scheduled backups",
 		Long: `Manage recurring backup schedules using crontab. Backup output is
-logged to backup.log in the installation directory.`,
+logged to backup.log in the instance directory.`,
 	}
 
 	scheduleCmd.AddCommand(newScheduleSetCmd(instance))
@@ -28,7 +28,7 @@ logged to backup.log in the installation directory.`,
 	return scheduleCmd
 }
 
-func newScheduleSetCmd(instance *config.Installation) *cobra.Command {
+func newScheduleSetCmd(instance *config.Instance) *cobra.Command {
 	var purgeOlderThan string
 
 	cmd := &cobra.Command{
@@ -37,7 +37,7 @@ func newScheduleSetCmd(instance *config.Installation) *cobra.Command {
 		Long: `Schedule recurring backups using a cron expression. This adds or
 updates a crontab entry that runs 'canasta backup create' on the
 specified schedule. Backup output is logged to backup.log in the
-installation directory.
+instance directory.
 
 Use --purge-older-than to automatically purge old backups after each
 scheduled backup.`,
@@ -59,11 +59,11 @@ scheduled backup.`,
 	return cmd
 }
 
-func newScheduleListCmd(instance *config.Installation) *cobra.Command {
+func newScheduleListCmd(instance *config.Instance) *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
 		Short:   "Show the backup schedule",
-		Long:    `Show the current backup schedule for this installation, if one exists.`,
+		Long:    `Show the current backup schedule for this instance, if one exists.`,
 		Example: `  canasta backup schedule list -i myinstance`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return listSchedule(*instance)
@@ -71,11 +71,11 @@ func newScheduleListCmd(instance *config.Installation) *cobra.Command {
 	}
 }
 
-func newScheduleRemoveCmd(instance *config.Installation) *cobra.Command {
+func newScheduleRemoveCmd(instance *config.Instance) *cobra.Command {
 	return &cobra.Command{
 		Use:     "remove",
 		Short:   "Remove a scheduled backup",
-		Long:    `Remove the crontab entry for recurring backups of this installation.`,
+		Long:    `Remove the crontab entry for recurring backups of this instance.`,
 		Example: `  canasta backup schedule remove -i myinstance`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return unscheduleBackup(*instance)
@@ -120,7 +120,7 @@ func writeCrontab(lines []string) error {
 	return nil
 }
 
-func scheduleBackup(instance config.Installation, cronExpression, purgeOlderThan string) error {
+func scheduleBackup(instance config.Instance, cronExpression, purgeOlderThan string) error {
 	if err := validateCron(cronExpression); err != nil {
 		return err
 	}
@@ -174,7 +174,7 @@ func scheduleBackup(instance config.Installation, cronExpression, purgeOlderThan
 	return nil
 }
 
-func listSchedule(instance config.Installation) error {
+func listSchedule(instance config.Instance) error {
 	lines, err := readCrontab()
 	if err != nil {
 		return err
@@ -194,7 +194,7 @@ func listSchedule(instance config.Installation) error {
 	return fmt.Errorf("no backup schedule found for instance '%s'", instance.ID)
 }
 
-func unscheduleBackup(instance config.Installation) error {
+func unscheduleBackup(instance config.Instance) error {
 	removed, err := RemoveSchedule(instance.ID)
 	if err != nil {
 		return err

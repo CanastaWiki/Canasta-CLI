@@ -15,7 +15,7 @@ import (
 )
 
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 	workingDir, err := os.Getwd()
 	if err != nil {
 		logging.Fatal(err)
@@ -26,12 +26,12 @@ func NewCmd() *cobra.Command {
 
 	var deleteCmd = &cobra.Command{
 		Use:   "delete",
-		Short: "Delete a Canasta installation",
-		Long: `Permanently delete a Canasta installation. This stops and removes all
+		Short: "Delete a Canasta instance",
+		Long: `Permanently delete a Canasta instance. This stops and removes all
 Docker containers and volumes, deletes all configuration files and data,
-and removes the installation from the Canasta registry. You will be
+and removes the instance from the Canasta registry. You will be
 prompted for confirmation before any data is deleted.`,
-		Example: `  # Delete an installation by ID
+		Example: `  # Delete an instance by ID
   canasta delete -i myinstance
 
   # Delete without confirmation prompt
@@ -44,7 +44,7 @@ prompted for confirmation before any data is deleted.`,
 				return err
 			}
 			if !yes {
-				if !canasta.ConfirmAction(fmt.Sprintf("This will permanently delete the Canasta installation '%s' and all its data. Continue? [y/N] ", instance.ID)) {
+				if !canasta.ConfirmAction(fmt.Sprintf("This will permanently delete the Canasta instance '%s' and all its data. Continue? [y/N] ", instance.ID)) {
 					fmt.Println("Operation cancelled.")
 					return nil
 				}
@@ -60,8 +60,8 @@ prompted for confirmation before any data is deleted.`,
 	return deleteCmd
 }
 
-func Delete(instance config.Installation) error {
-	description := "Deleting Canasta installation '" + instance.ID + "'..."
+func Delete(instance config.Instance) error {
+	description := "Deleting Canasta instance '" + instance.ID + "'..."
 	stopSpinner := spinner.New(description)
 	defer stopSpinner() // ensure cleanup on error paths
 
@@ -105,7 +105,7 @@ func Delete(instance config.Installation) error {
 		logging.Print("Removed backup schedule.\n")
 	}
 
-	// Deleting installation details from conf.json
+	// Deleting instance details from conf.json
 	if err = config.Delete(instance.ID); err != nil {
 		return err
 	}

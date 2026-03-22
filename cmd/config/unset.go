@@ -12,13 +12,13 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newUnsetCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
+func newUnsetCmd(instance *config.Instance, orch *orchestrators.Orchestrator) *cobra.Command {
 	var force bool
 	var noRestart bool
 	cmd := &cobra.Command{
 		Use:   "unset KEY [KEY ...]",
 		Short: "Remove a configuration setting",
-		Long: `Remove one or more configuration keys from the .env file of a Canasta installation.
+		Long: `Remove one or more configuration keys from the .env file of a Canasta instance.
 
 Each argument is a key name to remove. Multiple keys can be removed in a single
 invocation and only one restart is performed.

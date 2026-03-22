@@ -15,7 +15,7 @@ import (
 
 func NewCmd() *cobra.Command {
 	var (
-		instance config.Installation
+		instance config.Instance
 		orch     orchestrators.Orchestrator
 		envPath  string
 		repoURL  string
@@ -29,11 +29,11 @@ func NewCmd() *cobra.Command {
 
 	backupCmd := &cobra.Command{
 		Use:   "backup",
-		Short: "Backup and restore Canasta installations",
-		Long: `Manage backups of a Canasta installation. Subcommands allow you to initialize
+		Short: "Backup and restore Canasta instances",
+		Long: `Manage backups of a Canasta instance. Subcommands allow you to initialize
 a backup repository, create and restore backups, list and compare backups,
 and schedule recurring backups. Requires RESTIC_REPOSITORY (or AWS S3 settings)
-and RESTIC_PASSWORD to be configured in the installation's .env file.`,
+and RESTIC_PASSWORD to be configured in the instance's .env file.`,
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			instance, err = canasta.CheckCanastaID(instance)

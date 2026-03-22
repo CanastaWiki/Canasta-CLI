@@ -12,14 +12,14 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/gitops"
 )
 
-func newAddCmd(instance *config.Installation) *cobra.Command {
+func newAddCmd(instance *config.Instance) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add [files...]",
 		Short: "Stage files for the next gitops push",
 		Long: `Explicitly stage files to be included in the next gitops push.
 Only staged files will be committed when you run gitops push.
 File paths can be relative to the current directory or to the
-installation root.`,
+instance root.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runAdd(instance.Path, args)
@@ -29,7 +29,7 @@ installation root.`,
 }
 
 // resolveToInstallPath converts a file path (which may be relative to the
-// user's current directory) into a path relative to the installation root.
+// user's current directory) into a path relative to the instance root.
 // When requireExists is true the file must exist on disk (used by add);
 // when false, deleted-but-tracked files are allowed (used by rm).
 func resolveToInstallPath(installPath, file string, requireExists bool) (string, error) {
@@ -66,13 +66,13 @@ func resolveToInstallPath(installPath, file string, requireExists bool) (string,
 		return "", fmt.Errorf("resolving install path: %w", err)
 	}
 
-	// Ensure the file is inside the installation directory.
+	// Ensure the file is inside the instance directory.
 	rel, err := filepath.Rel(absInstall, absFile)
 	if err != nil {
 		return "", fmt.Errorf("computing relative path: %w", err)
 	}
 	if strings.HasPrefix(rel, "..") {
-		return "", fmt.Errorf("%q is outside the installation directory %q", file, absInstall)
+		return "", fmt.Errorf("%q is outside the instance directory %q", file, absInstall)
 	}
 
 	return rel, nil

@@ -32,16 +32,16 @@ func TestExtractDefault(t *testing.T) {
 func newTestCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "canasta",
-		Short: "Manage Canasta installations",
+		Short: "Manage Canasta instances",
 	}
 	child := &cobra.Command{
 		Use:     "create",
-		Short:   "Create a new installation",
-		Long:    "Create a new Canasta installation with all required services.",
+		Short:   "Create a new instance",
+		Long:    "Create a new Canasta instance with all required services.",
 		Example: "canasta create -i myinstance -w mywiki -n localhost",
 		Run:     func(cmd *cobra.Command, args []string) {},
 	}
-	child.Flags().StringP("id", "i", "", "Installation ID")
+	child.Flags().StringP("id", "i", "", "Instance ID")
 	//nolint:errcheck
 	child.MarkFlagRequired("id")
 	child.Flags().String("orchestrator", "docker-compose", "Container orchestrator (default: docker-compose)")
@@ -76,7 +76,7 @@ func TestGenWikitext(t *testing.T) {
 	}
 
 	// Short description
-	if !strings.Contains(text, "Create a new installation") {
+	if !strings.Contains(text, "Create a new instance") {
 		t.Error("expected short description")
 	}
 

@@ -19,9 +19,9 @@ func New(orchestratorID string) (Orchestrator, error) {
 	}
 }
 
-// NewFromInstance creates an Orchestrator from a config.Installation, restoring
+// NewFromInstance creates an Orchestrator from a config.Instance, restoring
 // any orchestrator-specific state (e.g. ManagedCluster for Kubernetes).
-func NewFromInstance(instance config.Installation) (Orchestrator, error) {
+func NewFromInstance(instance config.Instance) (Orchestrator, error) {
 	orch, err := New(instance.Orchestrator)
 	if err != nil {
 		return nil, err

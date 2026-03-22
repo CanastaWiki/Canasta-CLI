@@ -65,7 +65,7 @@ func (k *KubernetesOrchestrator) UpdateStackFiles(installPath string, dryRun boo
 	return updateStackFiles(kubernetes.StackFiles, "files/kubernetes", installPath, dryRun)
 }
 
-func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
+func (k *KubernetesOrchestrator) Start(instance config.Instance) error {
 	// For kind-managed clusters, ensure the cluster exists (recreate if
 	// manually deleted) and set the kubectl context before applying.
 	if instance.KindCluster != "" {
@@ -101,7 +101,7 @@ func (k *KubernetesOrchestrator) Start(instance config.Installation) error {
 	return nil
 }
 
-func (k *KubernetesOrchestrator) Stop(instance config.Installation) error {
+func (k *KubernetesOrchestrator) Stop(instance config.Instance) error {
 	if instance.KindCluster != "" {
 		if err := setKindKubectlContext(instance.KindCluster); err != nil {
 			return err
@@ -178,7 +178,7 @@ func (k *KubernetesOrchestrator) Destroy(installPath string) (string, error) {
 	return string(output), nil
 }
 
-func (k *KubernetesOrchestrator) ListServices(instance config.Installation) ([]string, error) {
+func (k *KubernetesOrchestrator) ListServices(instance config.Instance) ([]string, error) {
 	if err := ensureKindContext(instance.Path); err != nil {
 		return nil, err
 	}
@@ -207,7 +207,7 @@ func (k *KubernetesOrchestrator) ListServices(instance config.Installation) ([]s
 	return services, nil
 }
 
-func (k *KubernetesOrchestrator) ExecInteractive(instance config.Installation, service string, command []string) error {
+func (k *KubernetesOrchestrator) ExecInteractive(instance config.Instance, service string, command []string) error {
 	if err := ensureKindContext(instance.Path); err != nil {
 		return err
 	}
@@ -279,7 +279,7 @@ func (k *KubernetesOrchestrator) ExecStreaming(installPath, service, command str
 	return nil
 }
 
-func (k *KubernetesOrchestrator) CheckRunningStatus(instance config.Installation) error {
+func (k *KubernetesOrchestrator) CheckRunningStatus(instance config.Instance) error {
 	// For kind-managed clusters, ensure the cluster exists and set context.
 	if instance.KindCluster != "" {
 		exists, err := kindClusterExists(instance.KindCluster)

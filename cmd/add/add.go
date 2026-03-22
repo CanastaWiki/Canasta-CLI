@@ -53,7 +53,7 @@ import (
 // Client → Caddy (SSL/domain routing) → Varnish (caching, if enabled) → Apache → MediaWiki (wiki routing based on URL)
 
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 	var wikiID string
 	var domainName string
 	var wikiPath string
@@ -74,7 +74,7 @@ func NewCmd() *cobra.Command {
 	addCmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a new wiki to a Canasta instance",
-		Long: `Add a new wiki to an existing Canasta installation, creating a wiki farm.
+		Long: `Add a new wiki to an existing Canasta instance, creating a wiki farm.
 The new wiki is registered in wikis.yaml, the Caddyfile is regenerated,
 and the MediaWiki installer runs for the new wiki. You can also import
 an existing database dump instead of running the installer.`,
@@ -172,7 +172,7 @@ an existing database dump instead of running the installer.`,
 
 // AddWikiOptions contains the parameters needed to add a wiki to a Canasta instance.
 type AddWikiOptions struct {
-	Instance         config.Installation
+	Instance         config.Instance
 	WikiID           string
 	SiteName         string
 	Domain           string
@@ -217,7 +217,7 @@ func AddWiki(opts AddWikiOptions) error {
 		return err
 	}
 	if urlExists {
-		return fmt.Errorf("a wiki with the same installation path '%s' in the Canasta instance '%s' exists", opts.WikiID+": "+opts.Domain+"/"+opts.WikiPath, opts.Instance.ID)
+		return fmt.Errorf("a wiki with the same URL '%s' in the Canasta instance '%s' exists", opts.WikiID+": "+opts.Domain+"/"+opts.WikiPath, opts.Instance.ID)
 	}
 
 	// Import the database if databasePath is specified

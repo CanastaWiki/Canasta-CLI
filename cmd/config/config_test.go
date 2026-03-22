@@ -131,7 +131,7 @@ func TestUpdateSiteServerPort(t *testing.T) {
 }
 
 func TestValidatePort(t *testing.T) {
-	inst := config.Installation{}
+	inst := config.Instance{}
 
 	tests := []struct {
 		name    string
@@ -184,7 +184,7 @@ func TestUpdateWikisYamlPorts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	inst := config.Installation{Path: tmpDir}
+	inst := config.Instance{Path: tmpDir}
 
 	// Change to standard port
 	err := applyHTTPSPortChange(inst, "443")

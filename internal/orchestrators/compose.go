@@ -97,7 +97,7 @@ func (c *ComposeOrchestrator) GetDevFiles(installPath string) []string {
 	return files
 }
 
-func (c *ComposeOrchestrator) Start(instance config.Installation) error {
+func (c *ComposeOrchestrator) Start(instance config.Instance) error {
 	// Sync COMPOSE_PROFILES before starting so that toggling feature flags
 	// in .env (e.g. CANASTA_ENABLE_ELASTICSEARCH) takes effect on restart.
 	if err := syncComposeProfiles(instance.Path); err != nil {
@@ -128,7 +128,7 @@ func (c *ComposeOrchestrator) Start(instance config.Installation) error {
 	return nil
 }
 
-func (c *ComposeOrchestrator) Stop(instance config.Installation) error {
+func (c *ComposeOrchestrator) Stop(instance config.Instance) error {
 	var files []string
 	if instance.DevMode {
 		logging.Print("Stopping Canasta (dev mode)\n")
@@ -243,7 +243,7 @@ func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
 	return output, nil
 }
 
-func (c *ComposeOrchestrator) ListServices(instance config.Installation) ([]string, error) {
+func (c *ComposeOrchestrator) ListServices(instance config.Instance) ([]string, error) {
 	compose, err := c.getCompose()
 	if err != nil {
 		return nil, err
@@ -264,7 +264,7 @@ func (c *ComposeOrchestrator) ListServices(instance config.Installation) ([]stri
 	return services, nil
 }
 
-func (c *ComposeOrchestrator) ExecInteractive(instance config.Installation, service string, command []string) error {
+func (c *ComposeOrchestrator) ExecInteractive(instance config.Instance, service string, command []string) error {
 	compose, err := c.getCompose()
 	if err != nil {
 		return err
@@ -310,7 +310,7 @@ func (c *ComposeOrchestrator) ExecStreaming(installPath, service, command string
 	return nil
 }
 
-func (c *ComposeOrchestrator) CheckRunningStatus(instance config.Installation) error {
+func (c *ComposeOrchestrator) CheckRunningStatus(instance config.Instance) error {
 	containerName := "web"
 	compose, err := c.getCompose()
 	if err != nil {

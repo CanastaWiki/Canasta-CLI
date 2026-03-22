@@ -14,7 +14,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
-func newPullCmd(instance *config.Installation) *cobra.Command {
+func newPullCmd(instance *config.Instance) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pull",
 		Short: "Pull latest configuration from the git repository",

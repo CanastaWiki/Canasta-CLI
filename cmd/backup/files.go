@@ -9,7 +9,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newFilesCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
+func newFilesCmd(orch *orchestrators.Orchestrator, instance *config.Instance, envPath, repoURL *string) *cobra.Command {
 	var snapshot string
 
 	filesCmd := &cobra.Command{

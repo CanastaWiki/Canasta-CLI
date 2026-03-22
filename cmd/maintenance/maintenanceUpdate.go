@@ -13,7 +13,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newUpdateCmd(instance *config.Installation) *cobra.Command {
+func newUpdateCmd(instance *config.Instance) *cobra.Command {
 	var (
 		wiki     string
 		skipJobs bool
@@ -65,7 +65,7 @@ specific wiki.`,
 	return updateCmd
 }
 
-func runMaintenanceUpdate(instance config.Installation, wikiID string, skipJobs, skipSMW bool) error {
+func runMaintenanceUpdate(instance config.Instance, wikiID string, skipJobs, skipSMW bool) error {
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
 		return err

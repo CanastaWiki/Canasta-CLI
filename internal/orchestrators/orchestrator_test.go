@@ -25,12 +25,12 @@ func (m *mockOrchestrator) UpdateStackFiles(_ string, _ bool) (bool, error) {
 	return false, nil
 }
 
-func (m *mockOrchestrator) Start(_ config.Installation) error {
+func (m *mockOrchestrator) Start(_ config.Instance) error {
 	m.calls = append(m.calls, "Start")
 	return m.startErr
 }
 
-func (m *mockOrchestrator) Stop(_ config.Installation) error {
+func (m *mockOrchestrator) Stop(_ config.Instance) error {
 	m.calls = append(m.calls, "Stop")
 	return m.stopErr
 }
@@ -52,7 +52,7 @@ func (m *mockOrchestrator) ExecStreaming(_, _, _ string) error {
 	return nil
 }
 
-func (m *mockOrchestrator) CheckRunningStatus(_ config.Installation) error {
+func (m *mockOrchestrator) CheckRunningStatus(_ config.Instance) error {
 	m.calls = append(m.calls, "CheckRunningStatus")
 	return m.checkRunningErr
 }
@@ -92,10 +92,10 @@ func (m *mockOrchestrator) MigrateConfig(_ string, _ bool) (bool, error) {
 	return false, nil
 }
 
-func (m *mockOrchestrator) ListServices(_ config.Installation) ([]string, error) {
+func (m *mockOrchestrator) ListServices(_ config.Instance) ([]string, error) {
 	return nil, nil
 }
-func (m *mockOrchestrator) ExecInteractive(_ config.Installation, _ string, _ []string) error {
+func (m *mockOrchestrator) ExecInteractive(_ config.Instance, _ string, _ []string) error {
 	return nil
 }
 func (m *mockOrchestrator) Name() string            { return "Mock" }
@@ -156,7 +156,7 @@ func TestExecError(t *testing.T) {
 
 func TestStopAndStart(t *testing.T) {
 	mock := &mockOrchestrator{}
-	instance := config.Installation{ID: "test", Path: "/tmp/test"}
+	instance := config.Instance{ID: "test", Path: "/tmp/test"}
 
 	err := StopAndStart(mock, instance)
 	if err != nil {
@@ -170,7 +170,7 @@ func TestStopAndStart(t *testing.T) {
 
 func TestStopAndStartStopError(t *testing.T) {
 	mock := &mockOrchestrator{stopErr: fmt.Errorf("stop failed")}
-	instance := config.Installation{ID: "test", Path: "/tmp/test"}
+	instance := config.Instance{ID: "test", Path: "/tmp/test"}
 
 	err := StopAndStart(mock, instance)
 	if err == nil {
@@ -187,7 +187,7 @@ func TestStopAndStartStopError(t *testing.T) {
 
 func TestImportDatabase(t *testing.T) {
 	mock := &mockOrchestrator{}
-	instance := config.Installation{ID: "test", Path: "/tmp/test"}
+	instance := config.Instance{ID: "test", Path: "/tmp/test"}
 
 	err := ImportDatabase(mock, "mywiki", "/path/to/dump.sql", "secret", instance)
 	if err != nil {
@@ -223,7 +223,7 @@ func TestImportDatabase(t *testing.T) {
 
 func TestImportDatabaseCompressed(t *testing.T) {
 	mock := &mockOrchestrator{}
-	instance := config.Installation{ID: "test", Path: "/tmp/test"}
+	instance := config.Instance{ID: "test", Path: "/tmp/test"}
 
 	err := ImportDatabase(mock, "mywiki", "/path/to/dump.sql.gz", "secret", instance)
 	if err != nil {
@@ -244,7 +244,7 @@ func TestImportDatabaseCompressed(t *testing.T) {
 
 func TestImportDatabaseCopyError(t *testing.T) {
 	mock := &mockOrchestrator{copyToErr: fmt.Errorf("copy failed")}
-	instance := config.Installation{ID: "test", Path: "/tmp/test"}
+	instance := config.Instance{ID: "test", Path: "/tmp/test"}
 
 	err := ImportDatabase(mock, "mywiki", "/path/to/dump.sql", "secret", instance)
 	if err == nil {
@@ -254,7 +254,7 @@ func TestImportDatabaseCopyError(t *testing.T) {
 
 func TestImportDatabaseDefaultPassword(t *testing.T) {
 	mock := &mockOrchestrator{}
-	instance := config.Installation{ID: "test", Path: "/tmp/test"}
+	instance := config.Instance{ID: "test", Path: "/tmp/test"}
 
 	err := ImportDatabase(mock, "mywiki", "/path/to/dump.sql", "", instance)
 	if err != nil {
@@ -359,7 +359,7 @@ func TestRunBackupError(t *testing.T) {
 
 func TestEnsureRunningAlreadyRunning(t *testing.T) {
 	mock := &mockOrchestrator{} // checkRunningErr is nil → containers already running
-	instance := config.Installation{ID: "test", Path: "/tmp/test"}
+	instance := config.Instance{ID: "test", Path: "/tmp/test"}
 
 	err := EnsureRunning(mock, instance)
 	if err != nil {
@@ -373,7 +373,7 @@ func TestEnsureRunningAlreadyRunning(t *testing.T) {
 
 func TestEnsureRunningNotRunning(t *testing.T) {
 	mock := &mockOrchestrator{checkRunningErr: fmt.Errorf("containers not running")}
-	instance := config.Installation{ID: "test", Path: "/tmp/test"}
+	instance := config.Instance{ID: "test", Path: "/tmp/test"}
 
 	err := EnsureRunning(mock, instance)
 	if err != nil {
@@ -390,7 +390,7 @@ func TestEnsureRunningStartFails(t *testing.T) {
 		checkRunningErr: fmt.Errorf("containers not running"),
 		startErr:        fmt.Errorf("start failed"),
 	}
-	instance := config.Installation{ID: "test", Path: "/tmp/test"}
+	instance := config.Instance{ID: "test", Path: "/tmp/test"}
 
 	err := EnsureRunning(mock, instance)
 	if err == nil {

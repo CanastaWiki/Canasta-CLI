@@ -9,10 +9,10 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/gitops"
 )
 
-func newStatusCmd(instance *config.Installation) *cobra.Command {
+func newStatusCmd(instance *config.Instance) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show gitops status for the installation",
+		Short: "Show gitops status for the instance",
 		Long:  `Show the current host, role, uncommitted changes, and ahead/behind status relative to the remote.`,
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {

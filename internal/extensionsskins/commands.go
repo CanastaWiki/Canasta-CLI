@@ -18,7 +18,7 @@ import (
 // for an extension-or-skin item type.
 func NewCmd(constants Item) *cobra.Command {
 	var (
-		instance config.Installation
+		instance config.Instance
 		orch     orchestrators.Orchestrator
 		wiki     string
 	)
@@ -32,7 +32,7 @@ func NewCmd(constants Item) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   constants.CmdName,
 		Short: fmt.Sprintf("Manage Canasta %s", constants.Plural),
-		Long: fmt.Sprintf(`Manage MediaWiki %s in a Canasta installation. Subcommands allow you
+		Long: fmt.Sprintf(`Manage MediaWiki %s in a Canasta instance. Subcommands allow you
 to list all available %s, and enable or disable them globally or for
 a specific wiki in a farm.`, constants.Plural, constants.Plural),
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
@@ -56,11 +56,11 @@ a specific wiki in a farm.`, constants.Plural, constants.Plural),
 	return cmd
 }
 
-func newListCmd(instance *config.Installation, orch *orchestrators.Orchestrator, _ *string, constants *Item) *cobra.Command {
+func newListCmd(instance *config.Instance, orch *orchestrators.Orchestrator, _ *string, constants *Item) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: fmt.Sprintf("Lists all the installed Canasta %s", constants.Plural),
-		Long: fmt.Sprintf(`List all Canasta %s available in the installation. Each %s
+		Long: fmt.Sprintf(`List all Canasta %s available in the instance. Each %s
 is shown with its enabled/disabled status.`, constants.Plural, constants.CmdName),
 		Example: fmt.Sprintf("  canasta %s list -i myinstance", constants.CmdName),
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -69,7 +69,7 @@ is shown with its enabled/disabled status.`, constants.Plural, constants.CmdName
 	}
 }
 
-func newEnableCmd(instance *config.Installation, orch *orchestrators.Orchestrator, wiki *string, constants *Item) *cobra.Command {
+func newEnableCmd(instance *config.Instance, orch *orchestrators.Orchestrator, wiki *string, constants *Item) *cobra.Command {
 	var skipUpdate bool
 
 	// Build the Use string with an appropriate argument placeholder
@@ -136,7 +136,7 @@ database changes. Use --skip-update to skip this step.`, constants.Plural, const
 	return cmd
 }
 
-func newDisableCmd(instance *config.Installation, _ *orchestrators.Orchestrator, wiki *string, constants *Item) *cobra.Command {
+func newDisableCmd(instance *config.Instance, _ *orchestrators.Orchestrator, wiki *string, constants *Item) *cobra.Command {
 	// Build the Use string with an appropriate argument placeholder
 	argName := strings.ToUpper(constants.CmdName)
 	useStr := fmt.Sprintf("disable %s1,%s2,...", argName, argName)

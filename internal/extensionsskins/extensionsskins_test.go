@@ -162,10 +162,10 @@ func TestWriteConfigDeletesEmptyFile(t *testing.T) {
 	}
 }
 
-func newTestInstance(t *testing.T) config.Installation {
+func newTestInstance(t *testing.T) config.Instance {
 	t.Helper()
 	dir := t.TempDir()
-	return config.Installation{Path: dir}
+	return config.Instance{Path: dir}
 }
 
 func TestEnableExtension(t *testing.T) {

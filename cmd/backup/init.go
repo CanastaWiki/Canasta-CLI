@@ -9,14 +9,14 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newInitCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
+func newInitCmd(orch *orchestrators.Orchestrator, instance *config.Instance, envPath, repoURL *string) *cobra.Command {
 
 	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize a backup repository",
 		Long: `Initialize a new backup repository. This must be run once before
 creating any backups. The repository location is read from the
-RESTIC_REPOSITORY variable (or AWS S3 settings) in the installation's .env file.`,
+RESTIC_REPOSITORY variable (or AWS S3 settings) in the instance's .env file.`,
 		Example: `  canasta backup init -i myinstance`,
 		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {

@@ -18,7 +18,7 @@ import (
 )
 
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 	var wikiID string
 	var databasePath string
 	var settingsPath string
@@ -103,7 +103,7 @@ To create a new wiki from a database dump, use the --database flag with
 	return importCmd
 }
 
-func importDatabase(orch orchestrators.Orchestrator, instance config.Installation, wikiID, databasePath, settingsPath string) error {
+func importDatabase(orch orchestrators.Orchestrator, instance config.Instance, wikiID, databasePath, settingsPath string) error {
 	// Read database password from .env
 	envVariables, err := canasta.GetEnvVariable(filepath.Join(instance.Path, ".env"))
 	if err != nil {

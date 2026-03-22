@@ -31,19 +31,19 @@ type Orchestrator interface {
 	CheckDependencies() error
 	WriteStackFiles(installPath string) error
 	UpdateStackFiles(installPath string, dryRun bool) (bool, error)
-	Start(instance config.Installation) error
-	Stop(instance config.Installation) error
+	Start(instance config.Instance) error
+	Stop(instance config.Instance) error
 	Update(installPath string) (*UpdateReport, error)
 	Destroy(installPath string) (string, error)
 	ExecWithError(installPath, service, command string) (string, error)
 	ExecStreaming(installPath, service, command string) error
-	CheckRunningStatus(instance config.Installation) error
+	CheckRunningStatus(instance config.Instance) error
 	CopyFrom(installPath, service, containerPath, hostPath string) error
 	CopyTo(installPath, service, hostPath, containerPath string) error
 	RunBackup(installPath, envPath string, volumes map[string]string, args ...string) (string, error)
 	RestoreFromBackupVolume(installPath string, dirs map[string]string) error
 
-	// InitConfig sets up orchestrator-specific configuration for a new installation.
+	// InitConfig sets up orchestrator-specific configuration for a new instance.
 	// Called once during "canasta create" after wikis.yaml and .env are in place.
 	InitConfig(installPath string) error
 
@@ -55,12 +55,12 @@ type Orchestrator interface {
 	// "canasta upgrade". Returns true if any changes were made.
 	MigrateConfig(installPath string, dryRun bool) (bool, error)
 
-	// ListServices returns the names of running services for the installation.
-	ListServices(instance config.Installation) ([]string, error)
+	// ListServices returns the names of running services for the instance.
+	ListServices(instance config.Instance) ([]string, error)
 
 	// ExecInteractive runs an interactive command in a service container with
 	// stdin/stdout/stderr attached. If command is nil, defaults to a shell.
-	ExecInteractive(instance config.Installation, service string, command []string) error
+	ExecInteractive(instance config.Instance, service string, command []string) error
 
 	// Name returns a human-readable name for the orchestrator (e.g. "Docker Compose").
 	Name() string
@@ -85,7 +85,7 @@ type UpdateReport struct {
 	UnchangedImages []ImageInfo // Images that remained the same
 }
 
-// DeleteConfig removes the installation directory from disk.
+// DeleteConfig removes the instance directory from disk.
 // This is a pure filesystem operation, not orchestrator-specific.
 func DeleteConfig(installPath string) (string, error) {
 	output, err := execute.Run("", "rm", "-rf", installPath)
@@ -102,7 +102,7 @@ func Exec(orch Orchestrator, installPath, service, command string) (string, erro
 }
 
 // StopAndStart stops and then starts the containers for an installation.
-func StopAndStart(orch Orchestrator, instance config.Installation) error {
+func StopAndStart(orch Orchestrator, instance config.Instance) error {
 	if err := orch.Stop(instance); err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func StopAndStart(orch Orchestrator, instance config.Installation) error {
 }
 
 // EnsureRunning checks if containers are running and starts them if not.
-func EnsureRunning(orch Orchestrator, instance config.Installation) error {
+func EnsureRunning(orch Orchestrator, instance config.Instance) error {
 	if err := orch.CheckRunningStatus(instance); err != nil {
 		logging.Print("Containers not running, starting them...\n")
 		if err := orch.Start(instance); err != nil {
@@ -121,7 +121,7 @@ func EnsureRunning(orch Orchestrator, instance config.Installation) error {
 }
 
 // ImportDatabase copies a SQL dump into the db container and imports it.
-func ImportDatabase(orch Orchestrator, databaseName, databasePath, dbPassword string, instance config.Installation) error {
+func ImportDatabase(orch Orchestrator, databaseName, databasePath, dbPassword string, instance config.Instance) error {
 	dbUser := "root"
 	if dbPassword == "" {
 		dbPassword = "mediawiki"

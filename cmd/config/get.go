@@ -11,12 +11,12 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 )
 
-func newGetCmd(instance *config.Installation) *cobra.Command {
+func newGetCmd(instance *config.Instance) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "get [KEY]",
 		Short: "Show configuration settings",
-		Long: `Show configuration settings from the .env file of a Canasta installation.
+		Long: `Show configuration settings from the .env file of a Canasta instance.
 
 With no arguments, prints all settings sorted alphabetically as KEY=VALUE lines.
 With a KEY argument, prints just the value (no KEY= prefix) for easy scripting.

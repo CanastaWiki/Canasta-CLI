@@ -11,15 +11,15 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newDisableCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
+func newDisableCmd(instance *config.Instance, orch *orchestrators.Orchestrator) *cobra.Command {
 	return &cobra.Command{
 		Use:   "disable",
 		Short: "Disable development mode",
-		Long: `Disable development mode on a Canasta installation. This restores extensions
+		Long: `Disable development mode on a Canasta instance. This restores extensions
 and skins as real directories and restarts without Xdebug. The mediawiki-code/
 directory is preserved so you can re-enable dev mode later without
 re-extracting code.`,
-		Example: `  # Disable dev mode on an installation
+		Example: `  # Disable dev mode on an instance
   canasta devmode disable -i myinstance`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {

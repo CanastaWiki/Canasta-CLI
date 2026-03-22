@@ -37,7 +37,7 @@ func isKnownKey(key string) bool {
 
 // restartInstance performs the UpdateConfig → Stop → optional kind cluster
 // recreation → Start sequence shared by config set and config unset.
-func restartInstance(orch *orchestrators.Orchestrator, instance config.Installation, portKeyChanged bool) error {
+func restartInstance(orch *orchestrators.Orchestrator, instance config.Instance, portKeyChanged bool) error {
 	fmt.Println("Applying configuration and restarting...")
 	if err := (*orch).UpdateConfig(instance.Path); err != nil {
 		return fmt.Errorf("failed to update config: %w", err)

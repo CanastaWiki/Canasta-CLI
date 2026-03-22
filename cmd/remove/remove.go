@@ -17,7 +17,7 @@ import (
 )
 
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 	var wikiID string
 	var yes bool
 
@@ -30,7 +30,7 @@ func NewCmd() *cobra.Command {
 	addCmd := &cobra.Command{
 		Use:   "remove",
 		Short: "Remove a wiki from a Canasta instance",
-		Long: `Remove a wiki from an existing Canasta installation. This deletes the wiki's
+		Long: `Remove a wiki from an existing Canasta instance. This deletes the wiki's
 database, settings files, uploaded images, and its entry in wikis.yaml, then
 regenerates the Caddyfile and restarts the instance. You will be prompted
 for confirmation before any data is deleted.`,
@@ -65,7 +65,7 @@ for confirmation before any data is deleted.`,
 }
 
 // RemoveWiki removes a wiki with the given wikiID from a Canasta instance.
-func RemoveWiki(instance config.Installation, wikiID string, yes bool) error {
+func RemoveWiki(instance config.Instance, wikiID string, yes bool) error {
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
 		return err

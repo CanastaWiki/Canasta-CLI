@@ -9,13 +9,13 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/gitops"
 )
 
-func newRmCmd(instance *config.Installation) *cobra.Command {
+func newRmCmd(instance *config.Instance) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm [files...]",
 		Short: "Remove files from the gitops repository",
 		Long: `Remove tracked files from the gitops repository. The removal is staged
 for the next gitops push. File paths can be relative to the current
-directory or to the installation root.`,
+directory or to the instance root.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			return runRm(instance.Path, args)
