@@ -35,12 +35,12 @@ type Canasta struct {
 }
 
 var (
-	directory             string
-	confFile              string
+	directory         string
+	confFile          string
 	existingInstances Canasta
-	initOnce              sync.Once
-	initErr               error
-	configDirOverride     string
+	initOnce          sync.Once
+	initErr           error
+	configDirOverride string
 )
 
 func ensureInitialized() error {
