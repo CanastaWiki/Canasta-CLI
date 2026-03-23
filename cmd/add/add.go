@@ -254,7 +254,7 @@ func AddWiki(opts AddWikiOptions) error {
 		}
 	}
 
-	// Add the wiki in farmsettings (only after successful installation)
+	// Add the wiki in farmsettings (only after successful install)
 	err = farmsettings.AddWiki(opts.WikiID, opts.Instance.Path, opts.Domain, opts.WikiPath, opts.SiteName)
 	if err != nil {
 		return err

@@ -76,7 +76,7 @@ var extConstants = Item{
 	Name:                     "Canasta extension",
 	CmdName:                  "extension",
 	Plural:                   "extensions",
-	RelativeInstallationPath: "extensions",
+	RelativeInstancePath: "extensions",
 	PhpCommand:               "wfLoadExtension",
 	ExampleNames:             "VisualEditor,Cite,ParserFunctions",
 }
@@ -85,7 +85,7 @@ var skinConstants = Item{
 	Name:                     "Canasta skin",
 	CmdName:                  "skin",
 	Plural:                   "skins",
-	RelativeInstallationPath: "skins",
+	RelativeInstancePath: "skins",
 	PhpCommand:               "wfLoadSkin",
 	ExampleNames:             "Timeless",
 }

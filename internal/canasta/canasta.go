@@ -50,12 +50,12 @@ func GetDefaultImage() string {
 	return fmt.Sprintf("%s/%s:%s", DefaultImageRegistry, DefaultImageName, DefaultImageTag)
 }
 
-// installationTemplate contains the shared installation directory structure.
+// instanceTemplate contains the shared instance directory structure.
 // These files are common to all orchestrators (Docker Compose, Kubernetes, etc.)
-// and are copied to the installation directory during create.
+// and are copied to the instance directory during create.
 //
-//go:embed all:installation-template
-var installationTemplate embed.FS
+//go:embed all:instance-template
+var instanceTemplate embed.FS
 
 // userEditablePaths lists template files that users may customize.
 // These are only written during create (no-clobber) and never overwritten during upgrade.
@@ -77,29 +77,29 @@ var noClobberPaths = map[string]bool{
 	"config/settings/wikis/README":  true,
 }
 
-// CopyInstallationTemplate copies the embedded installation template files to the
+// CopyInstanceTemplate copies the embedded instance template files to the
 // destination directory. These are shared files common to all orchestrators.
 // Files are only written if they don't already exist (no-clobber), so orchestrator
 // repos can provide their own versions of files if needed.
-func CopyInstallationTemplate(destPath string) error {
-	logging.Print("Copying installation template files\n")
+func CopyInstanceTemplate(destPath string) error {
+	logging.Print("Copying instance template files\n")
 	return copyTemplate(destPath, false)
 }
 
-// UpdateInstallationTemplate re-applies the embedded template during upgrade.
+// UpdateInstanceTemplate re-applies the embedded template during upgrade.
 // User-editable files are skipped entirely (they may have been intentionally deleted).
 // CLI-managed files are updated only when their content differs from the template.
 // Returns true if any files were changed. In dry-run mode, changes are reported
 // but not applied.
-func UpdateInstallationTemplate(destPath string, dryRun bool) (bool, error) {
-	logging.Print("Updating installation template files...\n")
+func UpdateInstanceTemplate(destPath string, dryRun bool) (bool, error) {
+	logging.Print("Updating instance template files...\n")
 	changed := false
-	err := fs.WalkDir(installationTemplate, "installation-template", func(path string, d fs.DirEntry, walkErr error) error {
+	err := fs.WalkDir(instanceTemplate, "instance-template", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 
-		relPath, err := filepath.Rel("installation-template", path)
+		relPath, err := filepath.Rel("instance-template", path)
 		if err != nil {
 			return err
 		}
@@ -127,7 +127,7 @@ func UpdateInstallationTemplate(destPath string, dryRun bool) (bool, error) {
 			}
 		}
 
-		data, err := installationTemplate.ReadFile(path)
+		data, err := instanceTemplate.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
 		}
@@ -161,17 +161,17 @@ func UpdateInstallationTemplate(destPath string, dryRun bool) (bool, error) {
 	return changed, err
 }
 
-// copyTemplate walks the embedded installation template and copies files to destPath.
+// copyTemplate walks the embedded instance template and copies files to destPath.
 // If upgrading is true, CLI-managed files are force-updated and user-editable files
 // are skipped. If upgrading is false (create), all files use no-clobber.
 func copyTemplate(destPath string, upgrading bool) error {
-	return fs.WalkDir(installationTemplate, "installation-template", func(path string, d fs.DirEntry, err error) error {
+	return fs.WalkDir(instanceTemplate, "instance-template", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Strip the "installation-template" prefix to get the relative path
-		relPath, err := filepath.Rel("installation-template", path)
+		// Strip the "instance-template" prefix to get the relative path
+		relPath, err := filepath.Rel("instance-template", path)
 		if err != nil {
 			return err
 		}
@@ -188,7 +188,7 @@ func copyTemplate(destPath string, upgrading bool) error {
 		}
 
 		// Skip .gitkeep files — they're only used to preserve directory
-		// structure in the embedded FS and are not needed in the installation
+		// structure in the embedded FS and are not needed in the instance
 		if d.Name() == ".gitkeep" {
 			return nil
 		}
@@ -206,7 +206,7 @@ func copyTemplate(destPath string, upgrading bool) error {
 			}
 		}
 
-		data, err := installationTemplate.ReadFile(path)
+		data, err := instanceTemplate.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("failed to read embedded file %s: %w", path, err)
 		}
@@ -215,8 +215,8 @@ func copyTemplate(destPath string, upgrading bool) error {
 	})
 }
 
-// UpdateEnvFile configures the .env file for a new Canasta installation.
-// The base .env is provided by the installation template (CopyInstallationTemplate).
+// UpdateEnvFile configures the .env file for a new Canasta instance.
+// The base .env is provided by the instance template (CopyInstanceTemplate).
 // This function merges any custom env file if provided,
 // and then applies the DB passwords and domain configuration.
 func UpdateEnvFile(customEnvPath, installPath, rootDBpass, wikiDBpass string) error {
@@ -309,8 +309,8 @@ func CopySettings(installPath string) error {
 		return err
 	}
 
-	// Read the wiki README template from the installation template
-	wikiREADME, err := installationTemplate.ReadFile("installation-template/config/settings/wikis/README")
+	// Read the wiki README template from the instance template
+	wikiREADME, err := instanceTemplate.ReadFile("instance-template/config/settings/wikis/README")
 	if err != nil {
 		return fmt.Errorf("failed to read embedded wiki README: %w", err)
 	}
@@ -349,7 +349,7 @@ func CopySetting(installPath, id string) error {
 	// Copy README into the wiki's settings directory (no-clobber)
 	readmePath := filepath.Join(dirPath, "README")
 	if _, err := os.Stat(readmePath); os.IsNotExist(err) {
-		wikiREADME, err := installationTemplate.ReadFile("installation-template/config/settings/wikis/README")
+		wikiREADME, err := instanceTemplate.ReadFile("instance-template/config/settings/wikis/README")
 		if err != nil {
 			return fmt.Errorf("failed to read embedded wiki README: %w", err)
 		}
@@ -660,7 +660,7 @@ func RewriteCaddy(installPath string) error {
 	return nil
 }
 
-// CreateCaddyfileSite creates config/Caddyfile.site from the installation template.
+// CreateCaddyfileSite creates config/Caddyfile.site from the instance template.
 // It only writes the file if it doesn't already exist (no-clobber).
 func CreateCaddyfileSite(installPath string) error {
 	filePath := filepath.Join(installPath, "config", "Caddyfile.site")
@@ -670,14 +670,14 @@ func CreateCaddyfileSite(installPath string) error {
 		return nil
 	}
 
-	data, err := installationTemplate.ReadFile("installation-template/config/Caddyfile.site")
+	data, err := instanceTemplate.ReadFile("instance-template/config/Caddyfile.site")
 	if err != nil {
 		return fmt.Errorf("failed to read embedded Caddyfile.site: %w", err)
 	}
 	return os.WriteFile(filePath, data, permissions.FilePermission)
 }
 
-// CreateCaddyfileGlobal creates config/Caddyfile.global from the installation template.
+// CreateCaddyfileGlobal creates config/Caddyfile.global from the instance template.
 // It only writes the file if it doesn't already exist (no-clobber).
 func CreateCaddyfileGlobal(installPath string) error {
 	filePath := filepath.Join(installPath, "config", "Caddyfile.global")
@@ -687,7 +687,7 @@ func CreateCaddyfileGlobal(installPath string) error {
 		return nil
 	}
 
-	data, err := installationTemplate.ReadFile("installation-template/config/Caddyfile.global")
+	data, err := instanceTemplate.ReadFile("instance-template/config/Caddyfile.global")
 	if err != nil {
 		return fmt.Errorf("failed to read embedded Caddyfile.global: %w", err)
 	}
@@ -836,7 +836,7 @@ func DeleteEnvVariable(envPath, key string) error {
 	return os.WriteFile(envPath, []byte(lines), permissions.FilePermission)
 }
 
-// Make changes to the .env file at the installation directory
+// Make changes to the .env file at the instance directory
 // If the key exists, it updates the value; if not, it appends the key=value pair
 func SaveEnvVariable(envPath, key, value string) error {
 	file, err := os.ReadFile(envPath)
@@ -895,7 +895,7 @@ func GetEnvVariable(envPath string) (map[string]string, error) {
 	return envVariables, nil
 }
 
-// Checking Installation existence
+// CheckCanastaID resolves and validates a Canasta instance.
 func CheckCanastaID(instance config.Instance) (config.Instance, error) {
 	var err error
 	if instance.ID != "" {
@@ -964,7 +964,7 @@ func MigrateToNewVersion(installPath string) error {
 		return err
 	}
 
-	// Default wiki ID for migration from old single-wiki installations
+	// Default wiki ID for migration from old single-wiki instances
 	id := "my_wiki"
 
 	// Remove the "http://" or "https://" prefix from MW_SITE_SERVER variable
@@ -1003,7 +1003,7 @@ func ResolveFilePaths(baseDir string, paths ...*string) {
 	}
 }
 
-// GetBaseImage returns the Canasta image for an installation. It reads
+// GetBaseImage returns the Canasta image for an instance. It reads
 // CANASTA_IMAGE from the .env file at installPath and falls back to the
 // default image if the variable is missing or empty.
 func GetBaseImage(installPath string) string {

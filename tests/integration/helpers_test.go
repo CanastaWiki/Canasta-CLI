@@ -59,7 +59,7 @@ func TestMain(m *testing.M) {
 // testInstance holds the state for an isolated integration test instance.
 type testInstance struct {
 	ID        string
-	WorkDir   string // temp directory for the installation
+	WorkDir   string // temp directory for the instance
 	ConfigDir string // isolated config directory (CANASTA_CONFIG_DIR)
 	HTTPPort  string
 	HTTPSPort string
@@ -76,7 +76,7 @@ func nextPort() (httpPort, httpsPort string) {
 // It registers a cleanup function that runs `canasta delete -y` even on test failure.
 //
 // workDir is created manually (not via t.TempDir) because containers create files
-// owned by www-data inside the installation directory. Go's TempDir cleanup uses
+// owned by www-data inside the instance directory. Go's TempDir cleanup uses
 // os.RemoveAll which would fail on those files. Instead, cleanup uses sudo rm -rf
 // as a fallback after canasta delete.
 func createTestInstance(t *testing.T, id string) *testInstance {
@@ -209,7 +209,7 @@ func waitForWiki(t *testing.T, httpPort string, timeout time.Duration) {
 	t.Fatalf("wiki did not become ready at port %s within %v", httpPort, timeout)
 }
 
-// instanceEnvPath returns the path to the .env file inside the installation directory.
+// instanceEnvPath returns the path to the .env file inside the instance directory.
 func (inst *testInstance) instanceEnvPath() string {
 	return filepath.Join(inst.WorkDir, inst.ID, ".env")
 }

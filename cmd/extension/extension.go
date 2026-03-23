@@ -11,7 +11,7 @@ func NewCmd() *cobra.Command {
 		Name:                     "Canasta extension",
 		CmdName:                  "extension",
 		Plural:                   "extensions",
-		RelativeInstallationPath: "extensions",
+		RelativeInstancePath: "extensions",
 		PhpCommand:               "wfLoadExtension",
 		ExampleNames:             "VisualEditor,Cite,ParserFunctions",
 	})

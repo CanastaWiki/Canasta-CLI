@@ -8,7 +8,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/execute"
 )
 
-// backupVolumeName returns the persistent Docker volume name for an installation.
+// backupVolumeName returns the persistent Docker volume name for an instance.
 func backupVolumeName(installPath string) string {
 	return "canasta-backup-" + filepath.Base(installPath)
 }

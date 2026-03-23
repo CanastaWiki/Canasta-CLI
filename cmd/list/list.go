@@ -34,11 +34,11 @@ Use --cleanup to remove stale entries whose instance directories no longer exist
 
 func List(_ config.Instance, cleanup bool) error {
 	if cleanup {
-		installations, err := config.GetAll()
+		instances, err := config.GetAll()
 		if err != nil {
 			return err
 		}
-		for id, inst := range installations {
+		for id, inst := range instances {
 			if _, err := os.Stat(inst.Path); os.IsNotExist(err) {
 				if inst.KindCluster != "" {
 					if err := orchestrators.DeleteKindCluster(inst.KindCluster); err != nil {

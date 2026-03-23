@@ -11,7 +11,7 @@ func NewCmd() *cobra.Command {
 		Name:                     "Canasta skin",
 		CmdName:                  "skin",
 		Plural:                   "skins",
-		RelativeInstallationPath: "skins",
+		RelativeInstancePath: "skins",
 		PhpCommand:               "wfLoadSkin",
 		ExampleNames:             "Timeless",
 	})

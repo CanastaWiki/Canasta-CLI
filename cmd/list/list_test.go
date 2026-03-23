@@ -129,11 +129,11 @@ func TestListCleanup(t *testing.T) {
 		t.Errorf("Expected stale entry 'stale-instance' to not appear in the listed output table, but it did.\nFull output:\n%s", outputStr)
 	}
 
-	installations, err := config.GetAll()
+	instances, err := config.GetAll()
 	if err != nil {
 		t.Fatalf("Failed to get config: %v", err)
 	}
-	if _, exists := installations["stale-instance"]; exists {
+	if _, exists := instances["stale-instance"]; exists {
 		t.Errorf("Expected stale entry 'stale-instance' to be removed from config, but it still exists")
 	}
 }

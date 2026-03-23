@@ -21,7 +21,7 @@ const (
 	hostFile          = ".gitops-host"
 )
 
-// LoadHostsConfig reads and parses hosts.yaml from the installation directory.
+// LoadHostsConfig reads and parses hosts.yaml from the instance directory.
 func LoadHostsConfig(installPath string) (*HostsConfig, error) {
 	data, err := os.ReadFile(filepath.Join(installPath, hostsFile))
 	if err != nil {
@@ -52,7 +52,7 @@ func LoadHostsConfig(installPath string) (*HostsConfig, error) {
 	return &cfg, nil
 }
 
-// SaveHostsConfig writes hosts.yaml to the installation directory.
+// SaveHostsConfig writes hosts.yaml to the instance directory.
 func SaveHostsConfig(installPath string, cfg *HostsConfig) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -106,7 +106,7 @@ func LoadCustomKeys(installPath string) ([]string, error) {
 	return ck.Keys, nil
 }
 
-// LoadEnvTemplate reads the env.template file from the installation directory.
+// LoadEnvTemplate reads the env.template file from the instance directory.
 func LoadEnvTemplate(installPath string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(installPath, envTemplateFile))
 	if err != nil {
@@ -115,13 +115,13 @@ func LoadEnvTemplate(installPath string) (string, error) {
 	return string(data), nil
 }
 
-// SaveEnvTemplate writes the env.template file to the installation directory.
+// SaveEnvTemplate writes the env.template file to the instance directory.
 func SaveEnvTemplate(installPath, content string) error {
 	return os.WriteFile(filepath.Join(installPath, envTemplateFile), []byte(content), permissions.FilePermission)
 }
 
 // LoadWikisTemplate reads the wikis.yaml.template file from the
-// installation directory. Returns empty string and no error if the file
+// instance directory. Returns empty string and no error if the file
 // does not exist (for backward compatibility with repos that predate
 // wikis templating).
 func LoadWikisTemplate(installPath string) (string, error) {
@@ -136,7 +136,7 @@ func LoadWikisTemplate(installPath string) (string, error) {
 }
 
 // SaveWikisTemplate writes the wikis.yaml.template file to the
-// installation directory.
+// instance directory.
 func SaveWikisTemplate(installPath, content string) error {
 	return os.WriteFile(filepath.Join(installPath, wikisTemplateFile), []byte(content), permissions.FilePermission)
 }
@@ -154,7 +154,7 @@ func LoadWikisYAML(installPath string) (string, error) {
 }
 
 // SaveLocalHost writes the .gitops-host file to record which host name
-// this installation corresponds to. The file is gitignored.
+// this instance corresponds to. The file is gitignored.
 func SaveLocalHost(installPath, hostName string) error {
 	path := filepath.Join(installPath, hostFile)
 	return os.WriteFile(path, []byte(hostName+"\n"), permissions.FilePermission)

@@ -234,11 +234,11 @@ func createCanasta(opts createOptions) error {
 	}
 
 	// Copy shared instance template files (config, settings, etc.)
-	if err := canasta.CopyInstallationTemplate(path); err != nil {
+	if err := canasta.CopyInstanceTemplate(path); err != nil {
 		return err
 	}
 
-	// If user provided a custom yaml file, copy it; otherwise generate it directly in the installation
+	// If user provided a custom yaml file, copy it; otherwise generate it directly in the instance
 	yamlPath := opts.YamlPath
 	if yamlPath != "" {
 		// User provided custom yaml file via --yamlfile flag

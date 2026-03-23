@@ -26,7 +26,7 @@ const webDeployment = "deployment/web"
 const podLabelKey = "app"
 
 // KubernetesOrchestrator implements Orchestrator using kubectl.
-// Each Canasta installation maps to a Kubernetes namespace.
+// Each Canasta instance maps to a Kubernetes namespace.
 type KubernetesOrchestrator struct {
 	// ManagedCluster indicates the CLI created and manages the Kubernetes
 	// cluster (currently via kind). Enables NodePort exposure and skips
@@ -153,7 +153,7 @@ func (k *KubernetesOrchestrator) Update(installPath string) (*UpdateReport, erro
 }
 
 func (k *KubernetesOrchestrator) Destroy(installPath string) (string, error) {
-	// If this is a kind-managed installation, delete the entire cluster
+	// If this is a kind-managed instance, delete the entire cluster
 	// (which also removes the namespace and all resources).
 	if id, err := config.GetCanastaID(installPath); err == nil {
 		if inst, err := config.GetDetails(id); err == nil && inst.KindCluster != "" {
@@ -608,7 +608,7 @@ type kustomizeImage struct {
 }
 
 // generateKustomization programmatically generates kustomization.yaml by
-// scanning the installation directory for settings files and wikis.
+// scanning the instance directory for settings files and wikis.
 func (k *KubernetesOrchestrator) generateKustomization(installPath string, managedCluster bool) error {
 	namespace := filepath.Base(installPath)
 
@@ -952,7 +952,7 @@ type kustomizationFile struct {
 }
 
 // getNamespaceFromPath reads the namespace from the kustomization.yaml
-// in the installation directory.
+// in the instance directory.
 func getNamespaceFromPath(installPath string) (string, error) {
 	kustomizePath := filepath.Join(installPath, "kustomization.yaml")
 	data, err := os.ReadFile(kustomizePath)

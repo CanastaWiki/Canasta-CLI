@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// setupTestInstall creates a minimal installation directory with .env and wikis.yaml
+// setupTestInstall creates a minimal instance directory with .env and wikis.yaml
 func setupTestInstall(t *testing.T, envContent, wikisYaml string) string {
 	t.Helper()
 	dir := t.TempDir()

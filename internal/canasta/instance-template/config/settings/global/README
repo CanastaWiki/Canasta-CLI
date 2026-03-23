@@ -1,7 +1,7 @@
 # Global Settings Directory
 
 This directory contains PHP configuration files that apply to ALL wikis in your
-Canasta installation. Files are loaded automatically in lexicographic order.
+Canasta instance. Files are loaded automatically in lexicographic order.
 
 ## Load Order
 

@@ -30,7 +30,7 @@ type kindConfigData struct {
 	HTTPSPort     int
 }
 
-// KindClusterName returns the kind cluster name for a Canasta installation.
+// KindClusterName returns the kind cluster name for a Canasta instance.
 func KindClusterName(canastaID string) string {
 	return "canasta-" + canastaID
 }
@@ -139,9 +139,9 @@ func EnsureKindCluster(clusterName string, httpPort, httpsPort int) (bool, error
 	return true, nil
 }
 
-// ensureKindContext looks up the kind cluster name for the installation at
+// ensureKindContext looks up the kind cluster name for the instance at
 // installPath and sets the kubectl context if it's a kind-managed cluster.
-// This is a no-op for non-kind installations or if the lookup fails.
+// This is a no-op for non-kind instances or if the lookup fails.
 func ensureKindContext(installPath string) error {
 	id, err := config.GetCanastaID(installPath)
 	if err != nil {
@@ -182,7 +182,7 @@ func LoadImageToKind(clusterName, imageTag string) error {
 }
 
 // GetPortsFromEnv reads HTTP_PORT and HTTPS_PORT from the .env file at the
-// given installation path, returning defaults of 80 and 443 if not set.
+// given instance path, returning defaults of 80 and 443 if not set.
 func GetPortsFromEnv(installPath string) (httpPort int, httpsPort int) {
 	httpPort = 80
 	httpsPort = 443
