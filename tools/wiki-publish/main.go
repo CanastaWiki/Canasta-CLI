@@ -134,15 +134,20 @@ func main() {
 		log.Fatalf("Failed to login: %v", err)
 	}
 
+	var errCount int
 	for i, p := range pages {
 		if i > 0 {
 			time.Sleep(editDelay)
 		}
 		if err := client.editPage(p.Title, p.Content, "Update CLI reference"); err != nil {
 			log.Printf("ERROR uploading %s: %v", p.Title, err)
+			errCount++
 		} else {
 			log.Printf("Published %s", p.Title)
 		}
+	}
+	if errCount > 0 {
+		log.Fatalf("Failed to publish %d of %d pages", errCount, len(pages))
 	}
 	log.Printf("Done: %d pages published", len(pages))
 }
