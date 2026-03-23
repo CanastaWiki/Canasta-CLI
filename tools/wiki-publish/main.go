@@ -66,7 +66,7 @@ func main() {
 		names   []string
 	}
 	cmdGroups := []cmdGroup{
-		{"Installation", []string{"create", "delete", "list", "upgrade", "version", "config"}},
+		{"Instance Management", []string{"create", "delete", "list", "upgrade", "version", "config"}},
 		{"Wiki Management", []string{"add", "remove", "import", "export"}},
 		{"Container Lifecycle", []string{"start", "stop", "restart"}},
 		{"Extensions & Skins", []string{"extension", "skin"}},
