@@ -14,14 +14,14 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newRemoveCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
+func newRemoveCmd(instance *config.Instance, orch *orchestrators.Orchestrator) *cobra.Command {
 	var wikiID string
 	var yes bool
 
 	cmd := &cobra.Command{
 		Use:   "remove",
 		Short: "Remove sitemaps for one or all wikis",
-		Long: `Remove XML sitemap files for wikis in a Canasta installation. If --wiki is
+		Long: `Remove XML sitemap files for wikis in a Canasta instance. If --wiki is
 specified, removes the sitemap for that wiki only. Otherwise, removes sitemaps
 for all wikis. Once removed, the background generator will skip those wikis.`,
 		Example: `  # Remove sitemap for a specific wiki
@@ -44,7 +44,7 @@ for all wikis. Once removed, the background generator will skip those wikis.`,
 	return cmd
 }
 
-func runRemove(instance config.Installation, orch orchestrators.Orchestrator, wikiID string, yes bool) error {
+func runRemove(instance config.Instance, orch orchestrators.Orchestrator, wikiID string, yes bool) error {
 	// Check containers are running
 	if err := orch.CheckRunningStatus(instance); err != nil {
 		return fmt.Errorf("containers are not running: %w", err)

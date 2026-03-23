@@ -14,7 +14,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
-func newJoinCmd(instance *config.Installation) *cobra.Command {
+func newJoinCmd(instance *config.Instance) *cobra.Command {
 	var (
 		hostName string
 		role     string
@@ -25,13 +25,13 @@ func newJoinCmd(instance *config.Installation) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "join",
 		Short: "Join an existing gitops repository",
-		Long: `Join an existing gitops repository for a Canasta installation.
+		Long: `Join an existing gitops repository for a Canasta instance.
 
 Clones the repo, unlocks git-crypt with the provided key, adds this host
 to the host inventory, extracts host-specific values into vars.yaml, and
 pushes the new host entry back to the repo.
 
-The installation must already exist and have a working .env file. Use
+The instance must already exist and have a working .env file. Use
 "canasta gitops init" to bootstrap a new gitops repository instead.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -69,7 +69,7 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 
 	fmt.Println("Joining existing gitops repository...")
 
-	// 1. Clone the repo to a temp dir, then merge into the installation.
+	// 1. Clone the repo to a temp dir, then merge into the instance.
 	tmpDir, err := os.MkdirTemp("", "canasta-gitops-*")
 	if err != nil {
 		return fmt.Errorf("creating temp directory: %w", err)
@@ -89,7 +89,7 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 	}
 
 	// 2. Load the hosts config from the cloned repo and validate
-	// the host name before modifying the installation directory.
+	// the host name before modifying the instance directory.
 	cfg, err := gitops.LoadHostsConfig(tmpDir)
 	if err != nil {
 		return err
@@ -98,12 +98,12 @@ func runInitJoin(installPath, hostName, role, repoURL, keyFile string) error {
 		return fmt.Errorf("host %q already exists in %s — choose a different name with --name", hostName, "hosts.yaml")
 	}
 
-	// Move .git directory into the installation.
+	// Move .git directory into the instance.
 	if err := moveGitDir(tmpDir, installPath); err != nil {
 		return err
 	}
 
-	// Checkout tracked files from the repo into the installation directory.
+	// Checkout tracked files from the repo into the instance directory.
 	// git-crypt is already unlocked (carried over from the temp clone), so
 	// the checked-out files will be decrypted.
 	if err := gitops.CheckoutHead(installPath); err != nil {

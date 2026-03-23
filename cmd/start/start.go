@@ -13,7 +13,7 @@ import (
 )
 
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 	workingDir, err := os.Getwd()
 	if err != nil {
 		logging.Fatal(err)
@@ -22,12 +22,12 @@ func NewCmd() *cobra.Command {
 
 	var startCmd = &cobra.Command{
 		Use:   "start",
-		Short: "Start the Canasta installation",
-		Long: `Start the Docker containers for a Canasta installation. If the installation
+		Short: "Start the Canasta instance",
+		Long: `Start the Docker containers for a Canasta instance. If the instance
 has development mode enabled, it starts with Xdebug automatically. Use
 'canasta devmode enable' or 'canasta devmode disable' to change the
 development mode setting.`,
-		Example: `  # Start an installation by ID
+		Example: `  # Start an instance by ID
   canasta start -i myinstance`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -35,7 +35,7 @@ development mode setting.`,
 			if err != nil {
 				return err
 			}
-			fmt.Println("Starting Canasta installation '" + resolvedInstance.ID + "'...")
+			fmt.Println("Starting Canasta instance '" + resolvedInstance.ID + "'...")
 			if err := Start(resolvedInstance); err != nil {
 				return err
 			}
@@ -47,7 +47,7 @@ development mode setting.`,
 	return startCmd
 }
 
-func Start(instance config.Installation) error {
+func Start(instance config.Instance) error {
 	orch, err := orchestrators.NewFromInstance(instance)
 	if err != nil {
 		return err

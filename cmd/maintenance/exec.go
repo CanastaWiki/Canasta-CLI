@@ -11,7 +11,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newExecCmd(instance *config.Installation) *cobra.Command {
+func newExecCmd(instance *config.Instance) *cobra.Command {
 	var service string
 
 	cmd := &cobra.Command{
@@ -19,7 +19,7 @@ func newExecCmd(instance *config.Installation) *cobra.Command {
 		DisableFlagsInUseLine: true,
 		Short:                 "Execute a command in a running container",
 		Long: `Execute a command or open an interactive shell in a running container
-of a Canasta installation.
+of a Canasta instance.
 
 With no arguments and no --service flag, lists the running services.
 With --service (or -s) and no command, opens an interactive bash shell.

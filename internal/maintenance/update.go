@@ -9,7 +9,7 @@ import (
 )
 
 // RunUpdatePhp runs update.php --quick for a single wiki.
-func RunUpdatePhp(instance config.Installation, orch orchestrators.Orchestrator, wikiID string) error {
+func RunUpdatePhp(instance config.Instance, orch orchestrators.Orchestrator, wikiID string) error {
 	wikiFlag := ""
 	if wikiID != "" {
 		wikiFlag = " --wiki=" + wikiID
@@ -29,7 +29,7 @@ func RunUpdatePhp(instance config.Installation, orch orchestrators.Orchestrator,
 
 // RunUpdateAllWikis runs update.php --quick. If wiki is non-empty, runs only
 // for that wiki. Otherwise runs for all wikis from wikis.yaml.
-func RunUpdateAllWikis(instance config.Installation, orch orchestrators.Orchestrator, wiki string) error {
+func RunUpdateAllWikis(instance config.Instance, orch orchestrators.Orchestrator, wiki string) error {
 	if wiki != "" {
 		return RunUpdatePhp(instance, orch, wiki)
 	}

@@ -14,7 +14,7 @@ import (
 
 func NewCmd() *cobra.Command {
 	var (
-		instance config.Installation
+		instance config.Instance
 		orch     orchestrators.Orchestrator
 	)
 
@@ -27,7 +27,7 @@ func NewCmd() *cobra.Command {
 	devmodeCmd := &cobra.Command{
 		Use:   "devmode",
 		Short: "Manage development mode",
-		Long: `Enable or disable development mode on a Canasta installation. Development
+		Long: `Enable or disable development mode on a Canasta instance. Development
 mode extracts MediaWiki code for live editing and enables Xdebug for step
 debugging. This is only supported with Docker Compose.`,
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {

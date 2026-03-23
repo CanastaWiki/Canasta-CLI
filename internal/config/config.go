@@ -13,7 +13,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/permissions"
 )
 
-type Installation struct {
+type Instance struct {
 	ID             string `json:"id"`
 	Path           string `json:"path"`
 	Orchestrator   string `json:"orchestrator"`
@@ -29,17 +29,18 @@ type Orchestrator struct {
 }
 
 type Canasta struct {
-	Orchestrators map[string]Orchestrator
-	Installations map[string]Installation
+	Orchestrators       map[string]Orchestrator
+	Instances           map[string]Instance `json:"Instances"`
+	LegacyInstallations map[string]Instance `json:"Installations,omitempty"`
 }
 
 var (
-	directory             string
-	confFile              string
-	existingInstallations Canasta
-	initOnce              sync.Once
-	initErr               error
-	configDirOverride     string
+	directory         string
+	confFile          string
+	existingInstances Canasta
+	initOnce          sync.Once
+	initErr           error
+	configDirOverride string
 )
 
 func ensureInitialized() error {
@@ -62,7 +63,7 @@ func ensureInitialized() error {
 		_, err = os.Stat(confFile)
 		if os.IsNotExist(err) {
 			// Creating conf.json
-			if err := write(Canasta{Installations: map[string]Installation{}, Orchestrators: map[string]Orchestrator{}}); err != nil {
+			if err := write(Canasta{Instances: map[string]Instance{}, Orchestrators: map[string]Orchestrator{}}); err != nil {
 				initErr = err
 				return
 			}
@@ -79,10 +80,20 @@ func ensureInitialized() error {
 		}
 		f.Close()
 
-		// Update the existingInstallations list
-		if err := read(&existingInstallations); err != nil {
+		// Update the existingInstances list
+		if err := read(&existingInstances); err != nil {
 			initErr = err
 			return
+		}
+
+		// Migrate legacy conf.json that used "Installations" key
+		if len(existingInstances.Instances) == 0 && len(existingInstances.LegacyInstallations) > 0 {
+			existingInstances.Instances = existingInstances.LegacyInstallations
+			existingInstances.LegacyInstallations = nil
+			if err := write(existingInstances); err != nil {
+				initErr = err
+				return
+			}
 		}
 	})
 	return initErr
@@ -97,98 +108,98 @@ func ResetForTesting(dir string) {
 	configDirOverride = dir
 	directory = ""
 	confFile = ""
-	existingInstallations = Canasta{}
+	existingInstances = Canasta{}
 }
 
 func Exists(canastaID string) (bool, error) {
 	if err := ensureInitialized(); err != nil {
 		return false, err
 	}
-	err := read(&existingInstallations)
+	err := read(&existingInstances)
 	if err != nil {
 		return false, err
 	}
-	return existingInstallations.Installations[canastaID].ID != "", nil
+	return existingInstances.Instances[canastaID].ID != "", nil
 }
 
 func OrchestratorExists(orchestrator string) (bool, error) {
 	if err := ensureInitialized(); err != nil {
 		return false, err
 	}
-	err := read(&existingInstallations)
+	err := read(&existingInstances)
 	if err != nil {
 		return false, err
 	}
-	return existingInstallations.Orchestrators[orchestrator].Path != "", nil
+	return existingInstances.Orchestrators[orchestrator].Path != "", nil
 }
 
 func ListAll() error {
 	if err := ensureInitialized(); err != nil {
 		return err
 	}
-	err := read(&existingInstallations)
+	err := read(&existingInstances)
 	if err != nil {
 		return err
 	}
 
-	if len(existingInstallations.Installations) == 0 {
+	if len(existingInstances.Instances) == 0 {
 		fmt.Printf("No instances found (looked in %s)\n", confFile)
 		if IsRunningAsRoot() {
-			fmt.Println("Note: Running as root uses /etc/canasta/conf.json. Installations")
+			fmt.Println("Note: Running as root uses /etc/canasta/conf.json. Instances")
 			fmt.Println("registered by a non-root user are stored in ~/.config/canasta/conf.json.")
 		}
 		return nil
 	}
 
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "Canasta ID\tWiki ID\tServer Name\tServer Path\tInstallation Path\tOrchestrator")
+	fmt.Fprintln(writer, "Canasta ID\tWiki ID\tServer Name\tServer Path\tInstance Path\tOrchestrator")
 
-	for _, installation := range existingInstallations.Installations {
-		installPath := installation.Path
+	for _, instance := range existingInstances.Instances {
+		installPath := instance.Path
 		pathMissing := false
-		if _, err := os.Stat(installation.Path); os.IsNotExist(err) {
-			installPath = installation.Path + " [not found]"
+		if _, err := os.Stat(instance.Path); os.IsNotExist(err) {
+			installPath = instance.Path + " [not found]"
 			pathMissing = true
 		}
 
 		if pathMissing {
 			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				installation.ID,
+				instance.ID,
 				"N/A",
 				"N/A",
 				"N/A",
 				installPath,
-				installation.Orchestrator)
+				instance.Orchestrator)
 			continue
 		}
 
-		if _, err := os.Stat(filepath.Join(installation.Path, "config", "wikis.yaml")); os.IsNotExist(err) {
-			// File does not exist, print only installation info
+		if _, err := os.Stat(filepath.Join(instance.Path, "config", "wikis.yaml")); os.IsNotExist(err) {
+			// File does not exist, print only instance info
 			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				installation.ID,
+				instance.ID,
 				"N/A", // Placeholder
 				"N/A", // Placeholder
 				"N/A", // Placeholder
 				installPath,
-				installation.Orchestrator)
+				instance.Orchestrator)
 			continue
 		}
 
-		ids, serverNames, paths, err := farmsettings.ReadWikisYaml(filepath.Join(installation.Path, "config", "wikis.yaml"))
+		ids, serverNames, paths, err := farmsettings.ReadWikisYaml(filepath.Join(instance.Path, "config", "wikis.yaml"))
 		if err != nil {
-			fmt.Printf("Error reading wikis.yaml for installation ID '%s': %s\n", installation.ID, err)
+			fmt.Printf("Error reading wikis.yaml for instance ID '%s': %s\n", instance.ID, err)
 			continue
 		}
 
 		for i := range ids {
 			if i == 0 {
 				fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
-					installation.ID,
+					instance.ID,
 					ids[i],
 					serverNames[i],
 					paths[i],
 					installPath,
-					installation.Orchestrator)
+					instance.Orchestrator)
 			} else {
 				fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
 					"-",
@@ -196,7 +207,7 @@ func ListAll() error {
 					serverNames[i],
 					paths[i],
 					installPath,
-					installation.Orchestrator)
+					instance.Orchestrator)
 			}
 
 		}
@@ -205,15 +216,15 @@ func ListAll() error {
 	return nil
 }
 
-func GetAll() (map[string]Installation, error) {
+func GetAll() (map[string]Instance, error) {
 	if err := ensureInitialized(); err != nil {
 		return nil, err
 	}
-	err := read(&existingInstallations)
+	err := read(&existingInstances)
 	if err != nil {
 		return nil, err
 	}
-	return existingInstallations.Installations, nil
+	return existingInstances.Instances, nil
 }
 
 // GetConfFilePath returns the path to the conf.json file currently in use.
@@ -231,28 +242,28 @@ func IsRunningAsRoot() bool {
 	return currentUser.Username == "root"
 }
 
-func GetDetails(canastaID string) (Installation, error) {
+func GetDetails(canastaID string) (Instance, error) {
 	if err := ensureInitialized(); err != nil {
-		return Installation{}, err
+		return Instance{}, err
 	}
 	exists, err := Exists(canastaID)
 	if err != nil {
-		return Installation{}, err
+		return Instance{}, err
 	}
 	if exists {
-		return existingInstallations.Installations[canastaID], nil
+		return existingInstances.Instances[canastaID], nil
 	}
-	return Installation{}, fmt.Errorf("canasta installation with the ID doesn't exist")
+	return Instance{}, fmt.Errorf("canasta instance with the ID doesn't exist")
 }
 
 func GetCanastaID(installPath string) (string, error) {
 	if err := ensureInitialized(); err != nil {
 		return "", err
 	}
-	// Walk up the directory tree to find an enclosing installation.
+	// Walk up the directory tree to find an enclosing instance.
 	dir := installPath
 	for {
-		for _, inst := range existingInstallations.Installations {
+		for _, inst := range existingInstances.Instances {
 			if inst.Path == dir {
 				return inst.ID, nil
 			}
@@ -263,10 +274,10 @@ func GetCanastaID(installPath string) (string, error) {
 		}
 		dir = parent
 	}
-	return "", fmt.Errorf("no Canasta installations exist at %s", installPath)
+	return "", fmt.Errorf("no Canasta instances exist at %s", installPath)
 }
 
-func Add(details Installation) error {
+func Add(details Instance) error {
 	if err := ensureInitialized(); err != nil {
 		return err
 	}
@@ -275,18 +286,18 @@ func Add(details Installation) error {
 		return err
 	}
 	if exists {
-		return fmt.Errorf("canasta ID is already used for another installation")
+		return fmt.Errorf("canasta ID is already used for another instance")
 	}
-	existingInstallations.Installations[details.ID] = details
-	return write(existingInstallations)
+	existingInstances.Instances[details.ID] = details
+	return write(existingInstances)
 }
 
 func AddOrchestrator(details Orchestrator) error {
 	if err := ensureInitialized(); err != nil {
 		return err
 	}
-	if existingInstallations.Orchestrators == nil {
-		existingInstallations.Orchestrators = map[string]Orchestrator{}
+	if existingInstances.Orchestrators == nil {
+		existingInstances.Orchestrators = map[string]Orchestrator{}
 	}
 	supportedOrchestrators := map[string]bool{
 		"compose":    true,
@@ -296,8 +307,8 @@ func AddOrchestrator(details Orchestrator) error {
 	if !supportedOrchestrators[details.ID] {
 		return fmt.Errorf("orchestrator %s is not supported", details.ID)
 	}
-	existingInstallations.Orchestrators[details.ID] = details
-	err := write(existingInstallations)
+	existingInstances.Orchestrators[details.ID] = details
+	err := write(existingInstances)
 	return err
 }
 
@@ -310,7 +321,7 @@ func GetOrchestrator(orchestrator string) (Orchestrator, error) {
 		return Orchestrator{}, err
 	}
 	if exists {
-		return existingInstallations.Orchestrators[orchestrator], nil
+		return existingInstances.Orchestrators[orchestrator], nil
 	}
 	return Orchestrator{}, nil
 }
@@ -324,14 +335,14 @@ func Delete(canastaID string) error {
 		return err
 	}
 	if !exists {
-		return fmt.Errorf("canasta installation with the ID doesn't exist")
+		return fmt.Errorf("canasta instance with the ID doesn't exist")
 	}
-	delete(existingInstallations.Installations, canastaID)
-	return write(existingInstallations)
+	delete(existingInstances.Instances, canastaID)
+	return write(existingInstances)
 }
 
-// Update updates an existing installation's configuration
-func Update(details Installation) error {
+// Update updates an existing instance's configuration
+func Update(details Instance) error {
 	if err := ensureInitialized(); err != nil {
 		return err
 	}
@@ -340,10 +351,10 @@ func Update(details Installation) error {
 		return err
 	}
 	if !exists {
-		return fmt.Errorf("canasta installation with ID '%s' doesn't exist", details.ID)
+		return fmt.Errorf("canasta instance with ID '%s' doesn't exist", details.ID)
 	}
-	existingInstallations.Installations[details.ID] = details
-	return write(existingInstallations)
+	existingInstances.Instances[details.ID] = details
+	return write(existingInstances)
 }
 
 func write(details Canasta) error {

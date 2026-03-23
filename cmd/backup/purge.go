@@ -9,7 +9,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newPurgeCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
+func newPurgeCmd(orch *orchestrators.Orchestrator, instance *config.Instance, envPath, repoURL *string) *cobra.Command {
 	var (
 		olderThan string
 		keepLast  int

@@ -13,7 +13,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newScriptCmd(instance *config.Installation) *cobra.Command {
+func newScriptCmd(instance *config.Instance) *cobra.Command {
 	var wiki string
 
 	scriptCmd := &cobra.Command{
@@ -64,11 +64,11 @@ specific wiki.`,
 	return scriptCmd
 }
 
-func listMaintenanceScripts(inst config.Installation) error {
+func listMaintenanceScripts(inst config.Instance) error {
 	return listMaintenanceScriptsWith(nil, inst)
 }
 
-func listMaintenanceScriptsWith(orch orchestrators.Orchestrator, inst config.Installation) error {
+func listMaintenanceScriptsWith(orch orchestrators.Orchestrator, inst config.Instance) error {
 	if orch == nil {
 		var err error
 		orch, err = orchestrators.New(inst.Orchestrator)
@@ -94,11 +94,11 @@ func listMaintenanceScriptsWith(orch orchestrators.Orchestrator, inst config.Ins
 	return nil
 }
 
-func runMaintenanceScript(instance config.Installation, script string, wiki string) error {
+func runMaintenanceScript(instance config.Instance, script string, wiki string) error {
 	return runMaintenanceScriptWith(nil, instance, script, wiki)
 }
 
-func runMaintenanceScriptWith(orch orchestrators.Orchestrator, inst config.Installation, script string, wiki string) error {
+func runMaintenanceScriptWith(orch orchestrators.Orchestrator, inst config.Instance, script string, wiki string) error {
 	if orch == nil {
 		var err error
 		orch, err = orchestrators.New(inst.Orchestrator)
@@ -131,7 +131,7 @@ func runMaintenanceScriptWith(orch orchestrators.Orchestrator, inst config.Insta
 	return nil
 }
 
-func runScriptForWiki(orch orchestrators.Orchestrator, inst config.Installation, script, wikiID string) error {
+func runScriptForWiki(orch orchestrators.Orchestrator, inst config.Instance, script, wikiID string) error {
 	wikiFlag := ""
 	if wikiID != "" {
 		wikiFlag = " --wiki=" + wikiID

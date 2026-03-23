@@ -12,14 +12,14 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newEnableCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
+func newEnableCmd(instance *config.Instance, orch *orchestrators.Orchestrator) *cobra.Command {
 	return &cobra.Command{
 		Use:   "enable",
 		Short: "Enable development mode",
-		Long: `Enable development mode on an existing Canasta installation. This extracts
+		Long: `Enable development mode on an existing Canasta instance. This extracts
 MediaWiki code for live editing, builds an Xdebug-enabled image, and restarts
 the instance with dev mode compose files. Only supported with Docker Compose.`,
-		Example: `  # Enable dev mode on an installation
+		Example: `  # Enable dev mode on an instance
   canasta devmode enable -i myinstance`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -53,7 +53,7 @@ the instance with dev mode compose files. Only supported with Docker Compose.`,
 			}
 
 			fmt.Println("\033[32mDevelopment mode enabled. Edit files in mediawiki-code/ - changes appear immediately.\033[0m")
-			fmt.Println("\033[32mVSCode: Open the installation directory, install PHP Debug extension, and start 'Listen for Xdebug'.\033[0m")
+			fmt.Println("\033[32mVSCode: Open the instance directory, install PHP Debug extension, and start 'Listen for Xdebug'.\033[0m")
 			return nil
 		},
 	}

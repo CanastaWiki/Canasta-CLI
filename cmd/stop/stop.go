@@ -13,7 +13,7 @@ import (
 )
 
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 	workingDir, err := os.Getwd()
 	if err != nil {
 		logging.Fatal(err)
@@ -22,10 +22,10 @@ func NewCmd() *cobra.Command {
 
 	var stopCmd = &cobra.Command{
 		Use:   "stop",
-		Short: "Shuts down the Canasta installation",
-		Long: `Stop all Docker containers for a Canasta installation. The containers
+		Short: "Shuts down the Canasta instance",
+		Long: `Stop all Docker containers for a Canasta instance. The containers
 are stopped gracefully, preserving all data in Docker volumes.`,
-		Example: `  # Stop an installation by ID
+		Example: `  # Stop an instance by ID
   canasta stop -i myinstance`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -33,7 +33,7 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 			if err != nil {
 				return err
 			}
-			fmt.Println("Stopping Canasta installation '" + resolvedInstance.ID + "'...")
+			fmt.Println("Stopping Canasta instance '" + resolvedInstance.ID + "'...")
 			if err = Stop(resolvedInstance); err != nil {
 				return err
 			}
@@ -45,7 +45,7 @@ are stopped gracefully, preserving all data in Docker volumes.`,
 	return stopCmd
 }
 
-func Stop(instance config.Installation) error {
+func Stop(instance config.Instance) error {
 	orch, err := orchestrators.NewFromInstance(instance)
 	if err != nil {
 		return err

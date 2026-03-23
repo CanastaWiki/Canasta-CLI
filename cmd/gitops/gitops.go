@@ -12,7 +12,7 @@ import (
 
 // NewCmd creates the "canasta gitops" parent command.
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 
 	workingDir, wdErr := os.Getwd()
 	if wdErr != nil {
@@ -23,7 +23,7 @@ func NewCmd() *cobra.Command {
 	gitopsCmd := &cobra.Command{
 		Use:   "gitops",
 		Short: "Git-based configuration management",
-		Long: `Manage Canasta installation configuration through a Git repository.
+		Long: `Manage Canasta instance configuration through a Git repository.
 Supports version-controlled configuration backup, encrypted secrets via
 git-crypt, and multi-server deployments with push/pull workflows.`,
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {

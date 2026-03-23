@@ -20,16 +20,16 @@ import (
 )
 
 type sideEffect struct {
-	validate func(instance config.Installation, value string) error
-	apply    func(instance config.Installation, value string) error
-	unapply  func(instance config.Installation) error
+	validate func(instance config.Instance, value string) error
+	apply    func(instance config.Instance, value string) error
+	unapply  func(instance config.Instance) error
 }
 
 var sideEffects = map[string]sideEffect{
 	"HTTPS_PORT": {
 		validate: validatePort,
 		apply:    applyHTTPSPortChange,
-		unapply: func(inst config.Installation) error {
+		unapply: func(inst config.Instance) error {
 			return applyHTTPSPortChange(inst, "443")
 		},
 	},
@@ -88,13 +88,13 @@ type setting struct {
 	value string
 }
 
-func newSetCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
+func newSetCmd(instance *config.Instance, orch *orchestrators.Orchestrator) *cobra.Command {
 	var force bool
 	var noRestart bool
 	cmd := &cobra.Command{
 		Use:   "set KEY=VALUE [KEY=VALUE ...]",
 		Short: "Change a configuration setting",
-		Long: `Set one or more configuration values in the .env file of a Canasta installation.
+		Long: `Set one or more configuration values in the .env file of a Canasta instance.
 
 Each argument must be in KEY=VALUE format. Multiple settings can be changed
 in a single invocation and only one restart is performed.
@@ -182,7 +182,7 @@ Use --no-restart to skip the restart (useful for batching multiple changes).`,
 }
 
 // validatePort checks that the value is a valid port number.
-func validatePort(_ config.Installation, value string) error {
+func validatePort(_ config.Instance, value string) error {
 	port, err := strconv.Atoi(value)
 	if err != nil || port < 1 || port > 65535 {
 		return fmt.Errorf("invalid port number: %s", value)
@@ -192,7 +192,7 @@ func validatePort(_ config.Installation, value string) error {
 
 // applyHTTPSPortChange updates wikis.yaml URLs and MW_SITE_SERVER/MW_SITE_FQDN
 // in .env to reflect the new HTTPS port.
-func applyHTTPSPortChange(inst config.Installation, newPort string) error {
+func applyHTTPSPortChange(inst config.Instance, newPort string) error {
 	wikisPath := filepath.Join(inst.Path, "config", "wikis.yaml")
 	envPath := filepath.Join(inst.Path, ".env")
 
@@ -288,7 +288,7 @@ func updateSiteServerPort(siteServer, newPort string) string {
 
 // recreateKindCluster deletes and recreates the kind cluster with the current
 // port settings from .env so the new host-port mappings take effect.
-func recreateKindCluster(inst config.Installation) error {
+func recreateKindCluster(inst config.Instance) error {
 	httpPort, httpsPort := orchestrators.GetPortsFromEnv(inst.Path)
 	logging.Print(fmt.Sprintf("Recreating kind cluster %s with ports %d/%d...\n", inst.KindCluster, httpPort, httpsPort))
 
@@ -302,7 +302,7 @@ func recreateKindCluster(inst config.Installation) error {
 }
 
 // applyObservabilityChange generates observability credentials when enabling.
-func applyObservabilityChange(inst config.Installation, value string) error {
+func applyObservabilityChange(inst config.Instance, value string) error {
 	if !strings.EqualFold(value, "true") {
 		return nil
 	}

@@ -9,7 +9,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newDeleteCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
+func newDeleteCmd(orch *orchestrators.Orchestrator, instance *config.Instance, envPath, repoURL *string) *cobra.Command {
 	var snapshot string
 
 	deleteCmd := &cobra.Command{

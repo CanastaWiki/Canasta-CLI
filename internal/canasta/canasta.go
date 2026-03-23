@@ -896,7 +896,7 @@ func GetEnvVariable(envPath string) (map[string]string, error) {
 }
 
 // Checking Installation existence
-func CheckCanastaID(instance config.Installation) (config.Installation, error) {
+func CheckCanastaID(instance config.Instance) (config.Instance, error) {
 	var err error
 	if instance.ID != "" {
 		if instance, err = config.GetDetails(instance.ID); err != nil {

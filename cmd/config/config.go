@@ -13,7 +13,7 @@ import (
 
 func NewCmd() *cobra.Command {
 	var (
-		instance config.Installation
+		instance config.Instance
 		orch     orchestrators.Orchestrator
 	)
 
@@ -26,17 +26,17 @@ func NewCmd() *cobra.Command {
 	configCmd := &cobra.Command{
 		Use:   "config",
 		Short: "View and modify Canasta configuration",
-		Long: `View and modify the .env configuration for a Canasta installation.
+		Long: `View and modify the .env configuration for a Canasta instance.
 
 Use "canasta config get" to view current settings and "canasta config set"
 to change them. The set command handles side effects automatically (e.g.,
 updating wikis.yaml when changing HTTPS_PORT) and restarts the instance.
-Editing .env by hand may leave the installation in an inconsistent state.
+Editing .env by hand may leave the instance in an inconsistent state.
 
 Key names are case-insensitive and hyphens are treated as underscores,
 so "https-port", "HTTPS_PORT", and "Https_Port" all work.
 
-Settings safe to change on a running installation:
+Settings safe to change on a running instance:
 
   Network
     HTTP_PORT                       HTTP port (default: 80)

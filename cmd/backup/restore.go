@@ -14,7 +14,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newRestoreCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
+func newRestoreCmd(orch *orchestrators.Orchestrator, instance *config.Instance, envPath, repoURL *string) *cobra.Command {
 
 	var (
 		snapshotID         string
@@ -25,7 +25,7 @@ func newRestoreCmd(orch *orchestrators.Orchestrator, instance *config.Installati
 	restoreCmd := &cobra.Command{
 		Use:   "restore",
 		Short: "Restore a backup",
-		Long: `Restore a Canasta installation from a backup snapshot. By default, a safety
+		Long: `Restore a Canasta instance from a backup snapshot. By default, a safety
 snapshot is taken before restoring. The restore replaces configuration files,
 extensions, images, skins, public_assets, .env, docker-compose.override.yml,
 my.cnf, and all wiki databases with the contents of the specified snapshot.
@@ -53,7 +53,7 @@ images, and public assets from the backup, leaving shared files untouched.`,
 	return restoreCmd
 }
 
-func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Installation, envPath, repoURL, snapshotID string, skipBeforeSnapshot bool, wikiID string) error {
+func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Instance, envPath, repoURL, snapshotID string, skipBeforeSnapshot bool, wikiID string) error {
 	envVariables, envErr := canasta.GetEnvVariable(envPath)
 	if envErr != nil {
 		return envErr
@@ -81,8 +81,8 @@ func restoreSnapshot(orch orchestrators.Orchestrator, instance config.Installati
 
 // restoreWiki restores a single wiki's database, per-wiki settings, images,
 // and public assets from a backup, leaving shared files untouched.
-func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, wikiID string, env map[string]string) error {
-	// Validate that the wiki ID exists in the current installation's wikis.yaml
+func restoreWiki(orch orchestrators.Orchestrator, instance config.Instance, wikiID string, env map[string]string) error {
+	// Validate that the wiki ID exists in the current instance's wikis.yaml
 	wikiIDs, err := farmsettings.GetWikiIDs(instance.Path)
 	if err != nil {
 		return err
@@ -95,7 +95,7 @@ func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, 
 		}
 	}
 	if !found {
-		return fmt.Errorf("wiki '%s' not found in current installation's wikis.yaml", wikiID)
+		return fmt.Errorf("wiki '%s' not found in current instance's wikis.yaml", wikiID)
 	}
 
 	// Copy per-wiki files from the backup volume:
@@ -140,7 +140,7 @@ func restoreWiki(orch orchestrators.Orchestrator, instance config.Installation, 
 }
 
 // restoreFull performs a full restore of all files and databases from a backup.
-func restoreFull(orch orchestrators.Orchestrator, instance config.Installation, env map[string]string) error {
+func restoreFull(orch orchestrators.Orchestrator, instance config.Instance, env map[string]string) error {
 	logging.Print("Copying files from backup volume...")
 	paths := make(map[string]string)
 	for _, dir := range []string{"config", "extensions", "images", "skins", "public_assets"} {

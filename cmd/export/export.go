@@ -16,7 +16,7 @@ import (
 )
 
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 	var wikiID string
 	var outputPath string
 
@@ -91,7 +91,7 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 	return exportCmd
 }
 
-func exportDatabase(instance config.Installation, wikiID, outputPath string) error {
+func exportDatabase(instance config.Instance, wikiID, outputPath string) error {
 	orch, err := orchestrators.New(instance.Orchestrator)
 	if err != nil {
 		return err

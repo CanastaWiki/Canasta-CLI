@@ -13,7 +13,7 @@ import (
 
 func NewCmd() *cobra.Command {
 	var (
-		instance config.Installation
+		instance config.Instance
 		orch     orchestrators.Orchestrator
 	)
 
@@ -26,7 +26,7 @@ func NewCmd() *cobra.Command {
 	sitemapCmd := &cobra.Command{
 		Use:   "sitemap",
 		Short: "Manage sitemaps for a Canasta instance",
-		Long: `Generate or remove XML sitemaps for wikis in a Canasta installation.
+		Long: `Generate or remove XML sitemaps for wikis in a Canasta instance.
 Sitemaps improve search engine indexing by listing all pages on your wiki.
 Use "canasta sitemap generate" to create sitemaps and "canasta sitemap remove"
 to delete them.`,

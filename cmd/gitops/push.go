@@ -13,7 +13,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/gitops"
 )
 
-func newPushCmd(instance *config.Installation) *cobra.Command {
+func newPushCmd(instance *config.Instance) *cobra.Command {
 	var message string
 
 	cmd := &cobra.Command{

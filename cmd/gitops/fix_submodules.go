@@ -6,7 +6,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/config"
 )
 
-func newFixSubmodulesCmd(instance *config.Installation) *cobra.Command {
+func newFixSubmodulesCmd(instance *config.Instance) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fix-submodules",
 		Short: "Convert extensions and skins to proper git submodules",

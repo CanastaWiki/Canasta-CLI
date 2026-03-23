@@ -58,7 +58,7 @@ func TestNewCmd(t *testing.T) {
 }
 
 func TestGenerateCmd(t *testing.T) {
-	var instance config.Installation
+	var instance config.Instance
 	var orch orchestrators.Orchestrator
 	cmd := newGenerateCmd(&instance, &orch)
 	if cmd.Use != "generate" {
@@ -76,7 +76,7 @@ func TestGenerateCmd(t *testing.T) {
 }
 
 func TestRemoveCmd(t *testing.T) {
-	var instance config.Installation
+	var instance config.Instance
 	var orch orchestrators.Orchestrator
 	cmd := newRemoveCmd(&instance, &orch)
 	if cmd.Use != "remove" {

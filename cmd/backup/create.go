@@ -14,13 +14,13 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newCreateCmd(orch *orchestrators.Orchestrator, instance *config.Installation, envPath, repoURL *string) *cobra.Command {
+func newCreateCmd(orch *orchestrators.Orchestrator, instance *config.Instance, envPath, repoURL *string) *cobra.Command {
 	var tag string
 
 	createBackupCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a backup",
-		Long: `Create a new backup snapshot of the Canasta installation. This dumps each
+		Long: `Create a new backup snapshot of the Canasta instance. This dumps each
 wiki's database (read from wikis.yaml), stages configuration files,
 extensions, images, skins, and public_assets into a Docker volume, along
 with .env, docker-compose.override.yml, and my.cnf (if present), then
@@ -42,7 +42,7 @@ uploads the snapshot to the backup repository with the specified tag.`,
 	return createBackupCmd
 }
 
-func takeSnapshot(orch orchestrators.Orchestrator, instance config.Installation, envPath, repoURL, tag string) error {
+func takeSnapshot(orch orchestrators.Orchestrator, instance config.Instance, envPath, repoURL, tag string) error {
 	fmt.Printf("Taking snapshot '%s'...\n", tag)
 	envVariables, err := canasta.GetEnvVariable(envPath)
 	if err != nil {

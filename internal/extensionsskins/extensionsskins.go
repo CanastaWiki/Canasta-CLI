@@ -48,7 +48,7 @@ type Item struct {
 	ExampleNames             string // e.g. "VisualEditor,Cite,ParserFunctions" or "Timeless"
 }
 
-// configPath returns the host path to settings.yaml for the given installation and wiki.
+// configPath returns the host path to settings.yaml for the given instance and wiki.
 func configPath(instancePath, wiki string) string {
 	if wiki != "" {
 		return filepath.Join(instancePath, "config", "settings", "wikis", wiki, configFileName)
@@ -101,7 +101,7 @@ func getSlice(cfg *configYAML, constants Item) *[]string {
 	return &cfg.Extensions
 }
 
-func List(instance config.Installation, orch orchestrators.Orchestrator, constants Item) error {
+func List(instance config.Instance, orch orchestrators.Orchestrator, constants Item) error {
 	fmt.Printf("Available %s:\n", constants.Name)
 	output, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find -L * -maxdepth 0 -type d")
 	if err != nil {
@@ -111,7 +111,7 @@ func List(instance config.Installation, orch orchestrators.Orchestrator, constan
 	return nil
 }
 
-func CheckInstalled(name string, instance config.Installation, orch orchestrators.Orchestrator, constants Item) (string, error) {
+func CheckInstalled(name string, instance config.Instance, orch orchestrators.Orchestrator, constants Item) (string, error) {
 	if err := ValidateName(name, constants); err != nil {
 		return "", err
 	}
@@ -125,7 +125,7 @@ func CheckInstalled(name string, instance config.Installation, orch orchestrator
 	return name, nil
 }
 
-func Enable(name, wiki string, instance config.Installation, constants Item) error {
+func Enable(name, wiki string, instance config.Instance, constants Item) error {
 	if err := ValidateName(name, constants); err != nil {
 		return err
 	}
@@ -155,7 +155,7 @@ func Enable(name, wiki string, instance config.Installation, constants Item) err
 	return nil
 }
 
-func CheckEnabled(name, wiki string, instance config.Installation, constants Item) (string, error) {
+func CheckEnabled(name, wiki string, instance config.Instance, constants Item) (string, error) {
 	if err := ValidateName(name, constants); err != nil {
 		return "", err
 	}
@@ -173,7 +173,7 @@ func CheckEnabled(name, wiki string, instance config.Installation, constants Ite
 	return name, nil
 }
 
-func Disable(name, wiki string, instance config.Installation, constants Item) error {
+func Disable(name, wiki string, instance config.Instance, constants Item) error {
 	if err := ValidateName(name, constants); err != nil {
 		return err
 	}

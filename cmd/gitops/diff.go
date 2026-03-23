@@ -10,7 +10,7 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/gitops"
 )
 
-func newDiffCmd(instance *config.Installation) *cobra.Command {
+func newDiffCmd(instance *config.Instance) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diff",
 		Short: "Show local and remote changes since the branches diverged",

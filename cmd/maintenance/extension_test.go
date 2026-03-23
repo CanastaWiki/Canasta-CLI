@@ -24,10 +24,10 @@ func (m *extMockOrchestrator) WriteStackFiles(_ string) error { return nil }
 func (m *extMockOrchestrator) UpdateStackFiles(_ string, _ bool) (bool, error) {
 	return false, nil
 }
-func (m *extMockOrchestrator) Start(_ config.Installation) error {
+func (m *extMockOrchestrator) Start(_ config.Instance) error {
 	return nil
 }
-func (m *extMockOrchestrator) Stop(_ config.Installation) error {
+func (m *extMockOrchestrator) Stop(_ config.Instance) error {
 	return nil
 }
 func (m *extMockOrchestrator) Update(_ string) (*orchestrators.UpdateReport, error) {
@@ -51,7 +51,7 @@ func (m *extMockOrchestrator) ExecStreaming(_, _, command string) error {
 	m.streamingCalls = append(m.streamingCalls, command)
 	return m.streamingErr
 }
-func (m *extMockOrchestrator) CheckRunningStatus(_ config.Installation) error {
+func (m *extMockOrchestrator) CheckRunningStatus(_ config.Instance) error {
 	return nil
 }
 func (m *extMockOrchestrator) CopyFrom(_, _, _, _ string) error {
@@ -78,16 +78,16 @@ func (m *extMockOrchestrator) MigrateConfig(_ string, _ bool) (bool, error) {
 	return false, nil
 }
 
-func (m *extMockOrchestrator) ListServices(_ config.Installation) ([]string, error) {
+func (m *extMockOrchestrator) ListServices(_ config.Instance) ([]string, error) {
 	return nil, nil
 }
-func (m *extMockOrchestrator) ExecInteractive(_ config.Installation, _ string, _ []string) error {
+func (m *extMockOrchestrator) ExecInteractive(_ config.Instance, _ string, _ []string) error {
 	return nil
 }
 func (m *extMockOrchestrator) Name() string            { return "Mock" }
 func (m *extMockOrchestrator) SupportsDevMode() bool   { return true }
 func (m *extMockOrchestrator) SupportsImagePull() bool { return true }
-func (m *extMockOrchestrator) StopAndStart(_ config.Installation) error {
+func (m *extMockOrchestrator) StopAndStart(_ config.Instance) error {
 	return nil
 }
 
@@ -167,7 +167,7 @@ func TestListExtensionsWithMaintenance(t *testing.T) {
 			"find extensions": "extensions/CirrusSearch/maintenance\ncanasta-extensions/SemanticMediaWiki/maintenance\nextensions/Cargo/maintenance\n",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	// Pass a specific wiki to avoid needing wikis.yaml
 	err := listExtensionsWithMaintenanceWith(mock, inst, "main")
 	if err != nil {
@@ -183,7 +183,7 @@ func TestListExtensionsFiltersToLoaded(t *testing.T) {
 			"find extensions": "extensions/CirrusSearch/maintenance\ncanasta-extensions/SemanticMediaWiki/maintenance\nextensions/Cargo/maintenance\n",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	// We can't easily capture stdout in this test, but at least verify no error
 	err := listExtensionsWithMaintenanceWith(mock, inst, "main")
 	if err != nil {
@@ -213,7 +213,7 @@ func TestListExtensionScripts(t *testing.T) {
 extensions/SemanticMediaWiki/maintenance/setupStore.php`,
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := listExtensionScriptsWith(mock, inst, "SemanticMediaWiki", "main")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -226,7 +226,7 @@ func TestListExtensionScriptsNotLoaded(t *testing.T) {
 			"eval.php": "VisualEditor\nCite\n",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := listExtensionScriptsWith(mock, inst, "SemanticMediaWiki", "main")
 	if err == nil {
 		t.Fatal("expected error for extension not loaded")
@@ -242,7 +242,7 @@ func TestListExtensionScriptsNotFound(t *testing.T) {
 			"eval.php": "NonExistent\n",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := listExtensionScriptsWith(mock, inst, "NonExistent", "main")
 	if err == nil {
 		t.Fatal("expected error for non-existent extension")
@@ -261,7 +261,7 @@ func TestRunExtensionScript(t *testing.T) {
 			"test -d extensions/SemanticMediaWiki": "exists",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php", "main")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -282,7 +282,7 @@ func TestRunExtensionScriptWithWiki(t *testing.T) {
 			"test -d extensions/CirrusSearch": "exists",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := runExtensionScriptWith(mock, inst, "CirrusSearch", "UpdateSearchIndexConfig.php", "docs")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -300,7 +300,7 @@ func TestRunExtensionScriptWithArgs(t *testing.T) {
 			"test -d extensions/SemanticMediaWiki": "exists",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php -s 1000 -e 2000", "main")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -317,7 +317,7 @@ func TestRunExtensionScriptNotLoaded(t *testing.T) {
 			"eval.php": "VisualEditor\nCite\n",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php", "main")
 	if err == nil {
 		t.Fatal("expected error for extension not loaded")
@@ -333,7 +333,7 @@ func TestRunExtensionScriptNotFound(t *testing.T) {
 			"eval.php": "NonExistent\n",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := runExtensionScriptWith(mock, inst, "NonExistent", "something.php", "main")
 	if err == nil {
 		t.Fatal("expected error for non-existent extension")
@@ -351,7 +351,7 @@ func TestRunExtensionScriptStreamingError(t *testing.T) {
 		},
 		streamingErr: fmt.Errorf("container error"),
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php", "main")
 	if err == nil {
 		t.Fatal("expected error when streaming fails")
@@ -369,7 +369,7 @@ func TestRunExtensionScriptCanastaExtensions(t *testing.T) {
 			"test -d canasta-extensions/Foo": "exists",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := runExtensionScriptWith(mock, inst, "Foo", "doSomething.php", "main")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -467,7 +467,7 @@ func TestRunExtensionScriptWikiInScriptString(t *testing.T) {
 			"test -d extensions/SemanticMediaWiki": "exists",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php --wiki=docs", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -488,7 +488,7 @@ func TestRunExtensionScriptWikiConflict(t *testing.T) {
 			"test -d extensions/SemanticMediaWiki": "exists",
 		},
 	}
-	inst := config.Installation{Path: "/test"}
+	inst := config.Instance{Path: "/test"}
 	err := runExtensionScriptWith(mock, inst, "SemanticMediaWiki", "rebuildData.php --wiki=main", "docs")
 	if err == nil {
 		t.Fatal("expected error for conflicting --wiki values")
@@ -553,7 +553,7 @@ func TestRunExtensionScriptNotLoadedSentinel(t *testing.T) {
 					"eval.php": tt.extensions,
 				},
 			}
-			inst := config.Installation{Path: "/test"}
+			inst := config.Instance{Path: "/test"}
 			err := runExtensionScriptWith(mock, inst, tt.extName, "rebuildData.php", tt.wikiID)
 			if err == nil {
 				t.Fatal("expected error for extension not loaded")
@@ -626,7 +626,7 @@ func TestRunExtensionScriptMultiWikiSkip(t *testing.T) {
 			mock.execOutputs = map[string]string{
 				"test -d extensions/" + tt.extName: "exists",
 			}
-			inst := config.Installation{Path: "/test"}
+			inst := config.Instance{Path: "/test"}
 
 			// Simulate what RunE does when wiki == "" (no -w flag)
 			ran := 0

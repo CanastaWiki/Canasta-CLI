@@ -11,16 +11,16 @@ import (
 )
 
 func NewCmd() *cobra.Command {
-	var instance config.Installation
+	var instance config.Instance
 	var cleanup bool
 
 	var listCmd = &cobra.Command{
 		Use:   "list",
-		Short: "List all Canasta installations",
-		Long: `List all registered Canasta installations. Displays each installation's
+		Short: "List all Canasta instances",
+		Long: `List all registered Canasta instances. Displays each instance's
 ID, path, and orchestrator as recorded in the Canasta configuration file.
 
-Use --cleanup to remove stale entries whose installation directories no longer exist.`,
+Use --cleanup to remove stale entries whose instance directories no longer exist.`,
 		Example: `  canasta list
   canasta list --cleanup`,
 		Args: cobra.NoArgs,
@@ -28,23 +28,23 @@ Use --cleanup to remove stale entries whose installation directories no longer e
 			return List(instance, cleanup)
 		},
 	}
-	listCmd.Flags().BoolVar(&cleanup, "cleanup", false, "Remove stale entries whose installation directories no longer exist")
+	listCmd.Flags().BoolVar(&cleanup, "cleanup", false, "Remove stale entries whose instance directories no longer exist")
 	return listCmd
 }
 
-func List(_ config.Installation, cleanup bool) error {
+func List(_ config.Instance, cleanup bool) error {
 	if cleanup {
 		installations, err := config.GetAll()
 		if err != nil {
 			return err
 		}
-		for id, installation := range installations {
-			if _, err := os.Stat(installation.Path); os.IsNotExist(err) {
-				if installation.KindCluster != "" {
-					if err := orchestrators.DeleteKindCluster(installation.KindCluster); err != nil {
-						fmt.Printf("Warning: failed to delete kind cluster '%s': %s\n", installation.KindCluster, err)
+		for id, inst := range installations {
+			if _, err := os.Stat(inst.Path); os.IsNotExist(err) {
+				if inst.KindCluster != "" {
+					if err := orchestrators.DeleteKindCluster(inst.KindCluster); err != nil {
+						fmt.Printf("Warning: failed to delete kind cluster '%s': %s\n", inst.KindCluster, err)
 					} else {
-						fmt.Printf("Deleted kind cluster '%s'\n", installation.KindCluster)
+						fmt.Printf("Deleted kind cluster '%s'\n", inst.KindCluster)
 					}
 				}
 				if err := config.Delete(id); err != nil {

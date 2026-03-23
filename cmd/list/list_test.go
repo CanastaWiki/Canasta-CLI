@@ -33,21 +33,21 @@ func TestList(t *testing.T) {
 		t.Fatalf("Failed to add second mock wiki: %v", err)
 	}
 
-	installation := config.Installation{
+	instance := config.Instance{
 		ID:           "test-instance",
 		Path:         installPath,
 		Orchestrator: "compose",
 	}
-	err = config.Add(installation)
+	err = config.Add(instance)
 	if err != nil {
-		t.Fatalf("Failed to add installation to config: %v", err)
+		t.Fatalf("Failed to add instance to config: %v", err)
 	}
 
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err = List(config.Installation{}, false)
+	err = List(config.Instance{}, false)
 
 	w.Close()
 
@@ -66,7 +66,7 @@ func TestList(t *testing.T) {
 	outputStr := out.String()
 
 	expectedValues := []string{
-		"Canasta ID", "Wiki ID", "Server Name", "Server Path", "Installation Path", "Orchestrator",
+		"Canasta ID", "Wiki ID", "Server Name", "Server Path", "Instance Path", "Orchestrator",
 		"test-instance",
 		"testwiki", "testwiki.local",
 		"devwiki", "devwiki.local",
@@ -88,22 +88,22 @@ func TestListCleanup(t *testing.T) {
 	config.ResetForTesting(tmpDir)
 	t.Cleanup(func() { config.ResetForTesting("") })
 
-	installPath := filepath.Join(tmpDir, "stale-installation")
+	installPath := filepath.Join(tmpDir, "stale-instance")
 
-	installation := config.Installation{
+	instance := config.Instance{
 		ID:           "stale-instance",
 		Path:         installPath,
 		Orchestrator: "compose",
 	}
-	if err := config.Add(installation); err != nil {
-		t.Fatalf("Failed to add installation to config: %v", err)
+	if err := config.Add(instance); err != nil {
+		t.Fatalf("Failed to add instance to config: %v", err)
 	}
 
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := List(config.Installation{}, true)
+	err := List(config.Instance{}, true)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -144,22 +144,22 @@ func TestListNotFound(t *testing.T) {
 	config.ResetForTesting(tmpDir)
 	t.Cleanup(func() { config.ResetForTesting("") })
 
-	installPath := filepath.Join(tmpDir, "missing-installation")
+	installPath := filepath.Join(tmpDir, "missing-instance")
 
-	installation := config.Installation{
+	instance := config.Instance{
 		ID:           "missing-instance",
 		Path:         installPath,
 		Orchestrator: "compose",
 	}
-	if err := config.Add(installation); err != nil {
-		t.Fatalf("Failed to add installation to config: %v", err)
+	if err := config.Add(instance); err != nil {
+		t.Fatalf("Failed to add instance to config: %v", err)
 	}
 
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := List(config.Installation{}, false)
+	err := List(config.Instance{}, false)
 
 	w.Close()
 	os.Stdout = oldStdout

@@ -12,13 +12,13 @@ import (
 	"github.com/CanastaWiki/Canasta-CLI/internal/orchestrators"
 )
 
-func newGenerateCmd(instance *config.Installation, orch *orchestrators.Orchestrator) *cobra.Command {
+func newGenerateCmd(instance *config.Instance, orch *orchestrators.Orchestrator) *cobra.Command {
 	var wikiID string
 
 	cmd := &cobra.Command{
 		Use:   "generate",
 		Short: "Generate sitemaps for one or all wikis",
-		Long: `Generate XML sitemaps for wikis in a Canasta installation. If --wiki is
+		Long: `Generate XML sitemaps for wikis in a Canasta instance. If --wiki is
 specified, generates a sitemap for that wiki only. Otherwise, generates
 sitemaps for all wikis in the instance. Once generated, the background
 generator will automatically refresh them.`,
@@ -38,7 +38,7 @@ generator will automatically refresh them.`,
 	return cmd
 }
 
-func runGenerate(instance config.Installation, orch orchestrators.Orchestrator, wikiID string) error {
+func runGenerate(instance config.Instance, orch orchestrators.Orchestrator, wikiID string) error {
 	// Check containers are running
 	if err := orch.CheckRunningStatus(instance); err != nil {
 		return fmt.Errorf("containers are not running: %w", err)
