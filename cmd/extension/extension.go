@@ -8,11 +8,11 @@ import (
 
 func NewCmd() *cobra.Command {
 	return extensionsskins.NewCmd(extensionsskins.Item{
-		Name:                     "Canasta extension",
-		CmdName:                  "extension",
-		Plural:                   "extensions",
+		Name:                 "Canasta extension",
+		CmdName:              "extension",
+		Plural:               "extensions",
 		RelativeInstancePath: "extensions",
-		PhpCommand:               "wfLoadExtension",
-		ExampleNames:             "VisualEditor,Cite,ParserFunctions",
+		PhpCommand:           "wfLoadExtension",
+		ExampleNames:         "VisualEditor,Cite,ParserFunctions",
 	})
 }

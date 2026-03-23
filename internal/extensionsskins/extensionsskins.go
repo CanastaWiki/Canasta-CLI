@@ -40,12 +40,12 @@ func ValidateName(name string, constants Item) error {
 }
 
 type Item struct {
-	Name                     string // e.g. "Canasta extension" or "Canasta skin"
-	CmdName                  string // e.g. "extension" or "skin"
-	Plural                   string // e.g. "extensions" or "skins"
+	Name                 string // e.g. "Canasta extension" or "Canasta skin"
+	CmdName              string // e.g. "extension" or "skin"
+	Plural               string // e.g. "extensions" or "skins"
 	RelativeInstancePath string // e.g. "extensions" or "skins"
-	PhpCommand               string // e.g. "wfLoadExtension" or "wfLoadSkin"
-	ExampleNames             string // e.g. "VisualEditor,Cite,ParserFunctions" or "Timeless"
+	PhpCommand           string // e.g. "wfLoadExtension" or "wfLoadSkin"
+	ExampleNames         string // e.g. "VisualEditor,Cite,ParserFunctions" or "Timeless"
 }
 
 // configPath returns the host path to settings.yaml for the given instance and wiki.

@@ -73,21 +73,21 @@ func TestArticle(t *testing.T) {
 // --- YAML config helpers ---
 
 var extConstants = Item{
-	Name:                     "Canasta extension",
-	CmdName:                  "extension",
-	Plural:                   "extensions",
+	Name:                 "Canasta extension",
+	CmdName:              "extension",
+	Plural:               "extensions",
 	RelativeInstancePath: "extensions",
-	PhpCommand:               "wfLoadExtension",
-	ExampleNames:             "VisualEditor,Cite,ParserFunctions",
+	PhpCommand:           "wfLoadExtension",
+	ExampleNames:         "VisualEditor,Cite,ParserFunctions",
 }
 
 var skinConstants = Item{
-	Name:                     "Canasta skin",
-	CmdName:                  "skin",
-	Plural:                   "skins",
+	Name:                 "Canasta skin",
+	CmdName:              "skin",
+	Plural:               "skins",
 	RelativeInstancePath: "skins",
-	PhpCommand:               "wfLoadSkin",
-	ExampleNames:             "Timeless",
+	PhpCommand:           "wfLoadSkin",
+	ExampleNames:         "Timeless",
 }
 
 func TestConfigPath(t *testing.T) {
