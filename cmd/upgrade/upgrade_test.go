@@ -354,3 +354,269 @@ func TestRemoveEmptyComposerLocalPreservesPopulated(t *testing.T) {
 		t.Error("file content should be unchanged")
 	}
 }
+
+func writeWikisYAML(t *testing.T, installPath string, wikiIDs ...string) {
+	t.Helper()
+
+	configDir := filepath.Join(installPath, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	var b strings.Builder
+	b.WriteString("wikis:\n")
+	for _, id := range wikiIDs {
+		b.WriteString("  - id: ")
+		b.WriteString(id)
+		b.WriteString("\n")
+		b.WriteString("    url: ")
+		b.WriteString(id)
+		b.WriteString(".example.org\n")
+		b.WriteString("    name: ")
+		b.WriteString(id)
+		b.WriteString("\n")
+	}
+
+	if err := os.WriteFile(filepath.Join(configDir, "wikis.yaml"), []byte(b.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMigrateDirectoryStructureLegacyLayout(t *testing.T) {
+	installPath := t.TempDir()
+	writeWikisYAML(t, installPath, "wiki1")
+
+	legacyWikiDir := filepath.Join(installPath, "config", "wiki1")
+	if err := os.MkdirAll(legacyWikiDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyWikiDir, "LocalSettings.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	settingsDir := filepath.Join(installPath, "config", "settings")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "CommonSettings.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := migrateDirectoryStructure(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed = true")
+	}
+
+	if _, err := os.Stat(filepath.Join(installPath, "config", "settings", "wikis", "wiki1", "LocalSettings.php")); err != nil {
+		t.Fatalf("expected migrated wiki directory: %v", err)
+	}
+	if _, err := os.Stat(legacyWikiDir); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy wiki directory to be removed, err=%v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(installPath, "config", "settings", "global", "CommonSettings.php")); err != nil {
+		t.Fatalf("expected global PHP file to be moved: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(settingsDir, "CommonSettings.php")); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy global PHP file to be removed, err=%v", err)
+	}
+}
+
+func TestMigrateDirectoryStructureAlreadyMigratedNoOp(t *testing.T) {
+	installPath := t.TempDir()
+	writeWikisYAML(t, installPath, "wiki1")
+
+	migratedWikiDir := filepath.Join(installPath, "config", "settings", "wikis", "wiki1")
+	if err := os.MkdirAll(migratedWikiDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(migratedWikiDir, "LocalSettings.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	globalDir := filepath.Join(installPath, "config", "settings", "global")
+	if err := os.MkdirAll(globalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, "CommonSettings.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	settingsDir := filepath.Join(installPath, "config", "settings")
+	if err := os.WriteFile(filepath.Join(settingsDir, "CommonSettings.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := migrateDirectoryStructure(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed {
+		t.Fatal("expected changed = false")
+	}
+
+	if _, err := os.Stat(filepath.Join(globalDir, "CommonSettings.php")); err != nil {
+		t.Fatalf("global PHP file should still exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(settingsDir, "CommonSettings.php")); err != nil {
+		t.Fatalf("legacy PHP file should still exist (skipped, not removed): %v", err)
+	}
+}
+
+func TestMigrateDirectoryStructureMultipleWikiDirectories(t *testing.T) {
+	installPath := t.TempDir()
+	writeWikisYAML(t, installPath, "wiki1", "wiki2")
+
+	for _, wiki := range []string{"wiki1", "wiki2"} {
+		legacyWikiDir := filepath.Join(installPath, "config", wiki)
+		if err := os.MkdirAll(legacyWikiDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(legacyWikiDir, "LocalSettings.php"), []byte("<?php"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	changed, err := migrateDirectoryStructure(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed = true")
+	}
+
+	for _, wiki := range []string{"wiki1", "wiki2"} {
+		if _, err := os.Stat(filepath.Join(installPath, "config", "settings", "wikis", wiki, "LocalSettings.php")); err != nil {
+			t.Fatalf("expected migrated wiki %s: %v", wiki, err)
+		}
+		if _, err := os.Stat(filepath.Join(installPath, "config", wiki)); !os.IsNotExist(err) {
+			t.Fatalf("expected legacy wiki %s to be removed, err=%v", wiki, err)
+		}
+	}
+}
+
+func TestMigrateDirectoryStructureDryRun(t *testing.T) {
+	installPath := t.TempDir()
+	writeWikisYAML(t, installPath, "wiki1")
+
+	legacyWikiDir := filepath.Join(installPath, "config", "wiki1")
+	if err := os.MkdirAll(legacyWikiDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyWikiDir, "LocalSettings.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	settingsDir := filepath.Join(installPath, "config", "settings")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "CommonSettings.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := migrateDirectoryStructure(installPath, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed = true in dry-run")
+	}
+
+	if _, err := os.Stat(filepath.Join(installPath, "config", "wiki1", "LocalSettings.php")); err != nil {
+		t.Fatalf("legacy wiki directory should remain in dry-run: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(settingsDir, "CommonSettings.php")); err != nil {
+		t.Fatalf("legacy global PHP file should remain in dry-run: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(installPath, "config", "settings", "wikis", "wiki1")); !os.IsNotExist(err) {
+		t.Fatalf("migrated wiki directory should not be created in dry-run, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(installPath, "config", "settings", "global", "CommonSettings.php")); !os.IsNotExist(err) {
+		t.Fatalf("global PHP destination should not be created in dry-run, err=%v", err)
+	}
+}
+
+func TestMigrateDirectoryStructureMixedState(t *testing.T) {
+	installPath := t.TempDir()
+	writeWikisYAML(t, installPath, "wiki1", "wiki2", "wiki3")
+
+	legacyWiki1 := filepath.Join(installPath, "config", "wiki1")
+	if err := os.MkdirAll(legacyWiki1, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyWiki1, "LocalSettings.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	migratedWiki2 := filepath.Join(installPath, "config", "settings", "wikis", "wiki2")
+	if err := os.MkdirAll(migratedWiki2, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(migratedWiki2, "LocalSettings.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := migrateDirectoryStructure(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed = true")
+	}
+
+	if _, err := os.Stat(filepath.Join(installPath, "config", "settings", "wikis", "wiki1", "LocalSettings.php")); err != nil {
+		t.Fatalf("expected wiki1 to be migrated: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(installPath, "config", "wiki1")); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy wiki1 directory to be removed, err=%v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(installPath, "config", "settings", "wikis", "wiki2", "LocalSettings.php")); err != nil {
+		t.Fatalf("expected wiki2 to remain migrated: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(installPath, "config", "wiki3")); !os.IsNotExist(err) {
+		t.Fatalf("expected wiki3 legacy path to remain absent, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(installPath, "config", "settings", "wikis", "wiki3")); !os.IsNotExist(err) {
+		t.Fatalf("expected wiki3 migrated path to remain absent, err=%v", err)
+	}
+}
+
+func TestMigrateDirectoryStructureGlobalOnly(t *testing.T) {
+	installPath := t.TempDir()
+	writeWikisYAML(t, installPath, "wiki1")
+
+	settingsDir := filepath.Join(installPath, "config", "settings")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "Vector.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "Extensions.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := migrateDirectoryStructure(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed = true")
+	}
+
+	for _, name := range []string{"Vector.php", "Extensions.php"} {
+		if _, err := os.Stat(filepath.Join(installPath, "config", "settings", "global", name)); err != nil {
+			t.Fatalf("expected migrated global file %s: %v", name, err)
+		}
+		if _, err := os.Stat(filepath.Join(settingsDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("expected legacy global file %s to be removed, err=%v", name, err)
+		}
+	}
+}
