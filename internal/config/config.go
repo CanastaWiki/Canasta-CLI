@@ -175,7 +175,11 @@ func ListAll(w io.Writer) error {
 			continue
 		}
 
+<<<<<<< HEAD
 		if _, err := os.Stat(filepath.Join(instance.Path, "config", "wikis.yaml")); os.IsNotExist(err) {
+=======
+		if _, err := os.Stat(filepath.Join(installation.Path, "config", "wikis.yaml")); os.IsNotExist(err) {
+>>>>>>> 7e8b709 (refactor: list all to io.Writer and standardize installation→instance language)
 			// File does not exist, print only instance info
 			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				instance.ID,
@@ -189,7 +193,11 @@ func ListAll(w io.Writer) error {
 
 		ids, serverNames, paths, err := farmsettings.ReadWikisYaml(filepath.Join(instance.Path, "config", "wikis.yaml"))
 		if err != nil {
+<<<<<<< HEAD
 			fmt.Printf("Error reading wikis.yaml for instance ID '%s': %s\n", instance.ID, err)
+=======
+			fmt.Printf("Error reading wikis.yaml for instance ID '%s': %s\n", installation.ID, err)
+>>>>>>> 7e8b709 (refactor: list all to io.Writer and standardize installation→instance language)
 			continue
 		}
 
@@ -255,7 +263,11 @@ func GetDetails(canastaID string) (Instance, error) {
 	if exists {
 		return existingInstances.Instances[canastaID], nil
 	}
+<<<<<<< HEAD
 	return Instance{}, fmt.Errorf("canasta instance with the ID doesn't exist")
+=======
+	return Installation{}, fmt.Errorf("canasta instance with the ID doesn't exist")
+>>>>>>> 7e8b709 (refactor: list all to io.Writer and standardize installation→instance language)
 }
 
 func GetCanastaID(installPath string) (string, error) {
