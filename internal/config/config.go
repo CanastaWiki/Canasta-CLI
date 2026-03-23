@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -133,7 +134,7 @@ func OrchestratorExists(orchestrator string) (bool, error) {
 	return existingInstances.Orchestrators[orchestrator].Path != "", nil
 }
 
-func ListAll() error {
+func ListAll(w io.Writer) error {
 	if err := ensureInitialized(); err != nil {
 		return err
 	}
@@ -143,15 +144,16 @@ func ListAll() error {
 	}
 
 	if len(existingInstances.Instances) == 0 {
-		fmt.Printf("No instances found (looked in %s)\n", confFile)
+		fmt.Fprintf(w, "No instances found (looked in %s)\n", confFile)
 		if IsRunningAsRoot() {
-			fmt.Println("Note: Running as root uses /etc/canasta/conf.json. Instances")
-			fmt.Println("registered by a non-root user are stored in ~/.config/canasta/conf.json.")
+			fmt.Fprintln(w, "Note: Running as root uses /etc/canasta/conf.json. Instances")
+			fmt.Fprintln(w, "registered by a non-root user are stored in ~/.config/canasta/conf.json.")
 		}
+
 		return nil
 	}
 
-	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	writer := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(writer, "Canasta ID\tWiki ID\tServer Name\tServer Path\tInstance Path\tOrchestrator")
 
 	for _, instance := range existingInstances.Instances {
@@ -173,7 +175,11 @@ func ListAll() error {
 			continue
 		}
 
+<<<<<<< HEAD
 		if _, err := os.Stat(filepath.Join(instance.Path, "config", "wikis.yaml")); os.IsNotExist(err) {
+=======
+		if _, err := os.Stat(filepath.Join(installation.Path, "config", "wikis.yaml")); os.IsNotExist(err) {
+>>>>>>> 7e8b709 (refactor: list all to io.Writer and standardize installation→instance language)
 			// File does not exist, print only instance info
 			fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				instance.ID,
@@ -187,7 +193,11 @@ func ListAll() error {
 
 		ids, serverNames, paths, err := farmsettings.ReadWikisYaml(filepath.Join(instance.Path, "config", "wikis.yaml"))
 		if err != nil {
+<<<<<<< HEAD
 			fmt.Printf("Error reading wikis.yaml for instance ID '%s': %s\n", instance.ID, err)
+=======
+			fmt.Printf("Error reading wikis.yaml for instance ID '%s': %s\n", installation.ID, err)
+>>>>>>> 7e8b709 (refactor: list all to io.Writer and standardize installation→instance language)
 			continue
 		}
 
@@ -253,7 +263,11 @@ func GetDetails(canastaID string) (Instance, error) {
 	if exists {
 		return existingInstances.Instances[canastaID], nil
 	}
+<<<<<<< HEAD
 	return Instance{}, fmt.Errorf("canasta instance with the ID doesn't exist")
+=======
+	return Installation{}, fmt.Errorf("canasta instance with the ID doesn't exist")
+>>>>>>> 7e8b709 (refactor: list all to io.Writer and standardize installation→instance language)
 }
 
 func GetCanastaID(installPath string) (string, error) {
@@ -386,12 +400,7 @@ func GetConfigDir() (string, error) {
 		dir = filepath.Join(base, "canasta")
 
 		// Checks if this is running as root
-		currentUser, err := user.Current()
-		if err != nil {
-			return "", fmt.Errorf("unable to get the current user: %w", err)
-		}
-
-		if currentUser.Username == "root" {
+		if IsRunningAsRoot() {
 			dir = "/etc/canasta"
 		}
 	}
