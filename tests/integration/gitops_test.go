@@ -139,7 +139,7 @@ func TestGitops_InitAndPush(t *testing.T) {
 	}
 
 	// Stage and push the change
-	out, err = inst.run(t, "gitops", "add", "-i", inst.ID, "config/settings/global/GitopsTest.php")
+	out, err = inst.run(t, "gitops", "add", "-i", inst.ID, testFile)
 	if err != nil {
 		t.Fatalf("gitops add failed: %v\n%s", err, out)
 	}
