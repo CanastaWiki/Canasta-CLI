@@ -27,6 +27,23 @@ lint:
 		@printf "\e[1;36m>> golangci-lint\e[0m\n"
 		@golangci-lint run ./...
 
+test-cover:
+		go test -coverprofile=unit-coverage.out ./...
+		@echo "Unit coverage written to unit-coverage.out"
+
+integration-cover:
+		INTEGRATION_COVER_PROFILE=integration-coverage.out \
+		go test -tags integration -timeout 20m -v ./tests/integration/...
+		@echo "Integration coverage written to integration-coverage.out"
+
+coverage-report: unit-coverage.out integration-coverage.out
+		@echo "mode: set" > combined-coverage.out
+		@tail -n +2 unit-coverage.out >> combined-coverage.out
+		@tail -n +2 integration-coverage.out >> combined-coverage.out
+		@go tool cover -func=combined-coverage.out | tail -1
+		@echo "Full report: go tool cover -func=combined-coverage.out"
+		@echo "HTML report: go tool cover -html=combined-coverage.out -o coverage.html"
+
 help:
 		@printf "\n"
 		@printf "\e[1mUsage:\e[0m\n"
@@ -44,5 +61,10 @@ help:
 		@printf "  \e[36mprepare-lint\e[0m         Install golangci-lint. This is used in CI, you should probably install golangci-lint using your package manager.\n"
 		@printf "  \e[36mlint\e[0m                     Run lint.\n"
 		@printf "\n"
+		@printf "\e[1mCoverage\e[0m\n"
+		@printf "  \e[36mtest-cover\e[0m               Run unit tests with coverage.\n"
+		@printf "  \e[36mintegration-cover\e[0m        Run integration tests with coverage (requires Docker).\n"
+		@printf "  \e[36mcoverage-report\e[0m          Merge unit and integration profiles and show combined coverage.\n"
+		@printf "\n"
 
-.PHONY: build install clean prepare-lint lint help
+.PHONY: build install clean prepare-lint lint test-cover integration-cover coverage-report help

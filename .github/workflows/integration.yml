@@ -33,3 +33,12 @@ jobs:
       # sg runs the command under the www-data group (usermod doesn't
       # take effect in the current shell session).
       run: sg www-data -c "go test -tags integration -timeout 20m -v ./tests/integration/..."
+      env:
+        INTEGRATION_COVER_PROFILE: integration-coverage.out
+    - name: Upload integration coverage
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: integration-coverage
+        path: integration-coverage.out
+        if-no-files-found: warn

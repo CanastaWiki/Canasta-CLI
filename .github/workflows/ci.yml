@@ -22,4 +22,11 @@ jobs:
     - name: Vet
       run: go vet ./...
     - name: Test
-      run: go test ./...
+      run: go test -coverprofile=unit-coverage.out ./...
+    - name: Upload unit coverage
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-coverage
+        path: unit-coverage.out
+        if-no-files-found: warn
