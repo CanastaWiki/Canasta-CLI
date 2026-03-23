@@ -186,6 +186,14 @@ func waitForWiki(t *testing.T, httpPort string, timeout time.Duration) {
 			t.Logf("Wiki is up at port %s", httpPort)
 			return
 		}
+		// Private wikis (DefaultSettings.php) return readapidenied for
+		// anonymous requests — this still means MediaWiki is running.
+		if errMap, ok := result["error"].(map[string]interface{}); ok {
+			if errMap["code"] == "readapidenied" {
+				t.Logf("Wiki is up at port %s (private wiki, read denied for anonymous)", httpPort)
+				return
+			}
+		}
 		lastErr = fmt.Sprintf("HTTP %d, no 'query' key in response", resp.StatusCode)
 		time.Sleep(5 * time.Second)
 	}
