@@ -13,12 +13,12 @@ Canasta CLI supports the following platforms:
 ## Commands
 
 ### create
-**Description:** Creates a Canasta installation. Enhanced to support wiki farm setup with the `-f` flag.
+**Description:** Creates a Canasta instance. Enhanced to support wiki farm setup with the `-f` flag.
 
 **Usage:**
 canasta create [flags]
 - `-p, --path`: Canasta directory.
-- `-o, --orchestrator`: Orchestrator to use for installation (default: "compose").
+- `-o, --orchestrator`: Orchestrator to use (default: "compose").
 - `-i, --id`: Canasta instance ID.
 - `-w, --wiki`: ID of the wiki.
 - `-t, --site-name`: Display name of the wiki (optional, defaults to wiki ID).
@@ -26,7 +26,7 @@ canasta create [flags]
 - `-a, --admin`: Initial wiki admin username (default: "WikiSysop").
 - `-s, --password`: Initial wiki admin password (if not provided, auto-generates and saves to config/admin-password_{wikiid}).
 - `-f, --yamlfile`: Initial wiki yaml file for wiki farm setup.
-- `-k, --keep-config`: Keep the config files on installation failure.
+- `-k, --keep-config`: Keep the config files on failure.
 - `-r, --override`: Name of a file to copy to docker-compose.override.yml.
 - `-e, --envfile`: Path to .env file with password overrides (merged with default .env).
 - `--rootdbpass`: Root database password (if not provided, auto-generates and saves to .env).
@@ -61,7 +61,7 @@ canasta extension [subcommand] [flags]
 ```
 **Flags:**
 - `-i, --id`: Specifies the Canasta instance ID.
-- `-p, --path`: Specifies the Canasta installation directory.
+- `-p, --path`: Specifies the Canasta instance directory.
 - `-w, --wiki`: Specifies the ID of a specific wiki within the Canasta farm.
 - `-v, --verbose`: Enables verbose output.
 
@@ -78,7 +78,7 @@ canasta add [flags]
 - `-t, --site-name`: Display name of the wiki (optional, defaults to wiki ID).
 - `-p, --path`: Path to the new wiki.
 - `-i, --id`: Canasta instance ID (required).
-- `-o, --orchestrator`: Orchestrator to use for installation (default: "compose").
+- `-o, --orchestrator`: Orchestrator to use (default: "compose").
 - `-d, --database`: Path to the existing database dump.
 - `-a, --admin`: Admin name of the new wiki (default: "WikiSysop").
 - `-s, --password`: Admin password for the new wiki (if not provided, auto-generates and saves to config/admin-password_{wikiid}).

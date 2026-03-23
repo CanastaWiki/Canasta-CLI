@@ -40,12 +40,12 @@ func ValidateName(name string, constants Item) error {
 }
 
 type Item struct {
-	Name                     string // e.g. "Canasta extension" or "Canasta skin"
-	CmdName                  string // e.g. "extension" or "skin"
-	Plural                   string // e.g. "extensions" or "skins"
-	RelativeInstallationPath string // e.g. "extensions" or "skins"
-	PhpCommand               string // e.g. "wfLoadExtension" or "wfLoadSkin"
-	ExampleNames             string // e.g. "VisualEditor,Cite,ParserFunctions" or "Timeless"
+	Name                 string // e.g. "Canasta extension" or "Canasta skin"
+	CmdName              string // e.g. "extension" or "skin"
+	Plural               string // e.g. "extensions" or "skins"
+	RelativeInstancePath string // e.g. "extensions" or "skins"
+	PhpCommand           string // e.g. "wfLoadExtension" or "wfLoadSkin"
+	ExampleNames         string // e.g. "VisualEditor,Cite,ParserFunctions" or "Timeless"
 }
 
 // configPath returns the host path to settings.yaml for the given instance and wiki.
@@ -103,7 +103,7 @@ func getSlice(cfg *configYAML, constants Item) *[]string {
 
 func List(instance config.Instance, orch orchestrators.Orchestrator, constants Item) error {
 	fmt.Printf("Available %s:\n", constants.Name)
-	output, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find -L * -maxdepth 0 -type d")
+	output, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, "cd $MW_HOME/"+constants.RelativeInstancePath+" && find -L * -maxdepth 0 -type d")
 	if err != nil {
 		return fmt.Errorf("failed to list %s: %s", constants.Name, output)
 	}
@@ -115,7 +115,7 @@ func CheckInstalled(name string, instance config.Instance, orch orchestrators.Or
 	if err := ValidateName(name, constants); err != nil {
 		return "", err
 	}
-	output, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, "cd $MW_HOME/"+constants.RelativeInstallationPath+" && find -L * -maxdepth 0 -type d")
+	output, err := orch.ExecWithError(instance.Path, orchestrators.ServiceWeb, "cd $MW_HOME/"+constants.RelativeInstancePath+" && find -L * -maxdepth 0 -type d")
 	if err != nil {
 		return "", fmt.Errorf("failed to check installed %s: %s", constants.Name, output)
 	}

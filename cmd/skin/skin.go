@@ -8,11 +8,11 @@ import (
 
 func NewCmd() *cobra.Command {
 	return extensionsskins.NewCmd(extensionsskins.Item{
-		Name:                     "Canasta skin",
-		CmdName:                  "skin",
-		Plural:                   "skins",
-		RelativeInstallationPath: "skins",
-		PhpCommand:               "wfLoadSkin",
-		ExampleNames:             "Timeless",
+		Name:                 "Canasta skin",
+		CmdName:              "skin",
+		Plural:               "skins",
+		RelativeInstancePath: "skins",
+		PhpCommand:           "wfLoadSkin",
+		ExampleNames:         "Timeless",
 	})
 }

@@ -101,7 +101,7 @@ func Exec(orch Orchestrator, installPath, service, command string) (string, erro
 	return output, nil
 }
 
-// StopAndStart stops and then starts the containers for an installation.
+// StopAndStart stops and then starts the containers for an instance.
 func StopAndStart(orch Orchestrator, instance config.Instance) error {
 	if err := orch.Stop(instance); err != nil {
 		return err

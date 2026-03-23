@@ -65,7 +65,7 @@ func (c *ComposeOrchestrator) CheckDependencies() error {
 	return nil
 }
 
-// WriteStackFiles writes embedded Docker Compose files to the installation directory.
+// WriteStackFiles writes embedded Docker Compose files to the instance directory.
 // Files are only written if they don't already exist (no-clobber).
 func (c *ComposeOrchestrator) WriteStackFiles(installPath string) error {
 	return c.walkStackFiles(installPath, false)
@@ -516,7 +516,7 @@ func syncComposeProfiles(installPath string) error {
 	return canasta.SaveEnvVariable(envPath, "COMPOSE_PROFILES", newProfiles)
 }
 
-// InitConfig sets up Compose-specific configuration for a new installation.
+// InitConfig sets up Compose-specific configuration for a new instance.
 func (c *ComposeOrchestrator) InitConfig(installPath string) error {
 	if err := canasta.CreateCaddyfileSite(installPath); err != nil {
 		return err

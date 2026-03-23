@@ -13,7 +13,7 @@ import (
 )
 
 // composeVolumeName returns the Docker Compose volume name for a given
-// installation path and compose volume name. Docker Compose v2 derives the
+// instance path and compose volume name. Docker Compose v2 derives the
 // project name by lowercasing the directory name and stripping characters
 // that don't match [a-z0-9_-].
 func composeVolumeName(installPath, volume string) string {

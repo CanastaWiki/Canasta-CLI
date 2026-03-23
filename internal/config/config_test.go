@@ -188,7 +188,7 @@ func TestGetCanastaIDFromSubdirectory(t *testing.T) {
 		{"one level deep", "/srv/canasta/my-wiki/config", "subdir-test", false},
 		{"two levels deep", "/srv/canasta/my-wiki/config/settings", "subdir-test", false},
 		{"unrelated path", "/srv/other/project", "", true},
-		{"parent of installation", "/srv/canasta", "", true},
+		{"parent of instance", "/srv/canasta", "", true},
 	}
 
 	for _, tt := range tests {

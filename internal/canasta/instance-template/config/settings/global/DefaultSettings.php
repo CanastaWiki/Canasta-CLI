@@ -1,5 +1,5 @@
 <?php
-// Default settings for all wikis in the installation.
+// Default settings for all wikis in the instance.
 // This file makes all wikis private by default: only logged-in users can
 // read pages, and anonymous users are blocked from editing or creating accounts.
 //

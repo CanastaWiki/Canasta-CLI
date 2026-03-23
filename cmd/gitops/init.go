@@ -201,7 +201,7 @@ func runInitBootstrap(installPath, hostName, role, repoURL, keyFile string, forc
 	}
 
 	// 8. Create hosts.yaml.
-	// Use the Canasta ID from the installation registry if available.
+	// Use the Canasta ID from the instance registry if available.
 	canastaID := filepath.Base(installPath)
 	details, detailsErr := config.GetDetails(canastaID)
 	if detailsErr == nil && details.ID != "" {
@@ -474,7 +474,7 @@ func convertToSubmodules(installPath, dirName string) error {
 }
 
 // removeLegacyGitignores removes .gitignore files left over from the old
-// Canasta-DockerCompose installation template. These files ignore everything
+// Canasta-DockerCompose instance template. These files ignore everything
 // except .gitignore itself, which prevents gitops from tracking the contents
 // of these directories.
 func removeLegacyGitignores(installPath string) {

@@ -69,11 +69,11 @@ distributed using the stored configuration.`,
 }
 
 func upgradeAllInstances(dryRun bool) error {
-	installations, err := config.GetAll()
+	instances, err := config.GetAll()
 	if err != nil {
 		return err
 	}
-	if len(installations) == 0 {
+	if len(instances) == 0 {
 		fmt.Printf("No registered instances found (looked in %s)\n", config.GetConfFilePath())
 		if config.IsRunningAsRoot() {
 			fmt.Println("Note: Running as root uses /etc/canasta/conf.json. Instances")
@@ -84,15 +84,15 @@ func upgradeAllInstances(dryRun bool) error {
 	}
 
 	// Sort by ID for deterministic output
-	ids := make([]string, 0, len(installations))
-	for id := range installations {
+	ids := make([]string, 0, len(instances))
+	for id := range instances {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 
 	var failedIDs []string
 	for _, id := range ids {
-		inst := installations[id]
+		inst := instances[id]
 		fmt.Printf("\n=== Upgrading instance '%s' ===\n", id)
 		if err := Upgrade(inst, dryRun); err != nil {
 			fmt.Printf("Error upgrading '%s': %s\n", id, err)
@@ -136,7 +136,7 @@ func Upgrade(instance config.Instance, dryRun bool) error {
 
 	// Update CLI-managed template files (config files, READMEs, etc.).
 	// User-editable files are skipped. Returns true if any files were updated.
-	templateChanged, err := canasta.UpdateInstallationTemplate(instance.Path, dryRun)
+	templateChanged, err := canasta.UpdateInstanceTemplate(instance.Path, dryRun)
 	if err != nil {
 		return err
 	}

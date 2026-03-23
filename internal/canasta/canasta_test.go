@@ -913,30 +913,30 @@ func TestResolveFilePaths(t *testing.T) {
 	})
 }
 
-func TestUpdateInstallationTemplate_NoChanges(t *testing.T) {
+func TestUpdateInstanceTemplate_NoChanges(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a pristine installation
-	if err := CopyInstallationTemplate(dir); err != nil {
-		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	// Create a pristine instance
+	if err := CopyInstanceTemplate(dir); err != nil {
+		t.Fatalf("CopyInstanceTemplate() error = %v", err)
 	}
 
 	// Update should report no changes
-	changed, err := UpdateInstallationTemplate(dir, false)
+	changed, err := UpdateInstanceTemplate(dir, false)
 	if err != nil {
-		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+		t.Fatalf("UpdateInstanceTemplate() error = %v", err)
 	}
 	if changed {
-		t.Error("expected no changes on a freshly created installation")
+		t.Error("expected no changes on a freshly created instance")
 	}
 }
 
-func TestUpdateInstallationTemplate_DetectsChange(t *testing.T) {
+func TestUpdateInstanceTemplate_DetectsChange(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a pristine installation
-	if err := CopyInstallationTemplate(dir); err != nil {
-		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	// Create a pristine instance
+	if err := CopyInstanceTemplate(dir); err != nil {
+		t.Fatalf("CopyInstanceTemplate() error = %v", err)
 	}
 
 	// Modify a non-user-editable file (default.vcl)
@@ -946,9 +946,9 @@ func TestUpdateInstallationTemplate_DetectsChange(t *testing.T) {
 	}
 
 	// Update should detect the change
-	changed, err := UpdateInstallationTemplate(dir, false)
+	changed, err := UpdateInstanceTemplate(dir, false)
 	if err != nil {
-		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+		t.Fatalf("UpdateInstanceTemplate() error = %v", err)
 	}
 	if !changed {
 		t.Error("expected change to be detected after modifying default.vcl")
@@ -964,12 +964,12 @@ func TestUpdateInstallationTemplate_DetectsChange(t *testing.T) {
 	}
 }
 
-func TestUpdateInstallationTemplate_DryRun(t *testing.T) {
+func TestUpdateInstanceTemplate_DryRun(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a pristine installation
-	if err := CopyInstallationTemplate(dir); err != nil {
-		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	// Create a pristine instance
+	if err := CopyInstanceTemplate(dir); err != nil {
+		t.Fatalf("CopyInstanceTemplate() error = %v", err)
 	}
 
 	// Modify a non-user-editable file
@@ -983,9 +983,9 @@ func TestUpdateInstallationTemplate_DryRun(t *testing.T) {
 	}
 
 	// Dry run should report change but not modify the file
-	changed, err := UpdateInstallationTemplate(dir, true)
+	changed, err := UpdateInstanceTemplate(dir, true)
 	if err != nil {
-		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+		t.Fatalf("UpdateInstanceTemplate() error = %v", err)
 	}
 	if !changed {
 		t.Error("dry run should report changed = true")
@@ -1001,9 +1001,9 @@ func TestUpdateInstallationTemplate_DryRun(t *testing.T) {
 	}
 
 	// Now apply for real
-	changed, err = UpdateInstallationTemplate(dir, false)
+	changed, err = UpdateInstanceTemplate(dir, false)
 	if err != nil {
-		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+		t.Fatalf("UpdateInstanceTemplate() error = %v", err)
 	}
 	if !changed {
 		t.Error("expected change after dry run")
@@ -1018,12 +1018,12 @@ func TestUpdateInstallationTemplate_DryRun(t *testing.T) {
 	}
 }
 
-func TestUpdateInstallationTemplate_SkipsUserEditable(t *testing.T) {
+func TestUpdateInstanceTemplate_SkipsUserEditable(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a pristine installation
-	if err := CopyInstallationTemplate(dir); err != nil {
-		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	// Create a pristine instance
+	if err := CopyInstanceTemplate(dir); err != nil {
+		t.Fatalf("CopyInstanceTemplate() error = %v", err)
 	}
 
 	// Modify a user-editable file (.env)
@@ -1033,9 +1033,9 @@ func TestUpdateInstallationTemplate_SkipsUserEditable(t *testing.T) {
 	}
 
 	// Update should not touch user-editable files
-	_, err := UpdateInstallationTemplate(dir, false)
+	_, err := UpdateInstanceTemplate(dir, false)
 	if err != nil {
-		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+		t.Fatalf("UpdateInstanceTemplate() error = %v", err)
 	}
 
 	got, err := os.ReadFile(envPath)
@@ -1047,12 +1047,12 @@ func TestUpdateInstallationTemplate_SkipsUserEditable(t *testing.T) {
 	}
 }
 
-func TestUpdateInstallationTemplate_CreatesNewFile(t *testing.T) {
+func TestUpdateInstanceTemplate_CreatesNewFile(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a pristine installation
-	if err := CopyInstallationTemplate(dir); err != nil {
-		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	// Create a pristine instance
+	if err := CopyInstanceTemplate(dir); err != nil {
+		t.Fatalf("CopyInstanceTemplate() error = %v", err)
 	}
 
 	// Delete a non-user-editable, non-noClobber file
@@ -1062,9 +1062,9 @@ func TestUpdateInstallationTemplate_CreatesNewFile(t *testing.T) {
 	}
 
 	// Update should recreate it
-	changed, err := UpdateInstallationTemplate(dir, false)
+	changed, err := UpdateInstanceTemplate(dir, false)
 	if err != nil {
-		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+		t.Fatalf("UpdateInstanceTemplate() error = %v", err)
 	}
 	if !changed {
 		t.Error("expected change when file is missing")
@@ -1075,12 +1075,12 @@ func TestUpdateInstallationTemplate_CreatesNewFile(t *testing.T) {
 	}
 }
 
-func TestUpdateInstallationTemplate_NoClobberSkipsDeletedFile(t *testing.T) {
+func TestUpdateInstanceTemplate_NoClobberSkipsDeletedFile(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a pristine installation
-	if err := CopyInstallationTemplate(dir); err != nil {
-		t.Fatalf("CopyInstallationTemplate() error = %v", err)
+	// Create a pristine instance
+	if err := CopyInstanceTemplate(dir); err != nil {
+		t.Fatalf("CopyInstanceTemplate() error = %v", err)
 	}
 
 	// Delete a noClobber file (informational README)
@@ -1090,9 +1090,9 @@ func TestUpdateInstallationTemplate_NoClobberSkipsDeletedFile(t *testing.T) {
 	}
 
 	// Update should NOT recreate it
-	changed, err := UpdateInstallationTemplate(dir, false)
+	changed, err := UpdateInstanceTemplate(dir, false)
 	if err != nil {
-		t.Fatalf("UpdateInstallationTemplate() error = %v", err)
+		t.Fatalf("UpdateInstanceTemplate() error = %v", err)
 	}
 	if changed {
 		t.Error("expected no change when a noClobber file is deleted")
