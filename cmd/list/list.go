@@ -54,5 +54,5 @@ func List(_ config.Instance, cleanup bool) error {
 			}
 		}
 	}
-	return config.ListAll()
+	return config.ListAll(os.Stdout)
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -133,7 +134,7 @@ func OrchestratorExists(orchestrator string) (bool, error) {
 	return existingInstances.Orchestrators[orchestrator].Path != "", nil
 }
 
-func ListAll() error {
+func ListAll(w io.Writer) error {
 	if err := ensureInitialized(); err != nil {
 		return err
 	}
@@ -143,15 +144,16 @@ func ListAll() error {
 	}
 
 	if len(existingInstances.Instances) == 0 {
-		fmt.Printf("No instances found (looked in %s)\n", confFile)
+		fmt.Fprintf(w, "No instances found (looked in %s)\n", confFile)
 		if IsRunningAsRoot() {
-			fmt.Println("Note: Running as root uses /etc/canasta/conf.json. Instances")
-			fmt.Println("registered by a non-root user are stored in ~/.config/canasta/conf.json.")
+			fmt.Fprintln(w, "Note: Running as root uses /etc/canasta/conf.json. Instances")
+			fmt.Fprintln(w, "registered by a non-root user are stored in ~/.config/canasta/conf.json.")
 		}
+
 		return nil
 	}
 
-	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	writer := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(writer, "Canasta ID\tWiki ID\tServer Name\tServer Path\tInstance Path\tOrchestrator")
 
 	for _, instance := range existingInstances.Instances {
@@ -386,12 +388,7 @@ func GetConfigDir() (string, error) {
 		dir = filepath.Join(base, "canasta")
 
 		// Checks if this is running as root
-		currentUser, err := user.Current()
-		if err != nil {
-			return "", fmt.Errorf("unable to get the current user: %w", err)
-		}
-
-		if currentUser.Username == "root" {
+		if IsRunningAsRoot() {
 			dir = "/etc/canasta"
 		}
 	}

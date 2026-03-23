@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -328,5 +329,163 @@ func TestConfFileCreated(t *testing.T) {
 	confPath := filepath.Join(dir, "conf.json")
 	if _, err := os.Stat(confPath); os.IsNotExist(err) {
 		t.Errorf("expected conf.json to be created at %s", confPath)
+	}
+}
+
+func TestListAllNoInstances(t *testing.T) {
+	setupTestDir(t)
+
+	var buf bytes.Buffer
+	err := ListAll(&buf)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "No instances found") {
+		t.Errorf("expected output to contain 'No instances found', got: %q", output)
+	}
+}
+
+func TestListAllOneInstance(t *testing.T) {
+	setupTestDir(t)
+
+	inst := Instance{
+		ID:           "single-wiki",
+		Path:         "/tmp/test-wiki",
+		Orchestrator: "compose",
+	}
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	var buf bytes.Buffer
+	err := ListAll(&buf)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+	output := buf.String()
+
+	// Verify header appears
+	if !strings.Contains(output, "Canasta ID") {
+		t.Error("expected output to contain 'Canasta ID'")
+	}
+	// Verify instance ID appears
+	if !strings.Contains(output, "single-wiki") {
+		t.Error("expected output to contain instance ID 'single-wiki'")
+	}
+	// Verify instance path appears
+	if !strings.Contains(output, "/tmp/test-wiki") {
+		t.Error("expected output to contain instance path '/tmp/test-wiki'")
+	}
+	// Verify orchestrator appears
+	if !strings.Contains(output, "compose") {
+		t.Error("expected output to contain orchestrator 'compose'")
+	}
+}
+
+func TestListAllMultipleInstances(t *testing.T) {
+	setupTestDir(t)
+
+	inst1 := Instance{
+		ID:           "wiki1",
+		Path:         "/tmp/wiki1",
+		Orchestrator: "compose",
+	}
+	inst2 := Instance{
+		ID:           "wiki2",
+		Path:         "/tmp/wiki2",
+		Orchestrator: "kubernetes",
+	}
+	inst3 := Instance{
+		ID:           "wiki3",
+		Path:         "/tmp/wiki3",
+		Orchestrator: "compose",
+	}
+
+	if err := Add(inst1); err != nil {
+		t.Fatalf("Add(inst1) error = %v", err)
+	}
+	if err := Add(inst2); err != nil {
+		t.Fatalf("Add(inst2) error = %v", err)
+	}
+	if err := Add(inst3); err != nil {
+		t.Fatalf("Add(inst3) error = %v", err)
+	}
+
+	var buf bytes.Buffer
+	err := ListAll(&buf)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+	output := buf.String()
+
+	// Verify all instances appear
+	if !strings.Contains(output, "wiki1") {
+		t.Error("expected output to contain instance ID 'wiki1'")
+	}
+	if !strings.Contains(output, "wiki2") {
+		t.Error("expected output to contain instance ID 'wiki2'")
+	}
+	if !strings.Contains(output, "wiki3") {
+		t.Error("expected output to contain instance ID 'wiki3'")
+	}
+
+	// Verify all paths appear
+	if !strings.Contains(output, "/tmp/wiki1") {
+		t.Error("expected output to contain path '/tmp/wiki1'")
+	}
+	if !strings.Contains(output, "/tmp/wiki2") {
+		t.Error("expected output to contain path '/tmp/wiki2'")
+	}
+	if !strings.Contains(output, "/tmp/wiki3") {
+		t.Error("expected output to contain path '/tmp/wiki3'")
+	}
+
+	// Verify both orchestrators appear
+	lines := strings.Split(output, "\n")
+	composeCount := 0
+	kubernetesCount := 0
+	for _, line := range lines {
+		if strings.Contains(line, "compose") {
+			composeCount++
+		}
+		if strings.Contains(line, "kubernetes") {
+			kubernetesCount++
+		}
+	}
+	if composeCount < 2 {
+		t.Errorf("expected at least 2 lines with 'compose', got %d", composeCount)
+	}
+	if kubernetesCount < 1 {
+		t.Errorf("expected at least 1 line with 'kubernetes', got %d", kubernetesCount)
+	}
+}
+
+func TestListAllMissingInstancePath(t *testing.T) {
+	setupTestDir(t)
+
+	inst := Instance{
+		ID:           "missing-path",
+		Path:         "/nonexistent/path/that/does/not/exist",
+		Orchestrator: "compose",
+	}
+	if err := Add(inst); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	var buf bytes.Buffer
+	err := ListAll(&buf)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+	output := buf.String()
+
+	// Verify instance ID appears
+	if !strings.Contains(output, "missing-path") {
+		t.Error("expected output to contain instance ID 'missing-path'")
+	}
+	// Verify path is marked as not found
+	if !strings.Contains(output, "[not found]") {
+		t.Error("expected output to contain '[not found]'")
 	}
 }
