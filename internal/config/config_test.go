@@ -349,7 +349,7 @@ func TestListAllNoInstallations(t *testing.T) {
 func TestListAllOneInstance(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{
+	inst := Instance{
 		ID:           "single-wiki",
 		Path:         "/tmp/test-wiki",
 		Orchestrator: "compose",
@@ -386,17 +386,17 @@ func TestListAllOneInstance(t *testing.T) {
 func TestListAllMultipleInstances(t *testing.T) {
 	setupTestDir(t)
 
-	inst1 := Installation{
+	inst1 := Instance{
 		ID:           "wiki1",
 		Path:         "/tmp/wiki1",
 		Orchestrator: "compose",
 	}
-	inst2 := Installation{
+	inst2 := Instance{
 		ID:           "wiki2",
 		Path:         "/tmp/wiki2",
 		Orchestrator: "kubernetes",
 	}
-	inst3 := Installation{
+	inst3 := Instance{
 		ID:           "wiki3",
 		Path:         "/tmp/wiki3",
 		Orchestrator: "compose",
@@ -464,7 +464,7 @@ func TestListAllMultipleInstances(t *testing.T) {
 func TestListAllMissingInstancePath(t *testing.T) {
 	setupTestDir(t)
 
-	inst := Installation{
+	inst := Instance{
 		ID:           "missing-path",
 		Path:         "/nonexistent/path/that/does/not/exist",
 		Orchestrator: "compose",
