@@ -160,16 +160,16 @@ func TestRepairBrokenSubmodules(t *testing.T) {
 func TestConvertToSubmodulesStandaloneRepoConverted(t *testing.T) {
 	t.Setenv("GIT_ALLOW_PROTOCOL", "file")
 
-	installPath := t.TempDir()
+	instancePath := t.TempDir()
 	dirName := "extensions"
 
-	if err := os.MkdirAll(filepath.Join(installPath, dirName), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(instancePath, dirName), 0755); err != nil {
 		t.Fatalf("creating extensions dir: %v", err)
 	}
-	initGitRepo(t, installPath)
+	initGitRepo(t, instancePath)
 
 	remote := createGitRepoWithCommit(t, t.TempDir(), "module")
-	subDir := filepath.Join(installPath, dirName, "MyModule")
+	subDir := filepath.Join(instancePath, dirName, "MyModule")
 	if err := os.MkdirAll(subDir, 0755); err != nil {
 		t.Fatalf("creating subdir: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestConvertToSubmodulesStandaloneRepoConverted(t *testing.T) {
 	runGit(t, subDir, "add", "plugin.php")
 	runGit(t, subDir, "commit", "-m", "add plugin")
 
-	err := convertToSubmodules(installPath, dirName)
+	err := convertToSubmodules(instancePath, dirName)
 	if err != nil {
 		t.Fatalf("convertToSubmodules returned error: %v", err)
 	}
@@ -202,19 +202,19 @@ func TestConvertToSubmodulesStandaloneRepoConverted(t *testing.T) {
 func TestConvertToSubmodulesCommitPreserved(t *testing.T) {
 	t.Setenv("GIT_ALLOW_PROTOCOL", "file")
 
-	installPath := t.TempDir()
+	instancePath := t.TempDir()
 	dirName := "extensions"
 
-	if err := os.MkdirAll(filepath.Join(installPath, dirName), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(instancePath, dirName), 0755); err != nil {
 		t.Fatalf("creating extensions dir: %v", err)
 	}
-	initGitRepo(t, installPath)
+	initGitRepo(t, instancePath)
 
 	remotePath := t.TempDir()
 	initGitRepo(t, remotePath)
 	runGit(t, remotePath, "config", "receive.denyCurrentBranch", "ignore")
 
-	subDir := filepath.Join(installPath, dirName, "Pinned")
+	subDir := filepath.Join(instancePath, dirName, "Pinned")
 	if err := os.MkdirAll(subDir, 0755); err != nil {
 		t.Fatalf("creating subdir: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestConvertToSubmodulesCommitPreserved(t *testing.T) {
 
 	runGit(t, subDir, "push", "-u", "origin", "main")
 
-	err := convertToSubmodules(installPath, dirName)
+	err := convertToSubmodules(instancePath, dirName)
 	if err != nil {
 		t.Fatalf("convertToSubmodules returned error: %v", err)
 	}
@@ -261,15 +261,15 @@ func TestConvertToSubmodulesCommitPreserved(t *testing.T) {
 }
 
 func TestConvertToSubmodulesNoRemoteSkipped(t *testing.T) {
-	installPath := t.TempDir()
+	instancePath := t.TempDir()
 	dirName := "extensions"
 
-	if err := os.MkdirAll(filepath.Join(installPath, dirName), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(instancePath, dirName), 0755); err != nil {
 		t.Fatalf("creating extensions dir: %v", err)
 	}
-	initGitRepo(t, installPath)
+	initGitRepo(t, instancePath)
 
-	subDir := filepath.Join(installPath, dirName, "NoRemote")
+	subDir := filepath.Join(instancePath, dirName, "NoRemote")
 	if err := os.MkdirAll(subDir, 0755); err != nil {
 		t.Fatalf("creating subdir: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestConvertToSubmodulesNoRemoteSkipped(t *testing.T) {
 	runGit(t, subDir, "add", "file.txt")
 	runGit(t, subDir, "commit", "-m", "initial")
 
-	err := convertToSubmodules(installPath, dirName)
+	err := convertToSubmodules(instancePath, dirName)
 	if err != nil {
 		t.Fatalf("convertToSubmodules returned error: %v", err)
 	}
@@ -297,15 +297,15 @@ func TestConvertToSubmodulesNoRemoteSkipped(t *testing.T) {
 }
 
 func TestConvertToSubmodulesNonGitDirectorySkipped(t *testing.T) {
-	installPath := t.TempDir()
+	instancePath := t.TempDir()
 	dirName := "extensions"
 
-	if err := os.MkdirAll(filepath.Join(installPath, dirName), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(instancePath, dirName), 0755); err != nil {
 		t.Fatalf("creating extensions dir: %v", err)
 	}
-	initGitRepo(t, installPath)
+	initGitRepo(t, instancePath)
 
-	subDir := filepath.Join(installPath, dirName, "NotGit")
+	subDir := filepath.Join(instancePath, dirName, "NotGit")
 	if err := os.MkdirAll(subDir, 0755); err != nil {
 		t.Fatalf("creating subdir: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestConvertToSubmodulesNonGitDirectorySkipped(t *testing.T) {
 		t.Fatalf("writing file: %v", err)
 	}
 
-	err := convertToSubmodules(installPath, dirName)
+	err := convertToSubmodules(instancePath, dirName)
 	if err != nil {
 		t.Fatalf("convertToSubmodules returned error: %v", err)
 	}
@@ -330,15 +330,15 @@ func TestConvertToSubmodulesNonGitDirectorySkipped(t *testing.T) {
 }
 
 func TestConvertToSubmodulesGitlinkFileSkipped(t *testing.T) {
-	installPath := t.TempDir()
+	instancePath := t.TempDir()
 	dirName := "extensions"
 
-	if err := os.MkdirAll(filepath.Join(installPath, dirName), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(instancePath, dirName), 0755); err != nil {
 		t.Fatalf("creating extensions dir: %v", err)
 	}
-	initGitRepo(t, installPath)
+	initGitRepo(t, instancePath)
 
-	subDir := filepath.Join(installPath, dirName, "GitLink")
+	subDir := filepath.Join(instancePath, dirName, "GitLink")
 	if err := os.MkdirAll(subDir, 0755); err != nil {
 		t.Fatalf("creating subdir: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestConvertToSubmodulesGitlinkFileSkipped(t *testing.T) {
 		t.Fatalf("writing marker: %v", err)
 	}
 
-	err := convertToSubmodules(installPath, dirName)
+	err := convertToSubmodules(instancePath, dirName)
 	if err != nil {
 		t.Fatalf("convertToSubmodules returned error: %v", err)
 	}
@@ -368,30 +368,30 @@ func TestConvertToSubmodulesGitlinkFileSkipped(t *testing.T) {
 }
 
 func TestConvertToSubmodulesEmptyDirectory(t *testing.T) {
-	installPath := t.TempDir()
+	instancePath := t.TempDir()
 	dirName := "extensions"
 
-	if err := os.MkdirAll(filepath.Join(installPath, dirName), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(instancePath, dirName), 0755); err != nil {
 		t.Fatalf("creating extensions dir: %v", err)
 	}
-	initGitRepo(t, installPath)
+	initGitRepo(t, instancePath)
 
-	err := convertToSubmodules(installPath, dirName)
+	err := convertToSubmodules(instancePath, dirName)
 	if err != nil {
 		t.Fatalf("convertToSubmodules should handle empty directory without error, got: %v", err)
 	}
 
-	_, err = os.Stat(filepath.Join(installPath, dirName))
+	_, err = os.Stat(filepath.Join(instancePath, dirName))
 	if os.IsNotExist(err) {
 		t.Errorf("expected extensions directory to still exist")
 	}
 }
 
 func TestConvertToSubmodulesMissingDirectory(t *testing.T) {
-	installPath := t.TempDir()
+	instancePath := t.TempDir()
 	dirName := "nonexistent"
 
-	err := convertToSubmodules(installPath, dirName)
+	err := convertToSubmodules(instancePath, dirName)
 	if err != nil {
 		t.Fatalf("convertToSubmodules should handle missing directory without error, got: %v", err)
 	}
