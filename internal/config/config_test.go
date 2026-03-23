@@ -332,7 +332,7 @@ func TestConfFileCreated(t *testing.T) {
 	}
 }
 
-func TestListAllNoInstallations(t *testing.T) {
+func TestListAllNoInstances(t *testing.T) {
 	setupTestDir(t)
 
 	var buf bytes.Buffer
