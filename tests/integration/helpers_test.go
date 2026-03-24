@@ -57,7 +57,7 @@ func TestMain(m *testing.M) {
 	// instrumented, not just the main package.
 	ldflags := fmt.Sprintf("-X 'github.com/CanastaWiki/Canasta-CLI/internal/canasta.DefaultImageTag=%s'", imageTag)
 	cmd := exec.Command("go", "build",
-		"-cover", "-coverpkg=./...",
+		"-cover", "-coverpkg=github.com/CanastaWiki/Canasta-CLI/...",
 		"-ldflags", ldflags,
 		"-o", binPath, "../../canasta.go")
 	cmd.Stdout = os.Stdout
