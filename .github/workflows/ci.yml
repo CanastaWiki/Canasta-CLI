@@ -22,4 +22,28 @@ jobs:
     - name: Vet
       run: go vet ./...
     - name: Test
-      run: go test ./...
+      run: |
+        go test -cover ./... | tee test-output.txt
+        go test -coverprofile=unit-coverage.out ./... > /dev/null 2>&1
+    - name: Coverage summary
+      if: always() && hashFiles('unit-coverage.out') != ''
+      run: |
+        TOTAL=$(go tool cover -func=unit-coverage.out | tail -1 | awk '{print $NF}')
+        echo "## Unit Test Coverage: ${TOTAL}" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Package | Coverage |" >> "$GITHUB_STEP_SUMMARY"
+        echo "|---------|----------|" >> "$GITHUB_STEP_SUMMARY"
+        grep '^ok' test-output.txt \
+          | sed 's|github.com/CanastaWiki/Canasta-CLI/||' \
+          | awk '{printf "| %s | %s |\n", $2, $5}' \
+          | sort \
+          >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "**Total: ${TOTAL}**" >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload unit coverage
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-coverage
+        path: unit-coverage.out
+        if-no-files-found: warn

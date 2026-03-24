@@ -18,6 +18,11 @@ import (
 // canastaBin is the path to the built CLI binary, set once in TestMain.
 var canastaBin string
 
+// coverDir is the directory where the coverage-instrumented binary writes
+// its coverage data. Each invocation appends a unique file, so all test
+// runs can share a single directory without conflicts.
+var coverDir string
+
 // portCounter is an atomic counter for assigning unique ports to each test instance.
 var portCounter uint32 = 10080
 
@@ -31,9 +36,13 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to create temp dir: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tmpDir)
 
 	binPath := filepath.Join(tmpDir, "canasta")
+	covDataDir := filepath.Join(tmpDir, "covdata")
+	if err := os.MkdirAll(covDataDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create coverage dir: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Read the CANASTA_VERSION file to set DefaultImageTag
 	versionBytes, err := os.ReadFile("../../CANASTA_VERSION")
@@ -43,8 +52,14 @@ func TestMain(m *testing.M) {
 	}
 	imageTag := strings.TrimSpace(string(versionBytes))
 
+	// Build with -cover so the binary writes coverage data to GOCOVERDIR
+	// on each invocation. The -coverpkg flag ensures all packages are
+	// instrumented, not just the main package.
 	ldflags := fmt.Sprintf("-X 'github.com/CanastaWiki/Canasta-CLI/internal/canasta.DefaultImageTag=%s'", imageTag)
-	cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", binPath, "../../canasta.go")
+	cmd := exec.Command("go", "build",
+		"-cover", "-coverpkg=./...",
+		"-ldflags", ldflags,
+		"-o", binPath, "../../canasta.go")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -53,7 +68,42 @@ func TestMain(m *testing.M) {
 	}
 
 	canastaBin = binPath
-	os.Exit(m.Run())
+	coverDir = covDataDir
+
+	exitCode := m.Run()
+
+	// Export coverage data collected from all binary invocations.
+	exportIntegrationCoverage(covDataDir)
+
+	os.RemoveAll(tmpDir)
+	os.Exit(exitCode)
+}
+
+// exportIntegrationCoverage converts the binary coverage data written by
+// the instrumented CLI into a standard Go coverage profile. The output
+// path defaults to "integration-coverage.out" but can be overridden with
+// the INTEGRATION_COVER_PROFILE environment variable.
+func exportIntegrationCoverage(covDataDir string) {
+	outFile := os.Getenv("INTEGRATION_COVER_PROFILE")
+	if outFile == "" {
+		outFile = "integration-coverage.out"
+	}
+
+	entries, err := os.ReadDir(covDataDir)
+	if err != nil || len(entries) == 0 {
+		fmt.Fprintf(os.Stderr, "no integration coverage data collected\n")
+		return
+	}
+
+	cmd := exec.Command("go", "tool", "covdata", "textfmt",
+		"-i="+covDataDir, "-o="+outFile)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to convert coverage data: %v\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "integration coverage written to %s\n", outFile)
 }
 
 // testInstance holds the state for an isolated integration test instance.
@@ -134,7 +184,10 @@ func createTestInstance(t *testing.T, id string) *testInstance {
 func (inst *testInstance) run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(canastaBin, args...)
-	cmd.Env = append(os.Environ(), "CANASTA_CONFIG_DIR="+inst.ConfigDir)
+	cmd.Env = append(os.Environ(),
+		"CANASTA_CONFIG_DIR="+inst.ConfigDir,
+		"GOCOVERDIR="+coverDir,
+	)
 	cmd.Dir = inst.WorkDir
 	out, err := cmd.CombinedOutput()
 	t.Logf("canasta %v:\n%s", args, string(out))
@@ -146,7 +199,10 @@ func (inst *testInstance) run(t *testing.T, args ...string) (string, error) {
 func runCanasta(t *testing.T, configDir string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(canastaBin, args...)
-	cmd.Env = append(os.Environ(), "CANASTA_CONFIG_DIR="+configDir)
+	cmd.Env = append(os.Environ(),
+		"CANASTA_CONFIG_DIR="+configDir,
+		"GOCOVERDIR="+coverDir,
+	)
 	out, err := cmd.CombinedOutput()
 	t.Logf("canasta %v:\n%s", args, string(out))
 	return string(out), err

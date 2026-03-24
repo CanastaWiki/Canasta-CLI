@@ -29,7 +29,49 @@ jobs:
       # (e.g. config/) become owned by that group. The host user must be
       # in the www-data group to write files back into them.
       run: sudo usermod -aG www-data $(whoami)
+    - name: Run unit tests with coverage
+      run: go test -coverprofile=unit-coverage.out ./...
     - name: Run integration tests
       # sg runs the command under the www-data group (usermod doesn't
       # take effect in the current shell session).
       run: sg www-data -c "go test -tags integration -timeout 20m -v ./tests/integration/..."
+      env:
+        INTEGRATION_COVER_PROFILE: integration-coverage.out
+    - name: Coverage summary
+      if: always() && hashFiles('unit-coverage.out') != ''
+      run: |
+        UNIT_TOTAL=$(go tool cover -func=unit-coverage.out | tail -1 | awk '{print $NF}')
+
+        if [ -f integration-coverage.out ]; then
+          # Merge unit and integration profiles
+          echo "mode: set" > combined-coverage.out
+          tail -n +2 unit-coverage.out >> combined-coverage.out
+          tail -n +2 integration-coverage.out >> combined-coverage.out
+          COMBINED_TOTAL=$(go tool cover -func=combined-coverage.out | tail -1 | awk '{print $NF}')
+          echo "## Combined Test Coverage: ${COMBINED_TOTAL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Unit: ${UNIT_TOTAL} | Combined (unit + integration): ${COMBINED_TOTAL}" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "## Unit Test Coverage: ${UNIT_TOTAL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "(Integration coverage profile not available)" >> "$GITHUB_STEP_SUMMARY"
+        fi
+    - name: Upload unit coverage
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-coverage
+        path: unit-coverage.out
+        if-no-files-found: warn
+    - name: Upload integration coverage
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: integration-coverage
+        path: integration-coverage.out
+        if-no-files-found: warn
+    - name: Upload combined coverage
+      if: always() && hashFiles('combined-coverage.out') != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: combined-coverage
+        path: combined-coverage.out
+        if-no-files-found: warn
