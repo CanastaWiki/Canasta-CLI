@@ -247,6 +247,7 @@ func genWikitext(c *cobra.Command) string {
 		b.WriteString("\n")
 	}
 
+	b.WriteString("{{Reference Manual}}\n")
 	return b.String()
 }
 
