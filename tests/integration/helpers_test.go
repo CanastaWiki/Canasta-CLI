@@ -70,6 +70,17 @@ func TestMain(m *testing.M) {
 	canastaBin = binPath
 	coverDir = covDataDir
 
+	// Verify the binary has coverage instrumentation
+	verifyCmd := exec.Command(binPath, "version")
+	verifyCmd.Env = append(os.Environ(), "GOCOVERDIR="+covDataDir)
+	verifyCmd.CombinedOutput()
+	// Check if the verify run wrote any coverage files
+	verifyEntries, _ := os.ReadDir(covDataDir)
+	fmt.Fprintf(os.Stderr, "after verify run: %d files in covdata dir %s\n", len(verifyEntries), covDataDir)
+	for _, e := range verifyEntries {
+		fmt.Fprintf(os.Stderr, "  %s\n", e.Name())
+	}
+
 	exitCode := m.Run()
 
 	// Export coverage data collected from all binary invocations.
@@ -89,8 +100,20 @@ func exportIntegrationCoverage(covDataDir string) {
 		outFile = "integration-coverage.out"
 	}
 
+	fmt.Fprintf(os.Stderr, "checking coverage data in %s\n", covDataDir)
 	entries, err := os.ReadDir(covDataDir)
-	if err != nil || len(entries) == 0 {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "no integration coverage data collected (ReadDir error: %v)\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "found %d entries in coverage dir\n", len(entries))
+	for _, e := range entries {
+		info, _ := e.Info()
+		if info != nil {
+			fmt.Fprintf(os.Stderr, "  %s (%d bytes)\n", e.Name(), info.Size())
+		}
+	}
+	if len(entries) == 0 {
 		fmt.Fprintf(os.Stderr, "no integration coverage data collected\n")
 		return
 	}
