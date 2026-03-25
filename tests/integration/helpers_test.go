@@ -56,15 +56,21 @@ func TestMain(m *testing.M) {
 	// on each invocation. The -coverpkg flag ensures all packages are
 	// instrumented, not just the main package.
 	//
-	// IMPORTANT: use "." (package path) not "../../canasta.go" (file path).
-	// Coverage instrumentation is only applied when building a package, not
-	// a single file.
+	// IMPORTANT: use "." (package path) not a file path like canasta.go.
+	// Coverage instrumentation is only applied when building a package.
+	// We resolve the repo root to an absolute path because go test sets
+	// the working directory to the package dir (tests/integration/).
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to resolve repo root: %v\n", err)
+		os.Exit(1)
+	}
 	ldflags := fmt.Sprintf("-X 'github.com/CanastaWiki/Canasta-CLI/internal/canasta.DefaultImageTag=%s'", imageTag)
 	cmd := exec.Command("go", "build",
 		"-cover", "-coverpkg=github.com/CanastaWiki/Canasta-CLI/...",
 		"-ldflags", ldflags,
 		"-o", binPath, ".")
-	cmd.Dir = filepath.Join("..", "..")
+	cmd.Dir = repoRoot
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
