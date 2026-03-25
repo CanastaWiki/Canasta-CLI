@@ -290,9 +290,6 @@ func Add(details Instance) error {
 	if exists {
 		return fmt.Errorf("canasta ID is already used for another instance")
 	}
-	if existingInstances.Instances == nil {
-		existingInstances.Instances = map[string]Instance{}
-	}
 	existingInstances.Instances[details.ID] = details
 	return write(existingInstances)
 }
