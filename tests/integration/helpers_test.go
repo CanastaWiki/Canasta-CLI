@@ -70,6 +70,9 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	canastaBin = binPath
+	coverDir = covDataDir
+
 	exitCode := m.Run()
 
 	// Export coverage data collected from all binary invocations.
