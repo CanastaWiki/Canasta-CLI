@@ -25,12 +25,7 @@ type Instance struct {
 	BuildFrom      string `json:"buildFrom,omitempty"`
 }
 
-type Orchestrator struct {
-	ID, Path string
-}
-
 type Canasta struct {
-	Orchestrators       map[string]Orchestrator
 	Instances           map[string]Instance `json:"Instances"`
 	LegacyInstallations map[string]Instance `json:"Installations,omitempty"`
 }
@@ -64,7 +59,7 @@ func ensureInitialized() error {
 		_, err = os.Stat(confFile)
 		if os.IsNotExist(err) {
 			// Creating conf.json
-			if err := write(Canasta{Instances: map[string]Instance{}, Orchestrators: map[string]Orchestrator{}}); err != nil {
+			if err := write(Canasta{Instances: map[string]Instance{}}); err != nil {
 				initErr = err
 				return
 			}
@@ -121,17 +116,6 @@ func Exists(canastaID string) (bool, error) {
 		return false, err
 	}
 	return existingInstances.Instances[canastaID].ID != "", nil
-}
-
-func OrchestratorExists(orchestrator string) (bool, error) {
-	if err := ensureInitialized(); err != nil {
-		return false, err
-	}
-	err := read(&existingInstances)
-	if err != nil {
-		return false, err
-	}
-	return existingInstances.Orchestrators[orchestrator].Path != "", nil
 }
 
 func ListAll(w io.Writer) error {
@@ -295,40 +279,6 @@ func Add(details Instance) error {
 	}
 	existingInstances.Instances[details.ID] = details
 	return write(existingInstances)
-}
-
-func AddOrchestrator(details Orchestrator) error {
-	if err := ensureInitialized(); err != nil {
-		return err
-	}
-	if existingInstances.Orchestrators == nil {
-		existingInstances.Orchestrators = map[string]Orchestrator{}
-	}
-	supportedOrchestrators := map[string]bool{
-		"compose":    true,
-		"kubernetes": true,
-		"k8s":        true,
-	}
-	if !supportedOrchestrators[details.ID] {
-		return fmt.Errorf("orchestrator %s is not supported", details.ID)
-	}
-	existingInstances.Orchestrators[details.ID] = details
-	err := write(existingInstances)
-	return err
-}
-
-func GetOrchestrator(orchestrator string) (Orchestrator, error) {
-	if err := ensureInitialized(); err != nil {
-		return Orchestrator{}, err
-	}
-	exists, err := OrchestratorExists(orchestrator)
-	if err != nil {
-		return Orchestrator{}, err
-	}
-	if exists {
-		return existingInstances.Orchestrators[orchestrator], nil
-	}
-	return Orchestrator{}, nil
 }
 
 func Delete(canastaID string) error {

@@ -28,13 +28,20 @@ func (c *ComposeOrchestrator) Name() string            { return "Docker Compose"
 func (c *ComposeOrchestrator) SupportsDevMode() bool   { return true }
 func (c *ComposeOrchestrator) SupportsImagePull() bool { return true }
 
-// getCompose returns the configured compose orchestrator path.
-func (c *ComposeOrchestrator) getCompose() (config.Orchestrator, error) {
-	return config.GetOrchestrator("compose")
+type composeBinary struct {
+	Path string
+}
+
+// getCompose discovers the compose binary at runtime.
+func (c *ComposeOrchestrator) getCompose() (composeBinary, error) {
+	if path, err := exec.LookPath("docker-compose"); err == nil {
+		return composeBinary{Path: path}, nil
+	}
+	return composeBinary{}, nil
 }
 
 // runCompose runs a compose command via execute.Run and returns the output.
-func runCompose(installPath string, compose config.Orchestrator, args ...string) (string, error) {
+func runCompose(installPath string, compose composeBinary, args ...string) (string, error) {
 	if compose.Path != "" {
 		return execute.Run(installPath, compose.Path, args...)
 	}
@@ -43,7 +50,7 @@ func runCompose(installPath string, compose config.Orchestrator, args ...string)
 }
 
 // composeCommand returns an exec.Cmd configured for the compose orchestrator.
-func composeCommand(compose config.Orchestrator, args ...string) *exec.Cmd {
+func composeCommand(compose composeBinary, args ...string) *exec.Cmd {
 	if compose.Path != "" {
 		// compose.Path is from system lookup.
 		//nolint:gosec
@@ -427,7 +434,7 @@ type composeImageEntry struct {
 }
 
 // getComposeImages returns a map of service name to ImageInfo.
-func getComposeImages(installPath string, compose config.Orchestrator) (map[string]ImageInfo, error) {
+func getComposeImages(installPath string, compose composeBinary) (map[string]ImageInfo, error) {
 	output, err := runCompose(installPath, compose, "images", "--format", "json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to run docker compose images: %s", output)

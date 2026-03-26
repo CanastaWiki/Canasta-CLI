@@ -206,32 +206,6 @@ func TestGetCanastaIDFromSubdirectory(t *testing.T) {
 	}
 }
 
-func TestAddOrchestratorSupported(t *testing.T) {
-	tests := []struct {
-		name    string
-		id      string
-		wantErr bool
-	}{
-		{"compose accepted", "compose", false},
-		{"kubernetes accepted", "kubernetes", false},
-		{"k8s alias accepted", "k8s", false},
-		{"unknown rejected", "nomad", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			setupTestDir(t)
-			err := AddOrchestrator(Orchestrator{ID: tt.id, Path: "/usr/bin/test"})
-			if (err != nil) != tt.wantErr {
-				t.Errorf("AddOrchestrator(%q) error = %v, wantErr %v", tt.id, err, tt.wantErr)
-			}
-			if tt.wantErr && err != nil && !strings.Contains(err.Error(), "not supported") {
-				t.Errorf("AddOrchestrator(%q) error = %q, want 'not supported'", tt.id, err.Error())
-			}
-		})
-	}
-}
-
 func TestBuildFromRoundTrip(t *testing.T) {
 	dir := setupTestDir(t)
 
