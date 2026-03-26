@@ -59,7 +59,7 @@ func TestMain(m *testing.M) {
 	cmd := exec.Command("go", "build",
 		"-cover", "-coverpkg=github.com/CanastaWiki/Canasta-CLI/...",
 		"-ldflags", ldflags,
-		"-o", binPath, "../../canasta.go")
+		"-o", binPath, "github.com/CanastaWiki/Canasta-CLI")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
