@@ -47,31 +47,39 @@ jobs:
           echo "mode: set" > combined-coverage.out
           tail -n +2 unit-coverage.out >> combined-coverage.out
           tail -n +2 integration-coverage.out >> combined-coverage.out
+          INTEGRATION_TOTAL=$(go tool cover -func=integration-coverage.out | tail -1 | awk '{print $NF}')
           COMBINED_TOTAL=$(go tool cover -func=combined-coverage.out | tail -1 | awk '{print $NF}')
-          echo "## Combined Test Coverage: ${COMBINED_TOTAL}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Unit: ${UNIT_TOTAL} | Combined (unit + integration): ${COMBINED_TOTAL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Scope | Coverage |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|----------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Unit | ${UNIT_TOTAL} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Integration | ${INTEGRATION_TOTAL} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Combined** | **${COMBINED_TOTAL}** |" >> "$GITHUB_STEP_SUMMARY"
         else
-          echo "## Unit Test Coverage: ${UNIT_TOTAL}" >> "$GITHUB_STEP_SUMMARY"
-          echo "(Integration coverage profile not available)" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Scope | Coverage |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|----------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Unit only | ${UNIT_TOTAL} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Integration | _(not available)_ |" >> "$GITHUB_STEP_SUMMARY"
         fi
     - name: Upload unit coverage
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: unit-coverage
+        name: coverage-profile-unit
         path: unit-coverage.out
         if-no-files-found: warn
     - name: Upload integration coverage
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: integration-coverage
+        name: coverage-profile-integration
         path: integration-coverage.out
         if-no-files-found: warn
     - name: Upload combined coverage
       if: always() && hashFiles('combined-coverage.out') != ''
       uses: actions/upload-artifact@v4
       with:
-        name: combined-coverage
+        name: coverage-profile-combined
         path: combined-coverage.out
         if-no-files-found: warn
