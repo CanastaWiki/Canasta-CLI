@@ -47,12 +47,14 @@ jobs:
           echo "mode: set" > combined-coverage.out
           tail -n +2 unit-coverage.out >> combined-coverage.out
           tail -n +2 integration-coverage.out >> combined-coverage.out
+          INTEGRATION_TOTAL=$(go tool cover -func=integration-coverage.out | tail -1 | awk '{print $NF}')
           COMBINED_TOTAL=$(go tool cover -func=combined-coverage.out | tail -1 | awk '{print $NF}')
           echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
           echo "| Scope | Coverage |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|----------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Unit only | ${UNIT_TOTAL} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| **Combined (unit + integration)** | **${COMBINED_TOTAL}** |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Unit | ${UNIT_TOTAL} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Integration | ${INTEGRATION_TOTAL} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Combined** | **${COMBINED_TOTAL}** |" >> "$GITHUB_STEP_SUMMARY"
         else
           echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
           echo "| Scope | Coverage |" >> "$GITHUB_STEP_SUMMARY"
