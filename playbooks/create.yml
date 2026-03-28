@@ -1,0 +1,7 @@
+---
+# canasta create - Create a new Canasta instance
+# TODO: Implement in Phase 2+
+
+- name: "Create a new Canasta instance (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'create' is not yet implemented."

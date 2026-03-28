@@ -1,0 +1,7 @@
+---
+# canasta gitops diff - Show gitops diff
+# TODO: Implement in Phase 2+
+
+- name: "Show gitops diff (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'gitops_diff' is not yet implemented."

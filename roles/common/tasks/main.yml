@@ -1,0 +1,4 @@
+---
+# Common role entry point.
+# This role is included by other roles to access shared tasks and modules.
+# Individual tasks are included via include_tasks as needed.

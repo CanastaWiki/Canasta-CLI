@@ -1,0 +1,7 @@
+---
+# canasta backup schedule list - Show the backup schedule
+# TODO: Implement in Phase 2+
+
+- name: "Show the backup schedule (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'backup_schedule_list' is not yet implemented."

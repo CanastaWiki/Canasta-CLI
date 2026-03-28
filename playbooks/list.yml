@@ -1,0 +1,7 @@
+---
+# canasta list - List all registered Canasta instances
+# TODO: Implement in Phase 2+
+
+- name: "List all registered Canasta instances (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'list' is not yet implemented."

@@ -1,0 +1,7 @@
+---
+# canasta skin list - List installed skins
+# TODO: Implement in Phase 2+
+
+- name: "List installed skins (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'skin_list' is not yet implemented."

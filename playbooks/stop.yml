@@ -1,0 +1,7 @@
+---
+# canasta stop - Stop a Canasta instance
+# TODO: Implement in Phase 2+
+
+- name: "Stop a Canasta instance (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'stop' is not yet implemented."

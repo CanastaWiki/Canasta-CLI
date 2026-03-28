@@ -1,0 +1,7 @@
+---
+# canasta skin enable - Enable skins
+# TODO: Implement in Phase 2+
+
+- name: "Enable skins (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'skin_enable' is not yet implemented."

@@ -1,0 +1,43 @@
+---
+# Canasta-Ansible main dispatcher playbook.
+#
+# Usage:
+#   ansible-playbook canasta.yml -e "command=create id=mysite wiki=mywiki"
+#   ./canasta create --id mysite --wiki mywiki
+#
+- name: Canasta
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  pre_tasks:
+    - name: Validate command parameter
+      ansible.builtin.assert:
+        that: command is defined and command != ''
+        fail_msg: >-
+          No command specified. Usage: ansible-playbook canasta.yml -e "command=<command>"
+          or use the ./canasta wrapper script. Run ./canasta --help for available commands.
+
+    - name: Load command definitions
+      ansible.builtin.include_vars:
+        file: meta/command_definitions.yml
+        name: canasta_commands
+
+    - name: Validate command exists
+      ansible.builtin.assert:
+        that: command in (canasta_commands.commands | map(attribute='name'))
+        fail_msg: >-
+          Unknown command '{{ command }}'.
+          Valid commands: {{ canasta_commands.commands | map(attribute='name') | join(', ') }}
+
+    - name: Validate required parameters
+      ansible.builtin.include_tasks: roles/common/tasks/validate_params.yml
+
+  tasks:
+    - name: Look up command playbook
+      ansible.builtin.set_fact:
+        _playbook: >-
+          {{ (canasta_commands.commands | selectattr('name', 'equalto', command) | first).playbook }}
+
+    - name: Dispatch to command playbook
+      ansible.builtin.include_tasks: "playbooks/{{ _playbook }}"

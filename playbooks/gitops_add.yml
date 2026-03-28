@@ -1,0 +1,7 @@
+---
+# canasta gitops add - Add configuration changes to git
+# TODO: Implement in Phase 2+
+
+- name: "Add configuration changes to git (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'gitops_add' is not yet implemented."

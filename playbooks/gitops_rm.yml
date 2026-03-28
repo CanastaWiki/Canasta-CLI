@@ -1,0 +1,7 @@
+---
+# canasta gitops rm - Remove configuration from git tracking
+# TODO: Implement in Phase 2+
+
+- name: "Remove configuration from git tracking (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'gitops_rm' is not yet implemented."

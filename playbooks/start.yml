@@ -1,0 +1,7 @@
+---
+# canasta start - Start a Canasta instance
+# TODO: Implement in Phase 2+
+
+- name: "Start a Canasta instance (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'start' is not yet implemented."

@@ -1,0 +1,8 @@
+---
+# Validate a Canasta instance ID format.
+# Input: id (str)
+
+- name: Validate instance ID
+  canasta_farmsettings:
+    validate: instance_id
+    value: "{{ id }}"

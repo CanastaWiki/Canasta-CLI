@@ -1,0 +1,7 @@
+---
+# canasta extension enable - Enable extensions
+# TODO: Implement in Phase 2+
+
+- name: "Enable extensions (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'extension_enable' is not yet implemented."

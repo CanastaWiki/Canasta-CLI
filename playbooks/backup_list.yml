@@ -1,0 +1,7 @@
+---
+# canasta backup list - List backup snapshots
+# TODO: Implement in Phase 2+
+
+- name: "List backup snapshots (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'backup_list' is not yet implemented."

@@ -1,0 +1,7 @@
+---
+# canasta maintenance script - Run a MediaWiki maintenance script
+# TODO: Implement in Phase 2+
+
+- name: "Run a MediaWiki maintenance script (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'maintenance_script' is not yet implemented."

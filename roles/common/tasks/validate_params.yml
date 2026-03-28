@@ -1,0 +1,43 @@
+---
+# Validate command parameters against the command definition.
+# Expects: command (str), canasta_commands (dict from command_definitions.yml)
+
+- name: Look up command definition
+  ansible.builtin.set_fact:
+    _cmd_def: >-
+      {{ canasta_commands.commands | selectattr('name', 'equalto', command) | first }}
+
+- name: Check required parameters
+  ansible.builtin.fail:
+    msg: "Required parameter '{{ item.name }}' is not set for command '{{ command }}'"
+  when:
+    - item.required | default(false)
+    - lookup('vars', item.name, default='') == ''
+    - >-
+      item.required_unless is not defined or
+      lookup('vars', item.required_unless, default='') == ''
+  loop: "{{ _cmd_def.parameters | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Check mutual exclusion
+  ansible.builtin.fail:
+    msg: "Parameters '{{ item.name }}' and '{{ item.mutual_exclusion }}' cannot both be set"
+  when:
+    - item.mutual_exclusion is defined
+    - lookup('vars', item.name, default='') != ''
+    - lookup('vars', item.mutual_exclusion, default='') != ''
+  loop: "{{ _cmd_def.parameters | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Check choice parameters
+  ansible.builtin.fail:
+    msg: "Parameter '{{ item.name }}' must be one of: {{ item.choices | join(', ') }} (got '{{ lookup('vars', item.name, default='') }}')"
+  when:
+    - item.type | default('string') == 'choice'
+    - lookup('vars', item.name, default='') != ''
+    - lookup('vars', item.name) not in item.choices
+  loop: "{{ _cmd_def.parameters | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"

@@ -1,0 +1,7 @@
+---
+# canasta backup purge - Purge old backups
+# TODO: Implement in Phase 2+
+
+- name: "Purge old backups (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'backup_purge' is not yet implemented."

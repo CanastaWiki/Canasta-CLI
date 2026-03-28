@@ -1,0 +1,8 @@
+---
+# Reserved wiki IDs that cannot be used (matching Go farmsettings package)
+canasta_reserved_wiki_ids:
+  - settings
+  - images
+  - w
+  - wiki
+  - wikis

@@ -1,0 +1,7 @@
+---
+# canasta maintenance extension - Run extension maintenance scripts
+# TODO: Implement in Phase 2+
+
+- name: "Run extension maintenance scripts (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'maintenance_extension' is not yet implemented."

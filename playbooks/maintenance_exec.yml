@@ -1,0 +1,7 @@
+---
+# canasta maintenance exec - Execute a command in the MediaWiki container
+# TODO: Implement in Phase 2+
+
+- name: "Execute a command in the MediaWiki container (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'maintenance_exec' is not yet implemented."

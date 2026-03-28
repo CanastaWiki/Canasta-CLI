@@ -1,0 +1,7 @@
+---
+# canasta gitops init - Initialize git-based configuration management
+# TODO: Implement in Phase 2+
+
+- name: "Initialize git-based configuration management (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'gitops_init' is not yet implemented."

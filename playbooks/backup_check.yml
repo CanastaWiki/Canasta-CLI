@@ -1,0 +1,7 @@
+---
+# canasta backup check - Verify backup repository integrity
+# TODO: Implement in Phase 2+
+
+- name: "Verify backup repository integrity (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'backup_check' is not yet implemented."

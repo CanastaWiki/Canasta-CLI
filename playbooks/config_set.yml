@@ -1,0 +1,7 @@
+---
+# canasta config set - Change configuration values
+# TODO: Implement in Phase 2+
+
+- name: "Change configuration values (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'config_set' is not yet implemented."

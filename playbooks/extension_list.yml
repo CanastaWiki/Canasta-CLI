@@ -1,0 +1,7 @@
+---
+# canasta extension list - List installed extensions
+# TODO: Implement in Phase 2+
+
+- name: "List installed extensions (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'extension_list' is not yet implemented."

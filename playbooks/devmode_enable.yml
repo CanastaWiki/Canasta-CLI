@@ -1,0 +1,7 @@
+---
+# canasta devmode enable - Enable development mode
+# TODO: Implement in Phase 2+
+
+- name: "Enable development mode (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'devmode_enable' is not yet implemented."

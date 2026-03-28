@@ -1,0 +1,8 @@
+---
+# Validate a wiki ID.
+# Input: wiki (str)
+
+- name: Validate wiki ID
+  canasta_farmsettings:
+    validate: wiki_id
+    value: "{{ wiki }}"

@@ -1,0 +1,7 @@
+---
+# canasta add - Add a wiki to an existing Canasta instance
+# TODO: Implement in Phase 2+
+
+- name: "Add a wiki to an existing Canasta instance (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'add' is not yet implemented."

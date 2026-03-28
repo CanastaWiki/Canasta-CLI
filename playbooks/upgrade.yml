@@ -1,0 +1,7 @@
+---
+# canasta upgrade - Upgrade Canasta instances
+# TODO: Implement in Phase 2+
+
+- name: "Upgrade Canasta instances (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'upgrade' is not yet implemented."

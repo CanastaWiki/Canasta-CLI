@@ -1,0 +1,11 @@
+---
+# canasta version - Display version information.
+
+- name: Read version file
+  ansible.builtin.slurp:
+    src: "{{ playbook_dir }}/VERSION"
+  register: _version_file
+
+- name: Display version
+  ansible.builtin.debug:
+    msg: "Canasta-Ansible version {{ _version_file.content | b64decode | trim }}"

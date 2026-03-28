@@ -1,0 +1,7 @@
+---
+# canasta backup delete - Delete a backup snapshot
+# TODO: Implement in Phase 2+
+
+- name: "Delete a backup snapshot (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'backup_delete' is not yet implemented."

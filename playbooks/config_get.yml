@@ -1,0 +1,7 @@
+---
+# canasta config get - Show configuration settings
+# TODO: Implement in Phase 2+
+
+- name: "Show configuration settings (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'config_get' is not yet implemented."

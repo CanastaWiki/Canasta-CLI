@@ -1,0 +1,7 @@
+---
+# canasta extension disable - Disable extensions
+# TODO: Implement in Phase 2+
+
+- name: "Disable extensions (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'extension_disable' is not yet implemented."

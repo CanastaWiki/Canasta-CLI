@@ -1,0 +1,7 @@
+---
+# canasta config unset - Remove configuration keys
+# TODO: Implement in Phase 2+
+
+- name: "Remove configuration keys (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'config_unset' is not yet implemented."

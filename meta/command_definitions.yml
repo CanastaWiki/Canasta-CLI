@@ -1,0 +1,1100 @@
+---
+# Command definitions for Canasta-Ansible.
+# Single source of truth for command dispatch, parameter validation, and documentation generation.
+#
+# Parameter types:
+#   string   - Free-form text
+#   path     - Filesystem path
+#   bool     - True/false flag (default: false)
+#   choice   - One of a fixed set of values (see 'choices')
+#   integer  - Whole number
+#
+# Special fields:
+#   required          - Parameter must be provided
+#   required_unless   - Required unless the named parameter is provided
+#   sensitive         - Value is a secret (auto-generated if omitted, no_log in Ansible)
+#   mutual_exclusion  - Cannot be combined with the named parameter
+#   positional        - Accepted as positional argument(s), not a flag
+
+global_flags:
+  - name: verbose
+    short: v
+    type: bool
+    default: false
+    description: "Enable verbose output"
+
+commands:
+  # ---------------------------------------------------------------------------
+  # Instance lifecycle
+  # ---------------------------------------------------------------------------
+  - name: create
+    description: "Create a new Canasta instance"
+    long_description: |
+      Create a new Canasta MediaWiki instance. Generates configuration files,
+      starts the containers, and runs the MediaWiki installer.
+    examples:
+      - "canasta create -i mysite -w main -n example.com"
+      - "canasta create -i mysite -w main -d /path/to/dump.sql"
+    playbook: create.yml
+    parameters:
+      - name: path
+        short: p
+        type: path
+        default: "."
+        description: "Canasta installation directory"
+      - name: orchestrator
+        short: o
+        type: choice
+        choices: [compose, kubernetes]
+        default: compose
+        description: "Container orchestrator"
+      - name: id
+        short: i
+        type: string
+        required: true
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        required_unless: yamlfile
+        description: "ID of the wiki"
+      - name: site_name
+        short: t
+        type: string
+        description: "Display name of the wiki (defaults to wiki ID)"
+      - name: domain_name
+        short: n
+        type: string
+        default: localhost
+        description: "Domain name"
+      - name: admin
+        short: a
+        type: string
+        default: WikiSysop
+        description: "Initial wiki admin username"
+      - name: password
+        short: s
+        type: string
+        sensitive: true
+        description: "Initial wiki admin password (auto-generated if not provided)"
+      - name: yamlfile
+        short: f
+        type: path
+        description: "Initial wikis.yaml file"
+      - name: keep_config
+        short: k
+        type: bool
+        default: false
+        description: "Keep config files on failure"
+      - name: override
+        short: r
+        type: path
+        description: "File to copy to docker-compose.override.yml (Compose only)"
+      - name: rootdbpass
+        type: string
+        sensitive: true
+        description: "Root database password (auto-generated if not provided)"
+      - name: wikidbuser
+        type: string
+        default: root
+        description: "Wiki database username"
+      - name: wikidbpass
+        type: string
+        sensitive: true
+        description: "Wiki database password (auto-generated if not provided)"
+      - name: envfile
+        short: e
+        type: path
+        description: "Path to .env file with password overrides"
+      - name: canasta_image
+        type: string
+        mutual_exclusion: build_from
+        description: "Custom Canasta image reference"
+      - name: build_from
+        type: path
+        mutual_exclusion: canasta_image
+        description: "Build from local source directory"
+      - name: database
+        short: d
+        type: path
+        description: "Path to existing database dump (.sql or .sql.gz)"
+      - name: wiki_settings
+        short: l
+        type: path
+        description: "Path to per-wiki Settings.php"
+      - name: global_settings
+        short: g
+        type: path
+        description: "Path to global settings file"
+      - name: composer
+        type: path
+        description: "Path to custom composer.local.json"
+      - name: registry
+        type: string
+        default: "localhost:5000"
+        description: "Container registry for pushing locally built images (K8s only)"
+      - name: create_cluster
+        type: bool
+        default: false
+        description: "Create and manage a local Kubernetes cluster"
+
+  - name: delete
+    description: "Delete a Canasta instance"
+    long_description: |
+      Permanently delete a Canasta instance, removing containers, volumes,
+      and configuration files.
+    examples:
+      - "canasta delete -i mysite -y"
+    playbook: delete.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        required: true
+        description: "Canasta instance ID"
+      - name: "yes"
+        short: "y"
+        type: bool
+        default: false
+        description: "Skip confirmation prompt"
+
+  - name: start
+    description: "Start a Canasta instance"
+    long_description: "Start Docker containers for a Canasta instance."
+    examples:
+      - "canasta start -i mysite"
+    playbook: start.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: stop
+    description: "Stop a Canasta instance"
+    long_description: "Stop Docker containers for a Canasta instance."
+    examples:
+      - "canasta stop -i mysite"
+    playbook: stop.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: restart
+    description: "Restart a Canasta instance"
+    long_description: "Restart Docker containers for a Canasta instance."
+    examples:
+      - "canasta restart -i mysite"
+    playbook: restart.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: list
+    description: "List all registered Canasta instances"
+    long_description: "Display all Canasta instances in the local registry."
+    examples:
+      - "canasta list"
+      - "canasta list --cleanup"
+    playbook: list.yml
+    parameters:
+      - name: cleanup
+        type: bool
+        default: false
+        description: "Remove stale entries whose directories no longer exist"
+
+  - name: version
+    description: "Display version information"
+    long_description: "Show Canasta-Ansible version."
+    examples:
+      - "canasta version"
+    playbook: version.yml
+    parameters: []
+
+  - name: upgrade
+    description: "Upgrade Canasta instances"
+    long_description: |
+      Upgrade all registered Canasta instances by refreshing configs,
+      pulling latest images, running migrations, and restarting containers.
+    examples:
+      - "canasta upgrade"
+      - "canasta upgrade --dry-run"
+    playbook: upgrade.yml
+    parameters:
+      - name: dry_run
+        type: bool
+        default: false
+        description: "Preview changes without applying"
+
+  # ---------------------------------------------------------------------------
+  # Wiki management
+  # ---------------------------------------------------------------------------
+  - name: add
+    description: "Add a wiki to an existing Canasta instance"
+    long_description: |
+      Add a new wiki to an existing Canasta instance (wiki farm).
+    examples:
+      - "canasta add -i mysite -w docs -u localhost/docs"
+    playbook: add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        required: true
+        description: "ID of the wiki"
+      - name: url
+        short: u
+        type: string
+        required: true
+        description: "Domain/path for the wiki (e.g. localhost/docs)"
+      - name: site_name
+        short: t
+        type: string
+        description: "Display name of the wiki"
+      - name: database
+        short: d
+        type: path
+        description: "Path to existing database dump"
+      - name: wiki_settings
+        short: l
+        type: path
+        description: "Path to per-wiki Settings.php"
+      - name: admin
+        short: a
+        type: string
+        description: "Initial wiki admin username"
+      - name: password
+        short: s
+        type: string
+        sensitive: true
+        description: "Initial wiki admin password"
+      - name: wikidbuser
+        type: string
+        description: "Wiki database username"
+
+  - name: remove
+    description: "Remove a wiki from a Canasta instance"
+    long_description: |
+      Remove a wiki from a Canasta instance. Drops the wiki database
+      and removes per-wiki configuration.
+    examples:
+      - "canasta remove -i mysite -w docs -y"
+    playbook: remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        required: true
+        description: "ID of the wiki to remove"
+      - name: "yes"
+        short: "y"
+        type: bool
+        default: false
+        description: "Skip confirmation prompt"
+
+  - name: import
+    description: "Import a database into a wiki"
+    long_description: |
+      Import a SQL dump into an existing wiki's database.
+    examples:
+      - "canasta import -i mysite -w main -d dump.sql"
+    playbook: import.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        required: true
+        description: "ID of the wiki to import into"
+      - name: database
+        short: d
+        type: path
+        required: true
+        description: "Path to SQL dump file (.sql or .sql.gz)"
+      - name: wiki_settings
+        short: l
+        type: path
+        description: "Path to per-wiki Settings.php to replace"
+
+  - name: export
+    description: "Export a wiki's database"
+    long_description: |
+      Export a wiki's database as a SQL dump file.
+    examples:
+      - "canasta export -i mysite -w main"
+      - "canasta export -i mysite -w main -f backup.sql.gz"
+    playbook: export.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        required: true
+        description: "ID of the wiki to export"
+      - name: file
+        short: f
+        type: path
+        description: "Output file path (default: <wikiID>.sql, use .gz for compression)"
+
+  # ---------------------------------------------------------------------------
+  # Config management
+  # ---------------------------------------------------------------------------
+  - name: config_get
+    description: "Show configuration settings"
+    long_description: |
+      Show configuration settings from the instance .env file.
+      With no arguments, prints all settings. With a KEY argument,
+      prints just that value.
+    examples:
+      - "canasta config get -i mysite"
+      - "canasta config get -i mysite MW_SITE_SERVER"
+    playbook: config_get.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: key
+        type: string
+        positional: true
+        description: "Configuration key to query"
+      - name: force
+        short: f
+        type: bool
+        default: false
+        description: "Allow querying unrecognized keys"
+
+  - name: config_set
+    description: "Change configuration values"
+    long_description: |
+      Change one or more configuration values in the instance .env file.
+      Handles side effects automatically (e.g. updating wikis.yaml when
+      changing HTTPS_PORT).
+    examples:
+      - "canasta config set -i mysite MW_SITE_SERVER=https://example.com"
+    playbook: config_set.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: settings
+        type: string
+        positional: true
+        description: "KEY=VALUE pairs to set"
+      - name: no_restart
+        type: bool
+        default: false
+        description: "Save settings without restarting the instance"
+      - name: force
+        short: f
+        type: bool
+        default: false
+        description: "Allow setting unrecognized keys"
+
+  - name: config_unset
+    description: "Remove configuration keys"
+    long_description: |
+      Remove one or more configuration keys from the instance .env file.
+    examples:
+      - "canasta config unset -i mysite MW_SITE_SERVER"
+    playbook: config_unset.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: keys
+        type: string
+        positional: true
+        description: "Configuration keys to remove"
+      - name: no_restart
+        type: bool
+        default: false
+        description: "Remove settings without restarting the instance"
+      - name: force
+        short: f
+        type: bool
+        default: false
+        description: "Allow unsetting unrecognized keys"
+
+  # ---------------------------------------------------------------------------
+  # Extensions
+  # ---------------------------------------------------------------------------
+  - name: extension_list
+    description: "List installed extensions"
+    long_description: "List all extensions available in the Canasta instance."
+    examples:
+      - "canasta extension list -i mysite"
+    playbook: extension_list.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID within the farm"
+
+  - name: extension_enable
+    description: "Enable extensions"
+    long_description: |
+      Enable one or more MediaWiki extensions. Runs update.php by default.
+    examples:
+      - "canasta extension enable -i mysite VisualEditor,Cite"
+    playbook: extension_enable.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID within the farm"
+      - name: extensions
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated extension names"
+      - name: skip_update
+        type: bool
+        default: false
+        description: "Skip running update.php after enabling"
+
+  - name: extension_disable
+    description: "Disable extensions"
+    long_description: "Disable one or more MediaWiki extensions."
+    examples:
+      - "canasta extension disable -i mysite VisualEditor"
+    playbook: extension_disable.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID within the farm"
+      - name: extensions
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated extension names"
+
+  # ---------------------------------------------------------------------------
+  # Skins
+  # ---------------------------------------------------------------------------
+  - name: skin_list
+    description: "List installed skins"
+    long_description: "List all skins available in the Canasta instance."
+    examples:
+      - "canasta skin list -i mysite"
+    playbook: skin_list.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID within the farm"
+
+  - name: skin_enable
+    description: "Enable skins"
+    long_description: |
+      Enable one or more MediaWiki skins. Runs update.php by default.
+    examples:
+      - "canasta skin enable -i mysite Timeless"
+    playbook: skin_enable.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID within the farm"
+      - name: skins
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated skin names"
+      - name: skip_update
+        type: bool
+        default: false
+        description: "Skip running update.php after enabling"
+
+  - name: skin_disable
+    description: "Disable skins"
+    long_description: "Disable one or more MediaWiki skins."
+    examples:
+      - "canasta skin disable -i mysite Timeless"
+    playbook: skin_disable.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID within the farm"
+      - name: skins
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated skin names"
+
+  # ---------------------------------------------------------------------------
+  # Maintenance
+  # ---------------------------------------------------------------------------
+  - name: maintenance_update
+    description: "Run MediaWiki maintenance update"
+    long_description: |
+      Run standard MediaWiki maintenance: update.php, runJobs.php,
+      and Semantic MediaWiki rebuildData.php.
+    examples:
+      - "canasta maintenance update -i mysite"
+      - "canasta maintenance update -i mysite -w mywiki --skip-jobs"
+    playbook: maintenance_update.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID to run on (default: all wikis)"
+      - name: skip_jobs
+        type: bool
+        default: false
+        description: "Skip running runJobs.php"
+      - name: skip_smw
+        type: bool
+        default: false
+        description: "Skip running Semantic MediaWiki rebuildData.php"
+
+  - name: maintenance_script
+    description: "Run a MediaWiki maintenance script"
+    long_description: "Run an arbitrary MediaWiki core maintenance script."
+    examples:
+      - "canasta maintenance script -i mysite -- rebuildall.php"
+    playbook: maintenance_script.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID to run script on"
+      - name: script_args
+        type: string
+        positional: true
+        description: "Maintenance script name and arguments"
+
+  - name: maintenance_extension
+    description: "Run extension maintenance scripts"
+    long_description: "Run extension-specific maintenance scripts."
+    examples:
+      - "canasta maintenance extension -i mysite"
+    playbook: maintenance_extension.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID"
+      - name: script_args
+        type: string
+        positional: true
+        description: "Extension maintenance script and arguments"
+
+  - name: maintenance_exec
+    description: "Execute a command in the MediaWiki container"
+    long_description: "Execute an arbitrary command inside the MediaWiki container."
+    examples:
+      - "canasta maintenance exec -i mysite -- ls /var/www/mediawiki"
+    playbook: maintenance_exec.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID"
+      - name: exec_args
+        type: string
+        positional: true
+        description: "Command and arguments to execute"
+
+  # ---------------------------------------------------------------------------
+  # DevMode
+  # ---------------------------------------------------------------------------
+  - name: devmode_enable
+    description: "Enable development mode"
+    long_description: |
+      Enable development mode on a Canasta instance. Extracts MediaWiki code
+      for live editing and builds an Xdebug-enabled image. Docker Compose only.
+    examples:
+      - "canasta devmode enable -i mysite"
+    playbook: devmode_enable.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: devmode_disable
+    description: "Disable development mode"
+    long_description: |
+      Disable development mode. Restores extensions and skins as real
+      directories and removes Xdebug.
+    examples:
+      - "canasta devmode disable -i mysite"
+    playbook: devmode_disable.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  # ---------------------------------------------------------------------------
+  # Sitemap
+  # ---------------------------------------------------------------------------
+  - name: sitemap_generate
+    description: "Generate XML sitemaps"
+    long_description: "Generate XML sitemaps for one or all wikis."
+    examples:
+      - "canasta sitemap generate -i mysite"
+      - "canasta sitemap generate -i mysite -w mywiki"
+    playbook: sitemap_generate.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID (omit to generate for all wikis)"
+
+  - name: sitemap_remove
+    description: "Remove XML sitemaps"
+    long_description: "Remove XML sitemaps for one or all wikis."
+    examples:
+      - "canasta sitemap remove -i mysite"
+    playbook: sitemap_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID (omit to remove for all wikis)"
+
+  # ---------------------------------------------------------------------------
+  # Backup
+  # ---------------------------------------------------------------------------
+  - name: backup_init
+    description: "Initialize a backup repository"
+    long_description: "Initialize a new Restic backup repository for a Canasta instance."
+    examples:
+      - "canasta backup init -i mysite"
+    playbook: backup_init.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: backup_list
+    description: "List backup snapshots"
+    long_description: "List all snapshots in the backup repository."
+    examples:
+      - "canasta backup list -i mysite"
+    playbook: backup_list.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: backup_create
+    description: "Create a backup"
+    long_description: |
+      Create a backup snapshot. Dumps all wiki databases, stages
+      config/extensions/images/skins, and uploads to the repository.
+    examples:
+      - "canasta backup create -i mysite -t before-upgrade"
+    playbook: backup_create.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: tag
+        short: t
+        type: string
+        required: true
+        description: "Backup tag"
+
+  - name: backup_restore
+    description: "Restore from a backup"
+    long_description: "Restore a Canasta instance from a backup snapshot."
+    examples:
+      - "canasta backup restore -i mysite -s abc123"
+    playbook: backup_restore.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: snapshot
+        short: s
+        type: string
+        required: true
+        description: "Snapshot ID"
+      - name: skip_safety_backup
+        type: bool
+        default: false
+        description: "Skip taking a safety snapshot before restore"
+      - name: wiki
+        short: w
+        type: string
+        description: "Restore only this wiki's database and per-wiki files"
+
+  - name: backup_delete
+    description: "Delete a backup snapshot"
+    long_description: "Delete a specific snapshot from the backup repository."
+    examples:
+      - "canasta backup delete -i mysite -s abc123"
+    playbook: backup_delete.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: snapshot
+        short: s
+        type: string
+        required: true
+        description: "Snapshot ID to delete"
+
+  - name: backup_unlock
+    description: "Unlock the backup repository"
+    long_description: "Unlock a backup repository (needed if a previous backup was interrupted)."
+    examples:
+      - "canasta backup unlock -i mysite"
+    playbook: backup_unlock.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: backup_files
+    description: "List files in a backup snapshot"
+    long_description: "List all files contained in a specific backup snapshot."
+    examples:
+      - "canasta backup files -i mysite -s abc123"
+    playbook: backup_files.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: snapshot
+        short: s
+        type: string
+        required: true
+        description: "Snapshot ID"
+
+  - name: backup_check
+    description: "Verify backup repository integrity"
+    long_description: "Verify the integrity of the backup repository."
+    examples:
+      - "canasta backup check -i mysite"
+    playbook: backup_check.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: backup_diff
+    description: "Compare two backup snapshots"
+    long_description: "Show the differences between two backup snapshots."
+    examples:
+      - "canasta backup diff -i mysite -s snap1 --snapshot2 snap2"
+    playbook: backup_diff.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: snapshot
+        short: s
+        type: string
+        required: true
+        description: "First snapshot ID"
+      - name: snapshot2
+        type: string
+        required: true
+        description: "Second snapshot ID"
+
+  - name: backup_purge
+    description: "Purge old backups"
+    long_description: "Remove old backups based on retention policies."
+    examples:
+      - "canasta backup purge -i mysite --keep-last 5"
+      - "canasta backup purge -i mysite --older-than 30d"
+    playbook: backup_purge.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: keep_last
+        type: string
+        description: "Number of most recent backups to keep"
+      - name: keep_hourly
+        type: string
+        description: "Number of hourly backups to keep"
+      - name: keep_daily
+        type: string
+        description: "Number of daily backups to keep"
+      - name: keep_monthly
+        type: string
+        description: "Number of monthly backups to keep"
+      - name: older_than
+        type: string
+        description: "Purge backups older than this (e.g. 30d, 6m)"
+
+  - name: backup_schedule_set
+    description: "Set a backup schedule"
+    long_description: "Set a recurring backup schedule using a cron expression."
+    examples:
+      - "canasta backup schedule set -i mysite '0 2 * * *'"
+    playbook: backup_schedule_set.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: cron_expression
+        type: string
+        positional: true
+        required: true
+        description: "Cron expression for the schedule"
+      - name: purge_older_than
+        type: string
+        description: "Purge backups older than this on each scheduled run"
+
+  - name: backup_schedule_list
+    description: "Show the backup schedule"
+    long_description: "Show the current backup schedule for a Canasta instance."
+    examples:
+      - "canasta backup schedule list -i mysite"
+    playbook: backup_schedule_list.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: backup_schedule_remove
+    description: "Remove the backup schedule"
+    long_description: "Remove the scheduled backup for a Canasta instance."
+    examples:
+      - "canasta backup schedule remove -i mysite"
+    playbook: backup_schedule_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  # ---------------------------------------------------------------------------
+  # GitOps
+  # ---------------------------------------------------------------------------
+  - name: gitops_init
+    description: "Initialize git-based configuration management"
+    long_description: |
+      Bootstrap git-based configuration management. Converts extensions
+      and skins to submodules and pushes to a remote repository.
+    examples:
+      - "canasta gitops init -i mysite -n prod --repo git@github.com:org/config.git --key /tmp/gc.key"
+    playbook: gitops_init.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: name
+        short: n
+        type: string
+        required: true
+        description: "Name for this host in hosts.yaml"
+      - name: role
+        type: choice
+        choices: [source, sink, both]
+        default: both
+        description: "Host role"
+      - name: repo
+        type: string
+        required: true
+        description: "Git repository URL"
+      - name: key
+        type: path
+        required: true
+        description: "Path to export the git-crypt key"
+      - name: force
+        type: bool
+        default: false
+        description: "Force push to non-empty remote"
+      - name: pull_requests
+        type: bool
+        default: false
+        description: "Require pull requests instead of pushing to main"
+
+  - name: gitops_join
+    description: "Join an existing gitops repository"
+    long_description: "Join an existing git-based configuration repository."
+    examples:
+      - "canasta gitops join -i mysite -n staging --repo git@github.com:org/config.git --key /tmp/gc.key"
+    playbook: gitops_join.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: name
+        short: n
+        type: string
+        required: true
+        description: "Name for this host"
+      - name: repo
+        type: string
+        required: true
+        description: "Git repository URL"
+      - name: key
+        type: path
+        required: true
+        description: "Path to git-crypt key"
+
+  - name: gitops_add
+    description: "Add configuration changes to git"
+    long_description: "Stage configuration changes for the next gitops push."
+    examples:
+      - "canasta gitops add -i mysite"
+    playbook: gitops_add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: gitops_rm
+    description: "Remove configuration from git tracking"
+    long_description: "Remove configuration files from git tracking."
+    examples:
+      - "canasta gitops rm -i mysite"
+    playbook: gitops_rm.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: gitops_push
+    description: "Push configuration changes"
+    long_description: "Push configuration changes to the remote gitops repository."
+    examples:
+      - "canasta gitops push -i mysite"
+    playbook: gitops_push.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: gitops_pull
+    description: "Pull configuration changes"
+    long_description: "Pull configuration changes from the remote gitops repository."
+    examples:
+      - "canasta gitops pull -i mysite"
+    playbook: gitops_pull.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: gitops_status
+    description: "Show gitops status"
+    long_description: "Show the git status of the configuration directory."
+    examples:
+      - "canasta gitops status -i mysite"
+    playbook: gitops_status.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: gitops_diff
+    description: "Show gitops diff"
+    long_description: "Show differences in the configuration directory."
+    examples:
+      - "canasta gitops diff -i mysite"
+    playbook: gitops_diff.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: gitops_fix_submodules
+    description: "Fix gitops submodules"
+    long_description: "Fix submodule registration after adding extensions."
+    examples:
+      - "canasta gitops fix-submodules -i mysite"
+    playbook: gitops_fix_submodules.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"

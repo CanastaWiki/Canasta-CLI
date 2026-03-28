@@ -1,0 +1,13 @@
+---
+# Default values for the common role.
+
+# Password generation defaults (matching Go: 30 chars, 4 digits, 6 symbols)
+canasta_password_length: 30
+canasta_password_digits: 4
+canasta_password_symbols: 6
+
+# Instance ID regex (matching Go: ^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$)
+canasta_instance_id_pattern: "^[a-zA-Z0-9]([a-zA-Z0-9\\-_]*[a-zA-Z0-9])?$"
+
+# Verbose output (set via -e verbose=true or the wrapper --verbose flag)
+canasta_verbose: false

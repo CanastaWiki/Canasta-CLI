@@ -1,0 +1,7 @@
+---
+# canasta remove - Remove a wiki from a Canasta instance
+# TODO: Implement in Phase 2+
+
+- name: "Remove a wiki from a Canasta instance (not yet implemented)"
+  ansible.builtin.debug:
+    msg: "Command 'remove' is not yet implemented."

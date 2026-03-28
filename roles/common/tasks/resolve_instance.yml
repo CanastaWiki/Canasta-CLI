@@ -1,0 +1,30 @@
+---
+# Resolve a Canasta instance from ID or working directory.
+# Mirrors Go's canasta.CheckCanastaID().
+#
+# Input variables:
+#   id (optional) - Canasta instance ID
+#
+# Output facts:
+#   instance_id, instance_path, instance_orchestrator, instance_devmode
+
+- name: Look up instance by ID
+  canasta_registry:
+    id: "{{ id }}"
+    state: query
+  register: _instance_lookup
+  when: id is defined and id != ''
+
+- name: Look up instance by working directory
+  canasta_registry:
+    path: "{{ lookup('env', 'PWD') }}"
+    state: query_by_path
+  register: _instance_lookup
+  when: id is not defined or id == ''
+
+- name: Set instance facts
+  ansible.builtin.set_fact:
+    instance_id: "{{ _instance_lookup.instance.id }}"
+    instance_path: "{{ _instance_lookup.instance.path }}"
+    instance_orchestrator: "{{ _instance_lookup.instance.orchestrator | default('compose') }}"
+    instance_devmode: "{{ _instance_lookup.instance.devMode | default(false) }}"
