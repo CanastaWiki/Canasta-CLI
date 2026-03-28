@@ -13,6 +13,11 @@
   register: _export_dbpass
   no_log: true
 
+- name: Set DB password with fallback
+  ansible.builtin.set_fact:
+    _export_db_password: "{{ _export_dbpass.value | default('mediawiki') }}"
+  no_log: true
+
 - name: Set output file
   ansible.builtin.set_fact:
     _export_file: "{{ file | default(wiki + '.sql') }}"
@@ -27,7 +32,7 @@
     tasks_from: exec.yml
   vars:
     exec_service: db
-    exec_command: "mariadb-dump -u root -p{{ _export_dbpass.value }} {{ wiki }} > /tmp/{{ wiki }}.sql"
+    exec_command: "mariadb-dump -u root -p{{ _export_db_password | quote }} {{ wiki | quote }} > /tmp/{{ wiki | quote }}.sql"
   no_log: true
 
 - name: Compress dump if gzip requested
@@ -45,7 +50,7 @@
 
 - name: Copy dump from container to host
   ansible.builtin.command:
-    cmd: "docker compose cp db:{{ _container_file }} {{ _export_file }}"
+    cmd: "docker compose cp {{ ('db:' + _container_file) | quote }} {{ _export_file | quote }}"
     chdir: "{{ instance_path }}"
   changed_when: true
 

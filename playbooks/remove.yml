@@ -1,5 +1,6 @@
 ---
 # canasta remove - Remove a wiki from a Canasta instance.
+# Matches Go: cleans images/public_assets inside container, drops DB, removes config.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
@@ -8,6 +9,34 @@
   ansible.builtin.fail:
     msg: "Removing wiki '{{ wiki }}' from instance '{{ instance_id }}'. Use --yes to confirm."
   when: not (yes | default(false) | bool)
+
+- name: Read DB password
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MYSQL_PASSWORD
+  register: _remove_dbpass
+  no_log: true
+
+# Clean up wiki images inside container (owned by www-data on Linux)
+- name: Remove wiki images inside container
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "rm -rf /mediawiki/images/{{ wiki | quote }}"
+  ignore_errors: true
+
+# Clean up public assets (sitemaps etc.)
+- name: Remove wiki public assets
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "rm -rf /mediawiki/public_assets/{{ wiki | quote }}"
+  ignore_errors: true
 
 - name: Remove wiki from wikis.yaml
   canasta_wikis_yaml:
@@ -21,7 +50,7 @@
     tasks_from: exec.yml
   vars:
     exec_service: db
-    exec_command: "mysql -u root -p$(cat /run/secrets/db_root_password 2>/dev/null || echo $MYSQL_ROOT_PASSWORD) -e 'DROP DATABASE IF EXISTS {{ wiki }}'"
+    exec_command: "mysql -u root -p{{ _remove_dbpass.value | default('mediawiki') | quote }} -e 'DROP DATABASE IF EXISTS {{ wiki | quote }}'"
   ignore_errors: true
 
 - name: Remove per-wiki settings directory

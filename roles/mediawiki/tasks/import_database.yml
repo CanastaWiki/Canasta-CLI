@@ -8,7 +8,7 @@
 
 - name: Copy database dump to container
   ansible.builtin.command:
-    cmd: "docker compose cp {{ import_database_path }} db:/tmp/import.sql{{ _is_gzipped | bool | ternary('.gz', '') }}"
+    cmd: "docker compose cp {{ import_database_path | quote }} {{ ('db:/tmp/import.sql' + (_is_gzipped | bool | ternary('.gz', ''))) | quote }}"
     chdir: "{{ instance_path }}"
   changed_when: true
 
@@ -19,7 +19,7 @@
   vars:
     exec_service: db
     exec_command: >-
-      bash -c 'gunzip -c /tmp/import.sql.gz | mysql -u root -p{{ import_db_password | quote }} {{ import_wiki_id }}'
+      bash -c 'gunzip -c /tmp/import.sql.gz | mysql -u root -p{{ import_db_password | quote }} {{ import_wiki_id | quote }}'
   when: _is_gzipped | bool
 
 - name: Import plain SQL database
@@ -29,7 +29,7 @@
   vars:
     exec_service: db
     exec_command: >-
-      mysql -u root -p{{ import_db_password | quote }} {{ import_wiki_id }} < /tmp/import.sql
+      mysql -u root -p{{ import_db_password | quote }} {{ import_wiki_id | quote }} < /tmp/import.sql
   when: not (_is_gzipped | bool)
 
 - name: Clean up temp dump file

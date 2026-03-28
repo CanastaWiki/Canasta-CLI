@@ -8,8 +8,8 @@
       Unrecognized key '{{ _config_key }}'.
       Use --force to set unrecognized keys.
       Known keys: {{ canasta_known_keys | join(', ') }}
+      (Also accepted: keys starting with AWS_, AZURE_, B2_, GOOGLE_, OS_, ST_, RCLONE_)
   when:
     - not (force | default(false) | bool)
     - _config_key not in canasta_known_keys
-    - canasta_known_prefixes | select('match', '^' + _config_key[:_config_key | length]) | list | length == 0
     - not (_config_key | regex_search('^(AWS_|AZURE_|B2_|GOOGLE_|OS_|ST_|RCLONE_)'))

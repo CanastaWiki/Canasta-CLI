@@ -33,7 +33,7 @@
     tasks_from: exec.yml
   vars:
     exec_service: db
-    exec_command: "mariadb-dump -h db -u root -p{{ _backup_dbpass.value }} --single-transaction --databases {{ item }} > /mediawiki/config/backup/{{ item }}.sql"
+    exec_command: "mariadb-dump -h db -u root -p{{ _backup_dbpass.value | quote }} --single-transaction --databases {{ item | quote }} > /mediawiki/config/backup/{{ item | quote }}.sql"
   loop: "{{ _backup_wikis.wiki_ids }}"
   no_log: true
 
@@ -54,7 +54,7 @@
   vars:
     exec_service: "{{ canasta_backup_service }}"
     exec_command: >-
-      restic backup --tag {{ _backup_tag }}
+      restic backup --tag {{ _backup_tag | quote }}
       /mediawiki/config
       /mediawiki/extensions
       /mediawiki/images

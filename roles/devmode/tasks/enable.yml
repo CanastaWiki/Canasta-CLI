@@ -29,8 +29,16 @@
     path: "{{ instance_path }}/mediawiki-code"
   register: _mw_code_dir
 
+- name: Check if mediawiki-code directory has content
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/mediawiki-code"
+    file_type: any
+    hidden: true
+  register: _mw_code_contents
+  when: _mw_code_dir.stat.exists
+
 - name: Extract MediaWiki code for live editing
-  when: not _mw_code_dir.stat.exists or (_mw_code_dir.stat.isdir and (lookup('pipe', 'ls -A ' + instance_path + '/mediawiki-code 2>/dev/null') == ''))
+  when: not _mw_code_dir.stat.exists or (_mw_code_contents.files | default([]) | length == 0)
   block:
     - name: Create mediawiki-code directory
       ansible.builtin.file:

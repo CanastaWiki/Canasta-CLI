@@ -5,9 +5,14 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Validate script path
+  ansible.builtin.fail:
+    msg: "Invalid script path '{{ script_args }}'. Must match pattern: alphanumeric, slashes, dots, hyphens."
+  when: script_args | regex_search('[^a-zA-Z0-9/_. -]') is not none
+
 - name: Build script command
   ansible.builtin.set_fact:
-    _script_cmd: "php maintenance/{{ script_args }}{{ (wiki is defined and wiki != '') | ternary(' --wiki=' + (wiki | default('')), '') }}"
+    _script_cmd: "php maintenance/{{ script_args }}{{ (wiki is defined and wiki != '') | ternary(' --wiki=' + (wiki | quote), '') }}"
 
 - name: Run maintenance script
   ansible.builtin.include_role:

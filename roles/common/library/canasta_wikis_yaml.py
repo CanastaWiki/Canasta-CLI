@@ -59,7 +59,12 @@ def wikis_yaml_path(instance_path):
 
 
 def validate_wiki_id(wiki_id):
-    """Validate a wiki ID (matching Go ValidateWikiID)."""
+    """Validate a wiki ID (matching Go ValidateWikiID).
+
+    NOTE: This validation is intentionally duplicated from canasta_farmsettings.py
+    because Ansible modules in different role library/ directories cannot import
+    each other. Keep both copies in sync.
+    """
     if not wiki_id:
         return "wiki ID cannot be empty"
     if WIKI_ID_INVALID_CHARS.search(wiki_id):

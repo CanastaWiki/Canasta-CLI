@@ -1,6 +1,7 @@
 ---
 # Delete a Canasta instance.
-# Mirrors Go delete command.
+# Matches Go delete command: cleans images inside container, removes backup schedule,
+# then destroys containers/volumes and removes directory.
 # Input: id, yes (bool - skip confirmation)
 
 - name: Resolve instance
@@ -10,6 +11,32 @@
   ansible.builtin.fail:
     msg: "Deleting instance '{{ instance_id }}' at {{ instance_path }}. Use --yes to confirm."
   when: not (yes | default(false) | bool)
+
+# Clean up images inside container (important on Linux where files are owned by www-data)
+- name: Check if containers are running
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: check_running.yml
+  ignore_errors: true
+
+- name: Clean up container-owned files
+  when: _container_running | default(false) | bool
+  block:
+    - name: Remove images inside container
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: exec.yml
+      vars:
+        exec_service: web
+        exec_command: "find /mediawiki/images -mindepth 1 -delete 2>/dev/null || true"
+      ignore_errors: true
+
+# Remove backup schedule from crontab
+- name: Remove backup schedule
+  ansible.builtin.cron:
+    name: "canasta-backup-{{ instance_id }}"
+    state: absent
+  ignore_errors: true
 
 - name: Destroy containers and volumes
   ansible.builtin.include_role:

@@ -1,5 +1,6 @@
 ---
 # canasta sitemap generate - Generate XML sitemaps.
+# Matches Go sitemap paths: /mediawiki/public_assets/<wiki>/sitemap
 # Input: id (optional), wiki (optional)
 
 - name: Resolve instance
@@ -11,18 +12,22 @@
     state: read
   register: _sitemap_wikis
 
+- name: Read MW_SITE_SERVER from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MW_SITE_SERVER
+  register: _sitemap_server
+
 - name: Determine wikis for sitemap generation
   ansible.builtin.set_fact:
     _sitemap_targets: "{{ (wiki is defined and wiki != '') | ternary([wiki], _sitemap_wikis.wiki_ids) }}"
 
-- name: Generate sitemap for each wiki
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
-  vars:
-    exec_service: web
-    exec_command: "php maintenance/generateSitemap.php --wiki={{ item }} --fspath=/mediawiki/sitemap/{{ item }} --urlpath=/sitemap/{{ item }} --server=$(grep MW_SITE_SERVER /mediawiki/config/.env | cut -d= -f2)"
+- name: Create sitemap directories and generate for each wiki
+  ansible.builtin.include_tasks: _generate_single.yml
   loop: "{{ _sitemap_targets }}"
+  loop_control:
+    loop_var: _sitemap_wiki
 
 - name: Report sitemaps generated
   ansible.builtin.debug:

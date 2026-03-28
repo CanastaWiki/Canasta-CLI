@@ -1,10 +1,26 @@
 ---
 # Enable extensions or skins.
-# Input: id, wiki (optional), _item_type (extensions|skins), _names (comma-separated),
-#        skip_update (bool)
+# Matches Go behavior: check installed, enable in settings.yaml, optionally run update.php.
+# Input: id, wiki (optional), _item_type (extensions|skins), _item_dir (extensions|skins),
+#        _names (comma-separated), skip_update (bool)
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+# Check each item is actually installed in the container
+- name: "List available {{ _item_type }} in container"
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "cd /var/www/mediawiki/w/{{ _item_type }} && find -L * -maxdepth 0 -type d 2>/dev/null || true"
+
+- name: "Verify {{ _item_type }} are installed"
+  ansible.builtin.fail:
+    msg: "{{ _item_type | capitalize }} '{{ item }}' is not installed in the container."
+  when: item not in (exec_result.stdout | default('') | split('\n') | map('trim') | list)
+  loop: "{{ _names.split(',') | map('trim') | list }}"
 
 - name: "Enable {{ _item_type }}"
   canasta_settings_yaml:
@@ -21,7 +37,7 @@
     tasks_from: exec.yml
   vars:
     exec_service: web
-    exec_command: "php maintenance/update.php --quick"
+    exec_command: "php maintenance/update.php --wiki={{ wiki | default('') | quote }}"
 
 - name: "Report {{ _item_type }} enabled"
   ansible.builtin.debug:

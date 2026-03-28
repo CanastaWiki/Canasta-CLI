@@ -1,5 +1,6 @@
 ---
 # canasta sitemap remove - Remove XML sitemaps.
+# Uses correct path: /mediawiki/public_assets/<wiki>/sitemap
 # Input: id (optional), wiki (optional)
 
 - name: Resolve instance
@@ -21,7 +22,7 @@
     tasks_from: exec.yml
   vars:
     exec_service: web
-    exec_command: "rm -rf /mediawiki/sitemap/{{ item }}"
+    exec_command: "rm -rf /mediawiki/public_assets/{{ item | quote }}/sitemap"
   loop: "{{ _sitemap_targets }}"
 
 - name: Report sitemaps removed

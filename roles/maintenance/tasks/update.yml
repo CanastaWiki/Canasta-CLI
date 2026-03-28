@@ -1,5 +1,6 @@
 ---
 # canasta maintenance update - Run update.php, runJobs.php, rebuildData.php.
+# Matches Go behavior: no --quick flag, checks SMW exists before running.
 # Input: id (optional), wiki (optional), skip_jobs (bool), skip_smw (bool)
 
 - name: Resolve instance
@@ -21,7 +22,7 @@
     tasks_from: exec.yml
   vars:
     exec_service: web
-    exec_command: "php maintenance/update.php --wiki={{ item }} --quick"
+    exec_command: "php maintenance/update.php --wiki={{ item | quote }}"
   loop: "{{ _update_wikis }}"
 
 - name: Run runJobs.php for each wiki
@@ -31,17 +32,29 @@
     tasks_from: exec.yml
   vars:
     exec_service: web
-    exec_command: "php maintenance/runJobs.php --wiki={{ item }}"
+    exec_command: "php maintenance/runJobs.php --wiki={{ item | quote }}"
   loop: "{{ _update_wikis }}"
 
-- name: Run SMW rebuildData.php for each wiki
-  when: not (skip_smw | default(false) | bool)
+- name: Check if SMW is installed
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: exec.yml
   vars:
     exec_service: web
-    exec_command: "php extensions/SemanticMediaWiki/maintenance/rebuildData.php --wiki={{ item }}"
+    exec_command: "test -f extensions/SemanticMediaWiki/maintenance/rebuildData.php && echo yes || echo no"
+  register: _smw_check
+  when: not (skip_smw | default(false) | bool)
+
+- name: Run SMW rebuildData.php for each wiki
+  when:
+    - not (skip_smw | default(false) | bool)
+    - exec_result.stdout | default('') | trim == 'yes'
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "php extensions/SemanticMediaWiki/maintenance/rebuildData.php --wiki={{ item | quote }}"
   loop: "{{ _update_wikis }}"
   ignore_errors: true
 
