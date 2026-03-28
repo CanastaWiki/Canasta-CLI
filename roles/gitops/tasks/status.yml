@@ -1,0 +1,14 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Get git status
+  ansible.builtin.command:
+    cmd: "git status"
+    chdir: "{{ instance_path }}/config"
+  register: _git_status
+  changed_when: false
+
+- name: Display status
+  ansible.builtin.debug:
+    msg: "{{ _git_status.stdout }}"

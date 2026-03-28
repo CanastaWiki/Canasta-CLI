@@ -1,0 +1,13 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Commit and push
+  ansible.builtin.command:
+    cmd: "git add -A && git diff --cached --quiet || git commit -m 'Configuration update' && git push"
+    chdir: "{{ instance_path }}/config"
+  changed_when: true
+
+- name: Report pushed
+  ansible.builtin.debug:
+    msg: "Configuration pushed for '{{ instance_id }}'."

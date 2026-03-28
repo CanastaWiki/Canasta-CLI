@@ -1,0 +1,9 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Remove deleted files from tracking
+  ansible.builtin.command:
+    cmd: "git add -u"
+    chdir: "{{ instance_path }}/config"
+  changed_when: true

@@ -1,7 +1,7 @@
 ---
-# canasta backup init - Initialize a backup repository
-# TODO: Implement in Phase 2+
+# canasta backup init
 
-- name: "Initialize a backup repository (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'backup_init' is not yet implemented."
+- name: Backup Init
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: init.yml

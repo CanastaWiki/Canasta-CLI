@@ -1,7 +1,117 @@
 ---
-# canasta add - Add a wiki to an existing Canasta instance
-# TODO: Implement in Phase 2+
+# canasta add - Add a wiki to an existing Canasta instance.
 
-- name: "Add a wiki to an existing Canasta instance (not yet implemented)"
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Validate wiki ID
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/validate_wiki_id.yml"
+
+- name: Parse URL into domain and path
+  ansible.builtin.set_fact:
+    _add_domain: "{{ url | regex_replace('/.*$', '') }}"
+    _add_path: "{{ url | regex_replace('^[^/]*', '') | regex_replace('^/', '') }}"
+
+- name: Add wiki to wikis.yaml
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: add
+    wiki_id: "{{ wiki }}"
+    domain: "{{ _add_domain }}"
+    wiki_path: "{{ _add_path }}"
+    site_name: "{{ site_name | default('') }}"
+
+- name: Create per-wiki settings directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/config/settings/wikis/{{ wiki }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy per-wiki Settings.php if provided
+  ansible.builtin.copy:
+    src: "{{ wiki_settings }}"
+    dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php"
+    mode: "0644"
+  when: wiki_settings is defined and wiki_settings != ''
+
+- name: Read .env for DB password
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MYSQL_PASSWORD
+  register: _add_dbpass
+  no_log: true
+
+- name: Generate admin password if not provided
+  when: password is not defined or password == ''
+  block:
+    - name: Generate password
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/generate_password.yml"
+    - name: Store generated password
+      ansible.builtin.set_fact:
+        _add_admin_password: "{{ _generated_password }}"
+
+- name: Use provided admin password
+  ansible.builtin.set_fact:
+    _add_admin_password: "{{ password }}"
+  when: password is defined and password != ''
+
+- name: Import database if provided
+  when: database is defined and database != ''
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: import_database.yml
+  vars:
+    import_wiki_id: "{{ wiki }}"
+    import_database_path: "{{ database }}"
+    import_db_password: "{{ _add_dbpass.value }}"
+
+- name: Run install.php for new wiki
+  when: database is not defined or database == ''
+  block:
+    - name: Wait for database
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: wait_for_db.yml
+
+    - name: Install new wiki
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: exec.yml
+      vars:
+        exec_service: web
+        exec_command: >-
+          php maintenance/install.php
+          --skins='Vector'
+          --dbserver=db
+          --dbname={{ wiki }}
+          --confpath=/tmp/
+          --scriptpath=/w
+          --server=https://{{ _add_domain }}
+          --installdbuser='root'
+          --installdbpass={{ _add_dbpass.value | quote }}
+          --dbuser={{ wikidbuser | default('root') | quote }}
+          --dbpass={{ _add_dbpass.value | quote }}
+          --pass={{ _add_admin_password | quote }}
+          {{ wiki | quote }} {{ admin | default('WikiSysop') | quote }}
+
+    - name: Save admin password
+      ansible.builtin.copy:
+        content: "{{ _add_admin_password }}"
+        dest: "{{ instance_path }}/admin-password_{{ wiki }}"
+        mode: "0600"
+      no_log: true
+
+- name: Regenerate Caddyfile
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
+- name: Restart instance
+  ansible.builtin.include_role:
+    name: instance_lifecycle
+    tasks_from: restart.yml
+
+- name: Report wiki added
   ansible.builtin.debug:
-    msg: "Command 'add' is not yet implemented."
+    msg: "Wiki '{{ wiki }}' added to instance '{{ instance_id }}'."

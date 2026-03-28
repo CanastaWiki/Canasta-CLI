@@ -1,7 +1,10 @@
 ---
-# canasta skin disable - Disable skins
-# TODO: Implement in Phase 2+
+# canasta skin disable - Disable skins.
 
-- name: "Disable skins (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'skin_disable' is not yet implemented."
+- name: Disable skins
+  ansible.builtin.include_role:
+    name: extensions_skins
+    tasks_from: disable.yml
+  vars:
+    _item_type: skins
+    _names: "{{ skins }}"

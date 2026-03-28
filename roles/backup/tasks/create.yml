@@ -1,0 +1,47 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Get wiki list for DB dumps
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _backup_wikis
+
+- name: Read DB password
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MYSQL_PASSWORD
+  register: _backup_dbpass
+  no_log: true
+
+- name: Dump databases for each wiki
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: db
+    exec_command: "mysqldump -u root -p{{ _backup_dbpass.value }} {{ item }} > /tmp/{{ item }}.sql"
+  loop: "{{ _backup_wikis.wiki_ids }}"
+  no_log: true
+
+- name: Stage database dumps in backup volume
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: db
+    exec_command: "cp /tmp/*.sql /backup/ 2>/dev/null; rm -f /tmp/*.sql"
+
+- name: Create backup snapshot
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: "{{ canasta_backup_service }}"
+    exec_command: "restic backup --tag {{ tag }} /mediawiki/config /mediawiki/images /backup"
+
+- name: Display result
+  ansible.builtin.debug:
+    msg: "{{ exec_result.stdout }}"

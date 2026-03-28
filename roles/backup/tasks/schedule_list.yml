@@ -1,0 +1,18 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: List cron jobs for this instance
+  ansible.builtin.command:
+    cmd: "crontab -l"
+  register: _cron_list
+  changed_when: false
+  ignore_errors: true
+
+- name: Filter backup schedule
+  ansible.builtin.set_fact:
+    _schedule_lines: "{{ _cron_list.stdout_lines | default([]) | select('search', 'canasta-backup-' + instance_id) | list }}"
+
+- name: Display schedule
+  ansible.builtin.debug:
+    msg: "{{ (_schedule_lines | length > 0) | ternary(_schedule_lines | join('\n'), 'No backup schedule set for ' + instance_id) }}"

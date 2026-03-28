@@ -71,7 +71,7 @@ def main():
     # Check for orphan playbooks (files with no matching definition)
     if os.path.isdir(playbooks_dir):
         for fname in sorted(os.listdir(playbooks_dir)):
-            if fname.endswith(".yml") and fname not in defined_playbooks:
+            if fname.endswith(".yml") and not fname.startswith("_") and fname not in defined_playbooks:
                 errors.append("playbooks/%s: no matching command definition" % fname)
 
     # Check for duplicate command names

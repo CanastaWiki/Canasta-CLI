@@ -1,7 +1,7 @@
 ---
-# canasta sitemap generate - Generate XML sitemaps
-# TODO: Implement in Phase 2+
+# canasta sitemap generate - Generate XML sitemaps.
 
-- name: "Generate XML sitemaps (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'sitemap_generate' is not yet implemented."
+- name: Generate sitemaps
+  ansible.builtin.include_role:
+    name: sitemap
+    tasks_from: generate.yml

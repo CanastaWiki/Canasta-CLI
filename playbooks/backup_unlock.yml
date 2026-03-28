@@ -1,7 +1,7 @@
 ---
-# canasta backup unlock - Unlock the backup repository
-# TODO: Implement in Phase 2+
+# canasta backup unlock
 
-- name: "Unlock the backup repository (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'backup_unlock' is not yet implemented."
+- name: Backup Unlock
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: unlock.yml

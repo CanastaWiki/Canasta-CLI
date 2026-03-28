@@ -1,7 +1,38 @@
 ---
-# canasta import - Import a database into a wiki
-# TODO: Implement in Phase 2+
+# canasta import - Import a database into a wiki.
 
-- name: "Import a database into a wiki (not yet implemented)"
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Read DB password from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MYSQL_PASSWORD
+  register: _import_dbpass
+  no_log: true
+
+- name: Wait for database
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: wait_for_db.yml
+
+- name: Import database
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: import_database.yml
+  vars:
+    import_wiki_id: "{{ wiki }}"
+    import_database_path: "{{ database }}"
+    import_db_password: "{{ _import_dbpass.value }}"
+
+- name: Copy per-wiki Settings.php if provided
+  ansible.builtin.copy:
+    src: "{{ wiki_settings }}"
+    dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php"
+    mode: "0644"
+  when: wiki_settings is defined and wiki_settings != ''
+
+- name: Report import complete
   ansible.builtin.debug:
-    msg: "Command 'import' is not yet implemented."
+    msg: "Database imported into wiki '{{ wiki }}'."

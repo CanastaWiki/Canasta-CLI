@@ -1,0 +1,28 @@
+---
+# Enable extensions or skins.
+# Input: id, wiki (optional), _item_type (extensions|skins), _names (comma-separated),
+#        skip_update (bool)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: "Enable {{ _item_type }}"
+  canasta_settings_yaml:
+    instance_path: "{{ instance_path }}"
+    item_type: "{{ _item_type }}"
+    state: enable
+    names: "{{ _names.split(',') | map('trim') | list }}"
+    wiki: "{{ wiki | default(omit) }}"
+
+- name: Run update.php
+  when: not (skip_update | default(false) | bool)
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "php maintenance/update.php --quick"
+
+- name: "Report {{ _item_type }} enabled"
+  ansible.builtin.debug:
+    msg: "Enabled {{ _item_type }}: {{ _names }}"

@@ -1,7 +1,7 @@
 ---
-# canasta maintenance update - Run MediaWiki maintenance update
-# TODO: Implement in Phase 2+
+# canasta maintenance update - Run MediaWiki maintenance update.
 
-- name: "Run MediaWiki maintenance update (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'maintenance_update' is not yet implemented."
+- name: Maintenance update
+  ansible.builtin.include_role:
+    name: maintenance
+    tasks_from: update.yml

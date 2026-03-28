@@ -1,7 +1,7 @@
 ---
-# canasta gitops join - Join an existing gitops repository
-# TODO: Implement in Phase 2+
+# canasta gitops join
 
-- name: "Join an existing gitops repository (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'gitops_join' is not yet implemented."
+- name: Gitops Join
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: join.yml

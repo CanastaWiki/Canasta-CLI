@@ -1,7 +1,7 @@
 ---
-# canasta gitops pull - Pull configuration changes
-# TODO: Implement in Phase 2+
+# canasta gitops pull
 
-- name: "Pull configuration changes (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'gitops_pull' is not yet implemented."
+- name: Gitops Pull
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: pull.yml

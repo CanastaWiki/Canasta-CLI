@@ -1,0 +1,44 @@
+---
+# Upgrade a single instance. Called in a loop from upgrade.yml.
+# Input: _inst (dict with key=id, value=instance details)
+
+- name: "Upgrading instance '{{ _inst.key }}'"
+  ansible.builtin.debug:
+    msg: "Upgrading '{{ _inst.key }}' at {{ _inst.value.path }}"
+
+- name: Set instance facts
+  ansible.builtin.set_fact:
+    instance_id: "{{ _inst.key }}"
+    instance_path: "{{ _inst.value.path }}"
+    instance_orchestrator: "{{ _inst.value.orchestrator | default('compose') }}"
+    instance_devmode: "{{ _inst.value.devMode | default(false) }}"
+
+- name: Refresh stack files
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: write_stack_files.yml
+
+- name: Sync compose profiles
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: sync_compose_profiles.yml
+
+- name: Regenerate Caddyfile
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: rewrite_caddy.yml
+
+- name: Pull latest images
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: pull.yml
+
+- name: Restart instance
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: stop.yml
+
+- name: Start instance
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml

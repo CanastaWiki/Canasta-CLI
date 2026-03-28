@@ -1,0 +1,12 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Remove backup schedule
+  ansible.builtin.cron:
+    name: "canasta-backup-{{ instance_id }}"
+    state: absent
+
+- name: Report schedule removed
+  ansible.builtin.debug:
+    msg: "Backup schedule removed for '{{ instance_id }}'."

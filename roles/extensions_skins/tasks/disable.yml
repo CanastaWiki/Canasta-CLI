@@ -1,0 +1,18 @@
+---
+# Disable extensions or skins.
+# Input: id, wiki (optional), _item_type (extensions|skins), _names (comma-separated)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: "Disable {{ _item_type }}"
+  canasta_settings_yaml:
+    instance_path: "{{ instance_path }}"
+    item_type: "{{ _item_type }}"
+    state: disable
+    names: "{{ _names.split(',') | map('trim') | list }}"
+    wiki: "{{ wiki | default(omit) }}"
+
+- name: "Report {{ _item_type }} disabled"
+  ansible.builtin.debug:
+    msg: "Disabled {{ _item_type }}: {{ _names }}"

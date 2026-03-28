@@ -1,0 +1,50 @@
+---
+# canasta maintenance update - Run update.php, runJobs.php, rebuildData.php.
+# Input: id (optional), wiki (optional), skip_jobs (bool), skip_smw (bool)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Get wiki list
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _maint_wikis
+
+- name: Determine wikis to update
+  ansible.builtin.set_fact:
+    _update_wikis: "{{ (wiki is defined and wiki != '') | ternary([wiki], _maint_wikis.wiki_ids) }}"
+
+- name: Run update.php for each wiki
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "php maintenance/update.php --wiki={{ item }} --quick"
+  loop: "{{ _update_wikis }}"
+
+- name: Run runJobs.php for each wiki
+  when: not (skip_jobs | default(false) | bool)
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "php maintenance/runJobs.php --wiki={{ item }}"
+  loop: "{{ _update_wikis }}"
+
+- name: Run SMW rebuildData.php for each wiki
+  when: not (skip_smw | default(false) | bool)
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "php extensions/SemanticMediaWiki/maintenance/rebuildData.php --wiki={{ item }}"
+  loop: "{{ _update_wikis }}"
+  ignore_errors: true
+
+- name: Report complete
+  ansible.builtin.debug:
+    msg: "Maintenance update complete for: {{ _update_wikis | join(', ') }}"

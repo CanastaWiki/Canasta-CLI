@@ -1,0 +1,24 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Clone gitops repository
+  ansible.builtin.command:
+    cmd: "git clone {{ repo }} {{ instance_path }}/config-gitops"
+  changed_when: true
+
+- name: Unlock with git-crypt key
+  ansible.builtin.command:
+    cmd: "git-crypt unlock {{ key }}"
+    chdir: "{{ instance_path }}/config-gitops"
+  changed_when: true
+
+- name: Add host to hosts.yaml
+  ansible.builtin.lineinfile:
+    path: "{{ instance_path }}/config-gitops/hosts.yaml"
+    line: "    - name: {{ name }}"
+    insertafter: "hosts:"
+
+- name: Report gitops joined
+  ansible.builtin.debug:
+    msg: "Joined gitops repository for '{{ instance_id }}'."

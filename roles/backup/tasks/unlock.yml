@@ -1,0 +1,15 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Unlock backup repository
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: "{{ canasta_backup_service }}"
+    exec_command: "restic unlock"
+
+- name: Display result
+  ansible.builtin.debug:
+    msg: "{{ exec_result.stdout }}"

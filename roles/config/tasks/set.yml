@@ -1,0 +1,33 @@
+---
+# canasta config set - Change configuration values.
+# Input: id (optional), settings (str: "KEY=VALUE KEY2=VALUE2"), no_restart (bool), force (bool)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Parse and apply settings
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: "{{ item.split('=', 1)[0] }}"
+    value: "{{ item.split('=', 1)[1] }}"
+  loop: "{{ settings.split() }}"
+  loop_control:
+    label: "{{ item.split('=', 1)[0] }}"
+
+- name: Regenerate Caddyfile after config change
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
+- name: Restart instance to apply changes
+  when: not (no_restart | default(false) | bool)
+  block:
+    - name: Restart containers
+      ansible.builtin.include_role:
+        name: instance_lifecycle
+        tasks_from: restart.yml
+
+- name: Report settings applied
+  ansible.builtin.debug:
+    msg: "Settings updated.{{ (no_restart | default(false) | bool) | ternary(' Restart skipped.', '') }}"

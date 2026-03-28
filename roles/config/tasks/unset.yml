@@ -1,0 +1,30 @@
+---
+# canasta config unset - Remove configuration keys.
+# Input: id (optional), keys (str: space-separated keys), no_restart (bool), force (bool)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Remove keys from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: unset
+    key: "{{ item }}"
+  loop: "{{ keys.split() }}"
+
+- name: Regenerate Caddyfile after config change
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
+- name: Restart instance to apply changes
+  when: not (no_restart | default(false) | bool)
+  block:
+    - name: Restart containers
+      ansible.builtin.include_role:
+        name: instance_lifecycle
+        tasks_from: restart.yml
+
+- name: Report keys removed
+  ansible.builtin.debug:
+    msg: "Keys removed.{{ (no_restart | default(false) | bool) | ternary(' Restart skipped.', '') }}"

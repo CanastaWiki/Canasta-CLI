@@ -1,7 +1,26 @@
 ---
-# canasta upgrade - Upgrade Canasta instances
-# TODO: Implement in Phase 2+
+# canasta upgrade - Upgrade all registered Canasta instances.
 
-- name: "Upgrade Canasta instances (not yet implemented)"
+- name: Get all instances
+  canasta_registry:
+    state: query_all
+  register: _upgrade_instances
+
+- name: Report dry run
   ansible.builtin.debug:
-    msg: "Command 'upgrade' is not yet implemented."
+    msg: "Dry run - would upgrade {{ _upgrade_instances.instances | length }} instance(s): {{ _upgrade_instances.instances.keys() | list | join(', ') }}"
+  when: dry_run | default(false) | bool
+
+- name: Upgrade each instance
+  when: not (dry_run | default(false) | bool)
+  block:
+    - name: Upgrade instances
+      ansible.builtin.include_tasks: _upgrade_single.yml
+      loop: "{{ _upgrade_instances.instances | dict2items }}"
+      loop_control:
+        loop_var: _inst
+        label: "{{ _inst.key }}"
+
+    - name: Report upgrade complete
+      ansible.builtin.debug:
+        msg: "Upgraded {{ _upgrade_instances.instances | length }} instance(s)."

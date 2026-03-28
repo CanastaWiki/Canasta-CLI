@@ -1,7 +1,7 @@
 ---
-# canasta backup check - Verify backup repository integrity
-# TODO: Implement in Phase 2+
+# canasta backup check
 
-- name: "Verify backup repository integrity (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'backup_check' is not yet implemented."
+- name: Backup Check
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: check.yml

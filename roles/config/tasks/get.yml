@@ -1,0 +1,42 @@
+---
+# canasta config get - Show configuration settings.
+# Input: id (optional), key (optional), force (bool)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Get single key
+  when: key is defined and key != ''
+  block:
+    - name: Read specific key
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: "{{ key }}"
+      register: _config_val
+
+    - name: Display value
+      ansible.builtin.debug:
+        msg: "{{ _config_val.value }}"
+      when: _config_val.found
+
+    - name: Key not found
+      ansible.builtin.debug:
+        msg: "Key '{{ key }}' not found."
+      when: not _config_val.found
+
+- name: Get all settings
+  when: key is not defined or key == ''
+  block:
+    - name: Read all settings
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _config_all
+
+    - name: Display all settings
+      ansible.builtin.debug:
+        msg: "{{ item.key }}={{ item.value }}"
+      loop: "{{ _config_all.variables | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"

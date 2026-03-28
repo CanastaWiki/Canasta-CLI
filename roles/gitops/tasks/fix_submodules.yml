@@ -1,0 +1,13 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Fix submodule registration
+  ansible.builtin.command:
+    cmd: "git submodule update --init --recursive"
+    chdir: "{{ instance_path }}/config"
+  changed_when: true
+
+- name: Report submodules fixed
+  ansible.builtin.debug:
+    msg: "Submodules fixed for '{{ instance_id }}'."

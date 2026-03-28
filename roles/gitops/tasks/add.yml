@@ -1,0 +1,10 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Stage changes
+  ansible.builtin.command:
+    cmd: "git add -A"
+    chdir: "{{ instance_path }}/config"
+  register: _git_add
+  changed_when: _git_add.rc == 0

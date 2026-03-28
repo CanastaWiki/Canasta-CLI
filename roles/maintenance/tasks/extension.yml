@@ -1,0 +1,23 @@
+---
+# canasta maintenance extension - Run extension maintenance scripts.
+# Input: id (optional), wiki (optional), script_args (str)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Build extension script command
+  ansible.builtin.set_fact:
+    _ext_cmd: "php extensions/{{ script_args }}{{ (wiki is defined and wiki != '') | ternary(' --wiki=' + (wiki | default('')), '') }}"
+
+- name: Run extension maintenance script
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "{{ _ext_cmd }}"
+
+- name: Display output
+  ansible.builtin.debug:
+    msg: "{{ exec_result.stdout }}"
+  when: exec_result.stdout | default('') | length > 0

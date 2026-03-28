@@ -1,7 +1,7 @@
 ---
-# canasta backup files - List files in a backup snapshot
-# TODO: Implement in Phase 2+
+# canasta backup files
 
-- name: "List files in a backup snapshot (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'backup_files' is not yet implemented."
+- name: Backup Files
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: files.yml

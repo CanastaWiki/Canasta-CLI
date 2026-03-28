@@ -1,7 +1,7 @@
 ---
-# canasta sitemap remove - Remove XML sitemaps
-# TODO: Implement in Phase 2+
+# canasta sitemap remove - Remove XML sitemaps.
 
-- name: "Remove XML sitemaps (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'sitemap_remove' is not yet implemented."
+- name: Remove sitemaps
+  ansible.builtin.include_role:
+    name: sitemap
+    tasks_from: remove.yml

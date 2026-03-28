@@ -1,7 +1,7 @@
 ---
-# canasta backup restore - Restore from a backup
-# TODO: Implement in Phase 2+
+# canasta backup restore
 
-- name: "Restore from a backup (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'backup_restore' is not yet implemented."
+- name: Backup Restore
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: restore.yml

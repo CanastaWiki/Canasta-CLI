@@ -1,7 +1,10 @@
 ---
-# canasta extension enable - Enable extensions
-# TODO: Implement in Phase 2+
+# canasta extension enable - Enable extensions.
 
-- name: "Enable extensions (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'extension_enable' is not yet implemented."
+- name: Enable extensions
+  ansible.builtin.include_role:
+    name: extensions_skins
+    tasks_from: enable.yml
+  vars:
+    _item_type: extensions
+    _names: "{{ extensions }}"

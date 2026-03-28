@@ -1,0 +1,60 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Initialize git in config directory
+  ansible.builtin.command:
+    cmd: "git init"
+    chdir: "{{ instance_path }}/config"
+    creates: "{{ instance_path }}/config/.git"
+
+- name: Set git-crypt key export path
+  ansible.builtin.set_fact:
+    _gitcrypt_key: "{{ key }}"
+
+- name: Initialize git-crypt
+  ansible.builtin.command:
+    cmd: "git-crypt init"
+    chdir: "{{ instance_path }}/config"
+  changed_when: true
+
+- name: Export git-crypt key
+  ansible.builtin.command:
+    cmd: "git-crypt export-key {{ _gitcrypt_key }}"
+    chdir: "{{ instance_path }}/config"
+  changed_when: true
+
+- name: Configure host in hosts.yaml
+  ansible.builtin.copy:
+    content: |
+      hosts:
+        - name: {{ name }}
+          role: {{ role | default('both') }}
+    dest: "{{ instance_path }}/config/hosts.yaml"
+    mode: "0644"
+
+- name: Convert extensions to submodules
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "cd /var/www/mediawiki/w/extensions && find -L * -maxdepth 0 -type d 2>/dev/null || true"
+  register: _ext_list
+
+- name: Add git remote
+  ansible.builtin.command:
+    cmd: "git remote add origin {{ repo }}"
+    chdir: "{{ instance_path }}/config"
+  changed_when: true
+  ignore_errors: true
+
+- name: Initial commit and push
+  ansible.builtin.command:
+    cmd: "git add -A && git commit -m 'Initial gitops configuration' && git push {{ (force | default(false) | bool) | ternary('--force', '') }} -u origin main"
+    chdir: "{{ instance_path }}/config"
+  changed_when: true
+
+- name: Report gitops initialized
+  ansible.builtin.debug:
+    msg: "GitOps initialized for '{{ instance_id }}'. Key exported to {{ _gitcrypt_key }}"

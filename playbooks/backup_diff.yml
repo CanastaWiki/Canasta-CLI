@@ -1,7 +1,7 @@
 ---
-# canasta backup diff - Compare two backup snapshots
-# TODO: Implement in Phase 2+
+# canasta backup diff
 
-- name: "Compare two backup snapshots (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'backup_diff' is not yet implemented."
+- name: Backup Diff
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: diff.yml

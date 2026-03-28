@@ -1,7 +1,7 @@
 ---
-# canasta maintenance script - Run a MediaWiki maintenance script
-# TODO: Implement in Phase 2+
+# canasta maintenance script - Run a MediaWiki maintenance script.
 
-- name: "Run a MediaWiki maintenance script (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'maintenance_script' is not yet implemented."
+- name: Maintenance script
+  ansible.builtin.include_role:
+    name: maintenance
+    tasks_from: script.yml

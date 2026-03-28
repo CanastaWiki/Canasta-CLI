@@ -1,0 +1,37 @@
+---
+# canasta devmode disable - Disable development mode.
+# Input: id (optional)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Check in dev mode
+  ansible.builtin.fail:
+    msg: "Instance '{{ instance_id }}' is not in development mode."
+  when: not (instance_devmode | bool)
+
+- name: Stop containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: stop.yml
+
+- name: Update instance to non-dev mode
+  canasta_registry:
+    id: "{{ instance_id }}"
+    path: "{{ instance_path }}"
+    orchestrator: "{{ instance_orchestrator }}"
+    dev_mode: false
+    state: present
+
+- name: Set dev mode fact
+  ansible.builtin.set_fact:
+    instance_devmode: false
+
+- name: Start containers in normal mode
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml
+
+- name: Report dev mode disabled
+  ansible.builtin.debug:
+    msg: "Development mode disabled for '{{ instance_id }}'."

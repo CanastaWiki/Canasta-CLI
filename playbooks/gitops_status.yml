@@ -1,7 +1,7 @@
 ---
-# canasta gitops status - Show gitops status
-# TODO: Implement in Phase 2+
+# canasta gitops status
 
-- name: "Show gitops status (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'gitops_status' is not yet implemented."
+- name: Gitops Status
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: status.yml

@@ -1,7 +1,7 @@
 ---
-# canasta gitops fix submodules - Fix gitops submodules
-# TODO: Implement in Phase 2+
+# canasta gitops fix submodules
 
-- name: "Fix gitops submodules (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'gitops_fix_submodules' is not yet implemented."
+- name: Gitops Fix Submodules
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: fix_submodules.yml

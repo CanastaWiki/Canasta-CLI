@@ -1,0 +1,24 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Build purge arguments
+  ansible.builtin.set_fact:
+    _purge_args: >-
+      {{ (keep_last is defined and keep_last != '') | ternary('--keep-last ' + (keep_last | default('')), '') }}
+      {{ (keep_hourly is defined and keep_hourly != '') | ternary('--keep-hourly ' + (keep_hourly | default('')), '') }}
+      {{ (keep_daily is defined and keep_daily != '') | ternary('--keep-daily ' + (keep_daily | default('')), '') }}
+      {{ (keep_monthly is defined and keep_monthly != '') | ternary('--keep-monthly ' + (keep_monthly | default('')), '') }}
+      {{ (older_than is defined and older_than != '') | ternary('--keep-within ' + (older_than | default('')), '') }}
+
+- name: Purge old backups
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: "{{ canasta_backup_service }}"
+    exec_command: "restic forget --prune {{ _purge_args | trim }}"
+
+- name: Display result
+  ansible.builtin.debug:
+    msg: "{{ exec_result.stdout }}"

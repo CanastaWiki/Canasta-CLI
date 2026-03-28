@@ -1,0 +1,47 @@
+---
+# canasta devmode enable - Enable development mode.
+# Extracts MediaWiki code for live editing, builds xdebug-enabled image.
+# Input: id (optional)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Check not already in dev mode
+  ansible.builtin.fail:
+    msg: "Instance '{{ instance_id }}' is already in development mode."
+  when: instance_devmode | bool
+
+- name: Stop containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: stop.yml
+
+- name: Extract MediaWiki code from container for live editing
+  ansible.builtin.command:
+    cmd: >-
+      docker compose run --rm -T --entrypoint /bin/bash web -c
+      "cp -a /var/www/mediawiki/w/extensions /tmp/ext-export &&
+       cp -a /var/www/mediawiki/w/skins /tmp/skin-export"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Update instance to dev mode
+  canasta_registry:
+    id: "{{ instance_id }}"
+    path: "{{ instance_path }}"
+    orchestrator: "{{ instance_orchestrator }}"
+    dev_mode: true
+    state: present
+
+- name: Set dev mode fact
+  ansible.builtin.set_fact:
+    instance_devmode: true
+
+- name: Start containers in dev mode
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml
+
+- name: Report dev mode enabled
+  ansible.builtin.debug:
+    msg: "Development mode enabled for '{{ instance_id }}'. Xdebug available on port 9003."

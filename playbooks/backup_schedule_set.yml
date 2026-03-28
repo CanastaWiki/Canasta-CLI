@@ -1,7 +1,7 @@
 ---
-# canasta backup schedule set - Set a backup schedule
-# TODO: Implement in Phase 2+
+# canasta backup schedule set
 
-- name: "Set a backup schedule (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'backup_schedule_set' is not yet implemented."
+- name: Backup Schedule Set
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: schedule_set.yml

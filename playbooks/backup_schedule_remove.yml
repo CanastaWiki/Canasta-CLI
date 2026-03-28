@@ -1,7 +1,7 @@
 ---
-# canasta backup schedule remove - Remove the backup schedule
-# TODO: Implement in Phase 2+
+# canasta backup schedule remove
 
-- name: "Remove the backup schedule (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'backup_schedule_remove' is not yet implemented."
+- name: Backup Schedule Remove
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: schedule_remove.yml

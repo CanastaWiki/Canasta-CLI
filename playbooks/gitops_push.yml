@@ -1,7 +1,7 @@
 ---
-# canasta gitops push - Push configuration changes
-# TODO: Implement in Phase 2+
+# canasta gitops push
 
-- name: "Push configuration changes (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'gitops_push' is not yet implemented."
+- name: Gitops Push
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: push.yml

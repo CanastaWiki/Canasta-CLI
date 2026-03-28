@@ -1,0 +1,25 @@
+---
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Build backup command for cron
+  ansible.builtin.set_fact:
+    _cron_cmd: >-
+      cd {{ instance_path }} && docker compose exec -T {{ canasta_backup_service }}
+      restic backup --tag scheduled /mediawiki/config /mediawiki/images /backup
+      {{ (purge_older_than is defined and purge_older_than != '') | ternary(
+         '&& docker compose exec -T ' + canasta_backup_service + ' restic forget --prune --keep-within ' + (purge_older_than | default('')), '') }}
+
+- name: Set cron schedule
+  ansible.builtin.cron:
+    name: "canasta-backup-{{ instance_id }}"
+    job: "{{ _cron_cmd }}"
+    minute: "{{ cron_expression.split()[0] }}"
+    hour: "{{ cron_expression.split()[1] }}"
+    day: "{{ cron_expression.split()[2] }}"
+    month: "{{ cron_expression.split()[3] }}"
+    weekday: "{{ cron_expression.split()[4] }}"
+
+- name: Report schedule set
+  ansible.builtin.debug:
+    msg: "Backup schedule set: {{ cron_expression }}"

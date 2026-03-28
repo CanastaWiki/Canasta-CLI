@@ -1,7 +1,49 @@
 ---
-# canasta remove - Remove a wiki from a Canasta instance
-# TODO: Implement in Phase 2+
+# canasta remove - Remove a wiki from a Canasta instance.
 
-- name: "Remove a wiki from a Canasta instance (not yet implemented)"
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Require confirmation
+  ansible.builtin.fail:
+    msg: "Removing wiki '{{ wiki }}' from instance '{{ instance_id }}'. Use --yes to confirm."
+  when: not (yes | default(false) | bool)
+
+- name: Remove wiki from wikis.yaml
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: remove
+    wiki_id: "{{ wiki }}"
+
+- name: Drop wiki database
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: db
+    exec_command: "mysql -u root -p$(cat /run/secrets/db_root_password 2>/dev/null || echo $MYSQL_ROOT_PASSWORD) -e 'DROP DATABASE IF EXISTS {{ wiki }}'"
+  ignore_errors: true
+
+- name: Remove per-wiki settings directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/config/settings/wikis/{{ wiki }}"
+    state: absent
+
+- name: Remove admin password file
+  ansible.builtin.file:
+    path: "{{ instance_path }}/admin-password_{{ wiki }}"
+    state: absent
+
+- name: Regenerate Caddyfile
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
+- name: Restart instance
+  ansible.builtin.include_role:
+    name: instance_lifecycle
+    tasks_from: restart.yml
+
+- name: Report wiki removed
   ansible.builtin.debug:
-    msg: "Command 'remove' is not yet implemented."
+    msg: "Wiki '{{ wiki }}' removed from instance '{{ instance_id }}'."

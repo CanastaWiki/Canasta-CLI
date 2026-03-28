@@ -1,7 +1,7 @@
 ---
-# canasta backup create - Create a backup
-# TODO: Implement in Phase 2+
+# canasta backup create
 
-- name: "Create a backup (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'backup_create' is not yet implemented."
+- name: Backup Create
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: create.yml
