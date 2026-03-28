@@ -1,6 +1,7 @@
 ---
-# canasta devmode enable - Enable development mode.
-# Extracts MediaWiki code for live editing, builds xdebug-enabled image.
+# canasta devmode enable - Full implementation matching Go devmode.EnableDevMode().
+# Extracts MediaWiki code, consolidates user extensions/skins, builds xdebug image.
+# Docker Compose only.
 # Input: id (optional)
 
 - name: Resolve instance
@@ -11,20 +12,122 @@
     msg: "Instance '{{ instance_id }}' is already in development mode."
   when: instance_devmode | bool
 
-- name: Stop containers
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: stop.yml
+- name: Read base image from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CANASTA_IMAGE
+  register: _dev_image
 
-- name: Extract MediaWiki code from container for live editing
+- name: Set base image
+  ansible.builtin.set_fact:
+    _dev_base_image: "{{ _dev_image.value | default(canasta_default_image) }}"
+
+# --- Extract MediaWiki code ---
+- name: Check if mediawiki-code already exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/mediawiki-code"
+  register: _mw_code_dir
+
+- name: Extract MediaWiki code for live editing
+  when: not _mw_code_dir.stat.exists or (_mw_code_dir.stat.isdir and (lookup('pipe', 'ls -A ' + instance_path + '/mediawiki-code 2>/dev/null') == ''))
+  block:
+    - name: Create mediawiki-code directory
+      ansible.builtin.file:
+        path: "{{ instance_path }}/mediawiki-code"
+        state: directory
+        mode: "0755"
+
+    - name: Pull base image if from registry
+      ansible.builtin.command:
+        cmd: "docker pull {{ _dev_base_image }}"
+      changed_when: true
+      when: "'/' in _dev_base_image"
+
+    - name: Create temporary container for code extraction
+      ansible.builtin.command:
+        cmd: "docker create --name canasta-dev-extract {{ _dev_base_image }} sleep infinity"
+      register: _extract_container
+      changed_when: true
+
+    - name: Run create-symlinks.sh in temp container
+      ansible.builtin.command:
+        cmd: "docker start canasta-dev-extract && docker exec canasta-dev-extract /create-symlinks.sh"
+      changed_when: true
+      ignore_errors: true
+
+    - name: Extract code from container
+      ansible.builtin.shell:
+        cmd: "docker exec canasta-dev-extract tar -cf - -C /var/www/mediawiki/w . | tar -xf - -C mediawiki-code/"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Remove temporary container
+      ansible.builtin.command:
+        cmd: "docker rm -f canasta-dev-extract"
+      changed_when: true
+
+# --- Consolidate user extensions/skins ---
+- name: Consolidate user extensions
+  ansible.builtin.include_tasks: _consolidate_user_dir.yml
+  vars:
+    _dir_name: extensions
+    _mw_subdir: user-extensions
+
+- name: Consolidate user skins
+  ansible.builtin.include_tasks: _consolidate_user_dir.yml
+  vars:
+    _dir_name: skins
+    _mw_subdir: user-skins
+
+# --- Write dev mode files ---
+- name: Copy Dockerfile.xdebug
+  ansible.builtin.copy:
+    src: "{{ role_path }}/templates/Dockerfile.xdebug"
+    dest: "{{ instance_path }}/Dockerfile.xdebug"
+    mode: "0644"
+
+- name: Copy docker-compose.dev.yml
+  ansible.builtin.copy:
+    src: "{{ role_path }}/templates/docker-compose.dev.yml"
+    dest: "{{ instance_path }}/docker-compose.dev.yml"
+    mode: "0644"
+
+- name: Copy xdebug.ini
+  ansible.builtin.copy:
+    src: "{{ role_path }}/templates/xdebug.ini"
+    dest: "{{ instance_path }}/config/xdebug.ini"
+    mode: "0644"
+
+# --- Set .env variables ---
+- name: Set DEV_CODE_PATH in .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: DEV_CODE_PATH
+    value: "./mediawiki-code"
+
+# --- Write IDE configuration ---
+- name: Create .vscode directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/.vscode"
+    state: directory
+    mode: "0755"
+
+- name: Write VSCode launch.json
+  ansible.builtin.copy:
+    src: "{{ role_path }}/templates/vscode-launch.json"
+    dest: "{{ instance_path }}/.vscode/launch.json"
+    mode: "0644"
+
+# --- Build xdebug image ---
+- name: Build xdebug-enabled image
   ansible.builtin.command:
-    cmd: >-
-      docker compose run --rm -T --entrypoint /bin/bash web -c
-      "cp -a /var/www/mediawiki/w/extensions /tmp/ext-export &&
-       cp -a /var/www/mediawiki/w/skins /tmp/skin-export"
+    cmd: "docker compose -f docker-compose.yml -f docker-compose.dev.yml build"
     chdir: "{{ instance_path }}"
   changed_when: true
 
+# --- Update registry and restart ---
 - name: Update instance to dev mode
   canasta_registry:
     id: "{{ instance_id }}"
@@ -36,6 +139,11 @@
 - name: Set dev mode fact
   ansible.builtin.set_fact:
     instance_devmode: true
+
+- name: Stop containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: stop.yml
 
 - name: Start containers in dev mode
   ansible.builtin.include_role:

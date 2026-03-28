@@ -1,5 +1,6 @@
 ---
-# canasta devmode disable - Disable development mode.
+# canasta devmode disable - Full implementation matching Go devmode.DisableDevMode().
+# Restores extensions/skins from symlinks to real directories.
 # Input: id (optional)
 
 - name: Resolve instance
@@ -15,6 +16,20 @@
     name: orchestrator
     tasks_from: stop.yml
 
+# --- Restore user directories from symlinks ---
+- name: Restore extensions directory
+  ansible.builtin.include_tasks: _restore_user_dir.yml
+  vars:
+    _dir_name: extensions
+    _mw_subdir: user-extensions
+
+- name: Restore skins directory
+  ansible.builtin.include_tasks: _restore_user_dir.yml
+  vars:
+    _dir_name: skins
+    _mw_subdir: user-skins
+
+# --- Update registry and restart ---
 - name: Update instance to non-dev mode
   canasta_registry:
     id: "{{ instance_id }}"

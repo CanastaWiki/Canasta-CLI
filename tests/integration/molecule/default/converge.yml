@@ -1,0 +1,115 @@
+---
+# Molecule converge: basic lifecycle test.
+# Tests: version, list (empty), and validates the dispatcher works.
+#
+# NOTE: Full create/start/stop/delete tests require Docker and are not
+# run in CI by default. This scenario validates the framework without
+# requiring a running Docker daemon.
+
+- name: Lifecycle test
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Load command definitions
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../../../../meta/command_definitions.yml"
+        name: canasta_commands
+
+    - name: Test version command
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../playbooks/version.yml"
+
+    - name: Test list command (empty registry)
+      canasta_registry:
+        state: query_all
+        config_dir: "{{ molecule_ephemeral_directory }}"
+      register: _mol_list
+
+    - name: Verify empty instance list
+      ansible.builtin.assert:
+        that: _mol_list.instances | length == 0
+        fail_msg: "Expected empty instance list"
+
+    - name: Test registry CRUD
+      block:
+        - name: Register test instance
+          canasta_registry:
+            id: mol-test
+            path: "{{ molecule_ephemeral_directory }}/mol-test"
+            orchestrator: compose
+            state: present
+            config_dir: "{{ molecule_ephemeral_directory }}"
+
+        - name: Create fake instance dir
+          ansible.builtin.file:
+            path: "{{ molecule_ephemeral_directory }}/mol-test"
+            state: directory
+            mode: "0755"
+
+        - name: Query test instance
+          canasta_registry:
+            id: mol-test
+            state: query
+            config_dir: "{{ molecule_ephemeral_directory }}"
+          register: _mol_query
+
+        - name: Verify instance registered
+          ansible.builtin.assert:
+            that:
+              - _mol_query.instance.id == 'mol-test'
+              - "'mol-test' in _mol_query.instance.path"
+
+        - name: Delete test instance from registry
+          canasta_registry:
+            id: mol-test
+            state: absent
+            config_dir: "{{ molecule_ephemeral_directory }}"
+
+        - name: Verify instance deleted
+          canasta_registry:
+            state: query_all
+            config_dir: "{{ molecule_ephemeral_directory }}"
+          register: _mol_after_delete
+
+        - name: Confirm deletion
+          ansible.builtin.assert:
+            that: _mol_after_delete.instances | length == 0
+
+    - name: Test env module
+      block:
+        - name: Create test .env
+          ansible.builtin.copy:
+            content: "KEY1=value1\nKEY2=value2\n"
+            dest: "{{ molecule_ephemeral_directory }}/test.env"
+            mode: "0644"
+
+        - name: Read all vars
+          canasta_env:
+            path: "{{ molecule_ephemeral_directory }}/test.env"
+            state: read_all
+          register: _mol_env
+
+        - name: Verify env read
+          ansible.builtin.assert:
+            that:
+              - _mol_env.variables.KEY1 == 'value1'
+              - _mol_env.variables.KEY2 == 'value2'
+
+        - name: Set a new var
+          canasta_env:
+            path: "{{ molecule_ephemeral_directory }}/test.env"
+            state: set
+            key: KEY3
+            value: value3
+
+        - name: Read updated env
+          canasta_env:
+            path: "{{ molecule_ephemeral_directory }}/test.env"
+            state: read
+            key: KEY3
+          register: _mol_env3
+
+        - name: Verify env set
+          ansible.builtin.assert:
+            that: _mol_env3.value == 'value3'

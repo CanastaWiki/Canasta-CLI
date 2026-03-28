@@ -1,0 +1,30 @@
+---
+# Recognized configuration keys (matching Go knownKeys map).
+# Keys not in this list require --force to set/unset.
+canasta_known_keys:
+  - HTTP_PORT
+  - HTTPS_PORT
+  - PHP_UPLOAD_MAX_FILESIZE
+  - PHP_POST_MAX_SIZE
+  - PHP_MAX_INPUT_VARS
+  - MW_SITEMAP_PAUSE_DAYS
+  - CANASTA_ENABLE_ELASTICSEARCH
+  - CANASTA_ENABLE_OBSERVABILITY
+  - CANASTA_ENABLE_VARNISH
+  - CANASTA_ENABLE_WIKI_DIRECTORY
+  - MW_SITE_SERVER
+  - MW_SITE_FQDN
+  - CADDY_AUTO_HTTPS
+  - CANASTA_IMAGE
+  - RESTIC_REPOSITORY
+  - RESTIC_PASSWORD
+
+# Key prefixes that are always accepted (restic backend credentials)
+canasta_known_prefixes:
+  - "AWS_"
+  - "AZURE_"
+  - "B2_"
+  - "GOOGLE_"
+  - "OS_"
+  - "ST_"
+  - "RCLONE_"

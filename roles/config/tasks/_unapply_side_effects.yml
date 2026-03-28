@@ -1,0 +1,9 @@
+---
+# Unapply side effects when config keys are unset.
+# Input: _config_key (str), instance_path
+
+- name: Unapply HTTPS_PORT (reset to 443)
+  when: _config_key == 'HTTPS_PORT'
+  ansible.builtin.include_tasks: _side_effects.yml
+  vars:
+    _config_value: "443"

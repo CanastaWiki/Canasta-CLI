@@ -1,0 +1,54 @@
+---
+# Upgrade a single Canasta instance.
+# Runs all migrations, refreshes stack files, pulls images, restarts.
+# Input: instance_path, instance_id, instance_orchestrator, instance_devmode
+
+- name: Run migrations
+  ansible.builtin.include_tasks: "migrations/{{ item }}"
+  loop:
+    - extract_secret_key.yml
+    - migrate_directory_structure.yml
+    - fix_vector_default_skin.yml
+    - remove_empty_composer_local.yml
+    - remove_legacy_git_dir.yml
+    - remove_skip_binary_as_hex.yml
+    - backfill_canasta_image.yml
+
+- name: Refresh stack files (no-clobber)
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: write_stack_files.yml
+
+- name: Sync compose profiles
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: sync_compose_profiles.yml
+
+- name: Regenerate Caddyfile
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: rewrite_caddy.yml
+
+- name: Pull latest images
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: pull.yml
+
+- name: Stop containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: stop.yml
+
+- name: Start containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml
+
+- name: Flush MediaWiki cache
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "touch /var/www/mediawiki/w/LocalSettings.php"
+  ignore_errors: true

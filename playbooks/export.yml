@@ -1,5 +1,6 @@
 ---
 # canasta export - Export a wiki's database.
+# Uses container temp file + docker compose cp (matching Go behavior).
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
@@ -20,47 +21,41 @@
   ansible.builtin.set_fact:
     _export_gzip: "{{ _export_file | regex_search('\\.gz$') is not none }}"
 
-- name: Export database (plain SQL)
-  when: not (_export_gzip | bool)
-  block:
-    - name: Dump database
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: exec.yml
-      vars:
-        exec_service: db
-        exec_command: "mysqldump -u root -p{{ _export_dbpass.value }} {{ wiki }}"
+- name: Dump database to temp file in container
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: db
+    exec_command: "mariadb-dump -u root -p{{ _export_dbpass.value }} {{ wiki }} > /tmp/{{ wiki }}.sql"
+  no_log: true
 
-    - name: Write dump to file
-      ansible.builtin.copy:
-        content: "{{ exec_result.stdout }}"
-        dest: "{{ _export_file }}"
-        mode: "0644"
-
-- name: Export database (gzipped)
+- name: Compress dump if gzip requested
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: db
+    exec_command: "gzip -f /tmp/{{ wiki }}.sql"
   when: _export_gzip | bool
-  block:
-    - name: Dump and compress in container
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: exec.yml
-      vars:
-        exec_service: db
-        exec_command: "mysqldump -u root -p{{ _export_dbpass.value }} {{ wiki }} | gzip > /tmp/export.sql.gz"
 
-    - name: Copy dump from container
-      ansible.builtin.command:
-        cmd: "docker compose cp db:/tmp/export.sql.gz {{ _export_file }}"
-        chdir: "{{ instance_path }}"
-      changed_when: true
+- name: Set container temp file path
+  ansible.builtin.set_fact:
+    _container_file: "/tmp/{{ wiki }}.sql{{ (_export_gzip | bool) | ternary('.gz', '') }}"
 
-    - name: Clean up temp file
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: exec.yml
-      vars:
-        exec_service: db
-        exec_command: "rm -f /tmp/export.sql.gz"
+- name: Copy dump from container to host
+  ansible.builtin.command:
+    cmd: "docker compose cp db:{{ _container_file }} {{ _export_file }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Clean up temp files in container
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: db
+    exec_command: "rm -f /tmp/{{ wiki }}.sql /tmp/{{ wiki }}.sql.gz"
 
 - name: Report export complete
   ansible.builtin.debug:

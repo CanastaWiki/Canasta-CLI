@@ -5,12 +5,11 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Remove keys from .env
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: unset
-    key: "{{ item }}"
+- name: Validate, unapply, and remove each key
+  ansible.builtin.include_tasks: _unset_single.yml
   loop: "{{ keys.split() }}"
+  loop_control:
+    loop_var: _config_key
 
 - name: Regenerate Caddyfile after config change
   ansible.builtin.include_role:
@@ -19,11 +18,9 @@
 
 - name: Restart instance to apply changes
   when: not (no_restart | default(false) | bool)
-  block:
-    - name: Restart containers
-      ansible.builtin.include_role:
-        name: instance_lifecycle
-        tasks_from: restart.yml
+  ansible.builtin.include_role:
+    name: instance_lifecycle
+    tasks_from: restart.yml
 
 - name: Report keys removed
   ansible.builtin.debug:

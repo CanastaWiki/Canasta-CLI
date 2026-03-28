@@ -1,0 +1,19 @@
+---
+# Molecule verify: check that converge left system in expected state.
+
+- name: Verify
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Verify no leftover instances
+      canasta_registry:
+        state: query_all
+        config_dir: "{{ molecule_ephemeral_directory }}"
+      register: _verify_list
+
+    - name: Assert clean state
+      ansible.builtin.assert:
+        that: _verify_list.instances | length == 0
+        fail_msg: "Expected no registered instances after cleanup"

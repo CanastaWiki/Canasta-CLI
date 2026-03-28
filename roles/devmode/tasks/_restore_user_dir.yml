@@ -1,0 +1,30 @@
+---
+# Restore a user directory from symlink to real directory.
+# Copies contents from mediawiki-code/user-{dir} back to {dir}.
+#
+# Input: _dir_name (extensions|skins), _mw_subdir (user-extensions|user-skins), instance_path
+
+- name: "Check if {{ _dir_name }} is a symlink"
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ _dir_name }}"
+  register: _restore_stat
+
+- name: "Restore {{ _dir_name }} from symlink"
+  when: _restore_stat.stat.exists and _restore_stat.stat.islnk
+  block:
+    - name: "Remove {{ _dir_name }} symlink"
+      ansible.builtin.file:
+        path: "{{ instance_path }}/{{ _dir_name }}"
+        state: absent
+
+    - name: "Create real {{ _dir_name }} directory"
+      ansible.builtin.file:
+        path: "{{ instance_path }}/{{ _dir_name }}"
+        state: directory
+        mode: "0755"
+
+    - name: "Copy contents from mediawiki-code/{{ _mw_subdir }}"
+      ansible.builtin.shell:
+        cmd: "cp -a mediawiki-code/{{ _mw_subdir }}/* {{ _dir_name }}/ 2>/dev/null || true"
+        chdir: "{{ instance_path }}"
+      changed_when: true

@@ -25,9 +25,18 @@
   when: _existing is succeeded
 
 # --- Step 2: Determine base image ---
+- name: Build from source if requested
+  when: build_from is defined and build_from != ''
+  ansible.builtin.include_role:
+    name: imagebuild
+    tasks_from: build_from_source.yml
+
 - name: Set base image
   ansible.builtin.set_fact:
-    _base_image: "{{ canasta_image | default(canasta_default_image) }}"
+    _base_image: >-
+      {{ (build_from is defined and build_from != '') | ternary(
+         _built_image | default('canasta:local'),
+         canasta_image | default(canasta_default_image)) }}
 
 # --- Step 3: Create instance directory ---
 - name: Set instance path
@@ -155,6 +164,13 @@
         key: "{{ item.split('=', 1)[0] }}"
         value: "{{ item.split('=', 1)[1] }}"
       loop: "{{ (_custom_env.content | b64decode).split('\n') | select('match', '^[A-Z].*=') | list }}"
+
+- name: Validate passwords for problematic characters
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/validate_passwords.yml"
+  vars:
+    _password_vars:
+      - { key: "MYSQL_PASSWORD", value: "{{ _rootdbpass }}" }
+      - { key: "WIKI_DB_PASSWORD", value: "{{ _wikidbpass }}" }
 
 - name: Read wikis.yaml for domain
   canasta_wikis_yaml:

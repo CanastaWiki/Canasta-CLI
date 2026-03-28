@@ -1,0 +1,43 @@
+---
+# Convert a git repo directory to a proper git submodule.
+# Preserves the original commit hash to pin the submodule version.
+# Input: _repo_path (absolute path to the extension/skin directory), instance_path
+
+- name: Get remote URL
+  ansible.builtin.command:
+    cmd: "git remote get-url origin"
+    chdir: "{{ _repo_path }}"
+  register: _sub_url
+  changed_when: false
+  ignore_errors: true
+
+- name: Convert to submodule
+  when: _sub_url.rc == 0 and _sub_url.stdout | trim | length > 0
+  block:
+    - name: Record current commit hash
+      ansible.builtin.command:
+        cmd: "git rev-parse HEAD"
+        chdir: "{{ _repo_path }}"
+      register: _sub_hash
+      changed_when: false
+
+    - name: Get relative path
+      ansible.builtin.set_fact:
+        _sub_relpath: "{{ _repo_path | relpath(instance_path) }}"
+
+    - name: Remove directory
+      ansible.builtin.file:
+        path: "{{ _repo_path }}"
+        state: absent
+
+    - name: Add as submodule
+      ansible.builtin.command:
+        cmd: "git submodule add {{ _sub_url.stdout | trim }} {{ _sub_relpath }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Checkout original commit hash
+      ansible.builtin.command:
+        cmd: "git checkout {{ _sub_hash.stdout | trim }}"
+        chdir: "{{ _repo_path }}"
+      changed_when: true

@@ -1,0 +1,36 @@
+---
+# Consolidate a user directory (extensions or skins) into mediawiki-code.
+# Copies contents to mediawiki-code/user-{dir}, replaces original with symlink.
+#
+# Input: _dir_name (extensions|skins), _mw_subdir (user-extensions|user-skins), instance_path
+
+- name: "Check if {{ _dir_name }} is already a symlink"
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ _dir_name }}"
+  register: _dir_stat
+
+- name: "Consolidate {{ _dir_name }}"
+  when: _dir_stat.stat.exists and not _dir_stat.stat.islnk
+  block:
+    - name: "Create mediawiki-code/{{ _mw_subdir }}"
+      ansible.builtin.file:
+        path: "{{ instance_path }}/mediawiki-code/{{ _mw_subdir }}"
+        state: directory
+        mode: "0755"
+
+    - name: "Copy user {{ _dir_name }} to mediawiki-code/{{ _mw_subdir }}"
+      ansible.builtin.shell:
+        cmd: "cp -a {{ _dir_name }}/* mediawiki-code/{{ _mw_subdir }}/ 2>/dev/null || true"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: "Remove original {{ _dir_name }} directory"
+      ansible.builtin.file:
+        path: "{{ instance_path }}/{{ _dir_name }}"
+        state: absent
+
+    - name: "Create symlink {{ _dir_name }} -> mediawiki-code/{{ _mw_subdir }}"
+      ansible.builtin.file:
+        src: "mediawiki-code/{{ _mw_subdir }}"
+        dest: "{{ instance_path }}/{{ _dir_name }}"
+        state: link

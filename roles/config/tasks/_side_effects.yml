@@ -1,0 +1,45 @@
+---
+# Apply side effects when specific config keys are changed.
+# Input: _config_key (str), _config_value (str), instance_path
+
+- name: Validate port range for HTTP_PORT
+  ansible.builtin.fail:
+    msg: "{{ _config_key }} must be between 1 and 65535 (got '{{ _config_value }}')"
+  when:
+    - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
+    - _config_value | int < 1 or _config_value | int > 65535
+
+- name: Apply HTTPS_PORT side effects
+  when: _config_key == 'HTTPS_PORT'
+  block:
+    - name: Read wikis.yaml for port update
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _se_wikis
+
+    - name: Compute new domain suffix
+      ansible.builtin.set_fact:
+        _port_suffix: "{{ (_config_value == '443') | ternary('', ':' + _config_value) }}"
+
+    - name: Update MW_SITE_SERVER with new port
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: MW_SITE_SERVER
+        value: "https://{{ _se_wikis.wikis[0].url | regex_replace('/.*$', '') | regex_replace(':[0-9]+$', '') }}{{ _port_suffix }}"
+      when: _se_wikis.wikis | length > 0
+
+    - name: Update MW_SITE_FQDN with new port
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: MW_SITE_FQDN
+        value: "{{ _se_wikis.wikis[0].url | regex_replace('/.*$', '') | regex_replace(':[0-9]+$', '') }}{{ _port_suffix }}"
+      when: _se_wikis.wikis | length > 0
+
+- name: Apply CANASTA_ENABLE_OBSERVABILITY side effects
+  when: _config_key == 'CANASTA_ENABLE_OBSERVABILITY' and _config_value | lower == 'true'
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: ensure_observability_credentials.yml

@@ -1,60 +1,217 @@
 ---
+# GitOps init - Full 13-step workflow matching Go implementation.
+# Input: id, name, role, repo, key, force, pull_requests
+
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Initialize git in config directory
+# --- Step 1: Validate prerequisites ---
+- name: Check git is installed
   ansible.builtin.command:
-    cmd: "git init"
-    chdir: "{{ instance_path }}/config"
-    creates: "{{ instance_path }}/config/.git"
+    cmd: "git --version"
+  changed_when: false
 
-- name: Set git-crypt key export path
-  ansible.builtin.set_fact:
-    _gitcrypt_key: "{{ key }}"
+- name: Check git-crypt is installed
+  ansible.builtin.command:
+    cmd: "git-crypt --version"
+  changed_when: false
 
+# --- Step 2: Check no existing repo ---
+- name: Check for existing .git directory
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git"
+  register: _existing_git
+
+- name: Fail if git repo already exists
+  ansible.builtin.fail:
+    msg: "GitOps already initialized ({{ instance_path }}/.git exists). Use 'gitops join' to join an existing repo."
+  when: _existing_git.stat.exists
+
+# --- Step 3: Check key file won't overwrite ---
+- name: Check key file does not exist
+  ansible.builtin.stat:
+    path: "{{ key }}"
+  register: _key_exists
+
+- name: Fail if key file already exists
+  ansible.builtin.fail:
+    msg: "Key file '{{ key }}' already exists. Choose a different path."
+  when: _key_exists.stat.exists
+
+# --- Step 4: Validate remote is empty (unless --force) ---
+- name: Check remote is empty
+  ansible.builtin.command:
+    cmd: "git ls-remote {{ repo }}"
+  register: _remote_check
+  changed_when: false
+  ignore_errors: true
+  when: not (force | default(false) | bool)
+
+- name: Fail if remote is not empty
+  ansible.builtin.fail:
+    msg: "Remote '{{ repo }}' is not empty. Use --force to push to a non-empty remote."
+  when:
+    - not (force | default(false) | bool)
+    - _remote_check is defined
+    - _remote_check.stdout | default('') | trim | length > 0
+
+# --- Step 5: Remove legacy .gitignore files ---
+- name: Remove legacy .gitignore files
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ item }}"
+    state: absent
+  loop:
+    - extensions/.gitignore
+    - skins/.gitignore
+    - config/.gitignore
+
+# --- Step 6: Initialize git repo ---
+- name: Initialize git repository
+  ansible.builtin.command:
+    cmd: "git init -b main"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+# --- Step 7: Write .gitignore and .gitattributes ---
+- name: Write .gitignore
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/gitignore.default"
+    dest: "{{ instance_path }}/.gitignore"
+    mode: "0644"
+
+- name: Write .gitattributes
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/gitattributes.default"
+    dest: "{{ instance_path }}/.gitattributes"
+    mode: "0644"
+
+# --- Step 8: Initialize git-crypt and export key ---
 - name: Initialize git-crypt
   ansible.builtin.command:
     cmd: "git-crypt init"
-    chdir: "{{ instance_path }}/config"
+    chdir: "{{ instance_path }}"
   changed_when: true
 
 - name: Export git-crypt key
   ansible.builtin.command:
-    cmd: "git-crypt export-key {{ _gitcrypt_key }}"
-    chdir: "{{ instance_path }}/config"
+    cmd: "git-crypt export-key {{ key }}"
+    chdir: "{{ instance_path }}"
   changed_when: true
 
-- name: Configure host in hosts.yaml
+# --- Step 9: Create env.template (strip values from .env) ---
+- name: Read .env for template
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _gitops_env
+
+- name: Create env.template (keys without values)
+  ansible.builtin.copy:
+    content: |
+      {% for k, v in _gitops_env.variables.items() %}
+      {{ k }}=
+      {% endfor %}
+    dest: "{{ instance_path }}/env.template"
+    mode: "0644"
+
+# --- Step 10: Create hosts.yaml ---
+- name: Create hosts directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/hosts"
+    state: directory
+    mode: "0755"
+
+- name: Create hosts.yaml
   ansible.builtin.copy:
     content: |
       hosts:
         - name: {{ name }}
           role: {{ role | default('both') }}
-    dest: "{{ instance_path }}/config/hosts.yaml"
+          pull_requests: {{ pull_requests | default(false) | bool | lower }}
+    dest: "{{ instance_path }}/hosts/hosts.yaml"
     mode: "0644"
 
-- name: Convert extensions to submodules
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
-  vars:
-    exec_service: web
-    exec_command: "cd /var/www/mediawiki/w/extensions && find -L * -maxdepth 0 -type d 2>/dev/null || true"
-  register: _ext_list
+# --- Step 11: Create vars.yaml with host-specific values ---
+- name: Create host vars directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/hosts/{{ name }}"
+    state: directory
+    mode: "0755"
 
-- name: Add git remote
+- name: Create vars.yaml with instance values
+  ansible.builtin.copy:
+    content: |
+      {% for k, v in _gitops_env.variables.items() %}
+      {{ k }}: "{{ v }}"
+      {% endfor %}
+    dest: "{{ instance_path }}/hosts/{{ name }}/vars.yaml"
+    mode: "0644"
+
+# --- Step 12: Save local host identity ---
+- name: Save .gitops-host identity
+  ansible.builtin.copy:
+    content: "{{ name }}"
+    dest: "{{ instance_path }}/.gitops-host"
+    mode: "0644"
+
+# --- Step 13: Convert extensions/skins git repos to submodules ---
+- name: Find git repos in extensions
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/extensions"
+    patterns: ".git"
+    file_type: directory
+    hidden: true
+    recurse: false
+    depth: 2
+  register: _ext_git_repos
+
+- name: Convert extension git repos to submodules
+  ansible.builtin.include_tasks: _convert_submodule.yml
+  loop: "{{ _ext_git_repos.files | map(attribute='path') | map('dirname') | list }}"
+  loop_control:
+    loop_var: _repo_path
+
+- name: Find git repos in skins
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/skins"
+    patterns: ".git"
+    file_type: directory
+    hidden: true
+    recurse: false
+    depth: 2
+  register: _skin_git_repos
+
+- name: Convert skin git repos to submodules
+  ansible.builtin.include_tasks: _convert_submodule.yml
+  loop: "{{ _skin_git_repos.files | map(attribute='path') | map('dirname') | list }}"
+  loop_control:
+    loop_var: _repo_path
+
+# --- Step 14: Initial commit and push ---
+- name: Stage all files
+  ansible.builtin.command:
+    cmd: "git add -A"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Initial commit
+  ansible.builtin.command:
+    cmd: "git commit -m 'Initial gitops configuration'"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Add remote
   ansible.builtin.command:
     cmd: "git remote add origin {{ repo }}"
-    chdir: "{{ instance_path }}/config"
+    chdir: "{{ instance_path }}"
   changed_when: true
-  ignore_errors: true
 
-- name: Initial commit and push
+- name: Push to remote
   ansible.builtin.command:
-    cmd: "git add -A && git commit -m 'Initial gitops configuration' && git push {{ (force | default(false) | bool) | ternary('--force', '') }} -u origin main"
-    chdir: "{{ instance_path }}/config"
+    cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }} -u origin main"
+    chdir: "{{ instance_path }}"
   changed_when: true
 
 - name: Report gitops initialized
   ansible.builtin.debug:
-    msg: "GitOps initialized for '{{ instance_id }}'. Key exported to {{ _gitcrypt_key }}"
+    msg: "GitOps initialized for '{{ instance_id }}'. Key exported to {{ key }}"

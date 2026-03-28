@@ -5,15 +5,12 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Parse and apply settings
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: set
-    key: "{{ item.split('=', 1)[0] }}"
-    value: "{{ item.split('=', 1)[1] }}"
+- name: Validate, apply side effects, and set each key
+  ansible.builtin.include_tasks: _set_single.yml
   loop: "{{ settings.split() }}"
   loop_control:
-    label: "{{ item.split('=', 1)[0] }}"
+    loop_var: _setting
+    label: "{{ _setting.split('=', 1)[0] }}"
 
 - name: Regenerate Caddyfile after config change
   ansible.builtin.include_role:
@@ -22,11 +19,9 @@
 
 - name: Restart instance to apply changes
   when: not (no_restart | default(false) | bool)
-  block:
-    - name: Restart containers
-      ansible.builtin.include_role:
-        name: instance_lifecycle
-        tasks_from: restart.yml
+  ansible.builtin.include_role:
+    name: instance_lifecycle
+    tasks_from: restart.yml
 
 - name: Report settings applied
   ansible.builtin.debug:

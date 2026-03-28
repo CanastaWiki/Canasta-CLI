@@ -1,0 +1,24 @@
+---
+# Migration: Add $wgDefaultSkin = "vector-2022"; to Vector.php if missing.
+
+- name: Check if Vector.php exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/settings/global/Vector.php"
+  register: _vector_php
+
+- name: Add default skin setting if missing
+  when: _vector_php.stat.exists
+  block:
+    - name: Check if wgDefaultSkin already set
+      ansible.builtin.command:
+        cmd: "grep -c 'wgDefaultSkin' {{ instance_path }}/config/settings/global/Vector.php"
+      register: _has_default_skin
+      changed_when: false
+      ignore_errors: true
+
+    - name: Append wgDefaultSkin line
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/config/settings/global/Vector.php"
+        line: '$wgDefaultSkin = "vector-2022";'
+        insertbefore: EOF
+      when: _has_default_skin.stdout | default('0') | trim == '0'

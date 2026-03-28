@@ -1,0 +1,49 @@
+---
+# Build Canasta image from local source.
+# Mirrors Go imagebuild.BuildFromSource().
+#
+# Input: build_from (path to workspace containing Canasta/ and optionally CanastaBase/)
+# Output fact: _built_image (str: "canasta:local")
+
+- name: Verify Canasta source exists
+  ansible.builtin.stat:
+    path: "{{ build_from }}/Canasta/Dockerfile"
+  register: _canasta_dockerfile
+
+- name: Fail if Canasta source not found
+  ansible.builtin.fail:
+    msg: "Canasta Dockerfile not found at {{ build_from }}/Canasta/Dockerfile"
+  when: not _canasta_dockerfile.stat.exists
+
+- name: Check for CanastaBase source
+  ansible.builtin.stat:
+    path: "{{ build_from }}/CanastaBase/Dockerfile"
+  register: _base_dockerfile
+
+- name: Build CanastaBase locally
+  when: _base_dockerfile.stat.exists
+  block:
+    - name: Build CanastaBase image
+      ansible.builtin.command:
+        cmd: "docker build -t canasta-base:local ."
+        chdir: "{{ build_from }}/CanastaBase"
+      changed_when: true
+
+    - name: Set base image to local build
+      ansible.builtin.set_fact:
+        _base_image_arg: "canasta-base:local"
+
+- name: Use published base image
+  ansible.builtin.set_fact:
+    _base_image_arg: "ghcr.io/canastawiki/canasta-base:latest"
+  when: not _base_dockerfile.stat.exists
+
+- name: Build Canasta image from source
+  ansible.builtin.command:
+    cmd: "docker build --build-arg BASE_IMAGE={{ _base_image_arg }} -t canasta:local ."
+    chdir: "{{ build_from }}/Canasta"
+  changed_when: true
+
+- name: Set built image fact
+  ansible.builtin.set_fact:
+    _built_image: "canasta:local"

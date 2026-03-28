@@ -1,0 +1,21 @@
+---
+# Set a single config key with validation and side effects.
+# Input: _setting (str: "KEY=VALUE"), instance_path, force
+
+- name: Parse setting
+  ansible.builtin.set_fact:
+    _config_key: "{{ _setting.split('=', 1)[0] }}"
+    _config_value: "{{ _setting.split('=', 1)[1] }}"
+
+- name: Validate key
+  ansible.builtin.include_tasks: _validate_key.yml
+
+- name: Apply side effects
+  ansible.builtin.include_tasks: _side_effects.yml
+
+- name: Set value in .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: "{{ _config_key }}"
+    value: "{{ _config_value }}"

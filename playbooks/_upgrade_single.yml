@@ -13,32 +13,6 @@
     instance_orchestrator: "{{ _inst.value.orchestrator | default('compose') }}"
     instance_devmode: "{{ _inst.value.devMode | default(false) }}"
 
-- name: Refresh stack files
+- name: Run upgrade role (migrations + refresh + restart)
   ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: write_stack_files.yml
-
-- name: Sync compose profiles
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: sync_compose_profiles.yml
-
-- name: Regenerate Caddyfile
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: rewrite_caddy.yml
-
-- name: Pull latest images
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: pull.yml
-
-- name: Restart instance
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: stop.yml
-
-- name: Start instance
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: start.yml
+    name: upgrade

@@ -1,0 +1,30 @@
+---
+# Migration: Remove config/composer.local.json if it has an empty include array.
+
+- name: Check if composer.local.json exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/composer.local.json"
+  register: _composer_json
+
+- name: Check and remove if empty include
+  when: _composer_json.stat.exists
+  block:
+    - name: Read composer.local.json
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/config/composer.local.json"
+      register: _composer_content
+
+    - name: Parse and check include array
+      ansible.builtin.set_fact:
+        _composer_data: "{{ _composer_content.content | b64decode | from_json }}"
+
+    - name: Remove if include array is empty
+      ansible.builtin.file:
+        path: "{{ instance_path }}/config/composer.local.json"
+        state: absent
+      when: >-
+        _composer_data.extra is defined and
+        _composer_data.extra['merge-plugin'] is defined and
+        _composer_data.extra['merge-plugin'].include is defined and
+        _composer_data.extra['merge-plugin'].include | length == 0
+  ignore_errors: true

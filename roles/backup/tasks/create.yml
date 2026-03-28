@@ -1,4 +1,7 @@
 ---
+# Backup create - matching Go's full staging flow.
+# Dumps DBs to config/backup/, backs up config + extensions + images + skins + public_assets + .env + my.cnf
+
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
 
@@ -16,23 +19,33 @@
   register: _backup_dbpass
   no_log: true
 
-- name: Dump databases for each wiki
+- name: Create backup staging directory
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "mkdir -p /mediawiki/config/backup"
+
+- name: Dump each wiki database
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: exec.yml
   vars:
     exec_service: db
-    exec_command: "mysqldump -u root -p{{ _backup_dbpass.value }} {{ item }} > /tmp/{{ item }}.sql"
+    exec_command: "mariadb-dump -h db -u root -p{{ _backup_dbpass.value }} --single-transaction --databases {{ item }} > /mediawiki/config/backup/{{ item }}.sql"
   loop: "{{ _backup_wikis.wiki_ids }}"
   no_log: true
 
-- name: Stage database dumps in backup volume
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
-  vars:
-    exec_service: db
-    exec_command: "cp /tmp/*.sql /backup/ 2>/dev/null; rm -f /tmp/*.sql"
+- name: Get hostname for tag
+  ansible.builtin.command:
+    cmd: hostname
+  register: _hostname
+  changed_when: false
+
+- name: Build tag with hostname
+  ansible.builtin.set_fact:
+    _backup_tag: "{{ tag }}__on__{{ _hostname.stdout | trim }}"
 
 - name: Create backup snapshot
   ansible.builtin.include_role:
@@ -40,8 +53,22 @@
     tasks_from: exec.yml
   vars:
     exec_service: "{{ canasta_backup_service }}"
-    exec_command: "restic backup --tag {{ tag }} /mediawiki/config /mediawiki/images /backup"
+    exec_command: >-
+      restic backup --tag {{ _backup_tag }}
+      /mediawiki/config
+      /mediawiki/extensions
+      /mediawiki/images
+      /mediawiki/skins
+      /mediawiki/public_assets
 
 - name: Display result
   ansible.builtin.debug:
     msg: "{{ exec_result.stdout }}"
+
+- name: Clean up backup staging directory
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "rm -rf /mediawiki/config/backup"

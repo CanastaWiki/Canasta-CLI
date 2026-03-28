@@ -1,0 +1,32 @@
+---
+# Migration: Remove skip-binary-as-hex from my.cnf in non-[mysql] sections.
+# This setting is valid for mysql client but breaks mariadb-admin health checks.
+
+- name: Check if my.cnf exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/my.cnf"
+  register: _mycnf
+
+- name: Remove skip-binary-as-hex from non-mysql sections
+  when: _mycnf.stat.exists
+  block:
+    - name: Read my.cnf
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/my.cnf"
+      register: _mycnf_content
+
+    - name: Process my.cnf to remove skip-binary-as-hex
+      ansible.builtin.copy:
+        content: |
+          {% set ns = namespace(section='') %}
+          {% for line in (_mycnf_content.content | b64decode).split('\n') %}
+          {% if line | regex_search('^\[.*\]') %}
+          {% set ns.section = line | regex_replace('^\[|\]$', '') | trim %}
+          {{ line }}
+          {% elif 'skip-binary-as-hex' in line and ns.section != 'mysql' %}
+          {% else %}
+          {{ line }}
+          {% endif %}
+          {% endfor %}
+        dest: "{{ instance_path }}/my.cnf"
+        mode: "0644"

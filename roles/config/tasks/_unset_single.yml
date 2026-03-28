@@ -1,0 +1,15 @@
+---
+# Unset a single config key with validation and unapply side effects.
+# Input: _config_key (str), instance_path, force
+
+- name: Validate key
+  ansible.builtin.include_tasks: _validate_key.yml
+
+- name: Unapply side effects before removal
+  ansible.builtin.include_tasks: _unapply_side_effects.yml
+
+- name: Remove key from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: unset
+    key: "{{ _config_key }}"
