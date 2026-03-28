@@ -1,0 +1,20 @@
+---
+# Restart a Canasta instance.
+# Input: id (optional)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Stop containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: stop.yml
+
+- name: Start containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml
+
+- name: Report restarted
+  ansible.builtin.debug:
+    msg: "Instance '{{ instance_id }}' restarted."

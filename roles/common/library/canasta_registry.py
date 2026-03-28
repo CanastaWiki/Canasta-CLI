@@ -98,7 +98,10 @@ def read_config(config_dir):
     if not os.path.exists(path):
         return {"Instances": {}}
     with open(path, "r") as f:
-        data = json.load(f)
+        content = f.read().strip()
+    if not content:
+        return {"Instances": {}}
+    data = json.loads(content)
     # Migrate legacy "Installations" key
     if "Installations" in data and "Instances" not in data:
         data["Instances"] = data.pop("Installations")

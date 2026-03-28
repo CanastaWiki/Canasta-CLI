@@ -1,0 +1,31 @@
+---
+# Delete a Canasta instance.
+# Mirrors Go delete command.
+# Input: id, yes (bool - skip confirmation)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Require confirmation for delete
+  ansible.builtin.fail:
+    msg: "Deleting instance '{{ instance_id }}' at {{ instance_path }}. Use --yes to confirm."
+  when: not (yes | default(false) | bool)
+
+- name: Destroy containers and volumes
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: destroy.yml
+
+- name: Remove instance directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}"
+    state: absent
+
+- name: Deregister instance
+  canasta_registry:
+    id: "{{ instance_id }}"
+    state: absent
+
+- name: Report deletion
+  ansible.builtin.debug:
+    msg: "Instance '{{ instance_id }}' deleted."

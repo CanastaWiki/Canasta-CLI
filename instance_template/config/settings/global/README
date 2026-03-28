@@ -1,0 +1,49 @@
+# Global Settings Directory
+
+This directory contains PHP configuration files that apply to ALL wikis in your
+Canasta instance. Files are loaded automatically in lexicographic order.
+
+## Load Order
+
+All .php files in this directory are loaded automatically in lexicographic order.
+You can optionally use numeric prefixes to control load order:
+
+    10-MySkin.php
+    50-Extensions.php
+    90-Footer.php
+
+But plain names work fine:
+
+    Vector.php
+    CanastaFooterIcon.php
+    MyExtensions.php
+
+## What to Configure Here
+
+- wfLoadExtension() / wfLoadSkin() calls
+- Default $wgLanguageCode, $wgDefaultSkin, etc.
+- Permission settings ($wgGroupPermissions)
+- Any setting that should be the same across all wikis
+
+## Variables Set Automatically
+
+Do NOT set these here (they are configured automatically from wikis.yaml):
+
+- $wgDBname — set to the wiki ID
+- $wgServer — set from the wiki's URL
+- $wgSitename — set from the wiki's "name" field (defaults to wiki ID)
+- $wgMetaNamespace — derived from display name with spaces replaced by underscores
+  (can be overridden in per-wiki settings)
+
+## Per-Wiki Overrides
+
+For wiki-specific settings, add files to:
+
+    config/settings/wikis/<wiki_id>/
+
+Per-wiki settings are loaded AFTER global settings and can override them.
+
+## Notes
+
+- All .php files in this directory are loaded automatically
+- Files without the .php extension (like this README) are ignored

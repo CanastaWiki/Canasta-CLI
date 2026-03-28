@@ -1,0 +1,41 @@
+---
+# Import a SQL dump into a wiki database.
+# Input: instance_path, import_wiki_id, import_database_path, import_db_password
+
+- name: Check if database file is gzipped
+  ansible.builtin.set_fact:
+    _is_gzipped: "{{ import_database_path | regex_search('\\.gz$') is not none }}"
+
+- name: Copy database dump to container
+  ansible.builtin.command:
+    cmd: "docker compose cp {{ import_database_path }} db:/tmp/import.sql{{ _is_gzipped | bool | ternary('.gz', '') }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Import gzipped database
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: db
+    exec_command: >-
+      bash -c 'gunzip -c /tmp/import.sql.gz | mysql -u root -p{{ import_db_password | quote }} {{ import_wiki_id }}'
+  when: _is_gzipped | bool
+
+- name: Import plain SQL database
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: db
+    exec_command: >-
+      mysql -u root -p{{ import_db_password | quote }} {{ import_wiki_id }} < /tmp/import.sql
+  when: not (_is_gzipped | bool)
+
+- name: Clean up temp dump file
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: db
+    exec_command: "rm -f /tmp/import.sql /tmp/import.sql.gz"

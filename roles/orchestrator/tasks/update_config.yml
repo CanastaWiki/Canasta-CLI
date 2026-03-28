@@ -1,0 +1,7 @@
+---
+# Update orchestrator configuration after changes (e.g. wiki add/remove).
+# Mirrors Go ComposeOrchestrator.UpdateConfig().
+# Input: instance_path
+
+- name: Regenerate Caddyfile
+  ansible.builtin.include_tasks: rewrite_caddy.yml

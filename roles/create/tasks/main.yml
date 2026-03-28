@@ -1,0 +1,301 @@
+---
+# Create a new Canasta instance.
+# Mirrors Go createCanasta() step by step.
+#
+# Input variables (from extra-vars):
+#   id, wiki, path, orchestrator, domain_name, admin, password,
+#   site_name, yamlfile, rootdbpass, wikidbuser, wikidbpass,
+#   envfile, canasta_image, build_from, database, wiki_settings,
+#   global_settings, composer, override, keep_config
+
+# --- Step 1: Validate inputs ---
+- name: Validate instance ID
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/validate_instance_id.yml"
+
+- name: Check instance does not already exist
+  canasta_registry:
+    id: "{{ id }}"
+    state: query
+  register: _existing
+  ignore_errors: true
+
+- name: Fail if instance already exists
+  ansible.builtin.fail:
+    msg: "Instance '{{ id }}' already exists at {{ _existing.instance.path }}"
+  when: _existing is succeeded
+
+# --- Step 2: Determine base image ---
+- name: Set base image
+  ansible.builtin.set_fact:
+    _base_image: "{{ canasta_image | default(canasta_default_image) }}"
+
+# --- Step 3: Create instance directory ---
+- name: Set instance path
+  ansible.builtin.set_fact:
+    instance_path: "{{ (path | default('.')) | realpath }}/{{ id }}"
+
+- name: Create instance directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}"
+    state: directory
+    mode: "0755"
+
+# --- Step 4: Write stack files ---
+- name: Write Docker Compose stack files
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: write_stack_files.yml
+
+# --- Step 5: Copy instance template files (no-clobber) ---
+- name: Copy instance template
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/instance_template/"
+    dest: "{{ instance_path }}/"
+    force: false
+    mode: "0644"
+
+- name: Ensure directories exist
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - extensions
+    - skins
+    - images
+    - public_assets
+    - _initdb
+    - config/settings/global
+    - config/settings/wikis
+
+# --- Step 6: Generate passwords ---
+- name: Generate root DB password if not provided
+  when: rootdbpass is not defined or rootdbpass == ''
+  block:
+    - name: Generate root DB password
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/generate_password.yml"
+    - name: Store root DB password
+      ansible.builtin.set_fact:
+        _rootdbpass: "{{ _generated_password }}"
+    - name: Report root DB password generated
+      ansible.builtin.debug:
+        msg: "Generated root database password."
+
+- name: Use provided root DB password
+  ansible.builtin.set_fact:
+    _rootdbpass: "{{ rootdbpass }}"
+  when: rootdbpass is defined and rootdbpass != ''
+
+- name: Set wiki DB password
+  ansible.builtin.set_fact:
+    _wikidbpass: "{{ _rootdbpass }}"
+  when: (wikidbuser | default('root')) == 'root'
+
+- name: Generate wiki DB password if non-root user
+  when: (wikidbuser | default('root')) != 'root' and (wikidbpass is not defined or wikidbpass == '')
+  block:
+    - name: Generate wiki DB password
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/generate_password.yml"
+    - name: Store wiki DB password
+      ansible.builtin.set_fact:
+        _wikidbpass: "{{ _generated_password }}"
+
+- name: Use provided wiki DB password
+  ansible.builtin.set_fact:
+    _wikidbpass: "{{ wikidbpass }}"
+  when: wikidbpass is defined and wikidbpass != '' and (wikidbuser | default('root')) != 'root'
+
+- name: Generate admin password if not provided
+  when: password is not defined or password == ''
+  block:
+    - name: Generate admin password
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/generate_password.yml"
+    - name: Store admin password
+      ansible.builtin.set_fact:
+        _admin_password: "{{ _generated_password }}"
+    - name: Report admin password generated
+      ansible.builtin.debug:
+        msg: "Generated admin password."
+
+- name: Use provided admin password
+  ansible.builtin.set_fact:
+    _admin_password: "{{ password }}"
+  when: password is defined and password != ''
+
+# --- Step 7: Create wikis.yaml ---
+- name: Copy user-provided wikis.yaml
+  ansible.builtin.copy:
+    src: "{{ yamlfile }}"
+    dest: "{{ instance_path }}/config/wikis.yaml"
+    mode: "0644"
+  when: yamlfile is defined and yamlfile != ''
+
+- name: Generate wikis.yaml
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: generate
+    wiki_id: "{{ wiki }}"
+    domain: "{{ domain_name | default('localhost') }}"
+    site_name: "{{ site_name | default('') }}"
+  when: yamlfile is not defined or yamlfile == ''
+
+# --- Step 8: Update .env file ---
+- name: Merge custom env file if provided
+  when: envfile is defined and envfile != ''
+  block:
+    - name: Read custom env file
+      ansible.builtin.slurp:
+        src: "{{ envfile }}"
+      register: _custom_env
+
+    - name: Parse and apply custom env variables
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: "{{ item.split('=', 1)[0] }}"
+        value: "{{ item.split('=', 1)[1] }}"
+      loop: "{{ (_custom_env.content | b64decode).split('\n') | select('match', '^[A-Z].*=') | list }}"
+
+- name: Read wikis.yaml for domain
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _created_wikis
+
+- name: Get domain from first wiki
+  ansible.builtin.set_fact:
+    _wiki_domain: "{{ _created_wikis.wikis[0].url | regex_replace('/.*$', '') }}"
+
+- name: Set core .env variables
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop:
+    - { key: "MW_SITE_SERVER", value: "https://{{ _wiki_domain }}" }
+    - { key: "MW_SITE_FQDN", value: "{{ _wiki_domain }}" }
+    - { key: "MYSQL_PASSWORD", value: "{{ _rootdbpass }}" }
+    - { key: "CANASTA_IMAGE", value: "{{ _base_image }}" }
+  no_log: true
+
+- name: Set WIKI_DB_PASSWORD for non-root user
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: WIKI_DB_PASSWORD
+    value: "{{ _wikidbpass }}"
+  when: (wikidbuser | default('root')) != 'root'
+  no_log: true
+
+# --- Step 9: Copy optional settings files ---
+- name: Create per-wiki settings directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/config/settings/wikis/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ _created_wikis.wiki_ids }}"
+
+- name: Copy per-wiki Settings.php if provided
+  ansible.builtin.copy:
+    src: "{{ wiki_settings }}"
+    dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php"
+    mode: "0644"
+  when: wiki_settings is defined and wiki_settings != ''
+
+- name: Copy global settings if provided
+  ansible.builtin.copy:
+    src: "{{ global_settings }}"
+    dest: "{{ instance_path }}/config/settings/global/{{ global_settings | basename }}"
+    mode: "0644"
+  when: global_settings is defined and global_settings != ''
+
+- name: Copy composer.local.json if provided
+  ansible.builtin.copy:
+    src: "{{ composer }}"
+    dest: "{{ instance_path }}/config/composer.local.json"
+    mode: "0644"
+  when: composer is defined and composer != ''
+
+# --- Step 10: Initialize orchestrator config ---
+- name: Initialize orchestrator configuration
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: init_config.yml
+
+- name: Copy docker-compose.override.yml if provided
+  ansible.builtin.copy:
+    src: "{{ override }}"
+    dest: "{{ instance_path }}/docker-compose.override.yml"
+    mode: "0644"
+  when: override is defined and override != ''
+
+# --- Step 11: Start containers (without dev mode) ---
+- name: Set temporary instance facts for initial start
+  ansible.builtin.set_fact:
+    instance_devmode: false
+
+- name: Start containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml
+
+# --- Step 12: Database setup ---
+- name: Wait for database
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: wait_for_db.yml
+
+- name: Import existing database
+  when: database is defined and database != ''
+  block:
+    - name: Import database dump
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: import_database.yml
+      vars:
+        import_wiki_id: "{{ wiki }}"
+        import_database_path: "{{ database }}"
+        import_db_password: "{{ _rootdbpass }}"
+
+    - name: Generate and save MW_SECRET_KEY
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: generate_secret_key.yml
+
+- name: Run MediaWiki installer
+  when: database is not defined or database == ''
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: install.yml
+  vars:
+    install_wiki_ids: "{{ _created_wikis.wiki_ids }}"
+    install_wikis: "{{ _created_wikis.wikis }}"
+    install_admin_name: "{{ admin | default('WikiSysop') }}"
+    install_admin_password: "{{ _admin_password }}"
+    install_root_db_password: "{{ _rootdbpass }}"
+    install_wiki_db_username: "{{ wikidbuser | default('root') }}"
+    install_wiki_db_password: "{{ _wikidbpass }}"
+
+# --- Step 13: Register instance ---
+- name: Register instance in config
+  canasta_registry:
+    id: "{{ id }}"
+    path: "{{ instance_path }}"
+    orchestrator: "{{ orchestrator | default('compose') }}"
+    state: present
+
+# --- Step 14: Restart with full config ---
+- name: Stop containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: stop.yml
+
+- name: Start containers with full config
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml
+
+- name: Report success
+  ansible.builtin.debug:
+    msg: "Canasta instance '{{ id }}' created successfully at {{ instance_path }}"

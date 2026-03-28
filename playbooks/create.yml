@@ -1,7 +1,38 @@
 ---
-# canasta create - Create a new Canasta instance
-# TODO: Implement in Phase 2+
+# canasta create - Create a new Canasta instance.
 
-- name: "Create a new Canasta instance (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'create' is not yet implemented."
+- name: Validate wiki ID
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/validate_wiki_id.yml"
+  when: wiki is defined and wiki != ''
+
+- name: Create Canasta instance
+  block:
+    - name: Run create role
+      ansible.builtin.include_role:
+        name: create
+  rescue:
+    - name: Clean up on failure (destroy containers)
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: destroy.yml
+      vars:
+        instance_path: "{{ (path | default('.')) | realpath }}/{{ id }}"
+      when: not (keep_config | default(false) | bool)
+      ignore_errors: true
+
+    - name: Clean up on failure (remove directory)
+      ansible.builtin.file:
+        path: "{{ (path | default('.')) | realpath }}/{{ id }}"
+        state: absent
+      when: not (keep_config | default(false) | bool)
+      ignore_errors: true
+
+    - name: Deregister instance on failure
+      canasta_registry:
+        id: "{{ id }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Report failure
+      ansible.builtin.fail:
+        msg: "Instance creation failed.{{ (keep_config | default(false) | bool) | ternary(' Config files kept.', ' Files cleaned up.') }}"

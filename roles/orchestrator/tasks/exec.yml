@@ -1,0 +1,15 @@
+---
+# Execute a command inside a container.
+# Input:
+#   instance_path (str)
+#   exec_service (str) - container service name (default: web)
+#   exec_command (str) - command to run
+# Output:
+#   exec_result (registered result)
+
+- name: "Execute in {{ exec_service | default('web') }}: {{ exec_command | truncate(80) }}"
+  ansible.builtin.command:
+    cmd: "docker compose exec -T {{ exec_service | default('web') }} /bin/bash -c {{ exec_command | quote }}"
+    chdir: "{{ instance_path }}"
+  register: exec_result
+  changed_when: false

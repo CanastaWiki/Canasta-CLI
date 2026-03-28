@@ -1,0 +1,12 @@
+---
+# Default values for the orchestrator role.
+
+# Default Canasta image
+canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
+
+# Docker Compose service names
+canasta_web_service: web
+canasta_db_service: db
+
+# Wait-for-it timeout (seconds)
+canasta_db_wait_timeout: 10

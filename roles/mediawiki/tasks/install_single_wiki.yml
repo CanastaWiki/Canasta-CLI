@@ -1,0 +1,74 @@
+---
+# Install a single wiki via install.php.
+# Called in a loop from install.yml.
+# Input: _wiki (dict with id, url, name), _wiki_idx (int),
+#   instance_path, install_admin_name, install_admin_password,
+#   install_root_db_password, install_wiki_db_username, install_wiki_db_password
+
+- name: Extract domain from wiki URL
+  ansible.builtin.set_fact:
+    _install_domain: "{{ _wiki.url | regex_replace('/.*$', '') }}"
+
+- name: "Run install.php for wiki '{{ _wiki.id }}'"
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: >-
+      env -u MW_SECRET_KEY php maintenance/install.php
+      --skins='Vector'
+      --dbserver=db
+      --dbname={{ _wiki.id }}
+      --confpath=/tmp/canasta-install/
+      --scriptpath=/w
+      --server=https://{{ _install_domain }}
+      --installdbuser='root'
+      --installdbpass={{ install_root_db_password | quote }}
+      --dbuser={{ install_wiki_db_username | quote }}
+      --dbpass={{ install_wiki_db_password | quote }}
+      --pass={{ install_admin_password | quote }}
+      {{ _wiki.id | quote }} {{ install_admin_name | quote }}
+
+- name: Save admin password to file
+  ansible.builtin.copy:
+    content: "{{ install_admin_password }}"
+    dest: "{{ instance_path }}/admin-password_{{ _wiki.id }}"
+    mode: "0600"
+  no_log: true
+
+- name: Extract MW_SECRET_KEY from first wiki's LocalSettings.php
+  when: _wiki_idx == 0
+  block:
+    - name: Read LocalSettings.php from container
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: exec.yml
+      vars:
+        exec_service: web
+        exec_command: "cat /tmp/canasta-install/LocalSettings.php"
+
+    - name: Parse MW_SECRET_KEY
+      ansible.builtin.set_fact:
+        _secret_key: "{{ exec_result.stdout | regex_search('wgSecretKey\\s*=\\s*\"([0-9a-fA-F]+)\"', '\\1') | first }}"
+
+    - name: Save MW_SECRET_KEY to .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: MW_SECRET_KEY
+        value: "{{ _secret_key }}"
+      no_log: true
+
+    - name: Delete LocalSettings.php from temp dir
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: exec.yml
+      vars:
+        exec_service: web
+        exec_command: "rm -f /tmp/canasta-install/LocalSettings.php"
+
+- name: Pause between wiki installations
+  ansible.builtin.pause:
+    seconds: 1
+  when: _wiki_idx < (install_wikis | length) - 1

@@ -1,0 +1,36 @@
+---
+# Start Docker Compose containers for an instance.
+# Input: instance_path, instance_devmode (bool)
+#
+# Mirrors Go ComposeOrchestrator.Start():
+# 1. Sync compose profiles
+# 2. Build file list (include dev files if devmode)
+# 3. docker compose up -d
+
+- name: Sync compose profiles
+  ansible.builtin.include_tasks: sync_compose_profiles.yml
+
+- name: Build compose file arguments
+  ansible.builtin.set_fact:
+    _compose_files: >-
+      {{ ['-f', 'docker-compose.yml'] +
+         ((_override_exists.stat.exists | default(false)) | ternary(['-f', 'docker-compose.override.yml'], [])) +
+         ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
+
+- name: Check for docker-compose.override.yml
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/docker-compose.override.yml"
+  register: _override_exists
+
+- name: Rebuild compose file arguments with override check
+  ansible.builtin.set_fact:
+    _compose_files: >-
+      {{ ['-f', 'docker-compose.yml'] +
+         ((_override_exists.stat.exists) | ternary(['-f', 'docker-compose.override.yml'], [])) +
+         ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
+
+- name: Start containers
+  ansible.builtin.command:
+    cmd: "docker compose {{ _compose_files | join(' ') }} up -d"
+    chdir: "{{ instance_path }}"
+  changed_when: true

@@ -1,0 +1,21 @@
+---
+# Stop Docker Compose containers for an instance.
+# Input: instance_path, instance_devmode (bool)
+
+- name: Check for docker-compose.override.yml
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/docker-compose.override.yml"
+  register: _override_exists
+
+- name: Build compose file arguments
+  ansible.builtin.set_fact:
+    _compose_files: >-
+      {{ ['-f', 'docker-compose.yml'] +
+         ((_override_exists.stat.exists) | ternary(['-f', 'docker-compose.override.yml'], [])) +
+         ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
+
+- name: Stop containers
+  ansible.builtin.command:
+    cmd: "docker compose {{ _compose_files | join(' ') }} down"
+    chdir: "{{ instance_path }}"
+  changed_when: true

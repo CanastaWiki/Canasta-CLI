@@ -1,0 +1,15 @@
+---
+# Start a Canasta instance.
+# Input: id (optional)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Start containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml
+
+- name: Report started
+  ansible.builtin.debug:
+    msg: "Instance '{{ instance_id }}' started."

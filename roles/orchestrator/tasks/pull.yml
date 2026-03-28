@@ -1,0 +1,9 @@
+---
+# Pull latest images for an instance.
+# Input: instance_path
+
+- name: Pull images
+  ansible.builtin.command:
+    cmd: "docker compose pull --ignore-buildable --ignore-pull-failures"
+    chdir: "{{ instance_path }}"
+  changed_when: true

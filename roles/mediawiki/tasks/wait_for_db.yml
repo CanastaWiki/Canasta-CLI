@@ -1,0 +1,12 @@
+---
+# Wait for the database to be ready.
+# Mirrors Go mediawiki.WaitForDB().
+# Input: instance_path
+
+- name: Wait for database to accept connections
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "/wait-for-it.sh -t {{ canasta_db_wait_timeout | default(10) }} db:3306"

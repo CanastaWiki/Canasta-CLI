@@ -1,0 +1,16 @@
+---
+# Check if the web container is running.
+# Input: instance_path
+# Output: _container_running (bool)
+
+- name: Check if web container is running
+  ansible.builtin.command:
+    cmd: "docker compose ps -q web"
+    chdir: "{{ instance_path }}"
+  register: _ps_result
+  changed_when: false
+  ignore_errors: true
+
+- name: Set running status
+  ansible.builtin.set_fact:
+    _container_running: "{{ _ps_result.rc == 0 and _ps_result.stdout | trim | length > 0 }}"

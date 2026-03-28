@@ -1,0 +1,32 @@
+---
+# Copy Docker Compose stack files to the instance directory.
+# No-clobber: only creates files that don't already exist.
+# Input: instance_path
+
+- name: Copy docker-compose.yml
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/compose/docker-compose.yml"
+    dest: "{{ instance_path }}/docker-compose.yml"
+    force: false
+    mode: "0644"
+
+- name: Copy docker-compose.override.yml.example
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/compose/docker-compose.override.yml.example"
+    dest: "{{ instance_path }}/docker-compose.override.yml.example"
+    force: false
+    mode: "0644"
+
+- name: Copy logstash pipeline configs
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/compose/config/logstash/"
+    dest: "{{ instance_path }}/config/logstash/"
+    force: false
+    mode: "0644"
+
+- name: Copy observable-init script
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/compose/scripts/"
+    dest: "{{ instance_path }}/scripts/"
+    force: false
+    mode: "0755"

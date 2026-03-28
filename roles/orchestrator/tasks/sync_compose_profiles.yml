@@ -1,0 +1,32 @@
+---
+# Sync COMPOSE_PROFILES with feature flags in .env.
+# Mirrors Go syncComposeProfiles().
+# Input: instance_path
+
+- name: Read .env for profile sync
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _env_profiles
+
+- name: Parse current profiles
+  ansible.builtin.set_fact:
+    _current_profiles: "{{ (_env_profiles.variables.COMPOSE_PROFILES | default('')) | split(',') | map('trim') | reject('equalto', '') | list }}"
+
+- name: Compute desired profiles
+  ansible.builtin.set_fact:
+    _desired_profiles: >-
+      {{
+        (_current_profiles | reject('in', ['observable', 'elasticsearch', 'varnish']) | list) +
+        ((_env_profiles.variables.CANASTA_ENABLE_OBSERVABILITY | default('false') | lower == 'true') | ternary(['observable'], [])) +
+        ((_env_profiles.variables.CANASTA_ENABLE_ELASTICSEARCH | default('false') | lower == 'true') | ternary(['elasticsearch'], [])) +
+        ((_env_profiles.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true') | ternary(['varnish'], []))
+      }}
+
+- name: Update COMPOSE_PROFILES in .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: COMPOSE_PROFILES
+    value: "{{ _desired_profiles | join(',') }}"
+  when: _desired_profiles | sort != _current_profiles | sort

@@ -1,0 +1,47 @@
+---
+# Generate the main Caddyfile from wikis.yaml and .env settings.
+# Mirrors Go RewriteCaddy().
+# Input: instance_path
+
+- name: Read wikis.yaml for Caddyfile generation
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _wikis_caddy
+
+- name: Read .env for Caddyfile settings
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _env_caddy
+
+- name: Determine Caddyfile parameters
+  ansible.builtin.set_fact:
+    _http_only: "{{ _env_caddy.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off' }}"
+    _observable: "{{ _env_caddy.variables.CANASTA_ENABLE_OBSERVABILITY | default('false') | lower == 'true' }}"
+    _varnish_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true' }}"
+    _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
+    _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') }}"
+
+- name: Determine reverse proxy backend
+  ansible.builtin.set_fact:
+    _backend: "{{ (_varnish_enabled | bool) | ternary('varnish:80', 'web:80') }}"
+
+- name: Extract unique server names from wiki URLs
+  ansible.builtin.set_fact:
+    _server_names: >-
+      {{ _wikis_caddy.wikis | map(attribute='url') |
+         map('regex_replace', '/.*$', '') |
+         map('regex_replace', ':[0-9]+$', '') |
+         unique | list }}
+
+- name: Build site address
+  ansible.builtin.set_fact:
+    _site_address: >-
+      {{ _server_names | map('regex_replace', '^(.*)$', ((_http_only | bool) | ternary('http://\1', '\1'))) | join(', ') }}
+
+- name: Write Caddyfile from template
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/Caddyfile.j2"
+    dest: "{{ instance_path }}/config/Caddyfile"
+    mode: "0644"

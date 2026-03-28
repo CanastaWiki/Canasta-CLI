@@ -1,7 +1,6 @@
 ---
-# canasta delete - Delete a Canasta instance
-# TODO: Implement in Phase 2+
+# canasta delete - Delete a Canasta instance.
 
-- name: "Delete a Canasta instance (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'delete' is not yet implemented."
+- name: Delete Canasta instance
+  ansible.builtin.include_role:
+    name: delete

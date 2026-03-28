@@ -1,7 +1,7 @@
 ---
-# canasta restart - Restart a Canasta instance
-# TODO: Implement in Phase 2+
+# canasta restart - Restart a Canasta instance.
 
-- name: "Restart a Canasta instance (not yet implemented)"
-  ansible.builtin.debug:
-    msg: "Command 'restart' is not yet implemented."
+- name: Restart instance
+  ansible.builtin.include_role:
+    name: instance_lifecycle
+    tasks_from: restart.yml

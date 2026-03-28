@@ -1,0 +1,33 @@
+---
+# Initialize orchestrator configuration for a new instance.
+# Mirrors Go ComposeOrchestrator.InitConfig():
+# 1. Create Caddyfile.site from template (no-clobber)
+# 2. Create Caddyfile.global from template (no-clobber)
+# 3. Sync compose profiles
+# 4. Generate observability credentials if enabled
+# 5. Generate main Caddyfile
+#
+# Input: instance_path
+
+- name: Create Caddyfile.site from template (no-clobber)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/instance_template/config/Caddyfile.site"
+    dest: "{{ instance_path }}/config/Caddyfile.site"
+    force: false
+    mode: "0644"
+
+- name: Create Caddyfile.global from template (no-clobber)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/instance_template/config/Caddyfile.global"
+    dest: "{{ instance_path }}/config/Caddyfile.global"
+    force: false
+    mode: "0644"
+
+- name: Sync compose profiles
+  ansible.builtin.include_tasks: sync_compose_profiles.yml
+
+- name: Generate observability credentials if enabled
+  ansible.builtin.include_tasks: ensure_observability_credentials.yml
+
+- name: Generate Caddyfile
+  ansible.builtin.include_tasks: rewrite_caddy.yml

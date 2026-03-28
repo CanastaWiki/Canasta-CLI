@@ -1,7 +1,26 @@
 ---
-# canasta list - List all registered Canasta instances
-# TODO: Implement in Phase 2+
+# canasta list - List all registered Canasta instances.
 
-- name: "List all registered Canasta instances (not yet implemented)"
+- name: Clean up stale entries
+  canasta_registry:
+    state: cleanup
+  register: _cleanup_result
+  when: cleanup | default(false) | bool
+
+- name: Report cleaned entries
   ansible.builtin.debug:
-    msg: "Command 'list' is not yet implemented."
+    msg: "Removed stale entries: {{ _cleanup_result.removed | join(', ') }}"
+  when: cleanup | default(false) | bool and _cleanup_result.removed | default([]) | length > 0
+
+- name: Get all instances
+  canasta_registry:
+    state: query_all
+  register: _all_instances
+
+- name: Display instances
+  ansible.builtin.debug:
+    msg: >-
+      {% if _all_instances.instances | length == 0 %}No registered instances.{% else %}
+      {% for iid, inst in _all_instances.instances.items() %}
+      {{ iid }}  {{ inst.path }}  {{ inst.orchestrator | default('compose') }}{{ inst.devMode | default(false) | ternary('  [dev]', '') }}
+      {% endfor %}{% endif %}
