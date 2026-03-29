@@ -16,6 +16,7 @@
     test_https_port: "10443"
     test_work_dir: "{{ molecule_ephemeral_directory }}"
     canasta_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | default(playbook_dir + '/../../../..', true) }}"
+    canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
     playbook_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | default(playbook_dir + '/../../../..', true) }}"
 
   tasks:

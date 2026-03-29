@@ -13,6 +13,7 @@
 
   vars:
     canasta_root: "{{ playbook_dir }}"
+    canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
 
   pre_tasks:
     - name: Validate command parameter
