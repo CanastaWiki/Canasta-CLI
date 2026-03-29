@@ -26,5 +26,6 @@
     msg: >-
       {% if _all_instances.instances | length == 0 %}No registered instances.{% else %}
       {% for iid, inst in _all_instances.instances.items() %}
-      {{ iid }}  {{ inst.host | default('localhost') }}  {{ inst.path }}  {{ inst.orchestrator | default('compose') }}{{ inst.devMode | default(false) | ternary('  [dev]', '') }}
+      {{ iid }}  {{ inst.host | default('localhost') }}  {{ inst.path }}  {{ inst.orchestrator | default('compose') }}{{
+        inst.devMode | default(false) | ternary('  [dev]', '') }}
       {% endfor %}{% endif %}

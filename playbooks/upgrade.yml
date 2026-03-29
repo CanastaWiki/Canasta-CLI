@@ -17,7 +17,10 @@
 
 - name: Report dry run
   ansible.builtin.debug:
-    msg: "Dry run - would upgrade {{ _upgrade_instances.instances | length }} instance(s): {{ _upgrade_instances.instances.keys() | list | join(', ') }}"
+    msg: >-
+      Dry run - would upgrade
+      {{ _upgrade_instances.instances | length }} instance(s):
+      {{ _upgrade_instances.instances.keys() | list | join(', ') }}
   when: dry_run | default(false) | bool
 
 - name: Upgrade each instance

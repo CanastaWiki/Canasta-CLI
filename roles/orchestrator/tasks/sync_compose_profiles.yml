@@ -11,7 +11,9 @@
 
 - name: Parse current profiles
   ansible.builtin.set_fact:
-    _current_profiles: "{{ (_env_profiles.variables.COMPOSE_PROFILES | default('')) | split(',') | map('trim') | reject('equalto', '') | list }}"
+    _current_profiles: >-
+      {{ (_env_profiles.variables.COMPOSE_PROFILES | default(''))
+         | split(',') | map('trim') | reject('equalto', '') | list }}
 
 - name: Compute desired profiles
   ansible.builtin.set_fact:

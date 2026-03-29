@@ -13,7 +13,9 @@
       cd "{{ instance_path }}" && docker compose exec -T {{ canasta_backup_service }}
       restic backup --tag scheduled /mediawiki/config /mediawiki/images /backup
       {{ (purge_older_than is defined and purge_older_than != '') | ternary(
-         '&& docker compose exec -T ' + canasta_backup_service + ' restic forget --prune --keep-within ' + (purge_older_than | default('')), '') }}
+         '&& docker compose exec -T ' + canasta_backup_service +
+         ' restic forget --prune --keep-within ' +
+         (purge_older_than | default('')), '') }}
 
 - name: Set cron schedule
   ansible.builtin.cron:

@@ -8,7 +8,9 @@
 
 - name: Copy database dump to container
   ansible.builtin.command:
-    cmd: "docker compose cp {{ import_database_path | quote }} {{ ('db:/tmp/import.sql' + (_is_gzipped | bool | ternary('.gz', ''))) | quote }}"
+    cmd: >-
+      docker compose cp {{ import_database_path | quote }}
+      {{ ('db:/tmp/import.sql' + (_is_gzipped | bool | ternary('.gz', ''))) | quote }}
     chdir: "{{ instance_path }}"
   changed_when: true
 

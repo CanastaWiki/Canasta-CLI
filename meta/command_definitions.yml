@@ -280,7 +280,10 @@ commands:
       copy of the database. The backup schedule is cloned by default.
     examples:
       - "canasta clone -i wiki-prod --from prod1 --to staging --new-id wiki-staging --new-domain staging.example.com -y"
-      - "canasta clone -i wiki-prod --from prod1 --to staging --new-id wiki-staging --new-domain staging.example.com --no-backup-schedule -y"
+      - >-
+        canasta clone -i wiki-prod --from prod1 --to staging
+        --new-id wiki-staging --new-domain staging.example.com
+        --no-backup-schedule -y
     playbook: clone.yml
     parameters:
       - name: id

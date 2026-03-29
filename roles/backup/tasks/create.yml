@@ -33,7 +33,10 @@
     tasks_from: exec.yml
   vars:
     exec_service: db
-    exec_command: "mariadb-dump -h db -u root -p{{ _backup_dbpass.value | quote }} --single-transaction --databases {{ item | quote }} > /mediawiki/config/backup/{{ item | quote }}.sql"
+    exec_command: >-
+      mariadb-dump -h db -u root -p{{ _backup_dbpass.value | quote }}
+      --single-transaction --databases {{ item | quote }}
+      > /mediawiki/config/backup/{{ item | quote }}.sql
   loop: "{{ _backup_wikis.wiki_ids }}"
   no_log: true
 

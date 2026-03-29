@@ -22,4 +22,7 @@
 
 - name: Set running status
   ansible.builtin.set_fact:
-    _container_running: "{{ _ps_result.rc == 0 and _ps_result.stdout | default('') | trim | length > 0 and _ps_result.stdout | trim != '0' }}"
+    _container_running: >-
+      {{ _ps_result.rc == 0
+         and _ps_result.stdout | default('') | trim | length > 0
+         and _ps_result.stdout | trim != '0' }}

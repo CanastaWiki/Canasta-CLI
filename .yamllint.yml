@@ -1,0 +1,15 @@
+---
+extends: relaxed
+rules:
+  line-length:
+    max: 140
+    allow-non-breakable-inline-mappings: true
+  trailing-spaces: enable
+  new-line-at-end-of-file: enable
+
+ignore:
+  # Kubernetes and Docker Compose manifests are upstream files with
+  # their own indentation style. They are valid YAML but use patterns
+  # yamllint flags as warnings.
+  - roles/orchestrator/files/kubernetes/
+  - roles/orchestrator/files/compose/

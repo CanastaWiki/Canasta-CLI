@@ -63,4 +63,7 @@
 
     - name: Report update
       ansible.builtin.debug:
-        msg: "Updated Canasta-Ansible from {{ _current_version.content | b64decode | trim }} to {{ _new_version.content | b64decode | trim }}."
+        msg: >-
+          Updated Canasta-Ansible from
+          {{ _current_version.content | b64decode | trim }} to
+          {{ _new_version.content | b64decode | trim }}.
