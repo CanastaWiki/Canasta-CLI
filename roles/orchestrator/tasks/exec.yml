@@ -8,6 +8,7 @@
 #   instance_orchestrator (str) - compose or kubernetes
 #   exec_service (str) - service name (default: web)
 #   exec_command (str) - command to run
+#   exec_no_log (bool, optional) - suppress command in output
 # Output:
 #   exec_result (registered result with .stdout, .rc, etc.)
 
@@ -19,6 +20,7 @@
       /bin/bash -c {{ exec_command | quote }}
     _exec_chdir: "{{ instance_path }}"
   when: instance_orchestrator | default('compose') == 'compose'
+  no_log: "{{ exec_no_log | default(false) }}"
 
 - name: Resolve K8s pod and build exec command
   when: >-
@@ -41,10 +43,16 @@
           -n {{ _k8s_namespace }} --
           /bin/bash -c {{ exec_command | quote }}
         _exec_chdir: null
+      no_log: "{{ exec_no_log | default(false) }}"
 
-- name: "Execute: {{ exec_command | truncate(80) }}"
+- name: >-
+    Execute:
+    {{ (exec_no_log | default(false) | bool)
+       | ternary('[redacted]',
+         exec_command | truncate(80)) }}
   ansible.builtin.command:
     cmd: "{{ _exec_full_cmd }}"
     chdir: "{{ _exec_chdir | default(omit) }}"
   register: exec_result
   changed_when: false
+  no_log: "{{ exec_no_log | default(false) }}"

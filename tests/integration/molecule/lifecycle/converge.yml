@@ -148,11 +148,184 @@
         that: _wiki_restart_check.status in [200, 403]
         fail_msg: "Wiki not accessible after restart"
 
+    # --- EXPORT DATABASE ---
+    - name: Read DB password for export
+      canasta_env:
+        path: "{{ test_work_dir }}/{{ test_id }}/.env"
+        state: read
+        key: MYSQL_PASSWORD
+      register: _test_dbpass
+      no_log: true
+
+    - name: Export wiki database
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T db
+          mariadb-dump -u root
+          -p{{ _test_dbpass.value }}
+          {{ test_wiki }}
+          > /tmp/{{ test_wiki }}.sql
+        chdir: "{{ test_work_dir }}/{{ test_id }}"
+      changed_when: true
+      no_log: true
+
+    - name: Copy dump from container
+      ansible.builtin.command:
+        cmd: >-
+          docker compose cp
+          db:/tmp/{{ test_wiki }}.sql
+          {{ test_work_dir }}/{{ test_wiki }}_export.sql
+        chdir: "{{ test_work_dir }}/{{ test_id }}"
+      changed_when: true
+
+    - name: Verify export file exists
+      ansible.builtin.stat:
+        path: "{{ test_work_dir }}/{{ test_wiki }}_export.sql"
+      register: _export_stat
+
+    - name: Assert export file created
+      ansible.builtin.assert:
+        that:
+          - _export_stat.stat.exists
+          - _export_stat.stat.size > 0
+        fail_msg: "Export file not created or empty"
+
+    # --- CONFIG GET/SET ---
+    - name: Read MW_SITE_SERVER from config
+      canasta_env:
+        path: "{{ test_work_dir }}/{{ test_id }}/.env"
+        state: read
+        key: MW_SITE_SERVER
+      register: _config_server
+
+    - name: Verify MW_SITE_SERVER is set
+      ansible.builtin.assert:
+        that: _config_server.found
+        fail_msg: "MW_SITE_SERVER not found in .env"
+
+    - name: Set a custom config value
+      canasta_env:
+        path: "{{ test_work_dir }}/{{ test_id }}/.env"
+        state: set
+        key: PHP_UPLOAD_MAX_FILESIZE
+        value: "50M"
+
+    - name: Read back custom config value
+      canasta_env:
+        path: "{{ test_work_dir }}/{{ test_id }}/.env"
+        state: read
+        key: PHP_UPLOAD_MAX_FILESIZE
+      register: _config_upload
+
+    - name: Assert config value was set
+      ansible.builtin.assert:
+        that: _config_upload.value == '50M'
+        fail_msg: >-
+          Config set failed.
+          Expected 50M, got {{ _config_upload.value }}
+
+    # --- EXTENSION ENABLE/DISABLE ---
+    - name: Read current extensions settings
+      canasta_settings_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        item_type: extensions
+        state: read
+      register: _ext_before
+
+    - name: Enable an extension in settings
+      canasta_settings_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        item_type: extensions
+        state: enable
+        names: ["ParserFunctions"]
+
+    - name: Verify extension enabled
+      canasta_settings_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        item_type: extensions
+        state: read
+      register: _ext_after
+
+    - name: Assert ParserFunctions enabled
+      ansible.builtin.assert:
+        that: "'ParserFunctions' in _ext_after.items"
+        fail_msg: "ParserFunctions not in enabled extensions"
+
+    - name: Disable the extension
+      canasta_settings_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        item_type: extensions
+        state: disable
+        names: ["ParserFunctions"]
+
+    - name: Verify extension disabled
+      canasta_settings_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        item_type: extensions
+        state: read
+      register: _ext_final
+
+    - name: Assert ParserFunctions disabled
+      ansible.builtin.assert:
+        that: "'ParserFunctions' not in _ext_final.items"
+        fail_msg: "ParserFunctions still enabled after disable"
+
+    # --- WIKI MANAGEMENT ---
+    - name: Read wikis before add
+      canasta_wikis_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        state: read
+      register: _wikis_before
+
+    - name: Assert single wiki
+      ansible.builtin.assert:
+        that: _wikis_before.wiki_ids | length == 1
+        fail_msg: "Expected 1 wiki, got {{ _wikis_before.wiki_ids }}"
+
+    - name: Add second wiki to wikis.yaml
+      canasta_wikis_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        state: add
+        wiki_id: "docs"
+        domain: "localhost"
+        wiki_path: "docs"
+        site_name: "Documentation"
+
+    - name: Verify second wiki added
+      canasta_wikis_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        state: read
+      register: _wikis_after
+
+    - name: Assert two wikis
+      ansible.builtin.assert:
+        that:
+          - _wikis_after.wiki_ids | length == 2
+          - "'docs' in _wikis_after.wiki_ids"
+        fail_msg: "Expected 2 wikis with 'docs'"
+
+    - name: Remove second wiki
+      canasta_wikis_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        state: remove
+        wiki_id: "docs"
+
+    - name: Verify wiki removed
+      canasta_wikis_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        state: read
+      register: _wikis_final
+
+    - name: Assert back to single wiki
+      ansible.builtin.assert:
+        that: _wikis_final.wiki_ids | length == 1
+        fail_msg: "Expected 1 wiki after remove"
+
     # --- LIST ---
     - name: List instances
       canasta_registry:
         state: query_all
-        
+
       register: _list_result
 
     - name: Verify instance in list
@@ -175,12 +348,12 @@
       canasta_registry:
         id: "{{ test_id }}"
         state: absent
-        
+
 
     - name: Verify instance removed from registry
       canasta_registry:
         state: query_all
-        
+
       register: _post_delete
 
     - name: Assert instance deleted

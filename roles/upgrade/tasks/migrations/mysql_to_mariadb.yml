@@ -45,7 +45,12 @@
           ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
           vars:
             exec_service: db
-            exec_command: "mysqldump -u root -p{{ _mig_dbpass.value | quote }} --all-databases --single-transaction > /tmp/mysql8_dump.sql"
+            exec_no_log: true
+            exec_command: >-
+              mysqldump -u root
+              -p{{ _mig_dbpass.value | quote }}
+              --all-databases --single-transaction
+              > /tmp/mysql8_dump.sql
           no_log: true
 
         - name: Copy dump from container
@@ -86,7 +91,11 @@
           ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
           vars:
             exec_service: db
-            exec_command: "mysql -u root -p{{ _mig_dbpass.value | quote }} < /tmp/mysql8_dump.sql"
+            exec_no_log: true
+            exec_command: >-
+              mysql -u root
+              -p{{ _mig_dbpass.value | quote }}
+              < /tmp/mysql8_dump.sql
           no_log: true
 
         - name: Clean up dump files
