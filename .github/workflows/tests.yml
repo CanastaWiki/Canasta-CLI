@@ -30,7 +30,9 @@ jobs:
           .venv/bin/pytest tests/unit/ -v \
             --cov=roles/common/library \
             --cov=roles/extensions_skins/library \
-            --cov=scripts \
+            --cov=scripts/generate_docs.py \
+            --cov=scripts/validate_definitions.py \
+            --cov=canasta.py \
             --cov-report=term-missing \
             --cov-fail-under=70
 
