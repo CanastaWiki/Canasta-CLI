@@ -1,20 +1,32 @@
 ---
-# Destroy Docker Compose containers AND volumes for an instance.
-# Input: instance_path
+# Destroy containers AND volumes/resources for an instance.
+# Input: instance_path, instance_orchestrator, instance_managed_cluster, instance_id
 
-- name: Destroy containers and volumes
-  ansible.builtin.command:
-    cmd: "docker compose down -v"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  ignore_errors: true
+- name: Destroy (Docker Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Destroy containers and volumes
+      ansible.builtin.command:
+        cmd: "docker compose down -v"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      ignore_errors: true
 
-- name: Get instance directory basename
-  ansible.builtin.set_fact:
-    _instance_basename: "{{ instance_path | basename }}"
+    - name: Remove backup staging volume
+      ansible.builtin.command:
+        cmd: "docker volume rm {{ instance_path | basename }}-backup"
+      changed_when: true
+      ignore_errors: true
 
-- name: Remove backup staging volume
-  ansible.builtin.command:
-    cmd: "docker volume rm {{ _instance_basename }}-backup"
-  changed_when: true
-  ignore_errors: true
+- name: Destroy (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Delete kind cluster (managed clusters)
+      ansible.builtin.include_tasks: k8s_kind_delete.yml
+      when: instance_managed_cluster | default(false) | bool
+
+    - name: Delete Kubernetes namespace (non-managed clusters)
+      ansible.builtin.command:
+        cmd: "kubectl delete namespace {{ instance_path | basename }} --ignore-not-found"
+      changed_when: true
+      when: not (instance_managed_cluster | default(false) | bool)

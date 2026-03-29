@@ -1,0 +1,46 @@
+---
+# Create a kind cluster for a Canasta instance.
+# Input: instance_path, instance_id
+
+- name: Read ports from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _kind_env
+
+- name: Set port variables
+  ansible.builtin.set_fact:
+    _kind_cluster_name: "canasta-{{ instance_id }}"
+    _kind_http_port: "{{ _kind_env.variables.HTTP_PORT | default(80) }}"
+    _kind_https_port: "{{ _kind_env.variables.HTTPS_PORT | default(443) }}"
+
+- name: Check if kind cluster already exists
+  ansible.builtin.command:
+    cmd: "kind get clusters"
+  register: _kind_clusters
+  changed_when: false
+
+- name: Create kind cluster
+  when: _kind_cluster_name not in _kind_clusters.stdout_lines
+  block:
+    - name: Render kind config
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/kind-config.yaml.j2"
+        dest: "{{ instance_path }}/kind-config.yaml"
+        mode: "0644"
+
+    - name: Create cluster
+      ansible.builtin.command:
+        cmd: "kind create cluster --config {{ instance_path }}/kind-config.yaml"
+      changed_when: true
+
+    - name: Clean up kind config
+      ansible.builtin.file:
+        path: "{{ instance_path }}/kind-config.yaml"
+        state: absent
+
+- name: Set kubectl context to kind cluster
+  ansible.builtin.command:
+    cmd: "kubectl config use-context kind-{{ _kind_cluster_name }}"
+  changed_when: false
+  when: _kind_cluster_name in (_kind_clusters.stdout_lines | default([]))

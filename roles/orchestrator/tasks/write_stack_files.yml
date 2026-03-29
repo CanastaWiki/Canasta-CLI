@@ -1,32 +1,52 @@
 ---
-# Copy Docker Compose stack files to the instance directory.
+# Copy stack files to the instance directory.
+# Dispatches to Compose or Kubernetes based on instance_orchestrator.
 # No-clobber: only creates files that don't already exist.
-# Input: instance_path
+# Input: instance_path, instance_orchestrator
 
-- name: Copy docker-compose.yml
-  ansible.builtin.copy:
-    src: "{{ role_path }}/files/compose/docker-compose.yml"
-    dest: "{{ instance_path }}/docker-compose.yml"
-    force: false
-    mode: "0644"
+- name: Write Compose stack files
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Copy docker-compose.yml
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/compose/docker-compose.yml"
+        dest: "{{ instance_path }}/docker-compose.yml"
+        force: false
+        mode: "0644"
 
-- name: Copy docker-compose.override.yml.example
-  ansible.builtin.copy:
-    src: "{{ role_path }}/files/compose/docker-compose.override.yml.example"
-    dest: "{{ instance_path }}/docker-compose.override.yml.example"
-    force: false
-    mode: "0644"
+    - name: Copy docker-compose.override.yml.example
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/compose/docker-compose.override.yml.example"
+        dest: "{{ instance_path }}/docker-compose.override.yml.example"
+        force: false
+        mode: "0644"
 
-- name: Copy logstash pipeline configs
-  ansible.builtin.copy:
-    src: "{{ role_path }}/files/compose/config/logstash/"
-    dest: "{{ instance_path }}/config/logstash/"
-    force: false
-    mode: "0644"
+    - name: Copy logstash pipeline configs
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/compose/config/logstash/"
+        dest: "{{ instance_path }}/config/logstash/"
+        force: false
+        mode: "0644"
 
-- name: Copy observable-init script
-  ansible.builtin.copy:
-    src: "{{ role_path }}/files/compose/scripts/"
-    dest: "{{ instance_path }}/scripts/"
-    force: false
-    mode: "0755"
+    - name: Copy observable-init script
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/compose/scripts/"
+        dest: "{{ instance_path }}/scripts/"
+        force: false
+        mode: "0755"
+
+- name: Write Kubernetes stack files
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Create kubernetes manifests directory
+      ansible.builtin.file:
+        path: "{{ instance_path }}/kubernetes"
+        state: directory
+        mode: "0755"
+
+    - name: Copy Kubernetes manifests
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/kubernetes/"
+        dest: "{{ instance_path }}/kubernetes/"
+        force: false
+        mode: "0644"

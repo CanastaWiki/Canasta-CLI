@@ -1,0 +1,131 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: {{ _k8s_namespace }}
+
+resources:
+  - kubernetes/namespace.yaml
+  - kubernetes/caddy.yaml
+  - kubernetes/db.yaml
+  - kubernetes/web.yaml
+{% if _varnish_enabled | bool %}
+  - kubernetes/varnish.yaml
+{% endif %}
+{% if _observable %}
+  - kubernetes/log-pvcs.yaml
+  - kubernetes/opensearch.yaml
+  - kubernetes/opensearch-dashboards.yaml
+  - kubernetes/fluent-bit-config.yaml
+  - kubernetes/fluent-bit.yaml
+  - kubernetes/observable-init.yaml
+{% endif %}
+{% if _elasticsearch_enabled | bool %}
+  - kubernetes/elasticsearch.yaml
+{% endif %}
+
+configMapGenerator:
+  - name: canasta-settings-global
+    files:
+{% for f in _global_settings_files %}
+      - {{ f }}
+{% endfor %}
+{% for wiki in _kustomize_wikis %}
+  - name: canasta-settings-wiki-{{ wiki.normalized_id }}
+    files:
+{% for f in wiki.settings_files %}
+      - {{ f }}
+{% endfor %}
+{% endfor %}
+  - name: canasta-config
+    files:
+      - config/wikis.yaml
+      - config/Caddyfile
+      - config/Caddyfile.site
+      - config/Caddyfile.global
+      - config/default.vcl
+      - my.cnf
+{% if _localsettings_exists %}
+      - config/LocalSettings.php
+{% endif %}
+  - name: canasta-env
+    envs:
+      - .env
+
+{% if _kustomize_wikis | length > 0 or _managed_cluster or _localsettings_exists or _observable or _elasticsearch_enabled | bool %}
+patches:
+{% for wiki in _kustomize_wikis %}
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: web
+      spec:
+        template:
+          spec:
+            containers:
+            - name: web
+              volumeMounts:
+              - mountPath: /mediawiki/config/settings/wikis/{{ wiki.normalized_id }}
+                name: canasta-settings-wiki-{{ wiki.normalized_id }}
+            volumes:
+            - name: canasta-settings-wiki-{{ wiki.normalized_id }}
+              configMap:
+                name: canasta-settings-wiki-{{ wiki.normalized_id }}
+{% endfor %}
+{% if _localsettings_exists %}
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: web
+      spec:
+        template:
+          spec:
+            containers:
+            - name: web
+              volumeMounts:
+              - mountPath: /mediawiki/config/LocalSettings.php
+                name: canasta-config
+                subPath: LocalSettings.php
+{% endif %}
+{% if _managed_cluster %}
+  - patch: |
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: caddy-lb
+      spec:
+        type: NodePort
+        ports:
+        - name: http-caddy
+          port: 80
+          targetPort: 80
+          nodePort: 30080
+        - name: https-caddy
+          port: 443
+          targetPort: 443
+          nodePort: 30443
+{% endif %}
+{% if _elasticsearch_enabled | bool %}
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: web
+      spec:
+        template:
+          spec:
+            initContainers:
+            - name: wait-for-elasticsearch
+              image: busybox:1.36
+              command: ['sh', '-c', 'until nc -z elasticsearch 9200; do echo "Waiting for elasticsearch..."; sleep 5; done']
+{% endif %}
+{% endif %}
+
+{% if _canasta_image_name is defined and _canasta_image_name != '' %}
+images:
+  - name: ghcr.io/canastawiki/canasta
+    newName: {{ _canasta_image_name }}
+{% if _canasta_image_tag is defined and _canasta_image_tag != '' %}
+    newTag: "{{ _canasta_image_tag }}"
+{% endif %}
+{% endif %}

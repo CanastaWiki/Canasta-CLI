@@ -1,7 +1,10 @@
 ---
 # Update orchestrator configuration after changes (e.g. wiki add/remove).
-# Mirrors Go ComposeOrchestrator.UpdateConfig().
-# Input: instance_path
+# Input: instance_path, instance_orchestrator
 
 - name: Regenerate Caddyfile
   ansible.builtin.include_tasks: rewrite_caddy.yml
+
+- name: Regenerate kustomization.yaml (Kubernetes)
+  ansible.builtin.include_tasks: generate_kustomization.yml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']

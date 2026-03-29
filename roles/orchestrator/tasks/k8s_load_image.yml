@@ -1,0 +1,12 @@
+---
+# Load a local Docker image into a kind cluster.
+# Input: instance_id, _image_tag
+
+- name: Set kind cluster name
+  ansible.builtin.set_fact:
+    _kind_cluster_name: "canasta-{{ instance_id }}"
+
+- name: Load image into kind cluster
+  ansible.builtin.command:
+    cmd: "kind load docker-image {{ _image_tag }} --name {{ _kind_cluster_name }}"
+  changed_when: true

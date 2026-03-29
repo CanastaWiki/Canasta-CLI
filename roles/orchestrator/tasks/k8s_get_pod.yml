@@ -1,0 +1,23 @@
+---
+# Get the name of a running pod by service label.
+# Input: _k8s_namespace, _k8s_service (default: web)
+# Output: _k8s_pod_name
+
+- name: "Get running pod for {{ _k8s_service | default('web') }}"
+  ansible.builtin.command:
+    cmd: >-
+      kubectl get pods -n {{ _k8s_namespace }}
+      -l app={{ _k8s_service | default('web') }}
+      --field-selector=status.phase=Running
+      -o jsonpath={.items[0].metadata.name}
+  register: _k8s_pod_result
+  changed_when: false
+
+- name: Set pod name
+  ansible.builtin.set_fact:
+    _k8s_pod_name: "{{ _k8s_pod_result.stdout | trim }}"
+
+- name: Fail if no running pod found
+  ansible.builtin.fail:
+    msg: "No running pod found for service '{{ _k8s_service | default('web') }}' in namespace '{{ _k8s_namespace }}'"
+  when: _k8s_pod_name == ''

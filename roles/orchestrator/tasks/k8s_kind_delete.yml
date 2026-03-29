@@ -1,0 +1,13 @@
+---
+# Delete a kind cluster.
+# Input: instance_id
+
+- name: Set kind cluster name
+  ansible.builtin.set_fact:
+    _kind_cluster_name: "canasta-{{ instance_id }}"
+
+- name: Delete kind cluster
+  ansible.builtin.command:
+    cmd: "kind delete cluster --name {{ _kind_cluster_name }}"
+  changed_when: true
+  ignore_errors: true

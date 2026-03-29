@@ -1,0 +1,11 @@
+---
+# Kubernetes helper tasks: namespace resolution, pod lookup, kind cluster management.
+
+- name: Set K8s namespace from instance path
+  ansible.builtin.set_fact:
+    _k8s_namespace: "{{ instance_path | basename }}"
+
+- name: Set kind cluster name
+  ansible.builtin.set_fact:
+    _kind_cluster_name: "canasta-{{ instance_id }}"
+  when: instance_managed_cluster | default(false) | bool

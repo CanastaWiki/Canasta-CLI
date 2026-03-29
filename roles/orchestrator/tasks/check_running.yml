@@ -1,16 +1,25 @@
 ---
-# Check if the web container is running.
-# Input: instance_path
+# Check if the web container/pod is running.
+# Input: instance_path, instance_orchestrator
 # Output: _container_running (bool)
 
-- name: Check if web container is running
+- name: Check if web container is running (Compose)
   ansible.builtin.command:
     cmd: "docker compose ps -q web"
     chdir: "{{ instance_path }}"
   register: _ps_result
   changed_when: false
   ignore_errors: true
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Check if web deployment is running (Kubernetes)
+  ansible.builtin.command:
+    cmd: "kubectl get deployment/web -n {{ instance_path | basename }} -o jsonpath={.status.readyReplicas}"
+  register: _ps_result
+  changed_when: false
+  ignore_errors: true
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
 - name: Set running status
   ansible.builtin.set_fact:
-    _container_running: "{{ _ps_result.rc == 0 and _ps_result.stdout | trim | length > 0 }}"
+    _container_running: "{{ _ps_result.rc == 0 and _ps_result.stdout | default('') | trim | length > 0 and _ps_result.stdout | trim != '0' }}"

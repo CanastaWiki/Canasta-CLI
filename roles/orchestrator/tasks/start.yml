@@ -1,29 +1,50 @@
 ---
-# Start Docker Compose containers for an instance.
-# Input: instance_path, instance_devmode (bool)
-#
-# Mirrors Go ComposeOrchestrator.Start():
-# 1. Sync compose profiles
-# 2. Build file list (include dev files if devmode)
-# 3. docker compose up -d
+# Start containers for an instance.
+# Dispatches to Compose or Kubernetes based on instance_orchestrator.
+# Input: instance_path, instance_devmode (bool), instance_orchestrator
 
-- name: Sync compose profiles
-  ansible.builtin.include_tasks: sync_compose_profiles.yml
+- name: Start (Docker Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Sync compose profiles
+      ansible.builtin.include_tasks: sync_compose_profiles.yml
 
-- name: Check for docker-compose.override.yml
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/docker-compose.override.yml"
-  register: _override_exists
+    - name: Check for docker-compose.override.yml
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.override.yml"
+      register: _override_exists
 
-- name: Build compose file arguments
-  ansible.builtin.set_fact:
-    _compose_files: >-
-      {{ ['-f', 'docker-compose.yml'] +
-         (_override_exists.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
-         ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
+    - name: Build compose file arguments
+      ansible.builtin.set_fact:
+        _compose_files: >-
+          {{ ['-f', 'docker-compose.yml'] +
+             (_override_exists.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
+             ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
 
-- name: Start containers
-  ansible.builtin.command:
-    cmd: "docker compose {{ _compose_files | join(' ') }} up -d"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+    - name: Start containers
+      ansible.builtin.command:
+        cmd: "docker compose {{ _compose_files | join(' ') }} up -d"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+- name: Start (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Ensure kind cluster for managed clusters
+      ansible.builtin.include_tasks: k8s_kind_create.yml
+      when: instance_managed_cluster | default(false) | bool
+
+    - name: Apply Kubernetes manifests
+      ansible.builtin.command:
+        cmd: "kubectl apply -k ."
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Set K8s namespace
+      ansible.builtin.set_fact:
+        _k8s_namespace: "{{ instance_path | basename }}"
+
+    - name: Wait for web deployment
+      ansible.builtin.command:
+        cmd: "kubectl rollout status deployment/web -n {{ _k8s_namespace }} --timeout=600s"
+      changed_when: false

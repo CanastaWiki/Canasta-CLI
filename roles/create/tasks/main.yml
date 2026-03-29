@@ -260,10 +260,58 @@
     mode: "0644"
   when: override is defined and override != ''
 
+# --- Step 10b: Kubernetes cluster setup ---
+- name: Create kind cluster (Kubernetes with --create-cluster)
+  when:
+    - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+    - create_cluster | default(false) | bool
+  block:
+    - name: Set managed cluster facts
+      ansible.builtin.set_fact:
+        instance_managed_cluster: true
+
+    - name: Create kind cluster
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_kind_create.yml
+
+    - name: Load locally built image to kind (if build_from)
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_load_image.yml
+      vars:
+        _image_tag: "{{ _base_image }}"
+      when: build_from is defined and build_from != ''
+
+- name: Push image to registry (Kubernetes without kind, build_from)
+  when:
+    - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+    - not (create_cluster | default(false) | bool)
+    - build_from is defined and build_from != ''
+  block:
+    - name: Tag and push image to registry
+      ansible.builtin.command:
+        cmd: "docker tag {{ _base_image }} {{ registry | default('localhost:5000') }}/{{ _base_image }}"
+      changed_when: true
+
+    - name: Push image
+      ansible.builtin.command:
+        cmd: "docker push {{ registry | default('localhost:5000') }}/{{ _base_image }}"
+      changed_when: true
+
+    - name: Update CANASTA_IMAGE to registry path
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: CANASTA_IMAGE
+        value: "{{ registry | default('localhost:5000') }}/{{ _base_image }}"
+
 # --- Step 11: Start containers (without dev mode) ---
 - name: Set temporary instance facts for initial start
   ansible.builtin.set_fact:
     instance_devmode: false
+    instance_orchestrator: "{{ orchestrator | default('compose') }}"
+    instance_managed_cluster: "{{ create_cluster | default(false) | bool }}"
 
 - name: Start containers
   ansible.builtin.include_role:
@@ -314,6 +362,8 @@
     path: "{{ instance_path }}"
     orchestrator: "{{ orchestrator | default('compose') }}"
     host: "{{ inventory_hostname }}"
+    managed_cluster: "{{ create_cluster | default(false) | bool }}"
+    build_from: "{{ build_from | default(omit) }}"
     state: present
   delegate_to: localhost
 

@@ -1,0 +1,30 @@
+---
+# Scan settings files for a single wiki and append to _kustomize_wikis.
+# Input: _scan_wiki_id, instance_path
+
+- name: "Normalize wiki ID {{ _scan_wiki_id }}"
+  ansible.builtin.set_fact:
+    _normalized_id: "{{ _scan_wiki_id | regex_replace('[^a-zA-Z0-9_]', '_') }}"
+
+- name: "Check wiki settings dir exists for {{ _scan_wiki_id }}"
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/settings/wikis/{{ _scan_wiki_id }}"
+  register: _wiki_settings_dir
+
+- name: "Scan wiki settings for {{ _scan_wiki_id }}"
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/config/settings/wikis/{{ _scan_wiki_id }}"
+    file_type: file
+    excludes: ["README", ".gitkeep", ".gitignore"]
+  register: _wiki_files
+  when: _wiki_settings_dir.stat.exists
+
+- name: "Append wiki settings info for {{ _scan_wiki_id }}"
+  ansible.builtin.set_fact:
+    _kustomize_wikis: >-
+      {{ _kustomize_wikis + [{
+        'id': _scan_wiki_id,
+        'normalized_id': _normalized_id,
+        'settings_files': (_wiki_files.files | default([]) | map(attribute='path') | map('relpath', instance_path) | list)
+      }] }}
+  when: _wiki_settings_dir.stat.exists and (_wiki_files.files | default([]) | length > 0)

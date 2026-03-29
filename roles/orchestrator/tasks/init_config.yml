@@ -1,13 +1,7 @@
 ---
 # Initialize orchestrator configuration for a new instance.
-# Mirrors Go ComposeOrchestrator.InitConfig():
-# 1. Create Caddyfile.site from template (no-clobber)
-# 2. Create Caddyfile.global from template (no-clobber)
-# 3. Sync compose profiles
-# 4. Generate observability credentials if enabled
-# 5. Generate main Caddyfile
-#
-# Input: instance_path
+# Common steps (Caddyfile, observability) plus orchestrator-specific config.
+# Input: instance_path, instance_orchestrator
 
 - name: Create Caddyfile.site from template (no-clobber)
   ansible.builtin.copy:
@@ -23,11 +17,20 @@
     force: false
     mode: "0644"
 
-- name: Sync compose profiles
-  ansible.builtin.include_tasks: sync_compose_profiles.yml
-
 - name: Generate observability credentials if enabled
   ansible.builtin.include_tasks: ensure_observability_credentials.yml
 
 - name: Generate Caddyfile
   ansible.builtin.include_tasks: rewrite_caddy.yml
+
+- name: Compose-specific init
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Sync compose profiles
+      ansible.builtin.include_tasks: sync_compose_profiles.yml
+
+- name: Kubernetes-specific init
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Generate kustomization.yaml
+      ansible.builtin.include_tasks: generate_kustomization.yml

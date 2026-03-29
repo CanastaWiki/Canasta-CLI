@@ -77,3 +77,4 @@
     instance_path: "{{ _instance_lookup.instance.path }}"
     instance_orchestrator: "{{ _instance_lookup.instance.orchestrator | default('compose') }}"
     instance_devmode: "{{ _instance_lookup.instance.devMode | default(false) }}"
+    instance_managed_cluster: "{{ _instance_lookup.instance.managedCluster | default(false) }}"
