@@ -248,7 +248,7 @@
 
     - name: Assert ParserFunctions enabled
       ansible.builtin.assert:
-        that: "'ParserFunctions' in _ext_after.items"
+        that: "'ParserFunctions' in _ext_after['items']"
         fail_msg: "ParserFunctions not in enabled extensions"
 
     - name: Disable the extension
@@ -267,7 +267,7 @@
 
     - name: Assert ParserFunctions disabled
       ansible.builtin.assert:
-        that: "'ParserFunctions' not in _ext_final.items"
+        that: "'ParserFunctions' not in _ext_final['items']"
         fail_msg: "ParserFunctions still enabled after disable"
 
     # --- WIKI MANAGEMENT ---
