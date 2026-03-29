@@ -93,11 +93,12 @@
       vars:
         exec_service: web
         exec_command: >-
+          mkdir -p /tmp/canasta-install &&
           php maintenance/install.php
           --skins='Vector'
           --dbserver=db
           --dbname={{ wiki }}
-          --confpath=/tmp/
+          --confpath=/tmp/canasta-install/
           --scriptpath=/w
           --server=https://{{ _add_domain }}
           --installdbuser='root'
@@ -107,6 +108,13 @@
           --pass={{ _add_admin_password | quote }}
           {{ wiki | quote }}
           {{ admin | default('WikiSysop') | quote }}
+
+    - name: Clean up install temp directory
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_command: "rm -rf /tmp/canasta-install/"
 
     - name: Save admin password
       ansible.builtin.copy:

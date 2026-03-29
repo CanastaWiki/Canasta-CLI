@@ -78,7 +78,12 @@ class CallbackModule(CallbackBase):
             return
         msg = result._result.get("msg", "")
         stderr = result._result.get("stderr", "")
-        if msg:
+        stdout = result._result.get("stdout", "")
+        # For command failures, msg is generic "non-zero return code"
+        # but stdout/stderr have the actual error from the command.
+        if stdout and msg and "non-zero return code" in msg:
+            self._display.display("Error: %s" % stdout.strip(), color="red", stderr=True)
+        elif msg:
             self._display.display("Error: %s" % msg, color="red", stderr=True)
         if stderr:
             self._display.display(stderr, color="red", stderr=True)
