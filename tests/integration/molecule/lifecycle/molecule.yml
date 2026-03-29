@@ -2,9 +2,8 @@
 # Full lifecycle integration test: create -> verify -> stop -> start -> delete.
 # Requires Docker daemon running.
 #
-# Run: molecule test -s lifecycle
-#
-# This mirrors Canasta-CLI's TestLifecycle_CreateStartStopDelete.
+# Run from repo root: molecule test -s lifecycle
+# Or: cd tests/integration && molecule test -s lifecycle
 
 dependency:
   name: galaxy
@@ -22,12 +21,13 @@ provisioner:
           localhost:
             ansible_connection: local
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/roles"
+    ANSIBLE_LIBRARY: "${MOLECULE_PROJECT_DIRECTORY}/roles/common/library:${MOLECULE_PROJECT_DIRECTORY}/roles/extensions_skins/library:${MOLECULE_PROJECT_DIRECTORY}/roles/backup/library"
+    ANSIBLE_CALLBACK_PLUGINS: "${MOLECULE_PROJECT_DIRECTORY}/callback_plugins"
   config_options:
     defaults:
       gathering: explicit
-      roles_path: ../../../../roles
-      library: ../../../../roles/common/library:../../../../roles/extensions_skins/library:../../../../roles/backup/library
-      callback_plugins: ../../../../callback_plugins
       deprecation_warnings: false
 verifier:
   name: ansible

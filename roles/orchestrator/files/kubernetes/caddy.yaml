@@ -10,7 +10,7 @@ spec:
       storage: "200Mi"
   volumeMode: Filesystem
 
---- 
+---
 
 apiVersion: v1
 kind: Service

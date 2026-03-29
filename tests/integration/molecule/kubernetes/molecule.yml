@@ -7,9 +7,6 @@
 #   - kubectl installed
 #
 # Run: molecule test -s kubernetes
-#
-# NOTE: This scenario creates and destroys a real kind cluster.
-# It should NOT run in CI unless kind is available.
 
 dependency:
   name: galaxy
@@ -27,12 +24,13 @@ provisioner:
           localhost:
             ansible_connection: local
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/roles"
+    ANSIBLE_LIBRARY: "${MOLECULE_PROJECT_DIRECTORY}/roles/common/library:${MOLECULE_PROJECT_DIRECTORY}/roles/extensions_skins/library:${MOLECULE_PROJECT_DIRECTORY}/roles/backup/library"
+    ANSIBLE_CALLBACK_PLUGINS: "${MOLECULE_PROJECT_DIRECTORY}/callback_plugins"
   config_options:
     defaults:
       gathering: explicit
-      roles_path: ../../../../roles
-      library: ../../../../roles/common/library:../../../../roles/extensions_skins/library:../../../../roles/backup/library
-      callback_plugins: ../../../../callback_plugins
       deprecation_warnings: false
 verifier:
   name: ansible

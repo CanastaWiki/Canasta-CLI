@@ -59,6 +59,8 @@ jobs:
         run: sudo usermod -aG www-data $USER
 
       - name: Run lifecycle integration test
+        env:
+          MOLECULE_PROJECT_DIRECTORY: ${{ github.workspace }}
         run: |
           cd tests/integration
           sg www-data -c "../../.venv/bin/molecule test -s lifecycle"
@@ -81,8 +83,20 @@ jobs:
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install yamllint
 
+      - name: Create yamllint config
+        run: |
+          cat > .yamllint.yml << 'EOF'
+          extends: relaxed
+          rules:
+            line-length:
+              max: 140
+              allow-non-breakable-inline-mappings: true
+            trailing-spaces: enable
+            new-line-at-end-of-file: enable
+          EOF
+
       - name: YAML lint
-        run: .venv/bin/yamllint -d relaxed meta/ roles/ playbooks/ inventory/ canasta.yml
+        run: .venv/bin/yamllint -c .yamllint.yml meta/ roles/ playbooks/ inventory/ canasta.yml
 
       - name: Validate definitions
         run: .venv/bin/python scripts/validate_definitions.py
