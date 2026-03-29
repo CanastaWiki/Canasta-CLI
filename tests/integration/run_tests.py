@@ -58,6 +58,7 @@ class TestInstance:
         """Run a canasta command in verbose mode. Returns (stdout, returncode)."""
         env = os.environ.copy()
         env["CANASTA_CONFIG_DIR"] = self.config_dir
+        env["ANSIBLE_CONFIG"] = os.path.join(REPO_ROOT, "ansible.cfg")
         # Run in verbose mode for CI feedback
         cmd = [CANASTA_BIN, "--verbose"] + list(args)
         print("  $ canasta %s" % " ".join(args), flush=True)

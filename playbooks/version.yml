@@ -18,7 +18,7 @@
 
 - name: Get git commit date
   ansible.builtin.command:
-    cmd: git log -1 --format=%ci
+    cmd: "git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S'"
     chdir: "{{ playbook_dir }}"
   register: _git_date
   changed_when: false
@@ -28,6 +28,9 @@
 - name: Display version
   ansible.builtin.debug:
     msg: >-
-      Canasta CLI v{{ _version_file.content | b64decode | trim }}
-      (commit {{ _git_commit.stdout | default('unknown') | trim }},
-      built {{ (_git_date.stdout | default('unknown') | trim).split(' ')[0] | default('unknown') }})
+      Canasta CLI
+      v{{ _version_file.content | b64decode | trim }}
+      (commit {{ _git_commit.stdout
+      | default('unknown') | trim }},
+      built {{ _git_date.stdout
+      | default('unknown') | trim }})
