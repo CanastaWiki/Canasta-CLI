@@ -94,6 +94,7 @@
         exec_service: web
         exec_command: >-
           mkdir -p /tmp/canasta-install &&
+          env -u MW_SECRET_KEY
           php maintenance/install.php
           --skins='Vector'
           --dbserver=db
