@@ -49,11 +49,19 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
+The default inventory (`inventory/localhost.yml`) manages the local machine. For remote hosts, copy the example and add your targets:
+
+```bash
+cp inventory/hosts.yml.example inventory/hosts.yml
+# Edit inventory/hosts.yml to add remote hosts, then update ansible.cfg:
+#   inventory = inventory/hosts.yml
+```
+
 Verify the installation:
 
 ```bash
 ./canasta version
-./canasta doctor
+./canasta doctor    # checks dependencies on the target host
 ```
 
 ## Quick Start
