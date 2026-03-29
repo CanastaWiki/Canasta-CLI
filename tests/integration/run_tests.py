@@ -55,11 +55,12 @@ class TestInstance:
             )
 
     def run(self, *args):
-        """Run a canasta command. Returns (stdout, returncode)."""
+        """Run a canasta command in verbose mode. Returns (stdout, returncode)."""
         env = os.environ.copy()
         env["CANASTA_CONFIG_DIR"] = self.config_dir
-        cmd = [CANASTA_BIN] + list(args)
-        print("  $ %s" % " ".join(cmd))
+        # Run in verbose mode for CI feedback
+        cmd = [CANASTA_BIN, "--verbose"] + list(args)
+        print("  $ canasta %s" % " ".join(args), flush=True)
         result = subprocess.run(
             cmd, capture_output=True, text=True, cwd=self.work_dir, env=env,
         )
@@ -67,6 +68,7 @@ class TestInstance:
         if output.strip():
             for line in output.strip().split("\n"):
                 print("    %s" % line)
+        sys.stdout.flush()
         return output, result.returncode
 
     def run_ok(self, *args):
@@ -104,7 +106,11 @@ def wait_for_wiki(http_port, timeout=300):
     )
     deadline = time.time() + timeout
     last_err = ""
+    attempt = 0
+    print("  Waiting for wiki at port %s..." % http_port, flush=True)
     while time.time() < deadline:
+        attempt += 1
+        elapsed = int(time.time() + timeout - deadline)
         try:
             req = urllib.request.Request(api_url)
             req.add_header("Host", "localhost")
@@ -122,6 +128,11 @@ def wait_for_wiki(http_port, timeout=300):
                 last_err = "no 'query' key"
         except Exception as e:
             last_err = str(e)
+        if attempt % 6 == 0:  # every 30 seconds
+            print(
+                "    ...still waiting (%ds elapsed, last: %s)"
+                % (elapsed, last_err), flush=True,
+            )
         time.sleep(5)
     # Dump diagnostics
     print("  TIMEOUT waiting for wiki (last: %s)" % last_err)
