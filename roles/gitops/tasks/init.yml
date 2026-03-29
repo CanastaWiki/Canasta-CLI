@@ -99,17 +99,55 @@
   changed_when: true
 
 # --- Step 9: Create env.template and wikis.yaml.template ---
-- name: Read .env for template
+# env.template replaces secret/host-specific values with {{placeholder}} syntax.
+# Other values are kept as literals.
+#
+# Placeholder keys (matching Go builtinSecretKeys + builtinHostKeys):
+#   MYSQL_PASSWORD, WIKI_DB_PASSWORD, MW_SECRET_KEY, RESTIC_REPOSITORY,
+#   RESTIC_PASSWORD, MW_SITE_SERVER, MW_SITE_FQDN, HTTPS_PORT, HTTP_PORT
+# Plus any key with prefix: AWS_, AZURE_, B2_, GOOGLE_, OS_, ST_, RCLONE_
+
+- name: Read raw .env file for template extraction
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.env"
+  register: _gitops_env_raw
+
+- name: Read .env as dict for vars
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _gitops_env
 
-- name: Create env.template (keys with placeholder values)
+- name: Define placeholder keys
+  ansible.builtin.set_fact:
+    _gitops_placeholder_keys:
+      - MYSQL_PASSWORD
+      - WIKI_DB_PASSWORD
+      - MW_SECRET_KEY
+      - RESTIC_REPOSITORY
+      - RESTIC_PASSWORD
+      - MW_SITE_SERVER
+      - MW_SITE_FQDN
+      - HTTPS_PORT
+      - HTTP_PORT
+    _gitops_secret_prefixes: "^(AWS_|AZURE_|B2_|GOOGLE_|OS_|ST_|RCLONE_)"
+
+- name: Generate env.template with {{placeholder}} syntax
   ansible.builtin.copy:
     content: |
-      {% for k, v in _gitops_env.variables.items() %}
-      {{ k }}=
+      {% for line in (_gitops_env_raw.content | b64decode).split('\n') %}
+      {% if line | trim == '' or line | trim | regex_search('^#') %}
+      {{ line }}
+      {% elif '=' in line %}
+      {% set key = line.split('=', 1)[0] %}
+      {% if key in _gitops_placeholder_keys or key | regex_search(_gitops_secret_prefixes) %}
+      {{ key }}={{ '{{' }}{{ key | lower }}{{ '}}' }}
+      {% else %}
+      {{ line }}
+      {% endif %}
+      {% else %}
+      {{ line }}
+      {% endif %}
       {% endfor %}
     dest: "{{ instance_path }}/env.template"
     mode: "0644"
@@ -119,11 +157,23 @@
     path: "{{ instance_path }}/config/wikis.yaml"
   register: _gitops_wikis_check
 
-- name: Create wikis.yaml.template
+- name: Read wikis for template generation
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _gitops_wikis_data
+  when: _gitops_wikis_check.stat.exists
+
+- name: Generate wikis.yaml.template with URL placeholders
   ansible.builtin.copy:
-    src: "{{ instance_path }}/config/wikis.yaml"
+    content: |
+      wikis:
+      {% for w in _gitops_wikis_data.wikis | default([]) %}
+        - id: {{ w.id }}
+          url: {{ '{{' }}wiki_url_{{ w.id }}{{ '}}' }}
+          name: "{{ w.name }}"
+      {% endfor %}
     dest: "{{ instance_path }}/wikis.yaml.template"
-    remote_src: true
     mode: "0644"
   when: _gitops_wikis_check.stat.exists
 
@@ -157,12 +207,26 @@
     state: read
   register: _gitops_wikis
 
-- name: Build vars content with env and admin passwords
+- name: Build vars content (placeholder values + wiki URLs + admin passwords)
   ansible.builtin.copy:
     content: |
-      {% for k, v in _gitops_env.variables.items() %}
-      {{ k }}: "{{ v }}"
+      # Host-specific values for placeholder keys in env.template
+      {% for k in _gitops_placeholder_keys %}
+      {% if k in _gitops_env.variables %}
+      {{ k | lower }}: "{{ _gitops_env.variables[k] }}"
+      {% endif %}
       {% endfor %}
+      # Secret-prefix keys
+      {% for k, v in _gitops_env.variables.items() %}
+      {% if k | regex_search(_gitops_secret_prefixes) %}
+      {{ k | lower }}: "{{ v }}"
+      {% endif %}
+      {% endfor %}
+      # Wiki URL placeholders
+      {% for w in _gitops_wikis.wikis | default([]) %}
+      wiki_url_{{ w.id }}: "{{ w.url }}"
+      {% endfor %}
+      # Admin passwords
       {% for wid in _gitops_wikis.wiki_ids | default([]) %}
       {% set pw_file = instance_path + '/admin-password_' + wid %}
       admin_password_{{ wid }}: "{{ lookup('file', pw_file, errors='ignore') | default('') }}"

@@ -1,0 +1,21 @@
+---
+# Molecule verify: Kubernetes scenario.
+
+- name: Verify
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Verify no leftover kind clusters
+      ansible.builtin.command:
+        cmd: "kind get clusters"
+      register: _clusters
+      changed_when: false
+      ignore_errors: true
+
+    - name: Assert no canasta test clusters remain
+      ansible.builtin.assert:
+        that: "'canasta-k8s-test' not in (_clusters.stdout | default(''))"
+        fail_msg: "Test kind cluster was not cleaned up"
+      when: _clusters.rc == 0

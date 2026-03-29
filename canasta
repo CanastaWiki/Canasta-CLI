@@ -47,6 +47,7 @@ Commands:
   restart             Restart a Canasta instance
   list                List all registered instances
   version             Display version information
+  self-update         Update Canasta-Ansible playbooks
   upgrade             Upgrade Canasta instances
   add                 Add a wiki to an instance
   remove              Remove a wiki from an instance
@@ -139,6 +140,9 @@ fi
 # Parse command (and optional subcommand)
 COMMAND="$1"
 shift
+
+# Normalize top-level hyphenated commands (e.g. self-update -> self_update)
+COMMAND="${COMMAND//-/_}"
 
 # Commands with subcommands
 case "$COMMAND" in

@@ -1,7 +1,13 @@
 ---
 # canasta upgrade - Upgrade all registered Canasta instances.
-# Registry query delegates to controller; actual upgrade runs on each target host.
+# Auto-checks for playbook updates first (matching Go CLI's self-update behavior),
+# then upgrades all instances.
 
+# --- Auto-check for playbook updates ---
+- name: Check for playbook updates
+  ansible.builtin.include_tasks: self_update.yml
+
+# --- Upgrade instances ---
 - name: Get all instances
   canasta_registry:
     state: query_all

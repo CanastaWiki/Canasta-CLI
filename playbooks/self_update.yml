@@ -1,0 +1,66 @@
+---
+# canasta self-update - Update Canasta-Ansible playbooks to latest version.
+# Runs on the controller node (where playbooks are installed).
+
+- name: Get playbook repository directory
+  ansible.builtin.set_fact:
+    _repo_dir: "{{ playbook_dir }}"
+
+- name: Check if playbook directory is a git repo
+  ansible.builtin.stat:
+    path: "{{ _repo_dir }}/.git"
+  delegate_to: localhost
+  register: _is_git_repo
+
+- name: Fail if not a git repository
+  ansible.builtin.fail:
+    msg: >-
+      Canasta-Ansible is not installed from a git repository ({{ _repo_dir }}).
+      Clone the repo first: git clone https://github.com/CanastaWiki/Canasta-Ansible.git
+  when: not _is_git_repo.stat.exists
+
+- name: Get current version
+  ansible.builtin.slurp:
+    src: "{{ _repo_dir }}/VERSION"
+  delegate_to: localhost
+  register: _current_version
+
+- name: Fetch latest from remote
+  ansible.builtin.command:
+    cmd: "git fetch origin"
+    chdir: "{{ _repo_dir }}"
+  delegate_to: localhost
+  changed_when: false
+
+- name: Check for updates
+  ansible.builtin.command:
+    cmd: "git log HEAD..origin/main --oneline"
+    chdir: "{{ _repo_dir }}"
+  delegate_to: localhost
+  register: _pending_updates
+  changed_when: false
+
+- name: Report no updates
+  ansible.builtin.debug:
+    msg: "Canasta-Ansible is already up to date (version {{ _current_version.content | b64decode | trim }})."
+  when: _pending_updates.stdout | trim | length == 0
+
+- name: Pull latest changes
+  when: _pending_updates.stdout | trim | length > 0
+  block:
+    - name: Pull from remote
+      ansible.builtin.command:
+        cmd: "git pull origin main"
+        chdir: "{{ _repo_dir }}"
+      delegate_to: localhost
+      changed_when: true
+
+    - name: Read new version
+      ansible.builtin.slurp:
+        src: "{{ _repo_dir }}/VERSION"
+      delegate_to: localhost
+      register: _new_version
+
+    - name: Report update
+      ansible.builtin.debug:
+        msg: "Updated Canasta-Ansible from {{ _current_version.content | b64decode | trim }} to {{ _new_version.content | b64decode | trim }}."
