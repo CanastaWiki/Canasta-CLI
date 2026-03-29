@@ -40,7 +40,7 @@ jobs:
         run: .venv/bin/python scripts/validate_definitions.py
 
   integration:
-    name: Integration Tests (Lifecycle)
+    name: Integration Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -60,7 +60,6 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
-          .venv/bin/pip install molecule molecule-plugins[docker]
 
       - name: Configure git for CI
         run: |
@@ -70,13 +69,11 @@ jobs:
       - name: Add user to www-data group
         run: sudo usermod -aG www-data $USER
 
-      - name: Run lifecycle integration test
-        env:
-          MOLECULE_PROJECT_DIRECTORY: ${{ github.workspace }}
-        run: |
-          cd tests/integration
-          sg www-data -c "../../.venv/bin/molecule test -s lifecycle"
-        timeout-minutes: 20
+      - name: Run integration tests
+        run: >-
+          sg www-data -c
+          ".venv/bin/python tests/integration/run_tests.py"
+        timeout-minutes: 25
 
   lint:
     name: Lint
