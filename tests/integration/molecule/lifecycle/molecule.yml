@@ -30,5 +30,11 @@ provisioner:
     defaults:
       gathering: explicit
       deprecation_warnings: false
+scenario:
+  test_sequence:
+    - dependency
+    - syntax
+    - converge
+    - verify
 verifier:
   name: ansible
