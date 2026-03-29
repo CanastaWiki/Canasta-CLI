@@ -25,6 +25,7 @@ provisioner:
     ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/roles"
     ANSIBLE_LIBRARY: "${MOLECULE_PROJECT_DIRECTORY}/roles/common/library:${MOLECULE_PROJECT_DIRECTORY}/roles/extensions_skins/library:${MOLECULE_PROJECT_DIRECTORY}/roles/backup/library"
     ANSIBLE_CALLBACK_PLUGINS: "${MOLECULE_PROJECT_DIRECTORY}/callback_plugins"
+    CANASTA_CONFIG_DIR: "${MOLECULE_EPHEMERAL_DIRECTORY}/canasta-config"
   config_options:
     defaults:
       gathering: explicit

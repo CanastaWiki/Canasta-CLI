@@ -15,7 +15,6 @@
     test_http_port: "10080"
     test_https_port: "10443"
     test_work_dir: "{{ molecule_ephemeral_directory }}"
-    test_config_dir: "{{ molecule_ephemeral_directory }}/config"
     canasta_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | default(playbook_dir + '/../../../..', true) }}"
     playbook_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | default(playbook_dir + '/../../../..', true) }}"
 
@@ -153,7 +152,7 @@
     - name: List instances
       canasta_registry:
         state: query_all
-        config_dir: "{{ test_config_dir }}"
+        
       register: _list_result
 
     - name: Verify instance in list
@@ -176,12 +175,12 @@
       canasta_registry:
         id: "{{ test_id }}"
         state: absent
-        config_dir: "{{ test_config_dir }}"
+        
 
     - name: Verify instance removed from registry
       canasta_registry:
         state: query_all
-        config_dir: "{{ test_config_dir }}"
+        
       register: _post_delete
 
     - name: Assert instance deleted
