@@ -15,11 +15,22 @@ class TestGetConfigDir:
         monkeypatch.setenv("CANASTA_CONFIG_DIR", tmp_dir)
         assert canasta_registry.get_config_dir() == tmp_dir
 
-    def test_default_non_root(self, monkeypatch, tmp_dir):
+    def test_default_non_root_linux(self, monkeypatch, tmp_dir):
         monkeypatch.delenv("CANASTA_CONFIG_DIR", raising=False)
         monkeypatch.setattr(canasta_registry, "is_root", lambda: False)
+        monkeypatch.setattr("platform.system", lambda: "Linux")
         monkeypatch.setenv("XDG_CONFIG_HOME", tmp_dir)
         assert canasta_registry.get_config_dir() == os.path.join(tmp_dir, "canasta")
+
+    def test_default_non_root_macos(self, monkeypatch):
+        monkeypatch.delenv("CANASTA_CONFIG_DIR", raising=False)
+        monkeypatch.setattr(canasta_registry, "is_root", lambda: False)
+        monkeypatch.setattr("platform.system", lambda: "Darwin")
+        expected = os.path.join(
+            os.path.expanduser("~"),
+            "Library", "Application Support", "canasta",
+        )
+        assert canasta_registry.get_config_dir() == expected
 
     def test_default_root(self, monkeypatch):
         monkeypatch.delenv("CANASTA_CONFIG_DIR", raising=False)

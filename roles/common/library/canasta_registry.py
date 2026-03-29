@@ -67,7 +67,12 @@ CONFIG_FILENAME = "conf.json"
 
 
 def get_config_dir(override=None):
-    """Determine the config directory using the same priority as the Go CLI."""
+    """Determine the config directory using the same priority as the Go CLI.
+
+    Matches Go's os.UserConfigDir():
+    - macOS: ~/Library/Application Support/canasta
+    - Linux: $XDG_CONFIG_HOME/canasta or ~/.config/canasta
+    """
     if override:
         return override
     env_dir = os.environ.get("CANASTA_CONFIG_DIR")
@@ -75,7 +80,16 @@ def get_config_dir(override=None):
         return env_dir
     if is_root():
         return "/etc/canasta"
-    config_home = os.environ.get("XDG_CONFIG_HOME", os.path.join(os.path.expanduser("~"), ".config"))
+    import platform
+    if platform.system() == "Darwin":
+        config_home = os.path.join(
+            os.path.expanduser("~"), "Library", "Application Support"
+        )
+    else:
+        config_home = os.environ.get(
+            "XDG_CONFIG_HOME",
+            os.path.join(os.path.expanduser("~"), ".config"),
+        )
     return os.path.join(config_home, "canasta")
 
 
