@@ -1,0 +1,193 @@
+---
+# Full lifecycle integration test.
+# Mirrors Go CLI's TestLifecycle_CreateStartStopDelete.
+#
+# Requires: Docker daemon running, ports 10080/10443 available.
+
+- name: Lifecycle integration test
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    test_id: "mol-lifecycle"
+    test_wiki: "main"
+    test_http_port: "10080"
+    test_https_port: "10443"
+    test_work_dir: "{{ molecule_ephemeral_directory }}"
+    test_config_dir: "{{ molecule_ephemeral_directory }}/config"
+    playbook_root: "{{ playbook_dir }}/../../../.."
+
+  tasks:
+    - name: Check Docker is available
+      ansible.builtin.command:
+        cmd: "docker info"
+      changed_when: false
+      register: _docker_check
+      ignore_errors: true
+
+    - name: Skip if Docker not available
+      ansible.builtin.meta: end_play
+      when: _docker_check.rc != 0
+
+    - name: Load command definitions
+      ansible.builtin.include_vars:
+        file: "{{ playbook_root }}/meta/command_definitions.yml"
+        name: canasta_commands
+
+    # --- CREATE ---
+    - name: Create instance
+      vars:
+        id: "{{ test_id }}"
+        wiki: "{{ test_wiki }}"
+        path: "{{ test_work_dir }}"
+        domain_name: "localhost"
+        orchestrator: "compose"
+        instance_orchestrator: "compose"
+        instance_managed_cluster: false
+        instance_devmode: false
+      block:
+        - name: Set instance facts
+          ansible.builtin.set_fact:
+            instance_orchestrator: "compose"
+            instance_managed_cluster: false
+            instance_devmode: false
+
+        - name: Run create role
+          ansible.builtin.include_role:
+            name: create
+          vars:
+            canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
+
+    - name: Override ports for testing (CADDY_AUTO_HTTPS=off)
+      canasta_env:
+        path: "{{ test_work_dir }}/{{ test_id }}/.env"
+        state: set
+        key: "{{ item.key }}"
+        value: "{{ item.value }}"
+      loop:
+        - { key: "HTTP_PORT", value: "{{ test_http_port }}" }
+        - { key: "HTTPS_PORT", value: "{{ test_https_port }}" }
+        - { key: "CADDY_AUTO_HTTPS", value: "off" }
+
+    # --- VERIFY RUNNING ---
+    - name: Set instance facts for lifecycle commands
+      ansible.builtin.set_fact:
+        instance_id: "{{ test_id }}"
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        instance_orchestrator: "compose"
+        instance_devmode: false
+        instance_managed_cluster: false
+
+    - name: Restart with test ports
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: stop.yml
+
+    - name: Regenerate Caddyfile with test ports
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: rewrite_caddy.yml
+
+    - name: Start with test ports
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: start.yml
+
+    - name: Wait for wiki to become ready (up to 5 minutes)
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ test_http_port }}/w/api.php?action=query&meta=siteinfo&format=json"
+        return_content: true
+        status_code: [200, 403]
+      register: _wiki_check
+      until: _wiki_check.status in [200, 403]
+      retries: 60
+      delay: 5
+      ignore_errors: true
+
+    - name: Verify wiki is accessible
+      ansible.builtin.assert:
+        that: _wiki_check.status in [200, 403]
+        fail_msg: "Wiki did not become ready within 5 minutes. Status: {{ _wiki_check.status | default('timeout') }}"
+
+    # --- STOP ---
+    - name: Stop instance
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: stop.yml
+
+    - name: Verify containers stopped
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: check_running.yml
+
+    - name: Assert not running
+      ansible.builtin.assert:
+        that: not (_container_running | bool)
+        fail_msg: "Containers should be stopped"
+
+    # --- START ---
+    - name: Start instance again
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: start.yml
+
+    - name: Wait for wiki after restart
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ test_http_port }}/w/api.php?action=query&meta=siteinfo&format=json"
+        return_content: true
+        status_code: [200, 403]
+      register: _wiki_restart_check
+      until: _wiki_restart_check.status in [200, 403]
+      retries: 60
+      delay: 5
+      ignore_errors: true
+
+    - name: Verify wiki accessible after restart
+      ansible.builtin.assert:
+        that: _wiki_restart_check.status in [200, 403]
+        fail_msg: "Wiki not accessible after restart"
+
+    # --- LIST ---
+    - name: List instances
+      canasta_registry:
+        state: query_all
+        config_dir: "{{ test_config_dir }}"
+      register: _list_result
+
+    - name: Verify instance in list
+      ansible.builtin.assert:
+        that: test_id in _list_result.instances
+        fail_msg: "Instance not found in registry"
+
+    # --- DELETE ---
+    - name: Destroy containers
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: destroy.yml
+
+    - name: Remove instance directory
+      ansible.builtin.file:
+        path: "{{ test_work_dir }}/{{ test_id }}"
+        state: absent
+
+    - name: Deregister instance
+      canasta_registry:
+        id: "{{ test_id }}"
+        state: absent
+        config_dir: "{{ test_config_dir }}"
+
+    - name: Verify instance removed from registry
+      canasta_registry:
+        state: query_all
+        config_dir: "{{ test_config_dir }}"
+      register: _post_delete
+
+    - name: Assert instance deleted
+      ansible.builtin.assert:
+        that: test_id not in _post_delete.instances
+        fail_msg: "Instance still in registry after delete"
+
+    - name: Report success
+      ansible.builtin.debug:
+        msg: "Lifecycle test passed: create -> verify -> stop -> start -> verify -> delete"

@@ -3,6 +3,7 @@
 import os
 
 import canasta_settings_yaml
+from mock_ansible import run_module_with_params
 
 
 class TestConfigPath:
@@ -106,3 +107,60 @@ class TestDisable:
         result = canasta_settings_yaml.read_config(path)
         assert "Timeless" not in result["skins"]
         assert "Vector" in result["skins"]
+
+
+class TestRunModuleRead:
+    def test_read_extensions(self, sample_settings_yaml):
+        result, failed, _ = run_module_with_params(canasta_settings_yaml, {
+            "instance_path": sample_settings_yaml, "item_type": "extensions",
+            "state": "read", "names": None, "wiki": None,
+        })
+        assert not failed
+        assert "Cite" in result["items"]
+        assert "VisualEditor" in result["items"]
+
+
+class TestRunModuleEnable:
+    def test_enable_extension(self, sample_settings_yaml):
+        result, failed, _ = run_module_with_params(canasta_settings_yaml, {
+            "instance_path": sample_settings_yaml, "item_type": "extensions",
+            "state": "enable", "names": ["ParserFunctions"], "wiki": None,
+        })
+        assert not failed
+        assert result["changed"]
+        assert "ParserFunctions" in result["items"]
+
+    def test_enable_already_enabled(self, sample_settings_yaml):
+        result, failed, _ = run_module_with_params(canasta_settings_yaml, {
+            "instance_path": sample_settings_yaml, "item_type": "extensions",
+            "state": "enable", "names": ["Cite"], "wiki": None,
+        })
+        assert not failed
+        assert not result["changed"]
+
+    def test_enable_invalid_name(self, sample_settings_yaml):
+        result, failed, msg = run_module_with_params(canasta_settings_yaml, {
+            "instance_path": sample_settings_yaml, "item_type": "extensions",
+            "state": "enable", "names": [".bad"], "wiki": None,
+        })
+        assert failed
+        assert "invalid" in msg
+
+
+class TestRunModuleDisable:
+    def test_disable_extension(self, sample_settings_yaml):
+        result, failed, _ = run_module_with_params(canasta_settings_yaml, {
+            "instance_path": sample_settings_yaml, "item_type": "extensions",
+            "state": "disable", "names": ["Cite"], "wiki": None,
+        })
+        assert not failed
+        assert result["changed"]
+        assert "Cite" not in result["items"]
+
+    def test_disable_not_enabled(self, sample_settings_yaml):
+        result, failed, msg = run_module_with_params(canasta_settings_yaml, {
+            "instance_path": sample_settings_yaml, "item_type": "extensions",
+            "state": "disable", "names": ["NotEnabled"], "wiki": None,
+        })
+        assert failed
+        assert "not currently enabled" in msg

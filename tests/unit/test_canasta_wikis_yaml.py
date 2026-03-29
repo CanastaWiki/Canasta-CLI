@@ -3,6 +3,7 @@
 import os
 
 import canasta_wikis_yaml
+from mock_ansible import run_module_with_params
 
 
 class TestValidateWikiId:
@@ -125,3 +126,79 @@ class TestWikiUrlExists:
     def test_not_exists(self, sample_wikis_yaml):
         wikis = canasta_wikis_yaml.read_wikis(sample_wikis_yaml)
         assert canasta_wikis_yaml.wiki_url_exists(wikis, "other.com") is False
+
+
+class TestRunModuleRead:
+    def test_read(self, sample_wikis_yaml):
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": sample_wikis_yaml, "state": "read",
+            "wiki_id": None, "domain": None, "wiki_path": None, "site_name": None,
+        })
+        assert not failed
+        assert len(result["wikis"]) == 2
+        assert result["wiki_ids"] == ["main", "docs"]
+
+
+class TestRunModuleGenerate:
+    def test_generate(self, tmp_dir):
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "generate",
+            "wiki_id": "test", "domain": "example.com",
+            "wiki_path": None, "site_name": "Test Wiki",
+        })
+        assert not failed
+        assert result["changed"]
+
+    def test_generate_rejects_hyphen(self, tmp_dir):
+        result, failed, msg = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "generate",
+            "wiki_id": "my-wiki", "domain": "example.com",
+            "wiki_path": None, "site_name": None,
+        })
+        assert failed
+        assert "hyphen" in msg
+
+
+class TestRunModuleAdd:
+    def test_add_wiki(self, sample_wikis_yaml):
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": sample_wikis_yaml, "state": "add",
+            "wiki_id": "blog", "domain": "example.com",
+            "wiki_path": "blog", "site_name": "Blog",
+        })
+        assert not failed
+        assert result["changed"]
+        assert len(result["wikis"]) == 3
+
+    def test_add_duplicate_fails(self, sample_wikis_yaml):
+        result, failed, msg = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": sample_wikis_yaml, "state": "add",
+            "wiki_id": "main", "domain": "example.com",
+            "wiki_path": None, "site_name": None,
+        })
+        assert failed
+        assert "already exists" in msg
+
+
+class TestRunModuleRemove:
+    def test_remove_wiki(self, sample_wikis_yaml):
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": sample_wikis_yaml, "state": "remove",
+            "wiki_id": "docs", "domain": None,
+            "wiki_path": None, "site_name": None,
+        })
+        assert not failed
+        assert result["changed"]
+        assert len(result["wikis"]) == 1
+
+    def test_remove_last_fails(self, tmp_dir):
+        # Create single-wiki yaml
+        os.makedirs(os.path.join(tmp_dir, "config"), exist_ok=True)
+        canasta_wikis_yaml.write_wikis(tmp_dir, [{"id": "only", "url": "a.com", "name": "Only"}])
+        result, failed, msg = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "remove",
+            "wiki_id": "only", "domain": None,
+            "wiki_path": None, "site_name": None,
+        })
+        assert failed
+        assert "last wiki" in msg

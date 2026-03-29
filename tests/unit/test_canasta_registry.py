@@ -4,6 +4,7 @@ import json
 import os
 
 import canasta_registry
+from mock_ansible import run_module_with_params
 
 
 class TestGetConfigDir:
@@ -125,3 +126,149 @@ class TestFindByPath:
         found_id, found_inst = canasta_registry.find_by_path(data["Instances"], "/nonexistent")
         assert found_id is None
         assert found_inst is None
+
+
+class TestRunModuleQuery:
+    def test_query_existing(self, sample_config):
+        config_dir, _ = sample_config
+        result, failed, _ = run_module_with_params(canasta_registry, {
+            "state": "query", "id": "mysite", "path": None,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": None,
+            "config_dir": config_dir,
+        })
+        assert not failed
+        assert result["instance"]["id"] == "mysite"
+
+    def test_query_missing(self, sample_config):
+        config_dir, _ = sample_config
+        result, failed, msg = run_module_with_params(canasta_registry, {
+            "state": "query", "id": "nonexistent", "path": None,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": None,
+            "config_dir": config_dir,
+        })
+        assert failed
+        assert "not found" in msg
+
+
+class TestRunModuleQueryAll:
+    def test_query_all(self, sample_config):
+        config_dir, _ = sample_config
+        result, failed, _ = run_module_with_params(canasta_registry, {
+            "state": "query_all", "id": None, "path": None,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": None,
+            "config_dir": config_dir,
+        })
+        assert not failed
+        assert "mysite" in result["instances"]
+        assert "devsite" in result["instances"]
+
+    def test_query_all_filter_host(self, tmp_dir):
+        data = {"Instances": {
+            "a": {"id": "a", "path": "/a", "orchestrator": "compose", "host": "host1"},
+            "b": {"id": "b", "path": "/b", "orchestrator": "compose", "host": "host2"},
+        }}
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, _ = run_module_with_params(canasta_registry, {
+            "state": "query_all", "id": None, "path": None,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": "host1",
+            "config_dir": tmp_dir,
+        })
+        assert not failed
+        assert "a" in result["instances"]
+        assert "b" not in result["instances"]
+
+
+class TestRunModulePresent:
+    def test_add_new(self, tmp_dir):
+        inst_path = os.path.join(tmp_dir, "new")
+        os.makedirs(inst_path)
+        result, failed, _ = run_module_with_params(canasta_registry, {
+            "state": "present", "id": "new", "path": inst_path,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": "localhost", "filter_host": None,
+            "config_dir": tmp_dir,
+        })
+        assert not failed
+        assert result["changed"]
+        assert result["instance"]["host"] == "localhost"
+
+    def test_add_idempotent(self, tmp_dir):
+        inst_path = os.path.join(tmp_dir, "idem")
+        os.makedirs(inst_path)
+        params = {
+            "state": "present", "id": "idem", "path": inst_path,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": None,
+            "config_dir": tmp_dir,
+        }
+        run_module_with_params(canasta_registry, params.copy())
+        result, failed, _ = run_module_with_params(canasta_registry, params.copy())
+        assert not failed
+        assert not result["changed"]
+
+
+class TestRunModuleAbsent:
+    def test_delete_existing(self, sample_config):
+        config_dir, _ = sample_config
+        result, failed, _ = run_module_with_params(canasta_registry, {
+            "state": "absent", "id": "mysite", "path": None,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": None,
+            "config_dir": config_dir,
+        })
+        assert not failed
+        assert result["changed"]
+
+    def test_delete_nonexistent(self, sample_config):
+        config_dir, _ = sample_config
+        result, failed, _ = run_module_with_params(canasta_registry, {
+            "state": "absent", "id": "nonexistent", "path": None,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": None,
+            "config_dir": config_dir,
+        })
+        assert not failed
+        assert not result["changed"]
+
+
+class TestRunModuleCleanup:
+    def test_cleanup_removes_stale(self, tmp_dir):
+        data = {"Instances": {
+            "good": {"id": "good", "path": os.path.join(tmp_dir, "good"), "orchestrator": "compose"},
+            "stale": {"id": "stale", "path": "/nonexistent/path", "orchestrator": "compose"},
+        }}
+        os.makedirs(os.path.join(tmp_dir, "good"))
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, _ = run_module_with_params(canasta_registry, {
+            "state": "cleanup", "id": None, "path": None,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": None,
+            "config_dir": tmp_dir,
+        })
+        assert not failed
+        assert result["changed"]
+        assert "stale" in result["removed"]

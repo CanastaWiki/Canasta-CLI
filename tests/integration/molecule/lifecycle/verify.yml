@@ -1,0 +1,19 @@
+---
+- name: Verify cleanup
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Check no leftover containers
+      ansible.builtin.command:
+        cmd: "docker ps -a --filter name=mol-lifecycle --format '{{ '{{' }}.Names{{ '}}' }}'"
+      register: _leftover
+      changed_when: false
+      ignore_errors: true
+
+    - name: Assert no leftover containers
+      ansible.builtin.assert:
+        that: _leftover.stdout | trim | length == 0
+        fail_msg: "Leftover containers found: {{ _leftover.stdout }}"
+      when: _leftover.rc == 0

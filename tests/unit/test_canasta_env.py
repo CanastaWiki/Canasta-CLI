@@ -3,6 +3,7 @@
 import os
 
 import canasta_env
+from mock_ansible import run_module_with_params
 
 
 class TestParseEnvFile:
@@ -123,3 +124,69 @@ class TestFileOperations:
             d = canasta_env.entries_to_dict(canasta_env.parse_env_file(f.read()))
         assert d["NEW_KEY"] == "new_value"
         assert d["MW_SITE_SERVER"] == "https://example.com"
+
+
+class TestRunModuleReadAll:
+    def test_read_all(self, sample_env_file):
+        result, failed, _ = run_module_with_params(canasta_env, {
+            "path": sample_env_file, "state": "read_all",
+            "key": None, "value": None, "keys": None,
+        })
+        assert not failed
+        assert result["variables"]["MW_SITE_SERVER"] == "https://example.com"
+        assert result["variables"]["QUOTED_VALUE"] == "hello world"
+
+
+class TestRunModuleRead:
+    def test_read_existing_key(self, sample_env_file):
+        result, failed, _ = run_module_with_params(canasta_env, {
+            "path": sample_env_file, "state": "read",
+            "key": "MW_SITE_SERVER", "value": None, "keys": None,
+        })
+        assert not failed
+        assert result["found"]
+        assert result["value"] == "https://example.com"
+
+    def test_read_missing_key(self, sample_env_file):
+        result, failed, _ = run_module_with_params(canasta_env, {
+            "path": sample_env_file, "state": "read",
+            "key": "NONEXISTENT", "value": None, "keys": None,
+        })
+        assert not failed
+        assert not result["found"]
+
+
+class TestRunModuleSet:
+    def test_set_new_key(self, sample_env_file):
+        result, failed, _ = run_module_with_params(canasta_env, {
+            "path": sample_env_file, "state": "set",
+            "key": "NEW_KEY", "value": "new_value", "keys": None,
+        })
+        assert not failed
+        assert result["changed"]
+
+    def test_set_same_value_no_change(self, sample_env_file):
+        result, failed, _ = run_module_with_params(canasta_env, {
+            "path": sample_env_file, "state": "set",
+            "key": "MW_SITE_SERVER", "value": "https://example.com", "keys": None,
+        })
+        assert not failed
+        assert not result["changed"]
+
+
+class TestRunModuleUnset:
+    def test_unset_existing(self, sample_env_file):
+        result, failed, _ = run_module_with_params(canasta_env, {
+            "path": sample_env_file, "state": "unset",
+            "key": "MW_SITE_SERVER", "value": None, "keys": None,
+        })
+        assert not failed
+        assert result["changed"]
+
+    def test_unset_nonexistent(self, sample_env_file):
+        result, failed, _ = run_module_with_params(canasta_env, {
+            "path": sample_env_file, "state": "unset",
+            "key": "NONEXISTENT", "value": None, "keys": None,
+        })
+        assert not failed
+        assert not result["changed"]

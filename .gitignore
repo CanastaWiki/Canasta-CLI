@@ -11,3 +11,4 @@ build/
 venv/
 docs/commands/*.md
 !docs/commands/.gitkeep
+.coverage

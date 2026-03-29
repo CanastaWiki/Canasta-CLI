@@ -1,0 +1,88 @@
+---
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install pytest-cov
+
+      - name: Run unit tests with coverage
+        run: |
+          .venv/bin/pytest tests/unit/ -v \
+            --cov=roles/common/library \
+            --cov=roles/extensions_skins/library \
+            --cov=scripts \
+            --cov-report=term-missing \
+            --cov-fail-under=70
+
+      - name: Validate command definitions
+        run: .venv/bin/python scripts/validate_definitions.py
+
+  integration:
+    name: Integration Tests (Lifecycle)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install molecule molecule-plugins[docker]
+
+      - name: Add user to www-data group
+        run: sudo usermod -aG www-data $USER
+
+      - name: Run lifecycle integration test
+        run: |
+          cd tests/integration
+          sg www-data -c "../../.venv/bin/molecule test -s lifecycle"
+        timeout-minutes: 20
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install yamllint
+
+      - name: YAML lint
+        run: .venv/bin/yamllint -d relaxed meta/ roles/ playbooks/ inventory/ canasta.yml
+
+      - name: Validate definitions
+        run: .venv/bin/python scripts/validate_definitions.py
