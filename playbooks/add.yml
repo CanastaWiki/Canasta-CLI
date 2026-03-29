@@ -1,38 +1,34 @@
 ---
 # canasta add - Add a wiki to an existing Canasta instance.
+# Matches Go CLI: wikis.yaml is updated AFTER successful install.
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
 - name: Validate wiki ID
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml
 
 - name: Parse URL into domain and path
   ansible.builtin.set_fact:
-    _add_domain: "{{ url | regex_replace('/.*$', '') }}"
-    _add_path: "{{ url | regex_replace('^[^/]*', '') | regex_replace('^/', '') }}"
+    _add_domain: >-
+      {{ url | regex_replace('/.*$', '') }}
+    _add_path: >-
+      {{ url | regex_replace('^[^/]*', '')
+         | regex_replace('^/', '') }}
 
-- name: Add wiki to wikis.yaml
+- name: Check wiki ID doesn't already exist
   canasta_wikis_yaml:
     instance_path: "{{ instance_path }}"
-    state: add
+    state: query
     wiki_id: "{{ wiki }}"
-    domain: "{{ _add_domain }}"
-    wiki_path: "{{ _add_path }}"
-    site_name: "{{ site_name | default('') }}"
+  register: _add_check
 
-- name: Create per-wiki settings directory
-  ansible.builtin.file:
-    path: "{{ instance_path }}/config/settings/wikis/{{ wiki }}"
-    state: directory
-    mode: "0755"
-
-- name: Copy per-wiki Settings.php if provided
-  ansible.builtin.copy:
-    src: "{{ wiki_settings }}"
-    dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php"
-    mode: "0644"
-  when: wiki_settings is defined and wiki_settings != ''
+- name: Fail if wiki already exists
+  ansible.builtin.fail:
+    msg: "Wiki ID '{{ wiki }}' already exists."
+  when: _add_check.exists | default(false)
 
 - name: Read .env for DB password
   canasta_env:
@@ -46,7 +42,8 @@
   when: password is not defined or password == ''
   block:
     - name: Generate password
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/generate_password.yml"
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/common/tasks/generate_password.yml
     - name: Store generated password
       ansible.builtin.set_fact:
         _add_admin_password: "{{ _generated_password }}"
@@ -56,6 +53,22 @@
     _add_admin_password: "{{ password }}"
   when: password is defined and password != ''
 
+- name: Create per-wiki settings directory
+  ansible.builtin.file:
+    path: >-
+      {{ instance_path }}/config/settings/wikis/{{ wiki }}
+    state: directory
+    mode: "0755"
+
+- name: Copy per-wiki Settings.php if provided
+  ansible.builtin.copy:
+    src: "{{ wiki_settings }}"
+    dest: >-
+      {{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php
+    mode: "0644"
+  when: wiki_settings is defined and wiki_settings != ''
+
+# Install or import the wiki database BEFORE updating wikis.yaml
 - name: Import database if provided
   when: database is defined and database != ''
   ansible.builtin.include_role:
@@ -75,7 +88,8 @@
         tasks_from: wait_for_db.yml
 
     - name: Install new wiki
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
       vars:
         exec_service: web
         exec_command: >-
@@ -91,14 +105,26 @@
           --dbuser={{ wikidbuser | default('root') | quote }}
           --dbpass={{ _add_dbpass.value | quote }}
           --pass={{ _add_admin_password | quote }}
-          {{ wiki | quote }} {{ admin | default('WikiSysop') | quote }}
+          {{ wiki | quote }}
+          {{ admin | default('WikiSysop') | quote }}
 
     - name: Save admin password
       ansible.builtin.copy:
         content: "{{ _add_admin_password }}"
-        dest: "{{ instance_path }}/admin-password_{{ wiki }}"
+        dest: >-
+          {{ instance_path }}/admin-password_{{ wiki }}
         mode: "0600"
       no_log: true
+
+# NOW add to wikis.yaml (after successful install/import)
+- name: Add wiki to wikis.yaml
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: add
+    wiki_id: "{{ wiki }}"
+    domain: "{{ _add_domain }}"
+    wiki_path: "{{ _add_path }}"
+    site_name: "{{ site_name | default('') }}"
 
 - name: Regenerate Caddyfile
   ansible.builtin.include_role:
