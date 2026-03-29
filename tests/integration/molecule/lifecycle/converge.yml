@@ -157,19 +157,19 @@
       register: _test_dbpass
       no_log: true
 
-    - name: Export wiki database
-      ansible.builtin.command:
+    - name: Export wiki database (dump inside container)
+      ansible.builtin.shell:
         cmd: >-
-          docker compose exec -T db
-          mariadb-dump -u root
-          -p{{ _test_dbpass.value }}
+          docker compose exec -T db /bin/bash -c
+          "mariadb-dump -u root
+          -p'{{ _test_dbpass.value }}'
           {{ test_wiki }}
-          > /tmp/{{ test_wiki }}.sql
+          > /tmp/{{ test_wiki }}.sql"
         chdir: "{{ test_work_dir }}/{{ test_id }}"
       changed_when: true
       no_log: true
 
-    - name: Copy dump from container
+    - name: Copy dump from container to host
       ansible.builtin.command:
         cmd: >-
           docker compose cp
