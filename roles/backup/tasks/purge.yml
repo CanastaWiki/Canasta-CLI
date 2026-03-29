@@ -1,22 +1,50 @@
 ---
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
 - name: Build purge arguments
   ansible.builtin.set_fact:
-    _purge_args: >-
-      {{ (keep_last is defined and keep_last != '') | ternary('--keep-last ' + (keep_last | default('')), '') }}
-      {{ (keep_hourly is defined and keep_hourly != '') | ternary('--keep-hourly ' + (keep_hourly | default('')), '') }}
-      {{ (keep_daily is defined and keep_daily != '') | ternary('--keep-daily ' + (keep_daily | default('')), '') }}
-      {{ (keep_monthly is defined and keep_monthly != '') | ternary('--keep-monthly ' + (keep_monthly | default('')), '') }}
-      {{ (older_than is defined and older_than != '') | ternary('--keep-within ' + (older_than | default('')), '') }}
+    _purge_list:
+      - "forget"
+      - "--prune"
+
+- name: Add keep-last
+  ansible.builtin.set_fact:
+    _purge_list: >-
+      {{ _purge_list + ['--keep-last', keep_last] }}
+  when: keep_last is defined and keep_last != ''
+
+- name: Add keep-hourly
+  ansible.builtin.set_fact:
+    _purge_list: >-
+      {{ _purge_list + ['--keep-hourly', keep_hourly] }}
+  when: keep_hourly is defined and keep_hourly != ''
+
+- name: Add keep-daily
+  ansible.builtin.set_fact:
+    _purge_list: >-
+      {{ _purge_list + ['--keep-daily', keep_daily] }}
+  when: keep_daily is defined and keep_daily != ''
+
+- name: Add keep-monthly
+  ansible.builtin.set_fact:
+    _purge_list: >-
+      {{ _purge_list + ['--keep-monthly', keep_monthly] }}
+  when: keep_monthly is defined and keep_monthly != ''
+
+- name: Add keep-within
+  ansible.builtin.set_fact:
+    _purge_list: >-
+      {{ _purge_list + ['--keep-within', older_than] }}
+  when: older_than is defined and older_than != ''
 
 - name: Purge old backups
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
   vars:
-    exec_service: "{{ canasta_backup_service }}"
-    exec_command: "restic forget --prune {{ _purge_args | trim }}"
+    backup_args: "{{ _purge_list }}"
 
 - name: Display result
   ansible.builtin.debug:
-    msg: "{{ exec_result.stdout }}"
+    msg: "{{ _restic_result.stdout }}"

@@ -1,19 +1,53 @@
 ---
+# Restore: run restic restore into the backup volume, then copy
+# from the volume back to the host instance directory via alpine.
+
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
 - name: Take safety backup before restore
   when: not (skip_safety_backup | default(false) | bool)
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
   vars:
-    exec_service: "{{ canasta_backup_service }}"
-    exec_command: "restic backup --tag safety-before-restore /mediawiki/config /mediawiki/images /backup"
+    backup_args:
+      - "--tag"
+      - "safety-before-restore"
+      - "backup"
+      - "/currentsnapshot"
 
-- name: Restore from snapshot
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+- name: Restore snapshot into backup volume
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
   vars:
-    exec_service: "{{ canasta_backup_service }}"
-    exec_command: "restic restore {{ snapshot }} --target /"
+    backup_args:
+      - "restore"
+      - "{{ snapshot }}"
+      - "--target"
+      - "/"
+
+- name: Restore files from volume to host
+  ansible.builtin.command:
+    cmd: >-
+      docker run --rm
+      -v canasta-backup-{{ instance_path | basename
+      }}:/currentsnapshot:ro
+      -v {{ instance_path }}:/install
+      alpine sh -c "
+      for d in config extensions images skins public_assets; do
+        if [ -d /currentsnapshot/$d ]; then
+          mkdir -p /install/$d &&
+          rm -rf /install/$d/* /install/$d/.[!.]* 2>/dev/null;
+          cp -a /currentsnapshot/$d/. /install/$d/;
+        fi;
+      done;
+      for f in .env docker-compose.override.yml my.cnf; do
+        if [ -f /currentsnapshot/$f ]; then
+          cp -a /currentsnapshot/$f /install/$f;
+        fi;
+      done"
+  changed_when: true
 
 - name: Display result
   ansible.builtin.debug:

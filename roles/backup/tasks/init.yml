@@ -1,18 +1,14 @@
 ---
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
-
-- name: Warn about K8s backup limitations
-  ansible.builtin.debug:
-    msg: "WARNING: Local backup repositories are not supported with Kubernetes. Use a remote repository (S3, etc.)."
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
 - name: Initialize backup repository
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
   vars:
-    exec_service: "{{ canasta_backup_service }}"
-    exec_command: "restic init"
+    backup_args: ["init"]
 
 - name: Display output
   ansible.builtin.debug:
-    msg: "{{ exec_result.stdout }}"
+    msg: "{{ _restic_result.stdout }}"

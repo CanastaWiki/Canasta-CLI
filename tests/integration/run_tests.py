@@ -259,12 +259,6 @@ def test_upgrade(inst):
 
 def test_backup(inst):
     """Init repo, create snapshot, drop DB, restore, verify."""
-    # TODO: Backup role needs rewrite to use docker run restic/restic
-    # instead of docker compose exec web restic (restic not in Canasta image).
-    # The Go CLI uses a separate restic container with volume mounts.
-    print("SKIP: backup role needs rewrite (uses wrong restic approach)")
-    return
-
     print("Creating instance...")
     inst.run_ok(
         "create", "-i", inst.id, "-w", "main",

@@ -1,13 +1,17 @@
 ---
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
 - name: Compare snapshots
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
   vars:
-    exec_service: "{{ canasta_backup_service }}"
-    exec_command: "restic diff {{ snapshot }} {{ snapshot2 }}"
+    backup_args:
+      - "diff"
+      - "{{ snapshot }}"
+      - "{{ snapshot2 }}"
 
 - name: Display diff
   ansible.builtin.debug:
-    msg: "{{ exec_result.stdout }}"
+    msg: "{{ _restic_result.stdout }}"
