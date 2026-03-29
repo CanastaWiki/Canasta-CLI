@@ -1,6 +1,14 @@
 ---
-# Resolve a Canasta instance from ID or working directory.
+# Resolve a Canasta instance from ID, host, or working directory.
 # Registry lives on the controller node -- all registry queries delegate to localhost.
+#
+# Resolution order:
+#   1. --id provided: look up by ID (explicit always wins)
+#   2. Remote host, no --id: look up by host in registry
+#      - Exactly one instance on that host: use it
+#      - Zero: fail
+#      - Multiple: fail with list of IDs
+#   3. Localhost, no --id: PWD-based resolution (backward compatible)
 #
 # Input variables:
 #   id (optional) - Canasta instance ID
@@ -16,6 +24,43 @@
   register: _instance_lookup
   when: id is defined and id != ''
 
+- name: Resolve instance by host (remote, no ID)
+  when:
+    - id is not defined or id == ''
+    - inventory_hostname != 'localhost'
+  block:
+    - name: Query instances on this host
+      canasta_registry:
+        state: query_all
+        filter_host: "{{ inventory_hostname }}"
+      delegate_to: localhost
+      register: _host_instances
+
+    - name: Fail if no instances on this host
+      ansible.builtin.fail:
+        msg: "No Canasta instances registered on host '{{ inventory_hostname }}'."
+      when: _host_instances.instances | length == 0
+
+    - name: Fail if multiple instances on this host
+      ansible.builtin.fail:
+        msg: >-
+          Multiple instances on host '{{ inventory_hostname }}'. Specify --id:
+          {{ _host_instances.instances.keys() | list | join(', ') }}
+      when: _host_instances.instances | length > 1
+
+    - name: Auto-resolve single instance on host
+      ansible.builtin.set_fact:
+        _auto_id: "{{ (_host_instances.instances | dict2items | first).key }}"
+      when: _host_instances.instances | length == 1
+
+    - name: Look up auto-resolved instance
+      canasta_registry:
+        id: "{{ _auto_id }}"
+        state: query
+      delegate_to: localhost
+      register: _instance_lookup
+      when: _host_instances.instances | length == 1
+
 - name: Look up instance by working directory (localhost only)
   canasta_registry:
     path: "{{ lookup('env', 'PWD') }}"
@@ -25,13 +70,6 @@
   when:
     - id is not defined or id == ''
     - inventory_hostname == 'localhost'
-
-- name: Fail if no ID provided for remote host
-  ansible.builtin.fail:
-    msg: "Instance ID (--id) is required when targeting a remote host."
-  when:
-    - id is not defined or id == ''
-    - inventory_hostname != 'localhost'
 
 - name: Set instance facts
   ansible.builtin.set_fact:
