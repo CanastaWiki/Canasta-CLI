@@ -159,15 +159,13 @@
 
     - name: Export wiki database (dump inside container)
       ansible.builtin.shell:
-        cmd: >-
-          docker compose exec -T db /bin/bash -c
-          "mariadb-dump -u root
-          -p'{{ _test_dbpass.value }}'
-          {{ test_wiki }}
-          > /tmp/{{ test_wiki }}.sql"
+        cmd: |
+          docker compose exec -T db \
+            /bin/bash -c \
+            "mariadb-dump -u root -p\$MYSQL_ROOT_PASSWORD \
+            {{ test_wiki }} > /tmp/{{ test_wiki }}.sql"
         chdir: "{{ test_work_dir }}/{{ test_id }}"
       changed_when: true
-      no_log: true
 
     - name: Copy dump from container to host
       ansible.builtin.command:
@@ -333,13 +331,13 @@
 
     - name: Create database for import test
       ansible.builtin.shell:
-        cmd: >-
-          docker compose exec -T db
-          mysql -u root -p{{ _test_dbpass.value | quote }}
-          -e "CREATE DATABASE IF NOT EXISTS importtest"
+        cmd: |
+          docker compose exec -T db \
+            /bin/bash -c \
+            "mysql -u root -p\$MYSQL_ROOT_PASSWORD \
+            -e 'CREATE DATABASE IF NOT EXISTS importtest'"
         chdir: "{{ test_work_dir }}/{{ test_id }}"
       changed_when: true
-      no_log: true
 
     - name: Copy export file into container
       ansible.builtin.command:
@@ -352,14 +350,13 @@
 
     - name: Import SQL dump into importtest wiki
       ansible.builtin.shell:
-        cmd: >-
-          docker compose exec -T db /bin/bash -c
-          "mysql -u root
-          -p'{{ _test_dbpass.value }}'
-          importtest < /tmp/import.sql"
+        cmd: |
+          docker compose exec -T db \
+            /bin/bash -c \
+            "mysql -u root -p\$MYSQL_ROOT_PASSWORD \
+            importtest < /tmp/import.sql"
         chdir: "{{ test_work_dir }}/{{ test_id }}"
       changed_when: true
-      no_log: true
 
     - name: Verify original wiki still accessible after import
       ansible.builtin.uri:
@@ -528,15 +525,14 @@
 
     - name: Simulate data loss (drop main database)
       ansible.builtin.shell:
-        cmd: >-
-          docker compose exec -T db /bin/bash -c
-          "mysql -u root
-          -p'{{ _test_dbpass.value }}'
-          -e 'DROP DATABASE IF EXISTS main;
-          CREATE DATABASE main;'"
+        cmd: |
+          docker compose exec -T db \
+            /bin/bash -c \
+            "mysql -u root -p\$MYSQL_ROOT_PASSWORD \
+            -e 'DROP DATABASE IF EXISTS main; \
+            CREATE DATABASE main;'"
         chdir: "{{ test_work_dir }}/{{ test_id }}"
       changed_when: true
-      no_log: true
 
     - name: Extract snapshot ID
       ansible.builtin.set_fact:
