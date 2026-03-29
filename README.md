@@ -43,16 +43,17 @@ Run `canasta doctor` to verify all dependencies on a target host.
 ## Installation
 
 ```bash
-git clone https://github.com/CanastaWiki/Canasta-Ansible.git
-cd Canasta-Ansible
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+sudo git clone https://github.com/CanastaWiki/Canasta-Ansible.git /opt/canasta-ansible
+cd /opt/canasta-ansible
+sudo python3 -m venv .venv
+sudo .venv/bin/pip install -r requirements.txt
+sudo ln -sf /opt/canasta-ansible/canasta /usr/local/bin/canasta
 ```
 
 The default inventory (`inventory/localhost.yml`) manages the local machine. For remote hosts, copy the example and add your targets:
 
 ```bash
-cp inventory/hosts.yml.example inventory/hosts.yml
+sudo cp inventory/hosts.yml.example inventory/hosts.yml
 # Edit inventory/hosts.yml to add remote hosts, then update ansible.cfg:
 #   inventory = inventory/hosts.yml
 ```
@@ -60,8 +61,8 @@ cp inventory/hosts.yml.example inventory/hosts.yml
 Verify the installation:
 
 ```bash
-./canasta version
-./canasta doctor    # checks dependencies on the target host
+canasta version
+canasta doctor    # checks dependencies on the target host
 ```
 
 ## Quick Start

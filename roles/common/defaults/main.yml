@@ -9,5 +9,8 @@ canasta_password_symbols: 6
 # Instance ID regex (matching Go: ^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$)
 canasta_instance_id_pattern: "^[a-zA-Z0-9]([a-zA-Z0-9\\-_]*[a-zA-Z0-9])?$"
 
+# Default Canasta image
+canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
+
 # Verbose output (set via -e verbose=true or the wrapper --verbose flag)
 canasta_verbose: false
