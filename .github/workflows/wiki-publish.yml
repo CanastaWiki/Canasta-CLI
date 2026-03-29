@@ -1,0 +1,42 @@
+---
+# Publish Canasta-Ansible CLI Reference to canasta.wiki
+#
+# DISABLED by default -- uses workflow_dispatch (manual trigger only).
+# To enable automatic publishing on push to main, uncomment the push
+# trigger below. Note: this publishes to Help:Canasta-Ansible/ namespace
+# to avoid overwriting the existing Go CLI documentation.
+#
+# Required secrets:
+#   WIKI_API_URL    - e.g., https://canasta.wiki/w/api.php
+#   WIKI_BOT_USER   - e.g., User@BotName
+#   WIKI_BOT_PASSWORD
+
+name: Publish CLI Reference to Wiki
+
+on:
+  # push:
+  #   branches:
+  #     - main
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Publish Ansible CLI pages
+        run: |
+          python scripts/wiki_publish.py \
+            --api "${{ secrets.WIKI_API_URL }}" \
+            --user "${{ secrets.WIKI_BOT_USER }}" \
+            --pass "${{ secrets.WIKI_BOT_PASSWORD }}"

@@ -219,6 +219,19 @@ commands:
     playbook: version.yml
     parameters: []
 
+  - name: doctor
+    description: "Check target host dependencies"
+    long_description: |
+      Verify that all required tools (Docker, Docker Compose, etc.)
+      are installed on the target host. Reports status of optional
+      tools (kubectl, kind, git, git-crypt, rsync) and system
+      resources (memory, disk space).
+    examples:
+      - "canasta doctor"
+      - "canasta --host prod1.example.com doctor"
+    playbook: doctor.yml
+    parameters: []
+
   - name: upgrade
     description: "Upgrade Canasta instances"
     long_description: |

@@ -8,17 +8,37 @@
 #   envfile, canasta_image, build_from, database, wiki_settings,
 #   global_settings, composer, override, keep_config
 
-# --- Step 0: System checks ---
+# --- Step 0: Pre-flight checks ---
+- name: Check Docker is available
+  ansible.builtin.command:
+    cmd: docker info
+  register: _docker_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Fail if Docker not available
+  ansible.builtin.fail:
+    msg: >-
+      Docker is not available on this host.
+      Run 'canasta doctor' to check all dependencies.
+  when: _docker_check.rc != 0
+
 - name: Check system memory (minimum 4GB)
   ansible.builtin.command:
-    cmd: "python3 -c \"import os; mem = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') // (1024**3); exit(0 if mem >= 4 else 1)\""
+    cmd: >-
+      python3 -c "import os;
+      mem = os.sysconf('SC_PAGE_SIZE')
+      * os.sysconf('SC_PHYS_PAGES') // (1024**3);
+      exit(0 if mem >= 4 else 1)"
   register: _mem_check
   changed_when: false
   ignore_errors: true
 
 - name: Warn about low memory
   ansible.builtin.debug:
-    msg: "WARNING: System has less than 4GB RAM. Canasta may not run properly."
+    msg: >-
+      WARNING: System has less than 4GB RAM.
+      Canasta may not run properly.
   when: _mem_check.rc != 0
 
 # --- Step 1: Validate inputs ---

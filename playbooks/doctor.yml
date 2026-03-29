@@ -1,0 +1,131 @@
+---
+# canasta doctor - Check target host dependencies.
+# Verifies all required tools are installed and reports status.
+
+- name: Check dependencies
+  ansible.builtin.debug:
+    msg: "Checking dependencies on {{ inventory_hostname }}..."
+
+# --- Required for all orchestrators ---
+- name: Check Python 3
+  ansible.builtin.command:
+    cmd: python3 --version
+  register: _doc_python
+  changed_when: false
+  ignore_errors: true
+
+- name: Check Docker
+  ansible.builtin.command:
+    cmd: docker --version
+  register: _doc_docker
+  changed_when: false
+  ignore_errors: true
+
+- name: Check Docker Compose
+  ansible.builtin.command:
+    cmd: docker compose version
+  register: _doc_compose
+  changed_when: false
+  ignore_errors: true
+
+- name: Check Docker daemon running
+  ansible.builtin.command:
+    cmd: docker info
+  register: _doc_daemon
+  changed_when: false
+  ignore_errors: true
+
+# --- Required for Kubernetes ---
+- name: Check kubectl
+  ansible.builtin.command:
+    cmd: kubectl version --client
+  register: _doc_kubectl
+  changed_when: false
+  ignore_errors: true
+
+- name: Check kind
+  ansible.builtin.command:
+    cmd: kind --version
+  register: _doc_kind
+  changed_when: false
+  ignore_errors: true
+
+# --- Required for GitOps ---
+- name: Check git
+  ansible.builtin.command:
+    cmd: git --version
+  register: _doc_git
+  changed_when: false
+  ignore_errors: true
+
+- name: Check git-crypt
+  ansible.builtin.command:
+    cmd: git-crypt --version
+  register: _doc_gitcrypt
+  changed_when: false
+  ignore_errors: true
+
+# --- Required for migrate/clone ---
+- name: Check rsync
+  ansible.builtin.command:
+    cmd: rsync --version
+  register: _doc_rsync
+  changed_when: false
+  ignore_errors: true
+
+# --- System resources ---
+- name: Check system memory
+  ansible.builtin.command:
+    cmd: >-
+      python3 -c "import os;
+      mem = os.sysconf('SC_PAGE_SIZE')
+      * os.sysconf('SC_PHYS_PAGES') // (1024**3);
+      print(str(mem) + ' GB')"
+  register: _doc_memory
+  changed_when: false
+  ignore_errors: true
+
+- name: Check disk space
+  ansible.builtin.shell:
+    cmd: "df -h / | awk 'NR==2{print $4}'"
+  register: _doc_disk
+  changed_when: false
+  ignore_errors: true
+
+# --- Report ---
+- name: Display dependency report
+  ansible.builtin.debug:
+    msg: |
+      Canasta Dependency Check ({{ inventory_hostname }})
+      ====================================================
+
+      Core (required):
+        Python 3:        {{ (_doc_python.rc == 0) | ternary('OK (' + _doc_python.stdout | trim + ')', 'MISSING') }}
+        Docker:          {{ (_doc_docker.rc == 0) | ternary('OK (' + _doc_docker.stdout | trim + ')', 'MISSING') }}
+        Docker Compose:  {{ (_doc_compose.rc == 0) | ternary('OK (' + _doc_compose.stdout | trim + ')', 'MISSING') }}
+        Docker daemon:   {{ (_doc_daemon.rc == 0) | ternary('OK (running)', 'NOT RUNNING') }}
+
+      Kubernetes (optional):
+        kubectl:         {{ (_doc_kubectl.rc == 0) | ternary('OK', 'not installed') }}
+        kind:            {{ (_doc_kind.rc == 0) | ternary('OK (' + _doc_kind.stdout | trim + ')', 'not installed') }}
+
+      GitOps (optional):
+        git:             {{ (_doc_git.rc == 0) | ternary('OK (' + _doc_git.stdout | trim + ')', 'not installed') }}
+        git-crypt:       {{ (_doc_gitcrypt.rc == 0) | ternary('OK', 'not installed') }}
+
+      Transfer (optional):
+        rsync:           {{ (_doc_rsync.rc == 0) | ternary('OK', 'not installed') }}
+
+      System:
+        Memory:          {{ _doc_memory.stdout | default('unknown') | trim }}
+        Disk (/ avail):  {{ _doc_disk.stdout | default('unknown') | trim }}
+
+- name: Fail if core dependencies missing
+  ansible.builtin.fail:
+    msg: >-
+      Missing core dependencies:
+      {{ (_doc_docker.rc != 0) | ternary('Docker ', '') }}
+      {{ (_doc_compose.rc != 0) | ternary('Docker Compose ', '') }}
+      {{ (_doc_daemon.rc != 0) | ternary('(Docker not running) ', '') }}
+      Install Docker and ensure the daemon is running.
+  when: _doc_docker.rc != 0 or _doc_compose.rc != 0 or _doc_daemon.rc != 0
