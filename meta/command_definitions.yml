@@ -219,17 +219,6 @@ commands:
     playbook: version.yml
     parameters: []
 
-  - name: self_update
-    description: "Update Canasta-Ansible playbooks to latest version"
-    long_description: |
-      Pull the latest version of the Canasta-Ansible playbooks from the
-      remote git repository. This is the Ansible equivalent of the Go CLI's
-      binary self-update.
-    examples:
-      - "canasta self-update"
-    playbook: self_update.yml
-    parameters: []
-
   - name: upgrade
     description: "Upgrade Canasta instances"
     long_description: |

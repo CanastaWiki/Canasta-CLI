@@ -4,8 +4,8 @@
 # then upgrades all instances.
 
 # --- Auto-check for playbook updates ---
-- name: Check for playbook updates
-  ansible.builtin.include_tasks: self_update.yml
+- name: Pull latest playbooks before upgrading
+  ansible.builtin.include_tasks: _pull_latest_playbooks.yml
 
 # --- Upgrade instances ---
 - name: Get all instances

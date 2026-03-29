@@ -47,8 +47,7 @@ Commands:
   restart             Restart a Canasta instance
   list                List all registered instances
   version             Display version information
-  self-update         Update Canasta-Ansible playbooks
-  upgrade             Upgrade Canasta instances
+  upgrade             Upgrade Canasta instances (auto-pulls latest playbooks)
   add                 Add a wiki to an instance
   remove              Remove a wiki from an instance
   import              Import a database into a wiki
