@@ -1,6 +1,6 @@
 ---
 # canasta list - List all registered Canasta instances.
-# Registry lives on controller -- all operations delegate to localhost.
+# Matches Go CLI output format with per-wiki details.
 
 - name: Clean up stale entries
   canasta_registry:
@@ -11,8 +11,12 @@
 
 - name: Report cleaned entries
   ansible.builtin.debug:
-    msg: "Removed stale entries: {{ _cleanup_result.removed | join(', ') }}"
-  when: cleanup | default(false) | bool and _cleanup_result.removed | default([]) | length > 0
+    msg: >-
+      Removed stale entries:
+      {{ _cleanup_result.removed | join(', ') }}
+  when: >-
+    cleanup | default(false) | bool and
+    _cleanup_result.removed | default([]) | length > 0
 
 - name: Get all instances
   canasta_registry:
@@ -21,11 +25,49 @@
   delegate_to: localhost
   register: _all_instances
 
-- name: Display instances
+- name: No instances
   ansible.builtin.debug:
-    msg: >-
-      {% if _all_instances.instances | length == 0 %}No registered instances.{% else %}
-      {% for iid, inst in _all_instances.instances.items() %}
-      {{ iid }}  {{ inst.host | default('localhost') }}  {{ inst.path }}  {{ inst.orchestrator | default('compose') }}{{
-        inst.devMode | default(false) | ternary('  [dev]', '') }}
-      {% endfor %}{% endif %}
+    msg: "No registered instances."
+  when: _all_instances.instances | length == 0
+
+- name: Build instance list with wiki details
+  when: _all_instances.instances | length > 0
+  block:
+    - name: Read wikis for each instance
+      canasta_wikis_yaml:
+        instance_path: "{{ item.value.path }}"
+        state: read
+      register: _list_wikis
+      loop: >-
+        {{ _all_instances.instances | dict2items }}
+      loop_control:
+        label: "{{ item.key }}"
+      ignore_errors: true
+
+    - name: Display instances
+      ansible.builtin.debug:
+        msg: |
+          {% set ns = namespace(lines=[]) %}
+          {% set hdr = "%-12s  %-12s  %-15s  %-12s  %-40s  %s" %}
+          {% set ns.lines = ns.lines + [hdr % ("Canasta ID", "Wiki ID", "Server Name", "Server Path", "Instance Path", "Orchestrator")] %}
+          {% for result in _list_wikis.results %}
+          {% set inst = result.item %}
+          {% set wikis = result.wikis | default([]) %}
+          {% if wikis | length > 0 %}
+          {% for w in wikis %}
+          {% set server = w.url | regex_replace('/.*$', '') %}
+          {% set path = w.url | regex_replace('^[^/]*', '') %}
+          {% set path = path if path else '/' %}
+          {% set cid = inst.key if loop.first else '-' %}
+          {% set orch = inst.value.orchestrator | default('compose') if loop.first else '' %}
+          {% set ipath = inst.value.path if loop.first else '' %}
+          {% set ns.lines = ns.lines + [hdr % (cid, w.id, server, path, ipath, orch)] %}
+          {% endfor %}
+          {% else %}
+          {% set orch = inst.value.orchestrator | default('compose') %}
+          {% set ns.lines = ns.lines + [hdr % (inst.key, '(no wikis)', '', '', inst.value.path, orch)] %}
+          {% endif %}
+          {% endfor %}
+          {% for line in ns.lines %}
+          {{ line }}
+          {% endfor %}
