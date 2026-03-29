@@ -334,7 +334,7 @@
         cmd: |
           docker compose exec -T db \
             /bin/bash -c \
-            "mysql -u root -p\$MYSQL_ROOT_PASSWORD \
+            "mariadb -u root -p\$MYSQL_ROOT_PASSWORD \
             -e 'CREATE DATABASE IF NOT EXISTS importtest'"
         chdir: "{{ test_work_dir }}/{{ test_id }}"
       changed_when: true
@@ -353,7 +353,7 @@
         cmd: |
           docker compose exec -T db \
             /bin/bash -c \
-            "mysql -u root -p\$MYSQL_ROOT_PASSWORD \
+            "mariadb -u root -p\$MYSQL_ROOT_PASSWORD \
             importtest < /tmp/import.sql"
         chdir: "{{ test_work_dir }}/{{ test_id }}"
       changed_when: true
@@ -528,7 +528,7 @@
         cmd: |
           docker compose exec -T db \
             /bin/bash -c \
-            "mysql -u root -p\$MYSQL_ROOT_PASSWORD \
+            "mariadb -u root -p\$MYSQL_ROOT_PASSWORD \
             -e 'DROP DATABASE IF EXISTS main; \
             CREATE DATABASE main;'"
         chdir: "{{ test_work_dir }}/{{ test_id }}"
