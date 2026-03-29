@@ -331,24 +331,29 @@
         wiki_path: "importtest"
         site_name: "Import Test"
 
-    - name: Import exported database into second wiki
+    - name: Create database for import test
       ansible.builtin.shell:
         cmd: >-
-          docker compose exec -T db /bin/bash -c
-          "mysql -u root
-          -p'{{ _test_dbpass.value }}'
-          -e 'CREATE DATABASE IF NOT EXISTS importtest'"
+          docker compose exec -T db
+          mysql -u root -p{{ _test_dbpass.value | quote }}
+          -e "CREATE DATABASE IF NOT EXISTS importtest"
         chdir: "{{ test_work_dir }}/{{ test_id }}"
       changed_when: true
       no_log: true
 
-    - name: Import SQL dump into importtest wiki
-      ansible.builtin.shell:
+    - name: Copy export file into container
+      ansible.builtin.command:
         cmd: >-
           docker compose cp
           {{ test_work_dir }}/{{ test_wiki }}_export.sql
           db:/tmp/import.sql
-          && docker compose exec -T db /bin/bash -c
+        chdir: "{{ test_work_dir }}/{{ test_id }}"
+      changed_when: true
+
+    - name: Import SQL dump into importtest wiki
+      ansible.builtin.shell:
+        cmd: >-
+          docker compose exec -T db /bin/bash -c
           "mysql -u root
           -p'{{ _test_dbpass.value }}'
           importtest < /tmp/import.sql"
