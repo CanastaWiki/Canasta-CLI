@@ -1,14 +1,123 @@
 ---
-- name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+# Matches Go CLI gitops status output with parsed sections.
 
-- name: Get git status
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+# Gather info
+- name: Read .gitops-host
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _gops_host_file
+  ignore_errors: true
+
+- name: Read hosts.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/hosts.yaml"
+  register: _gops_hosts_yaml
+  ignore_errors: true
+
+- name: Get current commit
   ansible.builtin.command:
-    cmd: "git status"
-    chdir: "{{ instance_path }}/config"
-  register: _git_status
+    cmd: git rev-parse --short HEAD
+    chdir: "{{ instance_path }}"
+  register: _gops_commit
   changed_when: false
+  ignore_errors: true
+
+- name: Get last applied commit
+  ansible.builtin.command:
+    cmd: cat .gitops-applied
+    chdir: "{{ instance_path }}"
+  register: _gops_applied
+  changed_when: false
+  ignore_errors: true
+
+- name: Get staged files
+  ansible.builtin.command:
+    cmd: git diff --cached --name-only
+    chdir: "{{ instance_path }}"
+  register: _gops_staged
+  changed_when: false
+
+- name: Get unstaged files
+  ansible.builtin.command:
+    cmd: git diff --name-only
+    chdir: "{{ instance_path }}"
+  register: _gops_unstaged
+  changed_when: false
+
+- name: Check ahead/behind
+  ansible.builtin.command:
+    cmd: git rev-list --left-right --count HEAD...@{upstream}
+    chdir: "{{ instance_path }}"
+  register: _gops_revcount
+  changed_when: false
+  ignore_errors: true
+
+- name: Parse host info
+  ansible.builtin.set_fact:
+    _gops_hostname: >-
+      {{ _gops_host_file.content | default('')
+         | b64decode | trim }}
+    _gops_role: >-
+      {{ (_gops_hosts_yaml.content | default('')
+          | b64decode
+          | from_yaml).hosts[0].role
+         | default('unknown') }}
+    _gops_pr: >-
+      {{ (_gops_hosts_yaml.content | default('')
+          | b64decode
+          | from_yaml).hosts[0].pull_requests
+         | default(false) }}
+  ignore_errors: true
+
+- name: Parse ahead/behind
+  ansible.builtin.set_fact:
+    _gops_ahead: >-
+      {{ (_gops_revcount.stdout | default('0\t0'))
+         .split('\t')[0] | default('0') | int }}
+    _gops_behind: >-
+      {{ (_gops_revcount.stdout | default('0\t0'))
+         .split('\t')[1] | default('0') | int }}
+  when: _gops_revcount.rc == 0
 
 - name: Display status
   ansible.builtin.debug:
-    msg: "{{ _git_status.stdout }}"
+    msg: |-
+      Host:           {{ _gops_hostname | default('unknown') }}
+      Role:           {{ _gops_role | default('unknown') }}
+      Canasta ID:     {{ instance_id }}
+      Pull requests:  {{ _gops_pr | default(false) }}
+      Current commit: {{ _gops_commit.stdout | default('none') | trim }}
+      Last applied:   {{ _gops_applied.stdout | default('none') | trim }}
+
+      {% if _gops_staged.stdout | default('') | trim | length > 0 %}
+      {% set files = _gops_staged.stdout.strip().split('\n') %}
+      Staged for push ({{ files | length }} files):
+      {% for f in files %}
+        {{ f }}
+      {% endfor %}
+
+      {% endif %}
+      {% if _gops_unstaged.stdout | default('') | trim | length > 0 %}
+      {% set files = _gops_unstaged.stdout.strip().split('\n') %}
+      Unstaged changes ({{ files | length }} files):
+      {% for f in files %}
+        {{ f }}
+      {% endfor %}
+
+      {% endif %}
+      {% if (_gops_staged.stdout | default('') | trim | length == 0)
+         and (_gops_unstaged.stdout | default('') | trim | length == 0) %}
+      No changes.
+
+      {% endif %}
+      {% if _gops_ahead | default(0) | int > 0 %}
+      Ahead of remote by {{ _gops_ahead }} commit(s).
+      {% elif _gops_behind | default(0) | int > 0 %}
+      Behind remote by {{ _gops_behind }} commit(s).
+      {% else %}
+      Up to date with remote.
+      {% endif %}

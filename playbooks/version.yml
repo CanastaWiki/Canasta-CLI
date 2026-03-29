@@ -1,11 +1,33 @@
 ---
 # canasta version - Display version information.
+# Matches Go CLI format: Canasta CLI vX.Y.Z (commit ..., built ...)
 
 - name: Read version file
   ansible.builtin.slurp:
     src: "{{ playbook_dir }}/VERSION"
   register: _version_file
 
+- name: Get git commit
+  ansible.builtin.command:
+    cmd: git rev-parse --short HEAD
+    chdir: "{{ playbook_dir }}"
+  register: _git_commit
+  changed_when: false
+  ignore_errors: true
+  delegate_to: localhost
+
+- name: Get git commit date
+  ansible.builtin.command:
+    cmd: git log -1 --format=%ci
+    chdir: "{{ playbook_dir }}"
+  register: _git_date
+  changed_when: false
+  ignore_errors: true
+  delegate_to: localhost
+
 - name: Display version
   ansible.builtin.debug:
-    msg: "Canasta-Ansible version {{ _version_file.content | b64decode | trim }}"
+    msg: >-
+      Canasta CLI v{{ _version_file.content | b64decode | trim }}
+      (commit {{ _git_commit.stdout | default('unknown') | trim }},
+      built {{ (_git_date.stdout | default('unknown') | trim).split(' ')[0] | default('unknown') }})

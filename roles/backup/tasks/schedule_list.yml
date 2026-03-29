@@ -1,6 +1,10 @@
 ---
+# Matches Go output: "Instance 'X' is scheduled for backup at: M H D M W"
+# with optional "Auto-purge: snapshots older than ..."
+
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
 - name: List cron jobs for this instance
   ansible.builtin.command:
@@ -11,8 +15,40 @@
 
 - name: Filter backup schedule
   ansible.builtin.set_fact:
-    _schedule_lines: "{{ _cron_list.stdout_lines | default([]) | select('search', 'canasta-backup-' + instance_id) | list }}"
+    _schedule_lines: >-
+      {{ _cron_list.stdout_lines | default([])
+         | select('search', 'canasta-backup-' + instance_id)
+         | list }}
 
-- name: Display schedule
+- name: No schedule found
   ansible.builtin.debug:
-    msg: "{{ (_schedule_lines | length > 0) | ternary(_schedule_lines | join('\n'), 'No backup schedule set for ' + instance_id) }}"
+    msg: >-
+      No backup schedule found for instance
+      '{{ instance_id }}'.
+  when: _schedule_lines | length == 0
+
+- name: Parse and display schedule
+  when: _schedule_lines | length > 0
+  block:
+    - name: Extract cron expression
+      ansible.builtin.set_fact:
+        _sched_cron: >-
+          {{ _schedule_lines[0].split()[0:5] | join(' ') }}
+        _sched_cmd: >-
+          {{ _schedule_lines[0].split(None, 5)[5]
+             | default('') }}
+
+    - name: Check for purge flag
+      ansible.builtin.set_fact:
+        _sched_purge: >-
+          {{ _sched_cmd
+             | regex_search('keep-within\s+(\S+)', '\1')
+             | default([]) | first | default('') }}
+
+    - name: Display schedule
+      ansible.builtin.debug:
+        msg: |-
+          Instance '{{ instance_id }}' is scheduled for backup at: {{ _sched_cron }}
+          {% if _sched_purge %}
+          Auto-purge: snapshots older than {{ _sched_purge }}
+          {% endif %}

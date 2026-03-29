@@ -398,6 +398,14 @@
     name: orchestrator
     tasks_from: start.yml
 
+- name: SMTP note
+  ansible.builtin.debug:
+    msg: >-
+      Please note that mailing does not currently work on
+      this wiki, because Canasta requires $wgSMTP to be set
+      in order to send emails (see
+      https://www.mediawiki.org/wiki/Manual:$wgSMTP).
+
 - name: Report success
   ansible.builtin.debug:
-    msg: "Canasta instance '{{ id }}' created successfully at {{ instance_path }}"
+    msg: "Done."

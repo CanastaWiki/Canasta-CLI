@@ -1,16 +1,25 @@
 ---
 # List installed extensions or skins.
-# Input: id (optional), wiki (optional), _item_type (extensions|skins), _item_dir (extensions|skins)
+# Matches Go output: "Available Canasta extensions:" header.
+# Input: id (optional), wiki (optional),
+#   _item_type (extensions|skins), _item_dir (extensions|skins)
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
 - name: "List available {{ _item_type }}"
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
   vars:
     exec_service: web
-    exec_command: "cd /var/www/mediawiki/w/{{ _item_dir }} && find -L * -maxdepth 0 -type d 2>/dev/null || true"
+    exec_command: >-
+      cd /var/www/mediawiki/w/{{ _item_dir }}
+      && find -L * -maxdepth 0 -type d 2>/dev/null
+      || true
 
 - name: "Display {{ _item_type }}"
   ansible.builtin.debug:
-    msg: "{{ exec_result.stdout }}"
+    msg: |-
+      Available Canasta {{ _item_type }}:
+      {{ exec_result.stdout }}
