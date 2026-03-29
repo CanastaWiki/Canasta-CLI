@@ -3,17 +3,13 @@
 # Input: _sitemap_wiki (str), instance_path, _sitemap_server
 
 - name: "Create sitemap directory for {{ _sitemap_wiki }}"
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
     exec_command: "mkdir -p /mediawiki/public_assets/{{ _sitemap_wiki | quote }}/sitemap"
 
 - name: "Generate sitemap for {{ _sitemap_wiki }}"
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
     exec_command: >-
@@ -25,9 +21,7 @@
       --skip-redirects
 
 - name: "Set ownership for {{ _sitemap_wiki }} sitemap"
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
     exec_command: "chown -R www-data:www-data /mediawiki/public_assets/{{ _sitemap_wiki | quote }}/sitemap"

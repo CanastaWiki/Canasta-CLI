@@ -6,9 +6,7 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: "List available {{ _item_type }}"
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
     exec_command: "cd /var/www/mediawiki/w/{{ _item_dir }} && find -L * -maxdepth 0 -type d 2>/dev/null || true"

@@ -7,6 +7,9 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   unit:
     name: Unit Tests
@@ -84,7 +87,9 @@ jobs:
           .venv/bin/pip install yamllint
 
       - name: YAML lint
-        run: .venv/bin/yamllint -c .yamllint.yml meta/ roles/ playbooks/ inventory/ canasta.yml
+        run: >-
+          .venv/bin/yamllint -c .yamllint.yml
+          meta/ roles/ playbooks/ inventory/ canasta.yml
 
       - name: Validate definitions
         run: .venv/bin/python scripts/validate_definitions.py

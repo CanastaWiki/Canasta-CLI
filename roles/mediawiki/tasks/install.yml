@@ -8,9 +8,7 @@
 #   install_root_db_password, install_wiki_db_username, install_wiki_db_password
 
 - name: Create temp install directory in container
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
     exec_command: "mkdir -p /tmp/canasta-install/"
@@ -24,9 +22,7 @@
     label: "{{ _wiki.id }}"
 
 - name: Clean up temp install directory
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
     exec_command: "rm -rf /tmp/canasta-install/"

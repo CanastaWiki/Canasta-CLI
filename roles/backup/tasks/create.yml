@@ -20,17 +20,13 @@
   no_log: true
 
 - name: Create backup staging directory
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
     exec_command: "mkdir -p /mediawiki/config/backup"
 
 - name: Dump each wiki database
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: db
     exec_command: >-
@@ -51,9 +47,7 @@
     _backup_tag: "{{ tag }}__on__{{ _hostname.stdout | trim }}"
 
 - name: Create backup snapshot
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: "{{ canasta_backup_service }}"
     exec_command: >-
@@ -69,9 +63,7 @@
     msg: "{{ exec_result.stdout }}"
 
 - name: Clean up backup staging directory
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/config/backup"

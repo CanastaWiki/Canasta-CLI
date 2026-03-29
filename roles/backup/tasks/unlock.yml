@@ -3,9 +3,7 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: Unlock backup repository
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: "{{ canasta_backup_service }}"
     exec_command: "restic unlock"

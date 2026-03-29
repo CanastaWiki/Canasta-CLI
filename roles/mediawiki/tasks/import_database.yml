@@ -15,9 +15,7 @@
   changed_when: true
 
 - name: Import gzipped database
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: db
     exec_command: >-
@@ -25,9 +23,7 @@
   when: _is_gzipped | bool
 
 - name: Import plain SQL database
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: db
     exec_command: >-
@@ -35,9 +31,7 @@
   when: not (_is_gzipped | bool)
 
 - name: Clean up temp dump file
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: db
     exec_command: "rm -f /tmp/import.sql /tmp/import.sql.gz"

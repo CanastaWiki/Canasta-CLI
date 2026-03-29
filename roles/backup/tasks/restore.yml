@@ -4,17 +4,13 @@
 
 - name: Take safety backup before restore
   when: not (skip_safety_backup | default(false) | bool)
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: "{{ canasta_backup_service }}"
     exec_command: "restic backup --tag safety-before-restore /mediawiki/config /mediawiki/images /backup"
 
 - name: Restore from snapshot
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: "{{ canasta_backup_service }}"
     exec_command: "restic restore {{ snapshot }} --target /"

@@ -13,9 +13,7 @@
   when: instance_orchestrator | default('compose') == 'compose'
   block:
     - name: Check if MySQL data volume has read-only flag (MySQL 8.0 indicator)
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: exec.yml
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: db
         exec_command: "test -f /var/lib/mysql/.rocksdb && echo mysql8 || echo mariadb"
@@ -44,9 +42,7 @@
           register: _mig_wikis
 
         - name: Dump all databases before migration
-          ansible.builtin.include_role:
-            name: orchestrator
-            tasks_from: exec.yml
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
           vars:
             exec_service: db
             exec_command: "mysqldump -u root -p{{ _mig_dbpass.value | quote }} --all-databases --single-transaction > /tmp/mysql8_dump.sql"
@@ -87,9 +83,7 @@
           changed_when: true
 
         - name: Import dump into MariaDB
-          ansible.builtin.include_role:
-            name: orchestrator
-            tasks_from: exec.yml
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
           vars:
             exec_service: db
             exec_command: "mysql -u root -p{{ _mig_dbpass.value | quote }} < /tmp/mysql8_dump.sql"
@@ -101,9 +95,7 @@
             state: absent
 
         - name: Clean up container dump
-          ansible.builtin.include_role:
-            name: orchestrator
-            tasks_from: exec.yml
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
           vars:
             exec_service: db
             exec_command: "rm -f /tmp/mysql8_dump.sql"

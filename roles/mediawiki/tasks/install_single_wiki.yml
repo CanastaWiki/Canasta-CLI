@@ -10,9 +10,7 @@
     _install_domain: "{{ _wiki.url | regex_replace('/.*$', '') }}"
 
 - name: "Run install.php for wiki '{{ _wiki.id }}'"
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: exec.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
     exec_command: >-
@@ -41,9 +39,7 @@
   when: _wiki_idx == 0
   block:
     - name: Read LocalSettings.php from container
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: exec.yml
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: web
         exec_command: "cat /tmp/canasta-install/LocalSettings.php"
@@ -61,9 +57,7 @@
       no_log: true
 
     - name: Delete LocalSettings.php from temp dir
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: exec.yml
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: web
         exec_command: "rm -f /tmp/canasta-install/LocalSettings.php"
