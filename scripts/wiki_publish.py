@@ -36,7 +36,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(SCRIPT_DIR)
 DEFINITIONS_PATH = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
-PAGE_PREFIX = "Help:Canasta-Ansible/"
+PAGE_PREFIX = "CLI:"
 EDIT_DELAY = 2  # seconds between edits
 
 
@@ -202,7 +202,7 @@ def generate_all_pages(data):
 
     # Root page
     root_lines = [
-        "== Canasta-Ansible CLI Reference ==",
+        "== Canasta CLI Reference ==",
         "",
         "Ansible-based management tool for Canasta MediaWiki.",
         "",
@@ -252,7 +252,7 @@ def generate_all_pages(data):
                         % (sub_link, name, sub_display)
                     )
     pages.append((
-        "MediaWiki:Menu-canasta-ansible-reference",
+        "MediaWiki:Menu-cli-reference",
         "\n".join(menu_lines),
     ))
 
