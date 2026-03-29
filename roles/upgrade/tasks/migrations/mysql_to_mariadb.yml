@@ -93,7 +93,7 @@
             exec_service: db
             exec_no_log: true
             exec_command: >-
-              mysql -u root
+              mariadb -u root
               -p{{ _mig_dbpass.value | quote }}
               < /tmp/mysql8_dump.sql
           no_log: true

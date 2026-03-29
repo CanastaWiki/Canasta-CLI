@@ -19,7 +19,7 @@
   vars:
     exec_service: db
     exec_command: >-
-      bash -c 'gunzip -c /tmp/import.sql.gz | mysql -u root -p{{ import_db_password | quote }} {{ import_wiki_id | quote }}'
+      bash -c 'gunzip -c /tmp/import.sql.gz | mariadb -u root -p{{ import_db_password | quote }} {{ import_wiki_id | quote }}'
   when: _is_gzipped | bool
 
 - name: Import plain SQL database
@@ -27,7 +27,7 @@
   vars:
     exec_service: db
     exec_command: >-
-      mysql -u root -p{{ import_db_password | quote }} {{ import_wiki_id | quote }} < /tmp/import.sql
+      mariadb -u root -p{{ import_db_password | quote }} {{ import_wiki_id | quote }} < /tmp/import.sql
   when: not (_is_gzipped | bool)
 
 - name: Clean up temp dump file

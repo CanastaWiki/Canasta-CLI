@@ -45,7 +45,7 @@
   vars:
     exec_service: db
     exec_command: >-
-      mysql -u root -p{{ _remove_dbpass.value | default('mediawiki') | quote }}
+      mariadb -u root -p{{ _remove_dbpass.value | default('mediawiki') | quote }}
       -e 'DROP DATABASE IF EXISTS {{ wiki | quote }}'
   ignore_errors: true
 
