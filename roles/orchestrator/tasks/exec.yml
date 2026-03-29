@@ -1,23 +1,29 @@
 ---
 # Execute a command inside a container/pod.
+# Uses set_fact to build the command, then a single unconditional
+# register to avoid register-on-skip variable clobbering.
+#
 # Input:
 #   instance_path (str)
 #   instance_orchestrator (str) - compose or kubernetes
 #   exec_service (str) - service name (default: web)
 #   exec_command (str) - command to run
 # Output:
-#   exec_result (registered result)
+#   exec_result (registered result with .stdout, .rc, etc.)
 
-- name: "Execute in {{ exec_service | default('web') }} (Compose): {{ exec_command | truncate(80) }}"
-  ansible.builtin.command:
-    cmd: "docker compose exec -T {{ exec_service | default('web') }} /bin/bash -c {{ exec_command | quote }}"
-    chdir: "{{ instance_path }}"
-  register: exec_result
-  changed_when: false
+- name: Build exec command (Compose)
+  ansible.builtin.set_fact:
+    _exec_full_cmd: >-
+      docker compose exec -T
+      {{ exec_service | default('web') }}
+      /bin/bash -c {{ exec_command | quote }}
+    _exec_chdir: "{{ instance_path }}"
   when: instance_orchestrator | default('compose') == 'compose'
 
-- name: "Execute in {{ exec_service | default('web') }} (Kubernetes): {{ exec_command | truncate(80) }}"
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+- name: Resolve K8s pod and build exec command
+  when: >-
+    instance_orchestrator | default('compose')
+    in ['kubernetes', 'k8s']
   block:
     - name: Set K8s namespace
       ansible.builtin.set_fact:
@@ -28,8 +34,17 @@
       vars:
         _k8s_service: "{{ exec_service | default('web') }}"
 
-    - name: Execute command in pod
-      ansible.builtin.command:
-        cmd: "kubectl exec {{ _k8s_pod_name }} -n {{ _k8s_namespace }} -- /bin/bash -c {{ exec_command | quote }}"
-      register: exec_result
-      changed_when: false
+    - name: Build K8s exec command
+      ansible.builtin.set_fact:
+        _exec_full_cmd: >-
+          kubectl exec {{ _k8s_pod_name }}
+          -n {{ _k8s_namespace }} --
+          /bin/bash -c {{ exec_command | quote }}
+        _exec_chdir: null
+
+- name: "Execute: {{ exec_command | truncate(80) }}"
+  ansible.builtin.command:
+    cmd: "{{ _exec_full_cmd }}"
+    chdir: "{{ _exec_chdir | default(omit) }}"
+  register: exec_result
+  changed_when: false
