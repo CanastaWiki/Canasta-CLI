@@ -1,9 +1,12 @@
 ---
 # canasta upgrade - Upgrade all registered Canasta instances.
+# Registry query delegates to controller; actual upgrade runs on each target host.
 
 - name: Get all instances
   canasta_registry:
     state: query_all
+    filter_host: "{{ target_host | default(omit) }}"
+  delegate_to: localhost
   register: _upgrade_instances
 
 - name: Report dry run

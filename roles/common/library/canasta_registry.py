@@ -126,6 +126,8 @@ def instance_to_dict(instance):
         "path": instance.get("path", ""),
         "orchestrator": instance.get("orchestrator", "compose"),
     }
+    if instance.get("host"):
+        result["host"] = instance["host"]
     if instance.get("devMode"):
         result["devMode"] = True
     if instance.get("managedCluster"):
@@ -165,6 +167,8 @@ def run_module():
         registry=dict(type="str", required=False),
         kind_cluster=dict(type="str", required=False),
         build_from=dict(type="str", required=False),
+        host=dict(type="str", required=False),
+        filter_host=dict(type="str", required=False),
         config_dir=dict(type="str", required=False),
     )
 
@@ -201,7 +205,14 @@ def run_module():
         result["instance"]["id"] = inst_id
 
     elif state == "query_all":
-        result["instances"] = instances
+        filter_host = module.params.get("filter_host")
+        if filter_host:
+            result["instances"] = {
+                k: v for k, v in instances.items()
+                if v.get("host", "localhost") == filter_host
+            }
+        else:
+            result["instances"] = instances
 
     elif state == "query_by_path":
         if not inst_path:
@@ -226,6 +237,7 @@ def run_module():
             "id": inst_id,
             "path": os.path.abspath(inst_path),
             "orchestrator": module.params["orchestrator"],
+            "host": module.params.get("host"),
             "devMode": module.params["dev_mode"],
             "managedCluster": module.params["managed_cluster"],
             "registry": module.params.get("registry"),

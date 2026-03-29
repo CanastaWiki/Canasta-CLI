@@ -38,6 +38,7 @@
             id: mol-test
             path: "{{ molecule_ephemeral_directory }}/mol-test"
             orchestrator: compose
+            host: localhost
             state: present
             config_dir: "{{ molecule_ephemeral_directory }}"
 
@@ -59,6 +60,7 @@
             that:
               - _mol_query.instance.id == 'mol-test'
               - "'mol-test' in _mol_query.instance.path"
+              - _mol_query.instance.host == 'localhost'
 
         - name: Delete test instance from registry
           canasta_registry:

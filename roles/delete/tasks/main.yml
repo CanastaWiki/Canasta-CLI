@@ -52,6 +52,7 @@
   canasta_registry:
     id: "{{ instance_id }}"
     state: absent
+  delegate_to: localhost
 
 - name: Report deletion
   ansible.builtin.debug:

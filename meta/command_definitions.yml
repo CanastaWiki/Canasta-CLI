@@ -17,6 +17,10 @@
 #   positional        - Accepted as positional argument(s), not a flag
 
 global_flags:
+  - name: host
+    short: H
+    type: string
+    description: "Target host (default: localhost)"
   - name: verbose
     short: v
     type: bool

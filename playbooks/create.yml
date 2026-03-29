@@ -31,6 +31,7 @@
       canasta_registry:
         id: "{{ id }}"
         state: absent
+      delegate_to: localhost
       ignore_errors: true
 
     - name: Report failure

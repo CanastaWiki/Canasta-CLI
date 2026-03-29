@@ -35,7 +35,7 @@ fi
 
 show_help() {
     cat <<'EOF'
-Usage: canasta [--verbose] COMMAND [SUBCOMMAND] [flags...] [-- args...]
+Usage: canasta [--host HOST] [--verbose] COMMAND [SUBCOMMAND] [flags...] [-- args...]
 
 Canasta MediaWiki management tool (Ansible edition).
 
@@ -65,6 +65,7 @@ Commands:
                       Git-based configuration management
 
 Global flags:
+  --host, -H HOST     Target host (default: localhost)
   --verbose, -v       Enable verbose output
   --help, -h          Show this help message
 
@@ -84,22 +85,39 @@ show_command_help() {
 
 # --- Argument parsing --------------------------------------------------------
 
-# First pass: extract --verbose/-v and --help/-h from anywhere in args,
+# First pass: extract global flags from anywhere in args,
 # collect remaining args for second pass.
 VERBOSE=""
+TARGET_HOST=""
 REMAINING=()
 HELP_REQUESTED=""
 
-for arg in "$@"; do
-    case "$arg" in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --verbose|-v)
             VERBOSE="true"
+            shift
             ;;
         --help|-h)
             HELP_REQUESTED="true"
+            shift
+            ;;
+        --host|-H)
+            shift
+            if [[ $# -eq 0 ]]; then
+                echo "Error: --host requires a hostname argument." >&2
+                exit 1
+            fi
+            TARGET_HOST="$1"
+            shift
+            ;;
+        --host=*)
+            TARGET_HOST="${1#--host=}"
+            shift
             ;;
         *)
-            REMAINING+=("$arg")
+            REMAINING+=("$1")
+            shift
             ;;
     esac
 done
@@ -220,6 +238,10 @@ ANSIBLE_ARGS=(
     "${SCRIPT_DIR}/canasta.yml"
     -e "command=${COMMAND}"
 )
+
+if [[ -n "$TARGET_HOST" ]]; then
+    ANSIBLE_ARGS+=(-e "target_host=${TARGET_HOST}" --limit "${TARGET_HOST}")
+fi
 
 if [[ -n "$VERBOSE" ]]; then
     # Verbose: use default Ansible callback (shows task names and status)

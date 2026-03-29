@@ -1,0 +1,29 @@
+---
+# Example inventory for managing Canasta instances on multiple hosts.
+#
+# Copy this file to hosts.yml and edit to add your target hosts.
+# Then update ansible.cfg to use it:
+#   inventory = inventory/hosts.yml
+#
+# Usage:
+#   ./canasta --host prod1.example.com create --id wiki-prod --wiki main
+#   ./canasta --host staging.example.com create --id wiki-staging --wiki main
+#   ./canasta list                           # list all instances on all hosts
+#   ./canasta upgrade                        # upgrade all instances on all hosts
+#
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    # Add remote hosts here. Ansible connects via SSH.
+    # Ensure the target host has Python 3 and Docker installed.
+    #
+    # prod1.example.com:
+    #   ansible_user: canasta
+    #   ansible_python_interpreter: /usr/bin/python3
+    #
+    # staging.example.com:
+    #   ansible_user: canasta
+    #   ansible_python_interpreter: /usr/bin/python3

@@ -85,6 +85,24 @@ class TestInstanceToDict:
         assert result["registry"] == "localhost:5000"
         assert result["buildFrom"] == "/src"
 
+    def test_includes_host(self):
+        result = canasta_registry.instance_to_dict({
+            "id": "test", "path": "/test", "host": "prod1.example.com"
+        })
+        assert result["host"] == "prod1.example.com"
+
+    def test_omits_empty_host(self):
+        result = canasta_registry.instance_to_dict({
+            "id": "test", "path": "/test", "host": ""
+        })
+        assert "host" not in result
+
+    def test_omits_none_host(self):
+        result = canasta_registry.instance_to_dict({
+            "id": "test", "path": "/test"
+        })
+        assert "host" not in result
+
 
 class TestFindByPath:
     def test_exact_match(self, sample_config):

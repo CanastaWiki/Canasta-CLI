@@ -1,9 +1,11 @@
 ---
 # canasta list - List all registered Canasta instances.
+# Registry lives on controller -- all operations delegate to localhost.
 
 - name: Clean up stale entries
   canasta_registry:
     state: cleanup
+  delegate_to: localhost
   register: _cleanup_result
   when: cleanup | default(false) | bool
 
@@ -15,6 +17,8 @@
 - name: Get all instances
   canasta_registry:
     state: query_all
+    filter_host: "{{ target_host | default(omit) }}"
+  delegate_to: localhost
   register: _all_instances
 
 - name: Display instances
@@ -22,5 +26,5 @@
     msg: >-
       {% if _all_instances.instances | length == 0 %}No registered instances.{% else %}
       {% for iid, inst in _all_instances.instances.items() %}
-      {{ iid }}  {{ inst.path }}  {{ inst.orchestrator | default('compose') }}{{ inst.devMode | default(false) | ternary('  [dev]', '') }}
+      {{ iid }}  {{ inst.host | default('localhost') }}  {{ inst.path }}  {{ inst.orchestrator | default('compose') }}{{ inst.devMode | default(false) | ternary('  [dev]', '') }}
       {% endfor %}{% endif %}

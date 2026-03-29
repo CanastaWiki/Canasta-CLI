@@ -1,6 +1,6 @@
 ---
 # Resolve a Canasta instance from ID or working directory.
-# Mirrors Go's canasta.CheckCanastaID().
+# Registry lives on the controller node -- all registry queries delegate to localhost.
 #
 # Input variables:
 #   id (optional) - Canasta instance ID
@@ -12,15 +12,26 @@
   canasta_registry:
     id: "{{ id }}"
     state: query
+  delegate_to: localhost
   register: _instance_lookup
   when: id is defined and id != ''
 
-- name: Look up instance by working directory
+- name: Look up instance by working directory (localhost only)
   canasta_registry:
     path: "{{ lookup('env', 'PWD') }}"
     state: query_by_path
+  delegate_to: localhost
   register: _instance_lookup
-  when: id is not defined or id == ''
+  when:
+    - id is not defined or id == ''
+    - inventory_hostname == 'localhost'
+
+- name: Fail if no ID provided for remote host
+  ansible.builtin.fail:
+    msg: "Instance ID (--id) is required when targeting a remote host."
+  when:
+    - id is not defined or id == ''
+    - inventory_hostname != 'localhost'
 
 - name: Set instance facts
   ansible.builtin.set_fact:

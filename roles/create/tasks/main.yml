@@ -29,6 +29,7 @@
   canasta_registry:
     id: "{{ id }}"
     state: query
+  delegate_to: localhost
   register: _existing
   ignore_errors: true
 
@@ -312,7 +313,9 @@
     id: "{{ id }}"
     path: "{{ instance_path }}"
     orchestrator: "{{ orchestrator | default('compose') }}"
+    host: "{{ inventory_hostname }}"
     state: present
+  delegate_to: localhost
 
 # --- Step 14: Restart with full config ---
 - name: Stop containers
