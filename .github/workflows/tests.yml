@@ -51,11 +51,21 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-crypt
+
+      - name: Install Python dependencies
         run: |
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install molecule molecule-plugins[docker]
+
+      - name: Configure git for CI
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
 
       - name: Add user to www-data group
         run: sudo usermod -aG www-data $USER

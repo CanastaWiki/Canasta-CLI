@@ -321,6 +321,135 @@
         that: _wikis_final.wiki_ids | length == 1
         fail_msg: "Expected 1 wiki after remove"
 
+    # --- IMPORT DATABASE ---
+    - name: Add second wiki for import test
+      canasta_wikis_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        state: add
+        wiki_id: "importtest"
+        domain: "localhost"
+        wiki_path: "importtest"
+        site_name: "Import Test"
+
+    - name: Import exported database into second wiki
+      ansible.builtin.shell:
+        cmd: >-
+          docker compose exec -T db /bin/bash -c
+          "mysql -u root
+          -p'{{ _test_dbpass.value }}'
+          -e 'CREATE DATABASE IF NOT EXISTS importtest'"
+        chdir: "{{ test_work_dir }}/{{ test_id }}"
+      changed_when: true
+      no_log: true
+
+    - name: Import SQL dump into importtest wiki
+      ansible.builtin.shell:
+        cmd: >-
+          docker compose cp
+          {{ test_work_dir }}/{{ test_wiki }}_export.sql
+          db:/tmp/import.sql
+          && docker compose exec -T db /bin/bash -c
+          "mysql -u root
+          -p'{{ _test_dbpass.value }}'
+          importtest < /tmp/import.sql"
+        chdir: "{{ test_work_dir }}/{{ test_id }}"
+      changed_when: true
+      no_log: true
+
+    - name: Verify original wiki still accessible after import
+      ansible.builtin.uri:
+        url: >-
+          http://127.0.0.1:{{ test_http_port }}/w/api.php
+          ?action=query&meta=siteinfo&format=json
+        return_content: true
+        status_code: [200, 403]
+      register: _post_import_check
+      until: _post_import_check.status in [200, 403]
+      retries: 36
+      delay: 5
+      ignore_errors: true
+
+    - name: Assert wiki accessible after import
+      ansible.builtin.assert:
+        that: _post_import_check.status in [200, 403]
+        fail_msg: "Wiki not accessible after import"
+
+    - name: Remove import test wiki
+      canasta_wikis_yaml:
+        instance_path: "{{ test_work_dir }}/{{ test_id }}"
+        state: remove
+        wiki_id: "importtest"
+
+    - name: Clean up export file
+      ansible.builtin.file:
+        path: "{{ test_work_dir }}/{{ test_wiki }}_export.sql"
+        state: absent
+
+    # --- UPGRADE (migration test) ---
+    - name: Read current .env
+      ansible.builtin.slurp:
+        src: "{{ test_work_dir }}/{{ test_id }}/.env"
+      register: _pre_upgrade_env
+
+    - name: Remove CANASTA_IMAGE from .env (simulate pre-migration)
+      ansible.builtin.copy:
+        content: >-
+          {{ (_pre_upgrade_env.content | b64decode).split('\n')
+             | reject('match', '^CANASTA_IMAGE=')
+             | join('\n') }}
+        dest: "{{ test_work_dir }}/{{ test_id }}/.env"
+        mode: "0644"
+
+    - name: Verify CANASTA_IMAGE removed
+      canasta_env:
+        path: "{{ test_work_dir }}/{{ test_id }}/.env"
+        state: read
+        key: CANASTA_IMAGE
+      register: _img_before
+
+    - name: Assert CANASTA_IMAGE not in .env
+      ansible.builtin.assert:
+        that: not _img_before.found
+        fail_msg: "CANASTA_IMAGE should have been removed"
+
+    - name: Run backfill_canasta_image migration
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/upgrade/tasks/migrations/backfill_canasta_image.yml
+
+    - name: Verify CANASTA_IMAGE backfilled
+      canasta_env:
+        path: "{{ test_work_dir }}/{{ test_id }}/.env"
+        state: read
+        key: CANASTA_IMAGE
+      register: _img_after
+
+    - name: Assert CANASTA_IMAGE restored
+      ansible.builtin.assert:
+        that:
+          - _img_after.found
+          - _img_after.value != ''
+        fail_msg: >-
+          CANASTA_IMAGE not backfilled.
+          Value: {{ _img_after.value | default('empty') }}
+
+    - name: Verify wiki still accessible after migration
+      ansible.builtin.uri:
+        url: >-
+          http://127.0.0.1:{{ test_http_port }}/w/api.php
+          ?action=query&meta=siteinfo&format=json
+        return_content: true
+        status_code: [200, 403]
+      register: _post_upgrade_check
+      until: _post_upgrade_check.status in [200, 403]
+      retries: 36
+      delay: 5
+      ignore_errors: true
+
+    - name: Assert wiki accessible after upgrade
+      ansible.builtin.assert:
+        that: _post_upgrade_check.status in [200, 403]
+        fail_msg: "Wiki not accessible after upgrade migration"
+
     # --- LIST ---
     - name: List instances
       canasta_registry:
@@ -363,4 +492,7 @@
 
     - name: Report success
       ansible.builtin.debug:
-        msg: "Lifecycle test passed: create -> verify -> stop -> start -> verify -> delete"
+        msg: >-
+          Lifecycle test passed: create -> verify -> stop ->
+          start -> export -> config -> extensions -> wikis ->
+          import -> upgrade -> list -> delete
