@@ -48,6 +48,8 @@ Commands:
   list                List all registered instances
   version             Display version information
   upgrade             Upgrade Canasta instances (auto-pulls latest playbooks)
+  migrate             Move an instance from one host to another
+  clone               Clone an instance to another host
   add                 Add a wiki to an instance
   remove              Remove a wiki from an instance
   import              Import a database into a wiki

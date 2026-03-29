@@ -235,6 +235,87 @@ commands:
         description: "Preview changes without applying"
 
   # ---------------------------------------------------------------------------
+  # Instance transfer
+  # ---------------------------------------------------------------------------
+  - name: migrate
+    description: "Move an instance from one host to another"
+    long_description: |
+      Move a Canasta instance from one host to another. Stops the source,
+      transfers all data (config, database, files), starts on the destination,
+      then destroys the source. The backup schedule is transferred to the
+      destination host.
+    examples:
+      - "canasta migrate -i wiki-prod --from prod1.example.com --to prod2.example.com -y"
+      - "canasta migrate -i wiki-prod --from prod1 --to prod2 --new-domain new.example.com -y"
+    playbook: migrate.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        required: true
+        description: "Source instance ID"
+      - name: from
+        type: string
+        required: true
+        description: "Source host"
+      - name: to
+        type: string
+        required: true
+        description: "Destination host"
+      - name: new_domain
+        short: n
+        type: string
+        description: "New domain name (default: keep same)"
+      - name: "yes"
+        short: "y"
+        type: bool
+        default: false
+        description: "Skip confirmation prompt"
+
+  - name: clone
+    description: "Clone an instance to another host"
+    long_description: |
+      Clone a Canasta instance to another host with a new ID and domain.
+      The source instance continues running. The clone gets an independent
+      copy of the database. The backup schedule is cloned by default.
+    examples:
+      - "canasta clone -i wiki-prod --from prod1 --to staging --new-id wiki-staging --new-domain staging.example.com -y"
+      - "canasta clone -i wiki-prod --from prod1 --to staging --new-id wiki-staging --new-domain staging.example.com --no-backup-schedule -y"
+    playbook: clone.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        required: true
+        description: "Source instance ID"
+      - name: from
+        type: string
+        required: true
+        description: "Source host"
+      - name: to
+        type: string
+        required: true
+        description: "Destination host"
+      - name: new_id
+        type: string
+        required: true
+        description: "New instance ID for the clone"
+      - name: new_domain
+        short: n
+        type: string
+        required: true
+        description: "Domain name for the clone"
+      - name: no_backup_schedule
+        type: bool
+        default: false
+        description: "Don't clone the backup schedule"
+      - name: "yes"
+        short: "y"
+        type: bool
+        default: false
+        description: "Skip confirmation prompt"
+
+  # ---------------------------------------------------------------------------
   # Wiki management
   # ---------------------------------------------------------------------------
   - name: add

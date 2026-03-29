@@ -1,0 +1,71 @@
+---
+# Clone backup schedule from source instance to destination.
+# Reads the source crontab entry and applies it with the new instance ID/path.
+# Input: _source_host, _source_id, _dest_host, _dest_id, _dest_instance_path,
+#        no_backup_schedule (bool, optional)
+
+- name: Skip backup schedule cloning
+  ansible.builtin.debug:
+    msg: "Backup schedule cloning skipped (--no-backup-schedule)."
+  when: no_backup_schedule | default(false) | bool
+
+- name: Clone backup schedule
+  when: not (no_backup_schedule | default(false) | bool)
+  block:
+    - name: Read source crontab
+      ansible.builtin.command:
+        cmd: "crontab -l"
+      delegate_to: "{{ _source_host }}"
+      register: _source_cron
+      changed_when: false
+      ignore_errors: true
+
+    - name: Find source backup schedule entry
+      ansible.builtin.set_fact:
+        _source_cron_lines: >-
+          {{ _source_cron.stdout_lines | default([]) |
+             select('search', 'canasta-backup-' + _source_id) | list }}
+
+    - name: Parse and apply backup schedule to destination
+      when: _source_cron_lines | length > 0
+      block:
+        - name: Extract cron fields from source entry
+          ansible.builtin.set_fact:
+            _cron_entry: "{{ _source_cron_lines[0] }}"
+
+        # Crontab format: MIN HOUR DAY MON DOW COMMAND
+        - name: Parse cron expression
+          ansible.builtin.set_fact:
+            _cron_minute: "{{ _cron_entry.split()[0] }}"
+            _cron_hour: "{{ _cron_entry.split()[1] }}"
+            _cron_day: "{{ _cron_entry.split()[2] }}"
+            _cron_month: "{{ _cron_entry.split()[3] }}"
+            _cron_weekday: "{{ _cron_entry.split()[4] }}"
+            _cron_command: "{{ _cron_entry.split(None, 5)[5] | default('') }}"
+
+        - name: Build destination backup command
+          ansible.builtin.set_fact:
+            _dest_cron_cmd: >-
+              {{ _cron_command |
+                 regex_replace('canasta-backup-' + _source_id, 'canasta-backup-' + _dest_id) |
+                 regex_replace('cd "[^"]*"', 'cd "' + _dest_instance_path + '"') }}
+
+        - name: Set backup schedule on destination
+          ansible.builtin.cron:
+            name: "canasta-backup-{{ _dest_id }}"
+            job: "{{ _dest_cron_cmd }}"
+            minute: "{{ _cron_minute }}"
+            hour: "{{ _cron_hour }}"
+            day: "{{ _cron_day }}"
+            month: "{{ _cron_month }}"
+            weekday: "{{ _cron_weekday }}"
+          delegate_to: "{{ _dest_host }}"
+
+        - name: Report schedule cloned
+          ansible.builtin.debug:
+            msg: "Backup schedule cloned from '{{ _source_id }}' to '{{ _dest_id }}'."
+
+    - name: No schedule to clone
+      ansible.builtin.debug:
+        msg: "No backup schedule found on source instance '{{ _source_id }}'."
+      when: _source_cron_lines | length == 0

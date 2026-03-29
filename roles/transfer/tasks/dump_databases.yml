@@ -1,0 +1,51 @@
+---
+# Dump all wiki databases to transfer/ directory on the source host.
+# Input: _source_instance_path, _source_host
+# Output: SQL files in _source_instance_path/transfer/
+
+- name: Create transfer directory on source
+  ansible.builtin.file:
+    path: "{{ _source_instance_path }}/transfer"
+    state: directory
+    mode: "0755"
+  delegate_to: "{{ _source_host }}"
+
+- name: Read wiki list from source
+  canasta_wikis_yaml:
+    instance_path: "{{ _source_instance_path }}"
+    state: read
+  delegate_to: "{{ _source_host }}"
+  register: _transfer_wikis
+
+- name: Read DB password from source
+  canasta_env:
+    path: "{{ _source_instance_path }}/.env"
+    state: read
+    key: MYSQL_PASSWORD
+  delegate_to: "{{ _source_host }}"
+  register: _transfer_dbpass
+  no_log: true
+
+- name: Dump each wiki database
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T db mariadb-dump -u root
+      -p{{ _transfer_dbpass.value | quote }}
+      --single-transaction --databases {{ item | quote }}
+    chdir: "{{ _source_instance_path }}"
+  delegate_to: "{{ _source_host }}"
+  register: _dump_result
+  changed_when: true
+  no_log: true
+  loop: "{{ _transfer_wikis.wiki_ids }}"
+
+- name: Write dump files
+  ansible.builtin.copy:
+    content: "{{ item.stdout }}"
+    dest: "{{ _source_instance_path }}/transfer/{{ item.item }}.sql"
+    mode: "0600"
+  delegate_to: "{{ _source_host }}"
+  loop: "{{ _dump_result.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  no_log: true

@@ -1,0 +1,91 @@
+---
+# canasta migrate - Move a Canasta instance from one host to another.
+# Stops source, transfers data, starts on destination, destroys source.
+
+- name: Require confirmation
+  ansible.builtin.fail:
+    msg: >-
+      Migrating instance '{{ id }}' from {{ from }} to {{ to }}.
+      This will STOP the source instance and DESTROY it after transfer.
+      Use --yes to confirm.
+  when: not (yes | default(false) | bool)
+
+- name: Look up source instance
+  canasta_registry:
+    id: "{{ id }}"
+    state: query
+  delegate_to: localhost
+  register: _mig_source
+
+- name: Set source facts
+  ansible.builtin.set_fact:
+    _source_host: "{{ from }}"
+    _source_id: "{{ id }}"
+    _source_instance_path: "{{ _mig_source.instance.path }}"
+    _dest_host: "{{ to }}"
+    _dest_id: "{{ id }}"
+    _dest_instance_path: "{{ _mig_source.instance.path }}"
+    _dest_orchestrator: "{{ _mig_source.instance.orchestrator | default('compose') }}"
+    _dest_domain: "{{ new_domain | default('') }}"
+
+# --- Stop source ---
+- name: Stop source containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: stop.yml
+  vars:
+    instance_path: "{{ _source_instance_path }}"
+    instance_orchestrator: "{{ _dest_orchestrator }}"
+    instance_devmode: false
+  delegate_to: "{{ _source_host }}"
+
+# --- Dump databases ---
+- name: Dump databases on source
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/transfer/tasks/dump_databases.yml"
+
+# --- Sync to destination ---
+- name: Sync instance to destination
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/transfer/tasks/sync_to_dest.yml"
+
+# --- Import on destination ---
+- name: Set up and start on destination
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/transfer/tasks/import_on_dest.yml"
+
+# --- Clone backup schedule ---
+- name: Clone backup schedule to destination
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/transfer/tasks/clone_backup_schedule.yml"
+
+# --- Destroy source ---
+- name: Destroy source containers and volumes
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: destroy.yml
+  vars:
+    instance_path: "{{ _source_instance_path }}"
+    instance_orchestrator: "{{ _dest_orchestrator }}"
+    instance_managed_cluster: "{{ _mig_source.instance.managedCluster | default(false) }}"
+    instance_id: "{{ _source_id }}"
+  delegate_to: "{{ _source_host }}"
+
+- name: Remove backup schedule from source
+  ansible.builtin.cron:
+    name: "canasta-backup-{{ _source_id }}"
+    state: absent
+  delegate_to: "{{ _source_host }}"
+  ignore_errors: true
+
+- name: Remove source instance directory
+  ansible.builtin.file:
+    path: "{{ _source_instance_path }}"
+    state: absent
+  delegate_to: "{{ _source_host }}"
+
+- name: Deregister source instance
+  canasta_registry:
+    id: "{{ _source_id }}"
+    state: absent
+  delegate_to: localhost
+
+- name: Report migration complete
+  ansible.builtin.debug:
+    msg: "Instance '{{ id }}' migrated from {{ from }} to {{ to }}.{{ (_dest_domain != '') | ternary(' New domain: ' + _dest_domain, '') }}"
