@@ -2,6 +2,11 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Warn about K8s backup limitations
+  ansible.builtin.debug:
+    msg: "WARNING: Local backup repositories are not supported with Kubernetes. Use a remote repository (S3, etc.)."
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
 - name: Initialize backup repository
   ansible.builtin.include_role:
     name: orchestrator

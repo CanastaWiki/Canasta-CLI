@@ -1,8 +1,11 @@
 ---
 # Upgrade a single Canasta instance.
-# Runs all migrations, refreshes stack files, pulls images, restarts.
-# Input: instance_path, instance_id, instance_orchestrator, instance_devmode
+# Runs all migrations, handles MySQL-to-MariaDB, rebuilds custom images,
+# refreshes stack files, pulls images, restarts.
+# Input: instance_path, instance_id, instance_orchestrator, instance_devmode,
+#        instance_managed_cluster
 
+# --- Migrations ---
 - name: Run migrations
   ansible.builtin.include_tasks: "migrations/{{ item }}"
   loop:
@@ -14,25 +17,56 @@
     - remove_skip_binary_as_hex.yml
     - backfill_canasta_image.yml
 
+# --- MySQL to MariaDB migration (Compose only) ---
+- name: MySQL-to-MariaDB migration
+  ansible.builtin.include_tasks: migrations/mysql_to_mariadb.yml
+  when: instance_orchestrator | default('compose') == 'compose'
+
+# --- Rebuild custom image if instance was built from source ---
+- name: Check for BuildFrom in registry
+  canasta_registry:
+    id: "{{ instance_id }}"
+    state: query
+  delegate_to: localhost
+  register: _upgrade_inst
+
+- name: Rebuild from source if BuildFrom is set
+  when: _upgrade_inst.instance.buildFrom | default('') != ''
+  block:
+    - name: Rebuild image from source
+      ansible.builtin.include_role:
+        name: imagebuild
+        tasks_from: build_from_source.yml
+      vars:
+        build_from: "{{ _upgrade_inst.instance.buildFrom }}"
+
+    - name: Load image to kind cluster (if managed K8s)
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_load_image.yml
+      vars:
+        _image_tag: "{{ _built_image }}"
+      when:
+        - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+        - instance_managed_cluster | default(false) | bool
+
+# --- Refresh config ---
 - name: Refresh stack files (no-clobber)
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: write_stack_files.yml
 
-- name: Sync compose profiles
+- name: Initialize orchestrator config
   ansible.builtin.include_role:
     name: orchestrator
-    tasks_from: sync_compose_profiles.yml
+    tasks_from: init_config.yml
 
-- name: Regenerate Caddyfile
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: rewrite_caddy.yml
-
+# --- Pull and restart ---
 - name: Pull latest images
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: pull.yml
+  when: _upgrade_inst.instance.buildFrom | default('') == ''
 
 - name: Stop containers
   ansible.builtin.include_role:

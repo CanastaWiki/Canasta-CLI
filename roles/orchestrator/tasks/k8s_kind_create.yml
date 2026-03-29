@@ -14,6 +14,11 @@
     _kind_http_port: "{{ _kind_env.variables.HTTP_PORT | default(80) }}"
     _kind_https_port: "{{ _kind_env.variables.HTTPS_PORT | default(443) }}"
 
+- name: Validate ports are numeric
+  ansible.builtin.fail:
+    msg: "HTTP_PORT and HTTPS_PORT must be numeric. Got HTTP_PORT={{ _kind_http_port }}, HTTPS_PORT={{ _kind_https_port }}"
+  when: _kind_http_port | string | regex_search('^[0-9]+$') is none or _kind_https_port | string | regex_search('^[0-9]+$') is none
+
 - name: Check if kind cluster already exists
   ansible.builtin.command:
     cmd: "kind get clusters"
@@ -31,7 +36,7 @@
 
     - name: Create cluster
       ansible.builtin.command:
-        cmd: "kind create cluster --config {{ instance_path }}/kind-config.yaml"
+        cmd: "kind create cluster --config {{ (instance_path + '/kind-config.yaml') | quote }}"
       changed_when: true
 
     - name: Clean up kind config

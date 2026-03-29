@@ -52,10 +52,16 @@
          _built_image | default('canasta:local'),
          canasta_image | default(canasta_default_image)) }}
 
-# --- Step 3: Create instance directory ---
+# --- Step 3: Set instance facts early (needed by write_stack_files and init_config) ---
 - name: Set instance path
   ansible.builtin.set_fact:
     instance_path: "{{ (path | default('.')) | realpath }}/{{ id }}"
+
+- name: Set orchestrator facts early
+  ansible.builtin.set_fact:
+    instance_orchestrator: "{{ orchestrator | default('compose') }}"
+    instance_managed_cluster: "{{ create_cluster | default(false) | bool }}"
+    instance_devmode: false
 
 - name: Create instance directory
   ansible.builtin.file:
@@ -307,12 +313,6 @@
         value: "{{ registry | default('localhost:5000') }}/{{ _base_image }}"
 
 # --- Step 11: Start containers (without dev mode) ---
-- name: Set temporary instance facts for initial start
-  ansible.builtin.set_fact:
-    instance_devmode: false
-    instance_orchestrator: "{{ orchestrator | default('compose') }}"
-    instance_managed_cluster: "{{ create_cluster | default(false) | bool }}"
-
 - name: Start containers
   ansible.builtin.include_role:
     name: orchestrator

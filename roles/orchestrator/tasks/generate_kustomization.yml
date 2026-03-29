@@ -20,14 +20,25 @@
     _observable: "{{ _kust_env.variables.CANASTA_ENABLE_OBSERVABILITY | default('false') | lower == 'true' }}"
     _elasticsearch_enabled: "{{ _kust_env.variables.CANASTA_ENABLE_ELASTICSEARCH | default('false') | lower == 'true' }}"
 
-- name: Parse CANASTA_IMAGE for kustomize image override
+- name: Parse CANASTA_IMAGE for kustomize image override (split on LAST colon)
   ansible.builtin.set_fact:
-    _canasta_image_name: "{{ (_kust_env.variables.CANASTA_IMAGE | default('') | split(':'))[0] | default('') }}"
-    _canasta_image_tag: "{{ (_kust_env.variables.CANASTA_IMAGE | default('') | split(':'))[1] | default('') }}"
+    _canasta_image_name: "{{ _kust_env.variables.CANASTA_IMAGE | default('') | regex_replace(':[^:]*$', '') }}"
+    _canasta_image_tag: "{{ _kust_env.variables.CANASTA_IMAGE | default('') | regex_search('[^:]+$') | default('') }}"
   when: >-
     _kust_env.variables.CANASTA_IMAGE is defined and
     _kust_env.variables.CANASTA_IMAGE != '' and
-    _kust_env.variables.CANASTA_IMAGE != canasta_default_image
+    _kust_env.variables.CANASTA_IMAGE != canasta_default_image and
+    ':' in _kust_env.variables.CANASTA_IMAGE
+
+- name: Parse CANASTA_IMAGE without tag
+  ansible.builtin.set_fact:
+    _canasta_image_name: "{{ _kust_env.variables.CANASTA_IMAGE | default('') }}"
+    _canasta_image_tag: ""
+  when: >-
+    _kust_env.variables.CANASTA_IMAGE is defined and
+    _kust_env.variables.CANASTA_IMAGE != '' and
+    _kust_env.variables.CANASTA_IMAGE != canasta_default_image and
+    ':' not in _kust_env.variables.CANASTA_IMAGE
 
 - name: Check for LocalSettings.php
   ansible.builtin.stat:
