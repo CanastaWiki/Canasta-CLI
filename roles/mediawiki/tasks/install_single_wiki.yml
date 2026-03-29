@@ -2,15 +2,19 @@
 # Install a single wiki via install.php.
 # Called in a loop from install.yml.
 # Input: _wiki (dict with id, url, name), _wiki_idx (int),
-#   instance_path, install_admin_name, install_admin_password,
-#   install_root_db_password, install_wiki_db_username, install_wiki_db_password
+#   instance_path, instance_orchestrator,
+#   install_admin_name, install_admin_password,
+#   install_root_db_password, install_wiki_db_username,
+#   install_wiki_db_password
 
 - name: Extract domain from wiki URL
   ansible.builtin.set_fact:
-    _install_domain: "{{ _wiki.url | regex_replace('/.*$', '') }}"
+    _install_domain: >-
+      {{ _wiki.url | regex_replace('/.*$', '') }}
 
 - name: "Run install.php for wiki '{{ _wiki.id }}'"
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
   vars:
     exec_service: web
     exec_command: >-
@@ -35,34 +39,75 @@
     mode: "0600"
   no_log: true
 
-- name: Extract MW_SECRET_KEY from first wiki's LocalSettings.php
+- name: Extract MW_SECRET_KEY from first wiki
   when: _wiki_idx == 0
   block:
-    - name: Read LocalSettings.php from container
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-      vars:
-        exec_service: web
-        exec_command: "cat /tmp/canasta-install/LocalSettings.php"
+    - name: Extract secret key (Compose)
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T web grep -oP
+          'wgSecretKey\s*=\s*"\K[0-9a-fA-F]+'
+          /tmp/canasta-install/LocalSettings.php
+        chdir: "{{ instance_path }}"
+      register: _secret_key_result
+      changed_when: false
+      when: instance_orchestrator | default('compose') == 'compose'
 
-    - name: Parse MW_SECRET_KEY
-      ansible.builtin.set_fact:
-        _secret_key: "{{ exec_result.stdout | regex_search('wgSecretKey\\s*=\\s*\"([0-9a-fA-F]+)\"', '\\1') | first }}"
+    - name: Extract secret key (Kubernetes)
+      when: >-
+        instance_orchestrator | default('compose')
+        in ['kubernetes', 'k8s']
+      block:
+        - name: Get pod name for K8s
+          ansible.builtin.command:
+            cmd: >-
+              kubectl get pods
+              -n {{ instance_path | basename }}
+              -l app=web
+              --field-selector=status.phase=Running
+              -o jsonpath={.items[0].metadata.name}
+          register: _k8s_pod
+          changed_when: false
+
+        - name: Extract secret key from K8s pod
+          ansible.builtin.command:
+            cmd: >-
+              kubectl exec {{ _k8s_pod.stdout | trim }}
+              -n {{ instance_path | basename }} --
+              grep -oP 'wgSecretKey\s*=\s*"\K[0-9a-fA-F]+'
+              /tmp/canasta-install/LocalSettings.php
+          register: _secret_key_result
+          changed_when: false
 
     - name: Save MW_SECRET_KEY to .env
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: set
         key: MW_SECRET_KEY
-        value: "{{ _secret_key }}"
+        value: "{{ _secret_key_result.stdout | trim }}"
       no_log: true
 
-    - name: Delete LocalSettings.php from temp dir
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-      vars:
-        exec_service: web
-        exec_command: "rm -f /tmp/canasta-install/LocalSettings.php"
+    - name: Delete LocalSettings.php (Compose)
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T web
+          rm -f /tmp/canasta-install/LocalSettings.php
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      when: instance_orchestrator | default('compose') == 'compose'
+
+    - name: Delete LocalSettings.php (Kubernetes)
+      ansible.builtin.command:
+        cmd: >-
+          kubectl exec {{ _k8s_pod.stdout | default('') | trim }}
+          -n {{ instance_path | basename }} --
+          rm -f /tmp/canasta-install/LocalSettings.php
+      changed_when: true
+      when: >-
+        instance_orchestrator | default('compose')
+        in ['kubernetes', 'k8s']
 
 - name: Pause between wiki installations
   ansible.builtin.pause:
     seconds: 1
-  when: _wiki_idx < (install_wikis | length) - 1
+  when: _wiki_idx is defined and _wiki_idx < (install_wikis | length) - 1
