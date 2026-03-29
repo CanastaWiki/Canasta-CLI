@@ -11,6 +11,7 @@
 
   vars:
     _test_dir: "{{ molecule_ephemeral_directory }}/k8s-test"
+    canasta_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | default(playbook_dir + '/../../../..', true) }}"
 
   tasks:
     - name: Check kind is available

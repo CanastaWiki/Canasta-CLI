@@ -3,7 +3,7 @@
 # Matches Go: cleans images/public_assets inside container, drops DB, removes config.
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: Require confirmation
   ansible.builtin.fail:

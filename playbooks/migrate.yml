@@ -41,19 +41,19 @@
 
 # --- Dump databases ---
 - name: Dump databases on source
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/transfer/tasks/dump_databases.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/transfer/tasks/dump_databases.yml"
 
 # --- Sync to destination ---
 - name: Sync instance to destination
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/transfer/tasks/sync_to_dest.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/transfer/tasks/sync_to_dest.yml"
 
 # --- Import on destination ---
 - name: Set up and start on destination
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/transfer/tasks/import_on_dest.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/transfer/tasks/import_on_dest.yml"
 
 # --- Clone backup schedule ---
 - name: Clone backup schedule to destination
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/transfer/tasks/clone_backup_schedule.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/transfer/tasks/clone_backup_schedule.yml"
 
 # --- Destroy source ---
 - name: Destroy source containers and volumes

@@ -2,10 +2,10 @@
 # canasta add - Add a wiki to an existing Canasta instance.
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: Validate wiki ID
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/validate_wiki_id.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml"
 
 - name: Parse URL into domain and path
   ansible.builtin.set_fact:
@@ -46,7 +46,7 @@
   when: password is not defined or password == ''
   block:
     - name: Generate password
-      ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/generate_password.yml"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/generate_password.yml"
     - name: Store generated password
       ansible.builtin.set_fact:
         _add_admin_password: "{{ _generated_password }}"

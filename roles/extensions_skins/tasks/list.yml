@@ -3,7 +3,7 @@
 # Input: id (optional), wiki (optional), _item_type (extensions|skins), _item_dir (extensions|skins)
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: "List available {{ _item_type }}"
   ansible.builtin.include_role:

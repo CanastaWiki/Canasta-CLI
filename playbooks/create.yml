@@ -2,7 +2,7 @@
 # canasta create - Create a new Canasta instance.
 
 - name: Validate wiki ID
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/validate_wiki_id.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml"
   when: wiki is defined and wiki != ''
 
 - name: Create Canasta instance

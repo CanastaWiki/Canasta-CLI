@@ -5,7 +5,7 @@
 #        _names (comma-separated), skip_update (bool)
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 # Check each item is actually installed in the container
 - name: "List available {{ _item_type }} in container"

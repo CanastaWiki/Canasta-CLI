@@ -16,7 +16,8 @@
     test_https_port: "10443"
     test_work_dir: "{{ molecule_ephemeral_directory }}"
     test_config_dir: "{{ molecule_ephemeral_directory }}/config"
-    playbook_root: "{{ playbook_dir }}/../../../.."
+    canasta_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | default(playbook_dir + '/../../../..', true) }}"
+    playbook_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | default(playbook_dir + '/../../../..', true) }}"
 
   tasks:
     - name: Check Docker is available

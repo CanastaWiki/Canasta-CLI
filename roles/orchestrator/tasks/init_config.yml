@@ -5,14 +5,14 @@
 
 - name: Create Caddyfile.site from template (no-clobber)
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/instance_template/config/Caddyfile.site"
+    src: "{{ canasta_root }}/instance_template/config/Caddyfile.site"
     dest: "{{ instance_path }}/config/Caddyfile.site"
     force: false
     mode: "0644"
 
 - name: Create Caddyfile.global from template (no-clobber)
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/instance_template/config/Caddyfile.global"
+    src: "{{ canasta_root }}/instance_template/config/Caddyfile.global"
     dest: "{{ instance_path }}/config/Caddyfile.global"
     force: false
     mode: "0644"

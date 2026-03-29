@@ -5,7 +5,7 @@
 # Input: id, yes (bool - skip confirmation)
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: Require confirmation for delete
   ansible.builtin.fail:

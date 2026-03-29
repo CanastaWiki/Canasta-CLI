@@ -3,7 +3,7 @@
 # Uses container temp file + docker compose cp (matching Go behavior).
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: Read DB password from .env
   canasta_env:

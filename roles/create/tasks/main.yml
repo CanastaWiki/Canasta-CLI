@@ -23,7 +23,7 @@
 
 # --- Step 1: Validate inputs ---
 - name: Validate instance ID
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/validate_instance_id.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_instance_id.yml"
 
 - name: Check instance does not already exist
   canasta_registry:
@@ -78,7 +78,7 @@
 # --- Step 5: Copy instance template files (no-clobber) ---
 - name: Copy instance template
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/instance_template/"
+    src: "{{ canasta_root }}/instance_template/"
     dest: "{{ instance_path }}/"
     force: false
     mode: "0644"
@@ -102,7 +102,7 @@
   when: rootdbpass is not defined or rootdbpass == ''
   block:
     - name: Generate root DB password
-      ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/generate_password.yml"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/generate_password.yml"
     - name: Store root DB password
       ansible.builtin.set_fact:
         _rootdbpass: "{{ _generated_password }}"
@@ -124,7 +124,7 @@
   when: (wikidbuser | default('root')) != 'root' and (wikidbpass is not defined or wikidbpass == '')
   block:
     - name: Generate wiki DB password
-      ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/generate_password.yml"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/generate_password.yml"
     - name: Store wiki DB password
       ansible.builtin.set_fact:
         _wikidbpass: "{{ _generated_password }}"
@@ -138,7 +138,7 @@
   when: password is not defined or password == ''
   block:
     - name: Generate admin password
-      ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/generate_password.yml"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/generate_password.yml"
     - name: Store admin password
       ansible.builtin.set_fact:
         _admin_password: "{{ _generated_password }}"
@@ -186,7 +186,7 @@
       loop: "{{ (_custom_env.content | b64decode).split('\n') | select('match', '^[A-Z].*=') | list }}"
 
 - name: Validate passwords for problematic characters
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/validate_passwords.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_passwords.yml"
   vars:
     _password_vars:
       - { key: "MYSQL_PASSWORD", value: "{{ _rootdbpass }}" }

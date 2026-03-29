@@ -11,6 +11,9 @@
   connection: local
   gather_facts: false
 
+  vars:
+    canasta_root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | default(playbook_dir + '/../../../..', true) }}"
+
   tasks:
     - name: Load command definitions
       ansible.builtin.include_vars:

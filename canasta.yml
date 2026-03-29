@@ -11,6 +11,9 @@
   hosts: "{{ target_host | default('all') }}"
   gather_facts: false
 
+  vars:
+    canasta_root: "{{ playbook_dir }}"
+
   pre_tasks:
     - name: Validate command parameter
       ansible.builtin.assert:

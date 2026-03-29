@@ -3,7 +3,7 @@
 # Input: id (optional), keys (str: space-separated keys), no_restart (bool), force (bool)
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: Validate, unapply, and remove each key
   ansible.builtin.include_tasks: _unset_single.yml

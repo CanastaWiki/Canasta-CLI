@@ -3,7 +3,7 @@
 # Dumps DBs to config/backup/, backs up config + extensions + images + skins + public_assets + .env + my.cnf
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: Get wiki list for DB dumps
   canasta_wikis_yaml:
