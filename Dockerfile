@@ -29,6 +29,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Make wrapper executable
-RUN chmod +x canasta
+RUN chmod +x canasta-native
 
-ENTRYPOINT ["/opt/canasta-ansible/canasta"]
+ENTRYPOINT ["/opt/canasta-ansible/canasta-native"]

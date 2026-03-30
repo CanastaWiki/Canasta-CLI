@@ -63,7 +63,7 @@ sudo git clone https://github.com/CanastaWiki/Canasta-Ansible.git /opt/canasta-a
 cd /opt/canasta-ansible
 sudo python3 -m venv .venv
 sudo .venv/bin/pip install -r requirements.txt
-sudo ln -sf /opt/canasta-ansible/canasta /usr/local/bin/canasta
+sudo ln -sf /opt/canasta-ansible/canasta-native /usr/local/bin/canasta
 ```
 
 ### Remote hosts (both options)
