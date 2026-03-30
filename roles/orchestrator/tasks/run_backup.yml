@@ -40,28 +40,19 @@
             "
       changed_when: true
 
-- name: Check if repo is local path
-  ansible.builtin.set_fact:
-    _backup_local_repo: ""
+- name: Read RESTIC_REPOSITORY from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: RESTIC_REPOSITORY
+  register: _backup_repo_env
 
-- name: Find -r flag value
+- name: Detect local repo (from .env or -r flag)
   ansible.builtin.set_fact:
-    _backup_local_repo: "{{ backup_args[idx | int + 1] }}"
-  vars:
-    idx: "{{ lookup('ansible.builtin.sequence',
-             'start=0 count=' + (backup_args | length | string),
-             wantlist=True) }}"
-  when: false
-
-- name: Detect local repo from args
-  ansible.builtin.set_fact:
-    _backup_local_repo: "{{ backup_args[item | int + 1] }}"
-  loop: "{{ range(backup_args | length) | list }}"
-  when: >-
-    backup_args[item | int] == '-r'
-    and (item | int + 1) < (backup_args | length)
-    and backup_args[item | int + 1] is match('^/')
-  no_log: true
+    _backup_local_repo: >-
+      {{ (_backup_repo_env.value | default('')
+          is match('^/'))
+         | ternary(_backup_repo_env.value, '') }}
 
 - name: Run restic container
   ansible.builtin.shell:
