@@ -1,7 +1,7 @@
 ---
 # Default values for the orchestrator role.
 
-# Default Canasta image
+# Default Canasta image (overridden by canasta.yml from CANASTA_VERSION)
 canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
 
 # Docker Compose service names

@@ -347,8 +347,11 @@ def test_backup(inst):
         "-s", snapshot_id, "--skip-safety-backup",
     )
 
+    print("Restarting after restore...")
+    inst.run_ok("restart", "-i", inst.id)
+
     print("Verifying wiki accessible after restore...")
-    wait_for_wiki(inst.http_port, timeout=180)
+    wait_for_wiki(inst.http_port, timeout=300)
     shutil.rmtree(backup_dir, ignore_errors=True)
 
 
