@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git-crypt \
     openssh-client \
     rsync \
+    curl \
     docker.io \
     && rm -rf /var/lib/apt/lists/*
 
