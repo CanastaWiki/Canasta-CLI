@@ -306,13 +306,19 @@ def test_backup(inst):
     )
 
     print("Restoring from backup...")
-    # Extract snapshot ID from list output
+    # Extract snapshot ID (8+ char hex) from the line containing our tag
+    import re
     snapshot_id = None
     for line in output.split("\n"):
         if "test-snapshot" in line:
-            snapshot_id = line.split()[0]
-            break
-    assert snapshot_id, "Could not extract snapshot ID"
+            match = re.search(r'\b([0-9a-f]{8,})\b', line)
+            if match:
+                snapshot_id = match.group(1)
+                break
+    assert snapshot_id, (
+        "Could not extract snapshot ID from: %s"
+        % [l for l in output.split("\n") if "test-snapshot" in l]
+    )
     inst.run_ok(
         "backup", "restore", "-i", inst.id,
         "-s", snapshot_id, "--skip-safety-backup",
