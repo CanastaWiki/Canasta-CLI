@@ -85,13 +85,47 @@ except:
     fi
 fi
 
-# Mount instance path if it's outside current directory
+# Mount all instance paths from conf.json (needed for list, upgrade,
+# and any command that reads instance directories).
+if [[ -f "$CONF_FILE" ]]; then
+    if command -v python3 &>/dev/null; then
+        ALL_PATHS=$(python3 -c "
+import json
+try:
+    with open('$CONF_FILE') as f:
+        data = json.load(f)
+    for inst in data.get('Instances', {}).values():
+        p = inst.get('path', '')
+        if p:
+            print(p)
+except:
+    pass
+" 2>/dev/null || true)
+    else
+        ALL_PATHS=$(grep '"path"' "$CONF_FILE" 2>/dev/null \
+            | sed 's/.*"path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
+            || true)
+    fi
+
+    CWD="$(pwd)"
+    while IFS= read -r ipath; do
+        [[ -z "$ipath" ]] && continue
+        case "$ipath" in
+            "$CWD"*) ;; # Already covered by cwd mount
+            *)
+                MOUNTS+=(-v "$ipath":"$ipath":ro)
+                ;;
+        esac
+    done <<< "$ALL_PATHS"
+fi
+
+# Mount specific instance path read-write if --id provided
 if [[ -n "$INSTANCE_PATH" ]]; then
     CWD="$(pwd)"
-    # Check if instance path is NOT under current directory
     case "$INSTANCE_PATH" in
         "$CWD"*) ;; # Already covered by cwd mount
         *)
+            # Override the ro mount with rw for the active instance
             MOUNTS+=(-v "$INSTANCE_PATH":"$INSTANCE_PATH")
             ;;
     esac
