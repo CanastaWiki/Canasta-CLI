@@ -7,13 +7,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client \
     rsync \
     curl \
-    docker.io \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install docker compose plugin
+# Install Docker CLI (not daemon - we use host's Docker via socket)
+RUN curl -fsSL https://download.docker.com/linux/static/stable/$(uname -m)/docker-27.5.1.tgz \
+    | tar xz --strip-components=1 -C /usr/local/bin docker/docker
+
+# Install Docker Compose plugin
 RUN mkdir -p /usr/local/lib/docker/cli-plugins \
     && ARCH=$(dpkg --print-architecture) \
-    && curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${ARCH}" \
+    && curl -fsSL \
+         "https://github.com/docker/compose/releases/download/v2.35.1/docker-compose-linux-${ARCH}" \
          -o /usr/local/lib/docker/cli-plugins/docker-compose \
     && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
