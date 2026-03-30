@@ -206,7 +206,7 @@ def test_lifecycle(inst):
     wait_for_wiki(inst.http_port)
 
     print("Listing instances...")
-    output = inst.run_ok("list")
+    output = inst.run_quiet("list")
     assert inst.id in output, "Instance not in list output"
 
 
