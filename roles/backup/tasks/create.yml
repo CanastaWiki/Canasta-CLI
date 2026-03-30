@@ -33,7 +33,8 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
   vars:
-    exec_service: db
+    exec_service: web
+    exec_no_log: true
     exec_command: >-
       mariadb-dump -h db -u root
       -p{{ _backup_dbpass.value | quote }}
@@ -41,6 +42,7 @@
       --databases {{ item | quote }}
       > /mediawiki/config/backup/db_{{ item | quote }}.sql
   loop: "{{ _backup_wikis.wiki_ids }}"
+  no_log: true
 
 - name: Get hostname for tag
   ansible.builtin.command:
