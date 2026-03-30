@@ -75,6 +75,45 @@ jobs:
           ".venv/bin/python tests/integration/run_tests.py"
         timeout-minutes: 25
 
+  docker-smoke:
+    name: Docker Smoke Test
+    runs-on: ubuntu-latest
+    needs: [unit]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build Docker image
+        run: docker build -t canasta-ansible:test .
+
+      - name: Test version command
+        run: |
+          OUTPUT=$(docker run --rm canasta-ansible:test version)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "Canasta CLI v"
+
+      - name: Test list command (empty registry)
+        run: |
+          OUTPUT=$(docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            canasta-ansible:test list)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "No registered instances"
+
+      - name: Test doctor command
+        run: |
+          OUTPUT=$(docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            canasta-ansible:test doctor)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "Docker"
+
+      - name: Test help output
+        run: |
+          OUTPUT=$(docker run --rm canasta-ansible:test --help)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "create"
+          echo "$OUTPUT" | grep -q "backup"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
