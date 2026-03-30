@@ -14,11 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://download.docker.com/linux/static/stable/$(uname -m)/docker-27.5.1.tgz \
     | tar xz --strip-components=1 -C /usr/local/bin docker/docker
 
-# Install Docker Compose plugin
+# Install Docker Compose plugin (uses uname -m for arch: x86_64/aarch64)
 RUN mkdir -p /usr/local/lib/docker/cli-plugins \
-    && ARCH=$(dpkg --print-architecture) \
     && curl -fsSL \
-         "https://github.com/docker/compose/releases/download/v2.35.1/docker-compose-linux-${ARCH}" \
+         "https://github.com/docker/compose/releases/download/v5.1.1/docker-compose-linux-$(uname -m)" \
          -o /usr/local/lib/docker/cli-plugins/docker-compose \
     && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
