@@ -1,10 +1,21 @@
 ---
-# Restore: run restic restore into the backup volume, then copy
-# from the volume back to the host instance directory via alpine.
+# Restore matching Go CLI's restoreFull():
+# 1. Restic restore into backup volume
+# 2. Copy files from volume to host via alpine
+# 3. Preserve DB passwords in restored .env
+# 4. Import each wiki's database dump
 
 - name: Resolve instance
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Save current DB password before restore
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MYSQL_PASSWORD
+  register: _restore_dbpass
+  no_log: true
 
 - name: Take safety backup before restore
   when: not (skip_safety_backup | default(false) | bool)
@@ -27,27 +38,63 @@
       - "--target"
       - "/"
 
-- name: Restore files from volume to host
-  ansible.builtin.command:
-    cmd: >-
-      docker run --rm
-      -v canasta-backup-{{ instance_path | basename
-      }}:/currentsnapshot:ro
-      -v {{ instance_path }}:/install
-      alpine sh -c "
-      for d in config extensions images skins public_assets; do
-        if [ -d /currentsnapshot/$d ]; then
-          mkdir -p /install/$d &&
-          rm -rf /install/$d/* /install/$d/.[!.]* 2>/dev/null;
-          cp -a /currentsnapshot/$d/. /install/$d/;
-        fi;
-      done;
-      for f in .env docker-compose.override.yml my.cnf; do
-        if [ -f /currentsnapshot/$f ]; then
-          cp -a /currentsnapshot/$f /install/$f;
-        fi;
-      done"
+- name: Copy files from volume to host
+  ansible.builtin.shell:
+    cmd: |
+      docker run --rm \
+        -v canasta-backup-{{ instance_path | basename
+        }}:/currentsnapshot:ro \
+        -v {{ instance_path }}:/install \
+        alpine sh -c "
+        for d in config extensions images skins public_assets; do
+          if [ -d /currentsnapshot/\$d ]; then
+            mkdir -p /install/\$d &&
+            rm -rf /install/\$d/* \
+              /install/\$d/.[!.]* 2>/dev/null;
+            cp -a /currentsnapshot/\$d/. /install/\$d/;
+          fi;
+        done;
+        for f in .env docker-compose.override.yml my.cnf; do
+          if [ -f /currentsnapshot/\$f ]; then
+            cp -a /currentsnapshot/\$f /install/\$f;
+          fi;
+        done"
   changed_when: true
+
+- name: Preserve DB password in restored .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: MYSQL_PASSWORD
+    value: "{{ _restore_dbpass.value }}"
+  no_log: true
+
+- name: Read wiki IDs for DB restore
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _restore_wikis
+
+- name: Import each wiki database dump
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+  vars:
+    exec_service: web
+    exec_no_log: true
+    exec_command: >-
+      mariadb -h db -u root
+      -p{{ _restore_dbpass.value | quote }}
+      < /mediawiki/config/backup/db_{{ item | quote }}.sql
+  loop: "{{ _restore_wikis.wiki_ids }}"
+  no_log: true
+
+- name: Clean up backup dump directory
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+  vars:
+    exec_service: web
+    exec_command: "rm -rf /mediawiki/config/backup"
+  ignore_errors: true
 
 - name: Display result
   ansible.builtin.debug:
