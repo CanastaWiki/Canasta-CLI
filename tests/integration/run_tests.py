@@ -72,6 +72,29 @@ class TestInstance:
         sys.stdout.flush()
         return output, result.returncode
 
+    def run_quiet(self, *args):
+        """Run without --verbose for parseable output."""
+        env = os.environ.copy()
+        env["CANASTA_CONFIG_DIR"] = self.config_dir
+        env["ANSIBLE_CONFIG"] = os.path.join(REPO_ROOT, "ansible.cfg")
+        cmd = [CANASTA_BIN] + list(args)
+        print("  $ canasta %s" % " ".join(args), flush=True)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            cwd=self.work_dir, env=env,
+        )
+        output = result.stdout + result.stderr
+        if output.strip():
+            for line in output.strip().split("\n"):
+                print("    %s" % line)
+        sys.stdout.flush()
+        if result.returncode != 0:
+            raise AssertionError(
+                "Command failed (rc=%d): canasta %s\n%s"
+                % (result.returncode, " ".join(args), output)
+            )
+        return output
+
     def run_ok(self, *args):
         """Run a canasta command, fail if non-zero exit."""
         output, rc = self.run(*args)
@@ -287,7 +310,7 @@ def test_backup(inst):
     inst.run_ok("backup", "create", "-i", inst.id, "-t", "test-snapshot")
 
     print("Listing snapshots...")
-    output = inst.run_ok("backup", "list", "-i", inst.id)
+    output = inst.run_quiet("backup", "list", "-i", inst.id)
     assert "test-snapshot" in output, (
         "Snapshot tag not found in list output"
     )
@@ -306,7 +329,7 @@ def test_backup(inst):
     )
 
     print("Restoring from backup...")
-    # Extract snapshot ID (8+ char hex) from the line containing our tag
+    # Extract snapshot ID (8+ hex chars) from clean restic output
     import re
     snapshot_id = None
     for line in output.split("\n"):
