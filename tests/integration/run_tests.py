@@ -29,7 +29,7 @@ REPO_ROOT = os.environ.get(
     "CANASTA_ROOT",
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
 )
-CANASTA_BIN = os.path.join(REPO_ROOT, "canasta")
+CANASTA_BIN = os.path.join(REPO_ROOT, "canasta-native")
 
 # Atomic-ish port counter (single-threaded, no need for locks)
 _port_counter = int(os.environ.get("CANASTA_TEST_PORT_BASE", "10080"))
