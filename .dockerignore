@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+venv
+.pytest_cache
+__pycache__
+*.pyc
+.coverage
+docs/commands/*.md
+tests/
+.yamllint.yml
+canasta.bash.bak

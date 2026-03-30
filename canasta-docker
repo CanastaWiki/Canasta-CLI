@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+#
+# canasta-docker - Run Canasta-Ansible from a Docker container.
+#
+# Only Docker is required on the host. No Python, no Ansible.
+#
+# Install:
+#   curl -o /usr/local/bin/canasta \
+#     https://raw.githubusercontent.com/CanastaWiki/Canasta-Ansible/main/canasta-docker
+#   chmod +x /usr/local/bin/canasta
+#
+# Usage is identical to the native install:
+#   canasta create -i mysite -w main
+#   canasta list
+#   canasta --host prod1 start -i mysite
+
+set -euo pipefail
+
+IMAGE="${CANASTA_ANSIBLE_IMAGE:-ghcr.io/canastawiki/canasta-ansible:latest}"
+
+# Determine config directory (same logic as canasta_registry.py)
+if [[ -n "${CANASTA_CONFIG_DIR:-}" ]]; then
+    CONFIG_DIR="$CANASTA_CONFIG_DIR"
+elif [[ "$(id -u)" == "0" ]]; then
+    CONFIG_DIR="/etc/canasta"
+elif [[ "$(uname)" == "Darwin" ]]; then
+    CONFIG_DIR="$HOME/Library/Application Support/canasta"
+else
+    CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/canasta"
+fi
+
+# Ensure config directory exists
+mkdir -p "$CONFIG_DIR"
+
+# Base mounts: Docker socket + registry + current directory
+MOUNTS=(
+    -v /var/run/docker.sock:/var/run/docker.sock
+    -v "$CONFIG_DIR":"$CONFIG_DIR"
+    -e "CANASTA_CONFIG_DIR=$CONFIG_DIR"
+    -v "$(pwd)":"$(pwd)"
+    -w "$(pwd)"
+)
+
+# Parse args to find instance path from --id/-i (look up in conf.json)
+# so we can mount it if it's outside the current directory.
+CONF_FILE="$CONFIG_DIR/conf.json"
+INSTANCE_PATH=""
+
+if [[ -f "$CONF_FILE" ]]; then
+    # Extract --id or -i value from args
+    INST_ID=""
+    ARGS=("$@")
+    for ((i=0; i<${#ARGS[@]}; i++)); do
+        case "${ARGS[$i]}" in
+            --id|-i)
+                if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                    INST_ID="${ARGS[$((i+1))]}"
+                fi
+                ;;
+            --id=*)
+                INST_ID="${ARGS[$i]#--id=}"
+                ;;
+        esac
+    done
+
+    # Look up instance path from conf.json
+    if [[ -n "$INST_ID" ]] && command -v python3 &>/dev/null; then
+        INSTANCE_PATH=$(python3 -c "
+import json, sys
+try:
+    with open('$CONF_FILE') as f:
+        data = json.load(f)
+    instances = data.get('Instances', {})
+    inst = instances.get('$INST_ID', {})
+    print(inst.get('path', ''))
+except:
+    pass
+" 2>/dev/null || true)
+    elif [[ -n "$INST_ID" ]]; then
+        # Fallback: grep for the path (no python3 available)
+        INSTANCE_PATH=$(grep -A5 "\"$INST_ID\"" "$CONF_FILE" 2>/dev/null \
+            | grep '"path"' | head -1 \
+            | sed 's/.*"path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
+            || true)
+    fi
+fi
+
+# Mount instance path if it's outside current directory
+if [[ -n "$INSTANCE_PATH" ]]; then
+    CWD="$(pwd)"
+    # Check if instance path is NOT under current directory
+    case "$INSTANCE_PATH" in
+        "$CWD"*) ;; # Already covered by cwd mount
+        *)
+            MOUNTS+=(-v "$INSTANCE_PATH":"$INSTANCE_PATH")
+            ;;
+    esac
+fi
+
+# Parse -p/--path for create command (mount parent directory)
+for ((i=0; i<$#; i++)); do
+    case "${!i}" in
+        --path|-p)
+            j=$((i+1))
+            if [[ $j -le $# ]]; then
+                CREATE_PATH="${!j}"
+                case "$CREATE_PATH" in
+                    "$(pwd)"*) ;; # Already covered
+                    *)
+                        MOUNTS+=(-v "$CREATE_PATH":"$CREATE_PATH")
+                        ;;
+                esac
+            fi
+            ;;
+    esac
+done
+
+# Parse -d/--database for import (mount dump file)
+for ((i=0; i<$#; i++)); do
+    case "${!i}" in
+        --database|-d)
+            j=$((i+1))
+            if [[ $j -le $# ]]; then
+                DB_FILE="${!j}"
+                DB_DIR="$(dirname "$DB_FILE")"
+                case "$DB_DIR" in
+                    "$(pwd)"*) ;; # Already covered
+                    *)
+                        MOUNTS+=(-v "$DB_DIR":"$DB_DIR":ro)
+                        ;;
+                esac
+            fi
+            ;;
+    esac
+done
+
+# Mount SSH keys for remote host access
+if [[ -d "$HOME/.ssh" ]]; then
+    MOUNTS+=(-v "$HOME/.ssh":"$HOME/.ssh":ro)
+fi
+
+exec docker run --rm -i \
+    "${MOUNTS[@]}" \
+    "$IMAGE" "$@"

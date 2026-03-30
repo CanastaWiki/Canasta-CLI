@@ -42,6 +42,22 @@ Run `canasta doctor` to verify all dependencies on a target host.
 
 ## Installation
 
+### Option 1: Docker (recommended)
+
+Only Docker is required. No Python, no Ansible.
+
+```bash
+sudo curl -o /usr/local/bin/canasta \
+  https://raw.githubusercontent.com/CanastaWiki/Canasta-Ansible/main/canasta-docker
+sudo chmod +x /usr/local/bin/canasta
+```
+
+The wrapper automatically pulls the `canasta-ansible` image on first run.
+
+Upgrade: `docker pull ghcr.io/canastawiki/canasta-ansible:latest`
+
+### Option 2: Native install
+
 ```bash
 sudo git clone https://github.com/CanastaWiki/Canasta-Ansible.git /opt/canasta-ansible
 cd /opt/canasta-ansible
@@ -50,15 +66,19 @@ sudo .venv/bin/pip install -r requirements.txt
 sudo ln -sf /opt/canasta-ansible/canasta /usr/local/bin/canasta
 ```
 
-The default inventory (`inventory/localhost.yml`) manages the local machine. For remote hosts, copy the example and add your targets:
+### Remote hosts (both options)
+
+The default inventory manages the local machine. For remote hosts, copy the example and add your targets:
 
 ```bash
-sudo cp inventory/hosts.yml.example inventory/hosts.yml
-# Edit inventory/hosts.yml to add remote hosts, then update ansible.cfg:
+# Native install only:
+sudo cp /opt/canasta-ansible/inventory/hosts.yml.example \
+  /opt/canasta-ansible/inventory/hosts.yml
+# Edit hosts.yml to add remote hosts, then update ansible.cfg:
 #   inventory = inventory/hosts.yml
 ```
 
-Verify the installation:
+### Verify
 
 ```bash
 canasta version
