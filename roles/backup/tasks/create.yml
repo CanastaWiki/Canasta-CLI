@@ -57,28 +57,13 @@
 
 - name: Build volume map for staging
   ansible.builtin.set_fact:
-    _backup_volumes: >-
-      {{
-        dict(
-          [instance_path + '/config',
-           '/currentsnapshot/config'],
-          [instance_path + '/extensions',
-           '/currentsnapshot/extensions'],
-          [instance_path + '/images',
-           '/currentsnapshot/images'],
-          [instance_path + '/skins',
-           '/currentsnapshot/skins'],
-          [instance_path + '/public_assets',
-           '/currentsnapshot/public_assets']
-        )
-      }}
-
-- name: Add .env to staging
-  ansible.builtin.set_fact:
-    _backup_volumes: >-
-      {{ _backup_volumes | combine(
-         {instance_path + '/.env':
-          '/currentsnapshot/.env'}) }}
+    _backup_volumes:
+      "{{ instance_path }}/config": "/currentsnapshot/config"
+      "{{ instance_path }}/extensions": "/currentsnapshot/extensions"
+      "{{ instance_path }}/images": "/currentsnapshot/images"
+      "{{ instance_path }}/skins": "/currentsnapshot/skins"
+      "{{ instance_path }}/public_assets": "/currentsnapshot/public_assets"
+      "{{ instance_path }}/.env": "/currentsnapshot/.env"
 
 - name: Check for optional files
   ansible.builtin.stat:
