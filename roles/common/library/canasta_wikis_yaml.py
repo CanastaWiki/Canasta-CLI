@@ -42,7 +42,6 @@ options:
 """
 
 import os
-import re
 
 import yaml
 
@@ -50,7 +49,6 @@ from ansible.module_utils.basic import AnsibleModule
 
 
 RESERVED_WIKI_IDS = ["settings", "images", "w", "wiki", "wikis"]
-WIKI_ID_INVALID_CHARS = re.compile(r"-")
 
 
 def wikis_yaml_path(instance_path):
@@ -67,7 +65,7 @@ def validate_wiki_id(wiki_id):
     """
     if not wiki_id:
         return "wiki ID cannot be empty"
-    if WIKI_ID_INVALID_CHARS.search(wiki_id):
+    if "-" in wiki_id:
         return "wiki ID '%s' cannot contain hyphens" % wiki_id
     if wiki_id in RESERVED_WIKI_IDS:
         return "wiki ID '%s' is reserved (cannot be: %s)" % (wiki_id, ", ".join(RESERVED_WIKI_IDS))

@@ -18,6 +18,7 @@ Requirements:
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,11 @@ REPO_ROOT = os.environ.get(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
 )
 CANASTA_BIN = os.path.join(REPO_ROOT, "canasta-native")
+
+
+class SkipTest(Exception):
+    """Raised when a test's prerequisites are not met."""
+    pass
 
 # Atomic-ish port counter (single-threaded, no need for locks)
 _port_counter = int(os.environ.get("CANASTA_TEST_PORT_BASE", "10080"))
@@ -330,7 +336,6 @@ def test_backup(inst):
 
     print("Restoring from backup...")
     # Extract snapshot ID (8+ hex chars) from clean restic output
-    import re
     snapshot_id = None
     for line in output.split("\n"):
         if "test-snapshot" in line:
@@ -359,8 +364,7 @@ def test_gitops(inst):
     """Init gitops, verify templates, push, verify remote."""
     # Check prerequisites
     if shutil.which("git-crypt") is None:
-        print("SKIP: git-crypt not installed")
-        return
+        raise SkipTest("git-crypt not installed")
 
     print("Creating instance...")
     inst.run_ok(
@@ -475,6 +479,9 @@ def main():
             test_fn(inst)
             print("PASSED: %s" % name)
             passed += 1
+        except SkipTest as e:
+            print("SKIPPED: %s: %s" % (name, e))
+            skipped += 1
         except AssertionError as e:
             print("FAILED: %s: %s" % (name, e))
             failed += 1

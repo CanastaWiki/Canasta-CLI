@@ -58,6 +58,7 @@ options:
 
 import json
 import os
+import platform
 import pwd
 
 from ansible.module_utils.basic import AnsibleModule
@@ -80,7 +81,6 @@ def get_config_dir(override=None):
         return env_dir
     if is_root():
         return "/etc/canasta"
-    import platform
     if platform.system() == "Darwin":
         config_home = os.path.join(
             os.path.expanduser("~"), "Library", "Application Support"

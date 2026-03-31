@@ -47,8 +47,17 @@ NESTED_SUBCOMMAND_GROUPS = {
 
 def load_definitions():
     """Load command definitions from YAML."""
-    with open(DEFINITIONS_PATH) as f:
-        return yaml.safe_load(f)
+    try:
+        with open(DEFINITIONS_PATH) as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        print("Error: Command definitions not found at %s" % DEFINITIONS_PATH,
+              file=sys.stderr)
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        print("Error: Failed to parse %s: %s" % (DEFINITIONS_PATH, e),
+              file=sys.stderr)
+        sys.exit(1)
 
 
 def find_ansible_playbook():
@@ -305,11 +314,14 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
             if value:
                 ansible_args.extend(["-e", "%s=true" % name])
         else:
-            # Quote the value to prevent ansible-playbook from
-            # interpreting flags within it (e.g., "php -v")
-            ansible_args.extend(["-e", "%s=%s" % (name, value)]
-                                if " " not in str(value)
-                                else ["-e", '%s="%s"' % (name, value)])
+            # Quote values containing characters that ansible-playbook
+            # could misinterpret (spaces, Jinja2/YAML metacharacters)
+            val_str = str(value)
+            needs_quoting = any(c in val_str for c in ' "\'{}[]')
+            if needs_quoting:
+                ansible_args.extend(["-e", '%s="%s"' % (name, val_str)])
+            else:
+                ansible_args.extend(["-e", "%s=%s" % (name, val_str)])
 
     return ansible_args
 
@@ -390,9 +402,6 @@ def main():
         pos_name = positional_names.get(cmd_name)
         if pos_name:
             setattr(args, pos_name, passthrough)
-        else:
-            # Generic fallback
-            args.args = passthrough
 
     if not args.command:
         parser.print_help()
@@ -404,8 +413,8 @@ def main():
         sys.exit(1)
 
     # Verify command exists in definitions
-    cmd_names = {c["name"] for c in data["commands"]}
-    if command_name not in cmd_names:
+    all_cmd_names = {c["name"] for c in data["commands"]}
+    if command_name not in all_cmd_names:
         print("Unknown command: %s" % command_name, file=sys.stderr)
         sys.exit(1)
 

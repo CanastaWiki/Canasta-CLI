@@ -23,7 +23,6 @@ Usage:
 import argparse
 import json
 import os
-import re
 import sys
 import time
 import urllib.parse
