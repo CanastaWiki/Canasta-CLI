@@ -6,6 +6,10 @@
 #        instance_managed_cluster
 
 # --- Migrations ---
+- name: Report checking migrations
+  ansible.builtin.debug:
+    msg: "Checking for config migrations..."
+
 - name: Run migrations
   ansible.builtin.include_tasks: "migrations/{{ _migration }}"
   loop:
@@ -64,11 +68,20 @@
     tasks_from: init_config.yml
 
 # --- Pull and restart ---
+- name: Report pulling images
+  ansible.builtin.debug:
+    msg: "Pulling Canasta container images..."
+  when: _upgrade_inst.instance.buildFrom | default('') == ''
+
 - name: Pull latest images
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: pull.yml
   when: _upgrade_inst.instance.buildFrom | default('') == ''
+
+- name: Report restarting
+  ansible.builtin.debug:
+    msg: "Restarting containers..."
 
 - name: Stop containers
   ansible.builtin.include_role:
@@ -86,3 +99,7 @@
     exec_service: web
     exec_command: "touch /var/www/mediawiki/w/LocalSettings.php"
   ignore_errors: true
+
+- name: Report instance upgraded
+  ansible.builtin.debug:
+    msg: "Canasta upgraded successfully!"
