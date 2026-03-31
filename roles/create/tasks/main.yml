@@ -73,9 +73,15 @@
          canasta_image | default(canasta_default_image)) }}
 
 # --- Step 3: Set instance facts early (needed by write_stack_files and init_config) ---
+- name: Resolve base path (absolute without resolving symlinks)
+  ansible.builtin.command:
+    cmd: "python3 -c \"import os, sys; print(os.path.abspath(sys.argv[1]))\" {{ path | default('.') | quote }}"
+  register: _base_path
+  changed_when: false
+
 - name: Set instance path
   ansible.builtin.set_fact:
-    instance_path: "{{ (path | default('.')) | realpath }}/{{ id }}"
+    instance_path: "{{ _base_path.stdout }}/{{ id }}"
 
 - name: Set orchestrator facts early
   ansible.builtin.set_fact:
@@ -355,7 +361,7 @@
 # --- Step 11: Start containers (without dev mode) ---
 - name: Report starting
   ansible.builtin.debug:
-    msg: "Starting Canasta..."
+    msg: "Creating Canasta instance '{{ id }}'..."
 
 - name: Start containers
   ansible.builtin.include_role:
