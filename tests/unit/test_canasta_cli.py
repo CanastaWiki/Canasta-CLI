@@ -120,6 +120,24 @@ class TestBuildParser:
         ])
         assert args.domain_name == "example.com"
 
+    def test_long_field_override(self, parser):
+        """Parameters with 'long' field use that as the CLI flag name."""
+        args = parser.parse_args([
+            "gitops", "init", "-i", "mysite",
+            "--name", "prod", "--repo", "git@example.com:org/cfg.git",
+            "--key", "/tmp/gc.key"
+        ])
+        assert args.host_name == "prod"
+
+    def test_long_field_short_flag(self, parser):
+        """Short flag still works with long field override."""
+        args = parser.parse_args([
+            "gitops", "init", "-i", "mysite",
+            "-n", "prod", "--repo", "git@example.com:org/cfg.git",
+            "--key", "/tmp/gc.key"
+        ])
+        assert args.host_name == "prod"
+
 
 class TestResolveCommandName:
     def test_simple_command(self, parser):
@@ -255,6 +273,21 @@ class TestBuildAnsibleArgs:
             "ap", "start", args, data
         )
         assert "id=mysite" in result
+
+    def test_host_name_param(self, data):
+        """host_name parameter (with long: name) is passed correctly."""
+        from argparse import Namespace
+        args = Namespace(
+            command="gitops", subcommand="init",
+            host=None, verbose=False,
+            id="mysite", host_name="prod",
+            role="both", repo="git@example.com:org/cfg.git",
+            key="/tmp/gc.key", force=False, pull_requests=False,
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "gitops_init", args, data
+        )
+        assert "host_name=prod" in result
 
 
 class TestRemainderArgs:

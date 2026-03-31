@@ -9,7 +9,7 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 - **Multi-host management** from a single controller node via SSH
 - **Instance migration and cloning** between hosts with backup schedule transfer
 - **Auto-generated documentation** from a single command definitions file
-- **202 unit tests** (87% coverage) + Docker-based integration tests in CI
+- **216 unit tests** (88% coverage) + Docker-based integration tests in CI
 - **Zero-migration compatibility** with existing Canasta-CLI installations (reads the same `conf.json` registry)
 
 ## Requirements
@@ -260,7 +260,7 @@ Existing Canasta-CLI installations are automatically visible -- the registry for
 ## Testing
 
 ```bash
-# Unit tests (202 tests, 87% coverage)
+# Unit tests (216 tests, 88% coverage)
 make test-unit
 
 # Integration tests (requires Docker)

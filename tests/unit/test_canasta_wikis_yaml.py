@@ -128,6 +128,29 @@ class TestWikiUrlExists:
         assert canasta_wikis_yaml.wiki_url_exists(wikis, "other.com") is False
 
 
+class TestUpdateUrlPort:
+    def test_standard_port_stripped(self):
+        assert canasta_wikis_yaml.update_url_port("example.com:8443", "443") == "example.com"
+
+    def test_nonstandard_port_appended(self):
+        assert canasta_wikis_yaml.update_url_port("example.com", "8443") == "example.com:8443"
+
+    def test_port_replaced(self):
+        assert canasta_wikis_yaml.update_url_port("example.com:8443", "9443") == "example.com:9443"
+
+    def test_preserves_path(self):
+        assert canasta_wikis_yaml.update_url_port("example.com:8443/docs", "9443") == "example.com:9443/docs"
+
+    def test_preserves_path_standard_port(self):
+        assert canasta_wikis_yaml.update_url_port("example.com:8443/docs", "443") == "example.com/docs"
+
+    def test_no_existing_port_with_path(self):
+        assert canasta_wikis_yaml.update_url_port("example.com/docs", "8443") == "example.com:8443/docs"
+
+    def test_no_change_needed(self):
+        assert canasta_wikis_yaml.update_url_port("example.com", "443") == "example.com"
+
+
 class TestRunModuleRead:
     def test_read(self, sample_wikis_yaml):
         result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
@@ -199,6 +222,59 @@ class TestRunModuleRemove:
             "instance_path": tmp_dir, "state": "remove",
             "wiki_id": "only", "domain": None,
             "wiki_path": None, "site_name": None,
+            "port": None,
         })
         assert failed
         assert "last wiki" in msg
+
+
+class TestRunModuleUpdatePort:
+    def test_update_port_single_wiki(self, tmp_dir):
+        os.makedirs(os.path.join(tmp_dir, "config"), exist_ok=True)
+        canasta_wikis_yaml.write_wikis(tmp_dir, [
+            {"id": "main", "url": "localhost", "name": "Main"},
+        ])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "update_port",
+            "wiki_id": None, "domain": None,
+            "wiki_path": None, "site_name": None,
+            "port": "8443",
+        })
+        assert not failed
+        assert result["changed"]
+        assert result["wikis"][0]["url"] == "localhost:8443"
+
+    def test_update_port_multiple_wikis(self, sample_wikis_yaml):
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": sample_wikis_yaml, "state": "update_port",
+            "wiki_id": None, "domain": None,
+            "wiki_path": None, "site_name": None,
+            "port": "9443",
+        })
+        assert not failed
+        assert result["wikis"][0]["url"] == "example.com:9443"
+        assert result["wikis"][1]["url"] == "example.com:9443/docs"
+
+    def test_update_port_to_standard(self, tmp_dir):
+        os.makedirs(os.path.join(tmp_dir, "config"), exist_ok=True)
+        canasta_wikis_yaml.write_wikis(tmp_dir, [
+            {"id": "main", "url": "localhost:8443", "name": "Main"},
+        ])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "update_port",
+            "wiki_id": None, "domain": None,
+            "wiki_path": None, "site_name": None,
+            "port": "443",
+        })
+        assert not failed
+        assert result["wikis"][0]["url"] == "localhost"
+
+    def test_update_port_requires_port(self, sample_wikis_yaml):
+        result, failed, msg = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": sample_wikis_yaml, "state": "update_port",
+            "wiki_id": None, "domain": None,
+            "wiki_path": None, "site_name": None,
+            "port": None,
+        })
+        assert failed
+        assert "port is required" in msg
