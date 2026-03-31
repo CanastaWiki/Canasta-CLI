@@ -4,12 +4,12 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 
 ## Features
 
-- **54 commands** covering instance lifecycle, wiki management, configuration, extensions, skins, maintenance, backup/restore, gitops, devmode, sitemaps, and more
+- **56 commands** covering instance lifecycle, wiki management, configuration, extensions, skins, maintenance, backup/restore, gitops, devmode, sitemaps, and more
 - **Docker Compose and Kubernetes** (kind) orchestrator support
 - **Multi-host management** from a single controller node via SSH
 - **Instance migration and cloning** between hosts with backup schedule transfer
 - **Auto-generated documentation** from a single command definitions file
-- **189 unit tests** (84% coverage) + Docker-based integration tests in CI
+- **202 unit tests** (87% coverage) + Docker-based integration tests in CI
 - **Zero-migration compatibility** with existing Canasta-CLI installations (reads the same `conf.json` registry)
 
 ## Requirements
@@ -260,7 +260,7 @@ Existing Canasta-CLI installations are automatically visible -- the registry for
 ## Testing
 
 ```bash
-# Unit tests (189 tests, 84% coverage)
+# Unit tests (202 tests, 87% coverage)
 make test-unit
 
 # Integration tests (requires Docker)
