@@ -194,20 +194,19 @@
         value: "{{ item.split('=', 1)[1] }}"
       loop: "{{ (_custom_env.content | b64decode).split('\n') | select('match', '^[A-Z].*=') | list }}"
 
-- name: Read HTTPS_PORT from .env
+- name: Read HTTPS_PORT and CADDY_AUTO_HTTPS from .env
   canasta_env:
     path: "{{ instance_path }}/.env"
-    state: read
-    key: HTTPS_PORT
-  register: _env_https_port
-  ignore_errors: true
+    state: read_all
+  register: _env_for_port
 
 - name: Build domain with port (matches Go BuildDomainWithPort)
   ansible.builtin.set_fact:
     _domain_with_port: >-
       {{ domain_name | default('localhost') }}{{
-        (_env_https_port.value | default('443') not in ['443', ''])
-        | ternary(':' ~ _env_https_port.value | default('443'), '') }}
+        (_env_for_port.variables.CADDY_AUTO_HTTPS | default('on') | lower != 'off'
+         and _env_for_port.variables.HTTPS_PORT | default('443') not in ['443', ''])
+        | ternary(':' ~ _env_for_port.variables.HTTPS_PORT | default('443'), '') }}
 
 # --- Step 8: Create wikis.yaml ---
 - name: Copy user-provided wikis.yaml
