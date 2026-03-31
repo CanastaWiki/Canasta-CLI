@@ -56,12 +56,21 @@ class CallbackModule(CallbackBase):
     def v2_runner_on_start(self, host, task):
         pass
 
+    # Messages that should be displayed in green
+    _GREEN_PREFIXES = (
+        "Please note that mailing",
+    )
+
     def v2_runner_on_ok(self, result):
         # Only show output from debug tasks (filter Ansible internal messages)
         if result._task.action in ("ansible.builtin.debug", "debug"):
             msg = result._result.get("msg")
             if msg and msg not in ("All items completed", "All items skipped"):
-                self._display.display(str(msg))
+                msg_str = str(msg)
+                if any(msg_str.startswith(p) for p in self._GREEN_PREFIXES):
+                    self._display.display(msg_str, color="green")
+                else:
+                    self._display.display(msg_str)
 
     def v2_runner_on_skipped(self, result):
         pass
