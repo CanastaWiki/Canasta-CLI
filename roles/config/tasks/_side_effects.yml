@@ -36,6 +36,13 @@
         _port_suffix: "{{ (_config_value == '443') | ternary('', ':' + _config_value) }}"
       when: _se_wikis.wikis | length > 0
 
+    - name: Update wikis.yaml URLs with new port
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: update_port
+        port: "{{ _config_value }}"
+      when: _se_wikis.wikis | length > 0
+
     - name: Update MW_SITE_SERVER with new port
       canasta_env:
         path: "{{ instance_path }}/.env"

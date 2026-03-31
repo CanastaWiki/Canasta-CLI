@@ -25,7 +25,7 @@ options:
   state:
     description: Action to perform.
     type: str
-    choices: [read, generate, add, remove, query]
+    choices: [read, generate, add, remove, query, update_port]
     default: read
   wiki_id:
     description: Wiki ID.
@@ -111,6 +111,31 @@ def parse_url(url):
     return server, path
 
 
+def update_url_port(url, new_port):
+    """Update the port in a wiki URL. Matches Go updateURLPort().
+
+    Strips existing port, adds new port unless it's 443.
+    Preserves path component.
+    """
+    domain = url
+    path = ""
+    slash_idx = url.find("/")
+    if slash_idx != -1:
+        domain = url[:slash_idx]
+        path = url[slash_idx:]
+
+    # Strip existing port
+    colon_idx = domain.rfind(":")
+    if colon_idx != -1:
+        domain = domain[:colon_idx]
+
+    # Add new port unless standard HTTPS
+    if new_port != "443":
+        domain = "%s:%s" % (domain, new_port)
+
+    return domain + path
+
+
 def get_wiki_ids(wikis):
     """Extract wiki IDs from wiki list."""
     return [w.get("id", "") for w in wikis]
@@ -131,11 +156,13 @@ def run_module():
     module_args = dict(
         instance_path=dict(type="str", required=True),
         state=dict(type="str", default="read",
-                   choices=["read", "generate", "add", "remove", "query"]),
+                   choices=["read", "generate", "add", "remove", "query",
+                            "update_port"]),
         wiki_id=dict(type="str", required=False),
         domain=dict(type="str", required=False),
         wiki_path=dict(type="str", required=False),
         site_name=dict(type="str", required=False),
+        port=dict(type="str", required=False),
     )
 
     module = AnsibleModule(
@@ -149,6 +176,7 @@ def run_module():
     domain = module.params.get("domain")
     wiki_path = module.params.get("wiki_path")
     site_name = module.params.get("site_name")
+    port = module.params.get("port")
 
     result = {"changed": False}
 
@@ -229,6 +257,21 @@ def run_module():
             write_wikis(instance_path, new_wikis)
         result["changed"] = True
         result["wikis"] = new_wikis
+
+    elif state == "update_port":
+        if not port:
+            module.fail_json(msg="port is required for update_port")
+            return
+        wikis = read_wikis(instance_path)
+        updated = []
+        for w in wikis:
+            w = dict(w)
+            w["url"] = update_url_port(w.get("url", ""), port)
+            updated.append(w)
+        if not module.check_mode:
+            write_wikis(instance_path, updated)
+        result["changed"] = True
+        result["wikis"] = updated
 
     module.exit_json(**result)
 

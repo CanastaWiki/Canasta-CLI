@@ -171,24 +171,7 @@
     _admin_password: "{{ password }}"
   when: password is defined and password != ''
 
-# --- Step 7: Create wikis.yaml ---
-- name: Copy user-provided wikis.yaml
-  ansible.builtin.copy:
-    src: "{{ yamlfile }}"
-    dest: "{{ instance_path }}/config/wikis.yaml"
-    mode: "0644"
-  when: yamlfile is defined and yamlfile != ''
-
-- name: Generate wikis.yaml
-  canasta_wikis_yaml:
-    instance_path: "{{ instance_path }}"
-    state: generate
-    wiki_id: "{{ wiki }}"
-    domain: "{{ domain_name | default('localhost') }}"
-    site_name: "{{ site_name | default('') }}"
-  when: yamlfile is not defined or yamlfile == ''
-
-# --- Step 8: Update .env file ---
+# --- Step 7: Merge custom env file (before wikis.yaml, port may affect domain) ---
 - name: Merge custom env file if provided
   when: envfile is defined and envfile != ''
   block:
@@ -205,6 +188,39 @@
         value: "{{ item.split('=', 1)[1] }}"
       loop: "{{ (_custom_env.content | b64decode).split('\n') | select('match', '^[A-Z].*=') | list }}"
 
+- name: Read HTTPS_PORT from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: HTTPS_PORT
+  register: _env_https_port
+  ignore_errors: true
+
+- name: Build domain with port (matches Go BuildDomainWithPort)
+  ansible.builtin.set_fact:
+    _domain_with_port: >-
+      {{ domain_name | default('localhost') }}{{
+        (_env_https_port.value | default('443') not in ['443', ''])
+        | ternary(':' ~ _env_https_port.value | default('443'), '') }}
+
+# --- Step 8: Create wikis.yaml ---
+- name: Copy user-provided wikis.yaml
+  ansible.builtin.copy:
+    src: "{{ yamlfile }}"
+    dest: "{{ instance_path }}/config/wikis.yaml"
+    mode: "0644"
+  when: yamlfile is defined and yamlfile != ''
+
+- name: Generate wikis.yaml
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: generate
+    wiki_id: "{{ wiki }}"
+    domain: "{{ _domain_with_port }}"
+    site_name: "{{ site_name | default('') }}"
+  when: yamlfile is not defined or yamlfile == ''
+
+# --- Step 9: Update .env file ---
 - name: Validate passwords for problematic characters
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_passwords.yml"
   vars:
