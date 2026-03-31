@@ -324,13 +324,24 @@ def main():
     pre_cmd = []
     post_cmd = []
     found_cmd = False
+    skip_next = False
     # Known top-level commands
     cmd_names = {c["name"].split("_")[0] for c in data["commands"]}
     cmd_names |= {display_name(n) for n in cmd_names}
+    # Global flags that consume the next token as a value
+    global_value_flags = {"--host", "-H"}
     for arg in raw_args:
-        if not found_cmd and arg in cmd_names:
-            found_cmd = True
         if found_cmd:
+            post_cmd.append(arg)
+        elif skip_next:
+            # This token is the value for --host/-H, not a command
+            pre_cmd.append(arg)
+            skip_next = False
+        elif arg in global_value_flags:
+            pre_cmd.append(arg)
+            skip_next = True
+        elif not arg.startswith("-") and arg in cmd_names:
+            found_cmd = True
             post_cmd.append(arg)
         else:
             pre_cmd.append(arg)

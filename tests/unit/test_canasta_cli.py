@@ -314,62 +314,86 @@ class TestPassthrough:
 class TestGlobalFlagIsolation:
     """Test that global flags only consume from before the command."""
 
-    def test_v_after_command_not_consumed(self, data):
-        """'-v' after subcommand should NOT become --verbose."""
-        raw_args = [
-            "maintenance", "exec", "-i", "mysite", "php", "-v"
-        ]
-        cmd_names = {c["name"].split("_")[0] for c in data["commands"]}
-        cmd_names |= {canasta_cli.display_name(n) for n in cmd_names}
-
+    def _split_args(self, raw_args, data):
+        """Helper: replicate canasta.py pre/post command split."""
+        cmd_names = {c["name"].split("_")[0]
+                     for c in data["commands"]}
+        cmd_names |= {canasta_cli.display_name(n)
+                      for n in cmd_names}
+        global_value_flags = {"--host", "-H"}
         pre_cmd = []
         post_cmd = []
         found_cmd = False
+        skip_next = False
         for arg in raw_args:
-            if not found_cmd and arg in cmd_names:
-                found_cmd = True
             if found_cmd:
+                post_cmd.append(arg)
+            elif skip_next:
+                pre_cmd.append(arg)
+                skip_next = False
+            elif arg in global_value_flags:
+                pre_cmd.append(arg)
+                skip_next = True
+            elif not arg.startswith("-") and arg in cmd_names:
+                found_cmd = True
                 post_cmd.append(arg)
             else:
                 pre_cmd.append(arg)
+        return pre_cmd, post_cmd
 
+    def test_v_after_command_not_consumed(self, data):
+        """'-v' after subcommand should NOT become --verbose."""
+        pre, post = self._split_args(
+            ["maintenance", "exec", "-i", "mysite", "php", "-v"],
+            data,
+        )
         from argparse import ArgumentParser
         gp = ArgumentParser(add_help=False)
         gp.add_argument("--verbose", "-v", action="store_true",
                          default=False)
         gp.add_argument("--host", "-H", default=None)
-        global_args, _ = gp.parse_known_args(pre_cmd)
+        global_args, _ = gp.parse_known_args(pre)
 
         assert global_args.verbose is False
-        assert "-v" not in pre_cmd
-        assert "php" in post_cmd
-        assert "-v" in post_cmd
+        assert "php" in post
+        assert "-v" in post
 
     def test_v_before_command_consumed(self, data):
         """-v before subcommand SHOULD become --verbose."""
-        raw_args = ["-v", "version"]
-        cmd_names = {c["name"].split("_")[0] for c in data["commands"]}
-        cmd_names |= {canasta_cli.display_name(n) for n in cmd_names}
-
-        pre_cmd = []
-        post_cmd = []
-        found_cmd = False
-        for arg in raw_args:
-            if not found_cmd and arg in cmd_names:
-                found_cmd = True
-            if found_cmd:
-                post_cmd.append(arg)
-            else:
-                pre_cmd.append(arg)
+        pre, post = self._split_args(["-v", "version"], data)
 
         from argparse import ArgumentParser
         gp = ArgumentParser(add_help=False)
         gp.add_argument("--verbose", "-v", action="store_true",
                          default=False)
         gp.add_argument("--host", "-H", default=None)
-        global_args, _ = gp.parse_known_args(pre_cmd)
+        global_args, _ = gp.parse_known_args(pre)
 
         assert global_args.verbose is True
+
+    def test_instance_named_like_command(self, data):
+        """Instance ID matching a command name should NOT be
+        treated as the command (e.g., -i maintenance)."""
+        pre, post = self._split_args(
+            ["stop", "-i", "maintenance"], data,
+        )
+        # "stop" is the command, "maintenance" is the -i value
+        assert post[0] == "stop"
+        assert "-i" in post
+        assert "maintenance" in post
+        # pre should be empty (no global flags)
+        assert pre == []
+
+    def test_host_value_like_command(self, data):
+        """--host value matching a command name should NOT split
+        (e.g., --host backup start -i x)."""
+        pre, post = self._split_args(
+            ["-H", "backup", "start", "-i", "mysite"], data,
+        )
+        # "backup" is the --host value, "start" is the command
+        assert "-H" in pre
+        assert "backup" in pre
+        assert post[0] == "start"
 
 
 class TestBuildAnsibleArgsQuoting:
