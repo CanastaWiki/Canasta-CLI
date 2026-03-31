@@ -1064,8 +1064,9 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: name
+      - name: host_name
         short: n
+        long: name
         type: string
         required: true
         description: "Name for this host in hosts.yaml"
@@ -1102,8 +1103,9 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: name
+      - name: host_name
         short: n
+        long: name
         type: string
         required: true
         description: "Name for this host"

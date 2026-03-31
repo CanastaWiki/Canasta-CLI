@@ -91,7 +91,8 @@ def add_params_to_parser(parser, params):
         if param.get("sensitive") and "auto-generated" not in desc:
             desc += " (auto-generated if not provided)"
 
-        flag_name = "--" + name.replace("_", "-")
+        long_name = param.get("long", name)
+        flag_name = "--" + long_name.replace("_", "-")
         flags = [flag_name]
         if short:
             flags.insert(0, "-" + short)

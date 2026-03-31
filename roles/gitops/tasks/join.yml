@@ -16,7 +16,7 @@
 - name: Add host to hosts.yaml
   ansible.builtin.lineinfile:
     path: "{{ instance_path }}/config-gitops/hosts.yaml"
-    line: "    - name: {{ name }}"
+    line: "    - name: {{ host_name }}"
     insertafter: "hosts:"
 
 - name: Report gitops joined

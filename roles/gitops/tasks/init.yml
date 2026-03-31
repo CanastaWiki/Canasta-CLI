@@ -1,6 +1,6 @@
 ---
 # GitOps init - Full 13-step workflow matching Go implementation.
-# Input: id, name, role, repo, key, force, pull_requests
+# Input: id, host_name, role, repo, key, force, pull_requests
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -132,7 +132,7 @@
       - HTTP_PORT
     _gitops_secret_prefixes: "^(AWS_|AZURE_|B2_|GOOGLE_|OS_|ST_|RCLONE_)"
 
-- name: Generate env.template with {{placeholder}} syntax
+- name: Generate env.template with placeholder syntax
   ansible.builtin.copy:
     content: |
       {% for line in (_gitops_env_raw.content | b64decode).split('\n') %}
@@ -188,7 +188,7 @@
   ansible.builtin.copy:
     content: |
       hosts:
-        - name: {{ name }}
+        - name: {{ host_name }}
           role: {{ role | default('both') }}
           pull_requests: {{ pull_requests | default(false) | bool | lower }}
     dest: "{{ instance_path }}/hosts/hosts.yaml"
@@ -197,7 +197,7 @@
 # --- Step 11: Create vars.yaml with host-specific values + admin passwords ---
 - name: Create host vars directory
   ansible.builtin.file:
-    path: "{{ instance_path }}/hosts/{{ name }}"
+    path: "{{ instance_path }}/hosts/{{ host_name }}"
     state: directory
     mode: "0755"
 
@@ -231,14 +231,14 @@
       {% set pw_file = instance_path + '/admin-password_' + wid %}
       admin_password_{{ wid }}: "{{ lookup('file', pw_file, errors='ignore') | default('') }}"
       {% endfor %}
-    dest: "{{ instance_path }}/hosts/{{ name }}/vars.yaml"
+    dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
     mode: "0644"
   no_log: true
 
 # --- Step 12: Save local host identity ---
 - name: Save .gitops-host identity
   ansible.builtin.copy:
-    content: "{{ name }}"
+    content: "{{ host_name }}"
     dest: "{{ instance_path }}/.gitops-host"
     mode: "0644"
 
