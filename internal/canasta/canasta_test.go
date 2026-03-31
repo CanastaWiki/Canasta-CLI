@@ -1147,3 +1147,147 @@ func TestGetBaseImage(t *testing.T) {
 		}
 	})
 }
+
+// Tests for IsElasticsearchEnabled and IsVarnishEnabled.
+
+func TestIsElasticsearchEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		envVars map[string]string
+		want    bool
+	}{
+		{
+			name:    "explicitly true lowercase",
+			envVars: map[string]string{"CANASTA_ENABLE_ELASTICSEARCH": "true"},
+			want:    true,
+		},
+		{
+			name:    "explicitly true uppercase",
+			envVars: map[string]string{"CANASTA_ENABLE_ELASTICSEARCH": "TRUE"},
+			want:    true,
+		},
+		{
+			name:    "explicitly true mixed case",
+			envVars: map[string]string{"CANASTA_ENABLE_ELASTICSEARCH": "True"},
+			want:    true,
+		},
+		{
+			name:    "explicitly false lowercase",
+			envVars: map[string]string{"CANASTA_ENABLE_ELASTICSEARCH": "false"},
+			want:    false,
+		},
+		{
+			name:    "explicitly false uppercase",
+			envVars: map[string]string{"CANASTA_ENABLE_ELASTICSEARCH": "FALSE"},
+			want:    false,
+		},
+		{
+			name:    "key absent — defaults to disabled",
+			envVars: map[string]string{},
+			want:    false,
+		},
+		{
+			name:    "key set to empty string — defaults to disabled",
+			envVars: map[string]string{"CANASTA_ENABLE_ELASTICSEARCH": ""},
+			want:    false,
+		},
+		{
+			name:    "arbitrary non-true value",
+			envVars: map[string]string{"CANASTA_ENABLE_ELASTICSEARCH": "yes"},
+			want:    false,
+		},
+		{
+			name:    "1 is not treated as true",
+			envVars: map[string]string{"CANASTA_ENABLE_ELASTICSEARCH": "1"},
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsElasticsearchEnabled(tt.envVars)
+			if got != tt.want {
+				t.Errorf("IsElasticsearchEnabled(%v) = %v, want %v", tt.envVars, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsVarnishEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		envVars map[string]string
+		want    bool
+	}{
+		{
+			name:    "explicitly true lowercase",
+			envVars: map[string]string{"CANASTA_ENABLE_VARNISH": "true"},
+			want:    true,
+		},
+		{
+			name:    "explicitly true uppercase",
+			envVars: map[string]string{"CANASTA_ENABLE_VARNISH": "TRUE"},
+			want:    true,
+		},
+		{
+			name:    "explicitly true mixed case",
+			envVars: map[string]string{"CANASTA_ENABLE_VARNISH": "True"},
+			want:    true,
+		},
+		{
+			name:    "explicitly false lowercase",
+			envVars: map[string]string{"CANASTA_ENABLE_VARNISH": "false"},
+			want:    false,
+		},
+		{
+			name:    "explicitly false uppercase",
+			envVars: map[string]string{"CANASTA_ENABLE_VARNISH": "FALSE"},
+			want:    false,
+		},
+		{
+			// IsVarnishEnabled defaults to TRUE when the key is absent,
+			// unlike IsElasticsearchEnabled and IsObservabilityEnabled which
+			// default to false. This is for backward compatibility with
+			// existing deployments that ran Varnish before the flag existed.
+			name:    "key absent — defaults to enabled (backward compat)",
+			envVars: map[string]string{},
+			want:    true,
+		},
+		{
+			// An empty string value also triggers the default-true path
+			// because the code checks: if !ok || v == "" { return true }
+			name:    "key present but empty string — defaults to enabled",
+			envVars: map[string]string{"CANASTA_ENABLE_VARNISH": ""},
+			want:    true,
+		},
+		{
+			name:    "arbitrary non-true value is treated as false",
+			envVars: map[string]string{"CANASTA_ENABLE_VARNISH": "yes"},
+			want:    false,
+		},
+		{
+			name:    "1 is not treated as true",
+			envVars: map[string]string{"CANASTA_ENABLE_VARNISH": "1"},
+			want:    false,
+		},
+		{
+			// Confirm Varnish and Elasticsearch can be independently
+			// enabled — unrelated keys must not influence the result.
+			name: "unrelated env keys do not affect result",
+			envVars: map[string]string{
+				"CANASTA_ENABLE_ELASTICSEARCH": "false",
+				"CANASTA_ENABLE_OBSERVABILITY": "false",
+			},
+			want: true, // Varnish key absent → default true
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsVarnishEnabled(tt.envVars)
+			if got != tt.want {
+				t.Errorf("IsVarnishEnabled(%v) = %v, want %v", tt.envVars, got, tt.want)
+			}
+		})
+	}
+}
