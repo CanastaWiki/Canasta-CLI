@@ -349,6 +349,10 @@
         value: "{{ registry | default('localhost:5000') }}/{{ _base_image }}"
 
 # --- Step 11: Start containers (without dev mode) ---
+- name: Report starting
+  ansible.builtin.debug:
+    msg: "Starting Canasta..."
+
 - name: Start containers
   ansible.builtin.include_role:
     name: orchestrator
@@ -363,6 +367,10 @@
 - name: Import existing database
   when: database is defined and database != ''
   block:
+    - name: Report importing database
+      ansible.builtin.debug:
+        msg: "Importing database..."
+
     - name: Import database dump
       ansible.builtin.include_role:
         name: mediawiki
@@ -376,6 +384,11 @@
       ansible.builtin.include_role:
         name: mediawiki
         tasks_from: generate_secret_key.yml
+
+- name: Report running installer
+  ansible.builtin.debug:
+    msg: "Configuring MediaWiki installation..."
+  when: database is not defined or database == ''
 
 - name: Run MediaWiki installer
   when: database is not defined or database == ''

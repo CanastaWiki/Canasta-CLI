@@ -57,10 +57,10 @@ class CallbackModule(CallbackBase):
         pass
 
     def v2_runner_on_ok(self, result):
-        # Only show output from debug tasks
-        if result._task.action == "ansible.builtin.debug" or result._task.action == "debug":
+        # Only show output from debug tasks (filter Ansible internal messages)
+        if result._task.action in ("ansible.builtin.debug", "debug"):
             msg = result._result.get("msg")
-            if msg:
+            if msg and msg not in ("All items completed", "All items skipped"):
                 self._display.display(str(msg))
 
     def v2_runner_on_skipped(self, result):
