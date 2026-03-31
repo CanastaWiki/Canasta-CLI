@@ -7,7 +7,7 @@
 
 # --- Migrations ---
 - name: Run migrations
-  ansible.builtin.include_tasks: "migrations/{{ item }}"
+  ansible.builtin.include_tasks: "migrations/{{ _migration }}"
   loop:
     - extract_secret_key.yml
     - migrate_directory_structure.yml
@@ -16,6 +16,8 @@
     - remove_legacy_git_dir.yml
     - remove_skip_binary_as_hex.yml
     - backfill_canasta_image.yml
+  loop_control:
+    loop_var: _migration
 
 # --- MySQL to MariaDB migration (Compose only) ---
 - name: MySQL-to-MariaDB migration
