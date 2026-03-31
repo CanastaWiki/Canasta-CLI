@@ -128,7 +128,7 @@
         _rootdbpass: "{{ _generated_password }}"
     - name: Report root DB password generated
       ansible.builtin.debug:
-        msg: "Generated root database password."
+        msg: "Generated root database password (will be saved to .env)"
 
 - name: Use provided root DB password
   ansible.builtin.set_fact:
@@ -219,6 +219,10 @@
     domain: "{{ _domain_with_port }}"
     site_name: "{{ site_name | default('') }}"
   when: yamlfile is not defined or yamlfile == ''
+
+- name: Report wikis.yaml written
+  ansible.builtin.debug:
+    msg: "Successfully written to wikis.yaml"
 
 # --- Step 9: Update .env file ---
 - name: Validate passwords for problematic characters
@@ -387,7 +391,7 @@
 
 - name: Report running installer
   ansible.builtin.debug:
-    msg: "Configuring MediaWiki installation..."
+    msg: "Configuring MediaWiki installation"
   when: database is not defined or database == ''
 
 - name: Run MediaWiki installer
