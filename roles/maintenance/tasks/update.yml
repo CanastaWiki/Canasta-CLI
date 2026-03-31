@@ -1,10 +1,12 @@
 ---
-# canasta maintenance update - Run update.php, runJobs.php, rebuildData.php.
-# Matches Go behavior: no --quick flag, checks SMW exists before running.
-# Input: id (optional), wiki (optional), skip_jobs (bool), skip_smw (bool)
+# canasta maintenance update - Run update.php, runJobs.php,
+# rebuildData.php.
+# Shows command output (matching Go CLI behavior).
+# Input: id, wiki (optional), skip_jobs, skip_smw
 
 - name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
 - name: Get wiki list
   canasta_wikis_yaml:
@@ -14,42 +16,57 @@
 
 - name: Determine wikis to update
   ansible.builtin.set_fact:
-    _update_wikis: "{{ (wiki is defined and wiki != '') | ternary([wiki], _maint_wikis.wiki_ids) }}"
+    _update_wikis: >-
+      {{ (wiki is defined and wiki != '')
+         | ternary([wiki], _maint_wikis.wiki_ids) }}
 
 - name: Run update.php for each wiki
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/maintenance/tasks/_run_and_show.yml
   vars:
-    exec_service: web
-    exec_command: "php maintenance/update.php --wiki={{ item | quote }}"
+    _maint_cmd: >-
+      php maintenance/update.php
+      --wiki={{ item | quote }}
+    _maint_label: "update.php ({{ item }})"
   loop: "{{ _update_wikis }}"
 
 - name: Run runJobs.php for each wiki
   when: not (skip_jobs | default(false) | bool)
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/maintenance/tasks/_run_and_show.yml
   vars:
-    exec_service: web
-    exec_command: "php maintenance/runJobs.php --wiki={{ item | quote }}"
+    _maint_cmd: >-
+      php maintenance/runJobs.php
+      --wiki={{ item | quote }}
+    _maint_label: "runJobs.php ({{ item }})"
   loop: "{{ _update_wikis }}"
 
 - name: Check if SMW is installed
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
   vars:
     exec_service: web
-    exec_command: "test -f extensions/SemanticMediaWiki/maintenance/rebuildData.php && echo yes || echo no"
-  register: _smw_check
+    exec_command: >-
+      test -f extensions/SemanticMediaWiki/maintenance/rebuildData.php
+      && echo yes || echo no
   when: not (skip_smw | default(false) | bool)
 
 - name: Run SMW rebuildData.php for each wiki
   when:
     - not (skip_smw | default(false) | bool)
     - exec_result.stdout | default('') | trim == 'yes'
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/maintenance/tasks/_run_and_show.yml
   vars:
-    exec_service: web
-    exec_command: "php extensions/SemanticMediaWiki/maintenance/rebuildData.php --wiki={{ item | quote }}"
+    _maint_cmd: >-
+      php extensions/SemanticMediaWiki/maintenance/rebuildData.php
+      --wiki={{ item | quote }}
+    _maint_label: "rebuildData.php ({{ item }})"
   loop: "{{ _update_wikis }}"
   ignore_errors: true
 
 - name: Report complete
   ansible.builtin.debug:
-    msg: "Maintenance update complete for: {{ _update_wikis | join(', ') }}"
+    msg: >-
+      Maintenance update complete for:
+      {{ _update_wikis | join(', ') }}
