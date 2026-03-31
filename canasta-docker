@@ -113,7 +113,10 @@ except:
         case "$ipath" in
             "$CWD"*) ;; # Already covered by cwd mount
             *)
-                MOUNTS+=(-v "$ipath":"$ipath":ro)
+                # Skip if this is the active instance (will be mounted rw below)
+                if [[ "$ipath" != "$INSTANCE_PATH" ]]; then
+                    MOUNTS+=(-v "$ipath":"$ipath":ro)
+                fi
                 ;;
         esac
     done <<< "$ALL_PATHS"
