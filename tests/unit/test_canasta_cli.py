@@ -257,6 +257,158 @@ class TestBuildAnsibleArgs:
         assert "id=mysite" in result
 
 
+class TestRemainderArgs:
+    """Test that exec_args/script_args consume flags after command."""
+
+    def test_exec_args_with_flag(self, parser):
+        """php -v should not be consumed as --verbose."""
+        args = parser.parse_args([
+            "maintenance", "exec", "-i", "mysite", "php", "-v"
+        ])
+        assert args.exec_args == ["php", "-v"]
+
+    def test_exec_args_multiple_flags(self, parser):
+        args = parser.parse_args([
+            "maintenance", "exec", "-i", "mysite",
+            "ls", "-la", "/var/www"
+        ])
+        assert args.exec_args == ["ls", "-la", "/var/www"]
+
+    def test_script_args_with_flag(self, parser):
+        args = parser.parse_args([
+            "maintenance", "script", "-i", "mysite",
+            "rebuildall.php", "--quick"
+        ])
+        assert args.script_args == ["rebuildall.php", "--quick"]
+
+    def test_exec_args_empty(self, parser):
+        args = parser.parse_args([
+            "maintenance", "exec", "-i", "mysite"
+        ])
+        assert args.exec_args == []
+
+
+class TestPassthrough:
+    """Test -- separator pass-through."""
+
+    def test_passthrough_captured(self):
+        """Args after -- should be captured as passthrough."""
+        raw = ["maintenance", "exec", "-i", "x", "--", "php", "-v"]
+        passthrough = ""
+        if "--" in raw:
+            idx = raw.index("--")
+            passthrough = " ".join(raw[idx + 1:])
+            raw = raw[:idx]
+        assert passthrough == "php -v"
+        assert "--" not in raw
+
+    def test_no_passthrough(self):
+        raw = ["maintenance", "exec", "-i", "x", "php"]
+        passthrough = ""
+        if "--" in raw:
+            idx = raw.index("--")
+            passthrough = " ".join(raw[idx + 1:])
+        assert passthrough == ""
+
+
+class TestGlobalFlagIsolation:
+    """Test that global flags only consume from before the command."""
+
+    def test_v_after_command_not_consumed(self, data):
+        """'-v' after subcommand should NOT become --verbose."""
+        raw_args = [
+            "maintenance", "exec", "-i", "mysite", "php", "-v"
+        ]
+        cmd_names = {c["name"].split("_")[0] for c in data["commands"]}
+        cmd_names |= {canasta_cli.display_name(n) for n in cmd_names}
+
+        pre_cmd = []
+        post_cmd = []
+        found_cmd = False
+        for arg in raw_args:
+            if not found_cmd and arg in cmd_names:
+                found_cmd = True
+            if found_cmd:
+                post_cmd.append(arg)
+            else:
+                pre_cmd.append(arg)
+
+        from argparse import ArgumentParser
+        gp = ArgumentParser(add_help=False)
+        gp.add_argument("--verbose", "-v", action="store_true",
+                         default=False)
+        gp.add_argument("--host", "-H", default=None)
+        global_args, _ = gp.parse_known_args(pre_cmd)
+
+        assert global_args.verbose is False
+        assert "-v" not in pre_cmd
+        assert "php" in post_cmd
+        assert "-v" in post_cmd
+
+    def test_v_before_command_consumed(self, data):
+        """-v before subcommand SHOULD become --verbose."""
+        raw_args = ["-v", "version"]
+        cmd_names = {c["name"].split("_")[0] for c in data["commands"]}
+        cmd_names |= {canasta_cli.display_name(n) for n in cmd_names}
+
+        pre_cmd = []
+        post_cmd = []
+        found_cmd = False
+        for arg in raw_args:
+            if not found_cmd and arg in cmd_names:
+                found_cmd = True
+            if found_cmd:
+                post_cmd.append(arg)
+            else:
+                pre_cmd.append(arg)
+
+        from argparse import ArgumentParser
+        gp = ArgumentParser(add_help=False)
+        gp.add_argument("--verbose", "-v", action="store_true",
+                         default=False)
+        gp.add_argument("--host", "-H", default=None)
+        global_args, _ = gp.parse_known_args(pre_cmd)
+
+        assert global_args.verbose is True
+
+
+class TestBuildAnsibleArgsQuoting:
+    """Test that values with spaces are quoted for ansible-playbook."""
+
+    def test_space_in_value_quoted(self, data):
+        from argparse import Namespace
+        args = Namespace(
+            command="maintenance", subcommand="exec",
+            host=None, verbose=False,
+            id="mysite", wiki=None,
+            exec_args=["php", "-v"],
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "maintenance_exec", args, data
+        )
+        # Find the exec_args value in the result
+        for i, arg in enumerate(result):
+            if arg.startswith("exec_args="):
+                assert arg == 'exec_args="php -v"'
+                break
+        else:
+            assert False, "exec_args not found in %s" % result
+
+    def test_no_space_not_quoted(self, data):
+        from argparse import Namespace
+        args = Namespace(
+            command="start", host=None, verbose=False,
+            id="mysite",
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "start", args, data
+        )
+        for arg in result:
+            if arg.startswith("id="):
+                assert arg == "id=mysite"
+                break
+
+
 class TestHelperFunctions:
     def test_internal_name(self):
         assert canasta_cli.internal_name("fix-submodules") == "fix_submodules"

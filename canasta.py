@@ -97,14 +97,24 @@ def add_params_to_parser(parser, params):
             flags.insert(0, "-" + short)
 
         if positional:
-            # Positional arguments use nargs='?' so they're optional
-            parser.add_argument(
-                name,
-                nargs="?",
-                default=default,
-                help=desc,
-                metavar=name.upper(),
-            )
+            # exec_args/script_args consume all remaining args
+            # (e.g., "maintenance exec -i x php -v" -> "php -v")
+            if name in ("exec_args", "script_args"):
+                parser.add_argument(
+                    name,
+                    nargs=argparse.REMAINDER,
+                    default=default,
+                    help=desc,
+                    metavar=name.upper(),
+                )
+            else:
+                parser.add_argument(
+                    name,
+                    nargs="?",
+                    default=default,
+                    help=desc,
+                    metavar=name.upper(),
+                )
         elif ptype == "bool":
             parser.add_argument(
                 *flags,
@@ -284,12 +294,21 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         value = getattr(args, name, None)
         if value is None:
             continue
+        # REMAINDER args come as a list, join into string
+        if isinstance(value, list):
+            value = " ".join(value)
+            if not value:
+                continue
         ptype = param.get("type", "string")
         if ptype == "bool":
             if value:
                 ansible_args.extend(["-e", "%s=true" % name])
         else:
-            ansible_args.extend(["-e", "%s=%s" % (name, value)])
+            # Quote the value to prevent ansible-playbook from
+            # interpreting flags within it (e.g., "php -v")
+            ansible_args.extend(["-e", "%s=%s" % (name, value)]
+                                if " " not in str(value)
+                                else ["-e", '%s="%s"' % (name, value)])
 
     return ansible_args
 
@@ -298,20 +317,70 @@ def main():
     data = load_definitions()
     parser = build_parser(data)
 
-    # Two-pass parse: extract global flags first (so --verbose/-v and
-    # --host/-H work anywhere, not just before the subcommand).
+    # Extract global flags (--verbose/-v, --host/-H) only from args
+    # BEFORE the subcommand. This prevents "-v" in
+    # "maintenance exec -i x php -v" from being consumed as --verbose.
+    raw_args = sys.argv[1:]
+    pre_cmd = []
+    post_cmd = []
+    found_cmd = False
+    # Known top-level commands
+    cmd_names = {c["name"].split("_")[0] for c in data["commands"]}
+    cmd_names |= {display_name(n) for n in cmd_names}
+    for arg in raw_args:
+        if not found_cmd and arg in cmd_names:
+            found_cmd = True
+        if found_cmd:
+            post_cmd.append(arg)
+        else:
+            pre_cmd.append(arg)
+
     global_parser = argparse.ArgumentParser(add_help=False)
     global_parser.add_argument("--host", "-H", default=None)
     global_parser.add_argument("--verbose", "-v", action="store_true",
                                default=False)
-    global_args, remaining = global_parser.parse_known_args()
+    global_args, pre_remaining = global_parser.parse_known_args(pre_cmd)
 
-    # Parse the rest with the full parser (subcommands + flags)
+    # Recombine: unused pre-command args + all post-command args
+    remaining = pre_remaining + post_cmd
+
+    # Handle -- separator for pass-through args
+    passthrough = ""
+    if "--" in remaining:
+        idx = remaining.index("--")
+        passthrough = " ".join(remaining[idx + 1:])
+        remaining = remaining[:idx]
+
+    # Parse with the full parser (subcommands + flags)
     args = parser.parse_args(remaining)
 
     # Merge global flags into args
     args.host = global_args.host or args.host
     args.verbose = global_args.verbose or args.verbose
+
+    # Inject passthrough args (after --) into the positional parameter
+    if passthrough:
+        # Find the positional parameter for this command
+        positional_names = {
+            "maintenance_exec": "exec_args",
+            "maintenance_script": "script_args",
+            "maintenance_extension": "script_args",
+            "config_get": "key",
+            "config_set": "settings",
+            "config_unset": "keys",
+            "extension_enable": "extensions",
+            "extension_disable": "extensions",
+            "skin_enable": "skins",
+            "skin_disable": "skins",
+            "backup_schedule_set": "cron_expression",
+        }
+        cmd_name = resolve_command_name(args) if args.command else None
+        pos_name = positional_names.get(cmd_name)
+        if pos_name:
+            setattr(args, pos_name, passthrough)
+        else:
+            # Generic fallback
+            args.args = passthrough
 
     if not args.command:
         parser.print_help()
