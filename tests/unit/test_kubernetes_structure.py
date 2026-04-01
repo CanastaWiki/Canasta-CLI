@@ -1,0 +1,145 @@
+"""Structural tests for Kubernetes/Helm files."""
+
+import os
+
+import pytest
+import yaml
+
+
+REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
+HELM_CHART = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "files", "helm", "canasta"
+)
+GITOPS_TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
+ORCHESTRATOR_TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
+
+
+class TestHelmChart:
+    def test_chart_yaml_exists(self):
+        assert os.path.isfile(os.path.join(HELM_CHART, "Chart.yaml"))
+
+    def test_values_yaml_exists(self):
+        assert os.path.isfile(os.path.join(HELM_CHART, "values.yaml"))
+
+    def test_chart_yaml_valid(self):
+        with open(os.path.join(HELM_CHART, "Chart.yaml")) as f:
+            chart = yaml.safe_load(f)
+        assert chart["apiVersion"] == "v2"
+        assert chart["name"] == "canasta"
+        assert "version" in chart
+        assert "appVersion" in chart
+
+    def test_values_yaml_has_required_keys(self):
+        with open(os.path.join(HELM_CHART, "values.yaml")) as f:
+            values = yaml.safe_load(f)
+        assert "instance" in values
+        assert "image" in values
+        assert "domains" in values
+        assert "web" in values
+        assert "db" in values
+        assert "ingress" in values
+        assert "persistence" in values
+        assert "secrets" in values
+
+    def test_required_templates_exist(self):
+        templates = os.path.join(HELM_CHART, "templates")
+        required = [
+            "_helpers.tpl",
+            "deployment-caddy.yaml",
+            "deployment-web.yaml",
+            "deployment-varnish.yaml",
+            "deployment-jobrunner.yaml",
+            "statefulset-db.yaml",
+            "statefulset-elasticsearch.yaml",
+            "service-aliases.yaml",
+            "ingress.yaml",
+            "pvc-images.yaml",
+            "secret-db.yaml",
+            "argocd-application.yaml",
+        ]
+        for template in required:
+            assert os.path.isfile(os.path.join(templates, template)), (
+                "Missing template: %s" % template
+            )
+
+
+class TestGitopsDispatchers:
+    """Verify that each dispatched gitops command has both variants."""
+
+    DISPATCHED = ["init", "push", "pull", "status", "diff"]
+
+    def test_dispatcher_files_exist(self):
+        for cmd in self.DISPATCHED:
+            path = os.path.join(GITOPS_TASKS, "%s.yml" % cmd)
+            assert os.path.isfile(path), "Missing dispatcher: %s.yml" % cmd
+
+    def test_compose_variants_exist(self):
+        for cmd in self.DISPATCHED:
+            path = os.path.join(GITOPS_TASKS, "%s_compose.yml" % cmd)
+            assert os.path.isfile(path), (
+                "Missing compose variant: %s_compose.yml" % cmd
+            )
+
+    def test_kubernetes_variants_exist(self):
+        for cmd in self.DISPATCHED:
+            path = os.path.join(GITOPS_TASKS, "%s_kubernetes.yml" % cmd)
+            assert os.path.isfile(path), (
+                "Missing kubernetes variant: %s_kubernetes.yml" % cmd
+            )
+
+    def test_dispatchers_include_resolve_instance(self):
+        for cmd in self.DISPATCHED:
+            path = os.path.join(GITOPS_TASKS, "%s.yml" % cmd)
+            with open(path) as f:
+                content = f.read()
+            assert "resolve_instance" in content, (
+                "Dispatcher %s.yml missing resolve_instance" % cmd
+            )
+
+    def test_compose_variants_do_not_resolve_instance(self):
+        for cmd in self.DISPATCHED:
+            path = os.path.join(GITOPS_TASKS, "%s_compose.yml" % cmd)
+            with open(path) as f:
+                content = f.read()
+            assert "resolve_instance" not in content, (
+                "Compose variant %s_compose.yml should not resolve_instance "
+                "(dispatcher handles it)" % cmd
+            )
+
+
+class TestOrchestratorTasks:
+    """Verify Kubernetes orchestrator tasks exist."""
+
+    REQUIRED_TASKS = [
+        "helm_install.yml",
+        "helm_upgrade.yml",
+        "helm_uninstall.yml",
+        "helm_status.yml",
+        "k8s_preflight.yml",
+        "k8s_install_k3s.yml",
+        "k8s_argocd_bootstrap.yml",
+        "k8s_apply_secrets.yml",
+        "k8s_argocd_sync.yml",
+        "k8s_get_pod.yml",
+        "k8s_sync_config.yml",
+    ]
+
+    def test_k8s_tasks_exist(self):
+        for task in self.REQUIRED_TASKS:
+            path = os.path.join(ORCHESTRATOR_TASKS, task)
+            assert os.path.isfile(path), "Missing task: %s" % task
+
+    def test_start_has_kubernetes_block(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "start.yml")) as f:
+            content = f.read()
+        assert "Scale up" in content or "kubernetes" in content
+
+    def test_stop_has_kubernetes_block(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "stop.yml")) as f:
+            content = f.read()
+        assert "Scale down" in content
+
+    def test_destroy_has_kubernetes_block(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "destroy.yml")) as f:
+            content = f.read()
+        assert "helm_uninstall" in content

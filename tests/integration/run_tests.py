@@ -439,6 +439,107 @@ def test_gitops(inst):
     )
 
 
+def test_k8s_lifecycle(inst):
+    """Kubernetes: create, list, stop, start, exec, export, delete."""
+    # Check prerequisites
+    result = subprocess.run(
+        ["kubectl", "cluster-info"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+
+    result = subprocess.run(
+        ["helm", "version", "--short"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+
+    print("Creating Kubernetes instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "--orchestrator", "kubernetes",
+        "--skip-argocd-install",
+    )
+
+    print("Verifying instance registered...")
+    output = inst.run_ok("list")
+    assert inst.id in output, "Instance not in list output"
+    assert "kubernetes" in output, "Orchestrator not shown as kubernetes"
+
+    print("Checking pods are running...")
+    result = subprocess.run(
+        ["kubectl", "get", "pods", "-n", "canasta-%s" % inst.id,
+         "--no-headers"],
+        capture_output=True, text=True,
+    )
+    assert "Running" in result.stdout, (
+        "No running pods: %s" % result.stdout
+    )
+
+    print("Testing maintenance exec...")
+    output = inst.run_ok(
+        "maintenance", "exec", "-i", inst.id, "php", "-v",
+    )
+    assert "PHP" in output, "PHP version not in exec output"
+
+    print("Testing export...")
+    export_file = os.path.join(inst.work_dir, "k8s-test-export.sql")
+    inst.run_ok(
+        "export", "-i", inst.id, "-w", "main", "-f", export_file,
+    )
+    assert os.path.isfile(export_file), "Export file not created"
+    assert os.path.getsize(export_file) > 0, "Export file is empty"
+
+    print("Stopping instance...")
+    inst.run_ok("stop", "-i", inst.id)
+
+    # Verify pods scaled to zero
+    result = subprocess.run(
+        ["kubectl", "get", "pods", "-n", "canasta-%s" % inst.id,
+         "--no-headers"],
+        capture_output=True, text=True,
+    )
+    running = [
+        line for line in result.stdout.strip().split("\n")
+        if line and "Running" in line
+    ]
+    assert len(running) == 0, "Pods still running after stop"
+
+    print("Starting instance...")
+    inst.run_ok("start", "-i", inst.id)
+
+    # Verify pods running again
+    result = subprocess.run(
+        ["kubectl", "get", "pods", "-n", "canasta-%s" % inst.id,
+         "--no-headers"],
+        capture_output=True, text=True,
+    )
+    assert "Running" in result.stdout, (
+        "No running pods after start: %s" % result.stdout
+    )
+
+    print("Deleting instance...")
+    inst.run_ok("delete", "-i", inst.id, "--yes")
+
+    # Verify namespace is gone (may take a moment to finalize)
+    for _ in range(12):
+        result = subprocess.run(
+            ["kubectl", "get", "namespace", "canasta-%s" % inst.id],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            break
+        time.sleep(5)
+    assert result.returncode != 0, "Namespace still exists after delete"
+
+    print("Verifying instance deregistered...")
+    output = inst.run_ok("list")
+    assert inst.id not in output, "Instance still in list after delete"
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -447,6 +548,7 @@ ALL_TESTS = {
     "upgrade": test_upgrade,
     "backup": test_backup,
     "gitops": test_gitops,
+    "k8s-lifecycle": test_k8s_lifecycle,
 }
 
 
