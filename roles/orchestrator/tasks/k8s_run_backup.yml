@@ -1,0 +1,156 @@
+---
+# Run a restic command in a temporary Kubernetes Job.
+# K8s equivalent of run_backup.yml (Docker version).
+#
+# Input:
+#   instance_path, instance_id
+#   backup_args - list of restic arguments
+# Output:
+#   _restic_result - dict with .stdout and .rc
+
+- name: Set K8s namespace
+  ansible.builtin.set_fact:
+    _k8s_namespace: "canasta-{{ instance_id }}"
+
+- name: Read restic env vars from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _backup_env
+  no_log: true
+
+- name: Set restic env vars
+  ansible.builtin.set_fact:
+    _restic_repo: "{{ _backup_env.variables.RESTIC_REPOSITORY | default('') }}"
+    _restic_password: "{{ _backup_env.variables.RESTIC_PASSWORD | default('') }}"
+  no_log: true
+
+- name: Fail if restic not configured
+  ansible.builtin.fail:
+    msg: "RESTIC_REPOSITORY and RESTIC_PASSWORD must be set in .env."
+  when: _restic_repo == '' or _restic_password == ''
+
+- name: Detect local restic repository
+  ansible.builtin.set_fact:
+    _restic_local_repo: "{{ _restic_repo is match('^/') }}"
+
+- name: Generate unique job name
+  ansible.builtin.set_fact:
+    _backup_job_name: "restic-{{ lookup('pipe', 'date +%s') }}"
+
+- name: Build volume mounts list
+  ansible.builtin.set_fact:
+    _restic_volume_mounts:
+      - { name: web-config, mountPath: /currentsnapshot/config, readOnly: true }
+      - { name: images, mountPath: /currentsnapshot/images, readOnly: true }
+      - { name: extensions, mountPath: /currentsnapshot/extensions, readOnly: true }
+      - { name: skins, mountPath: /currentsnapshot/skins, readOnly: true }
+      - { name: public-assets, mountPath: /currentsnapshot/public_assets, readOnly: true }
+
+- name: Add local repo volume mount
+  ansible.builtin.set_fact:
+    _restic_volume_mounts: >-
+      {{ _restic_volume_mounts + [{'name': 'local-repo',
+         'mountPath': _restic_repo}] }}
+  when: _restic_local_repo | bool
+
+- name: Build volumes list
+  ansible.builtin.set_fact:
+    _restic_volumes:
+      - name: web-config
+        configMap:
+          name: "canasta-{{ instance_id }}-web-config"
+          optional: true
+      - name: images
+        persistentVolumeClaim:
+          claimName: "canasta-{{ instance_id }}-images"
+      - name: extensions
+        persistentVolumeClaim:
+          claimName: "canasta-{{ instance_id }}-extensions"
+      - name: skins
+        persistentVolumeClaim:
+          claimName: "canasta-{{ instance_id }}-skins"
+      - name: public-assets
+        persistentVolumeClaim:
+          claimName: "canasta-{{ instance_id }}-public-assets"
+
+- name: Add local repo hostPath volume
+  ansible.builtin.set_fact:
+    _restic_volumes: >-
+      {{ _restic_volumes + [{'name': 'local-repo',
+         'hostPath': {'path': _restic_repo, 'type': 'DirectoryOrCreate'}}] }}
+  when: _restic_local_repo | bool
+
+- name: Create restic Job
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: "{{ _backup_job_name }}"
+        namespace: "{{ _k8s_namespace }}"
+      spec:
+        backoffLimit: 0
+        ttlSecondsAfterFinished: 300
+        template:
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: restic
+                image: restic/restic:latest
+                command:
+                  - sh
+                  - -c
+                  - "restic --cache-dir /tmp/restic-cache {{ backup_args | join(' ') }}"
+                env:
+                  - name: RESTIC_REPOSITORY
+                    value: "{{ _restic_repo }}"
+                  - name: RESTIC_PASSWORD
+                    value: "{{ _restic_password }}"
+                volumeMounts: "{{ _restic_volume_mounts }}"
+            volumes: "{{ _restic_volumes }}"
+
+- name: Wait for restic Job to complete
+  kubernetes.core.k8s_info:
+    api_version: batch/v1
+    kind: Job
+    name: "{{ _backup_job_name }}"
+    namespace: "{{ _k8s_namespace }}"
+  register: _backup_job_status
+  until: >-
+    _backup_job_status.resources | length > 0 and
+    (_backup_job_status.resources[0].status.succeeded | default(0) > 0 or
+     _backup_job_status.resources[0].status.failed | default(0) > 0)
+  retries: 120
+  delay: 5
+
+- name: Get restic Job pod name
+  ansible.builtin.command:
+    cmd: >-
+      kubectl get pods -n {{ _k8s_namespace }}
+      -l job-name={{ _backup_job_name }}
+      -o jsonpath='{.items[0].metadata.name}'
+  register: _backup_pod_name
+  changed_when: false
+
+- name: Get restic output
+  ansible.builtin.command:
+    cmd: "kubectl logs -n {{ _k8s_namespace }} {{ _backup_pod_name.stdout | trim }}"
+  register: _restic_log
+  changed_when: false
+
+- name: Set restic result
+  ansible.builtin.set_fact:
+    _restic_result:
+      stdout: "{{ _restic_log.stdout }}"
+      rc: "{{ (_backup_job_status.resources[0].status.succeeded | default(0) > 0) | ternary(0, 1) }}"
+
+- name: Delete completed Job
+  kubernetes.core.k8s:
+    state: absent
+    api_version: batch/v1
+    kind: Job
+    name: "{{ _backup_job_name }}"
+    namespace: "{{ _k8s_namespace }}"
+  ignore_errors: true

@@ -6,49 +6,74 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
-- name: List cron jobs for this instance
-  ansible.builtin.command:
-    cmd: "crontab -l"
-  register: _cron_list
-  changed_when: false
-  ignore_errors: true
-
-- name: Filter backup schedule
-  ansible.builtin.set_fact:
-    _schedule_lines: >-
-      {{ _cron_list.stdout_lines | default([])
-         | select('search', 'canasta-backup-' + instance_id)
-         | list }}
-
-- name: No schedule found
-  ansible.builtin.debug:
-    msg: >-
-      No backup schedule found for instance
-      '{{ instance_id }}'.
-  when: _schedule_lines | length == 0
-
-- name: Parse and display schedule
-  when: _schedule_lines | length > 0
+# --- Compose: host crontab ---
+- name: List schedule (Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
   block:
-    - name: Extract cron expression
-      ansible.builtin.set_fact:
-        _sched_cron: >-
-          {{ _schedule_lines[0].split()[0:5] | join(' ') }}
-        _sched_cmd: >-
-          {{ _schedule_lines[0].split(None, 5)[5]
-             | default('') }}
+    - name: List cron jobs for this instance
+      ansible.builtin.command:
+        cmd: "crontab -l"
+      register: _cron_list
+      changed_when: false
+      ignore_errors: true
 
-    - name: Check for purge flag
+    - name: Filter backup schedule
       ansible.builtin.set_fact:
-        _sched_purge: >-
-          {{ _sched_cmd
-             | regex_search('keep-within\s+(\S+)', '\1')
-             | default([]) | first | default('') }}
+        _schedule_lines: >-
+          {{ _cron_list.stdout_lines | default([])
+             | select('search', 'canasta-backup-' + instance_id)
+             | list }}
+
+    - name: No schedule found
+      ansible.builtin.debug:
+        msg: "No backup schedule found for instance '{{ instance_id }}'."
+      when: _schedule_lines | length == 0
+
+    - name: Parse and display schedule
+      when: _schedule_lines | length > 0
+      block:
+        - name: Extract cron expression
+          ansible.builtin.set_fact:
+            _sched_cron: >-
+              {{ _schedule_lines[0].split()[0:5] | join(' ') }}
+            _sched_cmd: >-
+              {{ _schedule_lines[0].split(None, 5)[5] | default('') }}
+
+        - name: Check for purge flag
+          ansible.builtin.set_fact:
+            _sched_purge: >-
+              {{ _sched_cmd
+                 | regex_search('keep-within\s+(\S+)', '\1')
+                 | default([]) | first | default('') }}
+
+        - name: Display schedule
+          ansible.builtin.debug:
+            msg: |-
+              Instance '{{ instance_id }}' is scheduled for backup at: {{ _sched_cron }}
+              {% if _sched_purge %}
+              Auto-purge: snapshots older than {{ _sched_purge }}
+              {% endif %}
+
+# --- Kubernetes: CronJob ---
+- name: List schedule (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Get backup CronJob
+      kubernetes.core.k8s_info:
+        api_version: batch/v1
+        kind: CronJob
+        name: "canasta-backup-{{ instance_id }}"
+        namespace: "canasta-{{ instance_id }}"
+      register: _k8s_cronjob
+
+    - name: No schedule found
+      ansible.builtin.debug:
+        msg: "No backup schedule found for instance '{{ instance_id }}'."
+      when: _k8s_cronjob.resources | length == 0
 
     - name: Display schedule
       ansible.builtin.debug:
-        msg: |-
-          Instance '{{ instance_id }}' is scheduled for backup at: {{ _sched_cron }}
-          {% if _sched_purge %}
-          Auto-purge: snapshots older than {{ _sched_purge }}
-          {% endif %}
+        msg: >-
+          Instance '{{ instance_id }}' is scheduled for backup at:
+          {{ _k8s_cronjob.resources[0].spec.schedule }}
+      when: _k8s_cronjob.resources | length > 0

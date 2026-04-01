@@ -2,10 +2,21 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Remove backup schedule
+- name: Remove backup schedule (Compose)
   ansible.builtin.cron:
     name: "canasta-backup-{{ instance_id }}"
     state: absent
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Remove backup schedule (Kubernetes)
+  kubernetes.core.k8s:
+    state: absent
+    api_version: batch/v1
+    kind: CronJob
+    name: "canasta-backup-{{ instance_id }}"
+    namespace: "canasta-{{ instance_id }}"
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  ignore_errors: true
 
 - name: Report schedule removed
   ansible.builtin.debug:

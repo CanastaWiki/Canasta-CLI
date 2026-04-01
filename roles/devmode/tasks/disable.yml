@@ -6,6 +6,12 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Not applicable for Kubernetes
+  ansible.builtin.fail:
+    msg: >-
+      'canasta devmode disable' is not applicable for the kubernetes orchestrator.
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
 - name: Check in dev mode
   ansible.builtin.fail:
     msg: "Instance '{{ instance_id }}' is not in development mode."

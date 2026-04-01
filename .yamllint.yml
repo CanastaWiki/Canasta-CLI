@@ -13,3 +13,6 @@ ignore:
   # yamllint flags as warnings.
   - roles/orchestrator/files/kubernetes/
   - roles/orchestrator/files/compose/
+  # Helm templates contain Go template syntax ({{ }}) which is not
+  # valid YAML. Helm lint validates these separately.
+  - roles/orchestrator/files/helm/

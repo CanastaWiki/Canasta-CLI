@@ -1,18 +1,35 @@
 ---
 # Import a SQL dump into a wiki database.
-# Input: instance_path, import_wiki_id, import_database_path, import_db_password
+# Input: instance_path, instance_orchestrator, instance_id,
+#        import_wiki_id, import_database_path, import_db_password
 
 - name: Check if database file is gzipped
   ansible.builtin.set_fact:
     _is_gzipped: "{{ import_database_path | regex_search('\\.gz$') is not none }}"
+    _import_container_file: "/tmp/import.sql{{ (import_database_path | regex_search('\\.gz$') is not none) | ternary('.gz', '') }}"
 
-- name: Copy database dump to container
+- name: Copy database dump to container (Compose)
   ansible.builtin.command:
     cmd: >-
       docker compose cp {{ import_database_path | quote }}
-      {{ ('db:/tmp/import.sql' + (_is_gzipped | bool | ternary('.gz', ''))) | quote }}
+      {{ ('db:' + _import_container_file) | quote }}
     chdir: "{{ instance_path }}"
   changed_when: true
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Copy database dump to container (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Get DB pod name for import
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_get_pod.yml"
+      vars:
+        _k8s_namespace: "canasta-{{ instance_id }}"
+        _k8s_component: db
+
+    - name: Copy dump via kubectl cp
+      ansible.builtin.command:
+        cmd: "kubectl cp {{ import_database_path }} canasta-{{ instance_id }}/{{ _k8s_pod_name }}:{{ _import_container_file }}"
+      changed_when: true
 
 - name: Import gzipped database
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"

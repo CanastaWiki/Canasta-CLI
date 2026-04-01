@@ -1,0 +1,43 @@
+---
+# Install Argo CD into the cluster via its official Helm chart.
+# Idempotent — checks if Argo CD is already installed.
+# Input: argocd_namespace (default: argocd)
+
+- name: Check if Argo CD is already installed
+  ansible.builtin.command:
+    cmd: "kubectl get deployment argocd-server -n {{ argocd_namespace | default('argocd') }}"
+  register: _argocd_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Install Argo CD
+  when: _argocd_check.rc != 0
+  block:
+    - name: Add Argo CD Helm repository
+      kubernetes.core.helm_repository:
+        name: argo
+        repo_url: https://argoproj.github.io/argo-helm
+
+    - name: Install Argo CD via Helm
+      kubernetes.core.helm:
+        name: argocd
+        chart_ref: argo/argo-cd
+        release_namespace: "{{ argocd_namespace | default('argocd') }}"
+        create_namespace: true
+        wait: true
+        timeout: "10m"
+        values:
+          server:
+            insecure: false
+          configs:
+            params:
+              server.insecure: false
+
+    - name: Report Argo CD installed
+      ansible.builtin.debug:
+        msg: "Argo CD installed in namespace '{{ argocd_namespace | default('argocd') }}'."
+
+- name: Report Argo CD already present
+  ansible.builtin.debug:
+    msg: "Argo CD is already running in namespace '{{ argocd_namespace | default('argocd') }}'."
+  when: _argocd_check.rc == 0

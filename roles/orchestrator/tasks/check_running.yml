@@ -12,8 +12,8 @@
 - name: Build K8s check command
   ansible.builtin.set_fact:
     _check_cmd: >-
-      kubectl get deployment/web
-      -n {{ instance_path | basename }}
+      kubectl get deployment/canasta-{{ instance_id }}-web
+      -n canasta-{{ instance_id }}
       -o jsonpath={.status.readyReplicas}
     _check_chdir: null
   when: >-

@@ -30,27 +30,33 @@
 - name: Start (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:
-    - name: Ensure kind cluster for managed clusters
-      ansible.builtin.include_tasks: k8s_kind_create.yml
-      when: instance_managed_cluster | default(false) | bool
-
     - name: Set K8s namespace
       ansible.builtin.set_fact:
-        _k8s_namespace: "{{ instance_path | basename }}"
+        _k8s_namespace: "canasta-{{ instance_id }}"
 
-    - name: Apply Kubernetes manifests
+    - name: Sync config to ConfigMaps
+      ansible.builtin.include_tasks: k8s_sync_config.yml
+
+    - name: Scale up statefulsets
       ansible.builtin.command:
-        cmd: "kubectl apply -k ."
-        chdir: "{{ instance_path }}"
-      register: _k8s_apply
+        cmd: "kubectl scale statefulset --all --replicas=1 -n {{ _k8s_namespace }}"
       changed_when: true
 
-    - name: Fail if apply failed
-      ansible.builtin.fail:
-        msg: "kubectl apply failed: {{ _k8s_apply.stderr | default(_k8s_apply.stdout) }}"
-      when: _k8s_apply.rc != 0
-
-    - name: Wait for web deployment
+    - name: Scale up deployments
       ansible.builtin.command:
-        cmd: "kubectl rollout status deployment/web -n {{ _k8s_namespace }} --timeout=600s"
+        cmd: "kubectl scale deployment --all --replicas=1 -n {{ _k8s_namespace }}"
+      changed_when: true
+
+    - name: Wait for DB readiness
+      ansible.builtin.command:
+        cmd: >-
+          kubectl rollout status statefulset/canasta-{{ instance_id }}-db
+          -n {{ _k8s_namespace }} --timeout=300s
+      changed_when: false
+
+    - name: Wait for web readiness
+      ansible.builtin.command:
+        cmd: >-
+          kubectl rollout status deployment/canasta-{{ instance_id }}-web
+          -n {{ _k8s_namespace }} --timeout=300s
       changed_when: false

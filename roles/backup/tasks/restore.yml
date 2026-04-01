@@ -1,7 +1,7 @@
 ---
 # Restore matching Go CLI's restoreFull():
-# 1. Restic restore into backup volume
-# 2. Copy files from volume to host via alpine
+# 1. Restic restore into backup volume / K8s temporary pod
+# 2. Copy files from volume to host (Compose) or extract + sync (K8s)
 # 3. Preserve DB passwords in restored .env
 # 4. Import each wiki's database dump
 
@@ -28,38 +28,170 @@
       - "backup"
       - "/currentsnapshot"
 
-- name: Restore snapshot into backup volume
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
-  vars:
-    backup_args:
-      - "restore"
-      - "{{ snapshot }}"
-      - "--target"
-      - "/"
+# --- Compose restore ---
+- name: Restore (Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Restore snapshot into backup volume
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
+      vars:
+        backup_args:
+          - "restore"
+          - "{{ snapshot }}"
+          - "--target"
+          - "/"
 
-- name: Copy files from volume to host
-  ansible.builtin.shell:
-    cmd: |
-      docker run --rm \
-        -v canasta-backup-{{ instance_path | basename
-        }}:/currentsnapshot:ro \
-        -v {{ instance_path }}:/install \
-        alpine sh -c "
-        for d in config extensions images skins public_assets; do
-          if [ -d /currentsnapshot/\$d ]; then
-            mkdir -p /install/\$d &&
-            rm -rf /install/\$d/* \
-              /install/\$d/.[!.]* 2>/dev/null;
-            cp -a /currentsnapshot/\$d/. /install/\$d/;
-          fi;
-        done;
-        for f in .env docker-compose.override.yml my.cnf; do
-          if [ -f /currentsnapshot/\$f ]; then
-            cp -a /currentsnapshot/\$f /install/\$f;
-          fi;
-        done"
-  changed_when: true
+    - name: Copy files from volume to host
+      ansible.builtin.shell:
+        cmd: |
+          docker run --rm \
+            -v canasta-backup-{{ instance_path | basename
+            }}:/currentsnapshot:ro \
+            -v {{ instance_path }}:/install \
+            alpine sh -c "
+            for d in config extensions images skins public_assets; do
+              if [ -d /currentsnapshot/\$d ]; then
+                mkdir -p /install/\$d &&
+                rm -rf /install/\$d/* \
+                  /install/\$d/.[!.]* 2>/dev/null;
+                cp -a /currentsnapshot/\$d/. /install/\$d/;
+              fi;
+            done;
+            for f in .env docker-compose.override.yml my.cnf; do
+              if [ -f /currentsnapshot/\$f ]; then
+                cp -a /currentsnapshot/\$f /install/\$f;
+              fi;
+            done"
+      changed_when: true
+
+# --- Kubernetes restore ---
+- name: Restore (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Set K8s namespace
+      ansible.builtin.set_fact:
+        _k8s_namespace: "canasta-{{ instance_id }}"
+
+    - name: Read restic env vars
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _restore_env
+      no_log: true
+
+    - name: Create restore pod
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: restic-restore
+            namespace: "{{ _k8s_namespace }}"
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: restic
+                image: restic/restic:latest
+                command:
+                  - sh
+                  - -c
+                  - |
+                    restic --cache-dir /tmp/restic-cache restore {{ snapshot }} --target / && \
+                    touch /tmp/restore-done && \
+                    sleep 3600
+                env:
+                  - name: RESTIC_REPOSITORY
+                    value: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
+                  - name: RESTIC_PASSWORD
+                    value: "{{ _restore_env.variables.RESTIC_PASSWORD }}"
+                volumeMounts:
+                  - name: restore-data
+                    mountPath: /currentsnapshot
+                  - name: local-repo
+                    mountPath: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
+            volumes:
+              - name: restore-data
+                emptyDir: {}
+              - name: local-repo
+                hostPath:
+                  path: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
+                  type: DirectoryOrCreate
+
+    - name: Wait for restore pod to be running
+      ansible.builtin.command:
+        cmd: >-
+          kubectl wait pod/restic-restore
+          -n {{ _k8s_namespace }}
+          --for=condition=Ready
+          --timeout=120s
+      changed_when: false
+
+    - name: Wait for restore to complete
+      ansible.builtin.command:
+        cmd: >-
+          kubectl exec -n {{ _k8s_namespace }} restic-restore --
+          sh -c "while ! test -f /tmp/restore-done; do sleep 2; done"
+      changed_when: false
+      timeout: 600
+
+    - name: Copy restored config to host
+      ansible.builtin.shell:
+        cmd: >-
+          kubectl exec -n {{ _k8s_namespace }} restic-restore --
+          tar cf - -C /currentsnapshot/config . 2>/dev/null |
+          tar xf - -C {{ instance_path }}/config/
+      changed_when: true
+      ignore_errors: true
+
+    - name: Copy restored .env to host
+      ansible.builtin.shell:
+        cmd: >-
+          kubectl cp {{ _k8s_namespace }}/restic-restore:/currentsnapshot/.env
+          {{ instance_path }}/.env
+      changed_when: true
+      ignore_errors: true
+
+    - name: Get DB pod name
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/k8s_get_pod.yml
+      vars:
+        _k8s_component: db
+
+    - name: Find DB dump files in restore pod
+      ansible.builtin.command:
+        cmd: >-
+          kubectl exec -n {{ _k8s_namespace }} restic-restore --
+          ls /currentsnapshot/config/backup/
+      register: _restore_db_files
+      changed_when: false
+      ignore_errors: true
+
+    - name: Import each DB dump
+      when: _restore_db_files is succeeded and _restore_db_files.stdout | trim | length > 0
+      ansible.builtin.shell:
+        cmd: >-
+          kubectl exec -n {{ _k8s_namespace }} restic-restore --
+          cat /currentsnapshot/config/backup/{{ item }} |
+          kubectl exec -i -n {{ _k8s_namespace }} {{ _k8s_pod_name }} --
+          mariadb -u root -p"{{ _restore_dbpass.value }}"
+      loop: >-
+        {{ _restore_db_files.stdout_lines | default([])
+           | select('match', '^db_.*\\.sql$') | list }}
+      no_log: true
+
+    - name: Delete restore pod
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Pod
+        name: restic-restore
+        namespace: "{{ _k8s_namespace }}"
+
+    - name: Sync config to ConfigMaps
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml
 
 - name: Preserve DB password in restored .env
   canasta_env:
@@ -69,32 +201,11 @@
     value: "{{ _restore_dbpass.value }}"
   no_log: true
 
-- name: Read wiki IDs for DB restore
-  canasta_wikis_yaml:
-    instance_path: "{{ instance_path }}"
-    state: read
-  register: _restore_wikis
-
-- name: Import each wiki database dump
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
-  vars:
-    exec_service: web
-    exec_no_log: true
-    exec_command: >-
-      mariadb -h db -u root
-      -p{{ _restore_dbpass.value | quote }}
-      < /mediawiki/config/backup/db_{{ item | quote }}.sql
-  loop: "{{ _restore_wikis.wiki_ids }}"
-  no_log: true
-
-- name: Clean up backup dump directory
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
-  vars:
-    exec_service: web
-    exec_command: "rm -rf /mediawiki/config/backup"
-  ignore_errors: true
+- name: Restart instance to apply restored config
+  ansible.builtin.include_role:
+    name: instance_lifecycle
+    tasks_from: restart.yml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
 - name: Display result
   ansible.builtin.debug:

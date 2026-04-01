@@ -1,0 +1,89 @@
+{{- if .Values.jobrunner.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "canasta.fullname" . }}-jobrunner
+  namespace: {{ include "canasta.namespace" . }}
+  labels:
+    {{- include "canasta.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jobrunner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "canasta.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: jobrunner
+  template:
+    metadata:
+      labels:
+        {{- include "canasta.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: jobrunner
+    spec:
+      initContainers:
+        - name: assemble-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              cp /configmap-flat/.env /config/.env 2>/dev/null || true
+              cp /configmap-flat/wikis.yaml /config/wikis.yaml 2>/dev/null || true
+              cp /configmap-flat/composer.local.json /config/composer.local.json 2>/dev/null || true
+              for f in /configmap-flat/settings--*; do
+                [ -f "$f" ] || continue
+                base=$(basename "$f")
+                relpath=$(echo "$base" | sed 's/--/\//g')
+                mkdir -p "/config/$(dirname "$relpath")"
+                cp "$f" "/config/$relpath"
+              done
+          volumeMounts:
+            - name: web-configmap
+              mountPath: /configmap-flat
+              readOnly: true
+            - name: config
+              mountPath: /config
+      containers:
+        - name: jobrunner
+          image: {{ include "canasta.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              while true; do
+                php maintenance/runJobs.php --wait --maxjobs=10
+                sleep 5
+              done
+          env:
+            - name: MYSQL_HOST
+              value: db
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.dbSecretName" . }}
+                  key: MYSQL_PASSWORD
+            - name: MW_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.mwSecretName" . }}
+                  key: MW_SECRET_KEY
+          volumeMounts:
+            - name: config
+              mountPath: /mediawiki/config
+              readOnly: true
+            - name: images
+              mountPath: /mediawiki/images
+          {{- with .Values.jobrunner.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: web-configmap
+          configMap:
+            name: {{ include "canasta.fullname" . }}-web-config
+            optional: true
+        - name: config
+          emptyDir: {}
+        - name: images
+          persistentVolumeClaim:
+            claimName: {{ include "canasta.fullname" . }}-images
+{{- end }}

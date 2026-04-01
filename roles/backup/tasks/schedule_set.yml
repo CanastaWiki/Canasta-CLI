@@ -7,25 +7,131 @@
     msg: "Cron expression must have exactly 5 fields (minute hour day month weekday), got: '{{ cron_expression }}'"
   when: cron_expression.split() | length != 5
 
-- name: Build backup command for cron
-  ansible.builtin.set_fact:
-    _cron_cmd: >-
-      cd "{{ instance_path }}" && docker compose exec -T {{ canasta_backup_service }}
-      restic backup --tag scheduled /mediawiki/config /mediawiki/images /backup
-      {{ (purge_older_than is defined and purge_older_than != '') | ternary(
-         '&& docker compose exec -T ' + canasta_backup_service +
-         ' restic forget --prune --keep-within ' +
-         (purge_older_than | default('')), '') }}
+# --- Compose: host crontab ---
+- name: Set backup schedule (Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Build backup command for cron
+      ansible.builtin.set_fact:
+        _cron_cmd: >-
+          cd "{{ instance_path }}" && docker compose exec -T {{ canasta_backup_service }}
+          restic backup --tag scheduled /mediawiki/config /mediawiki/images /backup
+          {{ (purge_older_than is defined and purge_older_than != '') | ternary(
+             '&& docker compose exec -T ' + canasta_backup_service +
+             ' restic forget --prune --keep-within ' +
+             (purge_older_than | default('')), '') }}
 
-- name: Set cron schedule
-  ansible.builtin.cron:
-    name: "canasta-backup-{{ instance_id }}"
-    job: "{{ _cron_cmd }}"
-    minute: "{{ cron_expression.split()[0] }}"
-    hour: "{{ cron_expression.split()[1] }}"
-    day: "{{ cron_expression.split()[2] }}"
-    month: "{{ cron_expression.split()[3] }}"
-    weekday: "{{ cron_expression.split()[4] }}"
+    - name: Set cron schedule
+      ansible.builtin.cron:
+        name: "canasta-backup-{{ instance_id }}"
+        job: "{{ _cron_cmd }}"
+        minute: "{{ cron_expression.split()[0] }}"
+        hour: "{{ cron_expression.split()[1] }}"
+        day: "{{ cron_expression.split()[2] }}"
+        month: "{{ cron_expression.split()[3] }}"
+        weekday: "{{ cron_expression.split()[4] }}"
+
+# --- Kubernetes: CronJob ---
+- name: Set backup schedule (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Read restic env vars
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _sched_env
+      no_log: true
+
+    - name: Build restic command
+      ansible.builtin.set_fact:
+        _k8s_backup_cmd: >-
+          restic --cache-dir /tmp/restic-cache
+          --tag scheduled backup /currentsnapshot
+          {{ (purge_older_than is defined and purge_older_than != '')
+             | ternary('&& restic --cache-dir /tmp/restic-cache forget --prune --keep-within ' +
+               (purge_older_than | default('')), '') }}
+
+    - name: Create backup CronJob
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: "canasta-backup-{{ instance_id }}"
+            namespace: "canasta-{{ instance_id }}"
+          spec:
+            schedule: "{{ cron_expression }}"
+            concurrencyPolicy: Forbid
+            jobTemplate:
+              spec:
+                backoffLimit: 1
+                ttlSecondsAfterFinished: 86400
+                template:
+                  spec:
+                    restartPolicy: Never
+                    initContainers:
+                      - name: dump-databases
+                        image: "{{ _sched_env.variables.CANASTA_IMAGE | default('ghcr.io/canastawiki/canasta:latest') }}"
+                        command:
+                          - sh
+                          - -c
+                          - |
+                            mkdir -p /currentsnapshot/config/backup
+                            for db in $(mariadb -h db -u root -p"$MYSQL_PASSWORD" -N -e "SHOW DATABASES" | grep -vE '^(information_schema|performance_schema|mysql|sys)$'); do
+                              mariadb-dump -h db -u root -p"$MYSQL_PASSWORD" --single-transaction --databases "$db" > "/currentsnapshot/config/backup/db_${db}.sql"
+                            done
+                        env:
+                          - name: MYSQL_PASSWORD
+                            valueFrom:
+                              secretKeyRef:
+                                name: "{{ instance_id }}-db-credentials"
+                                key: MYSQL_PASSWORD
+                        volumeMounts:
+                          - name: web-config
+                            mountPath: /currentsnapshot/config
+                    containers:
+                      - name: restic
+                        image: restic/restic:latest
+                        command: ["sh", "-c", "{{ _k8s_backup_cmd }}"]
+                        env:
+                          - name: RESTIC_REPOSITORY
+                            value: "{{ _sched_env.variables.RESTIC_REPOSITORY | default('') }}"
+                          - name: RESTIC_PASSWORD
+                            value: "{{ _sched_env.variables.RESTIC_PASSWORD | default('') }}"
+                        volumeMounts:
+                          - name: web-config
+                            mountPath: /currentsnapshot/config
+                            readOnly: true
+                          - name: images
+                            mountPath: /currentsnapshot/images
+                            readOnly: true
+                          - name: extensions
+                            mountPath: /currentsnapshot/extensions
+                            readOnly: true
+                          - name: skins
+                            mountPath: /currentsnapshot/skins
+                            readOnly: true
+                          - name: public-assets
+                            mountPath: /currentsnapshot/public_assets
+                            readOnly: true
+                    volumes:
+                      - name: web-config
+                        configMap:
+                          name: "canasta-{{ instance_id }}-web-config"
+                          optional: true
+                      - name: images
+                        persistentVolumeClaim:
+                          claimName: "canasta-{{ instance_id }}-images"
+                      - name: extensions
+                        persistentVolumeClaim:
+                          claimName: "canasta-{{ instance_id }}-extensions"
+                      - name: skins
+                        persistentVolumeClaim:
+                          claimName: "canasta-{{ instance_id }}-skins"
+                      - name: public-assets
+                        persistentVolumeClaim:
+                          claimName: "canasta-{{ instance_id }}-public-assets"
 
 - name: Report schedule set
   ansible.builtin.debug:

@@ -4,12 +4,13 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 
 ## Features
 
-- **56 commands** covering instance lifecycle, wiki management, configuration, extensions, skins, maintenance, backup/restore, gitops, devmode, sitemaps, and more
-- **Docker Compose and Kubernetes** (kind) orchestrator support
+- **57 commands** covering instance lifecycle, wiki management, configuration, extensions, skins, maintenance, backup/restore, gitops, devmode, sitemaps, storage provisioning, and more
+- **Docker Compose and Kubernetes** (Helm + Argo CD) orchestrator support
 - **Multi-host management** from a single controller node via SSH
 - **Instance migration and cloning** between hosts with backup schedule transfer
+- **Multi-node Kubernetes** with ConfigMap-based config, PVC storage, and CronJob backups
 - **Auto-generated documentation** from a single command definitions file
-- **216 unit tests** (88% coverage) + Docker-based integration tests in CI
+- **230 unit tests** + Docker and Kubernetes integration tests in CI
 - **Zero-migration compatibility** with existing Canasta-CLI installations (reads the same `conf.json` registry)
 
 ## Requirements
@@ -28,14 +29,16 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 |------------|---------|
 | Python 3 | Ansible module execution |
 | Docker + Docker Compose v2 | Container orchestration (Compose) |
-| **or** kubectl + kind | Container orchestration (Kubernetes) |
+| **or** kubectl + Helm 3.10+ | Container orchestration (Kubernetes) |
 | SSH server | Remote management (not needed if controller = target) |
 
 Optional (depending on features used):
 
 | Requirement | Purpose |
 |------------|---------|
-| git + git-crypt | GitOps commands |
+| Helm 3.10+ | Kubernetes orchestrator |
+| Argo CD | Kubernetes GitOps reconciliation |
+| git + git-crypt | GitOps commands (Compose) |
 | rsync | Migrate/clone commands |
 
 Run `canasta doctor` to verify all dependencies on a target host.
@@ -63,6 +66,7 @@ sudo git clone https://github.com/CanastaWiki/Canasta-Ansible.git /opt/canasta-a
 cd /opt/canasta-ansible
 sudo python3 -m venv .venv
 sudo .venv/bin/pip install -r requirements.txt
+sudo .venv/bin/ansible-galaxy collection install -r requirements.yml
 sudo ln -sf /opt/canasta-ansible/canasta-native /usr/local/bin/canasta
 ```
 
@@ -135,6 +139,55 @@ Manage instances across hosts:
   --new-domain staging.example.com --yes
 ```
 
+### Kubernetes deployment
+
+Canasta supports Kubernetes via Helm and Argo CD. The same CLI commands work
+regardless of orchestrator — the underlying mechanics differ.
+
+**macOS (local development):**
+
+Enable Kubernetes in Docker Desktop (Settings → Kubernetes → Enable), then:
+
+```bash
+./canasta create --id mysite --wiki main --domain-name localhost \
+  --orchestrator kubernetes --skip-argocd-install
+```
+
+**Linux server / VPS (production):**
+
+k3s installs a full Kubernetes cluster as a single binary:
+
+```bash
+./canasta create --id mysite --wiki main --domain-name example.com \
+  --orchestrator kubernetes --install-k3s
+```
+
+**WSL2:**
+
+Same as Linux — WSL2 runs a real Linux kernel, so k3s works natively:
+
+```bash
+./canasta create --id mysite --wiki main --domain-name localhost \
+  --orchestrator kubernetes --install-k3s
+```
+
+**Managed clusters (EKS, GKE, AKS):**
+
+Provision the cluster externally, configure kubectl, then:
+
+```bash
+./canasta create --id mysite --wiki main --domain-name example.com \
+  --orchestrator kubernetes --ingress-class nginx
+```
+
+Pass `--skip-argocd-install` if the cluster already has Argo CD.
+
+For multi-node clusters, k3s scales by joining additional nodes
+(`k3s agent --server <url> --token <token>`) — no instance migration
+required. Pod placement across nodes is automatic by default and can
+be controlled via `nodeSelector` and `affinity` rules in the instance's
+`values.yaml`.
+
 ## Commands
 
 ### Instance lifecycle
@@ -199,13 +252,21 @@ Manage instances across hosts:
 |---------|-------------|
 | `canasta gitops init\|join` | Set up git-based config management |
 | `canasta gitops add\|rm\|push\|pull\|status\|diff` | Manage config |
-| `canasta gitops fix-submodules` | Fix submodule registration |
+| `canasta gitops fix-submodules` | Fix submodule registration (Compose) |
+| `canasta gitops sync` | Trigger Argo CD sync (Kubernetes) |
+
+### Storage provisioning (Kubernetes)
+
+| Command | Description |
+|---------|-------------|
+| `canasta storage setup nfs` | Install NFS CSI driver + StorageClass |
+| `canasta storage setup efs` | Install AWS EFS CSI driver + StorageClass |
 
 ### Development
 
 | Command | Description |
 |---------|-------------|
-| `canasta devmode enable\|disable` | Toggle development mode (xdebug) |
+| `canasta devmode enable\|disable` | Toggle development mode (xdebug, Compose only) |
 
 ### Multi-host (Ansible-only)
 
@@ -247,9 +308,11 @@ All tasks in `roles/orchestrator/tasks/` dispatch to Docker Compose or Kubernete
 # Docker Compose (default)
 ./canasta create --id mysite --wiki main
 
-# Kubernetes with kind
-./canasta create --id mysite --wiki main --orchestrator kubernetes --create-cluster
+# Kubernetes with Helm + Argo CD
+./canasta create --id mysite --wiki main --orchestrator kubernetes --install-k3s
 ```
+
+The Kubernetes path uses a Helm chart (`roles/orchestrator/files/helm/canasta/`) for workload management and Argo CD for continuous GitOps reconciliation. Secrets are managed directly in K8s Secrets by Ansible, never stored in Helm values or Git.
 
 ### Registry
 

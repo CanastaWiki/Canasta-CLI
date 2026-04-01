@@ -38,15 +38,36 @@
 # --- Required for Kubernetes ---
 - name: Check kubectl
   ansible.builtin.command:
-    cmd: kubectl version --client
+    cmd: kubectl version --client --output=yaml
   register: _doc_kubectl
   changed_when: false
   ignore_errors: true
 
-- name: Check kind
+- name: Check Helm
   ansible.builtin.command:
-    cmd: kind --version
-  register: _doc_kind
+    cmd: helm version --short
+  register: _doc_helm
+  changed_when: false
+  ignore_errors: true
+
+- name: Check k3s
+  ansible.builtin.command:
+    cmd: k3s --version
+  register: _doc_k3s
+  changed_when: false
+  ignore_errors: true
+
+- name: Check Argo CD
+  ansible.builtin.command:
+    cmd: kubectl get deployment argocd-server -n argocd
+  register: _doc_argocd
+  changed_when: false
+  ignore_errors: true
+
+- name: Check cluster reachable
+  ansible.builtin.command:
+    cmd: kubectl cluster-info
+  register: _doc_cluster
   changed_when: false
   ignore_errors: true
 
@@ -107,7 +128,10 @@
 
       Kubernetes (optional):
         kubectl:         {{ (_doc_kubectl.rc == 0) | ternary('OK', 'not installed') }}
-        kind:            {{ (_doc_kind.rc == 0) | ternary('OK (' + _doc_kind.stdout | trim + ')', 'not installed') }}
+        Helm:            {{ (_doc_helm.rc == 0) | ternary('OK (' + _doc_helm.stdout | trim + ')', 'not installed') }}
+        k3s:             {{ (_doc_k3s.rc == 0) | ternary('OK', 'not installed') }}
+        Cluster:         {{ (_doc_cluster.rc == 0) | ternary('reachable', 'not reachable') }}
+        Argo CD:         {{ (_doc_argocd.rc == 0) | ternary('installed', 'not found') }}
 
       GitOps (optional):
         git:             {{ (_doc_git.rc == 0) | ternary('OK (' + _doc_git.stdout | trim + ')', 'not installed') }}

@@ -1,13 +1,13 @@
 ---
-# Get the name of a running pod by service label.
-# Input: _k8s_namespace, _k8s_service (default: web)
+# Get the name of a running pod by component label.
+# Input: _k8s_namespace, _k8s_component (default: web)
 # Output: _k8s_pod_name
 
-- name: "Get running pod for {{ _k8s_service | default('web') }}"
+- name: "Get running pod for {{ _k8s_component | default('web') }}"
   ansible.builtin.command:
     cmd: >-
       kubectl get pods -n {{ _k8s_namespace }}
-      -l app={{ _k8s_service | default('web') }}
+      -l app.kubernetes.io/component={{ _k8s_component | default('web') }}
       --field-selector=status.phase=Running
       -o jsonpath={.items[0].metadata.name}
   register: _k8s_pod_result
@@ -19,5 +19,8 @@
 
 - name: Fail if no running pod found
   ansible.builtin.fail:
-    msg: "No running pod found for service '{{ _k8s_service | default('web') }}' in namespace '{{ _k8s_namespace }}'"
+    msg: >-
+      No running pod found for component '{{ _k8s_component | default('web') }}'
+      in namespace '{{ _k8s_namespace }}'.
+      Check that the component is enabled and its pod is Ready.
   when: _k8s_pod_name == ''

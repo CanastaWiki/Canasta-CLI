@@ -1,0 +1,16 @@
+---
+# Upgrade (or install) the Canasta Helm release.
+# Helm upgrade is idempotent — also handles initial install and
+# restoring replica counts after a stop (scale-to-zero).
+# Input: instance_id, instance_path, _k8s_namespace
+
+- name: Upgrade Canasta Helm release
+  kubernetes.core.helm:
+    name: "canasta-{{ instance_id }}"
+    chart_ref: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta"
+    release_namespace: "{{ _k8s_namespace }}"
+    create_namespace: true
+    values_files:
+      - "{{ instance_path }}/values.yaml"
+    wait: true
+    timeout: "10m"

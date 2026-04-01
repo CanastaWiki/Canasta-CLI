@@ -21,12 +21,9 @@
 - name: Destroy (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:
-    - name: Delete kind cluster (managed clusters)
-      ansible.builtin.include_tasks: k8s_kind_delete.yml
-      when: instance_managed_cluster | default(false) | bool
+    - name: Set K8s namespace
+      ansible.builtin.set_fact:
+        _k8s_namespace: "canasta-{{ instance_id }}"
 
-    - name: Delete Kubernetes namespace (non-managed clusters)
-      ansible.builtin.command:
-        cmd: "kubectl delete namespace {{ instance_path | basename }} --ignore-not-found"
-      changed_when: true
-      when: not (instance_managed_cluster | default(false) | bool)
+    - name: Uninstall Helm release and clean up
+      ansible.builtin.include_tasks: helm_uninstall.yml

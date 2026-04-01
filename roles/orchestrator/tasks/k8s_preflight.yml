@@ -1,0 +1,48 @@
+---
+# Validate Kubernetes prerequisites before operations.
+
+- name: Check kubectl is available
+  ansible.builtin.command:
+    cmd: kubectl version --client --output=json
+  register: _kubectl_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Fail if kubectl not available
+  ansible.builtin.fail:
+    msg: >-
+      kubectl is not installed. Install kubectl to manage Kubernetes instances.
+      See https://kubernetes.io/docs/tasks/tools/
+  when: _kubectl_check.rc != 0
+
+- name: Check cluster is reachable
+  ansible.builtin.command:
+    cmd: kubectl cluster-info
+  register: _cluster_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Fail if cluster not reachable
+  ansible.builtin.fail:
+    msg: >-
+      Cannot reach Kubernetes cluster. Ensure kubectl is configured with a
+      valid kubeconfig. Use --install-k3s to install a local cluster.
+  when: _cluster_check.rc != 0
+
+- name: Check helm is available
+  ansible.builtin.command:
+    cmd: helm version --short
+  register: _helm_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Fail if helm not available
+  ansible.builtin.fail:
+    msg: >-
+      Helm is not installed. Install Helm 3.10+ to manage Kubernetes instances.
+      See https://helm.sh/docs/intro/install/
+  when: _helm_check.rc != 0
+
+- name: Set kubernetes namespace
+  ansible.builtin.set_fact:
+    _k8s_namespace: "canasta-{{ instance_id }}"

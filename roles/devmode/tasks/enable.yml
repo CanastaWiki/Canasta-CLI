@@ -7,6 +7,13 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Not applicable for Kubernetes
+  ansible.builtin.fail:
+    msg: >-
+      'canasta devmode enable' is not applicable for the kubernetes orchestrator.
+      Xdebug enablement requires a custom image build and values.yaml configuration.
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
 - name: Check not already in dev mode
   ansible.builtin.fail:
     msg: "Instance '{{ instance_id }}' is already in development mode."

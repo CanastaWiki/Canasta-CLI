@@ -1,71 +1,83 @@
 ---
-# Run a restic command using the restic/restic Docker image.
-# Matches Go CLI's RunBackup pattern.
+# Run a restic command. Dispatches to Docker or Kubernetes.
 #
 # Input:
 #   instance_path - path to the Canasta instance
 #   backup_args - list of restic arguments
 #   backup_volumes - dict of host_path: container_path to stage
-#     (optional, only for backup create)
+#     (optional, only for backup create on Compose)
 # Output:
 #   _restic_result - command result
 
-- name: Set backup volume name
-  ansible.builtin.set_fact:
-    _bvol: "canasta-backup-{{ instance_path | basename }}"
+- name: Run backup (Kubernetes)
+  ansible.builtin.include_tasks: k8s_run_backup.yml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
-- name: Ensure backup volume exists
-  ansible.builtin.command:
-    cmd: "docker volume create {{ _bvol }}"
-  changed_when: true
-
-- name: Stage files into backup volume
-  when: >-
-    backup_volumes is defined
-    and backup_volumes | length > 0
+- name: Run backup (Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
   block:
-    - name: Build and run staging container
-      ansible.builtin.shell:
-        cmd: |
-          docker run --rm \
-            -v {{ _bvol }}:/currentsnapshot \
-          {% for src, dst in backup_volumes.items() %}
-            -v {{ src }}:/src{{ loop.index0 }}:ro \
-          {% endfor %}
-            alpine sh -c \
-            "rm -rf /currentsnapshot/* && \
-          {% for src, dst in backup_volumes.items() %}
-            cp -a /src{{ loop.index0 }} {{ dst }}{{ ' && ' if not loop.last else '' }} \
-          {% endfor %}
-            "
+    - name: Set backup volume name
+      ansible.builtin.set_fact:
+        _bvol: "canasta-backup-{{ instance_path | basename }}"
+
+    - name: Ensure backup volume exists
+      ansible.builtin.command:
+        cmd: "docker volume create {{ _bvol }}"
       changed_when: true
 
-- name: Read RESTIC_REPOSITORY from .env
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read
-    key: RESTIC_REPOSITORY
-  register: _backup_repo_env
+    - name: Stage files into backup volume
+      when: >-
+        backup_volumes is defined
+        and backup_volumes | length > 0
+      block:
+        - name: Build and run staging container
+          ansible.builtin.shell:
+            cmd: |
+              docker run --rm \
+                -v {{ _bvol }}:/currentsnapshot \
+              {% for src, dst in backup_volumes.items() %}
+                -v {{ src }}:/src{{ loop.index0 }}:ro \
+              {% endfor %}
+                alpine sh -c \
+                "rm -rf /currentsnapshot/* && \
+              {% for src, dst in backup_volumes.items() %}
+                cp -a /src{{ loop.index0 }} {{ dst }}{{ ' && ' if not loop.last else '' }} \
+              {% endfor %}
+                "
+          changed_when: true
 
-- name: Detect local repo (from .env or -r flag)
-  ansible.builtin.set_fact:
-    _backup_local_repo: >-
-      {{ (_backup_repo_env.value | default('')
-          is match('^/'))
-         | ternary(_backup_repo_env.value, '') }}
+    - name: Read RESTIC_REPOSITORY from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: RESTIC_REPOSITORY
+      register: _backup_repo_env
 
-- name: Run restic container
-  ansible.builtin.shell:
-    cmd: |
-      docker run --rm -i \
-        --env-file {{ instance_path }}/.env \
-        -v {{ _bvol }}:/currentsnapshot \
-      {% if _backup_local_repo %}
-        -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
-      {% endif %}
-        restic/restic \
-        --cache-dir /tmp/restic-cache \
-        {{ backup_args | join(' ') }}
-    chdir: "{{ instance_path }}"
-  register: _restic_result
-  changed_when: true
+    - name: Detect local repo (from .env or -r flag)
+      ansible.builtin.set_fact:
+        _backup_local_repo: >-
+          {{ (_backup_repo_env.value | default('')
+              is match('^/'))
+             | ternary(_backup_repo_env.value, '') }}
+
+    - name: Run restic container
+      ansible.builtin.shell:
+        cmd: |
+          docker run --rm -i \
+            --env-file {{ instance_path }}/.env \
+            -v {{ _bvol }}:/currentsnapshot \
+          {% if _backup_local_repo %}
+            -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
+          {% endif %}
+            restic/restic \
+            --cache-dir /tmp/restic-cache \
+            {{ backup_args | join(' ') }}
+        chdir: "{{ instance_path }}"
+      register: _compose_restic_result
+      changed_when: true
+
+    - name: Set restic result from Compose
+      ansible.builtin.set_fact:
+        _restic_result:
+          stdout: "{{ _compose_restic_result.stdout }}"
+          rc: "{{ _compose_restic_result.rc }}"

@@ -38,15 +38,18 @@
 - name: Write Kubernetes stack files
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:
-    - name: Create kubernetes manifests directory
+    - name: Create instance directories for Kubernetes
       ansible.builtin.file:
-        path: "{{ instance_path }}/kubernetes"
+        path: "{{ instance_path }}/{{ item }}"
         state: directory
         mode: "0755"
+      loop:
+        - wikis
+        - argocd
 
-    - name: Copy Kubernetes manifests
+    - name: Scaffold values.yaml from chart defaults
       ansible.builtin.copy:
-        src: "{{ role_path }}/files/kubernetes/"
-        dest: "{{ instance_path }}/kubernetes/"
+        src: "{{ role_path }}/files/helm/canasta/values.yaml"
+        dest: "{{ instance_path }}/values.yaml"
         force: false
         mode: "0644"

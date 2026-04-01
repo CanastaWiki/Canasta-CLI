@@ -59,8 +59,8 @@
       ansible.builtin.command:
         cmd: >-
           kubectl get pods
-          -n {{ instance_path | basename }}
-          -l app=web
+          -n canasta-{{ instance_id }}
+          -l app.kubernetes.io/component=web
           --field-selector=status.phase=Running
           -o jsonpath={.items[0].metadata.name}
       register: _k8s_pod
@@ -73,7 +73,7 @@
       ansible.builtin.set_fact:
         _extract_cmd: >-
           kubectl exec {{ _k8s_pod.stdout | trim }}
-          -n {{ instance_path | basename }} --
+          -n canasta-{{ instance_id }} --
           grep -oP 'wgSecretKey\s*=\s*"\K[0-9a-fA-F]+'
           /tmp/canasta-install/LocalSettings.php
         _extract_chdir: null
@@ -109,7 +109,7 @@
       ansible.builtin.command:
         cmd: >-
           kubectl exec {{ _k8s_pod.stdout | default('') | trim }}
-          -n {{ instance_path | basename }} --
+          -n canasta-{{ instance_id }} --
           rm -f /tmp/canasta-install/LocalSettings.php
       changed_when: true
       when: >-

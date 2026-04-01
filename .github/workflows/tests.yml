@@ -56,10 +56,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git-crypt
 
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.20.1
+
+      - name: Install k3s
+        run: |
+          curl -sfL https://get.k3s.io | sudo sh -
+          mkdir -p ~/.kube
+          sudo k3s kubectl config view --raw > ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl cluster-info
+
       - name: Install Python dependencies
         run: |
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          .venv/bin/ansible-galaxy collection install kubernetes.core
 
       - name: Configure git for CI
         run: |
@@ -113,6 +128,44 @@ jobs:
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "create"
           echo "$OUTPUT" | grep -q "backup"
+
+  helm-lint:
+    name: Helm Chart Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.20.1
+
+      - name: Lint chart with localhost domain
+        run: >-
+          helm lint roles/orchestrator/files/helm/canasta/
+          --set instance.id=test
+          --set 'domains[0]=localhost'
+
+      - name: Lint chart with real domain
+        run: >-
+          helm lint roles/orchestrator/files/helm/canasta/
+          --set instance.id=test
+          --set 'domains[0]=example.com'
+
+      - name: Template renders without errors (localhost)
+        run: >-
+          helm template test roles/orchestrator/files/helm/canasta/
+          --set instance.id=test
+          --set 'domains[0]=localhost'
+          > /dev/null
+
+      - name: Template renders without errors (multi-domain)
+        run: >-
+          helm template test roles/orchestrator/files/helm/canasta/
+          --set instance.id=test
+          --set 'domains[0]=example.com'
+          --set 'domains[1]=docs.example.com'
+          > /dev/null
 
   lint:
     name: Lint

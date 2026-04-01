@@ -1,0 +1,187 @@
+---
+# Sync instance config directory to Kubernetes ConfigMaps.
+# Creates/updates per-container ConfigMaps from the instance's config files.
+# Input: instance_path, instance_id
+#
+# ConfigMaps created:
+#   canasta-<id>-web-config    — wikis.yaml, .env, settings/*, composer.local.json
+#   canasta-<id>-caddy-config  — Caddyfile, Caddyfile.site, Caddyfile.global
+#   canasta-<id>-varnish-config — default.vcl
+#   canasta-<id>-db-config     — my.cnf
+
+- name: Set K8s namespace
+  ansible.builtin.set_fact:
+    _k8s_namespace: "canasta-{{ instance_id }}"
+
+# --- Gather config files ---
+
+- name: Read .env
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.env"
+  register: _sync_env
+
+- name: Read wikis.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/wikis.yaml"
+  register: _sync_wikis
+
+- name: Check if composer.local.json exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/composer.local.json"
+  register: _sync_composer_stat
+
+- name: Read composer.local.json
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/composer.local.json"
+  register: _sync_composer
+  when: _sync_composer_stat.stat.exists
+
+- name: Find all settings files
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/config/settings"
+    recurse: true
+    file_type: file
+    excludes: ["README"]
+  register: _sync_settings_files
+
+- name: Read each settings file
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  register: _sync_settings_contents
+  loop: "{{ _sync_settings_files.files }}"
+  loop_control:
+    label: "{{ item.path | regex_replace('^.*/config/settings/', 'settings/') }}"
+
+- name: Build web config data
+  ansible.builtin.set_fact:
+    _web_config_data: >-
+      {{
+        {'.env': _sync_env.content | b64decode,
+         'wikis.yaml': _sync_wikis.content | b64decode}
+        | combine(
+          (_sync_composer_stat.stat.exists | default(false))
+          | ternary({'composer.local.json': _sync_composer.content | default('') | b64decode}, {}))
+        | combine(
+          dict(_sync_settings_contents.results
+               | map(attribute='item')
+               | zip(_sync_settings_contents.results)
+               | map('list')
+               | map(attribute='0.path')
+               | map('regex_replace', '^.*/config/settings/', 'settings--')
+               | map('regex_replace', '/', '--')
+               | zip(_sync_settings_contents.results | map(attribute='content') | map('b64decode'))
+               | list))
+      }}
+
+# --- Caddy config ---
+
+- name: Read Caddyfile
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/Caddyfile"
+  register: _sync_caddyfile
+
+- name: Check optional config files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: _sync_optional_stats
+  loop:
+    - "{{ instance_path }}/config/Caddyfile.site"
+    - "{{ instance_path }}/config/Caddyfile.global"
+    - "{{ instance_path }}/config/default.vcl"
+    - "{{ instance_path }}/my.cnf"
+
+- name: Set optional file existence flags
+  ansible.builtin.set_fact:
+    _has_caddyfile_site: "{{ _sync_optional_stats.results[0].stat.exists }}"
+    _has_caddyfile_global: "{{ _sync_optional_stats.results[1].stat.exists }}"
+    _has_vcl: "{{ _sync_optional_stats.results[2].stat.exists }}"
+    _has_mycnf: "{{ _sync_optional_stats.results[3].stat.exists }}"
+
+- name: Read Caddyfile.site
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/Caddyfile.site"
+  register: _sync_caddyfile_site
+  when: _has_caddyfile_site | bool
+
+- name: Read Caddyfile.global
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/Caddyfile.global"
+  register: _sync_caddyfile_global
+  when: _has_caddyfile_global | bool
+
+- name: Build caddy config data
+  ansible.builtin.set_fact:
+    _caddy_config_data: >-
+      {{
+        {'Caddyfile': _sync_caddyfile.content | b64decode}
+        | combine((_has_caddyfile_site | bool)
+          | ternary({'Caddyfile.site': _sync_caddyfile_site.content | default('') | b64decode}, {}))
+        | combine((_has_caddyfile_global | bool)
+          | ternary({'Caddyfile.global': _sync_caddyfile_global.content | default('') | b64decode}, {}))
+      }}
+
+# --- Varnish config ---
+
+- name: Read default.vcl
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/default.vcl"
+  register: _sync_vcl
+  when: _has_vcl | bool
+
+# --- DB config ---
+
+- name: Read my.cnf
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/my.cnf"
+  register: _sync_mycnf
+  when: _has_mycnf | bool
+
+# --- Apply ConfigMaps ---
+
+- name: Create/update web config ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "canasta-{{ instance_id }}-web-config"
+        namespace: "{{ _k8s_namespace }}"
+      data: "{{ _web_config_data }}"
+
+- name: Create/update caddy config ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "canasta-{{ instance_id }}-caddy-config"
+        namespace: "{{ _k8s_namespace }}"
+      data: "{{ _caddy_config_data }}"
+
+- name: Create/update varnish config ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "canasta-{{ instance_id }}-varnish-config"
+        namespace: "{{ _k8s_namespace }}"
+      data:
+        default.vcl: "{{ _sync_vcl.content | b64decode }}"
+  when: _has_vcl | bool
+
+- name: Create/update db config ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "canasta-{{ instance_id }}-db-config"
+        namespace: "{{ _k8s_namespace }}"
+      data:
+        my.cnf: "{{ _sync_mycnf.content | b64decode }}"
+  when: _has_mycnf | bool

@@ -85,8 +85,9 @@
 
 - name: Set orchestrator facts early
   ansible.builtin.set_fact:
+    instance_id: "{{ id }}"
     instance_orchestrator: "{{ orchestrator | default('compose') }}"
-    instance_managed_cluster: "{{ create_cluster | default(false) | bool }}"
+    instance_managed_cluster: false
     instance_devmode: false
 
 - name: Create instance directory
@@ -298,6 +299,15 @@
     mode: "0644"
   when: composer is defined and composer != ''
 
+# --- Step 9b: K8s-specific .env values (before init_config generates Caddyfile) ---
+- name: Set CADDY_AUTO_HTTPS=off for Kubernetes
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: CADDY_AUTO_HTTPS
+    value: "off"
+  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+
 # --- Step 10: Initialize orchestrator config ---
 - name: Initialize orchestrator configuration
   ansible.builtin.include_role:
@@ -311,61 +321,85 @@
     mode: "0644"
   when: override is defined and override != ''
 
-# --- Step 10b: Kubernetes cluster setup ---
-- name: Create kind cluster (Kubernetes with --create-cluster)
-  when:
-    - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
-    - create_cluster | default(false) | bool
+# --- Step 10b: Kubernetes cluster and Argo CD setup ---
+- name: Kubernetes pre-create setup
+  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
   block:
-    - name: Set managed cluster facts
-      ansible.builtin.set_fact:
-        instance_managed_cluster: true
-
-    - name: Create kind cluster
+    - name: Validate Kubernetes prerequisites
       ansible.builtin.include_role:
         name: orchestrator
-        tasks_from: k8s_kind_create.yml
+        tasks_from: k8s_preflight.yml
 
-    - name: Load locally built image to kind (if build_from)
+    - name: Install k3s if requested
       ansible.builtin.include_role:
         name: orchestrator
-        tasks_from: k8s_load_image.yml
+        tasks_from: k8s_install_k3s.yml
+      when: install_k3s | default(false) | bool
+
+    - name: Install Argo CD if not skipped
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_argocd_bootstrap.yml
+      when: not (skip_argocd_install | default(false) | bool)
+
+    - name: Generate instance values.yaml
+      ansible.builtin.template:
+        src: "{{ canasta_root }}/roles/orchestrator/templates/k8s_values.yaml.j2"
+        dest: "{{ instance_path }}/values.yaml"
+        mode: "0644"
+
+    - name: Apply K8s secrets
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_apply_secrets.yml
       vars:
-        _image_tag: "{{ _base_image }}"
+        _mw_secret_key: "{{ lookup('password', '/dev/null length=64 chars=hexdigits') }}"
+
+    - name: Push image to registry (if built from source)
       when: build_from is defined and build_from != ''
+      block:
+        - name: Tag and push image to registry
+          ansible.builtin.command:
+            cmd: "docker tag {{ _base_image }} {{ registry | default('localhost:5000') }}/{{ _base_image }}"
+          changed_when: true
 
-- name: Push image to registry (Kubernetes without kind, build_from)
-  when:
-    - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
-    - not (create_cluster | default(false) | bool)
-    - build_from is defined and build_from != ''
-  block:
-    - name: Tag and push image to registry
-      ansible.builtin.command:
-        cmd: "docker tag {{ _base_image }} {{ registry | default('localhost:5000') }}/{{ _base_image }}"
-      changed_when: true
-
-    - name: Push image
-      ansible.builtin.command:
-        cmd: "docker push {{ registry | default('localhost:5000') }}/{{ _base_image }}"
-      changed_when: true
-
-    - name: Update CANASTA_IMAGE to registry path
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: set
-        key: CANASTA_IMAGE
-        value: "{{ registry | default('localhost:5000') }}/{{ _base_image }}"
+        - name: Push image
+          ansible.builtin.command:
+            cmd: "docker push {{ registry | default('localhost:5000') }}/{{ _base_image }}"
+          changed_when: true
 
 # --- Step 11: Start containers (without dev mode) ---
 - name: Report starting
   ansible.builtin.debug:
     msg: "Creating Canasta instance '{{ id }}'..."
 
-- name: Start containers
+- name: Start containers (Compose)
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: start.yml
+  when: (orchestrator | default('compose')) == 'compose'
+
+- name: Start containers (Kubernetes)
+  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+  block:
+    - name: Sync config to Kubernetes ConfigMaps
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_sync_config.yml
+
+    - name: Install Helm release (no wait)
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: helm_install.yml
+      vars:
+        _k8s_namespace: "canasta-{{ id }}"
+
+    - name: Wait for web deployment readiness
+      ansible.builtin.command:
+        cmd: >-
+          kubectl rollout status deployment/canasta-{{ id }}-web
+          -n canasta-{{ id }} --timeout=600s
+      changed_when: false
 
 # --- Step 12: Database setup ---
 - name: Wait for database
@@ -420,21 +454,24 @@
     path: "{{ instance_path }}"
     orchestrator: "{{ orchestrator | default('compose') }}"
     host: "{{ inventory_hostname }}"
-    managed_cluster: "{{ create_cluster | default(false) | bool }}"
+    managed_cluster: false
     build_from: "{{ build_from | default(omit) }}"
     state: present
   delegate_to: localhost
 
-# --- Step 14: Restart with full config ---
+# --- Step 14: Restart with full config (Compose only) ---
+# Kubernetes pods are already running with the correct config from PVC.
 - name: Stop containers
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: stop.yml
+  when: (orchestrator | default('compose')) == 'compose'
 
 - name: Start containers with full config
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: start.yml
+  when: (orchestrator | default('compose')) == 'compose'
 
 - name: SMTP note
   ansible.builtin.debug:

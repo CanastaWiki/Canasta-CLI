@@ -20,8 +20,7 @@
       - "--exclude=docker-compose.override.yml.example"
       - "--exclude=docker-compose.dev.yml"
       - "--exclude=Dockerfile.xdebug"
-      - "--exclude=kustomization.yaml"
-      - "--exclude=kubernetes/"
+      - "--exclude=argocd/"
       - "--exclude=scripts/"
       - "--exclude=.git/"
       - "--exclude=.vscode/"
@@ -40,8 +39,7 @@
       --exclude=docker-compose.override.yml.example
       --exclude=docker-compose.dev.yml
       --exclude=Dockerfile.xdebug
-      --exclude=kustomization.yaml
-      --exclude='kubernetes/'
+      --exclude='argocd/'
       --exclude='scripts/'
       --exclude='.git/'
       --exclude='.vscode/'

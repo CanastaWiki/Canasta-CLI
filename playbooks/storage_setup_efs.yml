@@ -1,0 +1,45 @@
+---
+# canasta storage setup efs — Install EFS CSI driver and create StorageClass.
+# The EFS filesystem must already exist (created via AWS console or CLI).
+
+- name: Validate Kubernetes prerequisites
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: k8s_preflight.yml
+  vars:
+    instance_id: storage
+
+- name: Add EFS CSI driver Helm repository
+  kubernetes.core.helm_repository:
+    name: aws-efs-csi-driver
+    repo_url: https://kubernetes-sigs.github.io/aws-efs-csi-driver/
+
+- name: Install EFS CSI driver
+  kubernetes.core.helm:
+    name: aws-efs-csi-driver
+    chart_ref: aws-efs-csi-driver/aws-efs-csi-driver
+    release_namespace: kube-system
+    create_namespace: false
+    wait: true
+    timeout: "5m"
+
+- name: Create EFS StorageClass
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: "{{ storage_class_name | default('efs') }}"
+      provisioner: efs.csi.aws.com
+      parameters:
+        provisioningMode: efs-ap
+        fileSystemId: "{{ filesystem_id }}"
+        directoryPerms: "755"
+
+- name: Report setup complete
+  ansible.builtin.debug:
+    msg: >-
+      EFS storage configured. StorageClass '{{ storage_class_name | default('efs') }}'
+      is ready. Set persistence.*.storageClass to
+      '{{ storage_class_name | default('efs') }}' in your instance's values.yaml.

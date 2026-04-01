@@ -59,21 +59,8 @@
         value: "{{ _base_domain }}{{ _port_suffix }}"
       when: _se_wikis.wikis | length > 0
 
-- name: Recreate kind cluster on port change (Kubernetes managed clusters)
-  when:
-    - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-    - instance_managed_cluster | default(false) | bool
-  block:
-    - name: Delete existing kind cluster
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_kind_delete.yml
-
-    - name: Recreate kind cluster with new ports
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_kind_create.yml
+# Kubernetes port changes: Ingress handles port routing, no cluster
+# recreation needed. The change takes effect on next helm upgrade.
 
 - name: Apply CANASTA_ENABLE_OBSERVABILITY side effects
   when: _config_key == 'CANASTA_ENABLE_OBSERVABILITY' and _config_value | lower == 'true'

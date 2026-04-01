@@ -140,6 +140,35 @@
     name: orchestrator
     tasks_from: update_config.yml
 
+- name: Update Kubernetes values.yaml domains list
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Read current values.yaml
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/values.yaml"
+      register: _add_values_raw
+
+    - name: Parse current domains
+      ansible.builtin.set_fact:
+        _add_current_values: "{{ _add_values_raw.content | b64decode | from_yaml }}"
+
+    - name: Add domain if not already present
+      ansible.builtin.set_fact:
+        _add_new_domains: >-
+          {{ (_add_current_values.domains | default([])) | union([_add_domain | trim]) }}
+
+    - name: Update values.yaml with new domains list
+      ansible.builtin.copy:
+        content: "{{ _add_current_values | combine({'domains': _add_new_domains}) | to_nice_yaml }}"
+        dest: "{{ instance_path }}/values.yaml"
+        mode: "0644"
+      when: _add_new_domains | length > (_add_current_values.domains | default([]) | length)
+
+    - name: Sync updated config to ConfigMaps
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_sync_config.yml
+
 - name: Restart instance
   ansible.builtin.include_role:
     name: instance_lifecycle

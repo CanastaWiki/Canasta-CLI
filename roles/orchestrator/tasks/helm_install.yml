@@ -1,0 +1,14 @@
+---
+# Install the Canasta Helm release for an instance.
+# Does NOT wait for pod readiness — caller handles that.
+# Input: instance_id, instance_path, _k8s_namespace
+
+- name: Install Canasta Helm release
+  kubernetes.core.helm:
+    name: "canasta-{{ instance_id }}"
+    chart_ref: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta"
+    release_namespace: "{{ _k8s_namespace }}"
+    create_namespace: true
+    values_files:
+      - "{{ instance_path }}/values.yaml"
+    wait: false

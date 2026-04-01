@@ -1,6 +1,6 @@
 ---
 # canasta export - Export a wiki's database.
-# Uses container temp file + docker compose cp (matching Go behavior).
+# Uses container temp file + copy to host (matching Go behavior).
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -49,11 +49,26 @@
   ansible.builtin.set_fact:
     _container_file: "/tmp/{{ wiki }}.sql{{ (_export_gzip | bool) | ternary('.gz', '') }}"
 
-- name: Copy dump from container to host
+- name: Copy dump from container to host (Compose)
   ansible.builtin.command:
     cmd: "docker compose cp {{ ('db:' + _container_file) | quote }} {{ _export_file | quote }}"
     chdir: "{{ instance_path }}"
   changed_when: true
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Copy dump from container to host (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Get DB pod name
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_get_pod.yml"
+      vars:
+        _k8s_namespace: "canasta-{{ instance_id }}"
+        _k8s_component: db
+
+    - name: Copy dump via kubectl cp
+      ansible.builtin.command:
+        cmd: "kubectl cp canasta-{{ instance_id }}/{{ _k8s_pod_name }}:{{ _container_file }} {{ _export_file }}"
+      changed_when: true
 
 - name: Clean up temp files in container
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"

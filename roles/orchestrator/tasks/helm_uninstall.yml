@@ -1,0 +1,35 @@
+---
+# Uninstall the Canasta Helm release and clean up.
+# Input: instance_id, _k8s_namespace
+
+- name: Uninstall Canasta Helm release
+  kubernetes.core.helm:
+    name: "canasta-{{ instance_id }}"
+    release_namespace: "{{ _k8s_namespace }}"
+    state: absent
+    wait: true
+  ignore_errors: true
+
+- name: Delete Ansible-managed resources
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: "{{ item.kind }}"
+    name: "{{ item.name }}"
+    namespace: "{{ _k8s_namespace }}"
+  loop:
+    - { kind: Secret, name: "{{ instance_id }}-db-credentials" }
+    - { kind: Secret, name: "{{ instance_id }}-mw-secrets" }
+    - { kind: ConfigMap, name: "canasta-{{ instance_id }}-web-config" }
+    - { kind: ConfigMap, name: "canasta-{{ instance_id }}-caddy-config" }
+    - { kind: ConfigMap, name: "canasta-{{ instance_id }}-varnish-config" }
+    - { kind: ConfigMap, name: "canasta-{{ instance_id }}-db-config" }
+  ignore_errors: true
+
+- name: Delete namespace
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Namespace
+    name: "{{ _k8s_namespace }}"
+  when: delete_namespace | default(true) | bool

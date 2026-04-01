@@ -1,0 +1,33 @@
+---
+# Trigger an immediate Argo CD sync and wait for completion.
+# Input: instance_id, argocd_namespace
+
+- name: Trigger Argo CD sync via refresh annotation
+  kubernetes.core.k8s:
+    state: patched
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: "canasta-{{ instance_id }}"
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+    definition:
+      metadata:
+        annotations:
+          argocd.argoproj.io/refresh: "hard"
+
+- name: Wait for Argo CD sync completion
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: "canasta-{{ instance_id }}"
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  register: _argocd_sync_status
+  until:
+    - _argocd_sync_status.resources | length > 0
+    - _argocd_sync_status.resources[0].status.sync.status | default('') == 'Synced'
+    - _argocd_sync_status.resources[0].status.health.status | default('') == 'Healthy'
+  retries: 60
+  delay: 5
+
+- name: Report sync complete
+  ansible.builtin.debug:
+    msg: "Argo CD sync completed for 'canasta-{{ instance_id }}'."

@@ -1,9 +1,13 @@
 ---
 # Pull latest images for an instance.
-# Input: instance_path
+# Input: instance_path, instance_orchestrator
 
-- name: Pull images
+- name: Pull images (Compose)
   ansible.builtin.command:
     cmd: "docker compose pull --ignore-buildable --ignore-pull-failures"
     chdir: "{{ instance_path }}"
   changed_when: true
+  when: instance_orchestrator | default('compose') == 'compose'
+
+# Kubernetes: image pulls happen automatically during helm upgrade.
+# No explicit pull needed.

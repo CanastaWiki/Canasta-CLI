@@ -1,0 +1,15 @@
+---
+# canasta gitops sync - Trigger an immediate Argo CD sync.
+# Kubernetes only; no-op for Compose instances.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Not applicable for Compose
+  ansible.builtin.debug:
+    msg: "'gitops sync' is only applicable for the kubernetes orchestrator. No action taken."
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Trigger Argo CD sync
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_argocd_sync.yml"
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']

@@ -1,0 +1,16 @@
+---
+# Check the status of the Canasta Helm release.
+# Input: instance_id, _k8s_namespace
+# Output: _helm_release_exists (bool), _helm_release_status (string)
+
+- name: Check Helm release status
+  kubernetes.core.helm_info:
+    name: "canasta-{{ instance_id }}"
+    release_namespace: "{{ _k8s_namespace }}"
+  register: _helm_info
+  ignore_errors: true
+
+- name: Set release status facts
+  ansible.builtin.set_fact:
+    _helm_release_exists: "{{ _helm_info is succeeded and _helm_info.status is defined }}"
+    _helm_release_status: "{{ _helm_info.status.status | default('not-installed') }}"

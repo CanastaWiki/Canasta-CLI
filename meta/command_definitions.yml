@@ -137,10 +137,21 @@ commands:
         type: string
         default: "localhost:5000"
         description: "Container registry for pushing locally built images (K8s only)"
-      - name: create_cluster
+      - name: install_k3s
         type: bool
         default: false
-        description: "Create and manage a local Kubernetes cluster"
+        description: "Install k3s on the target host (kubernetes orchestrator only)"
+      - name: skip_argocd_install
+        type: bool
+        default: false
+        description: "Skip Argo CD installation (assume already present)"
+      - name: argocd_namespace
+        type: string
+        default: argocd
+        description: "Namespace for Argo CD (kubernetes orchestrator only)"
+      - name: ingress_class
+        type: string
+        description: "Kubernetes ingress class name (e.g. nginx, traefik, alb)"
 
   - name: delete
     description: "Delete a Canasta instance"
@@ -1201,3 +1212,68 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+
+  - name: gitops_sync
+    description: "Trigger an immediate Argo CD sync (kubernetes only)"
+    long_description: |
+      Forces Argo CD to immediately reconcile the cluster state with the Git
+      repository, rather than waiting for the next automatic sync interval.
+      On Docker Compose instances this command has no effect.
+    examples:
+      - "canasta gitops sync -i mysite"
+    playbook: gitops_sync.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        required: true
+        description: "Canasta instance ID"
+
+  # ---------------------------------------------------------------------------
+  # Storage provisioning (Kubernetes only)
+  # ---------------------------------------------------------------------------
+  - name: storage_setup_nfs
+    description: "Set up NFS shared storage for Kubernetes"
+    long_description: |
+      Install the NFS CSI driver and create a StorageClass for shared storage
+      on Kubernetes clusters. Optionally install an NFS server on the target host.
+      After setup, set persistence.*.storageClass in values.yaml to use it.
+    examples:
+      - "canasta storage setup nfs --server 192.168.1.10 --share /srv/nfs/canasta"
+      - "canasta storage setup nfs --install-server --share /srv/nfs/canasta"
+    playbook: storage_setup_nfs.yml
+    parameters:
+      - name: server
+        type: string
+        description: "NFS server IP or hostname"
+      - name: share
+        type: string
+        required: true
+        description: "NFS export path (e.g. /srv/nfs/canasta)"
+      - name: install_server
+        type: bool
+        default: false
+        description: "Install NFS server on the target host"
+      - name: storage_class_name
+        type: string
+        default: nfs
+        description: "Name for the Kubernetes StorageClass"
+
+  - name: storage_setup_efs
+    description: "Set up AWS EFS shared storage for Kubernetes"
+    long_description: |
+      Install the EFS CSI driver and create a StorageClass for shared storage
+      on AWS Kubernetes clusters. The EFS filesystem must be created separately
+      via AWS console or CLI.
+    examples:
+      - "canasta storage setup efs --filesystem-id fs-0123456789abcdef0"
+    playbook: storage_setup_efs.yml
+    parameters:
+      - name: filesystem_id
+        type: string
+        required: true
+        description: "AWS EFS filesystem ID (e.g. fs-0123456789abcdef0)"
+      - name: storage_class_name
+        type: string
+        default: efs
+        description: "Name for the Kubernetes StorageClass"

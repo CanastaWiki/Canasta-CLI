@@ -46,15 +46,12 @@
       vars:
         build_from: "{{ _upgrade_inst.instance.buildFrom }}"
 
-    - name: Load image to kind cluster (if managed K8s)
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_load_image.yml
-      vars:
-        _image_tag: "{{ _built_image }}"
+    - name: Push rebuilt image to registry (if K8s with build_from)
+      ansible.builtin.command:
+        cmd: "docker push {{ _built_image }}"
+      changed_when: true
       when:
         - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-        - instance_managed_cluster | default(false) | bool
 
 # --- Refresh config ---
 - name: Refresh stack files (no-clobber)
@@ -66,6 +63,26 @@
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: init_config.yml
+
+# --- Update K8s values.yaml image tag ---
+- name: Update Kubernetes image tag in values.yaml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Read current values.yaml
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/values.yaml"
+      register: _upgrade_values_raw
+
+    - name: Update image tag
+      ansible.builtin.set_fact:
+        _upgrade_values: "{{ _upgrade_values_raw.content | b64decode | from_yaml }}"
+
+    - name: Write updated values.yaml
+      ansible.builtin.copy:
+        content: >-
+          {{ _upgrade_values | combine({'image': {'repository': _upgrade_values.image.repository | default('ghcr.io/canastawiki/canasta'), 'tag': canasta_default_image | regex_replace('^[^:]+:', '')}}, recursive=True) | to_nice_yaml }}
+        dest: "{{ instance_path }}/values.yaml"
+        mode: "0644"
 
 # --- Pull and restart ---
 - name: Report pulling images

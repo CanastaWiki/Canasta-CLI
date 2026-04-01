@@ -31,6 +31,5 @@
 
 - name: Kubernetes-specific init
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-  block:
-    - name: Generate kustomization.yaml
-      ansible.builtin.include_tasks: generate_kustomization.yml
+  ansible.builtin.debug:
+    msg: "Kubernetes configuration managed via Helm values.yaml"

@@ -11,13 +11,29 @@
       ansible.builtin.include_role:
         name: create
   rescue:
-    - name: Clean up on failure (destroy containers)
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: destroy.yml
-      vars:
-        instance_path: "{{ (path | default('.')) | realpath }}/{{ id }}"
-      when: not (keep_config | default(false) | bool)
+    - name: Clean up on failure (destroy Compose containers)
+      ansible.builtin.command:
+        cmd: "docker compose down -v"
+        chdir: "{{ (path | default('.')) | realpath }}/{{ id }}"
+      when:
+        - not (keep_config | default(false) | bool)
+        - (orchestrator | default('compose')) == 'compose'
+      ignore_errors: true
+
+    - name: Clean up on failure (uninstall Helm release)
+      ansible.builtin.command:
+        cmd: "helm uninstall canasta-{{ id }} -n canasta-{{ id }}"
+      when:
+        - not (keep_config | default(false) | bool)
+        - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+      ignore_errors: true
+
+    - name: Clean up on failure (delete K8s namespace)
+      ansible.builtin.command:
+        cmd: "kubectl delete namespace canasta-{{ id }} --ignore-not-found"
+      when:
+        - not (keep_config | default(false) | bool)
+        - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
       ignore_errors: true
 
     - name: Clean up on failure (remove directory)

@@ -1,0 +1,48 @@
+---
+# Install k3s on the target host.
+# Input: install_k3s (bool)
+# Idempotent — checks if k3s is already running.
+
+- name: Check if k3s is already running
+  ansible.builtin.command:
+    cmd: k3s kubectl cluster-info
+  register: _k3s_running
+  changed_when: false
+  ignore_errors: true
+
+- name: Install k3s
+  when: _k3s_running.rc != 0
+  block:
+    - name: Download and install k3s
+      ansible.builtin.shell:
+        cmd: "curl -sfL https://get.k3s.io | sh -"
+      changed_when: true
+
+    - name: Wait for k3s to be ready
+      ansible.builtin.command:
+        cmd: k3s kubectl cluster-info
+      register: _k3s_ready
+      until: _k3s_ready.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+
+- name: Ensure kubeconfig directory exists
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.kube"
+    state: directory
+    mode: "0700"
+
+- name: Write kubeconfig
+  ansible.builtin.shell:
+    cmd: "k3s kubectl config view --raw > {{ ansible_env.HOME }}/.kube/config"
+  changed_when: true
+
+- name: Set kubeconfig permissions
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.kube/config"
+    mode: "0600"
+
+- name: Report k3s status
+  ansible.builtin.debug:
+    msg: "k3s is running and kubeconfig is configured."

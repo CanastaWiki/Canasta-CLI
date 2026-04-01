@@ -33,14 +33,18 @@ SUBCOMMAND_GROUPS = {
     ],
     "gitops": [
         "init", "join", "add", "rm", "push", "pull",
-        "status", "diff", "fix-submodules",
+        "status", "diff", "fix-submodules", "sync",
     ],
+    "storage": ["setup"],
 }
 
 # Nested subcommand groups (backup schedule set|list|remove)
 NESTED_SUBCOMMAND_GROUPS = {
     "backup": {
         "schedule": ["set", "list", "remove"],
+    },
+    "storage": {
+        "setup": ["nfs", "efs"],
     },
 }
 
