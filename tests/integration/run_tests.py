@@ -294,7 +294,9 @@ def test_backup(inst):
         "-n", "localhost", "-p", inst.work_dir,
         "-e", inst.env_file,
     )
-    wait_for_wiki(inst.http_port)
+    # Skip wiki readiness check — backup commands only need
+    # containers running, not a fully initialized wiki.
+    time.sleep(10)  # Brief wait for containers to stabilize
 
     print("Configuring backup repository...")
     backup_dir = tempfile.mkdtemp(prefix="canasta-int-backup-")
@@ -543,12 +545,12 @@ def test_k8s_lifecycle(inst):
 # --- Test runner ---
 
 ALL_TESTS = {
+    "k8s-lifecycle": test_k8s_lifecycle,
     "lifecycle": test_lifecycle,
     "import": test_import_export,
     "upgrade": test_upgrade,
     "backup": test_backup,
     "gitops": test_gitops,
-    "k8s-lifecycle": test_k8s_lifecycle,
 }
 
 

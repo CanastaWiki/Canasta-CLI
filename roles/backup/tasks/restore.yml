@@ -28,44 +28,7 @@
       - "backup"
       - "/currentsnapshot"
 
-# --- Compose restore ---
-- name: Restore (Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
-  block:
-    - name: Restore snapshot into backup volume
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
-      vars:
-        backup_args:
-          - "restore"
-          - "{{ snapshot }}"
-          - "--target"
-          - "/"
-
-    - name: Copy files from volume to host
-      ansible.builtin.shell:
-        cmd: |
-          docker run --rm \
-            -v canasta-backup-{{ instance_path | basename
-            }}:/currentsnapshot:ro \
-            -v {{ instance_path }}:/install \
-            alpine sh -c "
-            for d in config extensions images skins public_assets; do
-              if [ -d /currentsnapshot/\$d ]; then
-                mkdir -p /install/\$d &&
-                rm -rf /install/\$d/* \
-                  /install/\$d/.[!.]* 2>/dev/null;
-                cp -a /currentsnapshot/\$d/. /install/\$d/;
-              fi;
-            done;
-            for f in .env docker-compose.override.yml my.cnf; do
-              if [ -f /currentsnapshot/\$f ]; then
-                cp -a /currentsnapshot/\$f /install/\$f;
-              fi;
-            done"
-      changed_when: true
-
-# --- Kubernetes restore ---
+# --- Kubernetes restore path ---
 - name: Restore (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:
@@ -193,6 +156,42 @@
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml
 
+# --- Compose restore path (unchanged from original) ---
+- name: Restore snapshot into backup volume
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
+  vars:
+    backup_args:
+      - "restore"
+      - "{{ snapshot }}"
+      - "--target"
+      - "/"
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Copy files from volume to host
+  ansible.builtin.shell:
+    cmd: |
+      docker run --rm \
+        -v canasta-backup-{{ instance_path | basename
+        }}:/currentsnapshot:ro \
+        -v {{ instance_path }}:/install \
+        alpine sh -c "
+        for d in config extensions images skins public_assets; do
+          if [ -d /currentsnapshot/\$d ]; then
+            mkdir -p /install/\$d &&
+            rm -rf /install/\$d/* \
+              /install/\$d/.[!.]* 2>/dev/null;
+            cp -a /currentsnapshot/\$d/. /install/\$d/;
+          fi;
+        done;
+        for f in .env docker-compose.override.yml my.cnf; do
+          if [ -f /currentsnapshot/\$f ]; then
+            cp -a /currentsnapshot/\$f /install/\$f;
+          fi;
+        done"
+  changed_when: true
+  when: instance_orchestrator | default('compose') == 'compose'
+
 - name: Preserve DB password in restored .env
   canasta_env:
     path: "{{ instance_path }}/.env"
@@ -201,7 +200,37 @@
     value: "{{ _restore_dbpass.value }}"
   no_log: true
 
-- name: Restart instance to apply restored config
+- name: Read wiki IDs for DB restore
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _restore_wikis
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Import each wiki database dump
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+  vars:
+    exec_service: web
+    exec_no_log: true
+    exec_command: >-
+      mariadb -h db -u root
+      -p{{ _restore_dbpass.value | quote }}
+      < /mediawiki/config/backup/db_{{ item | quote }}.sql
+  loop: "{{ _restore_wikis.wiki_ids }}"
+  no_log: true
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Clean up backup dump directory
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+  vars:
+    exec_service: web
+    exec_command: "rm -rf /mediawiki/config/backup"
+  ignore_errors: true
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Restart instance after K8s restore
   ansible.builtin.include_role:
     name: instance_lifecycle
     tasks_from: restart.yml
