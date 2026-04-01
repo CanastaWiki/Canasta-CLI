@@ -28,37 +28,44 @@ func (c *ComposeOrchestrator) Name() string            { return "Docker Compose"
 func (c *ComposeOrchestrator) SupportsDevMode() bool   { return true }
 func (c *ComposeOrchestrator) SupportsImagePull() bool { return true }
 
-// getCompose returns the configured compose orchestrator path.
-func (c *ComposeOrchestrator) getCompose() (config.Orchestrator, error) {
-	return config.GetOrchestrator("compose")
+type composeBinary struct {
+	Path string
+}
+
+// getCompose discovers the compose binary at runtime.
+func (c *ComposeOrchestrator) getCompose() (composeBinary, error) {
+	if path, err := exec.LookPath("docker-compose"); err == nil {
+		return composeBinary{Path: path}, nil
+	}
+	return composeBinary{}, nil
 }
 
 // runCompose runs a compose command via execute.Run and returns the output.
-func runCompose(installPath string, compose config.Orchestrator, args ...string) (string, error) {
-	if compose.Path != "" {
-		return execute.Run(installPath, compose.Path, args...)
+func runCompose(installPath string, composeBin composeBinary, args ...string) (string, error) {
+	if composeBin.Path != "" {
+		return execute.Run(installPath, composeBin.Path, args...)
 	}
 	allArgs := append([]string{"compose"}, args...)
 	return execute.Run(installPath, "docker", allArgs...)
 }
 
 // composeCommand returns an exec.Cmd configured for the compose orchestrator.
-func composeCommand(compose config.Orchestrator, args ...string) *exec.Cmd {
-	if compose.Path != "" {
-		// compose.Path is from system lookup.
+func composeCommand(composeBin composeBinary, args ...string) *exec.Cmd {
+	if composeBin.Path != "" {
+		// composeBin.Path is from system lookup.
 		//nolint:gosec
-		return exec.Command(compose.Path, args...)
+		return exec.Command(composeBin.Path, args...)
 	}
 	allArgs := append([]string{"compose"}, args...)
 	return exec.Command("docker", allArgs...)
 }
 
 func (c *ComposeOrchestrator) CheckDependencies() error {
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return err
 	}
-	cmd := composeCommand(compose, "version")
+	cmd := composeCommand(composeBin, "version")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("docker compose is not available: %w", err)
 	}
@@ -112,7 +119,7 @@ func (c *ComposeOrchestrator) Start(instance config.Instance) error {
 		logging.Print("Starting Canasta\n")
 	}
 
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return err
 	}
@@ -121,7 +128,7 @@ func (c *ComposeOrchestrator) Start(instance config.Instance) error {
 		args = append(args, "-f", f)
 	}
 	args = append(args, "up", "-d")
-	output, err := runCompose(instance.Path, compose, args...)
+	output, err := runCompose(instance.Path, composeBin, args...)
 	if err != nil {
 		return fmt.Errorf("failed to start containers at %s: %s", instance.Path, output)
 	}
@@ -137,7 +144,7 @@ func (c *ComposeOrchestrator) Stop(instance config.Instance) error {
 		logging.Print("Stopping the containers\n")
 	}
 
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return err
 	}
@@ -146,7 +153,7 @@ func (c *ComposeOrchestrator) Stop(instance config.Instance) error {
 		args = append(args, "-f", f)
 	}
 	args = append(args, "down")
-	output, err := runCompose(instance.Path, compose, args...)
+	output, err := runCompose(instance.Path, composeBin, args...)
 	if err != nil {
 		return fmt.Errorf("failed to stop containers at %s: %s", instance.Path, output)
 	}
@@ -155,11 +162,11 @@ func (c *ComposeOrchestrator) Stop(instance config.Instance) error {
 
 func (c *ComposeOrchestrator) Pull(installPath string) error {
 	logging.Print("Pulling Canasta image\n")
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return err
 	}
-	output, err := runCompose(installPath, compose, "pull", "--ignore-buildable", "--ignore-pull-failures")
+	output, err := runCompose(installPath, composeBin, "pull", "--ignore-buildable", "--ignore-pull-failures")
 	if err != nil {
 		return fmt.Errorf("failed to pull images at %s: %s", installPath, output)
 	}
@@ -168,25 +175,25 @@ func (c *ComposeOrchestrator) Pull(installPath string) error {
 
 func (c *ComposeOrchestrator) Update(installPath string) (*UpdateReport, error) {
 	report := &UpdateReport{}
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return nil, err
 	}
 
 	// Get image info before pull
-	beforeImages, err := getComposeImages(installPath, compose)
+	beforeImages, err := getComposeImages(installPath, composeBin)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get images before pull: %w", err)
 	}
 
 	// Run pull
-	output, err := runCompose(installPath, compose, "pull", "--ignore-buildable", "--ignore-pull-failures")
+	output, err := runCompose(installPath, composeBin, "pull", "--ignore-buildable", "--ignore-pull-failures")
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull images for update at %s: %s", installPath, output)
 	}
 
 	// Get image info after pull
-	afterImages, err := getComposeImages(installPath, compose)
+	afterImages, err := getComposeImages(installPath, composeBin)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get images after pull: %w", err)
 	}
@@ -209,7 +216,7 @@ func (c *ComposeOrchestrator) Update(installPath string) (*UpdateReport, error) 
 
 func (c *ComposeOrchestrator) Build(installPath string, files ...string) error {
 	logging.Print("Building images\n")
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return err
 	}
@@ -218,7 +225,7 @@ func (c *ComposeOrchestrator) Build(installPath string, files ...string) error {
 		args = append(args, "-f", f)
 	}
 	args = append(args, "build")
-	output, err := runCompose(installPath, compose, args...)
+	output, err := runCompose(installPath, composeBin, args...)
 	if err != nil {
 		return fmt.Errorf("failed to build images at %s: %s", installPath, output)
 	}
@@ -226,11 +233,11 @@ func (c *ComposeOrchestrator) Build(installPath string, files ...string) error {
 }
 
 func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return "", err
 	}
-	output, err := runCompose(installPath, compose, "down", "-v")
+	output, err := runCompose(installPath, composeBin, "down", "-v")
 	if err != nil {
 		return output, err
 	}
@@ -244,11 +251,11 @@ func (c *ComposeOrchestrator) Destroy(installPath string) (string, error) {
 }
 
 func (c *ComposeOrchestrator) ListServices(instance config.Instance) ([]string, error) {
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return nil, err
 	}
-	cmd := composeCommand(compose, "ps", "--services")
+	cmd := composeCommand(composeBin, "ps", "--services")
 	cmd.Dir = instance.Path
 	outputByte, err := cmd.CombinedOutput()
 	if err != nil {
@@ -265,12 +272,12 @@ func (c *ComposeOrchestrator) ListServices(instance config.Instance) ([]string, 
 }
 
 func (c *ComposeOrchestrator) ExecInteractive(instance config.Instance, service string, command []string) error {
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return err
 	}
 	args := append([]string{"exec", service}, command...)
-	cmd := composeCommand(compose, args...)
+	cmd := composeCommand(composeBin, args...)
 	cmd.Dir = instance.Path
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -279,11 +286,11 @@ func (c *ComposeOrchestrator) ExecInteractive(instance config.Instance, service 
 }
 
 func (c *ComposeOrchestrator) ExecWithError(installPath, service, command string) (string, error) {
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return "", err
 	}
-	cmd := composeCommand(compose, "exec", "-T", service, "/bin/bash", "-c", command)
+	cmd := composeCommand(composeBin, "exec", "-T", service, "/bin/bash", "-c", command)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -294,11 +301,11 @@ func (c *ComposeOrchestrator) ExecWithError(installPath, service, command string
 }
 
 func (c *ComposeOrchestrator) ExecStreaming(installPath, service, command string) error {
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return err
 	}
-	cmd := composeCommand(compose, "exec", "-T", service, "/bin/bash", "-c", command)
+	cmd := composeCommand(composeBin, "exec", "-T", service, "/bin/bash", "-c", command)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -312,11 +319,11 @@ func (c *ComposeOrchestrator) ExecStreaming(installPath, service, command string
 
 func (c *ComposeOrchestrator) CheckRunningStatus(instance config.Instance) error {
 	containerName := "web"
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return err
 	}
-	output, err := runCompose(instance.Path, compose, "ps", "-q", containerName)
+	output, err := runCompose(instance.Path, composeBin, "ps", "-q", containerName)
 	if err != nil || output == "" {
 		return fmt.Errorf("container %s is not running", containerName)
 	}
@@ -324,11 +331,11 @@ func (c *ComposeOrchestrator) CheckRunningStatus(instance config.Instance) error
 }
 
 func (c *ComposeOrchestrator) CopyFrom(installPath, service, containerPath, hostPath string) error {
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return err
 	}
-	cmd := composeCommand(compose, "cp", service+":"+containerPath, hostPath)
+	cmd := composeCommand(composeBin, "cp", service+":"+containerPath, hostPath)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -340,11 +347,11 @@ func (c *ComposeOrchestrator) CopyFrom(installPath, service, containerPath, host
 }
 
 func (c *ComposeOrchestrator) CopyTo(installPath, service, hostPath, containerPath string) error {
-	compose, err := c.getCompose()
+	composeBin, err := c.getCompose()
 	if err != nil {
 		return err
 	}
-	cmd := composeCommand(compose, "cp", hostPath, service+":"+containerPath)
+	cmd := composeCommand(composeBin, "cp", hostPath, service+":"+containerPath)
 	if installPath != "" {
 		cmd.Dir = installPath
 	}
@@ -427,8 +434,8 @@ type composeImageEntry struct {
 }
 
 // getComposeImages returns a map of service name to ImageInfo.
-func getComposeImages(installPath string, compose config.Orchestrator) (map[string]ImageInfo, error) {
-	output, err := runCompose(installPath, compose, "images", "--format", "json")
+func getComposeImages(installPath string, composeBin composeBinary) (map[string]ImageInfo, error) {
+	output, err := runCompose(installPath, composeBin, "images", "--format", "json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to run docker compose images: %s", output)
 	}
