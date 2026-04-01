@@ -1,0 +1,166 @@
+---
+# GitOps init (Kubernetes) — simpler than Compose.
+# No git-crypt (secrets live in K8s Secrets, not in the repo).
+# No env.template/vars.yaml/hosts.yaml structure.
+# The git repo tracks values.yaml and config files.
+# Argo CD Application is registered to start continuous reconciliation.
+# Input: host_name, role, repo, key, force, pull_requests
+# Requires: instance_path, instance_id (set by dispatcher)
+
+# --- Validate prerequisites ---
+- name: Check git is installed
+  ansible.builtin.command:
+    cmd: git --version
+  changed_when: false
+
+- name: Check for existing .git directory
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git"
+  register: _gitops_existing
+
+- name: Fail if git repo already exists
+  ansible.builtin.fail:
+    msg: >-
+      GitOps already initialized ({{ instance_path }}/.git exists).
+      Use 'gitops join' to join an existing repo.
+  when: _gitops_existing.stat.exists
+
+- name: Check key file does not exist
+  ansible.builtin.stat:
+    path: "{{ key }}"
+  register: _gitops_key_exists
+
+- name: Fail if key file already exists
+  ansible.builtin.fail:
+    msg: "Key file '{{ key }}' already exists. Remove it first or use a different path."
+  when: _gitops_key_exists.stat.exists
+
+- name: Check remote is empty
+  ansible.builtin.command:
+    cmd: "git ls-remote {{ repo }}"
+  register: _gitops_remote
+  changed_when: false
+  ignore_errors: true
+
+- name: Fail if remote is not empty
+  ansible.builtin.fail:
+    msg: >-
+      Remote repository is not empty. Use --force to push anyway
+      (this will overwrite the remote).
+  when:
+    - _gitops_remote.stdout | trim | length > 0
+    - not (force | default(false) | bool)
+
+# --- Initialize git repository ---
+- name: Initialize git repository
+  ansible.builtin.command:
+    cmd: "git init -b main"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Write .gitignore
+  ansible.builtin.copy:
+    content: |
+      # Secrets live in K8s Secrets, not in this repo
+      .env
+
+      # Generated at runtime by Ansible
+      .gitops-host
+      .gitops-applied
+
+      # Instance template files not needed in gitops
+      _initdb/
+      docker-compose*.yml
+      my.cnf
+      scripts/
+    dest: "{{ instance_path }}/.gitignore"
+    mode: "0644"
+
+# --- Create Argo CD application manifest ---
+- name: Create argocd directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/argocd"
+    state: directory
+    mode: "0755"
+
+- name: Generate Argo CD Application manifest
+  ansible.builtin.copy:
+    content: |
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata:
+        name: canasta-{{ instance_id }}
+        namespace: {{ argocd_namespace | default('argocd') }}
+      spec:
+        project: default
+        source:
+          repoURL: {{ repo }}
+          targetRevision: HEAD
+          path: .
+          helm:
+            valueFiles:
+              - values.yaml
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: canasta-{{ instance_id }}
+        syncPolicy:
+          automated:
+            selfHeal: true
+            prune: true
+          syncOptions:
+            - CreateNamespace=true
+    dest: "{{ instance_path }}/argocd/application.yaml"
+    mode: "0644"
+
+# --- Save host identity ---
+- name: Save .gitops-host
+  ansible.builtin.copy:
+    content: "{{ host_name }}"
+    dest: "{{ instance_path }}/.gitops-host"
+    mode: "0644"
+
+# --- Note about key file (no git-crypt on K8s path) ---
+- name: Create placeholder key file
+  ansible.builtin.copy:
+    content: |
+      # Kubernetes gitops does not use git-crypt.
+      # Secrets are managed via K8s Secrets, not encrypted in the repo.
+      # This file is a placeholder for compatibility with the CLI interface.
+    dest: "{{ key }}"
+    mode: "0600"
+
+# --- Initial commit and push ---
+- name: Stage all files
+  ansible.builtin.command:
+    cmd: "git add -A"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Initial commit
+  ansible.builtin.command:
+    cmd: "git commit -m 'Initial gitops configuration'"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Add remote
+  ansible.builtin.command:
+    cmd: "git remote add origin {{ repo }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Push to remote
+  ansible.builtin.command:
+    cmd: "git push -u origin main {{ (force | default(false) | bool) | ternary('--force', '') }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+# --- Register Argo CD Application ---
+- name: Apply Argo CD Application to cluster
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ instance_path }}/argocd/application.yaml"
+  ignore_errors: true
+
+- name: Report gitops initialized
+  ansible.builtin.debug:
+    msg: "GitOps initialized for '{{ instance_id }}'. Key exported to {{ key }}"

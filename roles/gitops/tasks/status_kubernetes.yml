@@ -1,0 +1,69 @@
+---
+# GitOps status (Kubernetes).
+# Shows git repo state + Argo CD Application status.
+# Requires: instance_path, instance_id (set by dispatcher)
+
+# --- Git repo info ---
+- name: Read .gitops-host
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _gops_host_file
+  ignore_errors: true
+
+- name: Get current commit
+  ansible.builtin.command:
+    cmd: "git log -1 --format=%h"
+    chdir: "{{ instance_path }}"
+  register: _gops_commit
+  changed_when: false
+  ignore_errors: true
+
+- name: Get ahead/behind counts
+  ansible.builtin.command:
+    cmd: "git rev-list --left-right --count HEAD...@{upstream}"
+    chdir: "{{ instance_path }}"
+  register: _gops_revcount
+  changed_when: false
+  ignore_errors: true
+
+- name: Parse git info
+  ansible.builtin.set_fact:
+    _gops_hostname: "{{ (_gops_host_file.content | default('') | b64decode) | trim | default('unknown') }}"
+    _gops_ahead: "{{ (_gops_revcount.stdout | default('0\t0')).split('\t')[0] | default('0') }}"
+    _gops_behind: "{{ (_gops_revcount.stdout | default('0\t0')).split('\t')[1] | default('0') }}"
+
+# --- Argo CD status ---
+- name: Get Argo CD Application status
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: "canasta-{{ instance_id }}"
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  register: _argocd_app
+  ignore_errors: true
+
+- name: Parse Argo CD status
+  ansible.builtin.set_fact:
+    _argocd_sync: "{{ (_argocd_app.resources[0].status.sync.status | default('Unknown')) if _argocd_app.resources | default([]) | length > 0 else 'Not registered' }}"
+    _argocd_health: "{{ (_argocd_app.resources[0].status.health.status | default('Unknown')) if _argocd_app.resources | default([]) | length > 0 else 'N/A' }}"
+    _argocd_last_sync: "{{ (_argocd_app.resources[0].status.operationState.finishedAt | default('never')) if _argocd_app.resources | default([]) | length > 0 else 'never' }}"
+    _argocd_revision: "{{ (_argocd_app.resources[0].status.sync.revision | default('unknown'))[0:7] if _argocd_app.resources | default([]) | length > 0 else 'unknown' }}"
+
+- name: Display status
+  ansible.builtin.debug:
+    msg: |-
+      Host:             {{ _gops_hostname }}
+      Canasta ID:       {{ instance_id }}
+      Current commit:   {{ _gops_commit.stdout | default('none') | trim }}
+      Ahead of remote:  {{ _gops_ahead }}
+      Behind remote:    {{ _gops_behind }}
+
+      Argo CD:
+        Sync status:    {{ _argocd_sync }}
+        Health status:  {{ _argocd_health }}
+        Last sync:      {{ _argocd_last_sync }}
+        Applied rev:    {{ _argocd_revision }}
+      {% if _argocd_sync == 'OutOfSync' %}
+
+      Note: Run 'canasta gitops sync' to apply pending changes immediately.
+      {% endif %}

@@ -2,6 +2,14 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Not applicable for Kubernetes
+  ansible.builtin.fail:
+    msg: >-
+      'canasta gitops fix-submodules' is not applicable for the kubernetes
+      orchestrator. Extensions are bundled in the Canasta image rather than
+      managed as git submodules.
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
 - name: Fix submodule registration
   ansible.builtin.command:
     cmd: "git submodule update --init --recursive"

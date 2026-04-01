@@ -1,0 +1,77 @@
+---
+# GitOps diff (Kubernetes).
+# Shows git-level diff on values/config files plus Argo CD live diff.
+# Requires: instance_path, instance_id (set by dispatcher)
+
+# --- Git diffs ---
+- name: Get uncommitted changes
+  ansible.builtin.command:
+    cmd: "git diff --stat"
+    chdir: "{{ instance_path }}"
+  register: _kdiff_uncommitted
+  changed_when: false
+
+- name: Get local unpushed changes
+  ansible.builtin.command:
+    cmd: "git diff --stat HEAD @{upstream}"
+    chdir: "{{ instance_path }}"
+  register: _kdiff_local
+  changed_when: false
+  ignore_errors: true
+
+- name: Get remote unpulled changes
+  ansible.builtin.command:
+    cmd: "git diff --stat @{upstream} HEAD"
+    chdir: "{{ instance_path }}"
+  register: _kdiff_remote
+  changed_when: false
+  ignore_errors: true
+
+# --- Argo CD live diff ---
+- name: Render Helm template to temp file
+  ansible.builtin.command:
+    cmd: >-
+      helm template canasta-{{ instance_id }}
+      {{ canasta_root }}/roles/orchestrator/files/helm/canasta
+      -f {{ instance_path }}/values.yaml
+  register: _kdiff_rendered
+  changed_when: false
+  ignore_errors: true
+
+- name: Write rendered manifest
+  ansible.builtin.copy:
+    content: "{{ _kdiff_rendered.stdout }}"
+    dest: "/tmp/canasta-diff-{{ instance_id }}.yaml"
+    mode: "0600"
+  when: _kdiff_rendered is succeeded
+
+- name: Get live cluster diff
+  ansible.builtin.command:
+    cmd: "kubectl diff -n canasta-{{ instance_id }} -f /tmp/canasta-diff-{{ instance_id }}.yaml"
+  register: _kdiff_cluster
+  changed_when: false
+  ignore_errors: true
+  when: _kdiff_rendered is succeeded
+
+- name: Clean up temp manifest
+  ansible.builtin.file:
+    path: "/tmp/canasta-diff-{{ instance_id }}.yaml"
+    state: absent
+
+# --- Display ---
+- name: Display diff
+  ansible.builtin.debug:
+    msg: |-
+      Uncommitted changes: {{ _kdiff_uncommitted.stdout_lines | default([]) | length }} file(s)
+      {{ _kdiff_uncommitted.stdout | default('') }}
+
+      Local changes (not yet pushed): {{ _kdiff_local.stdout_lines | default([]) | length }} file(s)
+      {{ _kdiff_local.stdout | default('') }}
+
+      Remote changes (would be applied on pull): {{ _kdiff_remote.stdout_lines | default([]) | length }} file(s)
+      {{ _kdiff_remote.stdout | default('') }}
+      {% if _kdiff_cluster is defined and _kdiff_cluster.stdout | default('') | trim | length > 0 %}
+
+      Live cluster diff (desired vs current):
+      {{ _kdiff_cluster.stdout }}
+      {% endif %}

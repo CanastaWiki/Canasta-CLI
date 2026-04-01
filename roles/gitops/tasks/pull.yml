@@ -1,14 +1,8 @@
 ---
+# GitOps pull — dispatches to Compose or Kubernetes variant.
+
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Pull configuration
-  ansible.builtin.command:
-    cmd: "git pull"
-    chdir: "{{ instance_path }}/config"
-  register: _git_pull
-  changed_when: "'Already up to date' not in _git_pull.stdout"
-
-- name: Display result
-  ansible.builtin.debug:
-    msg: "{{ _git_pull.stdout }}"
+- name: Dispatch gitops pull
+  ansible.builtin.include_tasks: "pull_{{ instance_orchestrator | default('compose') }}.yml"

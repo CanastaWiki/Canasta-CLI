@@ -2,6 +2,14 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Not applicable for Kubernetes
+  ansible.builtin.fail:
+    msg: >-
+      'canasta gitops join' is not applicable for the kubernetes orchestrator.
+      Multi-host configuration is handled through the cluster rather than
+      individual machine join operations.
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
 - name: Clone gitops repository
   ansible.builtin.command:
     cmd: "git clone {{ repo }} {{ instance_path }}/config-gitops"

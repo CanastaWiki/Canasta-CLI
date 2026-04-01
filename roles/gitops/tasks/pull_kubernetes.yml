@@ -1,0 +1,19 @@
+---
+# GitOps pull (Kubernetes).
+# Pulls values repo changes. Argo CD applies them automatically.
+# Requires: instance_path (set by dispatcher)
+
+- name: Pull values repo
+  ansible.builtin.command:
+    cmd: "git pull"
+    chdir: "{{ instance_path }}"
+  register: _git_pull
+  changed_when: "'Already up to date' not in _git_pull.stdout"
+
+- name: Display result
+  ansible.builtin.debug:
+    msg: >-
+      {{ _git_pull.stdout }}
+      {{ (_git_pull.changed) | ternary(
+         'Argo CD will apply any changes automatically.',
+         '') }}

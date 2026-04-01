@@ -1,0 +1,35 @@
+---
+# GitOps push (Compose).
+# Requires: instance_path (set by dispatcher)
+
+- name: Stage all changes
+  ansible.builtin.command:
+    cmd: "git add -A"
+    chdir: "{{ instance_path }}/config"
+  changed_when: false
+
+- name: Check for staged changes
+  ansible.builtin.command:
+    cmd: "git diff --cached --quiet"
+    chdir: "{{ instance_path }}/config"
+  register: _git_staged
+  changed_when: false
+  ignore_errors: true
+
+- name: Commit changes
+  ansible.builtin.command:
+    cmd: "git commit -m 'Configuration update'"
+    chdir: "{{ instance_path }}/config"
+  when: _git_staged.rc != 0
+  changed_when: true
+
+- name: Push to remote
+  ansible.builtin.command:
+    cmd: "git push"
+    chdir: "{{ instance_path }}/config"
+  when: _git_staged.rc != 0
+  changed_when: true
+
+- name: Report result
+  ansible.builtin.debug:
+    msg: "{{ (_git_staged.rc != 0) | ternary('Configuration pushed.', 'No changes to push.') }}"

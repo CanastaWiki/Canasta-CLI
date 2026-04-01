@@ -1,0 +1,14 @@
+---
+# GitOps pull (Compose).
+# Requires: instance_path (set by dispatcher)
+
+- name: Pull configuration
+  ansible.builtin.command:
+    cmd: "git pull"
+    chdir: "{{ instance_path }}/config"
+  register: _git_pull
+  changed_when: "'Already up to date' not in _git_pull.stdout"
+
+- name: Display result
+  ansible.builtin.debug:
+    msg: "{{ _git_pull.stdout }}"
