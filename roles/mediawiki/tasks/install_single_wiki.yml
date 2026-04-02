@@ -35,13 +35,13 @@
 - name: Save admin password to file
   ansible.builtin.copy:
     content: "{{ install_admin_password }}"
-    dest: "{{ instance_path }}/config/admin-password_{{ _wiki.id }}"
+    dest: "{{ instance_path }}/admin-password_{{ _wiki.id }}"
     mode: "0600"
   no_log: true
 
 - name: Report admin password saved
   ansible.builtin.debug:
-    msg: "Saving password to {{ instance_path }}/config/admin-password_{{ _wiki.id }}"
+    msg: "Saving password to {{ instance_path }}/admin-password_{{ _wiki.id }}"
 
 - name: Extract MW_SECRET_KEY from first wiki
   when: _wiki_idx == 0

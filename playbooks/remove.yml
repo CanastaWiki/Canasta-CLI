@@ -56,7 +56,7 @@
 
 - name: Remove admin password file
   ansible.builtin.file:
-    path: "{{ instance_path }}/config/admin-password_{{ wiki }}"
+    path: "{{ instance_path }}/admin-password_{{ wiki }}"
     state: absent
 
 - name: Regenerate Caddyfile
