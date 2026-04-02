@@ -230,11 +230,10 @@
   ignore_errors: true
   when: instance_orchestrator | default('compose') == 'compose'
 
-- name: Restart instance after K8s restore
+- name: Restart instance after restore
   ansible.builtin.include_role:
     name: instance_lifecycle
     tasks_from: restart.yml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
 - name: Display result
   ansible.builtin.debug:

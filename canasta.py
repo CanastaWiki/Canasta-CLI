@@ -282,7 +282,6 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     cmd_index = {c["name"]: c for c in data["commands"]}
     cmd_def = cmd_index.get(command_name, {})
     params = cmd_def.get("parameters", [])
-    param_names = {p["name"] for p in params}
 
     ansible_args = [
         ansible_playbook,

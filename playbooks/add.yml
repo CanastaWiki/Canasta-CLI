@@ -121,7 +121,7 @@
       ansible.builtin.copy:
         content: "{{ _add_admin_password }}"
         dest: >-
-          {{ instance_path }}/admin-password_{{ wiki }}
+          {{ instance_path }}/config/admin-password_{{ wiki }}
         mode: "0600"
       no_log: true
 

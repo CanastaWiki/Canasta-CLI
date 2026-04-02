@@ -14,12 +14,11 @@
     - name: Build backup command for cron
       ansible.builtin.set_fact:
         _cron_cmd: >-
-          cd "{{ instance_path }}" && docker compose exec -T {{ canasta_backup_service }}
-          restic backup --tag scheduled /mediawiki/config /mediawiki/images /backup
+          canasta backup create -i {{ instance_id }} --tag scheduled
           {{ (purge_older_than is defined and purge_older_than != '') | ternary(
-             '&& docker compose exec -T ' + canasta_backup_service +
-             ' restic forget --prune --keep-within ' +
-             (purge_older_than | default('')), '') }}
+             '&& canasta backup purge -i ' + instance_id +
+             ' --keep-within ' + (purge_older_than | default('')), '') }}
+          >> "{{ instance_path }}/backup.log" 2>&1
 
     - name: Set cron schedule
       ansible.builtin.cron:

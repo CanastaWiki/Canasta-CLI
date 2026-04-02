@@ -134,34 +134,29 @@ if [[ -n "$INSTANCE_PATH" ]]; then
     esac
 fi
 
-# Parse -p/--path for create command (mount parent directory)
-for ((i=0; i<$#; i++)); do
-    case "${!i}" in
+# Parse -p/--path and -d/--database from args to mount directories
+ARGS=("$@")
+for ((i=0; i<${#ARGS[@]}; i++)); do
+    case "${ARGS[$i]}" in
         --path|-p)
-            j=$((i+1))
-            if [[ $j -le $# ]]; then
-                CREATE_PATH="${!j}"
+            if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                CREATE_PATH="${ARGS[$((i+1))]}"
+                CWD="$(pwd)"
                 case "$CREATE_PATH" in
-                    "$(pwd)"*) ;; # Already covered
+                    "$CWD"/*|"$CWD") ;; # Already covered
                     *)
                         MOUNTS+=(-v "$CREATE_PATH":"$CREATE_PATH")
                         ;;
                 esac
             fi
             ;;
-    esac
-done
-
-# Parse -d/--database for import (mount dump file)
-for ((i=0; i<$#; i++)); do
-    case "${!i}" in
         --database|-d)
-            j=$((i+1))
-            if [[ $j -le $# ]]; then
-                DB_FILE="${!j}"
+            if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                DB_FILE="${ARGS[$((i+1))]}"
                 DB_DIR="$(dirname "$DB_FILE")"
+                CWD="$(pwd)"
                 case "$DB_DIR" in
-                    "$(pwd)"*) ;; # Already covered
+                    "$CWD"/*|"$CWD") ;; # Already covered
                     *)
                         MOUNTS+=(-v "$DB_DIR":"$DB_DIR":ro)
                         ;;
