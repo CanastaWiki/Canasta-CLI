@@ -67,12 +67,23 @@
     instance_id: "{{ _source_id }}"
   delegate_to: "{{ _source_host }}"
 
-- name: Remove backup schedule from source
+- name: Remove backup schedule from source (Compose)
   ansible.builtin.cron:
     name: "canasta-backup-{{ _source_id }}"
     state: absent
   delegate_to: "{{ _source_host }}"
   ignore_errors: true
+  when: _dest_orchestrator | default('compose') == 'compose'
+
+- name: Remove backup CronJob from source (Kubernetes)
+  kubernetes.core.k8s:
+    state: absent
+    api_version: batch/v1
+    kind: CronJob
+    name: "canasta-backup-{{ _source_id }}"
+    namespace: "canasta-{{ _source_id }}"
+  ignore_errors: true
+  when: _dest_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
 - name: Remove source instance directory
   ansible.builtin.file:

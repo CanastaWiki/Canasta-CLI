@@ -1,16 +1,18 @@
 ---
 # Clone backup schedule from source instance to destination.
-# Reads the source crontab entry and applies it with the new instance ID/path.
 # Input: _source_host, _source_id, _dest_host, _dest_id, _dest_instance_path,
-#        no_backup_schedule (bool, optional)
+#        _dest_orchestrator, no_backup_schedule (bool, optional)
 
 - name: Skip backup schedule cloning
   ansible.builtin.debug:
     msg: "Backup schedule cloning skipped (--no-backup-schedule)."
   when: no_backup_schedule | default(false) | bool
 
-- name: Clone backup schedule
-  when: not (no_backup_schedule | default(false) | bool)
+# --- Compose: clone host crontab entry ---
+- name: Clone backup schedule (Compose)
+  when:
+    - not (no_backup_schedule | default(false) | bool)
+    - _dest_orchestrator | default('compose') == 'compose'
   block:
     - name: Read source crontab
       ansible.builtin.command:
@@ -33,7 +35,6 @@
           ansible.builtin.set_fact:
             _cron_entry: "{{ _source_cron_lines[0] }}"
 
-        # Crontab format: MIN HOUR DAY MON DOW COMMAND
         - name: Parse cron expression
           ansible.builtin.set_fact:
             _cron_minute: "{{ _cron_entry.split()[0] }}"
@@ -69,3 +70,41 @@
       ansible.builtin.debug:
         msg: "No backup schedule found on source instance '{{ _source_id }}'."
       when: _source_cron_lines | length == 0
+
+# --- Kubernetes: clone CronJob ---
+- name: Clone backup schedule (Kubernetes)
+  when:
+    - not (no_backup_schedule | default(false) | bool)
+    - _dest_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Get source CronJob
+      kubernetes.core.k8s_info:
+        api_version: batch/v1
+        kind: CronJob
+        name: "canasta-backup-{{ _source_id }}"
+        namespace: "canasta-{{ _source_id }}"
+      register: _source_cronjob
+      ignore_errors: true
+
+    - name: Clone CronJob to destination namespace
+      when: _source_cronjob.resources | default([]) | length > 0
+      block:
+        - name: Create destination CronJob from source
+          kubernetes.core.k8s:
+            state: present
+            definition:
+              apiVersion: batch/v1
+              kind: CronJob
+              metadata:
+                name: "canasta-backup-{{ _dest_id }}"
+                namespace: "canasta-{{ _dest_id }}"
+              spec: "{{ _source_cronjob.resources[0].spec }}"
+
+        - name: Report schedule cloned
+          ansible.builtin.debug:
+            msg: "Backup CronJob cloned from '{{ _source_id }}' to '{{ _dest_id }}'."
+
+    - name: No schedule to clone
+      ansible.builtin.debug:
+        msg: "No backup CronJob found on source instance '{{ _source_id }}'."
+      when: _source_cronjob.resources | default([]) | length == 0

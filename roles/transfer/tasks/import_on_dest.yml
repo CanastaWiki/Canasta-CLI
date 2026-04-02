@@ -37,13 +37,6 @@
       delegate_to: "{{ _dest_host }}"
       register: _dest_wikis_current
 
-    # Rewrite wikis.yaml URLs with new domain (preserve wiki IDs and paths)
-    - name: Read raw wikis for URL update
-      ansible.builtin.slurp:
-        src: "{{ _dest_instance_path }}/config/wikis.yaml"
-      delegate_to: "{{ _dest_host }}"
-      register: _dest_wikis_raw
-
     - name: Rewrite wiki URLs with new domain
       ansible.builtin.copy:
         content: |
@@ -66,6 +59,65 @@
     instance_path: "{{ _dest_instance_path }}"
     instance_orchestrator: "{{ _dest_orchestrator }}"
 
+# --- Kubernetes: apply secrets and sync config before starting ---
+- name: Set up Kubernetes resources on destination
+  when: _dest_orchestrator in ['kubernetes', 'k8s']
+  block:
+    - name: Set CADDY_AUTO_HTTPS=off for Kubernetes
+      canasta_env:
+        path: "{{ _dest_instance_path }}/.env"
+        state: set
+        key: CADDY_AUTO_HTTPS
+        value: "off"
+      delegate_to: "{{ _dest_host }}"
+
+    - name: Read DB password for K8s secrets
+      canasta_env:
+        path: "{{ _dest_instance_path }}/.env"
+        state: read
+        key: MYSQL_PASSWORD
+      delegate_to: "{{ _dest_host }}"
+      register: _dest_k8s_dbpass
+      no_log: true
+
+    - name: Read MW_SECRET_KEY for K8s secrets
+      canasta_env:
+        path: "{{ _dest_instance_path }}/.env"
+        state: read
+        key: MW_SECRET_KEY
+      delegate_to: "{{ _dest_host }}"
+      register: _dest_k8s_mwkey
+      no_log: true
+
+    - name: Apply K8s secrets on destination
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_apply_secrets.yml
+      vars:
+        instance_id: "{{ _dest_id }}"
+        _k8s_namespace: "canasta-{{ _dest_id }}"
+        _rootdbpass: "{{ _dest_k8s_dbpass.value }}"
+        _wikidbpass: "{{ _dest_k8s_dbpass.value }}"
+        _mw_secret_key: "{{ _dest_k8s_mwkey.value }}"
+
+    - name: Generate values.yaml for destination
+      ansible.builtin.template:
+        src: "{{ canasta_root }}/roles/orchestrator/templates/k8s_values.yaml.j2"
+        dest: "{{ _dest_instance_path }}/values.yaml"
+        mode: "0644"
+      vars:
+        id: "{{ _dest_id }}"
+        domain_name: "{{ _dest_domain | default('localhost') }}"
+      delegate_to: "{{ _dest_host }}"
+
+    - name: Sync config to ConfigMaps on destination
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_sync_config.yml
+      vars:
+        instance_path: "{{ _dest_instance_path }}"
+        instance_id: "{{ _dest_id }}"
+
 - name: Start containers on destination
   ansible.builtin.include_role:
     name: orchestrator
@@ -73,6 +125,7 @@
   vars:
     instance_path: "{{ _dest_instance_path }}"
     instance_orchestrator: "{{ _dest_orchestrator }}"
+    instance_id: "{{ _dest_id }}"
     instance_devmode: false
     instance_managed_cluster: false
 
@@ -83,6 +136,7 @@
   vars:
     instance_path: "{{ _dest_instance_path }}"
     instance_orchestrator: "{{ _dest_orchestrator }}"
+    instance_id: "{{ _dest_id }}"
 
 - name: Read DB password from destination .env
   canasta_env:
@@ -100,6 +154,7 @@
   vars:
     instance_path: "{{ _dest_instance_path }}"
     instance_orchestrator: "{{ _dest_orchestrator }}"
+    instance_id: "{{ _dest_id }}"
     import_wiki_id: "{{ item }}"
     import_database_path: "{{ _dest_instance_path }}/transfer/{{ item }}.sql"
     import_db_password: "{{ _dest_dbpass.value }}"
