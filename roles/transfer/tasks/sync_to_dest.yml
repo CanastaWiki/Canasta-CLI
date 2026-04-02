@@ -1,6 +1,5 @@
 ---
 # Sync instance directory from source to destination host.
-# Uses ansible.builtin.synchronize (rsync) for efficient transfer.
 # Input: _source_host, _source_instance_path, _dest_host, _dest_instance_path
 
 - name: Create destination instance directory
@@ -10,43 +9,36 @@
     mode: "0755"
   delegate_to: "{{ _dest_host }}"
 
-- name: Sync instance files from source to destination
-  ansible.builtin.synchronize:
-    src: "{{ _source_instance_path }}/"
-    dest: "{{ _dest_instance_path }}/"
-    mode: push
-    rsync_opts:
-      - "--exclude=docker-compose.yml"
-      - "--exclude=docker-compose.override.yml.example"
-      - "--exclude=docker-compose.dev.yml"
-      - "--exclude=Dockerfile.xdebug"
-      - "--exclude=argocd/"
-      - "--exclude=scripts/"
-      - "--exclude=.git/"
-      - "--exclude=.vscode/"
-      - "--exclude=.idea/"
-      - "--exclude=mediawiki-code/"
-      - "--exclude=config/Caddyfile"
-      - "--exclude=admin-password_*"
-  delegate_to: "{{ _source_host }}"
-  when: _source_host != _dest_host
-
-- name: Copy instance files locally (same host)
-  ansible.builtin.command:
-    cmd: >-
-      rsync -a
+- name: Set rsync excludes
+  ansible.builtin.set_fact:
+    _rsync_excludes: >-
       --exclude=docker-compose.yml
       --exclude=docker-compose.override.yml.example
       --exclude=docker-compose.dev.yml
       --exclude=Dockerfile.xdebug
-      --exclude='argocd/'
-      --exclude='scripts/'
-      --exclude='.git/'
-      --exclude='.vscode/'
-      --exclude='.idea/'
-      --exclude='mediawiki-code/'
-      --exclude='config/Caddyfile'
-      --exclude='admin-password_*'
+      --exclude=argocd/
+      --exclude=scripts/
+      --exclude=.git/
+      --exclude=.vscode/
+      --exclude=.idea/
+      --exclude=mediawiki-code/
+      --exclude=config/Caddyfile
+      --exclude=admin-password_*
+
+- name: Sync instance files (remote)
+  ansible.builtin.command:
+    cmd: >-
+      rsync -az {{ _rsync_excludes }}
+      {{ _source_instance_path | quote }}/
+      {{ _dest_host }}:{{ _dest_instance_path | quote }}/
+  delegate_to: "{{ _source_host }}"
+  changed_when: true
+  when: _source_host != _dest_host
+
+- name: Sync instance files (local)
+  ansible.builtin.command:
+    cmd: >-
+      rsync -a {{ _rsync_excludes }}
       {{ _source_instance_path | quote }}/
       {{ _dest_instance_path | quote }}/
   delegate_to: "{{ _source_host }}"
