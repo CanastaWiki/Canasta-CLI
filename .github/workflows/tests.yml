@@ -112,7 +112,7 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             canasta-ansible:test list)
           echo "$OUTPUT"
-          echo "$OUTPUT" | grep -q "No registered instances"
+          echo "$OUTPUT" | grep -q "No Canasta instances"
 
       - name: Test doctor command
         run: |

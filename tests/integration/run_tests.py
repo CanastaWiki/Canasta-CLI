@@ -469,7 +469,7 @@ def test_k8s_lifecycle(inst):
     print("Verifying instance registered...")
     output = inst.run_ok("list")
     assert inst.id in output, "Instance not in list output"
-    assert "kubernetes" in output, "Orchestrator not shown as kubernetes"
+    assert "KUBERNETES" in output, "Orchestrator not shown as kubernetes"
 
     print("Checking pods are running...")
     result = subprocess.run(
@@ -542,6 +542,53 @@ def test_k8s_lifecycle(inst):
     assert inst.id not in output, "Instance still in list after delete"
 
 
+def test_clone(inst):
+    """Clone an instance on the same host."""
+    print("Creating source instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    clone_id = inst.id + "-clone"
+    clone_domain = "localhost"
+
+    print("Cloning instance...")
+    inst.run_ok(
+        "clone", "-i", inst.id,
+        "--from", "localhost", "--to", "localhost",
+        "--new-id", clone_id,
+        "--new-domain", clone_domain,
+        "-y",
+    )
+
+    print("Verifying clone exists in list...")
+    output = inst.run_ok("list")
+    assert clone_id in output, (
+        "Clone '%s' not in list output" % clone_id
+    )
+
+    print("Verifying clone wiki accessible...")
+    # Clone uses same ports as source (different instance path)
+    # Just verify it's registered and has wikis
+    clone_path = os.path.join(inst.work_dir, clone_id)
+    assert os.path.isdir(clone_path), "Clone directory not created"
+    assert os.path.isfile(
+        os.path.join(clone_path, "config", "wikis.yaml")
+    ), "Clone wikis.yaml not found"
+
+    print("Deleting clone...")
+    inst.run_ok("delete", "-i", clone_id, "--yes")
+
+    print("Verifying clone removed from list...")
+    output = inst.run_ok("list")
+    assert clone_id not in output, (
+        "Clone still in list after delete"
+    )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -550,6 +597,7 @@ ALL_TESTS = {
     "import": test_import_export,
     "upgrade": test_upgrade,
     "backup": test_backup,
+    "clone": test_clone,
     "gitops": test_gitops,
 }
 
