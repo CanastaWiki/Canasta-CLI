@@ -283,3 +283,32 @@ class TestRunModuleCleanup:
         assert not failed
         assert result["changed"]
         assert "stale" in result["removed"]
+
+
+class TestRunModuleQueryByPath:
+    def test_query_by_path(self, sample_config):
+        config_dir, data = sample_config
+        mysite_path = data["Instances"]["mysite"]["path"]
+        result, failed, _ = run_module_with_params(canasta_registry, {
+            "state": "query_by_path", "id": None, "path": mysite_path,
+            "orchestrator": None, "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": None,
+            "config_dir": config_dir,
+        })
+        assert not failed
+        assert result["instance"]["id"] == "mysite"
+
+    def test_query_by_path_not_found(self, sample_config):
+        config_dir, _ = sample_config
+        result, failed, msg = run_module_with_params(canasta_registry, {
+            "state": "query_by_path", "id": None, "path": "/nonexistent",
+            "orchestrator": None, "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": None,
+            "config_dir": config_dir,
+        })
+        assert failed
+        assert "No instance found" in msg
