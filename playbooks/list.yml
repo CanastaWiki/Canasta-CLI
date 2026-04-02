@@ -27,7 +27,7 @@
 
 - name: No instances
   ansible.builtin.debug:
-    msg: "No registered instances."
+    msg: "No Canasta instances."
   when: _all_instances.instances | length == 0
 
 - name: Build instance list with wiki details
@@ -44,28 +44,72 @@
         label: "{{ item.key }}"
       ignore_errors: true
 
+    - name: Check running status for each instance
+      ansible.builtin.command:
+        cmd: "docker compose ps -q web"
+        chdir: "{{ item.value.path }}"
+      register: _list_running_results
+      loop: >-
+        {{ _all_instances.instances | dict2items }}
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+      ignore_errors: true
+      when: item.value.orchestrator | default('compose') == 'compose'
+
+    - name: Check K8s running status
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get deployment/canasta-{{ item.key }}-web
+          -n canasta-{{ item.key }}
+          -o jsonpath={.status.readyReplicas}
+      register: _list_k8s_running_results
+      loop: >-
+        {{ _all_instances.instances | dict2items }}
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+      ignore_errors: true
+      when: item.value.orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+    - name: Build running status map
+      ansible.builtin.set_fact:
+        _running_map: >-
+          {{ _running_map | default({}) | combine({
+            item.item.key: (item.rc == 0 and item.stdout | default('') | trim | length > 0 and item.stdout | trim != '0')
+          }) }}
+      loop: >-
+        {{ (_list_running_results.results | default([]) + _list_k8s_running_results.results | default([]))
+           | selectattr('item', 'defined') | list }}
+      loop_control:
+        label: "{{ item.item.key | default('?') }}"
+      when: item is not skipped
+
     - name: Display instances
       ansible.builtin.debug:
         msg: |
           {% set ns = namespace(lines=[]) %}
-          {% set hdr = "%-12s  %-12s  %-15s  %-12s  %-40s  %s" %}
-          {% set ns.lines = ns.lines + [hdr % ("Canasta ID", "Wiki ID", "Server Name", "Server Path", "Instance Path", "Orchestrator")] %}
+          {% set ns.lines = ns.lines + ["%-16s%-16s%s" % ("Canasta ID", "Orchestrator", "Status")] %}
+          {% set ns.lines = ns.lines + ["  Instance Path"] %}
+          {% set ns.lines = ns.lines + ["  %-14s%s" % ("Wiki ID", "Server Path")] %}
+          {% set ns.lines = ns.lines + ["─" * 50] %}
           {% for result in _list_wikis.results %}
           {% set inst = result.item %}
           {% set wikis = result.wikis | default([]) %}
+          {% set running = (_running_map | default({}))[inst.key] | default(false) %}
+          {% set status = "running" if running else "stopped" %}
+          {% set ns.lines = ns.lines + ["%-16s%-16s%s" % (inst.key, (inst.value.orchestrator | default('compose')) | upper, status | upper)] %}
+          {% set ns.lines = ns.lines + ["  " + inst.value.path] %}
           {% if wikis | length > 0 %}
           {% for w in wikis %}
-          {% set server = w.url | regex_replace('/.*$', '') %}
-          {% set path = w.url | regex_replace('^[^/]*', '') %}
-          {% set path = path if path else '/' %}
-          {% set cid = inst.key if loop.first else '-' %}
-          {% set orch = inst.value.orchestrator | default('compose') if loop.first else '' %}
-          {% set ipath = inst.value.path if loop.first else '' %}
-          {% set ns.lines = ns.lines + [hdr % (cid, w.id, server, path, ipath, orch)] %}
+          {% set url = w.url if '/' in w.url else w.url + '/' %}
+          {% set ns.lines = ns.lines + ["  %-14s%s" % (w.id, url)] %}
           {% endfor %}
           {% else %}
-          {% set orch = inst.value.orchestrator | default('compose') %}
-          {% set ns.lines = ns.lines + [hdr % (inst.key, '(no wikis)', '', '', inst.value.path, orch)] %}
+          {% set ns.lines = ns.lines + ["  (no wikis)"] %}
+          {% endif %}
+          {% if not loop.last %}
+          {% set ns.lines = ns.lines + [""] %}
           {% endif %}
           {% endfor %}
           {% for line in ns.lines %}
