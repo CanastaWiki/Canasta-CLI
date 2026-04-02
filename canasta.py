@@ -18,6 +18,10 @@ import yaml
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFINITIONS_PATH = os.path.join(SCRIPT_DIR, "meta", "command_definitions.yml")
 CANASTA_YML = os.path.join(SCRIPT_DIR, "canasta.yml")
+ANSIBLE_CFG = os.path.join(SCRIPT_DIR, "ansible.cfg")
+
+# Ensure Ansible uses the repo's config regardless of working directory
+os.environ.setdefault("ANSIBLE_CONFIG", ANSIBLE_CFG)
 
 # Commands that have subcommands (e.g., "config get" -> "config_get")
 SUBCOMMAND_GROUPS = {
