@@ -607,8 +607,8 @@ ALL_TESTS = {
     "import": test_import_export,
     "upgrade": test_upgrade,
     "backup": test_backup,
-    "clone": test_clone,
     "gitops": test_gitops,
+    # clone/migrate require multi-host — tested via MULTI_NODE_TEST_PLAN.md
 }
 
 
