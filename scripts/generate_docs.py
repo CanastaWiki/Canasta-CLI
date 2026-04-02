@@ -30,7 +30,7 @@ def format_flag_name(param):
     parts = []
     if param.get("short"):
         parts.append("-%s" % param["short"])
-    long_name = param["name"].replace("_", "-")
+    long_name = param.get("long", param["name"]).replace("_", "-")
     parts.append("--%s" % long_name)
     return ", ".join(parts)
 

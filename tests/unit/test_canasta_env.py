@@ -30,6 +30,12 @@ class TestParseEnvFile:
         d = canasta_env.entries_to_dict(entries)
         assert d["KEY"] == "hello world"
 
+    def test_single_quoted_values_stripped(self):
+        content = "KEY='hello world'\n"
+        entries = canasta_env.parse_env_file(content)
+        d = canasta_env.entries_to_dict(entries)
+        assert d["KEY"] == "hello world"
+
     def test_equals_in_value(self):
         content = "KEY=a=b=c\n"
         entries = canasta_env.parse_env_file(content)

@@ -218,6 +218,15 @@ class TestGlobalFlags:
 
 
 class TestBuildAnsibleArgs:
+    def _get_vars(self, result):
+        """Extract extra vars from the JSON file referenced in -e @file."""
+        import json
+        for i, arg in enumerate(result):
+            if arg == "-e" and i + 1 < len(result) and result[i + 1].startswith("@"):
+                with open(result[i + 1][1:]) as f:
+                    return json.load(f)
+        return {}
+
     def test_basic_command(self, data):
         from argparse import Namespace
         args = Namespace(
@@ -227,8 +236,8 @@ class TestBuildAnsibleArgs:
             "/usr/bin/ansible-playbook", "version", args, data
         )
         assert result[0] == "/usr/bin/ansible-playbook"
-        assert "-e" in result
-        assert "command=version" in result
+        extra = self._get_vars(result)
+        assert extra["command"] == "version"
 
     def test_host_flag(self, data):
         from argparse import Namespace
@@ -238,7 +247,8 @@ class TestBuildAnsibleArgs:
         result = canasta_cli.build_ansible_args(
             "ap", "start", args, data
         )
-        assert "target_host=prod1" in result
+        extra = self._get_vars(result)
+        assert extra["target_host"] == "prod1"
         assert "--limit" in result
         assert "prod1" in result
 
@@ -250,7 +260,8 @@ class TestBuildAnsibleArgs:
         result = canasta_cli.build_ansible_args(
             "ap", "version", args, data
         )
-        assert "verbose=true" in result
+        extra = self._get_vars(result)
+        assert extra["verbose"] == "true"
 
     def test_boolean_param(self, data):
         from argparse import Namespace
@@ -261,7 +272,8 @@ class TestBuildAnsibleArgs:
         result = canasta_cli.build_ansible_args(
             "ap", "delete", args, data
         )
-        assert "yes=true" in result
+        extra = self._get_vars(result)
+        assert extra["yes"] == "true"
 
     def test_string_param(self, data):
         from argparse import Namespace
@@ -272,7 +284,8 @@ class TestBuildAnsibleArgs:
         result = canasta_cli.build_ansible_args(
             "ap", "start", args, data
         )
-        assert "id=mysite" in result
+        extra = self._get_vars(result)
+        assert extra["id"] == "mysite"
 
     def test_host_name_param(self, data):
         """host_name parameter (with long: name) is passed correctly."""
@@ -287,7 +300,8 @@ class TestBuildAnsibleArgs:
         result = canasta_cli.build_ansible_args(
             "ap", "gitops_init", args, data
         )
-        assert "host_name=prod" in result
+        extra = self._get_vars(result)
+        assert extra["host_name"] == "prod"
 
 
 class TestRemainderArgs:
@@ -430,9 +444,17 @@ class TestGlobalFlagIsolation:
 
 
 class TestBuildAnsibleArgsQuoting:
-    """Test that values with spaces are quoted for ansible-playbook."""
+    """Test that values with spaces and special chars are handled."""
 
-    def test_space_in_value_quoted(self, data):
+    def _get_vars(self, result):
+        import json
+        for i, arg in enumerate(result):
+            if arg == "-e" and i + 1 < len(result) and result[i + 1].startswith("@"):
+                with open(result[i + 1][1:]) as f:
+                    return json.load(f)
+        return {}
+
+    def test_space_in_value_preserved(self, data):
         from argparse import Namespace
         args = Namespace(
             command="maintenance", subcommand="exec",
@@ -443,27 +465,24 @@ class TestBuildAnsibleArgsQuoting:
         result = canasta_cli.build_ansible_args(
             "ap", "maintenance_exec", args, data
         )
-        # Find the exec_args value in the result
-        for i, arg in enumerate(result):
-            if arg.startswith("exec_args="):
-                assert arg == 'exec_args="php -v"'
-                break
-        else:
-            assert False, "exec_args not found in %s" % result
+        extra = self._get_vars(result)
+        assert extra["exec_args"] == "php -v"
 
-    def test_no_space_not_quoted(self, data):
+    def test_special_chars_in_value(self, data):
+        """Values with quotes and Jinja2 chars are safely passed via JSON."""
         from argparse import Namespace
         args = Namespace(
-            command="start", host=None, verbose=False,
+            command="config", subcommand="set",
+            host=None, verbose=False,
             id="mysite",
+            settings=['MY_KEY=value with "quotes" and {{ braces }}'],
         )
         result = canasta_cli.build_ansible_args(
-            "ap", "start", args, data
+            "ap", "config_set", args, data
         )
-        for arg in result:
-            if arg.startswith("id="):
-                assert arg == "id=mysite"
-                break
+        extra = self._get_vars(result)
+        assert '"quotes"' in extra["settings"]
+        assert "{{ braces }}" in extra["settings"]
 
 
 class TestHelperFunctions:

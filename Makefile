@@ -4,7 +4,6 @@ VENV := .venv
 PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
-ANSIBLE_LINT := $(VENV)/bin/ansible-lint
 YAMLLINT := $(VENV)/bin/yamllint
 
 # --- Setup -------------------------------------------------------------------

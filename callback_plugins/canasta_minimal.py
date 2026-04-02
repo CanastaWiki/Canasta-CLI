@@ -33,7 +33,6 @@ class CallbackModule(CallbackBase):
 
     def __init__(self):
         super().__init__()
-        self._last_task_name = None
 
     # --- Suppress everything by default ---
 
@@ -41,7 +40,7 @@ class CallbackModule(CallbackBase):
         pass
 
     def v2_playbook_on_task_start(self, task, is_conditional):
-        self._last_task_name = task.get_name()
+        pass
 
     def v2_playbook_on_handler_task_start(self, task):
         pass

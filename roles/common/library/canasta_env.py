@@ -59,9 +59,11 @@ def parse_env_file(content):
         if len(parts) == 2:
             key = parts[0].strip()
             value = parts[1].strip()
-            # Strip surrounding double quotes (matching Go behavior)
-            if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
-                value = value[1:-1]
+            # Strip surrounding quotes (double or single)
+            if len(value) >= 2:
+                if (value.startswith('"') and value.endswith('"')) or \
+                   (value.startswith("'") and value.endswith("'")):
+                    value = value[1:-1]
             entries.append((key, value, False))
         else:
             # Malformed line, preserve as-is

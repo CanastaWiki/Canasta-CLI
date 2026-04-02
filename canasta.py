@@ -278,26 +278,24 @@ def resolve_command_name(args):
 
 
 def build_ansible_args(ansible_playbook, command_name, args, data):
-    """Build the ansible-playbook command line."""
+    """Build the ansible-playbook command line.
+
+    Extra vars are passed via a temp JSON file (-e @file) to avoid
+    Jinja2 injection and shell quoting issues.
+    """
     cmd_index = {c["name"]: c for c in data["commands"]}
     cmd_def = cmd_index.get(command_name, {})
     params = cmd_def.get("parameters", [])
 
-    ansible_args = [
-        ansible_playbook,
-        CANASTA_YML,
-        "-e", "command=%s" % command_name,
-    ]
+    # Build extra vars as a dict, written to a JSON file
+    extra_vars = {"command": command_name}
 
     # Global flags
     if args.host:
-        ansible_args.extend([
-            "-e", "target_host=%s" % args.host,
-            "--limit", args.host,
-        ])
+        extra_vars["target_host"] = args.host
 
     if args.verbose:
-        ansible_args.extend(["-e", "verbose=true"])
+        extra_vars["verbose"] = "true"
     else:
         os.environ["ANSIBLE_STDOUT_CALLBACK"] = "canasta_minimal"
 
@@ -315,16 +313,29 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         ptype = param.get("type", "string")
         if ptype == "bool":
             if value:
-                ansible_args.extend(["-e", "%s=true" % name])
+                extra_vars[name] = "true"
         else:
-            # Quote values containing characters that ansible-playbook
-            # could misinterpret (spaces, Jinja2/YAML metacharacters)
-            val_str = str(value)
-            needs_quoting = any(c in val_str for c in ' "\'{}[]')
-            if needs_quoting:
-                ansible_args.extend(["-e", '%s="%s"' % (name, val_str)])
-            else:
-                ansible_args.extend(["-e", "%s=%s" % (name, val_str)])
+            extra_vars[name] = str(value)
+
+    # Write vars to temp file (bypasses Jinja2 interpolation)
+    import json
+    import tempfile
+    vars_file = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", prefix="canasta-vars-",
+        delete=False,
+    )
+    json.dump(extra_vars, vars_file)
+    vars_file.close()
+    os.chmod(vars_file.name, 0o600)
+
+    ansible_args = [
+        ansible_playbook,
+        CANASTA_YML,
+        "-e", "@%s" % vars_file.name,
+    ]
+
+    if args.host:
+        ansible_args.extend(["--limit", args.host])
 
     return ansible_args
 
@@ -387,24 +398,14 @@ def main():
 
     # Inject passthrough args (after --) into the positional parameter
     if passthrough:
-        # Find the positional parameter for this command
-        positional_names = {
-            "maintenance_exec": "exec_args",
-            "maintenance_script": "script_args",
-            "maintenance_extension": "script_args",
-            "config_get": "key",
-            "config_set": "settings",
-            "config_unset": "keys",
-            "extension_enable": "extensions",
-            "extension_disable": "extensions",
-            "skin_enable": "skins",
-            "skin_disable": "skins",
-            "backup_schedule_set": "cron_expression",
-        }
         cmd_name = resolve_command_name(args) if args.command else None
-        pos_name = positional_names.get(cmd_name)
-        if pos_name:
-            setattr(args, pos_name, passthrough)
+        # Derive positional param name from definitions
+        cmd_index = {c["name"]: c for c in data["commands"]}
+        cmd_def = cmd_index.get(cmd_name, {})
+        pos_params = [p["name"] for p in cmd_def.get("parameters", [])
+                      if p.get("positional")]
+        if pos_params:
+            setattr(args, pos_params[0], passthrough)
 
     if not args.command:
         parser.print_help()

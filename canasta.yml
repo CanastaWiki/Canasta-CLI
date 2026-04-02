@@ -8,7 +8,7 @@
 #   ./canasta --host prod1.example.com start --id mysite
 #
 - name: Canasta
-  hosts: "{{ target_host | default('all') }}"
+  hosts: "{{ target_host | default('localhost') }}"
   gather_facts: false
 
   vars:
