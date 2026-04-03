@@ -312,3 +312,97 @@ class TestRunModuleQueryByPath:
         })
         assert failed
         assert "No instance found" in msg
+
+
+def _base_params(config_dir, **overrides):
+    """Build a full param dict with defaults, merging any overrides."""
+    params = {
+        "state": "query", "id": None, "path": None,
+        "orchestrator": "compose", "dev_mode": False,
+        "managed_cluster": False, "registry": None,
+        "kind_cluster": None, "build_from": None,
+        "host": None, "filter_host": None,
+        "setting_key": None, "setting_value": None,
+        "config_dir": config_dir,
+    }
+    params.update(overrides)
+    return params
+
+
+class TestRunModuleSetSetting:
+    def test_set_new_setting(self, tmp_dir):
+        data = {"Instances": {}}
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, _ = run_module_with_params(canasta_registry,
+            _base_params(tmp_dir, state="set_setting",
+                         setting_key="defaultStorageClass",
+                         setting_value="nfs"))
+        assert not failed
+        assert result["changed"]
+        saved = json.load(open(os.path.join(tmp_dir, "conf.json")))
+        assert saved["Settings"]["defaultStorageClass"] == "nfs"
+
+    def test_set_idempotent(self, tmp_dir):
+        data = {"Instances": {}, "Settings": {"defaultStorageClass": "nfs"}}
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, _ = run_module_with_params(canasta_registry,
+            _base_params(tmp_dir, state="set_setting",
+                         setting_key="defaultStorageClass",
+                         setting_value="nfs"))
+        assert not failed
+        assert not result["changed"]
+
+    def test_set_overwrites(self, tmp_dir):
+        data = {"Instances": {}, "Settings": {"defaultStorageClass": "nfs"}}
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, _ = run_module_with_params(canasta_registry,
+            _base_params(tmp_dir, state="set_setting",
+                         setting_key="defaultStorageClass",
+                         setting_value="efs"))
+        assert not failed
+        assert result["changed"]
+        saved = json.load(open(os.path.join(tmp_dir, "conf.json")))
+        assert saved["Settings"]["defaultStorageClass"] == "efs"
+
+    def test_set_missing_key_fails(self, tmp_dir):
+        data = {"Instances": {}}
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, msg = run_module_with_params(canasta_registry,
+            _base_params(tmp_dir, state="set_setting"))
+        assert failed
+        assert "setting_key" in msg
+
+
+class TestRunModuleGetSetting:
+    def test_get_existing(self, tmp_dir):
+        data = {"Instances": {}, "Settings": {"defaultStorageClass": "nfs"}}
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, _ = run_module_with_params(canasta_registry,
+            _base_params(tmp_dir, state="get_setting",
+                         setting_key="defaultStorageClass"))
+        assert not failed
+        assert result["value"] == "nfs"
+
+    def test_get_missing(self, tmp_dir):
+        data = {"Instances": {}}
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, _ = run_module_with_params(canasta_registry,
+            _base_params(tmp_dir, state="get_setting",
+                         setting_key="defaultStorageClass"))
+        assert not failed
+        assert result["value"] is None
+
+    def test_get_missing_key_fails(self, tmp_dir):
+        data = {"Instances": {}}
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, msg = run_module_with_params(canasta_registry,
+            _base_params(tmp_dir, state="get_setting"))
+        assert failed
+        assert "setting_key" in msg
