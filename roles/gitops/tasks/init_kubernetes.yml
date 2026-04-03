@@ -51,6 +51,27 @@
     - _gitops_remote.stdout | trim | length > 0
     - not (force | default(false) | bool)
 
+# --- Copy Helm chart into instance directory ---
+# Argo CD needs the chart in the git repo to render templates.
+- name: Copy Helm chart structure into instance directory
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/{{ item }}"
+    dest: "{{ instance_path }}/{{ item }}"
+    mode: preserve
+  loop:
+    - Chart.yaml
+    - templates
+
+- name: Merge chart defaults with instance values
+  ansible.builtin.copy:
+    content: |
+      {{ lookup('file', canasta_root ~ '/roles/orchestrator/files/helm/canasta/values.yaml')
+         | from_yaml
+         | combine(lookup('file', instance_path ~ '/values.yaml') | from_yaml, recursive=True)
+         | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/values.yaml"
+    mode: "0644"
+
 # --- Initialize git repository ---
 - name: Initialize git repository
   ansible.builtin.command:
@@ -73,6 +94,9 @@
       docker-compose*.yml
       my.cnf
       scripts/
+
+      # Admin passwords
+      admin-password_*
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 
@@ -128,6 +152,14 @@
       # This file is a placeholder for compatibility with the CLI interface.
     dest: "{{ key }}"
     mode: "0600"
+
+# --- Sync config files into values.yaml ---
+- name: Set K8s namespace for config sync
+  ansible.builtin.set_fact:
+    _k8s_namespace: "canasta-{{ instance_id }}"
+
+- name: Sync config files into values.yaml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
 # --- Initial commit and push ---
 - name: Stage all files

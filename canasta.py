@@ -426,6 +426,53 @@ def main():
         print("Unknown command: %s" % command_name, file=sys.stderr)
         sys.exit(1)
 
+    cmd_index = {c["name"]: c for c in data["commands"]}
+    cmd_def = cmd_index.get(command_name, {})
+
+    # Validate orchestrator-specific parameters.
+    # If a parameter has orchestrator_only set, reject it when the user
+    # selected a different orchestrator.
+    orchestrator = getattr(args, "orchestrator", None)
+    if orchestrator:
+        for param in cmd_def.get("parameters", []):
+            orch_only = param.get("orchestrator_only")
+            if not orch_only:
+                continue
+            value = getattr(args, param["name"], None)
+            if value is None or value == param.get("default"):
+                continue
+            if orchestrator != orch_only:
+                print(
+                    "Error: --%s can only be used with "
+                    "--orchestrator %s"
+                    % (param["name"].replace("_", "-"), orch_only),
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+    # Interactive confirmation for destructive commands.
+    # If the command defines a "yes" parameter and the user did not pass it,
+    # prompt interactively rather than making them re-run with --yes.
+    has_yes_param = any(
+        p["name"] == "yes" for p in cmd_def.get("parameters", [])
+    )
+    if has_yes_param and not getattr(args, "yes", False):
+        description = cmd_def.get("description", command_name)
+        instance_id = getattr(args, "id", None) or "unknown"
+        try:
+            answer = input(
+                "%s '%s'. Continue? [y/N] "
+                % (description, instance_id)
+            )
+        except (EOFError, KeyboardInterrupt):
+            print("\nOperation cancelled.")
+            sys.exit(1)
+        if answer.strip().lower() != "y":
+            print("Operation cancelled.")
+            sys.exit(0)
+        # Tell the playbook to skip its own confirmation check
+        args.yes = True
+
     ansible_playbook = find_ansible_playbook()
     ansible_args = build_ansible_args(
         ansible_playbook, command_name, args, data

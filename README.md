@@ -141,8 +141,10 @@ Manage instances across hosts:
 
 ### Kubernetes deployment
 
-Canasta supports Kubernetes via Helm and Argo CD. The same CLI commands work
+Canasta supports Kubernetes via Helm. The same CLI commands work
 regardless of orchestrator — the underlying mechanics differ.
+Optionally, Argo CD can be used for GitOps-driven continuous
+reconciliation.
 
 **macOS (local development):**
 
@@ -181,6 +183,17 @@ Provision the cluster externally, configure kubectl, then:
 ```
 
 Pass `--skip-argocd-install` if the cluster already has Argo CD.
+
+**Multi-node shared storage:**
+
+For multi-node clusters, set up a shared StorageClass (NFS, EFS, etc.)
+and pass it at create time:
+
+```bash
+./canasta storage setup nfs --server 10.0.0.1 --share /srv/nfs/canasta
+./canasta create --id mysite --wiki main --domain-name example.com \
+  --orchestrator kubernetes --storage-class nfs
+```
 
 For multi-node clusters, k3s scales by joining additional nodes
 (`k3s agent --server <url> --token <token>`) — no instance migration
@@ -312,7 +325,11 @@ All tasks in `roles/orchestrator/tasks/` dispatch to Docker Compose or Kubernete
 ./canasta create --id mysite --wiki main --orchestrator kubernetes --install-k3s
 ```
 
-The Kubernetes path uses a Helm chart (`roles/orchestrator/files/helm/canasta/`) for workload management and Argo CD for continuous GitOps reconciliation. Secrets are managed directly in K8s Secrets by Ansible, never stored in Helm values or Git.
+The Kubernetes path uses a Helm chart (`roles/orchestrator/files/helm/canasta/`) for all workload management. The chart is self-contained — ConfigMaps for MediaWiki config, Caddy, Varnish, and MariaDB are rendered from `configData` in `values.yaml`. This means the Helm chart can be driven by Ansible (`helm upgrade`), Argo CD, or any tool that supports Helm values.
+
+For the Argo CD GitOps path, `canasta gitops init` copies the chart and config data into a git repository. Config changes are made locally, then `canasta gitops push` syncs the config into `values.yaml` and pushes to the remote. Argo CD detects the change, re-renders the Helm templates, and updates the ConfigMaps in the cluster. Pods automatically restart when config changes (via checksum annotations).
+
+Secrets (database passwords, MediaWiki secret key) are managed directly in K8s Secrets by Ansible, never stored in Helm values or Git.
 
 ### Registry
 

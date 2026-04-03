@@ -136,22 +136,31 @@ commands:
       - name: registry
         type: string
         default: "localhost:5000"
-        description: "Container registry for pushing locally built images (K8s only)"
+        orchestrator_only: kubernetes
+        description: "Container registry for pushing locally built images"
       - name: install_k3s
         type: bool
         default: false
-        description: "Install k3s on the target host (kubernetes orchestrator only)"
+        orchestrator_only: kubernetes
+        description: "Install k3s on the target host"
       - name: skip_argocd_install
         type: bool
         default: false
+        orchestrator_only: kubernetes
         description: "Skip Argo CD installation (assume already present)"
       - name: argocd_namespace
         type: string
         default: argocd
-        description: "Namespace for Argo CD (kubernetes orchestrator only)"
+        orchestrator_only: kubernetes
+        description: "Namespace for Argo CD"
       - name: ingress_class
         type: string
+        orchestrator_only: kubernetes
         description: "Kubernetes ingress class name (e.g. nginx, traefik, alb)"
+      - name: storage_class
+        type: string
+        orchestrator_only: kubernetes
+        description: "Kubernetes storage class for shared volumes (e.g. nfs, efs)"
 
   - name: delete
     description: "Delete a Canasta instance"

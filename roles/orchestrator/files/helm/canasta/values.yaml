@@ -119,6 +119,15 @@ secrets:
   dbSecretName: ""      # set by Ansible: <instance_id>-db-credentials
   mwSecretName: ""      # set by Ansible: <instance_id>-mw-secrets
 
+# Config data — populated by Ansible or committed via gitops.
+# Helm renders these into ConfigMaps for each component.
+# When empty, ConfigMaps are not created (allows external management).
+configData:
+  web: {}       # .env, wikis.yaml, settings--*--*.php, composer.local.json
+  caddy: {}     # Caddyfile, Caddyfile.site, Caddyfile.global
+  varnish: {}   # default.vcl
+  db: {}        # my.cnf
+
 # Argo CD
 argocd:
   namespace: argocd

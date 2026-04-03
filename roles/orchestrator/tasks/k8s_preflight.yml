@@ -43,6 +43,47 @@
       See https://helm.sh/docs/intro/install/
   when: _helm_check.rc != 0
 
+- name: Get node allocatable resources
+  ansible.builtin.command:
+    cmd: >-
+      kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.allocatable.cpu}{"\t"}{.status.allocatable.memory}{"\t"}{.status.allocatable.ephemeral-storage}{"\n"}{end}'
+  register: _node_resources
+  changed_when: false
+
+- name: Check node resources are sufficient
+  vars:
+    # Minimum requirements for a Canasta instance.
+    # CPU: 600m total requests (web 250 + caddy 50 + varnish 100 + db 100 + jobrunner 100)
+    # Memory: 1216Mi total requests (web 512 + caddy 64 + varnish 128 + db 256 + jobrunner 256)
+    # Ephemeral storage: 20Gi (Canasta image is several GB when unpacked)
+    _min_cpu_milli: 600
+    _min_memory_mi: 1216
+    _min_storage_gi: 15
+  block:
+    - name: Evaluate node capacity
+      ansible.builtin.script:
+        cmd: "{{ canasta_root }}/roles/orchestrator/files/scripts/check_node_resources.py"
+      args:
+        executable: python3
+      environment:
+        NODE_DATA: "{{ _node_resources.stdout }}"
+        MIN_CPU_MILLI: "{{ _min_cpu_milli }}"
+        MIN_MEMORY_MI: "{{ _min_memory_mi }}"
+        MIN_STORAGE_GI: "{{ _min_storage_gi }}"
+      register: _resource_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: Fail if no node has sufficient resources
+      ansible.builtin.fail:
+        msg: >-
+          No Kubernetes node meets the minimum resource requirements for a
+          Canasta instance.  Minimum: {{ _min_cpu_milli }}m CPU,
+          {{ _min_memory_mi }}Mi memory, {{ _min_storage_gi }}Gi ephemeral
+          storage.  Node details:
+          {{ _resource_check.stdout | default('(check script failed)') }}
+      when: _resource_check.rc != 0
+
 - name: Set kubernetes namespace
   ansible.builtin.set_fact:
     _k8s_namespace: "canasta-{{ instance_id }}"

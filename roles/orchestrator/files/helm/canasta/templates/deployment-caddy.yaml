@@ -17,6 +17,8 @@ spec:
       labels:
         {{- include "canasta.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: caddy
+      annotations:
+        checksum/caddy-config: {{ .Values.configData.caddy | toJson | sha256sum }}
     spec:
       containers:
         - name: caddy

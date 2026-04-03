@@ -18,6 +18,8 @@ spec:
       labels:
         {{- include "canasta.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: jobrunner
+      annotations:
+        checksum/web-config: {{ .Values.configData.web | toJson | sha256sum }}
     spec:
       initContainers:
         - name: assemble-config

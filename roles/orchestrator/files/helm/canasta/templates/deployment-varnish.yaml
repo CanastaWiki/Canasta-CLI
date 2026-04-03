@@ -18,6 +18,8 @@ spec:
       labels:
         {{- include "canasta.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: varnish
+      annotations:
+        checksum/varnish-config: {{ .Values.configData.varnish | toJson | sha256sum }}
     spec:
       containers:
         - name: varnish

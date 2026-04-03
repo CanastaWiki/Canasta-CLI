@@ -36,7 +36,6 @@ metadata:
     app.kubernetes.io/component: db
 spec:
   type: ClusterIP
-  clusterIP: None
   ports:
     - port: 3306
       targetPort: mysql

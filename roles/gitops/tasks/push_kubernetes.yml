@@ -1,8 +1,15 @@
 ---
 # GitOps push (Kubernetes).
-# Pushes values.yaml and config changes to the remote repo.
-# Argo CD detects the change and applies it automatically.
-# Requires: instance_path (set by dispatcher)
+# Syncs config files into values.yaml, then pushes to remote.
+# Argo CD detects the change and renders updated ConfigMaps.
+# Requires: instance_path, instance_id (set by dispatcher)
+
+- name: Set K8s namespace
+  ansible.builtin.set_fact:
+    _k8s_namespace: "canasta-{{ instance_id }}"
+
+- name: Sync config files into values.yaml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
 - name: Stage all changes
   ansible.builtin.command:

@@ -22,3 +22,15 @@ secrets:
 
 argocd:
   namespace: {{ argocd_namespace | default('argocd') }}
+{% if storage_class is defined and storage_class != '' %}
+
+persistence:
+  images:
+    storageClass: {{ storage_class }}
+  extensions:
+    storageClass: {{ storage_class }}
+  skins:
+    storageClass: {{ storage_class }}
+  publicAssets:
+    storageClass: {{ storage_class }}
+{% endif %}

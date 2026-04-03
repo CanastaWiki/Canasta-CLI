@@ -37,15 +37,41 @@
     - name: Sync config to ConfigMaps
       ansible.builtin.include_tasks: k8s_sync_config.yml
 
-    - name: Scale up statefulsets
+    - name: Apply values changes
+      ansible.builtin.include_tasks: helm_upgrade.yml
+
+    - name: Ensure statefulsets are scaled up
       ansible.builtin.command:
-        cmd: "kubectl scale statefulset --all --replicas=1 -n {{ _k8s_namespace }}"
+        cmd: >-
+          kubectl scale statefulset --all --replicas=1
+          -n {{ _k8s_namespace }}
       changed_when: true
 
-    - name: Scale up deployments
+    - name: Read web replica count from values
+      ansible.builtin.set_fact:
+        _web_replicas: >-
+          {{ (lookup('file', instance_path ~ '/values.yaml')
+              | from_yaml).get('web', {}).get('replicaCount', 1) }}
+
+    - name: Ensure deployments are scaled up
       ansible.builtin.command:
-        cmd: "kubectl scale deployment --all --replicas=1 -n {{ _k8s_namespace }}"
+        cmd: >-
+          kubectl scale deployment canasta-{{ instance_id }}-web
+          --replicas={{ _web_replicas }}
+          -n {{ _k8s_namespace }}
       changed_when: true
+
+    - name: Scale remaining deployments to 1
+      ansible.builtin.command:
+        cmd: >-
+          kubectl scale deployment
+          canasta-{{ instance_id }}-caddy
+          canasta-{{ instance_id }}-jobrunner
+          canasta-{{ instance_id }}-varnish
+          --replicas=1
+          -n {{ _k8s_namespace }}
+      changed_when: true
+      ignore_errors: true
 
     - name: Wait for DB readiness
       ansible.builtin.command:

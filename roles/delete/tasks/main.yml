@@ -3,13 +3,79 @@
 # Matches Go delete command: cleans images inside container, removes backup schedule,
 # then destroys containers/volumes and removes directory.
 # Input: id, yes (bool - skip confirmation)
+#
+# If the instance is not in the registry, we attempt to clean up Kubernetes
+# resources by convention (namespace canasta-{id}, Helm release canasta-{id}).
+# Compose instances require a path, so they cannot be cleaned up without a
+# registry entry.
 
-- name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+- name: Try to resolve instance from registry
+  canasta_registry:
+    id: "{{ id }}"
+    state: query
+  delegate_to: localhost
+  register: _delete_query
+  ignore_errors: true
+
+- name: Set instance facts from registry
+  ansible.builtin.set_fact:
+    instance_id: "{{ _delete_query.instance.id }}"
+    instance_path: "{{ _delete_query.instance.path }}"
+    instance_orchestrator: >-
+      {{ _delete_query.instance.orchestrator | default('compose') }}
+    instance_devmode: >-
+      {{ _delete_query.instance.devMode | default(false) }}
+    instance_managed_cluster: >-
+      {{ _delete_query.instance.managedCluster | default(false) }}
+    _instance_registered: true
+  when: _delete_query is succeeded
+
+- name: Discover unregistered instance
+  when: _delete_query is failed
+  block:
+    - name: Check for Helm release
+      ansible.builtin.command:
+        cmd: "helm status canasta-{{ id }} -n canasta-{{ id }}"
+      register: _helm_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Check for Kubernetes namespace
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "canasta-{{ id }}"
+      register: _ns_check
+      ignore_errors: true
+
+    - name: Set Kubernetes facts for unregistered instance
+      ansible.builtin.set_fact:
+        instance_id: "{{ id }}"
+        instance_path: ""
+        instance_orchestrator: "kubernetes"
+        instance_devmode: false
+        instance_managed_cluster: false
+        _instance_registered: false
+      when: >-
+        (_helm_status is succeeded) or
+        (_ns_check.resources | default([]) | length > 0)
+
+    - name: Fail if no resources found
+      ansible.builtin.fail:
+        msg: >-
+          Instance '{{ id }}' is not in the registry and no Kubernetes
+          resources (Helm release or namespace) were found for it.
+      when: >-
+        (_helm_status is not succeeded) and
+        (_ns_check.resources | default([]) | length == 0)
 
 - name: Require confirmation for delete
   ansible.builtin.fail:
-    msg: "Deleting instance '{{ instance_id }}' at {{ instance_path }}. Use --yes to confirm."
+    msg: >-
+      {{ 'Deleting instance ''' ~ instance_id ~ ''' at ' ~ instance_path ~ '.'
+         if _instance_registered | default(false) | bool
+         else 'Deleting unregistered instance ''' ~ instance_id ~ ''' (Kubernetes resources only).' }}
+      Use --yes to confirm.
   when: not (yes | default(false) | bool)
 
 # Clean up images inside container (important on Linux where files are owned by www-data)
@@ -45,6 +111,7 @@
   ansible.builtin.file:
     path: "{{ instance_path }}"
     state: absent
+  when: instance_path | default('') | length > 0
 
 - name: Deregister instance
   canasta_registry:

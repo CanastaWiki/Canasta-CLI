@@ -136,52 +136,41 @@
   register: _sync_mycnf
   when: _has_mycnf | bool
 
-# --- Apply ConfigMaps ---
+# --- Write configData into values.yaml ---
+# The Helm chart templates render ConfigMaps from configData values.
+# This allows both Ansible-driven and Argo CD-driven workflows to use
+# the same mechanism.
 
-- name: Create/update web config ConfigMap
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: "canasta-{{ instance_id }}-web-config"
-        namespace: "{{ _k8s_namespace }}"
-      data: "{{ _web_config_data }}"
+- name: Build varnish config data
+  ansible.builtin.set_fact:
+    _varnish_config_data: >-
+      {{ (_has_vcl | bool)
+         | ternary({'default.vcl': _sync_vcl.content | default('') | b64decode}, {}) }}
 
-- name: Create/update caddy config ConfigMap
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: "canasta-{{ instance_id }}-caddy-config"
-        namespace: "{{ _k8s_namespace }}"
-      data: "{{ _caddy_config_data }}"
+- name: Build db config data
+  ansible.builtin.set_fact:
+    _db_config_data: >-
+      {{ (_has_mycnf | bool)
+         | ternary({'my.cnf': _sync_mycnf.content | default('') | b64decode}, {}) }}
 
-- name: Create/update varnish config ConfigMap
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: "canasta-{{ instance_id }}-varnish-config"
-        namespace: "{{ _k8s_namespace }}"
-      data:
-        default.vcl: "{{ _sync_vcl.content | b64decode }}"
-  when: _has_vcl | bool
+- name: Read current values.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _current_values
 
-- name: Create/update db config ConfigMap
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: "canasta-{{ instance_id }}-db-config"
-        namespace: "{{ _k8s_namespace }}"
-      data:
-        my.cnf: "{{ _sync_mycnf.content | b64decode }}"
-  when: _has_mycnf | bool
+- name: Merge configData into values
+  ansible.builtin.set_fact:
+    _merged_values: >-
+      {{ _current_values.content | b64decode | from_yaml
+         | combine({'configData': {
+             'web': _web_config_data,
+             'caddy': _caddy_config_data,
+             'varnish': _varnish_config_data,
+             'db': _db_config_data
+           }}, recursive=True) }}
+
+- name: Write updated values.yaml
+  ansible.builtin.copy:
+    content: "{{ _merged_values | to_nice_yaml(indent=2) }}"
+    dest: "{{ instance_path }}/values.yaml"
+    mode: "0644"
