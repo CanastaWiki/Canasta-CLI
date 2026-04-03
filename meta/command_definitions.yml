@@ -760,16 +760,26 @@ commands:
         description: "Extension maintenance script and arguments"
 
   - name: maintenance_exec
-    description: "Execute a command in the MediaWiki container"
-    long_description: "Execute an arbitrary command inside the MediaWiki container."
+    description: "Execute a command in a container"
+    long_description: |
+      Execute an arbitrary command inside a container of a Canasta instance.
+
+      With no arguments and no --service flag, lists the running services.
+      The default service is "web" (the MediaWiki container).
     examples:
       - "canasta maintenance exec -i mysite -- ls /var/www/mediawiki"
+      - "canasta maintenance exec -i mysite -s db -- mariadb-admin ping -h localhost"
     playbook: maintenance_exec.yml
     parameters:
       - name: id
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: service
+        short: s
+        type: string
+        default: web
+        description: "Service name (default: web)"
       - name: wiki
         short: w
         type: string
