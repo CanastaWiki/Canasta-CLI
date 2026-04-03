@@ -342,6 +342,22 @@
         tasks_from: k8s_argocd_bootstrap.yml
       when: not (skip_argocd_install | default(false) | bool)
 
+    - name: Read default storage class from registry
+      canasta_registry:
+        state: get_setting
+        setting_key: defaultStorageClass
+      delegate_to: localhost
+      register: _default_sc
+      when: storage_class is not defined or storage_class == ''
+
+    - name: Apply default storage class
+      ansible.builtin.set_fact:
+        storage_class: "{{ _default_sc.value }}"
+      when:
+        - storage_class is not defined or storage_class == ''
+        - _default_sc.value is defined
+        - _default_sc.value | length > 0
+
     - name: Generate instance values.yaml
       ansible.builtin.template:
         src: "{{ canasta_root }}/roles/orchestrator/templates/k8s_values.yaml.j2"

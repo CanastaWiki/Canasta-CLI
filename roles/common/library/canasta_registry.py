@@ -172,7 +172,11 @@ def find_by_path(instances, search_path):
 def run_module():
     module_args = dict(
         state=dict(type="str", default="query",
-                   choices=["present", "absent", "query", "query_all", "query_by_path", "cleanup"]),
+                   choices=["present", "absent", "query", "query_all",
+                            "query_by_path", "cleanup",
+                            "set_setting", "get_setting"]),
+        setting_key=dict(type="str", required=False),
+        setting_value=dict(type="str", required=False),
         id=dict(type="str", required=False),
         path=dict(type="str", required=False),
         orchestrator=dict(type="str", default="compose"),
@@ -300,6 +304,33 @@ def run_module():
                 write_config(config_dir, data)
         result["changed"] = changed
         result["removed"] = to_remove
+
+    elif state == "get_setting":
+        setting_key = module.params.get("setting_key")
+        if not setting_key:
+            module.fail_json(msg="setting_key is required for get_setting")
+            return
+        settings = data.get("Settings", {})
+        result["value"] = settings.get(setting_key)
+
+    elif state == "set_setting":
+        setting_key = module.params.get("setting_key")
+        setting_value = module.params.get("setting_value")
+        if not setting_key:
+            module.fail_json(msg="setting_key is required for set_setting")
+            return
+        settings = data.get("Settings", {})
+        old_value = settings.get(setting_key)
+        if old_value != setting_value:
+            changed = True
+            if not module.check_mode:
+                if setting_value is None:
+                    settings.pop(setting_key, None)
+                else:
+                    settings[setting_key] = setting_value
+                data["Settings"] = settings
+                write_config(config_dir, data)
+        result["changed"] = changed
 
     module.exit_json(**result)
 
