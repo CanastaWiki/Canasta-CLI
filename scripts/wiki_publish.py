@@ -76,7 +76,6 @@ CMD_GROUPS = [
     ("Maintenance", ["maintenance", "sitemap"]),
     ("Data Protection", ["backup", "gitops"]),
     ("Development", ["devmode"]),
-    ("Multi-Host", ["migrate", "clone"]),
 ]
 
 

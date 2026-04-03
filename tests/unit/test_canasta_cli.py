@@ -158,21 +158,6 @@ class TestResolveCommandName:
         name = canasta_cli.resolve_command_name(args)
         assert name == "gitops_fix_submodules"
 
-    def test_migrate(self, parser):
-        args = parser.parse_args([
-            "migrate", "-i", "mysite",
-            "--from", "host1", "--to", "host2", "-y"
-        ])
-        assert canasta_cli.resolve_command_name(args) == "migrate"
-
-    def test_clone(self, parser):
-        args = parser.parse_args([
-            "clone", "-i", "mysite",
-            "--from", "host1", "--to", "host2",
-            "--new-id", "staging", "--new-domain", "s.example.com",
-            "-y"
-        ])
-        assert canasta_cli.resolve_command_name(args) == "clone"
 
 
 class TestGlobalFlags:

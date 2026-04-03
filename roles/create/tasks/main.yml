@@ -15,13 +15,16 @@
   register: _docker_check
   changed_when: false
   ignore_errors: true
+  when: orchestrator | default('compose') == 'compose'
 
 - name: Fail if Docker not available
   ansible.builtin.fail:
     msg: >-
       Docker is not available on this host.
       Run 'canasta doctor' to check all dependencies.
-  when: _docker_check.rc != 0
+  when:
+    - orchestrator | default('compose') == 'compose'
+    - _docker_check.rc | default(0) != 0
 
 - name: Check system memory (minimum 4GB)
   ansible.builtin.command:

@@ -7,7 +7,6 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 - **57 commands** covering instance lifecycle, wiki management, configuration, extensions, skins, maintenance, backup/restore, gitops, devmode, sitemaps, storage provisioning, and more
 - **Docker Compose and Kubernetes** (Helm + Argo CD) orchestrator support
 - **Multi-host management** from a single controller node via SSH
-- **Instance migration and cloning** between hosts with backup schedule transfer
 - **Multi-node Kubernetes** with ConfigMap-based config, PVC storage, and CronJob backups
 - **Auto-generated documentation** from a single command definitions file
 - **230 unit tests** + Docker and Kubernetes integration tests in CI
@@ -39,7 +38,7 @@ Optional (depending on features used):
 | Helm 3.10+ | Kubernetes orchestrator |
 | Argo CD | Kubernetes GitOps reconciliation |
 | git + git-crypt | GitOps commands (Compose) |
-| rsync | Migrate/clone commands |
+| rsync | Remote backup/restore |
 
 Run `canasta doctor` to verify all dependencies on a target host.
 
@@ -133,10 +132,6 @@ Manage instances across hosts:
 # Upgrade all instances on all hosts
 ./canasta upgrade
 
-# Clone production to staging
-./canasta clone --id wiki-prod --from prod1.example.com \
-  --to staging.example.com --new-id wiki-staging \
-  --new-domain staging.example.com --yes
 ```
 
 ### Kubernetes deployment
@@ -281,13 +276,6 @@ be controlled via `nodeSelector` and `affinity` rules in the instance's
 |---------|-------------|
 | `canasta devmode enable\|disable` | Toggle development mode (xdebug, Compose only) |
 
-### Multi-host (Ansible-only)
-
-| Command | Description |
-|---------|-------------|
-| `canasta migrate` | Move an instance between hosts |
-| `canasta clone` | Clone an instance to another host |
-
 ### Global flags
 
 | Flag | Description |
@@ -310,7 +298,7 @@ Run `canasta <command> --help` for command-specific flags.
 - **`meta/command_definitions.yml`** -- single source of truth for all commands, parameters, and documentation
 - **`canasta.py`** -- Python CLI with argparse subcommands generated from the definitions
 - **`canasta.yml`** -- Ansible dispatcher playbook that validates and routes to command playbooks
-- **`roles/`** -- 16 Ansible roles: common, orchestrator, create, delete, instance_lifecycle, config, extensions_skins, maintenance, mediawiki, backup, gitops, devmode, sitemap, transfer, upgrade, imagebuild
+- **`roles/`** -- 15 Ansible roles: common, orchestrator, create, delete, instance_lifecycle, config, extensions_skins, maintenance, mediawiki, backup, gitops, devmode, sitemap, upgrade, imagebuild
 - **`roles/common/library/`** -- 5 custom Python modules for conf.json, .env, wikis.yaml, settings.yaml, and validation
 
 ### Orchestrator dispatch
@@ -385,6 +373,5 @@ Canasta-Ansible is a drop-in replacement for Canasta-CLI:
 
 Additional capabilities not in Canasta-CLI:
 - `--host` flag for remote host targeting
-- `canasta migrate` and `canasta clone` for instance transfer
 - `canasta doctor` for dependency checking
 - Auto-pull of latest playbooks during `canasta upgrade`
