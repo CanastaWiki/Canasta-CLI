@@ -37,41 +37,54 @@
     - name: Sync config to ConfigMaps
       ansible.builtin.include_tasks: k8s_sync_config.yml
 
-    - name: Apply values changes
+    - name: Check if instance is scaled to zero
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get deployment canasta-{{ instance_id }}-web
+          -n {{ _k8s_namespace }}
+          -o jsonpath={.spec.replicas}
+      register: _current_replicas
+      changed_when: false
+      ignore_errors: true
+
+    - name: Apply values and upgrade Helm release
       ansible.builtin.include_tasks: helm_upgrade.yml
 
-    - name: Ensure statefulsets are scaled up
-      ansible.builtin.command:
-        cmd: >-
-          kubectl scale statefulset --all --replicas=1
-          -n {{ _k8s_namespace }}
-      changed_when: true
+    - name: Restore replica counts after stop
+      when: (_current_replicas.stdout | default('0')) == '0'
+      block:
+        - name: Read web replica count from values
+          ansible.builtin.set_fact:
+            _web_replicas: >-
+              {{ (lookup('file', instance_path ~ '/values.yaml')
+                  | from_yaml).get('web', {}).get('replicaCount', 1) }}
 
-    - name: Read web replica count from values
-      ansible.builtin.set_fact:
-        _web_replicas: >-
-          {{ (lookup('file', instance_path ~ '/values.yaml')
-              | from_yaml).get('web', {}).get('replicaCount', 1) }}
+        - name: Scale up statefulsets
+          ansible.builtin.command:
+            cmd: >-
+              kubectl scale statefulset --all --replicas=1
+              -n {{ _k8s_namespace }}
+          changed_when: true
 
-    - name: Ensure deployments are scaled up
-      ansible.builtin.command:
-        cmd: >-
-          kubectl scale deployment canasta-{{ instance_id }}-web
-          --replicas={{ _web_replicas }}
-          -n {{ _k8s_namespace }}
-      changed_when: true
+        - name: Scale up web deployment
+          ansible.builtin.command:
+            cmd: >-
+              kubectl scale deployment canasta-{{ instance_id }}-web
+              --replicas={{ _web_replicas }}
+              -n {{ _k8s_namespace }}
+          changed_when: true
 
-    - name: Scale remaining deployments to 1
-      ansible.builtin.command:
-        cmd: >-
-          kubectl scale deployment
-          canasta-{{ instance_id }}-caddy
-          canasta-{{ instance_id }}-jobrunner
-          canasta-{{ instance_id }}-varnish
-          --replicas=1
-          -n {{ _k8s_namespace }}
-      changed_when: true
-      ignore_errors: true
+        - name: Scale up remaining deployments
+          ansible.builtin.command:
+            cmd: >-
+              kubectl scale deployment
+              canasta-{{ instance_id }}-caddy
+              canasta-{{ instance_id }}-jobrunner
+              canasta-{{ instance_id }}-varnish
+              --replicas=1
+              -n {{ _k8s_namespace }}
+          changed_when: true
+          ignore_errors: true
 
     - name: Wait for DB readiness
       ansible.builtin.command:

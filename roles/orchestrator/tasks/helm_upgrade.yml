@@ -12,5 +12,6 @@
     create_namespace: true
     values_files:
       - "{{ instance_path }}/values.yaml"
+    reset_values: true
     wait: true
     timeout: "10m"
