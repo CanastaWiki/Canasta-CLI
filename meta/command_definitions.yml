@@ -165,6 +165,10 @@ commands:
         type: string
         orchestrator_only: kubernetes
         description: "Email for Let's Encrypt certificate notifications (optional)"
+      - name: skip_tls
+        type: bool
+        default: false
+        description: "Skip automatic Let's Encrypt TLS setup"
 
   - name: delete
     description: "Delete a Canasta instance"

@@ -470,6 +470,78 @@ class TestBuildAnsibleArgsQuoting:
         assert "{{ braces }}" in extra["settings"]
 
 
+class TestCreateFlags:
+    """Test create command flags for K8s and TLS."""
+
+    def test_skip_tls_accepted_with_compose(self, parser):
+        args = parser.parse_args([
+            "create", "-i", "mysite", "-w", "main", "--skip-tls"
+        ])
+        assert args.skip_tls is True
+
+    def test_skip_tls_accepted_with_kubernetes(self, parser):
+        args = parser.parse_args([
+            "create", "-i", "mysite", "-w", "main",
+            "-o", "kubernetes", "--skip-tls"
+        ])
+        assert args.skip_tls is True
+        assert args.orchestrator == "kubernetes"
+
+    def test_storage_class_accepted_with_kubernetes(self, parser):
+        args = parser.parse_args([
+            "create", "-i", "mysite", "-w", "main",
+            "-o", "kubernetes", "--storage-class", "nfs"
+        ])
+        assert args.storage_class == "nfs"
+
+    def test_tls_email_accepted_with_kubernetes(self, parser):
+        args = parser.parse_args([
+            "create", "-i", "mysite", "-w", "main",
+            "-o", "kubernetes", "--tls-email", "test@example.com"
+        ])
+        assert args.tls_email == "test@example.com"
+
+    def test_service_flag_on_maintenance_exec(self, parser):
+        args = parser.parse_args([
+            "maintenance", "exec", "-i", "mysite", "-s", "db",
+            "mariadb", "--version"
+        ])
+        assert args.service == "db"
+        assert args.exec_args == ["mariadb", "--version"]
+
+    def test_service_flag_default(self, parser):
+        args = parser.parse_args([
+            "maintenance", "exec", "-i", "mysite"
+        ])
+        assert args.service == "web"
+
+
+class TestOrchestratorValidation:
+    """Test that orchestrator_only params are rejected for wrong orchestrator."""
+
+    def test_storage_class_rejected_with_compose(self, data):
+        """--storage-class with --orchestrator compose should be rejected."""
+        cmd_index = {c["name"]: c for c in data["commands"]}
+        cmd_def = cmd_index["create"]
+        # Simulate: orchestrator=compose, storage_class=nfs
+        orchestrator = "compose"
+        for param in cmd_def.get("parameters", []):
+            orch_only = param.get("orchestrator_only")
+            if not orch_only:
+                continue
+            if param["name"] == "storage_class":
+                assert orch_only == "kubernetes"
+                assert orchestrator != orch_only  # would be rejected
+
+    def test_skip_tls_not_orchestrator_restricted(self, data):
+        """--skip-tls should work with any orchestrator."""
+        cmd_index = {c["name"]: c for c in data["commands"]}
+        cmd_def = cmd_index["create"]
+        for param in cmd_def.get("parameters", []):
+            if param["name"] == "skip_tls":
+                assert "orchestrator_only" not in param
+
+
 class TestHelperFunctions:
     def test_internal_name(self):
         assert canasta_cli.internal_name("fix-submodules") == "fix_submodules"

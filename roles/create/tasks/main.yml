@@ -302,14 +302,18 @@
     mode: "0644"
   when: composer is defined and composer != ''
 
-# --- Step 9b: K8s-specific .env values (before init_config generates Caddyfile) ---
-- name: Set CADDY_AUTO_HTTPS=off for Kubernetes
+# --- Step 9b: Disable auto-HTTPS when requested or when on K8s ---
+# K8s always disables Caddy auto-HTTPS because TLS is handled by the
+# ingress controller (Traefik) + cert-manager, not Caddy.
+- name: Set CADDY_AUTO_HTTPS=off
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: set
     key: CADDY_AUTO_HTTPS
     value: "off"
-  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+  when: >-
+    (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+    or (skip_tls | default(false) | bool)
 
 # --- Step 10: Initialize orchestrator config ---
 - name: Initialize orchestrator configuration
@@ -349,7 +353,9 @@
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: k8s_certmanager.yml
-      when: domain_name | default('localhost') != 'localhost'
+      when:
+        - domain_name | default('localhost') != 'localhost'
+        - not (skip_tls | default(false) | bool)
 
     - name: Read default storage class from registry
       canasta_registry:
