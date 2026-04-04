@@ -176,6 +176,21 @@ if [[ -d "$HOME/.ssh" ]]; then
     MOUNTS+=(-v "$HOME/.ssh":"$HOME/.ssh":ro)
 fi
 
+# When the user runs 'canasta upgrade', pull the latest image first so the
+# CLI itself is updated in addition to the instances it manages. Matches
+# the Go CLI's self-update behavior.
+for arg in "$@"; do
+    case "$arg" in
+        -*) continue ;;
+        upgrade)
+            echo "Pulling latest canasta-ansible image..."
+            docker pull "$IMAGE"
+            break
+            ;;
+        *) break ;;
+    esac
+done
+
 exec docker run --rm -i \
     "${MOUNTS[@]}" \
     "$IMAGE" "$@"
