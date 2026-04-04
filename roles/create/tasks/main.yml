@@ -422,7 +422,9 @@
     - name: Install Helm release (no wait)
       ansible.builtin.include_role:
         name: orchestrator
-        tasks_from: helm_install.yml
+        tasks_from: helm_deploy.yml
+      vars:
+        helm_wait: false
       vars:
         _k8s_namespace: "canasta-{{ id }}"
 

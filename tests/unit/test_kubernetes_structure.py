@@ -111,8 +111,7 @@ class TestOrchestratorTasks:
     """Verify Kubernetes orchestrator tasks exist."""
 
     REQUIRED_TASKS = [
-        "helm_install.yml",
-        "helm_upgrade.yml",
+        "helm_deploy.yml",
         "helm_uninstall.yml",
         "helm_status.yml",
         "k8s_preflight.yml",

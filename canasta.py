@@ -7,10 +7,11 @@ the bash wrapper script with Cobra-equivalent argument handling.
 """
 
 import argparse
+import json
 import os
 import shutil
-import subprocess
 import sys
+import tempfile
 
 import yaml
 
@@ -322,8 +323,6 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
             extra_vars[name] = str(value)
 
     # Write vars to temp file (bypasses Jinja2 interpolation)
-    import json
-    import tempfile
     vars_file = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="canasta-vars-",
         delete=False,

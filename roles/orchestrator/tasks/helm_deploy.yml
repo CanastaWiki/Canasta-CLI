@@ -1,15 +1,14 @@
 ---
-# Upgrade (or install) the Canasta Helm release.
-# Helm upgrade is idempotent — also handles initial install and
-# restoring replica counts after a stop (scale-to-zero).
+# Deploy (install or upgrade) the Canasta Helm release.
 # Input: instance_id, instance_path, _k8s_namespace
+# Optional: helm_wait (bool, default true), helm_reset_values (bool, default true)
 
 - name: Check for configData values file
   ansible.builtin.stat:
     path: "{{ instance_path }}/values-configdata.yaml"
   register: _configdata_file
 
-- name: Upgrade Canasta Helm release
+- name: Deploy Canasta Helm release
   ansible.builtin.command:
     cmd: >-
       helm upgrade --install canasta-{{ instance_id }}
@@ -18,5 +17,8 @@
       -f {{ instance_path }}/values.yaml
       {{ (_configdata_file.stat.exists | default(false))
          | ternary('-f ' ~ instance_path ~ '/values-configdata.yaml', '') }}
-      --reset-values --wait --timeout 10m
+      {{ (helm_reset_values | default(true) | bool)
+         | ternary('--reset-values', '') }}
+      {{ (helm_wait | default(true) | bool)
+         | ternary('--wait --timeout 10m', '') }}
   changed_when: true

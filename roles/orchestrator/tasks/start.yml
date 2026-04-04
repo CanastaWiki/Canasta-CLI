@@ -48,7 +48,7 @@
       ignore_errors: true
 
     - name: Apply values and upgrade Helm release
-      ansible.builtin.include_tasks: helm_upgrade.yml
+      ansible.builtin.include_tasks: helm_deploy.yml
 
     - name: Restore replica counts after stop
       when: (_current_replicas.stdout | default('0')) == '0'

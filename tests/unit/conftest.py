@@ -11,7 +11,6 @@ import pytest
 ROLES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "roles")
 sys.path.insert(0, os.path.join(ROLES_DIR, "common", "library"))
 sys.path.insert(0, os.path.join(ROLES_DIR, "extensions_skins", "library"))
-sys.path.insert(0, os.path.join(ROLES_DIR, "backup", "library"))
 
 
 @pytest.fixture
