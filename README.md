@@ -64,9 +64,8 @@ sudo curl -o /usr/local/bin/canasta \
 sudo chmod +x /usr/local/bin/canasta
 ```
 
-The wrapper automatically pulls the `canasta-ansible` image on first run.
-
-Upgrade: `docker pull ghcr.io/canastawiki/canasta-ansible:latest`
+The wrapper automatically pulls the `canasta-ansible` image on first
+run and whenever `canasta upgrade` is invoked.
 
 ### Option 2: Native install
 
