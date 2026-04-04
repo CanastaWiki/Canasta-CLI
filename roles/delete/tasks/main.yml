@@ -102,6 +102,16 @@
     state: absent
   ignore_errors: true
 
+- name: Remove Argo CD Application if present
+  kubernetes.core.k8s:
+    state: absent
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: "canasta-{{ instance_id }}"
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  ignore_errors: true
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
 - name: Destroy containers and volumes
   ansible.builtin.include_role:
     name: orchestrator
