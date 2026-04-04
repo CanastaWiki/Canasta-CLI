@@ -33,8 +33,13 @@ fi
 mkdir -p "$CONFIG_DIR"
 
 # Base mounts: Docker socket + registry + current directory
+if [[ "${DOCKER_HOST:-}" == unix://* ]]; then
+    DOCKER_SOCK_PATH="${DOCKER_HOST#unix://}"
+else
+    DOCKER_SOCK_PATH="/var/run/docker.sock"
+fi
 MOUNTS=(
-    -v /var/run/docker.sock:/var/run/docker.sock
+    -v "$DOCKER_SOCK_PATH:/var/run/docker.sock"
     -v "$CONFIG_DIR":"$CONFIG_DIR"
     -e "CANASTA_CONFIG_DIR=$CONFIG_DIR"
     -v "$(pwd)":"$(pwd)"
