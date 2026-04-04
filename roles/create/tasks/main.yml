@@ -425,7 +425,6 @@
         tasks_from: helm_deploy.yml
       vars:
         helm_wait: false
-      vars:
         _k8s_namespace: "canasta-{{ id }}"
 
     - name: Wait for web deployment readiness
