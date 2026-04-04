@@ -42,9 +42,9 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 For k3s: the kubeconfig at `/etc/rancher/k3s/k3s.yaml` must be
 readable by the Ansible user (`sudo chmod 644 /etc/rancher/k3s/k3s.yaml`).
 
-Optional (depending on features used):
+Optional Tools (depending on features used):
 
-| Requirement | Purpose |
+| Tool | Purpose |
 |------------|---------|
 | Argo CD | Kubernetes GitOps reconciliation |
 | git + git-crypt | GitOps commands (Compose) |
