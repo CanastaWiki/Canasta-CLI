@@ -1,0 +1,68 @@
+---
+# Install cert-manager and create a Let's Encrypt ClusterIssuer.
+# Idempotent — skips if cert-manager is already running.
+# Input: enable_tls (email address for Let's Encrypt)
+
+- name: Check if cert-manager is already installed
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: cert-manager
+    namespace: cert-manager
+  register: _cm_check
+  ignore_errors: true
+
+- name: Install cert-manager
+  when: _cm_check.resources | default([]) | length == 0
+  block:
+    - name: Apply cert-manager CRDs and deployment
+      ansible.builtin.command:
+        cmd: >-
+          kubectl apply -f
+          https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+      changed_when: true
+
+    - name: Wait for cert-manager to be ready
+      ansible.builtin.command:
+        cmd: >-
+          kubectl wait --for=condition=Ready pod
+          -l app=cert-manager -n cert-manager --timeout=120s
+      changed_when: false
+
+    - name: Wait for cert-manager webhook to be ready
+      ansible.builtin.command:
+        cmd: >-
+          kubectl wait --for=condition=Ready pod
+          -l app=webhook -n cert-manager --timeout=120s
+      changed_when: false
+
+    - name: Wait for webhook to register
+      ansible.builtin.pause:
+        seconds: 10
+
+- name: Check if ClusterIssuer exists
+  kubernetes.core.k8s_info:
+    api_version: cert-manager.io/v1
+    kind: ClusterIssuer
+    name: letsencrypt-prod
+  register: _issuer_check
+  ignore_errors: true
+
+- name: Create Let's Encrypt ClusterIssuer
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: letsencrypt-prod
+      spec:
+        acme:
+          server: https://acme-v02.api.letsencrypt.org/directory
+          email: "{{ enable_tls }}"
+          privateKeySecretRef:
+            name: letsencrypt-prod
+          solvers:
+            - http01:
+                ingress: {}
+  when: _issuer_check.resources | default([]) | length == 0

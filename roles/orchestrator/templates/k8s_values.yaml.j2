@@ -11,9 +11,17 @@ image:
 domains:
   - {{ domain_name | default('localhost') }}
 
-{% if ingress_class is defined and ingress_class != '' %}
+{% if (ingress_class is defined and ingress_class != '') or (enable_tls is defined and enable_tls != '') %}
 ingress:
+{% if ingress_class is defined and ingress_class != '' %}
   className: {{ ingress_class }}
+{% endif %}
+{% if enable_tls is defined and enable_tls != '' %}
+  tls: true
+  certManager:
+    enabled: true
+    issuer: letsencrypt-prod
+{% endif %}
 {% endif %}
 
 secrets:

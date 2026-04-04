@@ -22,20 +22,30 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 | ansible-core 2.15+ | Playbook execution |
 | Git | Playbook auto-update during upgrade |
 
-### Target host
+### Target host (Docker Compose)
 
 | Requirement | Purpose |
 |------------|---------|
 | Python 3 | Ansible module execution |
-| Docker + Docker Compose v2 | Container orchestration (Compose) |
-| **or** kubectl + Helm 3.10+ | Container orchestration (Kubernetes) |
+| Docker + Docker Compose v2 | Container orchestration |
 | SSH server | Remote management (not needed if controller = target) |
+
+### Target host (Kubernetes)
+
+| Requirement | Purpose |
+|------------|---------|
+| Python 3 + `kubernetes` library | Ansible module execution |
+| kubectl (configured with cluster access) | Cluster management |
+| Helm 3.10+ | Chart deployment |
+| SSH server | Remote management (not needed if controller = target) |
+
+For k3s: the kubeconfig at `/etc/rancher/k3s/k3s.yaml` must be
+readable by the Ansible user (`sudo chmod 644 /etc/rancher/k3s/k3s.yaml`).
 
 Optional (depending on features used):
 
 | Requirement | Purpose |
 |------------|---------|
-| Helm 3.10+ | Kubernetes orchestrator |
 | Argo CD | Kubernetes GitOps reconciliation |
 | git + git-crypt | GitOps commands (Compose) |
 | rsync | Remote backup/restore |
@@ -178,6 +188,16 @@ Provision the cluster externally, configure kubectl, then:
 ```
 
 Pass `--skip-argocd-install` if the cluster already has Argo CD.
+
+**TLS with Let's Encrypt:**
+
+Pass `--tls` with your email to automatically install cert-manager
+and configure Let's Encrypt certificates:
+
+```bash
+./canasta create --id mysite --wiki main --domain-name example.com \
+  --orchestrator kubernetes --tls you@example.com
+```
 
 **Multi-node shared storage:**
 
