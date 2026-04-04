@@ -153,24 +153,14 @@
       {{ (_has_mycnf | bool)
          | ternary({'my.cnf': _sync_mycnf.content | default('') | b64decode}, {}) }}
 
-- name: Read current values.yaml
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/values.yaml"
-  register: _current_values
-
-- name: Merge configData into values
-  ansible.builtin.set_fact:
-    _merged_values: >-
-      {{ _current_values.content | b64decode | from_yaml
-         | combine({'configData': {
-             'web': _web_config_data,
-             'caddy': _caddy_config_data,
-             'varnish': _varnish_config_data,
-             'db': _db_config_data
-           }}, recursive=True) }}
-
-- name: Write updated values.yaml
+- name: Write configData to separate values file
   ansible.builtin.copy:
-    content: "{{ _merged_values | to_nice_yaml(indent=2) }}"
-    dest: "{{ instance_path }}/values.yaml"
+    content: >-
+      {{ {'configData': {
+            'web': _web_config_data,
+            'caddy': _caddy_config_data,
+            'varnish': _varnish_config_data,
+            'db': _db_config_data
+          }} | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/values-configdata.yaml"
     mode: "0644"
