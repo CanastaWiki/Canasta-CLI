@@ -3,12 +3,18 @@
 # Does NOT wait for pod readiness — caller handles that.
 # Input: instance_id, instance_path, _k8s_namespace
 
+- name: Check for configData values file
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/values-configdata.yaml"
+  register: _configdata_file
+
 - name: Install Canasta Helm release
-  kubernetes.core.helm:
-    name: "canasta-{{ instance_id }}"
-    chart_ref: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta"
-    release_namespace: "{{ _k8s_namespace }}"
-    create_namespace: true
-    values_files:
-      - "{{ instance_path }}/values.yaml"
-    wait: false
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install canasta-{{ instance_id }}
+      {{ canasta_root }}/roles/orchestrator/files/helm/canasta
+      --namespace {{ _k8s_namespace }} --create-namespace
+      -f {{ instance_path }}/values.yaml
+      {{ (_configdata_file.stat.exists | default(false))
+         | ternary('-f ' ~ instance_path ~ '/values-configdata.yaml', '') }}
+  changed_when: true
