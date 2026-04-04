@@ -161,11 +161,32 @@ def add_params_to_parser(parser, params):
             )
 
 
+def get_config_file_path():
+    """Return the path to conf.json (mirrors canasta_registry.py logic)."""
+    override = os.environ.get("CANASTA_CONFIG_DIR")
+    if override:
+        return os.path.join(override, "conf.json")
+    if os.geteuid() == 0:
+        return "/etc/canasta/conf.json"
+    import platform
+    if platform.system() == "Darwin":
+        base = os.path.join(
+            os.path.expanduser("~"), "Library", "Application Support"
+        )
+    else:
+        base = os.environ.get(
+            "XDG_CONFIG_HOME",
+            os.path.join(os.path.expanduser("~"), ".config"),
+        )
+    return os.path.join(base, "canasta", "conf.json")
+
+
 def build_parser(data):
     """Build the full argparse parser from command definitions."""
     parser = argparse.ArgumentParser(
         prog="canasta",
         description="Canasta MediaWiki management tool (Ansible edition).",
+        epilog="Config file: %s" % get_config_file_path(),
     )
 
     # Global flags
@@ -181,7 +202,11 @@ def build_parser(data):
         help="Enable verbose output",
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    subparsers = parser.add_subparsers(
+        dest="command",
+        title="Commands",
+        metavar="",
+    )
 
     # Index commands by internal name for lookup
     cmd_index = {c["name"]: c for c in data["commands"]}
