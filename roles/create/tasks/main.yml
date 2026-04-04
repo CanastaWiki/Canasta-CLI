@@ -371,6 +371,7 @@
       when:
         - storage_class is not defined or storage_class == ''
         - _default_sc.value is defined
+        - _default_sc.value is not none
         - _default_sc.value | length > 0
 
     - name: Generate instance values.yaml
