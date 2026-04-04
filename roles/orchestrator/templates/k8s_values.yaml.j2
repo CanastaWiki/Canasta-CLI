@@ -11,12 +11,13 @@ image:
 domains:
   - {{ domain_name | default('localhost') }}
 
-{% if (ingress_class is defined and ingress_class != '') or (enable_tls is defined and enable_tls != '') %}
+{% set _has_real_domain = domain_name | default('localhost') != 'localhost' %}
+{% if (ingress_class is defined and ingress_class != '') or _has_real_domain %}
 ingress:
 {% if ingress_class is defined and ingress_class != '' %}
   className: {{ ingress_class }}
 {% endif %}
-{% if enable_tls is defined and enable_tls != '' %}
+{% if _has_real_domain %}
   tls: true
   certManager:
     enabled: true

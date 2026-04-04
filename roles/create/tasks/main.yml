@@ -349,7 +349,7 @@
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: k8s_certmanager.yml
-      when: enable_tls is defined and enable_tls != ''
+      when: domain_name | default('localhost') != 'localhost'
 
     - name: Read default storage class from registry
       canasta_registry:

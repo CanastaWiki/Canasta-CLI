@@ -59,7 +59,7 @@
       spec:
         acme:
           server: https://acme-v02.api.letsencrypt.org/directory
-          email: "{{ enable_tls }}"
+          email: "{{ tls_email | default('') }}"
           privateKeySecretRef:
             name: letsencrypt-prod
           solvers:

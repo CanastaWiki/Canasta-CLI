@@ -191,13 +191,10 @@ Pass `--skip-argocd-install` if the cluster already has Argo CD.
 
 **TLS with Let's Encrypt:**
 
-Pass `--tls` with your email to automatically install cert-manager
-and configure Let's Encrypt certificates:
-
-```bash
-./canasta create --id mysite --wiki main --domain-name example.com \
-  --orchestrator kubernetes --tls you@example.com
-```
+When a real domain name is provided (not `localhost`), cert-manager
+is automatically installed and Let's Encrypt certificates are
+configured. Optionally pass `--tls-email` for certificate expiry
+notifications.
 
 **Multi-node shared storage:**
 

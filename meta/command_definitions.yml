@@ -161,11 +161,10 @@ commands:
         type: string
         orchestrator_only: kubernetes
         description: "Kubernetes storage class for shared volumes (e.g. nfs, efs)"
-      - name: enable_tls
+      - name: tls_email
         type: string
         orchestrator_only: kubernetes
-        long: tls
-        description: "Enable TLS with Let's Encrypt (provide email address for certificate notifications)"
+        description: "Email for Let's Encrypt certificate notifications (optional)"
 
   - name: delete
     description: "Delete a Canasta instance"
