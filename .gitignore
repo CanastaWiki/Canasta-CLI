@@ -12,3 +12,8 @@ venv/
 docs/commands/*.md
 !docs/commands/.gitkeep
 .coverage
+
+# Instance data (never commit credentials or test instances)
+*.env
+admin-password_*
+values-configdata.yaml
