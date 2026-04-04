@@ -1,6 +1,6 @@
 # Canasta-Ansible
 
-Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki installations. Full feature parity with [Canasta-CLI](https://github.com/CanastaWiki/Canasta-CLI) (Go), plus multi-host management, instance migration, and cloning.
+Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki installations. Full feature parity with [Canasta-CLI](https://github.com/CanastaWiki/Canasta-CLI) (Go), plus multi-host management.
 
 ## Features
 
@@ -9,7 +9,7 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 - **Multi-host management** from a single controller node via SSH
 - **Multi-node Kubernetes** with ConfigMap-based config, PVC storage, and CronJob backups
 - **Auto-generated documentation** from a single command definitions file
-- **230 unit tests** + Docker and Kubernetes integration tests in CI
+- **247 unit tests** + Docker and Kubernetes integration tests in CI
 - **Zero-migration compatibility** with existing Canasta-CLI installations (reads the same `conf.json` registry)
 
 ## Requirements
@@ -198,14 +198,17 @@ notifications.
 
 **Multi-node shared storage:**
 
-For multi-node clusters, set up a shared StorageClass (NFS, EFS, etc.)
-and pass it at create time:
+For multi-node clusters, set up a shared StorageClass (NFS, EFS, etc.).
+The storage class is saved as the default for all future Kubernetes
+instances:
 
 ```bash
 ./canasta storage setup nfs --server 10.0.0.1 --share /srv/nfs/canasta
 ./canasta create --id mysite --wiki main --domain-name example.com \
-  --orchestrator kubernetes --storage-class nfs
+  --orchestrator kubernetes
 ```
+
+To override the default, pass `--storage-class` explicitly.
 
 For multi-node clusters, k3s scales by joining additional nodes
 (`k3s agent --server <url> --token <token>`) — no instance migration
@@ -326,15 +329,16 @@ All tasks in `roles/orchestrator/tasks/` dispatch to Docker Compose or Kubernete
 # Docker Compose (default)
 ./canasta create --id mysite --wiki main
 
-# Kubernetes with Helm + Argo CD
-./canasta create --id mysite --wiki main --orchestrator kubernetes --install-k3s
+# Kubernetes with Helm
+./canasta create --id mysite --wiki main --domain-name example.com \
+  --orchestrator kubernetes
 ```
 
 The Kubernetes path uses a Helm chart (`roles/orchestrator/files/helm/canasta/`) for all workload management. The chart is self-contained — ConfigMaps for MediaWiki config, Caddy, Varnish, and MariaDB are rendered from `configData` in `values.yaml`. This means the Helm chart can be driven by Ansible (`helm upgrade`), Argo CD, or any tool that supports Helm values.
 
 For the Argo CD GitOps path, `canasta gitops init` copies the chart and config data into a git repository. Config changes are made locally, then `canasta gitops push` syncs the config into `values.yaml` and pushes to the remote. Argo CD detects the change, re-renders the Helm templates, and updates the ConfigMaps in the cluster. Pods automatically restart when config changes (via checksum annotations).
 
-Secrets (database passwords, MediaWiki secret key) are managed directly in K8s Secrets by Ansible, never stored in Helm values or Git.
+Secrets (database passwords, MediaWiki secret key) are managed in K8s Secrets by Ansible and injected into the container environment at runtime.
 
 ### Registry
 
@@ -345,11 +349,11 @@ Existing Canasta-CLI installations are automatically visible -- the registry for
 ## Testing
 
 ```bash
-# Unit tests (216 tests, 88% coverage)
+# Unit tests (247 tests)
 make test-unit
 
 # Integration tests (requires Docker)
-cd tests/integration && molecule test -s lifecycle
+make test-integration
 
 # Lint
 make lint
@@ -391,4 +395,7 @@ Canasta-Ansible is a drop-in replacement for Canasta-CLI:
 Additional capabilities not in Canasta-CLI:
 - `--host` flag for remote host targeting
 - `canasta doctor` for dependency checking
+- `canasta storage setup nfs|efs` for Kubernetes storage provisioning
+- Automatic Let's Encrypt TLS for Kubernetes instances
+- Argo CD GitOps integration with self-healing ConfigMaps
 - Auto-pull of latest playbooks during `canasta upgrade`
