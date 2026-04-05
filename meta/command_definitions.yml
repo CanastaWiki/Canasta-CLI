@@ -49,9 +49,9 @@ commands:
       - name: orchestrator
         short: o
         type: choice
-        choices: [compose, kubernetes]
+        choices: [compose, kubernetes, k8s]
         default: compose
-        description: "Container orchestrator"
+        description: "Container orchestrator (k8s is an alias for kubernetes)"
       - name: id
         short: i
         type: string

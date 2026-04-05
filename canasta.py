@@ -482,6 +482,10 @@ def main():
     cmd_index = {c["name"]: c for c in data["commands"]}
     cmd_def = cmd_index.get(command_name, {})
 
+    # Normalize orchestrator alias: k8s → kubernetes.
+    if getattr(args, "orchestrator", None) == "k8s":
+        args.orchestrator = "kubernetes"
+
     # Validate orchestrator-specific parameters.
     # If a parameter has orchestrator_only set, reject it when the user
     # selected a different orchestrator.
