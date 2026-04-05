@@ -139,26 +139,42 @@ if [[ -n "$INSTANCE_PATH" ]]; then
     esac
 fi
 
-# Parse -p/--path and -d/--database from args to mount directories
+# Resolve a path to absolute form. Works whether the path exists or not.
+# Uses python3 which is a standard dependency of Ansible anyway.
+to_abs_path() {
+    python3 -c "import os, sys; print(os.path.abspath(sys.argv[1]))" "$1"
+}
+
+# Parse -p/--path and -d/--database from args to mount directories.
+# Relative paths are resolved to absolute form and the argument list
+# is rewritten in place so the container receives absolute paths
+# (Docker bind-mount destinations must be absolute).
 ARGS=("$@")
-for ((i=0; i<${#ARGS[@]}; i++)); do
-    case "${ARGS[$i]}" in
+NEW_ARGS=()
+i=0
+while [[ $i -lt ${#ARGS[@]} ]]; do
+    arg="${ARGS[$i]}"
+    case "$arg" in
         --path|-p)
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
-                CREATE_PATH="${ARGS[$((i+1))]}"
+                CREATE_PATH_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
+                NEW_ARGS+=("$arg" "$CREATE_PATH_ABS")
                 CWD="$(pwd)"
-                case "$CREATE_PATH" in
+                case "$CREATE_PATH_ABS" in
                     "$CWD"/*|"$CWD") ;; # Already covered
                     *)
-                        MOUNTS+=(-v "$CREATE_PATH":"$CREATE_PATH")
+                        MOUNTS+=(-v "$CREATE_PATH_ABS":"$CREATE_PATH_ABS")
                         ;;
                 esac
+                i=$((i+2))
+                continue
             fi
             ;;
         --database|-d)
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
-                DB_FILE="${ARGS[$((i+1))]}"
-                DB_DIR="$(dirname "$DB_FILE")"
+                DB_FILE_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
+                NEW_ARGS+=("$arg" "$DB_FILE_ABS")
+                DB_DIR="$(dirname -- "$DB_FILE_ABS")"
                 CWD="$(pwd)"
                 case "$DB_DIR" in
                     "$CWD"/*|"$CWD") ;; # Already covered
@@ -166,10 +182,15 @@ for ((i=0; i<${#ARGS[@]}; i++)); do
                         MOUNTS+=(-v "$DB_DIR":"$DB_DIR":ro)
                         ;;
                 esac
+                i=$((i+2))
+                continue
             fi
             ;;
     esac
+    NEW_ARGS+=("$arg")
+    i=$((i+1))
 done
+set -- "${NEW_ARGS[@]}"
 
 # Mount SSH keys for remote host access
 if [[ -d "$HOME/.ssh" ]]; then
