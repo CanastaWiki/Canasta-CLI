@@ -9,6 +9,28 @@
 # Compose instances require a path, so they cannot be cleaned up without a
 # registry entry.
 
+- name: Resolve instance by current directory if no ID given
+  when: id is not defined or id == ''
+  block:
+    - name: Look up instance by path
+      canasta_registry:
+        path: "{{ lookup('env', 'PWD') }}"
+        state: query_by_path
+      delegate_to: localhost
+      register: _delete_pwd_query
+      ignore_errors: true
+
+    - name: Fail if no instance found for current directory
+      ansible.builtin.fail:
+        msg: >-
+          No Canasta instance found for the current directory.
+          Provide --id explicitly or run from inside an instance directory.
+      when: _delete_pwd_query is failed
+
+    - name: Use resolved ID
+      ansible.builtin.set_fact:
+        id: "{{ _delete_pwd_query.instance.id }}"
+
 - name: Try to resolve instance from registry
   canasta_registry:
     id: "{{ id }}"

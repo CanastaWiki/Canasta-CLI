@@ -174,15 +174,17 @@ commands:
     description: "Delete a Canasta instance"
     long_description: |
       Permanently delete a Canasta instance, removing containers, volumes,
-      and configuration files.
+      and configuration files. If run without --id from an instance directory,
+      the instance is resolved by matching the current directory against the
+      registry.
     examples:
       - "canasta delete -i mysite -y"
+      - "cd /path/to/instance && canasta delete -y"
     playbook: delete.yml
     parameters:
       - name: id
         short: i
         type: string
-        required: true
         description: "Canasta instance ID"
       - name: "yes"
         short: "y"
