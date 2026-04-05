@@ -401,6 +401,35 @@ def main():
         else:
             pre_cmd.append(arg)
 
+    # Also accept --host/-H after the command (matching cobra's persistent
+    # flag behavior in the Go CLI). Walk post_cmd, stopping at "--" so we
+    # never touch passthrough args. Only consume the next token as a value
+    # if it doesn't itself look like a flag.
+    post_filtered = []
+    i = 0
+    while i < len(post_cmd):
+        arg = post_cmd[i]
+        if arg == "--":
+            # Everything from here on is passthrough — leave it alone
+            post_filtered.extend(post_cmd[i:])
+            break
+        # --host=value / -H=value form
+        if arg.startswith("--host=") or arg.startswith("-H="):
+            pre_cmd.append(arg)
+            i += 1
+            continue
+        # --host value / -H value form
+        if arg in global_value_flags:
+            if i + 1 < len(post_cmd) and not post_cmd[i + 1].startswith("-"):
+                pre_cmd.append(arg)
+                pre_cmd.append(post_cmd[i + 1])
+                i += 2
+                continue
+            # No valid value follows — leave it for argparse to error on
+        post_filtered.append(arg)
+        i += 1
+    post_cmd = post_filtered
+
     global_parser = argparse.ArgumentParser(add_help=False)
     global_parser.add_argument("--host", "-H", default=None)
     global_parser.add_argument("--verbose", "-v", action="store_true",

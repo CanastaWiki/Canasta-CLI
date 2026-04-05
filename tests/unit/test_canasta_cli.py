@@ -428,6 +428,116 @@ class TestGlobalFlagIsolation:
         assert post[0] == "start"
 
 
+class TestPostCommandHost:
+    """Test that --host/-H works when placed after the subcommand,
+    matching the Go CLI's cobra persistent flag behavior."""
+
+    def _extract_post_host(self, pre_cmd, post_cmd):
+        """Replicate the post-command --host extraction from canasta.py main()."""
+        global_value_flags = {"--host", "-H"}
+        pre_cmd = list(pre_cmd)
+        post_filtered = []
+        i = 0
+        while i < len(post_cmd):
+            arg = post_cmd[i]
+            if arg == "--":
+                post_filtered.extend(post_cmd[i:])
+                break
+            if arg.startswith("--host=") or arg.startswith("-H="):
+                pre_cmd.append(arg)
+                i += 1
+                continue
+            if arg in global_value_flags:
+                if i + 1 < len(post_cmd) and not post_cmd[i + 1].startswith("-"):
+                    pre_cmd.append(arg)
+                    pre_cmd.append(post_cmd[i + 1])
+                    i += 2
+                    continue
+            post_filtered.append(arg)
+            i += 1
+        return pre_cmd, post_filtered
+
+    def test_host_after_command(self):
+        """canasta create --host prod1 --id mysite."""
+        pre, post = self._extract_post_host(
+            [], ["create", "--host", "prod1", "--id", "mysite"]
+        )
+        assert "--host" in pre
+        assert "prod1" in pre
+        assert "--host" not in post
+        assert "prod1" not in post
+        assert post == ["create", "--id", "mysite"]
+
+    def test_short_host_after_command(self):
+        """canasta create -H prod1 --id mysite."""
+        pre, post = self._extract_post_host(
+            [], ["create", "-H", "prod1", "--id", "mysite"]
+        )
+        assert "-H" in pre
+        assert "prod1" in pre
+        assert "-H" not in post
+
+    def test_host_equals_form(self):
+        """canasta create --host=prod1 --id mysite."""
+        pre, post = self._extract_post_host(
+            [], ["create", "--host=prod1", "--id", "mysite"]
+        )
+        assert "--host=prod1" in pre
+        assert "--host=prod1" not in post
+
+    def test_host_short_equals_form(self):
+        """canasta create -H=prod1 --id mysite."""
+        pre, post = self._extract_post_host(
+            [], ["create", "-H=prod1", "--id", "mysite"]
+        )
+        assert "-H=prod1" in pre
+
+    def test_host_in_passthrough_ignored(self):
+        """--host after -- should be left in passthrough."""
+        pre, post = self._extract_post_host(
+            [], ["maintenance", "exec", "-i", "x", "--", "echo", "--host", "y"]
+        )
+        assert "--host" not in pre
+        assert "--" in post
+        assert "--host" in post
+        assert "y" in post
+
+    def test_host_followed_by_flag_not_consumed(self):
+        """--host without a valid value should not consume the next flag."""
+        pre, post = self._extract_post_host(
+            [], ["create", "--host", "--id", "mysite"]
+        )
+        # --host has no value (next is a flag), so it stays in post
+        # for argparse to error on
+        assert "--host" in post
+        assert "--host" not in pre
+
+    def test_host_already_before_command(self):
+        """--host before command should still work unchanged."""
+        pre, post = self._extract_post_host(
+            ["--host", "prod1"], ["create", "--id", "mysite"]
+        )
+        assert pre == ["--host", "prod1"]
+        assert post == ["create", "--id", "mysite"]
+
+    def test_no_host_no_change(self):
+        """Command without --host should pass through unchanged."""
+        pre, post = self._extract_post_host(
+            [], ["create", "--id", "mysite", "--wiki", "main"]
+        )
+        assert pre == []
+        assert post == ["create", "--id", "mysite", "--wiki", "main"]
+
+    def test_host_at_end(self):
+        """canasta start --id mysite --host prod1."""
+        pre, post = self._extract_post_host(
+            [], ["start", "--id", "mysite", "--host", "prod1"]
+        )
+        assert "--host" in pre
+        assert "prod1" in pre
+        assert post == ["start", "--id", "mysite"]
+
+
 class TestBuildAnsibleArgsQuoting:
     """Test that values with spaces and special chars are handled."""
 
