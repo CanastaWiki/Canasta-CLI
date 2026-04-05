@@ -97,6 +97,22 @@ canasta version
 canasta doctor    # checks dependencies on the target host
 ```
 
+### Configuration directory
+
+The instance registry (`conf.json`) is stored in a platform-specific
+location:
+
+- Linux (non-root): `$XDG_CONFIG_HOME/canasta/` or `~/.config/canasta/`
+- Linux (root): `/etc/canasta/`
+- macOS: `~/Library/Application Support/canasta/`
+
+Override with `CANASTA_CONFIG_DIR`:
+
+```bash
+export CANASTA_CONFIG_DIR=/path/to/config
+canasta list
+```
+
 ## Quick Start
 
 ### Single node (controller = target)
