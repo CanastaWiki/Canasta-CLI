@@ -71,13 +71,30 @@
 # Install or import the wiki database BEFORE updating wikis.yaml
 - name: Import database if provided
   when: database is defined and database != ''
-  ansible.builtin.include_role:
-    name: mediawiki
-    tasks_from: import_database.yml
-  vars:
-    import_wiki_id: "{{ wiki }}"
-    import_database_path: "{{ database }}"
-    import_db_password: "{{ _add_dbpass.value }}"
+  block:
+    - name: Wait for database
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: wait_for_db.yml
+
+    - name: Create empty wiki database
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: db
+        exec_command: >-
+          mariadb -u root -p{{ _add_dbpass.value | quote }}
+          -e 'CREATE DATABASE IF NOT EXISTS `{{ wiki }}`'
+        exec_no_log: true
+
+    - name: Import database dump
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: import_database.yml
+      vars:
+        import_wiki_id: "{{ wiki }}"
+        import_database_path: "{{ database }}"
+        import_db_password: "{{ _add_dbpass.value }}"
 
 - name: Run install.php for new wiki
   when: database is not defined or database == ''
