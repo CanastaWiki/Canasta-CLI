@@ -31,4 +31,10 @@ COPY . .
 # Make wrapper executable
 RUN chmod +x canasta-native
 
+# Build metadata (injected by CI)
+ARG BUILD_COMMIT=unknown
+ARG BUILD_DATE=unknown
+RUN echo "$BUILD_COMMIT" > /opt/canasta-ansible/BUILD_COMMIT \
+    && echo "$BUILD_DATE" > /opt/canasta-ansible/BUILD_DATE
+
 ENTRYPOINT ["/opt/canasta-ansible/canasta-native"]

@@ -1,36 +1,72 @@
 ---
 # canasta version - Display version information.
 # Matches Go CLI format: Canasta CLI vX.Y.Z (commit ..., built ...)
+#
+# Commit and build date come from git when running a native checkout,
+# or from BUILD_COMMIT/BUILD_DATE files baked in at Docker image build time.
 
 - name: Read version file
   ansible.builtin.slurp:
     src: "{{ playbook_dir }}/VERSION"
   register: _version_file
 
-- name: Get git commit
+- name: Check for baked-in BUILD_COMMIT (Docker image)
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/BUILD_COMMIT"
+  register: _build_commit_file
+  delegate_to: localhost
+
+- name: Read baked-in BUILD_COMMIT
+  ansible.builtin.slurp:
+    src: "{{ playbook_dir }}/BUILD_COMMIT"
+  register: _build_commit_content
+  when: _build_commit_file.stat.exists
+  delegate_to: localhost
+
+- name: Read baked-in BUILD_DATE
+  ansible.builtin.slurp:
+    src: "{{ playbook_dir }}/BUILD_DATE"
+  register: _build_date_content
+  when: _build_commit_file.stat.exists
+  delegate_to: localhost
+
+- name: Get git commit from checkout
   ansible.builtin.command:
     cmd: git rev-parse --short HEAD
     chdir: "{{ playbook_dir }}"
   register: _git_commit
   changed_when: false
   ignore_errors: true
+  when: not _build_commit_file.stat.exists
   delegate_to: localhost
 
-- name: Get git commit date
+- name: Get git commit date from checkout
   ansible.builtin.command:
     cmd: "git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S'"
     chdir: "{{ playbook_dir }}"
   register: _git_date
   changed_when: false
   ignore_errors: true
+  when: not _build_commit_file.stat.exists
   delegate_to: localhost
+
+- name: Resolve commit and date
+  ansible.builtin.set_fact:
+    _version_commit: >-
+      {{ (_build_commit_content.content | default('')
+          | b64decode | trim)
+         if _build_commit_file.stat.exists
+         else (_git_commit.stdout | default('unknown') | trim) }}
+    _version_date: >-
+      {{ (_build_date_content.content | default('')
+          | b64decode | trim)
+         if _build_commit_file.stat.exists
+         else (_git_date.stdout | default('unknown') | trim) }}
 
 - name: Display version
   ansible.builtin.debug:
     msg: >-
       Canasta CLI
       v{{ _version_file.content | b64decode | trim }}
-      (commit {{ _git_commit.stdout
-      | default('unknown') | trim }},
-      built {{ _git_date.stdout
-      | default('unknown') | trim }})
+      (commit {{ _version_commit | default('unknown') }},
+      built {{ _version_date | default('unknown') }})
