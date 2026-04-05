@@ -161,13 +161,16 @@ def add_params_to_parser(parser, params):
             )
 
 
-def get_config_file_path():
-    """Return the path to conf.json (mirrors canasta_registry.py logic)."""
+def get_config_dir():
+    """Return the user config directory (where conf.json lives).
+
+    Mirrors canasta_registry.py logic.
+    """
     override = os.environ.get("CANASTA_CONFIG_DIR")
     if override:
-        return os.path.join(override, "conf.json")
+        return override
     if os.geteuid() == 0:
-        return "/etc/canasta/conf.json"
+        return "/etc/canasta"
     import platform
     if platform.system() == "Darwin":
         base = os.path.join(
@@ -178,7 +181,12 @@ def get_config_file_path():
             "XDG_CONFIG_HOME",
             os.path.join(os.path.expanduser("~"), ".config"),
         )
-    return os.path.join(base, "canasta", "conf.json")
+    return os.path.join(base, "canasta")
+
+
+def get_config_file_path():
+    """Return the path to conf.json."""
+    return os.path.join(get_config_dir(), "conf.json")
 
 
 def build_parser(data):
@@ -363,17 +371,44 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     ]
 
     if args.host:
-        # Add an inline inventory entry for the host so it's always
-        # reachable, even if the user hasn't added it to hosts.yml.
-        # If the host IS in hosts.yml, that definition wins (its user,
-        # python_interpreter, etc. come from the file).
-        ansible_args.extend(["-i", "%s," % args.host])
-        ansible_args.extend(["--limit", args.host])
+        # Parse user@host shorthand.
+        host_spec = args.host
+        ssh_user = None
+        if "@" in host_spec:
+            ssh_user, host_spec = host_spec.split("@", 1)
+
+        # Update target_host in the vars file to use just the hostname,
+        # not the user@host form (the hosts.yml or inline inventory
+        # entry is keyed on hostname alone).
+        import json as _json
+        with open(vars_file.name, "r") as f:
+            _v = _json.load(f)
+        _v["target_host"] = host_spec
+        with open(vars_file.name, "w") as f:
+            _json.dump(_v, f)
+
+        # Inline inventory fallback — used if the host isn't in any
+        # user-defined inventory file. Goes first so that hosts.yml
+        # entries override it when present.
+        ansible_args.extend(["-i", "%s," % host_spec])
+
+        # Persistent user-level inventory in the config directory.
+        # This survives Docker image pulls because the config dir
+        # is mounted into the container.
+        user_hosts = os.path.join(get_config_dir(), "hosts.yml")
+        if os.path.isfile(user_hosts):
+            ansible_args.extend(["-i", user_hosts])
+
+        ansible_args.extend(["--limit", host_spec])
+
+        # SSH user from user@host shorthand (hosts.yml ansible_user
+        # still wins via inventory precedence).
+        if ssh_user:
+            ansible_args.extend(["-u", ssh_user])
+
         # Auto-accept new SSH host keys on first connection (matching
         # ssh's 'StrictHostKeyChecking=accept-new'). Known hosts with
-        # changed keys are still rejected. Only applied for the inline
-        # inventory case — hosts defined in hosts.yml can set their own
-        # ansible_ssh_common_args if they need different behavior.
+        # changed keys are still rejected.
         os.environ.setdefault(
             "ANSIBLE_SSH_ARGS",
             "-o StrictHostKeyChecking=accept-new "

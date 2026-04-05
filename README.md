@@ -135,11 +135,32 @@ canasta list
 
 ### Multi-host management
 
-Add remote hosts to the inventory:
+The simplest way to target a remote host is the `user@host` shorthand:
 
 ```bash
-cp inventory/hosts.yml.example inventory/hosts.yml
-# Edit inventory/hosts.yml to add your target hosts
+canasta --host ubuntu@prod1.example.com create --id wiki-prod --wiki main
+```
+
+This works without any inventory setup. SSH keys must be in place for
+the target user on the target host.
+
+For more control (custom Python interpreter, SSH port, etc.), create
+a persistent hosts file at `$CANASTA_CONFIG_DIR/hosts.yml` (e.g.,
+`~/.config/canasta/hosts.yml` or `~/Library/Application Support/canasta/hosts.yml`):
+
+```yaml
+all:
+  hosts:
+    prod1:
+      ansible_host: prod1.example.com
+      ansible_user: canasta
+      ansible_python_interpreter: /usr/bin/python3
+```
+
+Then use the short name:
+
+```bash
+canasta --host prod1 create --id wiki-prod --wiki main
 ```
 
 Manage instances across hosts:
