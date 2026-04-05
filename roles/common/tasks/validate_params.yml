@@ -9,9 +9,9 @@
 
 - name: Check required parameters
   ansible.builtin.fail:
-    msg: "Required parameter '{{ item.name }}' is not set for command '{{ command }}'"
+    msg: "Required parameter '--{{ item.name | replace('_', '-') }}' is missing"
   when:
-    - item.required | default(false)
+    - (item.required | default(false)) or (item.required_unless is defined)
     - lookup('vars', item.name, default='') == ''
     - >-
       item.required_unless is not defined or
