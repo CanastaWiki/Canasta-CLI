@@ -191,6 +191,23 @@ for arg in "$@"; do
     esac
 done
 
+# When running 'canasta create' without -p/--path, inject -p with the
+# host cwd so the instance directory lands on a host-visible path.
+# Without this, the default path "." is resolved inside the container
+# against /opt/canasta-ansible, which the host Docker daemon can't mount.
+EXTRA_ARGS=()
+HAS_CREATE=false
+HAS_PATH=false
+for arg in "$@"; do
+    case "$arg" in
+        create) HAS_CREATE=true ;;
+        -p|--path|-p=*|--path=*) HAS_PATH=true ;;
+    esac
+done
+if [[ "$HAS_CREATE" == "true" ]] && [[ "$HAS_PATH" == "false" ]]; then
+    EXTRA_ARGS=(-p "$(pwd)")
+fi
+
 exec docker run --rm -i \
     "${MOUNTS[@]}" \
-    "$IMAGE" "$@"
+    "$IMAGE" "$@" "${EXTRA_ARGS[@]}"
