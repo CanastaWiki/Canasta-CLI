@@ -363,6 +363,11 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     ]
 
     if args.host:
+        # Add an inline inventory entry for the host so it's always
+        # reachable, even if the user hasn't added it to hosts.yml.
+        # If the host IS in hosts.yml, that definition wins (its user,
+        # python_interpreter, etc. come from the file).
+        ansible_args.extend(["-i", "%s," % args.host])
         ansible_args.extend(["--limit", args.host])
 
     return ansible_args
