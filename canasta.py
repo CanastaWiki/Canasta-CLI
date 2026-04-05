@@ -369,6 +369,16 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         # python_interpreter, etc. come from the file).
         ansible_args.extend(["-i", "%s," % args.host])
         ansible_args.extend(["--limit", args.host])
+        # Auto-accept new SSH host keys on first connection (matching
+        # ssh's 'StrictHostKeyChecking=accept-new'). Known hosts with
+        # changed keys are still rejected. Only applied for the inline
+        # inventory case — hosts defined in hosts.yml can set their own
+        # ansible_ssh_common_args if they need different behavior.
+        os.environ.setdefault(
+            "ANSIBLE_SSH_ARGS",
+            "-o StrictHostKeyChecking=accept-new "
+            "-o UserKnownHostsFile=~/.ssh/known_hosts",
+        )
 
     return ansible_args
 
