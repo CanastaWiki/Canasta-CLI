@@ -9,6 +9,10 @@
 #   global_settings, composer, override, keep_config
 
 # --- Step 0: Pre-flight checks ---
+- name: Set default wiki ID to instance ID
+  ansible.builtin.set_fact:
+    wiki: "{{ wiki | default(id) }}"
+
 - name: Check Docker is available
   ansible.builtin.command:
     cmd: docker info
