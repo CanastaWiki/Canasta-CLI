@@ -139,19 +139,46 @@
     name: orchestrator
     tasks_from: destroy.yml
 
-- name: Remove instance directory
-  ansible.builtin.command:
-    cmd: "rm -rf {{ instance_path | quote }}"
-    chdir: "/"
-  changed_when: true
-  when: instance_path | default('') | length > 0
-
+# Deregister BEFORE removing the directory so the registry is consistent
+# even if the rm fails (which can happen when the current process cwd
+# is inside the target directory, e.g., running 'canasta delete' from
+# the instance dir via canasta-docker).
 - name: Deregister instance
   canasta_registry:
     id: "{{ instance_id }}"
     state: absent
   delegate_to: localhost
 
+- name: Remove instance directory contents
+  ansible.builtin.command:
+    cmd: "find {{ instance_path | quote }} -mindepth 1 -delete"
+    chdir: "/"
+  changed_when: true
+  when: instance_path | default('') | length > 0
+  ignore_errors: true
+  register: _rmdir_contents
+
+- name: Remove empty instance directory
+  ansible.builtin.command:
+    cmd: "rmdir {{ instance_path | quote }}"
+    chdir: "/"
+  changed_when: true
+  when: instance_path | default('') | length > 0
+  ignore_errors: true
+  register: _rmdir
+
+- name: Warn if directory could not be removed
+  ansible.builtin.debug:
+    msg: >-
+      Instance '{{ instance_id }}' deleted from registry. Note: the
+      instance directory '{{ instance_path }}' could not be fully removed
+      (likely because it is the current working directory). Run 'cd ..'
+      then 'rmdir {{ instance_path }}' to clean it up.
+  when:
+    - instance_path | default('') | length > 0
+    - _rmdir is failed
+
 - name: Report deletion
   ansible.builtin.debug:
     msg: "Instance '{{ instance_id }}' deleted."
+  when: not (_rmdir is failed)
