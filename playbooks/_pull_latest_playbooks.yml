@@ -17,7 +17,7 @@
 
 - name: Report Docker image already updated
   ansible.builtin.debug:
-    msg: "Running from Docker image — use 'docker pull' or 'canasta upgrade' via the wrapper to update."
+    msg: "Canasta CLI updated to the latest Docker image."
   when: _docker_build.stat.exists
 
 - name: Self-update from git checkout
