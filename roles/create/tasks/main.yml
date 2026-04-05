@@ -273,6 +273,15 @@
   when: (wikidbuser | default('root')) != 'root'
   no_log: true
 
+# Generate a placeholder MW_SECRET_KEY so docker compose variable substitution
+# doesn't warn about it being empty during the first 'docker compose up'.
+# install.php later replaces this with the key from LocalSettings.php,
+# or the import-database path regenerates it.
+- name: Generate initial MW_SECRET_KEY
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: generate_secret_key.yml
+
 # --- Step 9: Copy optional settings files ---
 - name: Create per-wiki settings directory
   ansible.builtin.file:
