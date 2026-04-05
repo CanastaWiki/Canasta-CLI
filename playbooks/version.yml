@@ -31,6 +31,6 @@
       Canasta CLI
       v{{ _version_file.content | b64decode | trim }}
       (commit {{ _git_commit.stdout
-      | default('unknown') | trim }},
+      | default('unknown', true) | trim }},
       built {{ _git_date.stdout
-      | default('unknown') | trim }})
+      | default('unknown', true) | trim }})
