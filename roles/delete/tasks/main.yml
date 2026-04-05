@@ -140,9 +140,10 @@
     tasks_from: destroy.yml
 
 - name: Remove instance directory
-  ansible.builtin.file:
-    path: "{{ instance_path }}"
-    state: absent
+  ansible.builtin.command:
+    cmd: "rm -rf {{ instance_path | quote }}"
+    chdir: "/"
+  changed_when: true
   when: instance_path | default('') | length > 0
 
 - name: Deregister instance
