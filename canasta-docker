@@ -176,15 +176,45 @@ if [[ -d "$HOME/.ssh" ]]; then
     MOUNTS+=(-v "$HOME/.ssh":"$HOME/.ssh":ro)
 fi
 
-# When the user runs 'canasta upgrade', pull the latest image first so the
-# CLI itself is updated in addition to the instances it manages. Matches
-# the Go CLI's self-update behavior.
+# When the user runs 'canasta upgrade', pull the latest image and update
+# this wrapper script from the main branch, matching the Go CLI's
+# self-update behavior.
+WRAPPER_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-Ansible/main/canasta-docker"
 for arg in "$@"; do
     case "$arg" in
         -*) continue ;;
         upgrade)
             echo "Pulling latest canasta-ansible image..."
             docker pull "$IMAGE"
+
+            # Update the wrapper script itself if the upstream differs.
+            if command -v curl &>/dev/null; then
+                TMP_WRAPPER="$(mktemp)"
+                if curl -fsSL "$WRAPPER_URL" -o "$TMP_WRAPPER"; then
+                    if ! cmp -s "$TMP_WRAPPER" "$WRAPPER_PATH"; then
+                        echo "Updating canasta wrapper script..."
+                        if [[ -w "$WRAPPER_PATH" ]]; then
+                            cat "$TMP_WRAPPER" > "$WRAPPER_PATH"
+                            chmod +x "$WRAPPER_PATH"
+                            echo "Wrapper updated. Run 'canasta upgrade' again to finish upgrading instances."
+                            rm -f "$TMP_WRAPPER"
+                            exit 0
+                        elif command -v sudo &>/dev/null; then
+                            if sudo cp "$TMP_WRAPPER" "$WRAPPER_PATH" && sudo chmod +x "$WRAPPER_PATH"; then
+                                echo "Wrapper updated. Run 'canasta upgrade' again to finish upgrading instances."
+                                rm -f "$TMP_WRAPPER"
+                                exit 0
+                            else
+                                echo "Warning: failed to update wrapper at $WRAPPER_PATH" >&2
+                            fi
+                        else
+                            echo "Warning: cannot write to $WRAPPER_PATH (no sudo available)" >&2
+                        fi
+                    fi
+                    rm -f "$TMP_WRAPPER"
+                fi
+            fi
             break
             ;;
         *) break ;;
