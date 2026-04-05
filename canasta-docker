@@ -192,9 +192,19 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
 done
 set -- "${NEW_ARGS[@]}"
 
-# Mount SSH keys for remote host access
+# Mount SSH keys for remote host access. The container runs as root,
+# so mount the host user's .ssh at /root/.ssh where SSH looks by default.
 if [[ -d "$HOME/.ssh" ]]; then
-    MOUNTS+=(-v "$HOME/.ssh":"$HOME/.ssh":ro)
+    MOUNTS+=(-v "$HOME/.ssh":/root/.ssh:ro)
+fi
+
+# Forward SSH agent if available (so passphrase-protected keys work
+# without prompting inside the container).
+if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
+    MOUNTS+=(
+        -v "$SSH_AUTH_SOCK:/tmp/ssh-agent.sock"
+        -e "SSH_AUTH_SOCK=/tmp/ssh-agent.sock"
+    )
 fi
 
 # When the user runs 'canasta upgrade', pull the latest image and update
