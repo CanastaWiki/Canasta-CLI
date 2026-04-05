@@ -23,8 +23,9 @@ RUN mkdir -p /usr/local/lib/docker/cli-plugins \
 
 # Copy application
 WORKDIR /opt/canasta-ansible
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements.yml ./
+RUN pip install --no-cache-dir -r requirements.txt \
+    && ansible-galaxy collection install -r requirements.yml
 
 COPY . .
 

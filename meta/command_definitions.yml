@@ -1171,7 +1171,6 @@ commands:
       - name: id
         short: i
         type: string
-        required: true
         description: "Canasta instance ID"
 
   # ---------------------------------------------------------------------------
