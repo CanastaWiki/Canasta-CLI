@@ -32,19 +32,39 @@ fi
 # Ensure config directory exists
 mkdir -p "$CONFIG_DIR"
 
-# Base mounts: Docker socket + registry + current directory
+# Base mounts: Docker socket + registry + current directory + $HOME.
+# The container runs as the invoking user's UID/GID so that any files
+# written to mounted paths end up owned by the host user, not root.
 if [[ "${DOCKER_HOST:-}" == unix://* ]]; then
     DOCKER_SOCK_PATH="${DOCKER_HOST#unix://}"
 else
     DOCKER_SOCK_PATH="/var/run/docker.sock"
 fi
+
+# Detect the docker socket's GID so the container user can access it.
+if [[ -S "$DOCKER_SOCK_PATH" ]]; then
+    if stat -c '%g' "$DOCKER_SOCK_PATH" >/dev/null 2>&1; then
+        DOCKER_SOCK_GID="$(stat -c '%g' "$DOCKER_SOCK_PATH")"
+    else
+        DOCKER_SOCK_GID="$(stat -f '%g' "$DOCKER_SOCK_PATH")"
+    fi
+else
+    DOCKER_SOCK_GID=""
+fi
+
 MOUNTS=(
     -v "$DOCKER_SOCK_PATH:/var/run/docker.sock"
     -v "$CONFIG_DIR":"$CONFIG_DIR"
     -e "CANASTA_CONFIG_DIR=$CONFIG_DIR"
+    -v "$HOME":"$HOME"
+    -e "HOME=$HOME"
     -v "$(pwd)":"$(pwd)"
     -w "$(pwd)"
+    --user "$(id -u):$(id -g)"
 )
+if [[ -n "$DOCKER_SOCK_GID" ]]; then
+    MOUNTS+=(--group-add "$DOCKER_SOCK_GID")
+fi
 
 # Parse args to find instance path from --id/-i (look up in conf.json)
 # so we can mount it if it's outside the current directory.
@@ -192,12 +212,8 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
 done
 set -- "${NEW_ARGS[@]}"
 
-# Mount SSH keys for remote host access. The container runs as root,
-# so mount the host user's .ssh at /root/.ssh where SSH looks by default.
-if [[ -d "$HOME/.ssh" ]]; then
-    MOUNTS+=(-v "$HOME/.ssh":/root/.ssh:ro)
-fi
-
+# SSH keys are already accessible via the $HOME mount (ssh looks in
+# $HOME/.ssh by default, and we set HOME to the host user's home).
 # Forward SSH agent if available (so passphrase-protected keys work
 # without prompting inside the container).
 if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
