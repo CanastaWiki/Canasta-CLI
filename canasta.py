@@ -41,6 +41,7 @@ SUBCOMMAND_GROUPS = {
         "status", "diff", "fix-submodules", "sync",
     ],
     "storage": ["setup"],
+    "host": ["add", "remove", "list"],
 }
 
 # Nested subcommand groups (backup schedule set|list|remove)

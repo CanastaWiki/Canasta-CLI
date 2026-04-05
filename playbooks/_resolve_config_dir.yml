@@ -1,0 +1,44 @@
+---
+# Resolve the Canasta config directory the same way canasta_registry.py does.
+# Sets _config_dir fact.
+
+- name: Check for CANASTA_CONFIG_DIR env var
+  ansible.builtin.set_fact:
+    _config_dir_env: "{{ lookup('env', 'CANASTA_CONFIG_DIR') }}"
+
+- name: Set config dir from env override
+  ansible.builtin.set_fact:
+    _config_dir: "{{ _config_dir_env }}"
+  when: _config_dir_env != ''
+
+- name: Detect platform for default config dir
+  when: _config_dir_env == ''
+  block:
+    - name: Gather OS facts
+      ansible.builtin.setup:
+        gather_subset:
+          - "!all"
+          - "!min"
+          - "system"
+
+    - name: Set config dir for root
+      ansible.builtin.set_fact:
+        _config_dir: "/etc/canasta"
+      when: ansible_user_uid | default(1000) == 0
+
+    - name: Set config dir for macOS
+      ansible.builtin.set_fact:
+        _config_dir: >-
+          {{ lookup('env', 'HOME') }}/Library/Application Support/canasta
+      when:
+        - ansible_user_uid | default(1000) != 0
+        - ansible_system | default('') == 'Darwin'
+
+    - name: Set config dir for Linux
+      ansible.builtin.set_fact:
+        _config_dir: >-
+          {{ lookup('env', 'XDG_CONFIG_HOME')
+             | default(lookup('env', 'HOME') ~ '/.config', true) }}/canasta
+      when:
+        - ansible_user_uid | default(1000) != 0
+        - ansible_system | default('') != 'Darwin'

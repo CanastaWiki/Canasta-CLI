@@ -1203,6 +1203,53 @@ commands:
         default: nfs
         description: "Name for the Kubernetes StorageClass"
 
+  # ---------------------------------------------------------------------------
+  # Host management (persistent hosts.yml in user config dir)
+  # ---------------------------------------------------------------------------
+  - name: host_add
+    description: "Add or update a host entry in the persistent hosts.yml"
+    long_description: |
+      Add or update a host definition in $CANASTA_CONFIG_DIR/hosts.yml.
+      Saved hosts can then be targeted by short name with --host.
+    examples:
+      - "canasta host add prod1 --ssh ubuntu@prod1.example.com"
+      - "canasta host add prod2 --ssh canasta@10.0.0.5 --python /usr/bin/python3"
+    playbook: host_add.yml
+    parameters:
+      - name: host_name
+        long: name
+        positional: true
+        type: string
+        required: true
+        description: "Short name for the host (used with --host)"
+      - name: ssh
+        type: string
+        required: true
+        description: "SSH destination (user@host or just host)"
+      - name: python
+        type: string
+        description: "Path to python3 on the remote host"
+
+  - name: host_remove
+    description: "Remove a host entry from the persistent hosts.yml"
+    examples:
+      - "canasta host remove prod1"
+    playbook: host_remove.yml
+    parameters:
+      - name: host_name
+        long: name
+        positional: true
+        type: string
+        required: true
+        description: "Short name of the host to remove"
+
+  - name: host_list
+    description: "List all host entries from the persistent hosts.yml"
+    examples:
+      - "canasta host list"
+    playbook: host_list.yml
+    parameters: []
+
   - name: storage_setup_efs
     description: "Set up AWS EFS shared storage for Kubernetes"
     long_description: |

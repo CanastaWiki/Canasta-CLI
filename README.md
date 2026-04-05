@@ -142,11 +142,35 @@ canasta --host ubuntu@prod1.example.com create --id wiki-prod --wiki main
 ```
 
 This works without any inventory setup. SSH keys must be in place for
-the target user on the target host.
+the target user on the target host. New host keys are automatically
+accepted on first connection.
 
-For more control (custom Python interpreter, SSH port, etc.), create
-a persistent hosts file at `$CANASTA_CONFIG_DIR/hosts.yml` (e.g.,
-`~/.config/canasta/hosts.yml` or `~/Library/Application Support/canasta/hosts.yml`):
+**Saved hosts** — for hosts you use repeatedly, save them with the
+`canasta host` commands:
+
+```bash
+# Add a host (stored in $CANASTA_CONFIG_DIR/hosts.yml)
+canasta host add prod1 --ssh ubuntu@prod1.example.com
+
+# With a custom Python interpreter
+canasta host add prod2 --ssh canasta@10.0.0.5 --python /usr/bin/python3
+
+# List saved hosts
+canasta host list
+
+# Remove a host
+canasta host remove prod1
+```
+
+After adding, use the short name:
+
+```bash
+canasta --host prod1 create --id wiki-prod --wiki main
+```
+
+You can also edit `$CANASTA_CONFIG_DIR/hosts.yml` directly for
+advanced options (SSH port, jump host, etc.). The file uses standard
+Ansible inventory format:
 
 ```yaml
 all:
@@ -155,12 +179,7 @@ all:
       ansible_host: prod1.example.com
       ansible_user: canasta
       ansible_python_interpreter: /usr/bin/python3
-```
-
-Then use the short name:
-
-```bash
-canasta --host prod1 create --id wiki-prod --wiki main
+      ansible_port: 2222
 ```
 
 Manage instances across hosts:
@@ -325,6 +344,14 @@ be controlled via `nodeSelector` and `affinity` rules in the instance's
 |---------|-------------|
 | `canasta storage setup nfs` | Install NFS CSI driver + StorageClass |
 | `canasta storage setup efs` | Install AWS EFS CSI driver + StorageClass |
+
+### Host management
+
+| Command | Description |
+|---------|-------------|
+| `canasta host add NAME --ssh user@host` | Save a host definition for `--host NAME` |
+| `canasta host list` | List saved hosts |
+| `canasta host remove NAME` | Remove a saved host |
 
 ### Development
 

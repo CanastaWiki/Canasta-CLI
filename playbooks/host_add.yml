@@ -1,0 +1,58 @@
+---
+# canasta host add - Add or update a host entry in the user hosts.yml.
+
+- name: Resolve config directory
+  ansible.builtin.include_tasks: _resolve_config_dir.yml
+
+- name: Ensure config directory exists
+  ansible.builtin.file:
+    path: "{{ _config_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+
+- name: Parse SSH destination (user@host or host)
+  ansible.builtin.set_fact:
+    _ssh_user: "{{ ssh.split('@')[0] if '@' in ssh else '' }}"
+    _ssh_host: "{{ ssh.split('@')[1] if '@' in ssh else ssh }}"
+
+- name: Read existing hosts.yml if present
+  ansible.builtin.slurp:
+    src: "{{ _config_dir }}/hosts.yml"
+  register: _existing_hosts
+  ignore_errors: true
+  delegate_to: localhost
+
+- name: Initialize hosts structure
+  ansible.builtin.set_fact:
+    _hosts_data: >-
+      {{ (_existing_hosts.content | b64decode | from_yaml)
+         if (_existing_hosts is succeeded
+             and (_existing_hosts.content | b64decode | trim | length > 0))
+         else {'all': {'hosts': {}}} }}
+
+- name: Build host entry
+  ansible.builtin.set_fact:
+    _host_entry: >-
+      {{ {'ansible_host': _ssh_host}
+         | combine(({'ansible_user': _ssh_user} if _ssh_user else {}))
+         | combine(({'ansible_python_interpreter': python}
+                    if (python is defined and python != '') else {})) }}
+
+- name: Merge entry into hosts structure
+  ansible.builtin.set_fact:
+    _updated_hosts: >-
+      {{ _hosts_data | combine(
+           {'all': {'hosts': {(host_name): _host_entry}}},
+           recursive=True) }}
+
+- name: Write hosts.yml
+  ansible.builtin.copy:
+    content: "{{ _updated_hosts | to_nice_yaml(indent=2) }}"
+    dest: "{{ _config_dir }}/hosts.yml"
+    mode: "0644"
+  delegate_to: localhost
+
+- name: Report
+  ansible.builtin.debug:
+    msg: "Host '{{ host_name }}' saved to {{ _config_dir }}/hosts.yml"
