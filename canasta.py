@@ -393,6 +393,7 @@ def main():
             pre_cmd.append(arg)
             skip_next = False
         elif arg in global_value_flags:
+            # --host before command: add to pre_cmd and skip value
             pre_cmd.append(arg)
             skip_next = True
         elif not arg.startswith("-") and arg in cmd_names:
@@ -405,6 +406,30 @@ def main():
     global_parser.add_argument("--host", "-H", default=None)
     global_parser.add_argument("--verbose", "-v", action="store_true",
                                default=False)
+
+    # Also extract --host/-H from post-command args
+    # to allow: "canasta create --host x" as well as "canasta --host x create"
+    post_filtered = []
+    skip_indices = set()
+    for i, arg in enumerate(post_cmd):
+        if i in skip_indices:
+            continue
+        if arg in global_value_flags:
+            # Extract --host/-H and its value from post_cmd
+            if i + 1 < len(post_cmd) and post_cmd[i + 1] not in global_value_flags:
+                # Value is in post_cmd
+                pre_cmd.append(arg)
+                pre_cmd.append(post_cmd[i + 1])
+                skip_indices.add(i)
+                skip_indices.add(i + 1)
+            elif arg not in pre_cmd:
+                # Value will be parsed later; add flag but skip filtering
+                pre_cmd.append(arg)
+                skip_indices.add(i)
+        else:
+            post_filtered.append(arg)
+    post_cmd = post_filtered
+
     global_args, pre_remaining = global_parser.parse_known_args(pre_cmd)
 
     # Recombine: unused pre-command args + all post-command args
