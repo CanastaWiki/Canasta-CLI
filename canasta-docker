@@ -62,9 +62,17 @@ MOUNTS=(
     -w "$(pwd)"
     --user "$(id -u):$(id -g)"
 )
+# Add the docker socket GID and all of the host user's supplementary
+# groups so the container process has the same group memberships as the
+# host user (e.g., www-data for writing to container-owned files).
 if [[ -n "$DOCKER_SOCK_GID" ]]; then
     MOUNTS+=(--group-add "$DOCKER_SOCK_GID")
 fi
+for gid in $(id -G); do
+    [[ "$gid" == "$(id -g)" ]] && continue  # skip primary (already set)
+    [[ "$gid" == "$DOCKER_SOCK_GID" ]] && continue  # skip if already added
+    MOUNTS+=(--group-add "$gid")
+done
 
 # Parse args to find instance path from --id/-i (look up in conf.json)
 # so we can mount it if it's outside the current directory.
