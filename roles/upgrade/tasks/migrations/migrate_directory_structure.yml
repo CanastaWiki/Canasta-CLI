@@ -11,6 +11,7 @@
       - settings
       - logstash
       - backup
+      - persistent
   register: _old_wiki_dirs
 
 - name: Migrate per-wiki directories
