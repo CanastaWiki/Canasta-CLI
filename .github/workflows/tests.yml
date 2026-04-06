@@ -81,13 +81,8 @@ jobs:
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
 
-      - name: Add user to www-data group
-        run: sudo usermod -aG www-data $USER
-
       - name: Run integration tests
-        run: >-
-          sg www-data -c
-          ".venv/bin/python tests/integration/run_tests.py"
+        run: .venv/bin/python tests/integration/run_tests.py
         timeout-minutes: 25
 
   docker-smoke:
