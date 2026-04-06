@@ -167,6 +167,8 @@ except:
     CWD="$(pwd)"
     while IFS= read -r ipath; do
         [[ -z "$ipath" ]] && continue
+        # Skip paths that don't exist locally (e.g., remote instances)
+        [[ ! -d "$ipath" ]] && continue
         case "$ipath" in
             "$CWD"*|"$HOME"*) ;; # Already covered by cwd or $HOME mount
             *)
@@ -180,7 +182,8 @@ except:
 fi
 
 # Mount specific instance path read-write if --id provided
-if [[ -n "$INSTANCE_PATH" ]]; then
+# Skip if path doesn't exist locally (remote instance).
+if [[ -n "$INSTANCE_PATH" ]] && [[ -d "$INSTANCE_PATH" ]]; then
     CWD="$(pwd)"
     case "$INSTANCE_PATH" in
         "$CWD"*) ;; # Already covered by cwd mount
