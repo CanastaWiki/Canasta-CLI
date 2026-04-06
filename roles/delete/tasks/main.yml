@@ -100,36 +100,36 @@
       Use --yes to confirm.
   when: not (yes | default(false) | bool)
 
-# Clean up images inside container (important on Linux where files are owned by www-data)
-- name: Check if containers are running
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: check_running.yml
+# Clean up container-owned files (important on Linux where files are
+# owned by www-data). Uses 'docker compose run' instead of 'exec' so
+# it works even when containers are stopped or unhealthy.
+- name: Clean up container-owned files (Compose)
+  ansible.builtin.command:
+    cmd: >-
+      docker compose run --rm --no-deps -T web
+      find /mediawiki/images /mediawiki/config /mediawiki/public_assets
+      -mindepth 1 -delete
+    chdir: "{{ instance_path }}"
+  when: instance_orchestrator | default('compose') == 'compose'
+  changed_when: true
   ignore_errors: true
 
-- name: Clean up container-owned files
-  when: _container_running | default(false) | bool
+- name: Clean up container-owned files (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:
-    - name: Remove images inside container
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-      vars:
-        exec_service: web
-        exec_command: "find /mediawiki/images -mindepth 1 -delete 2>/dev/null || true"
+    - name: Check if K8s pods are running
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: check_running.yml
       ignore_errors: true
 
-    - name: Remove config inside container
+    - name: Remove files inside K8s pod
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: web
-        exec_command: "find /mediawiki/config -mindepth 1 -delete 2>/dev/null || true"
+        exec_command: "find /mediawiki/images /mediawiki/config /mediawiki/public_assets -mindepth 1 -delete 2>/dev/null || true"
       ignore_errors: true
-
-    - name: Remove public_assets inside container
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-      vars:
-        exec_service: web
-        exec_command: "find /mediawiki/public_assets -mindepth 1 -delete 2>/dev/null || true"
-      ignore_errors: true
+      when: _container_running | default(false) | bool
 
 # Remove backup schedule from crontab
 - name: Remove backup schedule
