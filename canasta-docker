@@ -293,6 +293,12 @@ if [[ "$HAS_CREATE" == "true" ]] && [[ "$HAS_PATH" == "false" ]]; then
     EXTRA_ARGS=(-p "$(pwd)")
 fi
 
-exec docker run --rm -i \
+# Allocate a TTY when stdin is a terminal (needed for interactive exec).
+DOCKER_RUN_FLAGS=(-i)
+if [[ -t 0 ]]; then
+    DOCKER_RUN_FLAGS+=(-t)
+fi
+
+exec docker run --rm "${DOCKER_RUN_FLAGS[@]}" \
     "${MOUNTS[@]}" \
     "$IMAGE" "$@" "${EXTRA_ARGS[@]}"
