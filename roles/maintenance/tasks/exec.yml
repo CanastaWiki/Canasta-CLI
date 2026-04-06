@@ -13,7 +13,7 @@
       ansible.builtin.command:
         cmd: "docker compose ps --services --filter status=running"
         chdir: "{{ instance_path }}"
-      register: _exec_services
+      register: _exec_services_compose
       changed_when: false
       when: instance_orchestrator | default('compose') == 'compose'
 
@@ -22,23 +22,30 @@
         cmd: >-
           kubectl get pods -n canasta-{{ instance_id }}
           -o jsonpath='{range .items[*]}{.metadata.labels.app\.kubernetes\.io/component}{"\n"}{end}'
-      register: _exec_services
+      register: _exec_services_k8s
       changed_when: false
       when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+    - name: Set service list
+      ansible.builtin.set_fact:
+        _exec_services_stdout: >-
+          {{ (_exec_services_compose.stdout | default(''))
+             if (instance_orchestrator | default('compose')) == 'compose'
+             else (_exec_services_k8s.stdout | default('')) }}
 
     - name: Display running services
       ansible.builtin.debug:
         msg: |
           Running services:
-          {% for svc in (_exec_services.stdout | trim).split('\n') | sort %}
+          {% for svc in (_exec_services_stdout | trim).split('\n') | sort %}
             {{ svc }}
           {% endfor %}
-      when: (_exec_services.stdout | default('') | trim) != ''
+      when: (_exec_services_stdout | trim) != ''
 
     - name: No services running
       ansible.builtin.debug:
         msg: "No running services found."
-      when: (_exec_services.stdout | default('') | trim) == ''
+      when: (_exec_services_stdout | trim) == ''
 
 - name: Execute command in container
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
