@@ -6,7 +6,8 @@
   ansible.builtin.command:
     cmd: "docker compose pull --ignore-buildable --ignore-pull-failures"
     chdir: "{{ instance_path }}"
-  changed_when: true
+  register: _pull_result
+  changed_when: "'Pull complete' in (_pull_result.stderr | default(''))"
   when: instance_orchestrator | default('compose') == 'compose'
 
 # Kubernetes: image pulls happen automatically during helm upgrade.

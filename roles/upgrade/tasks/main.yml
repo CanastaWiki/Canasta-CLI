@@ -96,27 +96,39 @@
     tasks_from: pull.yml
   when: _upgrade_inst.instance.buildFrom | default('') == ''
 
-- name: Report restarting
+- name: Check if new images were pulled (Compose)
+  ansible.builtin.set_fact:
+    _images_updated: "{{ _pull_result is defined and _pull_result is changed }}"
+
+- name: Restart containers
+  when: _images_updated | bool
+  block:
+    - name: Report restarting
+      ansible.builtin.debug:
+        msg: "Restarting containers..."
+
+    - name: Stop containers
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: stop.yml
+
+    - name: Start containers
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: start.yml
+
+    - name: Flush MediaWiki cache
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: "touch /var/www/mediawiki/w/LocalSettings.php"
+      ignore_errors: true
+
+    - name: Report instance upgraded
+      ansible.builtin.debug:
+        msg: "Canasta upgraded successfully!"
+
+- name: Report already up to date
   ansible.builtin.debug:
-    msg: "Restarting containers..."
-
-- name: Stop containers
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: stop.yml
-
-- name: Start containers
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: start.yml
-
-- name: Flush MediaWiki cache
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-  vars:
-    exec_service: web
-    exec_command: "touch /var/www/mediawiki/w/LocalSettings.php"
-  ignore_errors: true
-
-- name: Report instance upgraded
-  ansible.builtin.debug:
-    msg: "Canasta upgraded successfully!"
+    msg: "Already up to date — no restart needed."
+  when: not (_images_updated | bool)
