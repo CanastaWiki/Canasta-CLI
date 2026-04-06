@@ -36,7 +36,6 @@
   vars:
     exec_service: db
     exec_command: "gunzip -c /tmp/import.sql.gz | mariadb -u root -p'{{ import_db_password }}' '{{ import_wiki_id }}'"
-    exec_no_log: true
   when: _is_gzipped | bool
 
 - name: Import plain SQL database
