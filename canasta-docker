@@ -144,7 +144,7 @@ except:
     while IFS= read -r ipath; do
         [[ -z "$ipath" ]] && continue
         case "$ipath" in
-            "$CWD"*) ;; # Already covered by cwd mount
+            "$CWD"*|"$HOME"*) ;; # Already covered by cwd or $HOME mount
             *)
                 # Skip if this is the active instance (will be mounted rw below)
                 if [[ "$ipath" != "$INSTANCE_PATH" ]]; then
