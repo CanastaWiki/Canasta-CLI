@@ -452,10 +452,12 @@ def main():
         else:
             pre_cmd.append(arg)
 
-    # Also accept --host/-H after the command (matching cobra's persistent
+    # Also accept global flags after the command (matching cobra's persistent
     # flag behavior in the Go CLI). Walk post_cmd, stopping at "--" so we
     # never touch passthrough args. Only consume the next token as a value
     # if it doesn't itself look like a flag.
+    # Note: we only extract --verbose (long form) here, not -v, because
+    # -v after 'maintenance exec' is ambiguous (could be 'php -v').
     post_filtered = []
     i = 0
     while i < len(post_cmd):
@@ -477,6 +479,11 @@ def main():
                 i += 2
                 continue
             # No valid value follows — leave it for argparse to error on
+        # --verbose (long form only — -v is ambiguous after 'maintenance exec')
+        if arg == "--verbose":
+            pre_cmd.append(arg)
+            i += 1
+            continue
         post_filtered.append(arg)
         i += 1
     post_cmd = post_filtered
