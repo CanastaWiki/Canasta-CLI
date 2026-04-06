@@ -301,4 +301,4 @@ fi
 
 exec docker run --rm "${DOCKER_RUN_FLAGS[@]}" \
     "${MOUNTS[@]}" \
-    "$IMAGE" "$@" "${EXTRA_ARGS[@]}"
+    "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
