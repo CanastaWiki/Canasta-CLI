@@ -8,6 +8,13 @@
     _is_gzipped: "{{ import_database_path | regex_search('\\.gz$') is not none }}"
     _import_container_file: "/tmp/import.sql{{ (import_database_path | regex_search('\\.gz$') is not none) | ternary('.gz', '') }}"
 
+- name: Create database if it does not exist
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: db
+    exec_command: "mariadb -u root -p'{{ import_db_password }}' -e 'CREATE DATABASE IF NOT EXISTS `{{ import_wiki_id }}`'"
+    exec_no_log: true
+
 - name: Copy database dump to container (Compose)
   ansible.builtin.command:
     cmd: >-
@@ -36,6 +43,7 @@
   vars:
     exec_service: db
     exec_command: "gunzip -c /tmp/import.sql.gz | mariadb -u root -p'{{ import_db_password }}' '{{ import_wiki_id }}'"
+    exec_no_log: true
   when: _is_gzipped | bool
 
 - name: Import plain SQL database
