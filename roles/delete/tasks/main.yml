@@ -117,6 +117,20 @@
         exec_command: "find /mediawiki/images -mindepth 1 -delete 2>/dev/null || true"
       ignore_errors: true
 
+    - name: Remove config inside container
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: "find /mediawiki/config -mindepth 1 -delete 2>/dev/null || true"
+      ignore_errors: true
+
+    - name: Remove public_assets inside container
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: "find /mediawiki/public_assets -mindepth 1 -delete 2>/dev/null || true"
+      ignore_errors: true
+
 # Remove backup schedule from crontab
 - name: Remove backup schedule
   ansible.builtin.cron:
