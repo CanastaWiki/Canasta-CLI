@@ -65,12 +65,22 @@
     - name: Pull latest changes
       when: _pending_updates.stdout | trim | length > 0
       block:
-        - name: Pull from remote
+        - name: Pull from remote (fast-forward only)
           ansible.builtin.command:
-            cmd: "git pull origin main"
+            cmd: "git pull --ff-only origin main"
             chdir: "{{ _repo_dir }}"
           delegate_to: localhost
           changed_when: true
+          register: _pull_result
+          failed_when: false
+
+        - name: Warn if pull failed
+          ansible.builtin.debug:
+            msg: >-
+              Could not fast-forward to latest main
+              (local branch may have diverged).
+              Run 'git pull origin main' manually in {{ _repo_dir }}.
+          when: _pull_result.rc != 0
 
         - name: Read new version
           ansible.builtin.slurp:
@@ -84,3 +94,4 @@
               Updated Canasta-Ansible from
               {{ _current_version.content | b64decode | trim }} to
               {{ _new_version.content | b64decode | trim }}.
+          when: _pull_result.rc == 0
