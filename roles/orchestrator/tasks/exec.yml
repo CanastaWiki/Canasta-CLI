@@ -50,7 +50,7 @@
     {{ (exec_no_log | default(false) | bool)
        | ternary('[redacted]',
          exec_command | truncate(80)) }}
-  ansible.builtin.command:
+  ansible.builtin.shell:
     cmd: "{{ _exec_full_cmd }}"
     chdir: "{{ _exec_chdir | default(omit) }}"
   register: exec_result
