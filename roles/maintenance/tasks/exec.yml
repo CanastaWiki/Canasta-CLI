@@ -5,13 +5,21 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: No command given
+  ansible.builtin.debug:
+    msg: "Usage: canasta maintenance exec [-i ID] [-s SERVICE] -- <command>"
+  when: (exec_args | default('')) == ''
+
 - name: Execute command in container
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: "{{ service | default('web') }}"
     exec_command: "{{ exec_args }}"
+  when: (exec_args | default('')) != ''
 
 - name: Display output
   ansible.builtin.debug:
     msg: "{{ exec_result.stdout }}"
-  when: exec_result.stdout | default('') | length > 0
+  when:
+    - (exec_args | default('')) != ''
+    - exec_result.stdout | default('') | length > 0
