@@ -62,6 +62,30 @@ MOUNTS=(
     -w "$(pwd)"
     --user "$(id -u):$(id -g)"
 )
+
+# Ensure the container has a passwd entry for the host UID so that
+# SSH and Ansible can resolve the current user (required for remote
+# host connections via -H).
+CANASTA_PASSWD="$CONFIG_DIR/.canasta-passwd"
+PASSWD_STALE=false
+if [[ ! -f "$CANASTA_PASSWD" ]]; then
+    PASSWD_STALE=true
+else
+    # Regenerate if the image changed (after upgrade) or UID changed.
+    PASSWD_IMAGE_ID=$(docker inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
+    if [[ -n "$PASSWD_IMAGE_ID" ]] && ! grep -q "# $PASSWD_IMAGE_ID" "$CANASTA_PASSWD" 2>/dev/null; then
+        PASSWD_STALE=true
+    fi
+fi
+if [[ "$PASSWD_STALE" == "true" ]]; then
+    docker run --rm --entrypoint cat "$IMAGE" /etc/passwd > "$CANASTA_PASSWD" 2>/dev/null || true
+    PASSWD_IMAGE_ID=$(docker inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
+    echo "# $PASSWD_IMAGE_ID" >> "$CANASTA_PASSWD"
+fi
+if ! grep -q "^[^:]*:[^:]*:$(id -u):" "$CANASTA_PASSWD" 2>/dev/null; then
+    echo "canasta:x:$(id -u):$(id -g):canasta:$HOME:/bin/sh" >> "$CANASTA_PASSWD"
+fi
+MOUNTS+=(-v "$CANASTA_PASSWD:/etc/passwd:ro")
 # Add the docker socket GID and all of the host user's supplementary
 # groups so the container process has the same group memberships as the
 # host user (e.g., www-data for writing to container-owned files).
