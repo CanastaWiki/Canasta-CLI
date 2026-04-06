@@ -14,8 +14,9 @@
     - name: Clean up on failure (destroy Compose containers)
       ansible.builtin.command:
         cmd: "docker compose down -v"
-        chdir: "{{ (path | default('.')) | realpath }}/{{ id }}"
+        chdir: "{{ instance_path | default(omit) }}"
       when:
+        - instance_path is defined
         - not (keep_config | default(false) | bool)
         - (orchestrator | default('compose')) == 'compose'
       ignore_errors: true
@@ -38,9 +39,11 @@
 
     - name: Clean up on failure (remove directory)
       ansible.builtin.file:
-        path: "{{ (path | default('.')) | realpath }}/{{ id }}"
+        path: "{{ instance_path }}"
         state: absent
-      when: not (keep_config | default(false) | bool)
+      when:
+        - instance_path is defined
+        - not (keep_config | default(false) | bool)
       ignore_errors: true
 
     - name: Deregister instance on failure
