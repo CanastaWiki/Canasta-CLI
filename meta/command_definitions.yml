@@ -704,7 +704,6 @@ commands:
       - name: service
         short: s
         type: string
-        default: web
         description: "Service name (default: web)"
       - name: wiki
         short: w

@@ -623,7 +623,7 @@ class TestCreateFlags:
         args = parser.parse_args([
             "maintenance", "exec", "-i", "mysite"
         ])
-        assert args.service == "web"
+        assert args.service is None
 
 
 class TestOrchestratorValidation:

@@ -190,6 +190,106 @@ def get_config_file_path():
     return os.path.join(get_config_dir(), "conf.json")
 
 
+def resolve_instance(instance_id=None):
+    """Resolve an instance from the registry by ID or working directory.
+
+    Returns a dict with id, path, orchestrator keys, or exits on error.
+    """
+    conf_file = get_config_file_path()
+    if not os.path.isfile(conf_file):
+        print("Error: no registry found at %s" % conf_file, file=sys.stderr)
+        sys.exit(1)
+    with open(conf_file) as f:
+        data = json.load(f)
+    instances = data.get("Instances", {})
+
+    if instance_id:
+        if instance_id not in instances:
+            print(
+                "Error: instance '%s' not found in registry" % instance_id,
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        inst = instances[instance_id]
+        inst["id"] = instance_id
+        return inst
+
+    # Walk up from cwd to find a matching instance path
+    search = os.path.abspath(os.getcwd())
+    while True:
+        for iid, inst in instances.items():
+            if os.path.abspath(inst.get("path", "")) == search:
+                inst["id"] = iid
+                return inst
+        parent = os.path.dirname(search)
+        if parent == search:
+            break
+        search = parent
+
+    print(
+        "Error: no instance found for current directory", file=sys.stderr
+    )
+    sys.exit(1)
+
+
+def handle_interactive_exec(args):
+    """Handle maintenance exec by running docker/kubectl exec directly.
+
+    Matches Go CLI behavior:
+      - No -s, no command  -> list services (fall through to Ansible)
+      - No -s, with command -> exec in web service
+      - -s given, no command -> interactive /bin/bash in that service
+      - -s given, with command -> exec in that service
+    """
+    service = getattr(args, "service", None) or ""
+    exec_args = getattr(args, "exec_args", None) or []
+    if isinstance(exec_args, list):
+        command = exec_args
+    else:
+        command = exec_args.split() if exec_args else []
+
+    # No service flag AND no command -> list services (let Ansible handle it)
+    if not service and not command:
+        return False
+
+    inst = resolve_instance(getattr(args, "id", None))
+    orchestrator = inst.get("orchestrator", "compose")
+
+    if not service:
+        service = "web"
+    if not command:
+        command = ["/bin/bash"]
+
+    if orchestrator in ("kubernetes", "k8s"):
+        import subprocess
+        # Find the pod for this service
+        ns = "canasta-%s" % inst["id"]
+        result = subprocess.run(
+            [
+                "kubectl", "get", "pods", "-n", ns,
+                "-l", "app.kubernetes.io/component=%s" % service,
+                "-o", "jsonpath={.items[0].metadata.name}",
+            ],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            print(
+                "Error: no running pod found for service '%s'" % service,
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        pod = result.stdout.strip()
+        exec_args = ["kubectl", "exec", "-it", pod, "-n", ns, "--"]
+        exec_args.extend(command)
+        os.execvp("kubectl", exec_args)
+    else:
+        exec_args = [
+            "docker", "compose", "exec", service,
+        ] + command
+        os.chdir(inst["path"])
+        os.execvp("docker", exec_args)
+
+
 def build_parser(data):
     """Build the full argparse parser from command definitions."""
     parser = argparse.ArgumentParser(
@@ -564,6 +664,14 @@ def main():
                     file=sys.stderr,
                 )
                 sys.exit(1)
+
+    # Interactive exec: bypass Ansible for TTY support.
+    if command_name == "maintenance_exec":
+        if handle_interactive_exec(args):
+            # handle_interactive_exec calls os.execvp and never returns
+            # when it handles the command; returns False to fall through
+            # to Ansible for the service-listing case.
+            pass
 
     # Interactive confirmation for destructive commands.
     # If the command defines a "yes" parameter and the user did not pass it,
