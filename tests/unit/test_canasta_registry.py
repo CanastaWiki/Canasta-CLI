@@ -202,6 +202,79 @@ class TestRunModuleQueryAll:
         assert "b" not in result["instances"]
 
 
+class TestQueryAllFilterHost:
+    """Test filter_host with user@host format in stored host values."""
+
+    def _query_all(self, tmp_dir, instances, filter_host):
+        """Helper: write instances to conf.json and run query_all with filter_host."""
+        data = {"Instances": instances}
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, msg = run_module_with_params(canasta_registry, {
+            "state": "query_all", "id": None, "path": None,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": filter_host,
+            "config_dir": tmp_dir,
+        })
+        assert not failed, msg
+        return result["instances"]
+
+    def test_filter_host_matches_user_at_host(self, tmp_dir):
+        """filter_host='migration.wikiworks.com' matches host='wikiworks@migration.wikiworks.com'."""
+        instances = {
+            "site1": {"id": "site1", "path": "/s1", "orchestrator": "compose",
+                      "host": "wikiworks@migration.wikiworks.com"},
+        }
+        found = self._query_all(tmp_dir, instances, "migration.wikiworks.com")
+        assert "site1" in found
+
+    def test_filter_host_matches_bare_host(self, tmp_dir):
+        """filter_host='migration.wikiworks.com' matches host='migration.wikiworks.com'."""
+        instances = {
+            "site2": {"id": "site2", "path": "/s2", "orchestrator": "compose",
+                      "host": "migration.wikiworks.com"},
+        }
+        found = self._query_all(tmp_dir, instances, "migration.wikiworks.com")
+        assert "site2" in found
+
+    def test_filter_host_localhost_explicit(self, tmp_dir):
+        """filter_host='localhost' matches host='localhost'."""
+        instances = {
+            "local1": {"id": "local1", "path": "/l1", "orchestrator": "compose",
+                       "host": "localhost"},
+        }
+        found = self._query_all(tmp_dir, instances, "localhost")
+        assert "local1" in found
+
+    def test_filter_host_localhost_default(self, tmp_dir):
+        """filter_host='localhost' matches instance with no host field (defaults to localhost)."""
+        instances = {
+            "local2": {"id": "local2", "path": "/l2", "orchestrator": "compose"},
+        }
+        found = self._query_all(tmp_dir, instances, "localhost")
+        assert "local2" in found
+
+    def test_filter_host_no_match(self, tmp_dir):
+        """filter_host='other.com' does NOT match host='wikiworks@migration.wikiworks.com'."""
+        instances = {
+            "site1": {"id": "site1", "path": "/s1", "orchestrator": "compose",
+                      "host": "wikiworks@migration.wikiworks.com"},
+        }
+        found = self._query_all(tmp_dir, instances, "other.com")
+        assert "site1" not in found
+
+    def test_filter_host_exact_user_at_host(self, tmp_dir):
+        """filter_host='wikiworks@migration.wikiworks.com' matches exact stored value."""
+        instances = {
+            "site1": {"id": "site1", "path": "/s1", "orchestrator": "compose",
+                      "host": "wikiworks@migration.wikiworks.com"},
+        }
+        found = self._query_all(tmp_dir, instances, "wikiworks@migration.wikiworks.com")
+        assert "site1" in found
+
+
 class TestRunModulePresent:
     def test_add_new(self, tmp_dir):
         inst_path = os.path.join(tmp_dir, "new")

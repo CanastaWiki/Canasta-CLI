@@ -305,6 +305,98 @@ class TestBuildAnsibleArgs:
         assert extra["host_name"] == "prod"
 
 
+class TestHostCommandsBehavior:
+    """Test that -H is passed through for HOST_COMMANDS and ignored for others."""
+
+    def _get_vars(self, result):
+        import json
+        for i, arg in enumerate(result):
+            if arg == "-e" and i + 1 < len(result) and result[i + 1].startswith("@"):
+                with open(result[i + 1][1:]) as f:
+                    return json.load(f)
+        return {}
+
+    def test_host_flag_on_list(self, data):
+        """-H should be passed through for the 'list' command."""
+        from argparse import Namespace
+        args = Namespace(
+            command="list", host="prod1", verbose=False,
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "list", args, data
+        )
+        extra = self._get_vars(result)
+        assert extra["target_host"] == "prod1"
+        assert "--limit" in result
+        assert "prod1" in result
+
+    def test_host_flag_ignored_for_add(self, data, capsys):
+        """-H should be ignored for 'add' command (not in HOST_COMMANDS)."""
+        from argparse import Namespace
+        args = Namespace(
+            command="add", host="prod1", verbose=False,
+            id="mysite", wiki="newwiki", domain_name=None,
+            site_name=None, database=None,
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "add", args, data
+        )
+        extra = self._get_vars(result)
+        assert "target_host" not in extra
+        assert "--limit" not in result
+        captured = capsys.readouterr()
+        assert "ignored" in captured.err.lower() or "Warning" in captured.err
+
+    def test_host_flag_ignored_for_delete(self, data, capsys):
+        """-H should be ignored for 'delete' command."""
+        from argparse import Namespace
+        args = Namespace(
+            command="delete", host="prod1", verbose=False,
+            id="mysite", yes=False,
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "delete", args, data
+        )
+        extra = self._get_vars(result)
+        assert "target_host" not in extra
+        assert "--limit" not in result
+        captured = capsys.readouterr()
+        assert "ignored" in captured.err.lower() or "Warning" in captured.err
+
+    def test_host_flag_ignored_for_restart(self, data, capsys):
+        """-H should be ignored for 'restart' command."""
+        from argparse import Namespace
+        args = Namespace(
+            command="restart", host="prod1", verbose=False,
+            id="mysite",
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "restart", args, data
+        )
+        extra = self._get_vars(result)
+        assert "target_host" not in extra
+        assert "--limit" not in result
+        captured = capsys.readouterr()
+        assert "ignored" in captured.err.lower() or "Warning" in captured.err
+
+    def test_host_flag_ignored_for_maintenance_update(self, data, capsys):
+        """-H should be ignored for 'maintenance_update' command."""
+        from argparse import Namespace
+        args = Namespace(
+            command="maintenance", subcommand="update",
+            host="prod1", verbose=False,
+            id="mysite", wiki=None,
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "maintenance_update", args, data
+        )
+        extra = self._get_vars(result)
+        assert "target_host" not in extra
+        assert "--limit" not in result
+        captured = capsys.readouterr()
+        assert "ignored" in captured.err.lower() or "Warning" in captured.err
+
+
 class TestRemainderArgs:
     """Test that exec_args/script_args consume flags after command."""
 
