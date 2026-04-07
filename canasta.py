@@ -291,11 +291,11 @@ def handle_interactive_exec(args):
         exec_args.extend(command)
         os.execvp("kubectl", exec_args)
     else:
-        host = getattr(args, "host", None)
+        host = inst.get("host", "localhost")
         docker_cmd = (
             ["docker", "compose", "exec", service] + command
         )
-        if host:
+        if host and host != "localhost":
             # Run via SSH on the remote host
             import shlex
             remote_cmd = "cd %s && %s" % (
@@ -320,7 +320,7 @@ def build_parser(data):
     parser.add_argument(
         "--host", "-H",
         default=None,
-        help="Target host (default: localhost)",
+        help="Target host for create/list/upgrade (default: localhost)",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -447,9 +447,17 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # Build extra vars as a dict, written to a JSON file
     extra_vars = {"command": command_name}
 
-    # Global flags
-    if args.host:
+    # Only pass target_host for commands that need it.
+    # Other commands resolve the host from the instance registry.
+    HOST_COMMANDS = {"create", "list", "upgrade"}
+    if args.host and command_name in HOST_COMMANDS:
         extra_vars["target_host"] = args.host
+    elif args.host and command_name not in HOST_COMMANDS:
+        print(
+            "Warning: -H is ignored for '%s' — host is resolved "
+            "from the instance registry." % command_name,
+            file=sys.stderr,
+        )
 
     if args.verbose:
         extra_vars["verbose"] = "true"
@@ -489,7 +497,7 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         "-e", "@%s" % vars_file.name,
     ]
 
-    if args.host:
+    if args.host and command_name in HOST_COMMANDS:
         # Parse user@host shorthand.
         host_spec = args.host
         ssh_user = None
