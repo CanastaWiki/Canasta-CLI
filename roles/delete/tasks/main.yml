@@ -121,19 +121,31 @@
 # if subsequent cleanup steps fail (e.g., directory already gone from
 # a previous partial delete). Better to have an orphaned directory
 # than an orphaned registry entry.
+- name: Temporarily switch to local for controller deregistration
+  ansible.builtin.set_fact:
+    _saved_ansible_host: "{{ ansible_host | default('localhost') }}"
+    _saved_ansible_connection: "{{ ansible_connection | default('local') }}"
+    _saved_ansible_user: "{{ ansible_user | default('') }}"
+    ansible_host: "localhost"
+    ansible_connection: "local"
+    ansible_user: ""
+
 - name: Deregister instance from controller
   canasta_registry:
     id: "{{ instance_id }}"
     state: absent
-  delegate_to: localhost
-  vars:
-    ansible_connection: local
+
+- name: Restore connection after controller deregistration
+  ansible.builtin.set_fact:
+    ansible_host: "{{ _saved_ansible_host }}"
+    ansible_connection: "{{ _saved_ansible_connection }}"
+    ansible_user: "{{ _saved_ansible_user }}"
 
 - name: Deregister instance from target host
   canasta_registry:
     id: "{{ instance_id }}"
     state: absent
-  when: inventory_hostname != "localhost"
+  when: _instance_host | default('localhost') != 'localhost'
 
 # Clean up container-owned files (important on Linux where files are
 # owned by www-data). Uses 'docker compose run' instead of 'exec' so
