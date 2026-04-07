@@ -320,7 +320,7 @@ def build_parser(data):
     parser.add_argument(
         "--host", "-H",
         default=None,
-        help="Target host for create/list/upgrade (default: localhost)",
+        help="Target host for create/list (default: localhost)",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -449,7 +449,7 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
 
     # Only pass target_host for commands that need it.
     # Other commands resolve the host from the instance registry.
-    HOST_COMMANDS = {"create", "list", "upgrade"}
+    HOST_COMMANDS = {"create", "list"}
     if args.host and command_name in HOST_COMMANDS:
         extra_vars["target_host"] = args.host
     elif args.host and command_name not in HOST_COMMANDS:
