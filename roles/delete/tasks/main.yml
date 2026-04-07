@@ -117,6 +117,22 @@
       Use --yes to confirm.
   when: not (yes | default(false) | bool)
 
+# Deregister FIRST so the instance is removed from the registry even
+# if subsequent cleanup steps fail (e.g., directory already gone from
+# a previous partial delete). Better to have an orphaned directory
+# than an orphaned registry entry.
+- name: Deregister instance from controller
+  canasta_registry:
+    id: "{{ instance_id }}"
+    state: absent
+  delegate_to: localhost
+
+- name: Deregister instance from target host
+  canasta_registry:
+    id: "{{ instance_id }}"
+    state: absent
+  when: inventory_hostname != "localhost"
+
 # Clean up container-owned files (important on Linux where files are
 # owned by www-data). Uses 'docker compose run' instead of 'exec' so
 # it works even when containers are stopped or unhealthy.
@@ -169,22 +185,7 @@
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: destroy.yml
-
-# Deregister BEFORE removing the directory so the registry is consistent
-# even if the rm fails (which can happen when the current process cwd
-# is inside the target directory, e.g., running 'canasta delete' from
-# the instance dir via canasta-docker).
-- name: Deregister instance from controller
-  canasta_registry:
-    id: "{{ instance_id }}"
-    state: absent
-  delegate_to: localhost
-
-- name: Deregister instance from target host
-  canasta_registry:
-    id: "{{ instance_id }}"
-    state: absent
-  when: inventory_hostname != "localhost"
+  ignore_errors: true
 
 - name: Remove instance directory contents
   ansible.builtin.command:
