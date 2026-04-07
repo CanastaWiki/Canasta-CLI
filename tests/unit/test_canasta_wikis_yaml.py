@@ -151,6 +151,38 @@ class TestUpdateUrlPort:
         assert canasta_wikis_yaml.update_url_port("example.com", "443") == "example.com"
 
 
+class TestUpdateUrlDomain:
+    def test_simple_domain_change(self):
+        assert canasta_wikis_yaml.update_url_domain("old.com", "new.com") == "new.com"
+
+    def test_preserves_path(self):
+        assert canasta_wikis_yaml.update_url_domain("old.com/docs", "new.com") == "new.com/docs"
+
+    def test_preserves_existing_port(self):
+        assert canasta_wikis_yaml.update_url_domain("old.com:8443", "new.com") == "new.com:8443"
+
+    def test_preserves_port_and_path(self):
+        assert canasta_wikis_yaml.update_url_domain("old.com:8443/docs", "new.com") == "new.com:8443/docs"
+
+    def test_new_domain_with_port(self):
+        assert canasta_wikis_yaml.update_url_domain("old.com", "new.com:9443") == "new.com:9443"
+
+    def test_new_domain_with_port_overrides_old_port(self):
+        assert canasta_wikis_yaml.update_url_domain("old.com:8443", "new.com:9443") == "new.com:9443"
+
+    def test_new_domain_with_port_preserves_path(self):
+        assert canasta_wikis_yaml.update_url_domain("old.com:8443/docs", "new.com:9443") == "new.com:9443/docs"
+
+    def test_deep_path(self):
+        assert canasta_wikis_yaml.update_url_domain("old.com/path/to/wiki", "new.com") == "new.com/path/to/wiki"
+
+    def test_same_domain_no_change(self):
+        assert canasta_wikis_yaml.update_url_domain("example.com", "example.com") == "example.com"
+
+    def test_same_domain_preserves_path(self):
+        assert canasta_wikis_yaml.update_url_domain("example.com/docs", "example.com") == "example.com/docs"
+
+
 class TestRunModuleRead:
     def test_read(self, sample_wikis_yaml):
         result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
@@ -278,3 +310,58 @@ class TestRunModuleUpdatePort:
         })
         assert failed
         assert "port is required" in msg
+
+
+class TestRunModuleUpdateDomain:
+    def test_update_domain_single_wiki(self, tmp_dir):
+        os.makedirs(os.path.join(tmp_dir, "config"), exist_ok=True)
+        canasta_wikis_yaml.write_wikis(tmp_dir, [
+            {"id": "main", "url": "old.example.com", "name": "Main"},
+        ])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "update_domain",
+            "wiki_id": None, "domain": "new.example.com",
+            "wiki_path": None, "site_name": None,
+            "port": None,
+        })
+        assert not failed
+        assert result["changed"]
+        assert result["wikis"][0]["url"] == "new.example.com"
+
+    def test_update_domain_multiple_wikis(self, sample_wikis_yaml):
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": sample_wikis_yaml, "state": "update_domain",
+            "wiki_id": None, "domain": "newsite.com",
+            "wiki_path": None, "site_name": None,
+            "port": None,
+        })
+        assert not failed
+        assert result["changed"]
+        assert result["wikis"][0]["url"] == "newsite.com"
+        assert result["wikis"][1]["url"] == "newsite.com/docs"
+
+    def test_update_domain_preserves_port(self, tmp_dir):
+        os.makedirs(os.path.join(tmp_dir, "config"), exist_ok=True)
+        canasta_wikis_yaml.write_wikis(tmp_dir, [
+            {"id": "main", "url": "old.com:8443", "name": "Main"},
+            {"id": "docs", "url": "old.com:8443/docs", "name": "Docs"},
+        ])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "update_domain",
+            "wiki_id": None, "domain": "new.com",
+            "wiki_path": None, "site_name": None,
+            "port": None,
+        })
+        assert not failed
+        assert result["wikis"][0]["url"] == "new.com:8443"
+        assert result["wikis"][1]["url"] == "new.com:8443/docs"
+
+    def test_update_domain_requires_domain(self, sample_wikis_yaml):
+        result, failed, msg = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": sample_wikis_yaml, "state": "update_domain",
+            "wiki_id": None, "domain": None,
+            "wiki_path": None, "site_name": None,
+            "port": None,
+        })
+        assert failed
+        assert "domain is required" in msg
