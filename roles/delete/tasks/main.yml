@@ -17,6 +17,9 @@
         path: "{{ lookup('env', 'PWD') }}"
         state: query_by_path
       delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
       register: _delete_pwd_query
       ignore_errors: true
 
@@ -36,6 +39,9 @@
     id: "{{ id }}"
     state: query
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _delete_query
   ignore_errors: true
 

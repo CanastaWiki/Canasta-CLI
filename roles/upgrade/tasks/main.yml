@@ -52,6 +52,9 @@
     id: "{{ instance_id }}"
     state: query
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _upgrade_inst
 
 - name: Rebuild from source if BuildFrom is set
