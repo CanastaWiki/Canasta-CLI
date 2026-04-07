@@ -5,6 +5,24 @@
 # Input: instance_path, instance_id, instance_orchestrator, instance_devmode,
 #        instance_managed_cluster
 
+# --- Check instance directory exists ---
+- name: Check if instance directory exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}"
+  register: _upgrade_dir
+
+- name: Skip upgrade if instance directory is missing
+  when: not (_upgrade_dir.stat.exists | default(false))
+  block:
+    - name: Report missing instance
+      ansible.builtin.debug:
+        msg: >-
+          Instance '{{ instance_id }}' directory not found at
+          {{ instance_path }}. Skipping upgrade.
+
+    - name: End upgrade for missing instance
+      ansible.builtin.meta: end_role
+
 # --- Migrations ---
 - name: Report checking migrations
   ansible.builtin.debug:

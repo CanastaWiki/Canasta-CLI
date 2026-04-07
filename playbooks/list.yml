@@ -33,6 +33,32 @@
 - name: Build instance list with wiki details
   when: _all_instances.instances | length > 0
   block:
+    - name: Check instance directories exist
+      ansible.builtin.stat:
+        path: "{{ item.value.path }}"
+      register: _list_dir_checks
+      loop: >-
+        {{ _all_instances.instances | dict2items }}
+      loop_control:
+        label: "{{ item.key }}"
+      delegate_to: "{{ (item.value.host | default('localhost')).split('@') | last }}"
+      vars:
+        ansible_connection: "{{ 'ssh' if (item.value.host | default('localhost')) != 'localhost' else 'local' }}"
+        ansible_user: "{{ (item.value.host | default('')).split('@')[0] if '@' in (item.value.host | default('')) else omit }}"
+        ansible_python_interpreter: "{{ 'auto' if (item.value.host | default('localhost')) != 'localhost' else ansible_playbook_python }}"
+      ignore_errors: true
+
+    - name: Build directory existence map
+      ansible.builtin.set_fact:
+        _dir_exists: >-
+          {{ _dir_exists | default({}) | combine({
+            item.item.key: (item.stat.exists | default(false))
+          }) }}
+      loop: "{{ _list_dir_checks.results }}"
+      loop_control:
+        label: "{{ item.item.key | default('?') }}"
+      when: item is not skipped and item is not failed
+
     - name: Read wikis for each instance
       canasta_wikis_yaml:
         instance_path: "{{ item.value.path }}"
@@ -42,7 +68,13 @@
         {{ _all_instances.instances | dict2items }}
       loop_control:
         label: "{{ item.key }}"
+      delegate_to: "{{ (item.value.host | default('localhost')).split('@') | last }}"
+      vars:
+        ansible_connection: "{{ 'ssh' if (item.value.host | default('localhost')) != 'localhost' else 'local' }}"
+        ansible_user: "{{ (item.value.host | default('')).split('@')[0] if '@' in (item.value.host | default('')) else omit }}"
+        ansible_python_interpreter: "{{ 'auto' if (item.value.host | default('localhost')) != 'localhost' else ansible_playbook_python }}"
       ignore_errors: true
+      when: (_dir_exists | default({}))[item.key] | default(false)
 
     - name: Check running status for each instance
       ansible.builtin.command:
@@ -53,9 +85,16 @@
         {{ _all_instances.instances | dict2items }}
       loop_control:
         label: "{{ item.key }}"
+      delegate_to: "{{ (item.value.host | default('localhost')).split('@') | last }}"
+      vars:
+        ansible_connection: "{{ 'ssh' if (item.value.host | default('localhost')) != 'localhost' else 'local' }}"
+        ansible_user: "{{ (item.value.host | default('')).split('@')[0] if '@' in (item.value.host | default('')) else omit }}"
+        ansible_python_interpreter: "{{ 'auto' if (item.value.host | default('localhost')) != 'localhost' else ansible_playbook_python }}"
       changed_when: false
       ignore_errors: true
-      when: item.value.orchestrator | default('compose') == 'compose'
+      when:
+        - item.value.orchestrator | default('compose') == 'compose'
+        - (_dir_exists | default({}))[item.key] | default(false)
 
     - name: Check K8s running status
       ansible.builtin.command:
@@ -68,6 +107,11 @@
         {{ _all_instances.instances | dict2items }}
       loop_control:
         label: "{{ item.key }}"
+      delegate_to: "{{ (item.value.host | default('localhost')).split('@') | last }}"
+      vars:
+        ansible_connection: "{{ 'ssh' if (item.value.host | default('localhost')) != 'localhost' else 'local' }}"
+        ansible_user: "{{ (item.value.host | default('')).split('@')[0] if '@' in (item.value.host | default('')) else omit }}"
+        ansible_python_interpreter: "{{ 'auto' if (item.value.host | default('localhost')) != 'localhost' else ansible_playbook_python }}"
       changed_when: false
       ignore_errors: true
       when: item.value.orchestrator | default('compose') in ['kubernetes', 'k8s']
@@ -93,11 +137,13 @@
           {% set ns.lines = ns.lines + ["  Instance Path"] %}
           {% set ns.lines = ns.lines + ["  %-14s%s" % ("Wiki ID", "Server Path")] %}
           {% set ns.lines = ns.lines + ["─" * 50] %}
-          {% for result in _list_wikis.results %}
-          {% set inst = result.item %}
-          {% set wikis = result.wikis | default([]) %}
+          {% for inst_item in _all_instances.instances | dict2items %}
+          {% set inst = inst_item %}
+          {% set dir_ok = (_dir_exists | default({}))[inst.key] | default(false) %}
+          {% set wikis_result = _list_wikis.results | selectattr('item.key', 'equalto', inst.key) | list | first | default({}) %}
+          {% set wikis = wikis_result.wikis | default([]) if dir_ok else [] %}
           {% set running = (_running_map | default({}))[inst.key] | default(false) %}
-          {% set status = "running" if running else "stopped" %}
+          {% set status = "running" if running else ("not found" if not dir_ok else "stopped") %}
           {% set ns.lines = ns.lines + ["%-16s%-16s%s" % (inst.key, (inst.value.orchestrator | default('compose')) | upper, status | upper)] %}
           {% set ns.lines = ns.lines + ["  " + inst.value.path] %}
           {% if wikis | length > 0 %}
