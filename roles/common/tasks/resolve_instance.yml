@@ -95,27 +95,5 @@
 
 # Switch connection to the instance's registered host so commands
 # run on the correct machine even without -H.
-- name: Parse SSH user and hostname from registry host
-  ansible.builtin.set_fact:
-    _ssh_user: "{{ _instance_host.split('@')[0] if '@' in _instance_host else '' }}"
-    _ssh_host: "{{ _instance_host.split('@')[1] if '@' in _instance_host else _instance_host }}"
-  when: _instance_host != 'localhost'
-
-- name: Override connection for remote instance
-  ansible.builtin.set_fact:
-    ansible_host: "{{ _ssh_host }}"
-    ansible_connection: "ssh"
-    ansible_user: "{{ _ssh_user }}"
-  when: _instance_host != 'localhost' and _ssh_user | default('') != ''
-
-- name: Override connection for remote instance (no user)
-  ansible.builtin.set_fact:
-    ansible_host: "{{ _ssh_host }}"
-    ansible_connection: "ssh"
-  when: _instance_host != 'localhost' and _ssh_user | default('') == ''
-
-- name: Reset connection for local instance
-  ansible.builtin.set_fact:
-    ansible_host: "localhost"
-    ansible_connection: "local"
-  when: _instance_host == 'localhost'
+- name: Switch connection to instance host
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"

@@ -25,7 +25,7 @@ options:
   state:
     description: Action to perform.
     type: str
-    choices: [read, generate, add, remove, query, update_port]
+    choices: [read, generate, add, remove, query, update_port, update_domain]
     default: read
   wiki_id:
     description: Wiki ID.

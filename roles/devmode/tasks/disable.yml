@@ -6,6 +6,11 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Dev mode requires local instance
+  ansible.builtin.fail:
+    msg: "Dev mode is only supported for local instances."
+  when: _instance_host | default('localhost') != 'localhost'
+
 - name: Not applicable for Kubernetes
   ansible.builtin.fail:
     msg: >-
@@ -36,23 +41,17 @@
     _mw_subdir: user-skins
 
 # --- Update registry and restart ---
-- name: Update controller registry to non-dev mode
+- name: Update registry to non-dev mode
   canasta_registry:
     id: "{{ instance_id }}"
     path: "{{ instance_path }}"
     orchestrator: "{{ instance_orchestrator }}"
     dev_mode: false
+    host: "{{ _instance_result.instance.host | default(omit) }}"
+    managed_cluster: "{{ _instance_result.instance.managedCluster | default(false) }}"
+    build_from: "{{ _instance_result.instance.buildFrom | default(omit) }}"
     state: present
   delegate_to: localhost
-
-- name: Update target host registry to non-dev mode
-  canasta_registry:
-    id: "{{ instance_id }}"
-    path: "{{ instance_path }}"
-    orchestrator: "{{ instance_orchestrator }}"
-    dev_mode: false
-    state: present
-  when: inventory_hostname != "localhost"
 
 - name: Set dev mode fact
   ansible.builtin.set_fact:

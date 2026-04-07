@@ -12,19 +12,10 @@
     instance_path: "{{ _inst.value.path }}"
     instance_orchestrator: "{{ _inst.value.orchestrator | default('compose') }}"
     instance_devmode: "{{ _inst.value.devMode | default(false) }}"
-    _inst_host: "{{ _inst.value.host | default('localhost') }}"
+    _instance_host: "{{ _inst.value.host | default('localhost') }}"
 
-- name: Override connection for remote instance
-  ansible.builtin.set_fact:
-    ansible_host: "{{ _inst_host }}"
-    ansible_connection: "ssh"
-  when: _inst_host != 'localhost'
-
-- name: Reset connection for local instance
-  ansible.builtin.set_fact:
-    ansible_host: "localhost"
-    ansible_connection: "local"
-  when: _inst_host == 'localhost'
+- name: Switch connection to instance host
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"
 
 - name: Run upgrade role (migrations + refresh + restart)
   ansible.builtin.include_role:
