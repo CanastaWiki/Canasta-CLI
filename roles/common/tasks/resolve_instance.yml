@@ -89,18 +89,10 @@
   ansible.builtin.set_fact:
     instance_id: "{{ _instance_result.instance.id }}"
     instance_path: "{{ _instance_result.instance.path }}"
-    instance_orchestrator: >-
-      {{ _instance_result.instance.orchestrator
-         | default('compose') }}
-    instance_devmode: >-
-      {{ _instance_result.instance.devMode
-         | default(false) }}
-    instance_managed_cluster: >-
-      {{ _instance_result.instance.managedCluster
-         | default(false) }}
-    _instance_host: >-
-      {{ _instance_result.instance.host
-         | default('localhost') }}
+    instance_orchestrator: "{{ _instance_result.instance.orchestrator | default('compose') }}"
+    instance_devmode: "{{ _instance_result.instance.devMode | default(false) }}"
+    instance_managed_cluster: "{{ _instance_result.instance.managedCluster | default(false) }}"
+    _instance_host: "{{ _instance_result.instance.host | default('localhost') }}"
 
 # Switch connection to the instance's registered host so commands
 # run on the correct machine even without -H.
