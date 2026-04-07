@@ -62,6 +62,22 @@
 # Kubernetes port changes: Ingress handles port routing, no cluster
 # recreation needed. The change takes effect on next helm upgrade.
 
+- name: Apply MW_SITE_FQDN side effects
+  when: _config_key == 'MW_SITE_FQDN'
+  block:
+    - name: Update wikis.yaml URLs with new domain
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: update_domain
+        domain: "{{ _config_value }}"
+
+    - name: Update MW_SITE_SERVER to match new FQDN
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: MW_SITE_SERVER
+        value: "https://{{ _config_value }}"
+
 - name: Apply CANASTA_ENABLE_OBSERVABILITY side effects
   when: _config_key == 'CANASTA_ENABLE_OBSERVABILITY' and _config_value | lower == 'true'
   ansible.builtin.include_role:

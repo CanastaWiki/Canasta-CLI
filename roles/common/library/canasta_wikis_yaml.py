@@ -134,6 +134,31 @@ def update_url_port(url, new_port):
     return domain + path
 
 
+def update_url_domain(url, new_domain):
+    """Replace the domain in a wiki URL, preserving port and path."""
+    old_domain = url
+    path = ""
+    slash_idx = url.find("/")
+    if slash_idx != -1:
+        old_domain = url[:slash_idx]
+        path = url[slash_idx:]
+
+    # Preserve existing port if any
+    port = ""
+    colon_idx = old_domain.rfind(":")
+    if colon_idx != -1:
+        port = old_domain[colon_idx:]
+
+    # Strip port from new domain if it has one (caller provides bare domain)
+    new_bare = new_domain
+    nc = new_domain.rfind(":")
+    if nc != -1:
+        new_bare = new_domain[:nc]
+        port = new_domain[nc:]
+
+    return new_bare + port + path
+
+
 def get_wiki_ids(wikis):
     """Extract wiki IDs from wiki list."""
     return [w.get("id", "") for w in wikis]
@@ -155,7 +180,7 @@ def run_module():
         instance_path=dict(type="str", required=True),
         state=dict(type="str", default="read",
                    choices=["read", "generate", "add", "remove", "query",
-                            "update_port"]),
+                            "update_port", "update_domain"]),
         wiki_id=dict(type="str", required=False),
         domain=dict(type="str", required=False),
         wiki_path=dict(type="str", required=False),
@@ -265,6 +290,21 @@ def run_module():
         for w in wikis:
             w = dict(w)
             w["url"] = update_url_port(w.get("url", ""), port)
+            updated.append(w)
+        if not module.check_mode:
+            write_wikis(instance_path, updated)
+        result["changed"] = True
+        result["wikis"] = updated
+
+    elif state == "update_domain":
+        if not domain:
+            module.fail_json(msg="domain is required for update_domain")
+            return
+        wikis = read_wikis(instance_path)
+        updated = []
+        for w in wikis:
+            w = dict(w)
+            w["url"] = update_url_domain(w.get("url", ""), domain)
             updated.append(w)
         if not module.check_mode:
             write_wikis(instance_path, updated)
