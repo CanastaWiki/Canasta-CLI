@@ -283,11 +283,21 @@ def handle_interactive_exec(args):
         exec_args.extend(command)
         os.execvp("kubectl", exec_args)
     else:
-        exec_args = [
-            "docker", "compose", "exec", service,
-        ] + command
-        os.chdir(inst["path"])
-        os.execvp("docker", exec_args)
+        host = getattr(args, "host", None)
+        docker_cmd = (
+            ["docker", "compose", "exec", service] + command
+        )
+        if host:
+            # Run via SSH on the remote host
+            import shlex
+            remote_cmd = "cd %s && %s" % (
+                shlex.quote(inst["path"]),
+                " ".join(shlex.quote(a) for a in docker_cmd),
+            )
+            os.execvp("ssh", ["ssh", host, remote_cmd])
+        else:
+            os.chdir(inst["path"])
+            os.execvp("docker", docker_cmd)
 
 
 def build_parser(data):
