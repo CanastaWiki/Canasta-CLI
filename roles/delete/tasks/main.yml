@@ -157,11 +157,17 @@
 # even if the rm fails (which can happen when the current process cwd
 # is inside the target directory, e.g., running 'canasta delete' from
 # the instance dir via canasta-docker).
-- name: Deregister instance
+- name: Deregister instance from controller
   canasta_registry:
     id: "{{ instance_id }}"
     state: absent
   delegate_to: localhost
+
+- name: Deregister instance from target host
+  canasta_registry:
+    id: "{{ instance_id }}"
+    state: absent
+  when: inventory_hostname != "localhost"
 
 - name: Remove instance directory contents
   ansible.builtin.command:

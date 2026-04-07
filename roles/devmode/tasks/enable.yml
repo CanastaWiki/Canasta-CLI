@@ -171,13 +171,23 @@
   changed_when: true
 
 # --- Update registry and restart ---
-- name: Update instance to dev mode
+- name: Update controller registry to dev mode
   canasta_registry:
     id: "{{ instance_id }}"
     path: "{{ instance_path }}"
     orchestrator: "{{ instance_orchestrator }}"
     dev_mode: true
     state: present
+  delegate_to: localhost
+
+- name: Update target host registry to dev mode
+  canasta_registry:
+    id: "{{ instance_id }}"
+    path: "{{ instance_path }}"
+    orchestrator: "{{ instance_orchestrator }}"
+    dev_mode: true
+    state: present
+  when: inventory_hostname != "localhost"
 
 - name: Set dev mode fact
   ansible.builtin.set_fact:

@@ -36,13 +36,23 @@
     _mw_subdir: user-skins
 
 # --- Update registry and restart ---
-- name: Update instance to non-dev mode
+- name: Update controller registry to non-dev mode
   canasta_registry:
     id: "{{ instance_id }}"
     path: "{{ instance_path }}"
     orchestrator: "{{ instance_orchestrator }}"
     dev_mode: false
     state: present
+  delegate_to: localhost
+
+- name: Update target host registry to non-dev mode
+  canasta_registry:
+    id: "{{ instance_id }}"
+    path: "{{ instance_path }}"
+    orchestrator: "{{ instance_orchestrator }}"
+    dev_mode: false
+    state: present
+  when: inventory_hostname != "localhost"
 
 - name: Set dev mode fact
   ansible.builtin.set_fact:

@@ -490,7 +490,7 @@
     install_wiki_db_password: "{{ _wikidbpass }}"
 
 # --- Step 13: Register instance ---
-- name: Register instance in config
+- name: Register instance in controller config
   canasta_registry:
     id: "{{ id }}"
     path: "{{ instance_path }}"
@@ -500,6 +500,16 @@
     build_from: "{{ build_from | default(omit) }}"
     state: present
   delegate_to: localhost
+
+- name: Register instance in target host config
+  canasta_registry:
+    id: "{{ id }}"
+    path: "{{ instance_path }}"
+    orchestrator: "{{ orchestrator | default('compose') }}"
+    managed_cluster: false
+    build_from: "{{ build_from | default(omit) }}"
+    state: present
+  when: inventory_hostname != "localhost"
 
 # --- Step 14: Restart with full config (Compose only) ---
 # Kubernetes pods are already running with the correct config from PVC.
