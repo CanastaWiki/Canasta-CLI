@@ -224,7 +224,24 @@ class TestBuildAnsibleArgs:
         extra = self._get_vars(result)
         assert extra["command"] == "version"
 
-    def test_host_flag(self, data):
+    def test_host_flag_on_create(self, data):
+        from argparse import Namespace
+        args = Namespace(
+            command="create", host="prod1", verbose=False, id="mysite",
+            wiki="main", domain_name="example.com", site_name=None,
+            database=None, path=None, orchestrator=None,
+            admin_password=None, wiki_db_password=None,
+            root_db_password=None,
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "create", args, data
+        )
+        extra = self._get_vars(result)
+        assert extra["target_host"] == "prod1"
+        assert "--limit" in result
+        assert "prod1" in result
+
+    def test_host_flag_ignored_for_non_host_commands(self, data):
         from argparse import Namespace
         args = Namespace(
             command="start", host="prod1", verbose=False, id="mysite",
@@ -233,9 +250,8 @@ class TestBuildAnsibleArgs:
             "ap", "start", args, data
         )
         extra = self._get_vars(result)
-        assert extra["target_host"] == "prod1"
-        assert "--limit" in result
-        assert "prod1" in result
+        assert "target_host" not in extra
+        assert "--limit" not in result
 
     def test_verbose_flag(self, data):
         from argparse import Namespace
