@@ -320,7 +320,7 @@ def build_parser(data):
     parser.add_argument(
         "--host", "-H",
         default=None,
-        help="Target host for create/list (default: localhost)",
+        help="Target host (default: resolved from registry, required for create)",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -447,16 +447,15 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # Build extra vars as a dict, written to a JSON file
     extra_vars = {"command": command_name}
 
-    # Only pass target_host for commands that need it.
-    # Other commands resolve the host from the instance registry.
-    HOST_COMMANDS = {"create", "list"}
-    if args.host and command_name in HOST_COMMANDS:
+    # Pass target_host to Ansible when -H is provided.
+    # For commands on existing instances, -H is optional — the host
+    # can be resolved from the registry. For create, -H is required
+    # since no registry entry exists yet.
+    if args.host:
         extra_vars["target_host"] = args.host
-    elif args.host and command_name not in HOST_COMMANDS:
-        print(
-            "Warning: -H is ignored for '%s' — host is resolved "
-            "from the instance registry." % command_name,
-            file=sys.stderr,
+    elif command_name not in {"create", "list"} and getattr(args, "id", None):
+        # Try to resolve host from registry for convenience
+        pass  # resolve_instance.yml handles this in Ansible
         )
 
     if args.verbose:
@@ -497,7 +496,7 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         "-e", "@%s" % vars_file.name,
     ]
 
-    if args.host and command_name in HOST_COMMANDS:
+    if args.host:
         # Parse user@host shorthand.
         host_spec = args.host
         ssh_user = None
