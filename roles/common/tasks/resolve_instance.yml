@@ -89,3 +89,20 @@
     instance_managed_cluster: >-
       {{ _instance_result.instance.managedCluster
          | default(false) }}
+    _instance_host: >-
+      {{ _instance_result.instance.host
+         | default('localhost') }}
+
+# Switch connection to the instance's registered host so commands
+# run on the correct machine even without -H.
+- name: Override connection for remote instance
+  ansible.builtin.set_fact:
+    ansible_host: "{{ _instance_host }}"
+    ansible_connection: "ssh"
+  when: _instance_host != 'localhost'
+
+- name: Reset connection for local instance
+  ansible.builtin.set_fact:
+    ansible_host: "localhost"
+    ansible_connection: "local"
+  when: _instance_host == 'localhost'
