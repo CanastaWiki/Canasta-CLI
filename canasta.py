@@ -127,6 +127,14 @@ def add_params_to_parser(parser, params):
                     help=desc,
                     metavar=name.upper(),
                 )
+            elif param.get("multi"):
+                parser.add_argument(
+                    name,
+                    nargs="*",
+                    default=default,
+                    help=desc,
+                    metavar=name.upper(),
+                )
             else:
                 parser.add_argument(
                     name,

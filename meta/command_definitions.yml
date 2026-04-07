@@ -446,6 +446,7 @@ commands:
       - name: settings
         type: string
         positional: true
+        multi: true
         description: "KEY=VALUE pairs to set"
       - name: no_restart
         type: bool
@@ -472,6 +473,7 @@ commands:
       - name: keys
         type: string
         positional: true
+        multi: true
         description: "Configuration keys to remove"
       - name: no_restart
         type: bool
