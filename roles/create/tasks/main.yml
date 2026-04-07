@@ -115,16 +115,16 @@
 
 - name: Ensure directories exist
   ansible.builtin.file:
-    path: "{{ instance_path }}/{{ item }}"
+    path: "{{ instance_path }}/{{ item.dir }}"
     state: directory
-    mode: "0755"
+    mode: "{{ item.mode | default('0755') }}"
   loop:
-    - extensions
-    - skins
-    - images
-    - public_assets
-    - _initdb
-    - config/settings/global
+    - { dir: extensions }
+    - { dir: skins }
+    - { dir: images, mode: "0775" }
+    - { dir: public_assets }
+    - { dir: _initdb }
+    - { dir: config/settings/global }
     - config/settings/wikis
 
 # --- Step 6: Generate passwords ---
