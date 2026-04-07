@@ -11,7 +11,7 @@
 - name: Get all instances
   canasta_registry:
     state: query_all
-    filter_host: "{{ target_host | default('localhost') }}"
+    filter_host: "{{ target_host | default(omit) }}"
   delegate_to: localhost
   register: _upgrade_instances
 
