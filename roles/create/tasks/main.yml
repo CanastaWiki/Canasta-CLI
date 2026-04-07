@@ -125,7 +125,7 @@
     - { dir: public_assets }
     - { dir: _initdb }
     - { dir: config/settings/global }
-    - config/settings/wikis
+    - { dir: config/settings/wikis }
 
 # --- Step 6: Generate passwords ---
 - name: Generate root DB password if not provided
