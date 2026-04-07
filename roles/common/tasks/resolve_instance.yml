@@ -85,6 +85,10 @@
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _instance_result
 
+- name: Debug registry result
+  ansible.builtin.debug:
+    msg: "Registry instance: {{ _instance_result.instance }}"
+
 - name: Set instance facts
   ansible.builtin.set_fact:
     instance_id: "{{ _instance_result.instance.id }}"
