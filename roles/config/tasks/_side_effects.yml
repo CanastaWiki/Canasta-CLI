@@ -80,7 +80,7 @@
 
     - name: Determine scheme from current MW_SITE_SERVER
       ansible.builtin.set_fact:
-        _server_scheme: "{{ _current_server.value | default('https://') | regex_search('^https?://') | default('https://') }}"
+        _server_scheme: "{{ (_current_server.value | default('https://') | regex_search('^https?://')) or 'https://' }}"
 
     - name: Update MW_SITE_SERVER to match new FQDN
       canasta_env:

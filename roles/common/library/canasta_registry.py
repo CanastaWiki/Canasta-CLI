@@ -225,9 +225,15 @@ def run_module():
     elif state == "query_all":
         filter_host = module.params.get("filter_host")
         if filter_host:
+            # Match against the hostname portion of stored host field,
+            # which may be in user@host format.
+            def host_matches(stored, target):
+                bare = stored.split("@", 1)[-1] if "@" in stored else stored
+                return bare == target or stored == target
+
             result["instances"] = {
                 k: v for k, v in instances.items()
-                if v.get("host", "localhost") == filter_host
+                if host_matches(v.get("host", "localhost"), filter_host)
             }
         else:
             result["instances"] = instances
