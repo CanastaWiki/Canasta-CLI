@@ -16,12 +16,14 @@
     ansible_host: "{{ _ssh_host }}"
     ansible_connection: "ssh"
     ansible_user: "{{ _ssh_user }}"
+    ansible_python_interpreter: auto_silent
   when: _instance_host != 'localhost' and _ssh_user | default('') != ''
 
 - name: Override connection for remote instance (no user)
   ansible.builtin.set_fact:
     ansible_host: "{{ _ssh_host }}"
     ansible_connection: "ssh"
+    ansible_python_interpreter: auto_silent
   when: _instance_host != 'localhost' and _ssh_user | default('') == ''
 
 - name: Reset connection for local instance
