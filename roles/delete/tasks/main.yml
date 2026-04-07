@@ -117,6 +117,53 @@
       Use --yes to confirm.
   when: not (yes | default(false) | bool)
 
+# If the instance directory is already gone (e.g., previous partial
+# delete), just deregister and skip all cleanup.
+- name: Check if instance directory exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}"
+  register: _inst_dir
+  when: instance_path | default('') | length > 0
+
+- name: Handle already-removed instance
+  when:
+    - instance_path | default('') | length > 0
+    - not (_inst_dir.stat.exists | default(false))
+    - _instance_registered | default(false) | bool
+  block:
+    - name: Switch to local for controller deregistration
+      ansible.builtin.set_fact:
+        _saved_host: "{{ ansible_host | default('localhost') }}"
+        _saved_conn: "{{ ansible_connection | default('local') }}"
+        _saved_user: "{{ ansible_user | default('') }}"
+        ansible_host: "localhost"
+        ansible_connection: "local"
+        ansible_user: ""
+
+    - name: Deregister already-removed instance from controller
+      canasta_registry:
+        id: "{{ instance_id }}"
+        state: absent
+
+    - name: Restore connection for target deregistration
+      ansible.builtin.set_fact:
+        ansible_host: "{{ _saved_host }}"
+        ansible_connection: "{{ _saved_conn }}"
+        ansible_user: "{{ _saved_user }}"
+
+    - name: Deregister already-removed instance from target host
+      canasta_registry:
+        id: "{{ instance_id }}"
+        state: absent
+      when: _instance_host | default('localhost') != 'localhost'
+
+    - name: Report deletion
+      ansible.builtin.debug:
+        msg: "Instance '{{ instance_id }}' deleted from registry."
+
+    - name: End play for already-removed instance
+      ansible.builtin.meta: end_play
+
 # Deregister FIRST so the instance is removed from the registry even
 # if subsequent cleanup steps fail (e.g., directory already gone from
 # a previous partial delete). Better to have an orphaned directory
