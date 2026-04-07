@@ -27,9 +27,9 @@
         state: query_all
         filter_host: "{{ inventory_hostname }}"
       delegate_to: localhost
-  vars:
-    ansible_connection: local
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
       register: _host_instances
 
     - name: Fail if no instances on this host
@@ -65,9 +65,9 @@
         path: "{{ lookup('env', 'PWD') }}"
         state: query_by_path
       delegate_to: localhost
-  vars:
-    ansible_connection: local
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
       register: _pwd_lookup
 
     - name: Set PWD-resolved ID
