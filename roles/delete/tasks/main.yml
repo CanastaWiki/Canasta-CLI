@@ -126,6 +126,8 @@
     id: "{{ instance_id }}"
     state: absent
   delegate_to: localhost
+  vars:
+    ansible_connection: local
 
 - name: Deregister instance from target host
   canasta_registry:
