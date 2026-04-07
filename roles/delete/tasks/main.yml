@@ -136,9 +136,11 @@
         _saved_host: "{{ ansible_host | default('localhost') }}"
         _saved_conn: "{{ ansible_connection | default('local') }}"
         _saved_user: "{{ ansible_user | default('') }}"
+        _saved_python: "{{ ansible_python_interpreter | default('auto') }}"
         ansible_host: "localhost"
         ansible_connection: "local"
         ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
     - name: Deregister already-removed instance from controller
       canasta_registry:
@@ -150,6 +152,7 @@
         ansible_host: "{{ _saved_host }}"
         ansible_connection: "{{ _saved_conn }}"
         ansible_user: "{{ _saved_user }}"
+        ansible_python_interpreter: "{{ _saved_python }}"
 
     - name: Deregister already-removed instance from target host
       canasta_registry:
@@ -173,9 +176,11 @@
     _saved_ansible_host: "{{ ansible_host | default('localhost') }}"
     _saved_ansible_connection: "{{ ansible_connection | default('local') }}"
     _saved_ansible_user: "{{ ansible_user | default('') }}"
+    _saved_ansible_python: "{{ ansible_python_interpreter | default('auto') }}"
     ansible_host: "localhost"
     ansible_connection: "local"
     ansible_user: ""
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Deregister instance from controller
   canasta_registry:
@@ -187,6 +192,7 @@
     ansible_host: "{{ _saved_ansible_host }}"
     ansible_connection: "{{ _saved_ansible_connection }}"
     ansible_user: "{{ _saved_ansible_user }}"
+    ansible_python_interpreter: "{{ _saved_ansible_python }}"
 
 - name: Deregister instance from target host
   canasta_registry:
