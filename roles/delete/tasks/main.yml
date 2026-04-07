@@ -55,6 +55,18 @@
 - name: Discover unregistered instance
   when: _delete_query is failed
   block:
+    - name: Check if kubectl is available
+      ansible.builtin.command:
+        cmd: "kubectl version --client"
+      register: _kubectl_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: Fail if no kubectl (Compose instance not in registry)
+      ansible.builtin.fail:
+        msg: "Instance '{{ id }}' not found in the registry."
+      when: _kubectl_check is failed
+
     - name: Check for Helm release
       ansible.builtin.command:
         cmd: "helm status canasta-{{ id }} -n canasta-{{ id }}"
@@ -82,11 +94,9 @@
         (_helm_status is succeeded) or
         (_ns_check.resources | default([]) | length > 0)
 
-    - name: Fail if no resources found
+    - name: Fail if no K8s resources found
       ansible.builtin.fail:
-        msg: >-
-          Instance '{{ id }}' is not in the registry and no Kubernetes
-          resources (Helm release or namespace) were found for it.
+        msg: "Instance '{{ id }}' not found in the registry or Kubernetes."
       when: >-
         (_helm_status is not succeeded) and
         (_ns_check.resources | default([]) | length == 0)
