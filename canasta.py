@@ -289,7 +289,11 @@ def handle_interactive_exec(args):
         pod = result.stdout.strip()
         exec_args = ["kubectl", "exec", "-it", pod, "-n", ns, "--"]
         exec_args.extend(command)
-        os.execvp("kubectl", exec_args)
+        try:
+            os.execvp("kubectl", exec_args)
+        except FileNotFoundError:
+            print("Error: kubectl not found on PATH", file=sys.stderr)
+            sys.exit(1)
     else:
         host = inst.get("host", "localhost")
         docker_cmd = (
@@ -302,10 +306,25 @@ def handle_interactive_exec(args):
                 shlex.quote(inst["path"]),
                 " ".join(shlex.quote(a) for a in docker_cmd),
             )
-            os.execvp("ssh", ["ssh", host, remote_cmd])
+            try:
+                os.execvp("ssh", ["ssh", host, remote_cmd])
+            except FileNotFoundError:
+                print("Error: ssh not found on PATH", file=sys.stderr)
+                sys.exit(1)
         else:
-            os.chdir(inst["path"])
-            os.execvp("docker", docker_cmd)
+            try:
+                os.chdir(inst["path"])
+            except FileNotFoundError:
+                print(
+                    "Error: instance path '%s' not found" % inst["path"],
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            try:
+                os.execvp("docker", docker_cmd)
+            except FileNotFoundError:
+                print("Error: docker not found on PATH", file=sys.stderr)
+                sys.exit(1)
 
 
 def build_parser(data):

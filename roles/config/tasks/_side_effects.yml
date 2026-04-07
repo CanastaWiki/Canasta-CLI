@@ -71,12 +71,23 @@
         state: update_domain
         domain: "{{ _config_value }}"
 
+    - name: Read current MW_SITE_SERVER to preserve scheme
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MW_SITE_SERVER
+      register: _current_server
+
+    - name: Determine scheme from current MW_SITE_SERVER
+      ansible.builtin.set_fact:
+        _server_scheme: "{{ _current_server.value | default('https://') | regex_search('^https?://') | default('https://') }}"
+
     - name: Update MW_SITE_SERVER to match new FQDN
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: set
         key: MW_SITE_SERVER
-        value: "https://{{ _config_value }}"
+        value: "{{ _server_scheme }}{{ _config_value }}"
 
 - name: Apply CANASTA_ENABLE_OBSERVABILITY side effects
   when: _config_key == 'CANASTA_ENABLE_OBSERVABILITY' and _config_value | lower == 'true'
