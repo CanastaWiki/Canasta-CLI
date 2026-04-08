@@ -307,7 +307,8 @@ def handle_interactive_exec(args):
                 " ".join(shlex.quote(a) for a in docker_cmd),
             )
             try:
-                os.execvp("ssh", ["ssh", host, remote_cmd])
+                ssh_args = ["ssh", "-t", host, remote_cmd]
+                os.execvp("ssh", ssh_args)
             except FileNotFoundError:
                 print("Error: ssh not found on PATH", file=sys.stderr)
                 sys.exit(1)
