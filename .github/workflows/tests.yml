@@ -85,6 +85,27 @@ jobs:
         run: .venv/bin/python tests/integration/run_tests.py
         timeout-minutes: 25
 
+  remote-integration:
+    name: Remote Host Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+
+      - name: Run remote integration tests
+        run: tests/integration/remote/run_tests.sh
+        timeout-minutes: 15
+
   docker-smoke:
     name: Docker Smoke Test
     runs-on: ubuntu-latest
