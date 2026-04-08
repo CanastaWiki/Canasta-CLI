@@ -10,6 +10,9 @@
   register: _existing_hosts
   ignore_errors: true
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: No hosts message
   ansible.builtin.debug:

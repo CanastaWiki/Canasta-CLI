@@ -187,6 +187,9 @@
     build_from: "{{ _instance_result.instance.buildFrom | default(omit) }}"
     state: present
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Set dev mode fact
   ansible.builtin.set_fact:

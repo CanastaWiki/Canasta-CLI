@@ -15,6 +15,9 @@
     path: "{{ playbook_dir }}/BUILD_COMMIT"
   register: _build_commit_file
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Read baked-in BUILD_COMMIT
   ansible.builtin.slurp:
@@ -22,6 +25,9 @@
   register: _build_commit_content
   when: _build_commit_file.stat.exists
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Read baked-in BUILD_DATE
   ansible.builtin.slurp:
@@ -29,6 +35,9 @@
   register: _build_date_content
   when: _build_commit_file.stat.exists
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Get git commit from checkout
   ansible.builtin.command:
@@ -39,6 +48,9 @@
   ignore_errors: true
   when: not _build_commit_file.stat.exists
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Get git commit date from checkout
   ansible.builtin.command:
@@ -49,6 +61,9 @@
   ignore_errors: true
   when: not _build_commit_file.stat.exists
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Resolve commit and date
   ansible.builtin.set_fact:

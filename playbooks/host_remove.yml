@@ -10,6 +10,9 @@
   register: _existing_hosts
   ignore_errors: true
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Fail if hosts.yml does not exist
   ansible.builtin.fail:
@@ -37,6 +40,9 @@
     dest: "{{ _config_dir }}/hosts.yml"
     mode: "0644"
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Report
   ansible.builtin.debug:
