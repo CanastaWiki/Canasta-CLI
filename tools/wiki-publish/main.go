@@ -35,7 +35,9 @@ import (
 
 const (
 	referencePrefix = "CLI:"
-	editDelay       = 2 * time.Second
+	editDelay       = 3 * time.Second
+	rateLimitDelay  = 30 * time.Second
+	maxRetries      = 3
 )
 
 func main() {
@@ -139,11 +141,24 @@ func main() {
 		if i > 0 {
 			time.Sleep(editDelay)
 		}
-		if err := client.editPage(p.Title, p.Content, "Update CLI reference"); err != nil {
+		var published bool
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			err := client.editPage(p.Title, p.Content, "Update CLI reference")
+			if err == nil {
+				log.Printf("Published %s", p.Title)
+				published = true
+				break
+			}
+			if strings.Contains(err.Error(), "ratelimited") && attempt < maxRetries-1 {
+				log.Printf("Rate limited on %s, waiting %s before retry...", p.Title, rateLimitDelay)
+				time.Sleep(rateLimitDelay)
+				continue
+			}
 			log.Printf("ERROR uploading %s: %v", p.Title, err)
+			break
+		}
+		if !published {
 			errCount++
-		} else {
-			log.Printf("Published %s", p.Title)
 		}
 	}
 	if errCount > 0 {
