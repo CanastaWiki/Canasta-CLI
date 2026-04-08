@@ -130,14 +130,22 @@ class TestInstance:
 
 def wait_for_wiki(http_port, timeout=300):
     """Poll MediaWiki API until responsive or timeout."""
+    return wait_for_wiki_at_path(http_port, "/w/api.php", timeout=timeout)
+
+
+def wait_for_wiki_at_path(http_port, api_path="/w/api.php", timeout=300):
+    """Poll MediaWiki API at an arbitrary path until responsive or timeout."""
     api_url = (
-        "http://127.0.0.1:%s/w/api.php"
-        "?action=query&meta=siteinfo&format=json" % http_port
+        "http://127.0.0.1:%s%s"
+        "?action=query&meta=siteinfo&format=json" % (http_port, api_path)
     )
     deadline = time.time() + timeout
     last_err = ""
     attempt = 0
-    print("  Waiting for wiki at port %s..." % http_port, flush=True)
+    print(
+        "  Waiting for wiki at port %s path %s..." % (http_port, api_path),
+        flush=True,
+    )
     while time.time() < deadline:
         attempt += 1
         elapsed = int(time.time() + timeout - deadline)
@@ -170,6 +178,19 @@ def wait_for_wiki(http_port, timeout=300):
     raise AssertionError(
         "Wiki did not become ready at port %s within %ds" % (http_port, timeout)
     )
+
+
+def query_siteinfo(http_port, siprop, api_path="/w/api.php"):
+    """Query the MediaWiki siteinfo API and return the parsed JSON data."""
+    api_url = (
+        "http://127.0.0.1:%s%s"
+        "?action=query&meta=siteinfo&siprop=%s&format=json"
+        % (http_port, api_path, siprop)
+    )
+    req = urllib.request.Request(api_url)
+    req.add_header("Host", "localhost")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read())
 
 
 def read_env(path):
@@ -441,6 +462,323 @@ def test_gitops(inst):
     )
 
 
+def test_extension_skin(inst):
+    """Enable/disable extensions and skins, verify via API."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Enabling Cite extension...")
+    inst.run_ok("extension", "enable", "-i", inst.id, "Cite")
+
+    print("Verifying Cite is in extensions list...")
+    data = query_siteinfo(inst.http_port, "extensions")
+    ext_names = [
+        e.get("name", "") for e in data["query"]["extensions"]
+    ]
+    assert "Cite" in ext_names, (
+        "Cite not found in extensions: %s" % ext_names
+    )
+
+    print("Disabling Cite extension...")
+    inst.run_ok("extension", "disable", "-i", inst.id, "Cite")
+
+    print("Verifying Cite is NOT in extensions list...")
+    data = query_siteinfo(inst.http_port, "extensions")
+    ext_names = [
+        e.get("name", "") for e in data["query"]["extensions"]
+    ]
+    assert "Cite" not in ext_names, (
+        "Cite still found in extensions after disable: %s" % ext_names
+    )
+
+    print("Enabling Timeless skin...")
+    inst.run_ok("skin", "enable", "-i", inst.id, "Timeless")
+
+    print("Verifying timeless is in skins list...")
+    data = query_siteinfo(inst.http_port, "skins")
+    skin_codes = [
+        s.get("code", "") for s in data["query"]["skins"]
+    ]
+    assert "timeless" in skin_codes, (
+        "timeless not found in skins: %s" % skin_codes
+    )
+
+    print("Disabling Timeless skin...")
+    inst.run_ok("skin", "disable", "-i", inst.id, "Timeless")
+
+    print("Verifying timeless is NOT in skins list...")
+    data = query_siteinfo(inst.http_port, "skins")
+    skin_codes = [
+        s.get("code", "") for s in data["query"]["skins"]
+    ]
+    assert "timeless" not in skin_codes, (
+        "timeless still found in skins after disable: %s" % skin_codes
+    )
+
+
+def test_wiki_farm(inst):
+    """Add and remove wikis in a farm configuration."""
+    print("Creating instance with main wiki...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Adding docs wiki...")
+    inst.run_ok(
+        "add", "-i", inst.id, "-w", "docs",
+        "-u", "localhost:%s/docs" % inst.http_port,
+    )
+
+    print("Waiting for docs wiki...")
+    wait_for_wiki_at_path(inst.http_port, "/docs/w/api.php")
+
+    print("Verifying main wiki still accessible...")
+    wait_for_wiki(inst.http_port, timeout=60)
+
+    print("Removing docs wiki...")
+    inst.run_ok("remove", "-i", inst.id, "-w", "docs", "-y")
+
+    print("Verifying main wiki still accessible after remove...")
+    wait_for_wiki(inst.http_port, timeout=60)
+
+    print("Verifying docs wiki is gone...")
+    try:
+        wait_for_wiki_at_path(inst.http_port, "/docs/w/api.php", timeout=15)
+        raise AssertionError("docs wiki should not be accessible after remove")
+    except AssertionError as e:
+        if "should not be accessible" in str(e):
+            raise
+        # Expected: wiki not reachable
+        print("  docs wiki correctly unavailable")
+
+
+def test_config_side_effects(inst):
+    """Verify config set side effects (port changes update wikis.yaml and Caddyfile)."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Setting HTTPS_PORT to 9443...")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "HTTPS_PORT=9443", "--no-restart",
+    )
+
+    print("Checking wikis.yaml for port 9443...")
+    wikis_yaml_path = os.path.join(
+        inst.instance_path(), "config", "wikis.yaml",
+    )
+    assert os.path.isfile(wikis_yaml_path), (
+        "wikis.yaml not found at %s" % wikis_yaml_path
+    )
+    with open(wikis_yaml_path) as f:
+        wikis_content = f.read()
+    assert ":9443" in wikis_content, (
+        "Port 9443 not found in wikis.yaml:\n%s" % wikis_content
+    )
+
+    print("Checking Caddyfile for port reference...")
+    caddyfile_path = os.path.join(inst.instance_path(), "Caddyfile")
+    assert os.path.isfile(caddyfile_path), (
+        "Caddyfile not found at %s" % caddyfile_path
+    )
+    with open(caddyfile_path) as f:
+        caddy_content = f.read()
+    assert "9443" in caddy_content, (
+        "Port 9443 not found in Caddyfile:\n%s" % caddy_content
+    )
+
+    print("Resetting HTTPS_PORT to 443...")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "HTTPS_PORT=443", "--no-restart",
+    )
+
+    print("Verifying wikis.yaml has no explicit port (443 is default)...")
+    with open(wikis_yaml_path) as f:
+        wikis_content = f.read()
+    assert ":9443" not in wikis_content, (
+        "Port 9443 still in wikis.yaml after reset:\n%s" % wikis_content
+    )
+
+
+def test_backup_advanced(inst):
+    """Test backup purge, schedule, check, and list operations."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)  # Brief wait for containers to stabilize
+
+    print("Configuring backup repository...")
+    backup_dir = tempfile.mkdtemp(prefix="canasta-int-backup-")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_REPOSITORY=%s" % backup_dir,
+        "--no-restart",
+    )
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_PASSWORD=testpass",
+        "--no-restart",
+    )
+
+    print("Initializing backup repository...")
+    inst.run_ok("backup", "init", "-i", inst.id)
+
+    print("Creating first snapshot (snap1)...")
+    inst.run_ok("backup", "create", "-i", inst.id, "-t", "snap1")
+
+    print("Creating second snapshot (snap2)...")
+    inst.run_ok("backup", "create", "-i", inst.id, "-t", "snap2")
+
+    print("Listing snapshots...")
+    output = inst.run_quiet("backup", "list", "-i", inst.id)
+    assert "snap1" in output, "snap1 not found in list output"
+    assert "snap2" in output, "snap2 not found in list output"
+
+    print("Checking repository integrity...")
+    inst.run_ok("backup", "check", "-i", inst.id)
+
+    print("Purging older snapshots...")
+    inst.run_ok(
+        "backup", "purge", "-i", inst.id,
+        "--older-than", "0s",
+    )
+
+    print("Verifying snap2 remains after purge...")
+    output = inst.run_quiet("backup", "list", "-i", inst.id)
+    assert "snap2" in output, "snap2 should remain after purge"
+
+    print("Setting backup schedule...")
+    inst.run_ok(
+        "backup", "schedule", "set", "-i", inst.id, "0 2 * * *",
+    )
+
+    print("Listing backup schedule...")
+    output = inst.run_quiet(
+        "backup", "schedule", "list", "-i", inst.id,
+    )
+    assert "0 2 * * *" in output or "2" in output, (
+        "Schedule not found in output: %s" % output
+    )
+
+    print("Removing backup schedule...")
+    inst.run_ok(
+        "backup", "schedule", "remove", "-i", inst.id,
+    )
+
+    print("Verifying schedule removed...")
+    output = inst.run_quiet(
+        "backup", "schedule", "list", "-i", inst.id,
+    )
+    assert "0 2 * * *" not in output, (
+        "Schedule still present after remove: %s" % output
+    )
+
+    shutil.rmtree(backup_dir, ignore_errors=True)
+
+
+def test_gitops_pull_diff(inst):
+    """Test gitops pull and diff with compose orchestrator."""
+    # Check prerequisites
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    print("Pushing initial state...")
+    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok("gitops", "push", "-i", inst.id)
+
+    print("Cloning bare repo to temp directory...")
+    clone_dir = os.path.join(inst.work_dir, "gitops-clone")
+    subprocess.run(
+        ["git", "clone", bare_repo, clone_dir],
+        capture_output=True, check=True,
+    )
+
+    print("Adding a file in the clone and pushing...")
+    test_file = os.path.join(clone_dir, "remote-change.txt")
+    with open(test_file, "w") as f:
+        f.write("This file was added remotely.\n")
+    subprocess.run(
+        ["git", "add", "remote-change.txt"],
+        cwd=clone_dir, capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "Add remote change"],
+        cwd=clone_dir, capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "push"],
+        cwd=clone_dir, capture_output=True, check=True,
+    )
+
+    print("Running gitops diff...")
+    output = inst.run_ok("gitops", "diff", "-i", inst.id)
+    assert "remote-change" in output, (
+        "Diff should show remote changes: %s" % output
+    )
+
+    print("Pulling remote changes...")
+    inst.run_ok("gitops", "pull", "-i", inst.id)
+
+    print("Verifying pulled file exists in instance...")
+    pulled_file = os.path.join(inst.instance_path(), "remote-change.txt")
+    assert os.path.isfile(pulled_file), (
+        "Pulled file not found at %s" % pulled_file
+    )
+
+    print("Making a local change...")
+    local_file = os.path.join(inst.instance_path(), "local-change.txt")
+    with open(local_file, "w") as f:
+        f.write("This is a local uncommitted change.\n")
+
+    print("Checking gitops status...")
+    output = inst.run_ok("gitops", "status", "-i", inst.id)
+    assert "local-change" in output, (
+        "Status should show uncommitted changes: %s" % output
+    )
+
+
 def test_k8s_lifecycle(inst):
     """Kubernetes: create, list, stop, start, exec, export, delete."""
     # Check prerequisites
@@ -550,7 +888,12 @@ ALL_TESTS = {
     "import": test_import_export,
     "upgrade": test_upgrade,
     "backup": test_backup,
+    "backup-advanced": test_backup_advanced,
     "gitops": test_gitops,
+    "gitops-pull-diff": test_gitops_pull_diff,
+    "extension-skin": test_extension_skin,
+    "wiki-farm": test_wiki_farm,
+    "config-side-effects": test_config_side_effects,
 }
 
 
