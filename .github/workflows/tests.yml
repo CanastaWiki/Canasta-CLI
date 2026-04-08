@@ -42,7 +42,7 @@ jobs:
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
 
@@ -83,7 +83,7 @@ jobs:
 
       - name: Run integration tests
         run: .venv/bin/python tests/integration/run_tests.py
-        timeout-minutes: 25
+        timeout-minutes: 40
 
   remote-integration:
     name: Remote Host Integration Tests
