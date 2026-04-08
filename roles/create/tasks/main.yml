@@ -123,7 +123,6 @@
     - { dir: skins }
     - { dir: images, mode: "0775" }
     - { dir: public_assets }
-    - { dir: _initdb }
     - { dir: config/settings/global }
     - { dir: config/settings/wikis }
 
