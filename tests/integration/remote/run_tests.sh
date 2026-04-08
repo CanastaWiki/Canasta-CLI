@@ -1,19 +1,54 @@
 #!/usr/bin/env bash
+# Remote host integration tests for Canasta-Ansible.
+#
+# These tests create a mock SSH host in a Docker container and run
+# canasta commands against it to verify remote instance management.
+#
+# Requirements:
+#   - Linux host with native Docker (NOT Docker Desktop on macOS,
+#     which can't mount paths from inside sibling containers)
+#   - Python venv with Ansible installed (.venv/)
+#
+# Runs in CI on Linux runners. Not runnable on macOS with Docker Desktop.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-CANASTA="${REPO_ROOT}/canasta-native"
+# Use canasta.py directly with the repo's venv Python
+CANASTA_PY="${REPO_ROOT}/canasta.py"
+PYTHON="${REPO_ROOT}/.venv/bin/python"
+if [ ! -x "${PYTHON}" ]; then
+    echo "ERROR: Python venv not found at ${PYTHON}"
+    echo "Run: cd ${REPO_ROOT} && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+    exit 1
+fi
+canasta() {
+    "${PYTHON}" "${CANASTA_PY}" "$@"
+}
 KEY_FILE="${SCRIPT_DIR}/.ssh/test_key"
 SSH_PORT=2222
 SSH_USER="testuser"
-SSH_HOST="127.0.0.1"
-REMOTE_HOST="${SSH_USER}@${SSH_HOST}:${SSH_PORT}"
+# Use a hostname alias that SSH config maps to localhost:2222
+SSH_HOST="canasta-test-remote"
 INSTANCE_ID="remote-test"
 
 # Use a temporary config dir for test isolation
 export CANASTA_CONFIG_DIR
 CANASTA_CONFIG_DIR="$(mktemp -d)"
+
+# Create SSH config that maps the test host alias to localhost:2222
+SSH_CONFIG="${CANASTA_CONFIG_DIR}/ssh_config"
+cat > "${SSH_CONFIG}" <<SSHEOF
+Host ${SSH_HOST}
+    HostName 127.0.0.1
+    Port ${SSH_PORT}
+    User ${SSH_USER}
+    IdentityFile ${KEY_FILE}
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+SSHEOF
+
+REMOTE_HOST="${SSH_USER}@${SSH_HOST}"
 
 # Track results
 PASS=0
@@ -36,7 +71,7 @@ cleanup() {
     echo ""
     echo "=== Cleaning up ==="
     # Best-effort delete of instance if it still exists
-    "${CANASTA}" delete -i "${INSTANCE_ID}" -y 2>/dev/null || true
+    canasta delete -i "${INSTANCE_ID}" -y 2>/dev/null || true
     # Teardown the mock remote host
     "${SCRIPT_DIR}/teardown.sh"
     # Remove temp config dir
@@ -48,8 +83,8 @@ trap cleanup EXIT
 echo "=== Starting mock remote host ==="
 "${SCRIPT_DIR}/setup.sh"
 
-# Export SSH key so Ansible picks it up
-export ANSIBLE_SSH_ARGS="-i ${KEY_FILE} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+# Tell SSH and Ansible to use our test SSH config
+export ANSIBLE_SSH_ARGS="-F ${SSH_CONFIG}"
 
 echo ""
 echo "=== Running remote integration tests ==="
@@ -57,7 +92,7 @@ echo ""
 
 # --- Test 1: Create with -H ---
 echo "Test 1: canasta create with -H"
-if "${CANASTA}" -H "${REMOTE_HOST}" create -i "${INSTANCE_ID}" -w main -n localhost 2>&1; then
+if canasta -H "${REMOTE_HOST}" create -i "${INSTANCE_ID}" -w main -n localhost 2>&1; then
     pass "create with -H"
 else
     fail "create with -H"
@@ -66,7 +101,7 @@ echo ""
 
 # --- Test 2: List (verify instance appears) ---
 echo "Test 2: canasta list (instance should appear)"
-LIST_OUTPUT=$("${CANASTA}" list 2>&1) || true
+LIST_OUTPUT=$(canasta list 2>&1) || true
 if echo "${LIST_OUTPUT}" | grep -q "${INSTANCE_ID}"; then
     pass "list shows remote instance"
 else
@@ -76,7 +111,7 @@ echo ""
 
 # --- Test 3: Add wiki without -H (resolved from registry) ---
 echo "Test 3: canasta add without -H (host from registry)"
-if "${CANASTA}" add -i "${INSTANCE_ID}" -w draft 2>&1; then
+if canasta add -i "${INSTANCE_ID}" -w draft -u localhost/draft 2>&1; then
     pass "add wiki without -H"
 else
     fail "add wiki without -H"
@@ -85,7 +120,7 @@ echo ""
 
 # --- Test 4: Delete without -H (resolved from registry) ---
 echo "Test 4: canasta delete without -H"
-if "${CANASTA}" delete -i "${INSTANCE_ID}" -y 2>&1; then
+if canasta delete -i "${INSTANCE_ID}" -y 2>&1; then
     pass "delete without -H"
 else
     fail "delete without -H"
@@ -94,7 +129,7 @@ echo ""
 
 # --- Test 5: List (verify empty) ---
 echo "Test 5: canasta list (should be empty)"
-LIST_OUTPUT=$("${CANASTA}" list 2>&1) || true
+LIST_OUTPUT=$(canasta list 2>&1) || true
 if echo "${LIST_OUTPUT}" | grep -q "${INSTANCE_ID}"; then
     fail "list still shows deleted instance (output: ${LIST_OUTPUT})"
 else

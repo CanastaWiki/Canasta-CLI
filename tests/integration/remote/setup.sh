@@ -25,11 +25,14 @@ docker cp "${KEY_FILE}.pub" "${CONTAINER_NAME}:/home/testuser/.ssh/authorized_ke
 docker exec "${CONTAINER_NAME}" chown testuser:testuser /home/testuser/.ssh/authorized_keys
 docker exec "${CONTAINER_NAME}" chmod 600 /home/testuser/.ssh/authorized_keys
 
-# Add the docker group inside the container and add testuser to it so
-# Docker CLI commands work via the mounted socket.
-DOCKER_SOCK_GID="$(docker exec "${CONTAINER_NAME}" stat -c '%g' /var/run/docker.sock)"
-docker exec "${CONTAINER_NAME}" bash -c \
-    "groupadd -g ${DOCKER_SOCK_GID} dockerhost 2>/dev/null || true; usermod -aG dockerhost testuser"
+# Make the Docker socket accessible to testuser.
+# On macOS the socket may have a different GID, so chmod is more reliable.
+if docker exec "${CONTAINER_NAME}" test -S /var/run/docker.sock; then
+    docker exec "${CONTAINER_NAME}" chmod 666 /var/run/docker.sock
+    echo "Docker socket made accessible."
+else
+    echo "Warning: Docker socket not available in container"
+fi
 
 # Wait for SSH to become available
 echo "Waiting for SSH..."
