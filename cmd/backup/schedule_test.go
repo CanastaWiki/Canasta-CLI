@@ -70,3 +70,51 @@ func TestValidateCronEdgeCases(t *testing.T) {
 		})
 	}
 }
+
+func TestPurgeFromLine(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{
+			name: "unquoted value",
+			line: "0 2 * * * /usr/local/bin/canasta backup create -i wiki && canasta backup purge -i wiki --older-than 30d >> backup.log 2>&1",
+			want: "30d",
+		},
+		{
+			name: "double-quoted value",
+			line: `0 2 * * * /usr/local/bin/canasta backup create -i wiki && canasta backup purge -i wiki --older-than "30d" >> backup.log 2>&1`,
+			want: "30d",
+		},
+		{
+			name: "single-quoted value",
+			line: "0 2 * * * /usr/local/bin/canasta backup create -i wiki && canasta backup purge -i wiki --older-than '30d' >> backup.log 2>&1",
+			want: "30d",
+		},
+		{
+			name: "no flag present",
+			line: "0 2 * * * /usr/local/bin/canasta backup create -i wiki --tag scheduled >> backup.log 2>&1",
+			want: "",
+		},
+		{
+			name: "multiple flags including older-than",
+			line: "0 2 * * * /usr/local/bin/canasta backup create -i wiki --tag scheduled && canasta backup purge -i wiki --older-than 6m --verbose >> backup.log 2>&1",
+			want: "6m",
+		},
+		{
+			name: "empty line",
+			line: "",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := purgeFromLine(tt.line)
+			if got != tt.want {
+				t.Errorf("purgeFromLine(%q) = %q, want %q", tt.line, got, tt.want)
+			}
+		})
+	}
+}
