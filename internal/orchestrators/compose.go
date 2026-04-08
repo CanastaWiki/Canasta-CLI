@@ -33,6 +33,8 @@ type composeBinary struct {
 }
 
 // getCompose discovers the compose binary at runtime.
+//
+//nolint:unparam // error return removed in #728
 func (c *ComposeOrchestrator) getCompose() (composeBinary, error) {
 	if path, err := exec.LookPath("docker-compose"); err == nil {
 		return composeBinary{Path: path}, nil
