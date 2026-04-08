@@ -53,6 +53,9 @@
     id: "{{ id }}"
     state: query
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _existing
   ignore_errors: true
 
@@ -370,6 +373,9 @@
         state: get_setting
         setting_key: defaultStorageClass
       delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
       register: _default_sc
       when: storage_class is not defined or storage_class == ''
 
@@ -499,6 +505,9 @@
     build_from: "{{ build_from | default(omit) }}"
     state: present
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Register instance in target host config
   canasta_registry:

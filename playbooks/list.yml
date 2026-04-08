@@ -6,6 +6,9 @@
   canasta_registry:
     state: cleanup
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _cleanup_result
   when: cleanup | default(false) | bool
 
@@ -23,6 +26,9 @@
     state: query_all
     filter_host: "{{ target_host | default(omit) }}"
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _all_instances
 
 - name: No instances

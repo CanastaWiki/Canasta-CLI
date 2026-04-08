@@ -21,16 +21,23 @@ cat > "${OVERRIDE}" <<OVEOF
 services:
   remote-host:
     volumes:
-      - ${CANASTA_TEST_DATA}:/home/testuser
+      # Mount at the SAME path so Docker bind mounts from the instance
+      # resolve identically on both the host and inside this container.
+      - ${CANASTA_TEST_DATA}:${CANASTA_TEST_DATA}
+    environment:
+      - HOME=${CANASTA_TEST_DATA}
 OVEOF
 
 # Build and start the container
 echo "Building and starting container..."
 docker compose -f "${SCRIPT_DIR}/docker-compose.yml" -f "${OVERRIDE}" up -d --build
 
-# Create .ssh directory (the shared volume mount overwrites /home/testuser)
+# Change testuser's home to the shared data path so sshd finds authorized_keys
+docker exec "${CONTAINER_NAME}" usermod -d "${CANASTA_TEST_DATA}" testuser
+
+# Create .ssh directory in the shared data path
 docker exec "${CONTAINER_NAME}" bash -c \
-    "mkdir -p /home/testuser/.ssh && chmod 700 /home/testuser/.ssh && chown testuser:testuser /home/testuser/.ssh"
+    "mkdir -p ${CANASTA_TEST_DATA}/.ssh && chmod 700 ${CANASTA_TEST_DATA}/.ssh && chown testuser:testuser ${CANASTA_TEST_DATA}/.ssh"
 
 # Create canasta config directory
 docker exec "${CONTAINER_NAME}" bash -c \
@@ -44,9 +51,9 @@ ssh-keygen -t ed25519 -f "${KEY_FILE}" -N "" -q
 
 # Copy public key into container
 echo "Installing public key in container..."
-docker cp "${KEY_FILE}.pub" "${CONTAINER_NAME}:/home/testuser/.ssh/authorized_keys"
-docker exec "${CONTAINER_NAME}" chown testuser:testuser /home/testuser/.ssh/authorized_keys
-docker exec "${CONTAINER_NAME}" chmod 600 /home/testuser/.ssh/authorized_keys
+docker cp "${KEY_FILE}.pub" "${CONTAINER_NAME}:${CANASTA_TEST_DATA}/.ssh/authorized_keys"
+docker exec "${CONTAINER_NAME}" chown testuser:testuser "${CANASTA_TEST_DATA}/.ssh/authorized_keys"
+docker exec "${CONTAINER_NAME}" chmod 600 "${CANASTA_TEST_DATA}/.ssh/authorized_keys"
 
 # Make the Docker socket accessible to testuser.
 # On macOS the socket may have a different GID, so chmod is more reliable.

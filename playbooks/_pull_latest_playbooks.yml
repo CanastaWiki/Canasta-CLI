@@ -13,6 +13,9 @@
   ansible.builtin.stat:
     path: "{{ _repo_dir }}/BUILD_COMMIT"
   delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _docker_build
 
 - name: Report Docker image already updated
@@ -27,6 +30,9 @@
       ansible.builtin.stat:
         path: "{{ _repo_dir }}/.git"
       delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
       register: _is_git_repo
 
     - name: Fail if not a git repository
@@ -40,6 +46,9 @@
       ansible.builtin.slurp:
         src: "{{ _repo_dir }}/VERSION"
       delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
       register: _current_version
 
     - name: Fetch latest from remote
@@ -47,6 +56,9 @@
         cmd: "git fetch origin"
         chdir: "{{ _repo_dir }}"
       delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
       changed_when: false
 
     - name: Check for updates
@@ -54,6 +66,9 @@
         cmd: "git log HEAD..origin/main --oneline"
         chdir: "{{ _repo_dir }}"
       delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
       register: _pending_updates
       changed_when: false
 
@@ -70,6 +85,9 @@
             cmd: "git pull --ff-only origin main"
             chdir: "{{ _repo_dir }}"
           delegate_to: localhost
+          vars:
+            ansible_connection: local
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
           changed_when: true
           register: _pull_result
           failed_when: false
@@ -86,6 +104,9 @@
           ansible.builtin.slurp:
             src: "{{ _repo_dir }}/VERSION"
           delegate_to: localhost
+          vars:
+            ansible_connection: local
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
           register: _new_version
 
         - name: Report update

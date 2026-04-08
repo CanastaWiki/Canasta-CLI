@@ -31,6 +31,7 @@ SSH_USER="testuser"
 # Use a hostname alias that SSH config maps to localhost:2222
 SSH_HOST="canasta-test-remote"
 INSTANCE_ID="remote-test"
+export CANASTA_TEST_DATA="${CANASTA_TEST_DATA:-/tmp/canasta-test-data}"
 
 # Use a temporary config dir for test isolation
 export CANASTA_CONFIG_DIR
@@ -92,7 +93,7 @@ echo ""
 
 # --- Test 1: Create with -H ---
 echo "Test 1: canasta create with -H"
-if canasta -H "${REMOTE_HOST}" create -i "${INSTANCE_ID}" -w main -n localhost 2>&1; then
+if canasta -H "${REMOTE_HOST}" create -i "${INSTANCE_ID}" -w main -n localhost -p "${CANASTA_TEST_DATA}" 2>&1; then
     pass "create with -H"
 else
     fail "create with -H"
