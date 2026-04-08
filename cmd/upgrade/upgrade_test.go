@@ -588,6 +588,296 @@ func TestMigrateDirectoryStructureMixedState(t *testing.T) {
 	}
 }
 
+func TestExtractSecretKeyAlreadyInEnv(t *testing.T) {
+	installPath := t.TempDir()
+	envPath := filepath.Join(installPath, ".env")
+	if err := os.WriteFile(envPath, []byte("MW_SECRET_KEY=abc123def456\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := extractSecretKey(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed {
+		t.Error("expected changed = false when MW_SECRET_KEY already set")
+	}
+}
+
+func TestExtractSecretKeyFromLocalSettings(t *testing.T) {
+	installPath := t.TempDir()
+	envPath := filepath.Join(installPath, ".env")
+	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://localhost\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	configDir := filepath.Join(installPath, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	phpContent := `<?php
+$wgSecretKey = "aabbccdd00112233aabbccdd00112233aabbccdd00112233aabbccdd00112233";
+`
+	if err := os.WriteFile(filepath.Join(configDir, "LocalSettings.php"), []byte(phpContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := extractSecretKey(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed = true")
+	}
+
+	got, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "MW_SECRET_KEY=aabbccdd00112233aabbccdd00112233aabbccdd00112233aabbccdd00112233") {
+		t.Errorf("expected MW_SECRET_KEY to be extracted, got:\n%s", string(got))
+	}
+}
+
+func TestExtractSecretKeyFromCommonSettings(t *testing.T) {
+	installPath := t.TempDir()
+	envPath := filepath.Join(installPath, ".env")
+	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://localhost\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	configDir := filepath.Join(installPath, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// LocalSettings.php without $wgSecretKey
+	if err := os.WriteFile(filepath.Join(configDir, "LocalSettings.php"), []byte("<?php\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	phpContent := `<?php
+$wgSecretKey = 'ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00';
+`
+	if err := os.WriteFile(filepath.Join(configDir, "CommonSettings.php"), []byte(phpContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := extractSecretKey(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed = true")
+	}
+
+	got, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "MW_SECRET_KEY=ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00") {
+		t.Errorf("expected MW_SECRET_KEY from CommonSettings.php, got:\n%s", string(got))
+	}
+}
+
+func TestExtractSecretKeyGeneratesNew(t *testing.T) {
+	installPath := t.TempDir()
+	envPath := filepath.Join(installPath, ".env")
+	if err := os.WriteFile(envPath, []byte("MW_SITE_SERVER=https://localhost\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// No PHP files at all — should generate a new key
+	changed, err := extractSecretKey(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed = true")
+	}
+
+	envVars, err := canasta.GetEnvVariable(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, ok := envVars["MW_SECRET_KEY"]
+	if !ok || key == "" {
+		t.Fatal("expected MW_SECRET_KEY to be generated")
+	}
+	// Generated key should be 64 hex characters (32 bytes)
+	if len(key) != 64 {
+		t.Errorf("expected 64-char hex key, got %d chars: %s", len(key), key)
+	}
+}
+
+func TestExtractSecretKeyDryRun(t *testing.T) {
+	installPath := t.TempDir()
+	envPath := filepath.Join(installPath, ".env")
+	content := "MW_SITE_SERVER=https://localhost\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	configDir := filepath.Join(installPath, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	phpContent := `<?php
+$wgSecretKey = "aabbccdd00112233aabbccdd00112233aabbccdd00112233aabbccdd00112233";
+`
+	if err := os.WriteFile(filepath.Join(configDir, "LocalSettings.php"), []byte(phpContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := extractSecretKey(installPath, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("dry run should report changed = true")
+	}
+
+	// File should be unchanged after dry run
+	got, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Errorf("dry run should not modify .env, got %q", string(got))
+	}
+}
+
+func TestExtractSecretKeyDryRunGeneratesNew(t *testing.T) {
+	installPath := t.TempDir()
+	envPath := filepath.Join(installPath, ".env")
+	content := "MW_SITE_SERVER=https://localhost\n"
+	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// No PHP files — dry run should report it would generate a key
+	changed, err := extractSecretKey(installPath, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("dry run should report changed = true")
+	}
+
+	got, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Errorf("dry run should not modify .env, got %q", string(got))
+	}
+}
+
+func TestFixVectorDefaultSkinBuggyContent(t *testing.T) {
+	installPath := t.TempDir()
+	vectorDir := filepath.Join(installPath, "config", "settings", "global")
+	if err := os.MkdirAll(vectorDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	vectorPath := filepath.Join(vectorDir, "Vector.php")
+	content := "<?php\nwfLoadSkin( 'Vector' );\n"
+	if err := os.WriteFile(vectorPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := fixVectorDefaultSkin(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed = true")
+	}
+
+	got, err := os.ReadFile(vectorPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `$wgDefaultSkin = "vector-2022"`) {
+		t.Errorf("expected $wgDefaultSkin to be added, got:\n%s", string(got))
+	}
+	if !strings.Contains(string(got), "wfLoadSkin( 'Vector' )") {
+		t.Error("expected wfLoadSkin to be preserved")
+	}
+}
+
+func TestFixVectorDefaultSkinCorrectContent(t *testing.T) {
+	installPath := t.TempDir()
+	vectorDir := filepath.Join(installPath, "config", "settings", "global")
+	if err := os.MkdirAll(vectorDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	vectorPath := filepath.Join(vectorDir, "Vector.php")
+	content := "<?php\n$wgDefaultSkin = \"vector-2022\";\nwfLoadSkin( 'Vector' );\n"
+	if err := os.WriteFile(vectorPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := fixVectorDefaultSkin(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed {
+		t.Error("expected changed = false when content is already correct")
+	}
+
+	got, err := os.ReadFile(vectorPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Error("file should not be modified")
+	}
+}
+
+func TestFixVectorDefaultSkinFileNotExist(t *testing.T) {
+	installPath := t.TempDir()
+
+	changed, err := fixVectorDefaultSkin(installPath, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed {
+		t.Error("expected changed = false when Vector.php doesn't exist")
+	}
+}
+
+func TestFixVectorDefaultSkinDryRun(t *testing.T) {
+	installPath := t.TempDir()
+	vectorDir := filepath.Join(installPath, "config", "settings", "global")
+	if err := os.MkdirAll(vectorDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	vectorPath := filepath.Join(vectorDir, "Vector.php")
+	content := "<?php\nwfLoadSkin( 'Vector' );\n"
+	if err := os.WriteFile(vectorPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := fixVectorDefaultSkin(installPath, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Error("dry run should report changed = true")
+	}
+
+	// File should be unchanged after dry run
+	got, err := os.ReadFile(vectorPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Errorf("dry run should not modify file, got %q", string(got))
+	}
+}
+
 func TestMigrateDirectoryStructureGlobalOnly(t *testing.T) {
 	installPath := t.TempDir()
 	writeWikisYAML(t, installPath, "wiki1")

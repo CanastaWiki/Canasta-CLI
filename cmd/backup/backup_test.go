@@ -79,6 +79,9 @@ func TestGetWikiIDsForRestore(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error when no dump files found")
 		}
+		if !strings.Contains(err.Error(), "no database dump files") {
+			t.Errorf("expected 'no database dump files' error, got: %v", err)
+		}
 	})
 
 	t.Run("single wiki dump present", func(t *testing.T) {
@@ -108,6 +111,71 @@ func TestGetWikiIDsForRestore(t *testing.T) {
 		_, err := getWikiIDsForRestore(emptyDir)
 		if err == nil {
 			t.Fatal("expected error for missing wikis.yaml")
+		}
+		if !strings.Contains(err.Error(), "failed to read wikis.yaml") {
+			t.Errorf("expected 'failed to read wikis.yaml' error, got: %v", err)
+		}
+	})
+
+	t.Run("single wiki instance", func(t *testing.T) {
+		singleWikiDir := t.TempDir()
+		singleWikis := []farmsettings.Wiki{
+			{ID: "main", URL: "localhost", NAME: "Main Wiki"},
+		}
+		writeWikisYaml(t, singleWikiDir, singleWikis)
+
+		backupDir := filepath.Join(singleWikiDir, "config", "backup")
+		if err := os.MkdirAll(backupDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(backupDir, "db_main.sql"), []byte("-- dump"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		ids, err := getWikiIDsForRestore(singleWikiDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ids) != 1 || ids[0] != "main" {
+			t.Errorf("got %v, want [main]", ids)
+		}
+	})
+
+	t.Run("empty wikis list", func(t *testing.T) {
+		emptyWikisDir := t.TempDir()
+		emptyWikisList := []farmsettings.Wiki{}
+		writeWikisYaml(t, emptyWikisDir, emptyWikisList)
+
+		// ReadWikisYaml returns an error for empty wikis, which propagates
+		_, err := getWikiIDsForRestore(emptyWikisDir)
+		if err == nil {
+			t.Fatal("expected error for empty wikis list")
+		}
+		if !strings.Contains(err.Error(), "failed to read wikis.yaml") {
+			t.Errorf("expected 'failed to read wikis.yaml' error, got: %v", err)
+		}
+	})
+
+	t.Run("dump file exists but wiki not in yaml", func(t *testing.T) {
+		mismatchDir := t.TempDir()
+		mismatchWikis := []farmsettings.Wiki{
+			{ID: "main", URL: "localhost", NAME: "Main"},
+		}
+		writeWikisYaml(t, mismatchDir, mismatchWikis)
+
+		backupDir := filepath.Join(mismatchDir, "config", "backup")
+		if err := os.MkdirAll(backupDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		// Create a dump for a wiki not in wikis.yaml
+		if err := os.WriteFile(filepath.Join(backupDir, "db_otherwiki.sql"), []byte("-- dump"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Only wikis in wikis.yaml are checked, so this should fail
+		_, err := getWikiIDsForRestore(mismatchDir)
+		if err == nil {
+			t.Fatal("expected error when dump exists for wiki not in wikis.yaml")
 		}
 	})
 }
