@@ -16,7 +16,7 @@ mkdir -p "${CANASTA_TEST_DATA}"
 
 # Generate a compose override that bind-mounts the shared directory
 # into the SSH container's home. This keeps docker-compose.yml clean.
-OVERRIDE="${SCRIPT_DIR}/docker-compose.override.yml"
+OVERRIDE="${SCRIPT_DIR}/docker-compose.testing.override.yml"
 cat > "${OVERRIDE}" <<OVEOF
 services:
   remote-host:

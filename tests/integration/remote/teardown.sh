@@ -8,7 +8,7 @@ echo "=== Tearing down mock remote host ==="
 
 # Stop and remove the container
 echo "Stopping container..."
-OVERRIDE="${SCRIPT_DIR}/docker-compose.override.yml"
+OVERRIDE="${SCRIPT_DIR}/docker-compose.testing.override.yml"
 if [ -f "${OVERRIDE}" ]; then
     docker compose -f "${SCRIPT_DIR}/docker-compose.yml" -f "${OVERRIDE}" down -v --remove-orphans 2>/dev/null || true
     rm -f "${OVERRIDE}"
