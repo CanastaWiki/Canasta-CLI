@@ -28,6 +28,14 @@ OVEOF
 echo "Building and starting container..."
 docker compose -f "${SCRIPT_DIR}/docker-compose.yml" -f "${OVERRIDE}" up -d --build
 
+# Create .ssh directory (the shared volume mount overwrites /home/testuser)
+docker exec "${CONTAINER_NAME}" bash -c \
+    "mkdir -p /home/testuser/.ssh && chmod 700 /home/testuser/.ssh && chown testuser:testuser /home/testuser/.ssh"
+
+# Create canasta config directory
+docker exec "${CONTAINER_NAME}" bash -c \
+    "mkdir -p /etc/canasta && chown testuser:testuser /etc/canasta"
+
 # Generate SSH key pair
 echo "Generating SSH key pair..."
 mkdir -p "${KEY_DIR}"
