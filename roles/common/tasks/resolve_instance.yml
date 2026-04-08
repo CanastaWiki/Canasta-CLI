@@ -11,6 +11,23 @@
 # Output: instance_id, instance_path, instance_orchestrator,
 #   instance_devmode, instance_managed_cluster
 
+# Save current connection state so we can restore after registry queries.
+# This is needed because resolve_instance may be called after
+# switch_connection.yml has set ansible_connection to ssh.
+- name: Save connection state before registry queries
+  ansible.builtin.set_fact:
+    _ri_saved_host: "{{ ansible_host | default('localhost') }}"
+    _ri_saved_conn: "{{ ansible_connection | default('local') }}"
+    _ri_saved_user: "{{ ansible_user | default('') }}"
+    _ri_saved_python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
+
+- name: Switch to local for registry queries
+  ansible.builtin.set_fact:
+    ansible_host: "localhost"
+    ansible_connection: "local"
+    ansible_user: ""
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
 # Step 1: Determine which ID to look up
 - name: Use provided ID
   ansible.builtin.set_fact:
@@ -20,29 +37,25 @@
 - name: Resolve ID from host (remote, no ID)
   when:
     - id is not defined or id == ''
-    - inventory_hostname != 'localhost'
+    - _ri_saved_host != 'localhost' or _ri_saved_conn == 'ssh'
   block:
     - name: Query instances on this host
       canasta_registry:
         state: query_all
-        filter_host: "{{ inventory_hostname }}"
-      delegate_to: localhost
-      vars:
-        ansible_connection: local
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+        filter_host: "{{ _ri_saved_host }}"
       register: _host_instances
 
     - name: Fail if no instances on this host
       ansible.builtin.fail:
         msg: >-
           No Canasta instances registered on
-          '{{ inventory_hostname }}'.
+          '{{ _ri_saved_host }}'.
       when: _host_instances.instances | length == 0
 
     - name: Fail if multiple instances on this host
       ansible.builtin.fail:
         msg: >-
-          Multiple instances on '{{ inventory_hostname }}'.
+          Multiple instances on '{{ _ri_saved_host }}'.
           Specify --id:
           {{ _host_instances.instances.keys()
              | list | join(', ') }}
@@ -50,24 +63,18 @@
 
     - name: Set auto-resolved ID
       ansible.builtin.set_fact:
-        _resolved_id: >-
-          {{ (_host_instances.instances
-              | dict2items | first).key }}
+        _resolved_id: "{{ (_host_instances.instances | dict2items | first).key }}"
       when: _host_instances.instances | length == 1
 
 - name: Resolve ID from working directory (localhost)
   when:
     - id is not defined or id == ''
-    - inventory_hostname == 'localhost'
+    - _ri_saved_host == 'localhost' and _ri_saved_conn != 'ssh'
   block:
     - name: Look up by PWD
       canasta_registry:
         path: "{{ lookup('env', 'PWD') }}"
         state: query_by_path
-      delegate_to: localhost
-      vars:
-        ansible_connection: local
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
       register: _pwd_lookup
 
     - name: Set PWD-resolved ID
@@ -79,15 +86,14 @@
   canasta_registry:
     id: "{{ _resolved_id }}"
     state: query
-  delegate_to: localhost
-  vars:
-    ansible_connection: local
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _instance_result
 
-- name: Debug registry result
-  ansible.builtin.debug:
-    msg: "Registry instance: {{ _instance_result.instance }}"
+- name: Restore connection state after registry queries
+  ansible.builtin.set_fact:
+    ansible_host: "{{ _ri_saved_host }}"
+    ansible_connection: "{{ _ri_saved_conn }}"
+    ansible_user: "{{ _ri_saved_user }}"
+    ansible_python_interpreter: "{{ _ri_saved_python }}"
 
 - name: Set instance facts
   ansible.builtin.set_fact:
