@@ -67,6 +67,16 @@ Use a .gz extension on the output path to get a gzip-compressed dump.`,
 				outputPath = wikiID + ".sql"
 			}
 
+			// Resolve relative paths against the current working directory,
+			// not the instance directory (docker compose cp uses chdir).
+			if !filepath.IsAbs(outputPath) {
+				cwd, err := os.Getwd()
+				if err != nil {
+					return fmt.Errorf("failed to get working directory: %w", err)
+				}
+				outputPath = filepath.Join(cwd, outputPath)
+			}
+
 			fmt.Printf("Exporting database for wiki '%s'...\n", wikiID)
 			if err := exportDatabase(instance, wikiID, outputPath); err != nil {
 				return err
