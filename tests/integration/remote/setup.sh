@@ -9,9 +9,24 @@ SSH_PORT=2222
 
 echo "=== Setting up mock remote host ==="
 
+# Create shared data directory on the host so sibling containers
+# (Canasta instances started via Docker socket) can bind-mount from it.
+export CANASTA_TEST_DATA="${CANASTA_TEST_DATA:-/tmp/canasta-test-data}"
+mkdir -p "${CANASTA_TEST_DATA}"
+
+# Generate a compose override that bind-mounts the shared directory
+# into the SSH container's home. This keeps docker-compose.yml clean.
+OVERRIDE="${SCRIPT_DIR}/docker-compose.override.yml"
+cat > "${OVERRIDE}" <<OVEOF
+services:
+  remote-host:
+    volumes:
+      - ${CANASTA_TEST_DATA}:/home/testuser
+OVEOF
+
 # Build and start the container
 echo "Building and starting container..."
-docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d --build
+docker compose -f "${SCRIPT_DIR}/docker-compose.yml" -f "${OVERRIDE}" up -d --build
 
 # Generate SSH key pair
 echo "Generating SSH key pair..."

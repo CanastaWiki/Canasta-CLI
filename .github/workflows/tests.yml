@@ -101,6 +101,8 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          .venv/bin/ansible-galaxy collection install kubernetes.core
 
       - name: Run remote integration tests
         run: tests/integration/remote/run_tests.sh
