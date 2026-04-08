@@ -1,0 +1,17 @@
+services:
+  remote-host:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: canasta-remote-test
+    ports:
+      - "2222:22"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - canasta-test
+    restart: unless-stopped
+
+networks:
+  canasta-test:
+    name: canasta-test

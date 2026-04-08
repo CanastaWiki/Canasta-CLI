@@ -77,8 +77,12 @@
                           - -c
                           - |
                             mkdir -p /currentsnapshot/config/backup
-                            for db in $(mariadb -h db -u root -p"$MYSQL_PASSWORD" -N -e "SHOW DATABASES" | grep -vE '^(information_schema|performance_schema|mysql|sys)$'); do
-                              mariadb-dump -h db -u root -p"$MYSQL_PASSWORD" --single-transaction --databases "$db" > "/currentsnapshot/config/backup/db_${db}.sql"
+                            EXCLUDE='^(information_schema|performance_schema|mysql|sys)$'
+                            for db in $(mariadb -h db -u root -p"$MYSQL_PASSWORD" \
+                              -N -e "SHOW DATABASES" | grep -vE "$EXCLUDE"); do
+                              mariadb-dump -h db -u root -p"$MYSQL_PASSWORD" \
+                                --single-transaction --databases "$db" \
+                                > "/currentsnapshot/config/backup/db_${db}.sql"
                             done
                         env:
                           - name: MYSQL_PASSWORD

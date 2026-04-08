@@ -17,3 +17,4 @@ docs/commands/*.md
 *.env
 admin-password_*
 values-configdata.yaml
+inventory/hosts.yml

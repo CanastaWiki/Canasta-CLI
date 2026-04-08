@@ -144,7 +144,8 @@
           {% set wikis = wikis_result.wikis | default([]) if dir_ok else [] %}
           {% set running = (_running_map | default({}))[inst.key] | default(false) %}
           {% set status = "running" if running else ("not found" if not dir_ok else "stopped") %}
-          {% set ns.lines = ns.lines + ["%-16s%-16s%s" % (inst.key, (inst.value.orchestrator | default('compose')) | upper, status | upper)] %}
+          {% set orch = (inst.value.orchestrator | default('compose')) | upper %}
+          {% set ns.lines = ns.lines + ["%-16s%-16s%s" % (inst.key, orch, status | upper)] %}
           {% set ns.lines = ns.lines + ["  " + inst.value.path] %}
           {% if wikis | length > 0 %}
           {% for w in wikis %}

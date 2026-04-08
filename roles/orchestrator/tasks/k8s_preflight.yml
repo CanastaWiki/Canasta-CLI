@@ -44,9 +44,16 @@
   when: _helm_check.rc != 0
 
 - name: Get node allocatable resources
+  vars:
+    _jp: >-
+      {range .items[*]}{.metadata.name}{"\t"}
+      {.status.allocatable.cpu}{"\t"}
+      {.status.allocatable.memory}{"\t"}
+      {.status.allocatable.ephemeral-storage}{"\n"}{end}
   ansible.builtin.command:
     cmd: >-
-      kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.allocatable.cpu}{"\t"}{.status.allocatable.memory}{"\t"}{.status.allocatable.ephemeral-storage}{"\n"}{end}'
+      kubectl get nodes
+      -o jsonpath='{{ _jp | regex_replace("\n\s*", "") }}'
   register: _node_resources
   changed_when: false
 

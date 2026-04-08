@@ -42,12 +42,29 @@
   register: _argocd_app
   ignore_errors: true
 
+- name: Set Argo CD resource shorthand
+  ansible.builtin.set_fact:
+    _argocd_res: >-
+      {{ _argocd_app.resources[0]
+         if _argocd_app.resources | default([]) | length > 0
+         else None }}
+
 - name: Parse Argo CD status
   ansible.builtin.set_fact:
-    _argocd_sync: "{{ (_argocd_app.resources[0].status.sync.status | default('Unknown')) if _argocd_app.resources | default([]) | length > 0 else 'Not registered' }}"
-    _argocd_health: "{{ (_argocd_app.resources[0].status.health.status | default('Unknown')) if _argocd_app.resources | default([]) | length > 0 else 'N/A' }}"
-    _argocd_last_sync: "{{ (_argocd_app.resources[0].status.operationState.finishedAt | default('never')) if _argocd_app.resources | default([]) | length > 0 else 'never' }}"
-    _argocd_revision: "{{ (_argocd_app.resources[0].status.sync.revision | default('unknown'))[0:7] if _argocd_app.resources | default([]) | length > 0 else 'unknown' }}"
+    _argocd_sync: >-
+      {{ (_argocd_res.status.sync.status | default('Unknown'))
+         if _argocd_res else 'Not registered' }}
+    _argocd_health: >-
+      {{ (_argocd_res.status.health.status | default('Unknown'))
+         if _argocd_res else 'N/A' }}
+    _argocd_last_sync: >-
+      {{ (_argocd_res.status.operationState.finishedAt
+          | default('never'))
+         if _argocd_res else 'never' }}
+    _argocd_revision: >-
+      {{ (_argocd_res.status.sync.revision
+          | default('unknown'))[0:7]
+         if _argocd_res else 'unknown' }}
 
 - name: Display status
   ansible.builtin.debug:

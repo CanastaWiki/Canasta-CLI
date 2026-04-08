@@ -98,10 +98,21 @@
       ansible.builtin.set_fact:
         _upgrade_values: "{{ _upgrade_values_raw.content | b64decode | from_yaml }}"
 
+    - name: Build updated values
+      ansible.builtin.set_fact:
+        _upgrade_new_values: >-
+          {{ _upgrade_values | combine({
+            'image': {
+              'repository': _upgrade_values.image.repository
+                | default('ghcr.io/canastawiki/canasta'),
+              'tag': canasta_default_image
+                | regex_replace('^[^:]+:', '')
+            }
+          }, recursive=True) }}
+
     - name: Write updated values.yaml
       ansible.builtin.copy:
-        content: >-
-          {{ _upgrade_values | combine({'image': {'repository': _upgrade_values.image.repository | default('ghcr.io/canastawiki/canasta'), 'tag': canasta_default_image | regex_replace('^[^:]+:', '')}}, recursive=True) | to_nice_yaml }}
+        content: "{{ _upgrade_new_values | to_nice_yaml }}"
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
 
