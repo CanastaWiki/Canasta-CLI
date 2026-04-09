@@ -39,10 +39,16 @@
 - name: Build instance list with wiki details
   when: _all_instances.instances | length > 0
   block:
+    - name: Build SSH args from config
+      ansible.builtin.set_fact:
+        _ssh_extra: >-
+          {{ lookup('env', 'ANSIBLE_SSH_ARGS')
+             | default('-o StrictHostKeyChecking=accept-new', true) }}
+
     - name: Check instance directories exist
       ansible.builtin.command:
         cmd: >-
-          {{ 'ssh -o StrictHostKeyChecking=accept-new '
+          {{ 'ssh ' + _ssh_extra + ' '
              + (item.value.host | default('localhost'))
              + ' test -d ' + (item.value.path | quote)
              if (item.value.host | default('localhost')) != 'localhost'
@@ -65,7 +71,7 @@
     - name: Read wikis for each instance
       ansible.builtin.command:
         cmd: >-
-          {{ 'ssh -o StrictHostKeyChecking=accept-new '
+          {{ 'ssh ' + _ssh_extra + ' '
              + (item.value.host | default('localhost'))
              + ' cat ' + (item.value.path | quote) + '/config/wikis.yaml'
              if (item.value.host | default('localhost')) != 'localhost'
@@ -93,7 +99,7 @@
     - name: Check running status for each instance
       ansible.builtin.command:
         cmd: >-
-          {{ 'ssh -o StrictHostKeyChecking=accept-new '
+          {{ 'ssh ' + _ssh_extra + ' '
              + (item.value.host | default('localhost'))
              + ' "cd ' + (item.value.path | quote)
              + ' && docker compose ps -q web"'
