@@ -39,28 +39,95 @@ jobs:
       - name: Validate command definitions
         run: .venv/bin/python scripts/validate_definitions.py
 
-  integration:
-    name: Integration Tests
+  integration-core:
+    name: "Integration: Core Lifecycle"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          .venv/bin/ansible-galaxy collection install kubernetes.core
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      - name: Run core tests
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          lifecycle import upgrade
+        timeout-minutes: 20
 
+  integration-features:
+    name: "Integration: Features"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          .venv/bin/ansible-galaxy collection install kubernetes.core
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      - name: Run feature tests
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          extension-skin wiki-farm backup backup-advanced
+        timeout-minutes: 20
+
+  integration-gitops:
+    name: "Integration: GitOps"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          .venv/bin/ansible-galaxy collection install kubernetes.core
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      - name: Run gitops tests
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          gitops
+        timeout-minutes: 15
+
+  integration-k8s:
+    name: "Integration: Kubernetes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git-crypt
-
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
           version: v3.20.1
-
       - name: Install k3s
         run: |
           curl -sfL https://get.k3s.io | sudo sh -
@@ -68,22 +135,19 @@ jobs:
           sudo k3s kubectl config view --raw > ~/.kube/config
           chmod 600 ~/.kube/config
           kubectl cluster-info
-
       - name: Install Python dependencies
         run: |
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install kubernetes
           .venv/bin/ansible-galaxy collection install kubernetes.core
-
-      - name: Configure git for CI
-        run: |
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
-
-      - name: Run integration tests
-        run: .venv/bin/python tests/integration/run_tests.py
-        timeout-minutes: 25
+      - name: Run K8s tests
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          k8s-lifecycle
+        timeout-minutes: 20
 
   remote-integration:
     name: Remote Host Integration Tests
