@@ -83,5 +83,6 @@
     msg: >-
       Canasta CLI
       v{{ _version_file.content | b64decode | trim }}
-      (commit {{ _version_commit | default('unknown') }},
+      ({{ 'docker' if _build_commit_file.stat.exists else 'native' }},
+      commit {{ _version_commit | default('unknown') }},
       built {{ _version_date | default('unknown') }})
