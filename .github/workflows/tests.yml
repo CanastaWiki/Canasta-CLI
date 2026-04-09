@@ -53,6 +53,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y git-crypt
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          .venv/bin/ansible-galaxy collection install kubernetes.core
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
       - name: Run core tests
@@ -75,6 +77,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y git-crypt
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          .venv/bin/ansible-galaxy collection install kubernetes.core
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
       - name: Run feature tests
@@ -97,6 +101,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y git-crypt
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          .venv/bin/ansible-galaxy collection install kubernetes.core
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
       - name: Run gitops tests
