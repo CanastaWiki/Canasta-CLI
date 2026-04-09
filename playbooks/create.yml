@@ -5,6 +5,22 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml"
   when: wiki is defined and wiki != ''
 
+- name: Check instance does not already exist
+  canasta_registry:
+    id: "{{ id }}"
+    state: query
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  register: _pre_check
+  ignore_errors: true
+
+- name: Fail early if instance already exists
+  ansible.builtin.fail:
+    msg: "Instance '{{ id }}' already exists at {{ _pre_check.instance.path }}"
+  when: _pre_check is succeeded
+
 - name: Create Canasta instance
   block:
     - name: Run create role
