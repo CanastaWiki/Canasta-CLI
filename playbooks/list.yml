@@ -55,11 +55,10 @@
       ignore_errors: true
 
     - name: Build directory existence map
+      vars:
+        _exists: "{{ item.stat.exists | default(false) }}"
       ansible.builtin.set_fact:
-        _dir_exists: >-
-          {{ _dir_exists | default({}) | combine({
-            item.item.key: item.stat.exists | default(false)
-          }) }}
+        _dir_exists: "{{ _dir_exists | default({}) | combine({item.item.key: _exists}) }}"
       loop: "{{ _list_dir_checks.results }}"
       loop_control:
         label: "{{ item.item.key | default('?') }}"
@@ -130,14 +129,13 @@
              | selectattr('item', 'defined') | list }}
 
     - name: Build running status map
+      vars:
+        _is_running: >-
+          {{ item.rc == 0
+             and item.stdout | default('') | trim | length > 0
+             and item.stdout | trim != '0' }}
       ansible.builtin.set_fact:
-        _running_map: >-
-          {{ _running_map | default({}) | combine({
-            item.item.key:
-              (item.rc == 0
-               and item.stdout | default('') | trim | length > 0
-               and item.stdout | trim != '0')
-          }) }}
+        _running_map: "{{ _running_map | default({}) | combine({item.item.key: _is_running}) }}"
       loop: "{{ _all_running_results }}"
       loop_control:
         label: "{{ item.item.key | default('?') }}"
