@@ -58,12 +58,12 @@
       ansible.builtin.set_fact:
         _dir_exists: >-
           {{ _dir_exists | default({}) | combine({
-            item.item.key: (item.stat.exists | default(false))
+            item.item.key: item.stat.exists | default(false)
           }) }}
       loop: "{{ _list_dir_checks.results }}"
       loop_control:
         label: "{{ item.item.key | default('?') }}"
-      when: item is not skipped and item is not failed
+      when: item is not skipped
 
     - name: Read wikis for each instance
       canasta_wikis_yaml:
@@ -122,15 +122,23 @@
       ignore_errors: true
       when: item.value.orchestrator | default('compose') in ['kubernetes', 'k8s']
 
+    - name: Combine running status results
+      ansible.builtin.set_fact:
+        _all_running_results: >-
+          {{ (_list_running_results.results | default([])
+              + _list_k8s_running_results.results | default([]))
+             | selectattr('item', 'defined') | list }}
+
     - name: Build running status map
       ansible.builtin.set_fact:
         _running_map: >-
           {{ _running_map | default({}) | combine({
-            item.item.key: (item.rc == 0 and item.stdout | default('') | trim | length > 0 and item.stdout | trim != '0')
+            item.item.key:
+              (item.rc == 0
+               and item.stdout | default('') | trim | length > 0
+               and item.stdout | trim != '0')
           }) }}
-      loop: >-
-        {{ (_list_running_results.results | default([]) + _list_k8s_running_results.results | default([]))
-           | selectattr('item', 'defined') | list }}
+      loop: "{{ _all_running_results }}"
       loop_control:
         label: "{{ item.item.key | default('?') }}"
       when: item is not skipped
