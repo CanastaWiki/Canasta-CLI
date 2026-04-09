@@ -235,6 +235,12 @@ def test_lifecycle(inst):
     print("Listing instances...")
     output = inst.run_quiet("list")
     assert inst.id in output, "Instance not in list output"
+    assert "NOT FOUND" not in output, (
+        "Instance shows NOT FOUND instead of running status:\n%s" % output
+    )
+    assert "RUNNING" in output, (
+        "Instance should show RUNNING status:\n%s" % output
+    )
 
 
 def test_import_export(inst):

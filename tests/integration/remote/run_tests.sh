@@ -100,13 +100,17 @@ else
 fi
 echo ""
 
-# --- Test 2: List (verify instance appears) ---
-echo "Test 2: canasta list (instance should appear)"
+# --- Test 2: List (verify instance appears with correct status) ---
+echo "Test 2: canasta list (instance should appear as RUNNING)"
 LIST_OUTPUT=$(canasta list 2>&1) || true
-if echo "${LIST_OUTPUT}" | grep -q "${INSTANCE_ID}"; then
-    pass "list shows remote instance"
+if ! echo "${LIST_OUTPUT}" | grep -q "${INSTANCE_ID}"; then
+    fail "list doesn't show remote instance (output: ${LIST_OUTPUT})"
+elif echo "${LIST_OUTPUT}" | grep -q "NOT FOUND"; then
+    fail "list shows NOT FOUND instead of RUNNING (output: ${LIST_OUTPUT})"
+elif echo "${LIST_OUTPUT}" | grep -q "RUNNING"; then
+    pass "list shows remote instance as RUNNING"
 else
-    fail "list shows remote instance (output: ${LIST_OUTPUT})"
+    fail "list shows unexpected status (output: ${LIST_OUTPUT})"
 fi
 echo ""
 
