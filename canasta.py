@@ -307,7 +307,12 @@ def handle_interactive_exec(args):
                 " ".join(shlex.quote(a) for a in docker_cmd),
             )
             try:
-                ssh_args = ["ssh", "-t", host, remote_cmd]
+                ssh_args = ["ssh", "-t"]
+                # Include any custom SSH args (e.g. from ANSIBLE_SSH_ARGS)
+                extra_ssh = os.environ.get("ANSIBLE_SSH_ARGS", "")
+                if extra_ssh:
+                    ssh_args.extend(extra_ssh.split())
+                ssh_args.extend([host, remote_cmd])
                 os.execvp("ssh", ssh_args)
             except FileNotFoundError:
                 print("Error: ssh not found on PATH", file=sys.stderr)
