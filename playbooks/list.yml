@@ -40,61 +40,73 @@
   when: _all_instances.instances | length > 0
   block:
     - name: Check instance directories exist
-      ansible.builtin.stat:
-        path: "{{ item.value.path }}"
+      ansible.builtin.command:
+        cmd: >-
+          {{ 'ssh -o StrictHostKeyChecking=accept-new '
+             + (item.value.host | default('localhost'))
+             + ' test -d ' + (item.value.path | quote)
+             if (item.value.host | default('localhost')) != 'localhost'
+             else 'test -d ' + (item.value.path | quote) }}
       register: _list_dir_checks
       loop: >-
         {{ _all_instances.instances | dict2items }}
       loop_control:
         label: "{{ item.key }}"
-      delegate_to: "{{ (item.value.host | default('localhost')).split('@') | last }}"
-      vars:
-        ansible_connection: "{{ 'ssh' if (item.value.host | default('localhost')) != 'localhost' else 'local' }}"
-        ansible_user: "{{ (item.value.host | default('')).split('@')[0] if '@' in (item.value.host | default('')) else omit }}"
-        ansible_python_interpreter: "{{ 'auto' if (item.value.host | default('localhost')) != 'localhost' else ansible_playbook_python }}"
+      changed_when: false
       ignore_errors: true
 
     - name: Build directory existence map
-      vars:
-        _exists: "{{ item.stat.exists | default(false) }}"
       ansible.builtin.set_fact:
-        _dir_exists: "{{ _dir_exists | default({}) | combine({item.item.key: _exists}) }}"
+        _dir_exists: "{{ _dir_exists | default({}) | combine({item.item.key: (item.rc == 0)}) }}"
       loop: "{{ _list_dir_checks.results }}"
       loop_control:
         label: "{{ item.item.key | default('?') }}"
-      when: item is not skipped
 
     - name: Read wikis for each instance
-      canasta_wikis_yaml:
-        instance_path: "{{ item.value.path }}"
-        state: read
-      register: _list_wikis
+      ansible.builtin.command:
+        cmd: >-
+          {{ 'ssh -o StrictHostKeyChecking=accept-new '
+             + (item.value.host | default('localhost'))
+             + ' cat ' + (item.value.path | quote) + '/config/wikis.yaml'
+             if (item.value.host | default('localhost')) != 'localhost'
+             else 'cat ' + (item.value.path | quote) + '/config/wikis.yaml' }}
+      register: _list_wikis_raw
       loop: >-
         {{ _all_instances.instances | dict2items }}
       loop_control:
         label: "{{ item.key }}"
-      delegate_to: "{{ (item.value.host | default('localhost')).split('@') | last }}"
-      vars:
-        ansible_connection: "{{ 'ssh' if (item.value.host | default('localhost')) != 'localhost' else 'local' }}"
-        ansible_user: "{{ (item.value.host | default('')).split('@')[0] if '@' in (item.value.host | default('')) else omit }}"
-        ansible_python_interpreter: "{{ 'auto' if (item.value.host | default('localhost')) != 'localhost' else ansible_playbook_python }}"
+      changed_when: false
       ignore_errors: true
       when: (_dir_exists | default({}))[item.key] | default(false)
 
+    - name: Parse wikis from YAML output
+      ansible.builtin.set_fact:
+        _list_wikis_map: >-
+          {{ _list_wikis_map | default({}) | combine({
+            item.item.key: (item.stdout | from_yaml).wikis | default([])
+          }) }}
+      loop: "{{ _list_wikis_raw.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.key | default('?') }}"
+      when: item is not skipped and item.rc == 0
+
     - name: Check running status for each instance
       ansible.builtin.command:
-        cmd: "docker compose ps -q web"
-        chdir: "{{ item.value.path }}"
+        cmd: >-
+          {{ 'ssh -o StrictHostKeyChecking=accept-new '
+             + (item.value.host | default('localhost'))
+             + ' "cd ' + (item.value.path | quote)
+             + ' && docker compose ps -q web"'
+             if (item.value.host | default('localhost')) != 'localhost'
+             else 'docker compose ps -q web' }}
+        chdir: "{{ item.value.path
+                   if (item.value.host | default('localhost')) == 'localhost'
+                   else omit }}"
       register: _list_running_results
       loop: >-
         {{ _all_instances.instances | dict2items }}
       loop_control:
         label: "{{ item.key }}"
-      delegate_to: "{{ (item.value.host | default('localhost')).split('@') | last }}"
-      vars:
-        ansible_connection: "{{ 'ssh' if (item.value.host | default('localhost')) != 'localhost' else 'local' }}"
-        ansible_user: "{{ (item.value.host | default('')).split('@')[0] if '@' in (item.value.host | default('')) else omit }}"
-        ansible_python_interpreter: "{{ 'auto' if (item.value.host | default('localhost')) != 'localhost' else ansible_playbook_python }}"
       changed_when: false
       ignore_errors: true
       when:
@@ -112,14 +124,11 @@
         {{ _all_instances.instances | dict2items }}
       loop_control:
         label: "{{ item.key }}"
-      delegate_to: "{{ (item.value.host | default('localhost')).split('@') | last }}"
-      vars:
-        ansible_connection: "{{ 'ssh' if (item.value.host | default('localhost')) != 'localhost' else 'local' }}"
-        ansible_user: "{{ (item.value.host | default('')).split('@')[0] if '@' in (item.value.host | default('')) else omit }}"
-        ansible_python_interpreter: "{{ 'auto' if (item.value.host | default('localhost')) != 'localhost' else ansible_playbook_python }}"
       changed_when: false
       ignore_errors: true
-      when: item.value.orchestrator | default('compose') in ['kubernetes', 'k8s']
+      when: >-
+        item.value.orchestrator | default('compose')
+        in ['kubernetes', 'k8s']
 
     - name: Combine running status results
       ansible.builtin.set_fact:
@@ -152,8 +161,7 @@
           {% for inst_item in _all_instances.instances | dict2items %}
           {% set inst = inst_item %}
           {% set dir_ok = (_dir_exists | default({}))[inst.key] | default(false) %}
-          {% set wikis_result = _list_wikis.results | selectattr('item.key', 'equalto', inst.key) | list | first | default({}) %}
-          {% set wikis = wikis_result.wikis | default([]) if dir_ok else [] %}
+          {% set wikis = (_list_wikis_map | default({}))[inst.key] | default([]) %}
           {% set running = (_running_map | default({}))[inst.key] | default(false) %}
           {% set status = "running" if running else ("not found" if not dir_ok else "stopped") %}
           {% set orch = (inst.value.orchestrator | default('compose')) | upper %}
