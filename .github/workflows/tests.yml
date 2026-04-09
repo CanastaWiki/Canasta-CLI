@@ -84,7 +84,7 @@ jobs:
       - name: Run feature tests
         run: >-
           .venv/bin/python tests/integration/run_tests.py
-          extension-skin wiki-farm backup backup-advanced
+          extension-skin wiki-farm config-side-effects backup backup-advanced
         timeout-minutes: 20
 
   integration-gitops:
@@ -108,7 +108,7 @@ jobs:
       - name: Run gitops tests
         run: >-
           .venv/bin/python tests/integration/run_tests.py
-          gitops
+          gitops gitops-pull-diff
         timeout-minutes: 15
 
   integration-k8s:

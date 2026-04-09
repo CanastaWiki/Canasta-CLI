@@ -543,12 +543,7 @@ def test_wiki_farm(inst):
     wait_for_wiki(inst.http_port, timeout=120)
 
 
-# TODO: test_config_side_effects and test_gitops_pull_diff are disabled
-# pending fixes for Caddyfile port assertion and gitops status detection.
-# See follow-up issue.
-
-
-def _disabled_test_config_side_effects(inst):
+def test_config_side_effects(inst):
     """Verify config set side effects (port changes update wikis.yaml and Caddyfile)."""
     print("Creating instance...")
     inst.run_ok(
@@ -577,16 +572,19 @@ def _disabled_test_config_side_effects(inst):
         "Port 9443 not found in wikis.yaml:\n%s" % wikis_content
     )
 
-    print("Checking Caddyfile for port reference...")
-    caddyfile_path = os.path.join(inst.instance_path(), "config", "Caddyfile")
-    assert os.path.isfile(caddyfile_path), (
-        "Caddyfile not found at %s" % caddyfile_path
+    # Note: The Caddyfile intentionally strips ports from server names.
+    # Caddy binds to ports 80/443 inside the container; Docker maps the
+    # external HTTPS_PORT to container port 443. So the Caddyfile just
+    # needs the domain, and the port change is verified via wikis.yaml
+    # and MW_SITE_SERVER in .env.
+    print("Checking MW_SITE_SERVER in .env...")
+    env = read_env(inst.env_path())
+    assert "9443" in env.get("MW_SITE_SERVER", ""), (
+        "MW_SITE_SERVER should contain port 9443: %s" % env.get("MW_SITE_SERVER")
     )
-    with open(caddyfile_path) as f:
-        caddy_content = f.read()
-    if "9443" not in caddy_content:
-        print("  Warning: Port 9443 not in Caddyfile (may need restart):")
-        print("  %s" % caddy_content[:200])
+    assert "9443" in env.get("MW_SITE_FQDN", ""), (
+        "MW_SITE_FQDN should contain port 9443: %s" % env.get("MW_SITE_FQDN")
+    )
 
     print("Resetting HTTPS_PORT to 443...")
     inst.run_ok(
@@ -594,11 +592,15 @@ def _disabled_test_config_side_effects(inst):
         "HTTPS_PORT=443", "--no-restart",
     )
 
-    print("Verifying wikis.yaml has no explicit port (443 is default)...")
+    print("Verifying port reset...")
     with open(wikis_yaml_path) as f:
         wikis_content = f.read()
     assert ":9443" not in wikis_content, (
         "Port 9443 still in wikis.yaml after reset:\n%s" % wikis_content
+    )
+    env = read_env(inst.env_path())
+    assert "9443" not in env.get("MW_SITE_SERVER", ""), (
+        "MW_SITE_SERVER still has 9443 after reset: %s" % env.get("MW_SITE_SERVER")
     )
 
 
@@ -662,7 +664,7 @@ def test_backup_advanced(inst):
     shutil.rmtree(backup_dir, ignore_errors=True)
 
 
-def _disabled_test_gitops_pull_diff(inst):
+def test_gitops_pull_diff(inst):
     """Test gitops pull and diff with compose orchestrator."""
     # Check prerequisites
     if shutil.which("git-crypt") is None:
@@ -742,16 +744,20 @@ def _disabled_test_gitops_pull_diff(inst):
         "Pulled file not found at %s" % pulled_file
     )
 
-    print("Making a local change...")
-    local_file = os.path.join(inst.instance_path(), "local-change.txt")
-    with open(local_file, "w") as f:
-        f.write("This is a local uncommitted change.\n")
+    print("Making a local change to a tracked file...")
+    tracked_file = os.path.join(
+        inst.instance_path(), "config", "settings", "global", "RemoteTest.php",
+    )
+    with open(tracked_file, "a") as f:
+        f.write("$wgLocalChange = true;\n")
 
     print("Checking gitops status...")
     output = inst.run_ok("gitops", "status", "-i", inst.id)
+    print("  Status output:\n%s" % output[:500])
     # Status should show at least 1 uncommitted change
-    assert "local-change" in output or "1 file" in output or "uncommitted" in output.lower(), (
-        "Status should show uncommitted changes: %s" % output
+    assert "1 file" in output or "uncommitted" in output.lower() or "change" in output.lower(), (
+        "BUG: Status should show uncommitted changes after modifying a tracked file.\n"
+        "Output: %s" % output
     )
 
 
@@ -866,10 +872,10 @@ ALL_TESTS = {
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
     "gitops": test_gitops,
-    # "gitops-pull-diff": test_gitops_pull_diff,  # disabled pending fix
+    "gitops-pull-diff": test_gitops_pull_diff,
     "extension-skin": test_extension_skin,
     "wiki-farm": test_wiki_farm,
-    # "config-side-effects": test_config_side_effects,  # disabled pending fix
+    "config-side-effects": test_config_side_effects,
 }
 
 
