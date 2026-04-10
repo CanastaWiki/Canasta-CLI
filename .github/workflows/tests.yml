@@ -90,13 +90,13 @@ jobs:
       - name: Run core tests
         run: >-
           .venv/bin/python tests/integration/run_tests.py
-          lifecycle import upgrade
+          lifecycle import upgrade version doctor host-management
         timeout-minutes: 20
 
   integration-features:
     name: "Integration: Features"
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -115,7 +115,8 @@ jobs:
         run: >-
           .venv/bin/python tests/integration/run_tests.py
           extension-skin wiki-farm config-side-effects backup backup-advanced
-        timeout-minutes: 20
+          devmode sitemap maintenance
+        timeout-minutes: 30
 
   integration-gitops:
     name: "Integration: GitOps"
