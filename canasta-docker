@@ -281,6 +281,22 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
                 continue
             fi
             ;;
+        --envfile|-e)
+            if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                ENVFILE_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
+                NEW_ARGS+=("$arg" "$ENVFILE_ABS")
+                ENVFILE_DIR="$(dirname -- "$ENVFILE_ABS")"
+                CWD="$(pwd)"
+                case "$ENVFILE_DIR" in
+                    "$CWD"/*|"$CWD") ;; # Already covered
+                    *)
+                        MOUNTS+=(-v "$ENVFILE_DIR":"$ENVFILE_DIR":ro)
+                        ;;
+                esac
+                i=$((i+2))
+                continue
+            fi
+            ;;
     esac
     NEW_ARGS+=("$arg")
     i=$((i+1))
