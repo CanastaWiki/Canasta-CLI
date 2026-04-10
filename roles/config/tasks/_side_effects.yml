@@ -17,47 +17,67 @@
     - _config_value | regex_search('^[0-9]+$') is not none
     - _config_value | int < 1 or _config_value | int > 65535
 
-- name: Apply HTTPS_PORT side effects
-  when: _config_key == 'HTTPS_PORT'
+- name: Apply HTTP_PORT/HTTPS_PORT side effects
+  when: _config_key in ['HTTP_PORT', 'HTTPS_PORT']
   block:
-    - name: Read wikis.yaml for port update
-      canasta_wikis_yaml:
-        instance_path: "{{ instance_path }}"
+    - name: Read CADDY_AUTO_HTTPS to determine active scheme
+      canasta_env:
+        path: "{{ instance_path }}/.env"
         state: read
-      register: _se_wikis
+        key: CADDY_AUTO_HTTPS
+      register: _se_caddy_auto_https
 
-    - name: Extract domain (strip path and existing port)
+    - name: Determine active port key for this instance
       ansible.builtin.set_fact:
-        _base_domain: "{{ _se_wikis.wikis[0].url | regex_replace('/.*$', '') | regex_replace(':[0-9]+$', '') }}"
-      when: _se_wikis.wikis | length > 0
+        _active_port_key: "{{ (_se_caddy_auto_https.value | default('on') | lower == 'off') | ternary('HTTP_PORT', 'HTTPS_PORT') }}"
+        _active_scheme: "{{ (_se_caddy_auto_https.value | default('on') | lower == 'off') | ternary('http', 'https') }}"
+        _default_port: "{{ (_se_caddy_auto_https.value | default('on') | lower == 'off') | ternary('80', '443') }}"
 
-    - name: Compute new domain suffix
-      ansible.builtin.set_fact:
-        _port_suffix: "{{ (_config_value == '443') | ternary('', ':' + _config_value) }}"
-      when: _se_wikis.wikis | length > 0
+    # Only the "active" port (HTTP_PORT when http-only, HTTPS_PORT otherwise)
+    # is reflected in wikis.yaml and MW_SITE_*. Changing the inactive port
+    # only affects docker port mappings.
+    - name: Apply wikis.yaml/.env updates for active port
+      when: _config_key == _active_port_key
+      block:
+        - name: Read wikis.yaml for port update
+          canasta_wikis_yaml:
+            instance_path: "{{ instance_path }}"
+            state: read
+          register: _se_wikis
 
-    - name: Update wikis.yaml URLs with new port
-      canasta_wikis_yaml:
-        instance_path: "{{ instance_path }}"
-        state: update_port
-        port: "{{ _config_value }}"
-      when: _se_wikis.wikis | length > 0
+        - name: Extract domain (strip path and existing port)
+          ansible.builtin.set_fact:
+            _base_domain: "{{ _se_wikis.wikis[0].url | regex_replace('/.*$', '') | regex_replace(':[0-9]+$', '') }}"
+          when: _se_wikis.wikis | length > 0
 
-    - name: Update MW_SITE_SERVER with new port
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: set
-        key: MW_SITE_SERVER
-        value: "https://{{ _base_domain }}{{ _port_suffix }}"
-      when: _se_wikis.wikis | length > 0
+        - name: Compute new domain suffix
+          ansible.builtin.set_fact:
+            _port_suffix: "{{ (_config_value == _default_port) | ternary('', ':' + _config_value) }}"
+          when: _se_wikis.wikis | length > 0
 
-    - name: Update MW_SITE_FQDN with new port (domain only, no scheme)
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: set
-        key: MW_SITE_FQDN
-        value: "{{ _base_domain }}{{ _port_suffix }}"
-      when: _se_wikis.wikis | length > 0
+        - name: Update wikis.yaml URLs with new port
+          canasta_wikis_yaml:
+            instance_path: "{{ instance_path }}"
+            state: update_port
+            port: "{{ _config_value }}"
+            default_port: "{{ _default_port }}"
+          when: _se_wikis.wikis | length > 0
+
+        - name: Update MW_SITE_SERVER with new port
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: set
+            key: MW_SITE_SERVER
+            value: "{{ _active_scheme }}://{{ _base_domain }}{{ _port_suffix }}"
+          when: _se_wikis.wikis | length > 0
+
+        - name: Update MW_SITE_FQDN with new port (domain only, no scheme)
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: set
+            key: MW_SITE_FQDN
+            value: "{{ _base_domain }}{{ _port_suffix }}"
+          when: _se_wikis.wikis | length > 0
 
 # Kubernetes port changes: Ingress handles port routing, no cluster
 # recreation needed. The change takes effect on next helm upgrade.

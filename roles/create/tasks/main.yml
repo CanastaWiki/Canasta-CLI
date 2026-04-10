@@ -206,13 +206,23 @@
     state: read_all
   register: _env_for_port
 
-- name: Build domain with port (matches Go BuildDomainWithPort)
+- name: Determine which port (if any) to append to the domain
+  ansible.builtin.set_fact:
+    _http_only: "{{ _env_for_port.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off' }}"
+    _https_port: "{{ _env_for_port.variables.HTTPS_PORT | default('443') }}"
+    _http_port: "{{ _env_for_port.variables.HTTP_PORT | default('80') }}"
+
+- name: Build domain with port
+  # When CADDY_AUTO_HTTPS=off, append HTTP_PORT (if non-standard).
+  # Otherwise, append HTTPS_PORT (if non-standard).
   ansible.builtin.set_fact:
     _domain_with_port: >-
       {{ domain_name | default('localhost') }}{{
-        (_env_for_port.variables.CADDY_AUTO_HTTPS | default('on') | lower != 'off'
-         and _env_for_port.variables.HTTPS_PORT | default('443') not in ['443', ''])
-        | ternary(':' ~ _env_for_port.variables.HTTPS_PORT | default('443'), '') }}
+        _http_only
+        | ternary(
+            (_http_port not in ['80', '']) | ternary(':' ~ _http_port, ''),
+            (_https_port not in ['443', '']) | ternary(':' ~ _https_port, '')
+          ) }}
 
 # --- Step 8: Create wikis.yaml ---
 - name: Copy user-provided wikis.yaml

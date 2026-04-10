@@ -109,11 +109,11 @@ def parse_url(url):
     return server, path
 
 
-def update_url_port(url, new_port):
-    """Update the port in a wiki URL. Matches Go updateURLPort().
+def update_url_port(url, new_port, default_port="443"):
+    """Update the port in a wiki URL.
 
-    Strips existing port, adds new port unless it's 443.
-    Preserves path component.
+    Strips existing port, adds new port unless it equals default_port.
+    Preserves path component. default_port is "443" for HTTPS or "80" for HTTP.
     """
     domain = url
     path = ""
@@ -127,8 +127,8 @@ def update_url_port(url, new_port):
     if colon_idx != -1:
         domain = domain[:colon_idx]
 
-    # Add new port unless standard HTTPS
-    if new_port != "443":
+    # Add new port unless it's the default for the scheme
+    if new_port != default_port:
         domain = "%s:%s" % (domain, new_port)
 
     return domain + path
@@ -186,6 +186,7 @@ def run_module():
         wiki_path=dict(type="str", required=False),
         site_name=dict(type="str", required=False),
         port=dict(type="str", required=False),
+        default_port=dict(type="str", required=False, default="443"),
     )
 
     module = AnsibleModule(
@@ -200,6 +201,7 @@ def run_module():
     wiki_path = module.params.get("wiki_path")
     site_name = module.params.get("site_name")
     port = module.params.get("port")
+    default_port = module.params.get("default_port") or "443"
 
     result = {"changed": False}
 
@@ -289,7 +291,7 @@ def run_module():
         updated = []
         for w in wikis:
             w = dict(w)
-            w["url"] = update_url_port(w.get("url", ""), port)
+            w["url"] = update_url_port(w.get("url", ""), port, default_port)
             updated.append(w)
         if not module.check_mode:
             write_wikis(instance_path, updated)
