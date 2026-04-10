@@ -97,13 +97,23 @@ class TestDockerHostOverride:
 class TestBuildFromMount:
     """--build-from path should be auto-mounted into the container."""
 
-    def test_build_from_outside_cwd_is_mounted_ro(self, tmp_path):
-        build_dir = tmp_path / "canasta-build"
-        build_dir.mkdir()
-        argv, _ = run_dry(
-            ["create", "-i", "x", "-w", "main", "--build-from", str(build_dir)],
-        )
-        assert_volume_mount(argv, str(build_dir), str(build_dir), ro=True)
+    def test_build_from_outside_cwd_is_mounted_ro(self, short_tmp):
+        # Use two non-overlapping short_tmp dirs so the wrapper's
+        # "build path is already inside cwd" check doesn't fire.
+        # (On Linux CI, pytest's tmp_path lives under /tmp, so using
+        # the default cwd=/tmp would suppress the redundant mount.)
+        cwd_dir = tempfile.mkdtemp(prefix="cd-cwd-", dir="/tmp")
+        try:
+            build_dir = os.path.join(short_tmp, "canasta-build")
+            os.makedirs(build_dir)
+            argv, _ = run_dry(
+                ["create", "-i", "x", "-w", "main",
+                 "--build-from", build_dir],
+                cwd=cwd_dir,
+            )
+            assert_volume_mount(argv, build_dir, build_dir, ro=True)
+        finally:
+            shutil.rmtree(cwd_dir, ignore_errors=True)
 
     def test_build_from_relative_path_resolved_to_absolute(self, tmp_path):
         build_dir = tmp_path / "canasta-build"
