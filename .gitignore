@@ -12,6 +12,8 @@ venv/
 docs/commands/*.md
 !docs/commands/.gitkeep
 .coverage
+coverage.xml
+htmlcov/
 
 # Instance data (never commit credentials or test instances)
 *.env
