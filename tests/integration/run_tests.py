@@ -151,7 +151,10 @@ def wait_for_wiki_at_path(http_port, api_path="/w/api.php", timeout=300):
         elapsed = int(time.time() + timeout - deadline)
         try:
             req = urllib.request.Request(api_url)
-            req.add_header("Host", "localhost")
+            # Match the URL stored in wikis.yaml so FarmConfigLoader routes
+            # correctly. Tests use non-standard HTTP_PORT with
+            # CADDY_AUTO_HTTPS=off, so wikis.yaml stores localhost:<port>.
+            req.add_header("Host", "localhost:%s" % http_port)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read())
                 if "query" in data:
@@ -188,7 +191,7 @@ def query_siteinfo(http_port, siprop, api_path="/w/api.php"):
         % (http_port, api_path, siprop)
     )
     req = urllib.request.Request(api_url)
-    req.add_header("Host", "localhost")
+    req.add_header("Host", "localhost:%s" % http_port)
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read())
 
@@ -550,7 +553,7 @@ def test_wiki_farm(inst):
 
 
 def test_config_side_effects(inst):
-    """Verify config set side effects (port changes update wikis.yaml and Caddyfile)."""
+    """Verify config set side effects (port changes update wikis.yaml and .env)."""
     print("Creating instance...")
     inst.run_ok(
         "create", "-i", inst.id, "-w", "main",
@@ -559,13 +562,16 @@ def test_config_side_effects(inst):
     )
     wait_for_wiki(inst.http_port)
 
-    print("Setting HTTPS_PORT to 9443...")
+    # Test instance uses CADDY_AUTO_HTTPS=off, so HTTP_PORT is the active
+    # port (the one reflected in wikis.yaml and MW_SITE_SERVER).
+    new_http_port = "9080"
+    print("Setting HTTP_PORT to %s..." % new_http_port)
     inst.run_ok(
         "config", "set", "-i", inst.id,
-        "HTTPS_PORT=9443", "--no-restart",
+        "HTTP_PORT=%s" % new_http_port, "--no-restart",
     )
 
-    print("Checking wikis.yaml for port 9443...")
+    print("Checking wikis.yaml for port %s..." % new_http_port)
     wikis_yaml_path = os.path.join(
         inst.instance_path(), "config", "wikis.yaml",
     )
@@ -574,39 +580,44 @@ def test_config_side_effects(inst):
     )
     with open(wikis_yaml_path) as f:
         wikis_content = f.read()
-    assert ":9443" in wikis_content, (
-        "Port 9443 not found in wikis.yaml:\n%s" % wikis_content
+    assert (":%s" % new_http_port) in wikis_content, (
+        "Port %s not found in wikis.yaml:\n%s"
+        % (new_http_port, wikis_content)
     )
 
     # Note: The Caddyfile intentionally strips ports from server names.
     # Caddy binds to ports 80/443 inside the container; Docker maps the
-    # external HTTPS_PORT to container port 443. So the Caddyfile just
+    # external HTTP_PORT to container port 80. So the Caddyfile just
     # needs the domain, and the port change is verified via wikis.yaml
     # and MW_SITE_SERVER in .env.
     print("Checking MW_SITE_SERVER in .env...")
     env = read_env(inst.env_path())
-    assert "9443" in env.get("MW_SITE_SERVER", ""), (
-        "MW_SITE_SERVER should contain port 9443: %s" % env.get("MW_SITE_SERVER")
+    assert new_http_port in env.get("MW_SITE_SERVER", ""), (
+        "MW_SITE_SERVER should contain port %s: %s"
+        % (new_http_port, env.get("MW_SITE_SERVER"))
     )
-    assert "9443" in env.get("MW_SITE_FQDN", ""), (
-        "MW_SITE_FQDN should contain port 9443: %s" % env.get("MW_SITE_FQDN")
+    assert new_http_port in env.get("MW_SITE_FQDN", ""), (
+        "MW_SITE_FQDN should contain port %s: %s"
+        % (new_http_port, env.get("MW_SITE_FQDN"))
     )
 
-    print("Resetting HTTPS_PORT to 443...")
+    print("Resetting HTTP_PORT to 80...")
     inst.run_ok(
         "config", "set", "-i", inst.id,
-        "HTTPS_PORT=443", "--no-restart",
+        "HTTP_PORT=80", "--no-restart",
     )
 
     print("Verifying port reset...")
     with open(wikis_yaml_path) as f:
         wikis_content = f.read()
-    assert ":9443" not in wikis_content, (
-        "Port 9443 still in wikis.yaml after reset:\n%s" % wikis_content
+    assert (":%s" % new_http_port) not in wikis_content, (
+        "Port %s still in wikis.yaml after reset:\n%s"
+        % (new_http_port, wikis_content)
     )
     env = read_env(inst.env_path())
-    assert "9443" not in env.get("MW_SITE_SERVER", ""), (
-        "MW_SITE_SERVER still has 9443 after reset: %s" % env.get("MW_SITE_SERVER")
+    assert new_http_port not in env.get("MW_SITE_SERVER", ""), (
+        "MW_SITE_SERVER still has %s after reset: %s"
+        % (new_http_port, env.get("MW_SITE_SERVER"))
     )
 
 

@@ -150,6 +150,33 @@ class TestUpdateUrlPort:
     def test_no_change_needed(self):
         assert canasta_wikis_yaml.update_url_port("example.com", "443") == "example.com"
 
+    # default_port: HTTP scheme uses 80 as the implicit default
+    def test_http_standard_port_stripped(self):
+        assert canasta_wikis_yaml.update_url_port(
+            "example.com:9080", "80", default_port="80"
+        ) == "example.com"
+
+    def test_http_nonstandard_port_appended(self):
+        assert canasta_wikis_yaml.update_url_port(
+            "example.com", "8080", default_port="80"
+        ) == "example.com:8080"
+
+    def test_http_port_replaced(self):
+        assert canasta_wikis_yaml.update_url_port(
+            "example.com:8080", "9080", default_port="80"
+        ) == "example.com:9080"
+
+    def test_http_preserves_path_standard_port(self):
+        assert canasta_wikis_yaml.update_url_port(
+            "example.com:8080/docs", "80", default_port="80"
+        ) == "example.com/docs"
+
+    def test_http_443_kept_when_default_is_80(self):
+        # 443 is non-standard for HTTP scheme, so it should be appended
+        assert canasta_wikis_yaml.update_url_port(
+            "example.com", "443", default_port="80"
+        ) == "example.com:443"
+
 
 class TestUpdateUrlDomain:
     def test_simple_domain_change(self):
