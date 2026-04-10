@@ -4,6 +4,16 @@
 #
 # Parses user@host format and sets ansible_host, ansible_connection,
 # ansible_user accordingly. Resets to local for localhost instances.
+#
+# Note on remote_python_interpreter: we use the explicit /usr/bin/python3
+# rather than `auto` because Ansible's interpreter-discovery result is
+# cached as a fact on the play target host (`localhost`). When the same
+# `localhost` host is reused across loop iterations to manage many
+# physical machines (canasta upgrade, canasta gitops sync, etc.), the
+# cached `discovered_interpreter_python` from iteration 1 leaks into
+# iteration 2, and Ansible tries to use the previous host's Python path
+# on the new host. /usr/bin/python3 bypasses discovery entirely and is
+# the canonical Python 3 path on every modern Linux distro. See #41.
 
 - name: Parse SSH user and hostname from registry host
   ansible.builtin.set_fact:
@@ -16,14 +26,14 @@
     ansible_host: "{{ _ssh_host }}"
     ansible_connection: "ssh"
     ansible_user: "{{ _ssh_user }}"
-    ansible_python_interpreter: auto
+    ansible_python_interpreter: /usr/bin/python3
   when: _instance_host != 'localhost' and _ssh_user | default('') != ''
 
 - name: Override connection for remote instance (no user)
   ansible.builtin.set_fact:
     ansible_host: "{{ _ssh_host }}"
     ansible_connection: "ssh"
-    ansible_python_interpreter: auto
+    ansible_python_interpreter: /usr/bin/python3
   when: _instance_host != 'localhost' and _ssh_user | default('') == ''
 
 - name: Reset connection for local instance
