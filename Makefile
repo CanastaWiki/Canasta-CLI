@@ -1,4 +1,4 @@
-.PHONY: test-unit test-integration test lint docs validate clean
+.PHONY: test-unit test-integration test lint docs validate audit-coverage clean
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
@@ -39,6 +39,12 @@ docs: venv
 
 validate: venv
 	$(PYTHON) scripts/validate_definitions.py
+
+# --- Coverage audit ----------------------------------------------------------
+# Static report of which canasta commands have at least one integration
+# test exercising them. Doesn't run any tests; just walks the test source.
+audit-coverage: venv
+	$(PYTHON) scripts/audit_command_coverage.py
 
 # --- Clean -------------------------------------------------------------------
 
