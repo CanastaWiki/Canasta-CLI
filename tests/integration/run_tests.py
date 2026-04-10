@@ -611,9 +611,10 @@ def test_config_side_effects(inst):
     )
 
     print("Setting an arbitrary key for config unset to remove...")
+    # canasta config set rejects unknown keys unless --force is given.
     inst.run_ok(
         "config", "set", "-i", inst.id,
-        "CANASTA_TEST_MARKER=hello", "--no-restart",
+        "CANASTA_TEST_MARKER=hello", "--force", "--no-restart",
     )
     env = read_env(inst.env_path())
     assert env.get("CANASTA_TEST_MARKER") == "hello", (
@@ -624,7 +625,7 @@ def test_config_side_effects(inst):
     print("Removing the marker key with config unset...")
     inst.run_ok(
         "config", "unset", "-i", inst.id,
-        "--keys", "CANASTA_TEST_MARKER", "--no-restart",
+        "CANASTA_TEST_MARKER", "--force", "--no-restart",
     )
     env = read_env(inst.env_path())
     assert "CANASTA_TEST_MARKER" not in env, (
@@ -1031,9 +1032,10 @@ def test_maintenance(inst):
     )
 
     print("Running showSiteStats.php as a generic maintenance script...")
+    # script_args is a variadic positional, not a --script-args flag.
     inst.run_ok(
         "maintenance", "script", "-i", inst.id, "-w", "main",
-        "--script-args", "showSiteStats.php",
+        "showSiteStats.php",
     )
 
 
