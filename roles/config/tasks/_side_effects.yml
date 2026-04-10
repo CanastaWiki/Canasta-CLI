@@ -24,6 +24,93 @@
     - _config_key == 'CADDY_AUTO_HTTPS'
     - _config_value | lower not in ['on', 'off']
 
+- name: Validate CANASTA_FARM_ROUTING value
+  ansible.builtin.fail:
+    msg: "CANASTA_FARM_ROUTING must be 'path' or 'hostname' (got '{{ _config_value }}')"
+  when:
+    - _config_key == 'CANASTA_FARM_ROUTING'
+    - _config_value | lower not in ['path', 'hostname']
+
+# Three incompatible-feature combinations are caught here at config-set
+# time, before the misconfiguration can land in .env. The runtime
+# FarmConfigLoader.php in the canasta image catches the same conditions
+# at request time as a safety net for hand-edited configs, but the
+# user-facing UX of failing fast at the CLI is much friendlier than
+# discovering the problem when the container restart-loops on next
+# start. See CanastaBase #138 / #150 for the runtime side. See #50.
+- name: Validate CANASTA_FARM_ROUTING=hostname does not collide with current state
+  when:
+    - _config_key == 'CANASTA_FARM_ROUTING'
+    - _config_value | lower == 'hostname'
+  block:
+    - name: Read wikis.yaml to check for path-based wikis
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _se_routing_wikis
+
+    - name: Find any wikis with a path component in their URL
+      ansible.builtin.set_fact:
+        _path_based_wiki_ids: >-
+          {{ _se_routing_wikis.wikis | default([])
+             | selectattr('url', 'search', '/')
+             | map(attribute='id') | list }}
+
+    - name: Fail if any wiki has a path-based URL
+      ansible.builtin.fail:
+        msg: >-
+          Cannot enable hostname routing: the following wikis have
+          path-based URLs:
+          {{ _path_based_wiki_ids | join(', ') }}.
+          Each wiki must be on a unique hostname when
+          CANASTA_FARM_ROUTING=hostname. Either remove these wikis
+          first or change them to hostname-only URLs.
+      when: _path_based_wiki_ids | length > 0
+
+    - name: Read CANASTA_ENABLE_WIKI_DIRECTORY from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CANASTA_ENABLE_WIKI_DIRECTORY
+      register: _se_routing_wd
+
+    - name: Fail if wiki directory is enabled
+      ansible.builtin.fail:
+        msg: >-
+          Cannot enable hostname routing while
+          CANASTA_ENABLE_WIKI_DIRECTORY is true. The wiki directory
+          is served at /wikis, which collides with a page titled
+          'Wikis' on any wiki using root-relative short URLs.
+          Either disable the directory first
+          (canasta config set CANASTA_ENABLE_WIKI_DIRECTORY=false)
+          or leave hostname routing off.
+      when: _se_routing_wd.value | default('false') | lower == 'true'
+
+# Mirror image: enabling the wiki directory while hostname routing
+# is on hits the same conflict.
+- name: Validate CANASTA_ENABLE_WIKI_DIRECTORY=true does not collide with hostname routing
+  when:
+    - _config_key == 'CANASTA_ENABLE_WIKI_DIRECTORY'
+    - _config_value | lower == 'true'
+  block:
+    - name: Read CANASTA_FARM_ROUTING from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CANASTA_FARM_ROUTING
+      register: _se_wd_routing
+
+    - name: Fail if hostname routing is on
+      ansible.builtin.fail:
+        msg: >-
+          Cannot enable wiki directory while CANASTA_FARM_ROUTING is
+          'hostname'. The wiki directory is served at /wikis, which
+          collides with a page titled 'Wikis' on any wiki using
+          root-relative short URLs. Either disable hostname routing
+          first (canasta config set CANASTA_FARM_ROUTING=path) or
+          leave the directory disabled.
+      when: _se_wd_routing.value | default('path') | lower == 'hostname'
+
 - name: Apply HTTP_PORT/HTTPS_PORT side effects
   when: _config_key in ['HTTP_PORT', 'HTTPS_PORT']
   block:
