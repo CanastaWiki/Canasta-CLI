@@ -156,14 +156,27 @@
         label: "{{ item.item.key | default('?') }}"
       when: item is not skipped
 
+    - name: Compute host column width
+      vars:
+        # All host strings (default 'localhost'), plus a floor of 16
+        _host_lengths: >-
+          {{ (_all_instances.instances | dict2items
+              | map(attribute='value.host')
+              | map('default', 'localhost', true)
+              | map('length') | list) + [16] }}
+      ansible.builtin.set_fact:
+        # +2 for gutter between Host and Instance Path columns
+        _host_col_width: "{{ (_host_lengths | max) + 2 }}"
+
     - name: Display instances
       ansible.builtin.debug:
         msg: |
+          {% set hw = _host_col_width | int %}
           {% set ns = namespace(lines=[]) %}
-          {% set ns.lines = ns.lines + ["%-16s%-16s%s" % ("Canasta ID", "Orchestrator", "Status")] %}
-          {% set ns.lines = ns.lines + ["  Instance Path"] %}
-          {% set ns.lines = ns.lines + ["  %-14s%s" % ("Wiki ID", "Server Path")] %}
-          {% set ns.lines = ns.lines + ["─" * 50] %}
+          {% set ns.lines = ns.lines + ["%-16s%-*s%s" % ("Canasta ID", hw, "Host", "Instance Path")] %}
+          {% set ns.lines = ns.lines + ["%-16s%-16s%s" % ("", "Orchestrator", "Status")] %}
+          {% set ns.lines = ns.lines + ["  %-14s%s" % ("Wiki ID", "Wiki URL")] %}
+          {% set ns.lines = ns.lines + ["─" * (16 + hw + 20)] %}
           {% for inst_item in _all_instances.instances | dict2items %}
           {% set inst = inst_item %}
           {% set dir_ok = (_dir_exists | default({}))[inst.key] | default(false) %}
@@ -171,8 +184,9 @@
           {% set running = (_running_map | default({}))[inst.key] | default(false) %}
           {% set status = "running" if running else ("not found" if not dir_ok else "stopped") %}
           {% set orch = (inst.value.orchestrator | default('compose')) | upper %}
-          {% set ns.lines = ns.lines + ["%-16s%-16s%s" % (inst.key, orch, status | upper)] %}
-          {% set ns.lines = ns.lines + ["  " + inst.value.path] %}
+          {% set host = inst.value.host | default('localhost') %}
+          {% set ns.lines = ns.lines + ["%-16s%-*s%s" % (inst.key, hw, host, inst.value.path)] %}
+          {% set ns.lines = ns.lines + ["%-16s%-16s%s" % ("", orch, status | upper)] %}
           {% if wikis | length > 0 %}
           {% for w in wikis %}
           {% set url = w.url if '/' in w.url else w.url + '/' %}
