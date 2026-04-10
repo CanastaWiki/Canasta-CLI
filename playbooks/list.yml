@@ -174,7 +174,7 @@
           {% set hw = _host_col_width | int %}
           {% set ns = namespace(lines=[]) %}
           {% set ns.lines = ns.lines + ["%-16s%-*s%s" % ("Canasta ID", hw, "Host", "Instance Path")] %}
-          {% set ns.lines = ns.lines + ["%-16s%-16s%s" % ("", "Orchestrator", "Status")] %}
+          {% set ns.lines = ns.lines + ["  %-14s%s" % ("Orchestrator", "Status")] %}
           {% set ns.lines = ns.lines + ["  %-14s%s" % ("Wiki ID", "Wiki URL")] %}
           {% set ns.lines = ns.lines + ["─" * (16 + hw + 20)] %}
           {% for inst_item in _all_instances.instances | dict2items %}
@@ -186,7 +186,7 @@
           {% set orch = (inst.value.orchestrator | default('compose')) | upper %}
           {% set host = inst.value.host | default('localhost') %}
           {% set ns.lines = ns.lines + ["%-16s%-*s%s" % (inst.key, hw, host, inst.value.path)] %}
-          {% set ns.lines = ns.lines + ["%-16s%-16s%s" % ("", orch, status | upper)] %}
+          {% set ns.lines = ns.lines + ["  %-14s%s" % (orch, status | upper)] %}
           {% if wikis | length > 0 %}
           {% for w in wikis %}
           {% set url = w.url if '/' in w.url else w.url + '/' %}
