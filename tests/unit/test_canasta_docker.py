@@ -21,6 +21,16 @@ import pytest
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 WRAPPER = os.path.join(REPO_ROOT, "canasta-docker")
+IMAGE_NAME = "ghcr.io/canastawiki/canasta-ansible:latest"
+
+
+def user_args(argv):
+    """Slice argv to just the args after the image name (i.e. the args
+    canasta.py sees), so tests can look for user-supplied flags without
+    matching the docker run flags that come before the image."""
+    if IMAGE_NAME in argv:
+        return argv[argv.index(IMAGE_NAME) + 1:]
+    return argv
 
 
 @pytest.fixture
@@ -145,6 +155,88 @@ class TestBuildFromMount:
         assert target not in v_mounts, (
             "build dir under cwd should not be double-mounted, found: %s"
             % v_mounts
+        )
+
+
+class TestEnvFileMount:
+    """--envfile/-e path should be auto-mounted into the container.
+
+    See #47 — without this, files outside $PWD/$HOME are invisible
+    to ansible inside the container, and even relative paths inside
+    $PWD fail because ansible-playbook's cwd isn't $PWD.
+    """
+
+    def _make_envfile(self, parent):
+        """Drop a minimal env file in `parent` and return its path."""
+        path = os.path.join(parent, "test.env")
+        with open(path, "w") as f:
+            f.write("HTTP_PORT=8080\nHTTPS_PORT=8443\nCADDY_AUTO_HTTPS=off\n")
+        return path
+
+    def test_envfile_outside_cwd_is_mounted_ro(self, short_tmp):
+        cwd_dir = tempfile.mkdtemp(prefix="cd-cwd-", dir="/tmp")
+        try:
+            envfile = self._make_envfile(short_tmp)
+            envfile_dir = os.path.dirname(envfile)
+            argv, _ = run_dry(
+                ["create", "-i", "x", "-w", "main", "-e", envfile],
+                cwd=cwd_dir,
+            )
+            assert_volume_mount(argv, envfile_dir, envfile_dir, ro=True)
+            # Look at args passed to canasta.py (after the image name);
+            # the first -e in the full argv is the docker run -e for
+            # DOCKER_HOST, not the user's flag.
+            uargv = user_args(argv)
+            e_idx = uargv.index("-e")
+            assert uargv[e_idx + 1] == envfile
+        finally:
+            shutil.rmtree(cwd_dir, ignore_errors=True)
+
+    def test_envfile_long_flag_form_also_handled(self, short_tmp):
+        cwd_dir = tempfile.mkdtemp(prefix="cd-cwd-", dir="/tmp")
+        try:
+            envfile = self._make_envfile(short_tmp)
+            envfile_dir = os.path.dirname(envfile)
+            argv, _ = run_dry(
+                ["create", "-i", "x", "-w", "main",
+                 "--envfile", envfile],
+                cwd=cwd_dir,
+            )
+            assert_volume_mount(argv, envfile_dir, envfile_dir, ro=True)
+        finally:
+            shutil.rmtree(cwd_dir, ignore_errors=True)
+
+    def test_envfile_relative_path_resolved_to_absolute(self, tmp_path):
+        envfile = tmp_path / "test.env"
+        envfile.write_text("HTTP_PORT=8080\n")
+        argv, _ = run_dry(
+            ["create", "-i", "x", "-w", "main", "-e", "test.env"],
+            cwd=str(tmp_path),
+        )
+        # Whether or not the parent dir is mounted (it's already covered
+        # by cwd), the rewritten arg should be absolute so ansible's
+        # slurp module can find it regardless of its own cwd.
+        uargv = user_args(argv)
+        e_idx = uargv.index("-e")
+        assert uargv[e_idx + 1] == str(envfile)
+
+    def test_envfile_inside_cwd_not_double_mounted(self, tmp_path):
+        envfile = tmp_path / "test.env"
+        envfile.write_text("HTTP_PORT=8080\n")
+        argv, _ = run_dry(
+            ["create", "-i", "x", "-w", "main", "-e", "test.env"],
+            cwd=str(tmp_path),
+        )
+        # The envfile's parent dir is $PWD (already mounted), so no
+        # extra -v entry should be added for it.
+        target = "%s:%s:ro" % (str(tmp_path), str(tmp_path))
+        v_mounts = [
+            argv[i + 1] for i, a in enumerate(argv)
+            if a == "-v" and i + 1 < len(argv)
+        ]
+        assert target not in v_mounts, (
+            "envfile parent dir under cwd should not be double-mounted, "
+            "found: %s" % v_mounts
         )
 
 
