@@ -42,18 +42,38 @@ else
 fi
 
 # Detect the docker socket's GID so the container user can access it.
+#
+# On Linux, the host stat is reliable. On macOS Docker Desktop, the
+# host-side symlink reports a different GID (e.g. 1/daemon) than the
+# socket actually has inside Docker Desktop's Linux VM (typically 0/root),
+# so we also probe the socket from inside a throwaway container of the
+# canasta-ansible image when it's already pulled.
+DOCKER_SOCK_GID=""
 if [[ -S "$DOCKER_SOCK_PATH" ]]; then
-    if stat -c '%g' "$DOCKER_SOCK_PATH" >/dev/null 2>&1; then
-        DOCKER_SOCK_GID="$(stat -c '%g' "$DOCKER_SOCK_PATH")"
-    else
-        DOCKER_SOCK_GID="$(stat -f '%g' "$DOCKER_SOCK_PATH")"
+    if [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]] \
+        && docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        DOCKER_SOCK_GID="$(docker run --rm \
+            -v "$DOCKER_SOCK_PATH:/var/run/docker.sock" \
+            --entrypoint stat "$IMAGE" -c '%g' /var/run/docker.sock 2>/dev/null || true)"
     fi
-else
-    DOCKER_SOCK_GID=""
+    if [[ -z "$DOCKER_SOCK_GID" ]]; then
+        if stat -c '%g' "$DOCKER_SOCK_PATH" >/dev/null 2>&1; then
+            DOCKER_SOCK_GID="$(stat -c '%g' "$DOCKER_SOCK_PATH")"
+        else
+            DOCKER_SOCK_GID="$(stat -f '%g' "$DOCKER_SOCK_PATH")"
+        fi
+    fi
 fi
 
 MOUNTS=(
     -v "$DOCKER_SOCK_PATH:/var/run/docker.sock"
+    # Force the in-container docker CLI to use the mounted socket. The
+    # host's $HOME (mounted below) brings $HOME/.docker/config.json with
+    # it; on macOS Docker Desktop that file selects the "desktop-linux"
+    # context, which points docker at a Mac-only socket path that does
+    # not exist inside the container. Setting DOCKER_HOST overrides any
+    # context selection and forces the canonical path.
+    -e "DOCKER_HOST=unix:///var/run/docker.sock"
     -v "$CONFIG_DIR":"$CONFIG_DIR"
     -e "CANASTA_CONFIG_DIR=$CONFIG_DIR"
     -v "$HOME":"$HOME"
@@ -70,7 +90,7 @@ CANASTA_PASSWD="$CONFIG_DIR/.canasta-passwd"
 PASSWD_STALE=false
 if [[ ! -f "$CANASTA_PASSWD" ]]; then
     PASSWD_STALE=true
-else
+elif [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
     # Regenerate if the image changed (after upgrade) or UID changed.
     PASSWD_IMAGE_ID=$(docker inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
     if [[ -n "$PASSWD_IMAGE_ID" ]] && ! grep -q "# $PASSWD_IMAGE_ID" "$CANASTA_PASSWD" 2>/dev/null; then
@@ -78,9 +98,14 @@ else
     fi
 fi
 if [[ "$PASSWD_STALE" == "true" ]]; then
-    docker run --rm --entrypoint cat "$IMAGE" /etc/passwd > "$CANASTA_PASSWD" 2>/dev/null || true
-    PASSWD_IMAGE_ID=$(docker inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
-    echo "# $PASSWD_IMAGE_ID" >> "$CANASTA_PASSWD"
+    if [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
+        docker run --rm --entrypoint cat "$IMAGE" /etc/passwd > "$CANASTA_PASSWD" 2>/dev/null || true
+        PASSWD_IMAGE_ID=$(docker inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
+        echo "# $PASSWD_IMAGE_ID" >> "$CANASTA_PASSWD"
+    else
+        # Stub passwd file for tests so the read-only mount source exists.
+        : > "$CANASTA_PASSWD"
+    fi
 fi
 if ! grep -q "^[^:]*:[^:]*:$(id -u):" "$CANASTA_PASSWD" 2>/dev/null; then
     echo "canasta:x:$(id -u):$(id -g):canasta:$HOME:/bin/sh" >> "$CANASTA_PASSWD"
@@ -241,6 +266,21 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
                 continue
             fi
             ;;
+        --build-from)
+            if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                BUILD_FROM_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
+                NEW_ARGS+=("$arg" "$BUILD_FROM_ABS")
+                CWD="$(pwd)"
+                case "$BUILD_FROM_ABS" in
+                    "$CWD"/*|"$CWD") ;; # Already covered
+                    *)
+                        MOUNTS+=(-v "$BUILD_FROM_ABS":"$BUILD_FROM_ABS":ro)
+                        ;;
+                esac
+                i=$((i+2))
+                continue
+            fi
+            ;;
     esac
     NEW_ARGS+=("$arg")
     i=$((i+1))
@@ -251,7 +291,30 @@ set -- ${NEW_ARGS[@]+"${NEW_ARGS[@]}"}
 # $HOME/.ssh by default, and we set HOME to the host user's home).
 # Forward SSH agent if available (so passphrase-protected keys work
 # without prompting inside the container).
+#
+# On macOS, the OS launchd manages the SSH agent socket under
+# /private/tmp/com.apple.launchd.*/Listeners, which Docker Desktop's
+# virtiofs file sharing does not expose by default — bind-mounting
+# that path causes the container to fail to start with
+# "mountpoint ... is outside of rootfs". Detect that case and skip
+# the agent forward; the user can fall back to unencrypted keys or
+# point SSH_AUTH_SOCK at a path under $HOME / inside Docker Desktop's
+# shared paths.
+SSH_FWD_OK=false
 if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
+    SSH_FWD_OK=true
+    case "$SSH_AUTH_SOCK" in
+        /private/tmp/com.apple.launchd.*|/var/folders/*)
+            SSH_FWD_OK=false
+            echo "canasta-docker: SSH_AUTH_SOCK is at a path Docker Desktop" \
+                "cannot share ($SSH_AUTH_SOCK); skipping SSH agent forward." \
+                "Passphrase-protected SSH keys will prompt inside the" \
+                "container. To enable agent forwarding, point" \
+                "SSH_AUTH_SOCK at a socket under \$HOME." >&2
+            ;;
+    esac
+fi
+if [[ "$SSH_FWD_OK" == "true" ]]; then
     MOUNTS+=(
         -v "$SSH_AUTH_SOCK:/tmp/ssh-agent.sock"
         -e "SSH_AUTH_SOCK=/tmp/ssh-agent.sock"
@@ -328,6 +391,16 @@ fi
 DOCKER_RUN_FLAGS=(-i)
 if [[ -t 0 ]]; then
     DOCKER_RUN_FLAGS+=(-t)
+fi
+
+# Dry-run mode for tests: print the assembled docker run command, one
+# argument per line, and exit. Does not invoke docker.
+if [[ -n "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
+    printf 'docker\n'
+    for a in run --rm "${DOCKER_RUN_FLAGS[@]}" "${MOUNTS[@]}" "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}; do
+        printf '%s\n' "$a"
+    done
+    exit 0
 fi
 
 exec docker run --rm "${DOCKER_RUN_FLAGS[@]}" \
