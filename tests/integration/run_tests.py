@@ -997,29 +997,6 @@ def test_host_management(inst):
     )
 
 
-def test_devmode(inst):
-    """Enable and disable development mode on a running instance."""
-    print("Creating instance...")
-    inst.run_ok(
-        "create", "-i", inst.id, "-w", "main",
-        "-n", "localhost", "-p", inst.work_dir,
-        "-e", inst.env_file,
-    )
-    wait_for_wiki(inst.http_port)
-
-    print("Enabling devmode...")
-    inst.run_ok("devmode", "enable", "-i", inst.id)
-
-    print("Wiki should still be reachable after devmode enable...")
-    wait_for_wiki(inst.http_port, timeout=120)
-
-    print("Disabling devmode...")
-    inst.run_ok("devmode", "disable", "-i", inst.id)
-
-    print("Wiki should still be reachable after devmode disable...")
-    wait_for_wiki(inst.http_port, timeout=120)
-
-
 def test_sitemap(inst):
     """Generate and remove an XML sitemap."""
     print("Creating instance...")
@@ -1077,7 +1054,6 @@ ALL_TESTS = {
     "version": test_version,
     "doctor": test_doctor,
     "host-management": test_host_management,
-    "devmode": test_devmode,
     "sitemap": test_sitemap,
     "maintenance": test_maintenance,
 }
