@@ -973,11 +973,11 @@ def test_doctor(inst):
 
 def test_host_management(inst):
     """`canasta host add/list/remove` manages entries in hosts.yml."""
-    # host_name is a positional argument in the canasta CLI, not a flag.
     host_name = "canasta-int-test-host-%s" % inst.id
     print("Adding host entry %s..." % host_name)
     inst.run_ok(
-        "host", "add", host_name,
+        "host", "add",
+        "--name", host_name,
         "--ssh", "user@example.invalid",
     )
 
@@ -988,7 +988,7 @@ def test_host_management(inst):
     )
 
     print("Removing host entry %s..." % host_name)
-    inst.run_ok("host", "remove", host_name)
+    inst.run_ok("host", "remove", "--name", host_name)
 
     print("Verifying host is gone...")
     output = inst.run_quiet("host", "list")
