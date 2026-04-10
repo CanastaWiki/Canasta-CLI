@@ -50,7 +50,8 @@ fi
 # canasta-ansible image when it's already pulled.
 DOCKER_SOCK_GID=""
 if [[ -S "$DOCKER_SOCK_PATH" ]]; then
-    if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    if [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]] \
+        && docker image inspect "$IMAGE" >/dev/null 2>&1; then
         DOCKER_SOCK_GID="$(docker run --rm \
             -v "$DOCKER_SOCK_PATH:/var/run/docker.sock" \
             --entrypoint stat "$IMAGE" -c '%g' /var/run/docker.sock 2>/dev/null || true)"
@@ -89,7 +90,7 @@ CANASTA_PASSWD="$CONFIG_DIR/.canasta-passwd"
 PASSWD_STALE=false
 if [[ ! -f "$CANASTA_PASSWD" ]]; then
     PASSWD_STALE=true
-else
+elif [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
     # Regenerate if the image changed (after upgrade) or UID changed.
     PASSWD_IMAGE_ID=$(docker inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
     if [[ -n "$PASSWD_IMAGE_ID" ]] && ! grep -q "# $PASSWD_IMAGE_ID" "$CANASTA_PASSWD" 2>/dev/null; then
@@ -97,9 +98,14 @@ else
     fi
 fi
 if [[ "$PASSWD_STALE" == "true" ]]; then
-    docker run --rm --entrypoint cat "$IMAGE" /etc/passwd > "$CANASTA_PASSWD" 2>/dev/null || true
-    PASSWD_IMAGE_ID=$(docker inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
-    echo "# $PASSWD_IMAGE_ID" >> "$CANASTA_PASSWD"
+    if [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
+        docker run --rm --entrypoint cat "$IMAGE" /etc/passwd > "$CANASTA_PASSWD" 2>/dev/null || true
+        PASSWD_IMAGE_ID=$(docker inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
+        echo "# $PASSWD_IMAGE_ID" >> "$CANASTA_PASSWD"
+    else
+        # Stub passwd file for tests so the read-only mount source exists.
+        : > "$CANASTA_PASSWD"
+    fi
 fi
 if ! grep -q "^[^:]*:[^:]*:$(id -u):" "$CANASTA_PASSWD" 2>/dev/null; then
     echo "canasta:x:$(id -u):$(id -g):canasta:$HOME:/bin/sh" >> "$CANASTA_PASSWD"
@@ -385,6 +391,16 @@ fi
 DOCKER_RUN_FLAGS=(-i)
 if [[ -t 0 ]]; then
     DOCKER_RUN_FLAGS+=(-t)
+fi
+
+# Dry-run mode for tests: print the assembled docker run command, one
+# argument per line, and exit. Does not invoke docker.
+if [[ -n "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
+    printf 'docker\n'
+    for a in run --rm "${DOCKER_RUN_FLAGS[@]}" "${MOUNTS[@]}" "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}; do
+        printf '%s\n' "$a"
+    done
+    exit 0
 fi
 
 exec docker run --rm "${DOCKER_RUN_FLAGS[@]}" \
