@@ -18,29 +18,29 @@
       {{ url | regex_replace('^[^/]*', '')
          | regex_replace('^/', '') }}
 
-# Refuse path-based wikis when the instance has hostname routing on.
+# Refuse path-based wikis when the instance has very short URLs on.
 # The runtime in CanastaBase #150 catches this too, but failing fast
 # at the CLI gives the user a clear error before the wiki actually
 # gets installed (which would otherwise leave a half-created wiki
 # database that the next restart would refuse to load). #50.
-- name: Read CANASTA_FARM_ROUTING from .env to validate URL shape
+- name: Read CANASTA_ENABLE_VERY_SHORT_URLS from .env to validate URL shape
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: read
-    key: CANASTA_FARM_ROUTING
-  register: _add_routing
+    key: CANASTA_ENABLE_VERY_SHORT_URLS
+  register: _add_vsu
 
-- name: Fail if adding a path-based wiki to a hostname-routed instance
+- name: Fail if adding a path-based wiki to an instance with very short URLs
   ansible.builtin.fail:
     msg: >-
       Cannot add wiki '{{ wiki }}' with path-based URL '{{ url }}':
-      this instance has CANASTA_FARM_ROUTING=hostname, which
+      this instance has CANASTA_ENABLE_VERY_SHORT_URLS=true, which
       requires every wiki to be on a unique hostname with no path
-      component. Use a hostname-only URL or disable hostname
-      routing first
-      (canasta config set CANASTA_FARM_ROUTING=path).
+      component. Use a hostname-only URL or disable very short URLs
+      first
+      (canasta config set CANASTA_ENABLE_VERY_SHORT_URLS=false).
   when:
-    - _add_routing.value | default('path') | lower == 'hostname'
+    - _add_vsu.value | default('false') | lower == 'true'
     - _add_path | length > 0
 
 - name: Check wiki ID doesn't already exist

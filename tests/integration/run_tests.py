@@ -703,51 +703,40 @@ def test_config_side_effects(inst):
         % env.get("MW_SITE_SERVER")
     )
 
-    # CANASTA_FARM_ROUTING side-effect validation (#50): the three
-    # incompatible-feature combinations should fail-fast at config-set
-    # time with descriptive errors, before the misconfiguration lands
-    # in .env. The runtime in CanastaBase #150 catches them too as a
-    # safety net, but the CLI should be the friendly first line.
-    print("Validating CANASTA_FARM_ROUTING accepts 'hostname' on a "
-          "compatible instance...")
+    # CANASTA_ENABLE_VERY_SHORT_URLS side-effect validation (#50): the
+    # two incompatible-feature combinations should fail-fast at
+    # config-set time with descriptive errors, before the
+    # misconfiguration lands in .env. The runtime in CanastaBase #150
+    # catches them too as a safety net, but the CLI should be the
+    # friendly first line.
+    print("Validating CANASTA_ENABLE_VERY_SHORT_URLS=true is accepted "
+          "on a compatible instance...")
     inst.run_ok(
         "config", "set", "-i", inst.id,
-        "CANASTA_FARM_ROUTING=hostname", "--no-restart",
-    )
-
-    print("Validating CANASTA_FARM_ROUTING rejects invalid value...")
-    out, rc = inst.run(
-        "config", "set", "-i", inst.id,
-        "CANASTA_FARM_ROUTING=bogus", "--no-restart",
-    )
-    assert rc != 0, (
-        "expected CANASTA_FARM_ROUTING=bogus to be rejected:\n%s" % out
-    )
-    assert "must be 'path' or 'hostname'" in out, (
-        "expected validation error mentioning valid values:\n%s" % out
+        "CANASTA_ENABLE_VERY_SHORT_URLS=true", "--no-restart",
     )
 
     print("Validating CANASTA_ENABLE_WIKI_DIRECTORY=true is refused "
-          "while hostname routing is on...")
+          "while very short URLs are enabled...")
     out, rc = inst.run(
         "config", "set", "-i", inst.id,
         "CANASTA_ENABLE_WIKI_DIRECTORY=true", "--no-restart",
     )
     assert rc != 0, (
-        "expected wiki directory enable to be refused while hostname "
-        "routing is on:\n%s" % out
+        "expected wiki directory enable to be refused while very "
+        "short URLs are enabled:\n%s" % out
     )
-    assert "CANASTA_FARM_ROUTING" in out and "hostname" in out, (
+    assert "CANASTA_ENABLE_VERY_SHORT_URLS" in out, (
         "expected error to reference the conflict:\n%s" % out
     )
 
-    print("Reverting hostname routing for cleanup...")
+    print("Disabling very short URLs for cleanup...")
     inst.run_ok(
         "config", "set", "-i", inst.id,
-        "CANASTA_FARM_ROUTING=path", "--no-restart",
+        "CANASTA_ENABLE_VERY_SHORT_URLS=false", "--no-restart",
     )
 
-    print("Validating wiki directory and hostname routing are mutually "
+    print("Validating wiki directory and very short URLs are mutually "
           "exclusive in the other direction too...")
     inst.run_ok(
         "config", "set", "-i", inst.id,
@@ -755,10 +744,10 @@ def test_config_side_effects(inst):
     )
     out, rc = inst.run(
         "config", "set", "-i", inst.id,
-        "CANASTA_FARM_ROUTING=hostname", "--no-restart",
+        "CANASTA_ENABLE_VERY_SHORT_URLS=true", "--no-restart",
     )
     assert rc != 0, (
-        "expected hostname routing to be refused while wiki directory "
+        "expected very short URLs to be refused while wiki directory "
         "is enabled:\n%s" % out
     )
     assert "CANASTA_ENABLE_WIKI_DIRECTORY" in out, (
