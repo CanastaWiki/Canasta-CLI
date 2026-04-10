@@ -17,6 +17,13 @@
     - _config_value | regex_search('^[0-9]+$') is not none
     - _config_value | int < 1 or _config_value | int > 65535
 
+- name: Validate CADDY_AUTO_HTTPS value
+  ansible.builtin.fail:
+    msg: "CADDY_AUTO_HTTPS must be 'on' or 'off' (got '{{ _config_value }}')"
+  when:
+    - _config_key == 'CADDY_AUTO_HTTPS'
+    - _config_value | lower not in ['on', 'off']
+
 - name: Apply HTTP_PORT/HTTPS_PORT side effects
   when: _config_key in ['HTTP_PORT', 'HTTPS_PORT']
   block:
@@ -81,6 +88,70 @@
 
 # Kubernetes port changes: Ingress handles port routing, no cluster
 # recreation needed. The change takes effect on next helm upgrade.
+
+# Toggling CADDY_AUTO_HTTPS flips which port is "active" (the one
+# reflected in wikis.yaml and MW_SITE_*). The HTTP_PORT/HTTPS_PORT
+# handler above only fires when the port values change; we need a
+# parallel handler for when the *scheme* changes but the port values
+# don't. See #46.
+- name: Apply CADDY_AUTO_HTTPS side effects
+  when: _config_key == 'CADDY_AUTO_HTTPS'
+  block:
+    - name: Read both HTTP_PORT and HTTPS_PORT from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _se_caddy_env
+
+    - name: Compute new active scheme/port/default
+      vars:
+        _new_http_only: "{{ _config_value | lower == 'off' }}"
+      ansible.builtin.set_fact:
+        _active_scheme: "{{ _new_http_only | ternary('http', 'https') }}"
+        _active_port: >-
+          {{ _new_http_only
+             | ternary(
+                 _se_caddy_env.variables.HTTP_PORT | default('80'),
+                 _se_caddy_env.variables.HTTPS_PORT | default('443')) }}
+        _default_port: "{{ _new_http_only | ternary('80', '443') }}"
+
+    - name: Read wikis.yaml for scheme update
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _se_caddy_wikis
+
+    - name: Apply wikis.yaml/.env updates for new active scheme
+      when: _se_caddy_wikis.wikis | length > 0
+      block:
+        - name: Extract domain (strip path and existing port)
+          ansible.builtin.set_fact:
+            _base_domain: "{{ _se_caddy_wikis.wikis[0].url | regex_replace('/.*$', '') | regex_replace(':[0-9]+$', '') }}"
+
+        - name: Compute new domain suffix
+          ansible.builtin.set_fact:
+            _port_suffix: "{{ (_active_port == _default_port) | ternary('', ':' + _active_port) }}"
+
+        - name: Update wikis.yaml URLs with new active port
+          canasta_wikis_yaml:
+            instance_path: "{{ instance_path }}"
+            state: update_port
+            port: "{{ _active_port }}"
+            default_port: "{{ _default_port }}"
+
+        - name: Update MW_SITE_SERVER with new scheme and port
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: set
+            key: MW_SITE_SERVER
+            value: "{{ _active_scheme }}://{{ _base_domain }}{{ _port_suffix }}"
+
+        - name: Update MW_SITE_FQDN with new port
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: set
+            key: MW_SITE_FQDN
+            value: "{{ _base_domain }}{{ _port_suffix }}"
 
 - name: Apply MW_SITE_FQDN side effects
   when: _config_key == 'MW_SITE_FQDN'

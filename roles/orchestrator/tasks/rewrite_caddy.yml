@@ -45,3 +45,14 @@
     src: "{{ role_path }}/templates/Caddyfile.j2"
     dest: "{{ instance_path }}/config/Caddyfile"
     mode: "0644"
+    # The Canasta web container's run-all.sh rsyncs $MW_ORIGIN_FILES
+    # over the bind-mounted instance_path with --chown=www-data:www-data,
+    # which leaves the host's config/ directory not writable by the
+    # host runner user (only the existing Caddyfile is). Ansible's
+    # default atomic write needs to create a temp file in the parent
+    # directory and would fail with "Destination ... not writable".
+    # unsafe_writes lets Ansible fall back to a direct overwrite of
+    # the existing Caddyfile, which the runner *can* do because it
+    # owns the file itself. The atomicity loss is fine — we're not
+    # racing any other writer here.
+    unsafe_writes: true

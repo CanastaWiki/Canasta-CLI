@@ -652,6 +652,57 @@ def test_config_side_effects(inst):
         % (new_http_port, env.get("MW_SITE_SERVER"))
     )
 
+    # CADDY_AUTO_HTTPS toggle side effect (#46): flipping the scheme
+    # should switch the active port that's reflected in wikis.yaml /
+    # MW_SITE_SERVER, even though neither HTTP_PORT nor HTTPS_PORT
+    # changed.
+    print("Toggling CADDY_AUTO_HTTPS to on (HTTPS_PORT becomes active)...")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "CADDY_AUTO_HTTPS=on", "--no-restart",
+    )
+
+    print("Checking wikis.yaml now references HTTPS_PORT %s..." % inst.https_port)
+    with open(wikis_yaml_path) as f:
+        wikis_content = f.read()
+    assert (":%s" % inst.https_port) in wikis_content, (
+        "wikis.yaml should contain HTTPS_PORT %s after CADDY_AUTO_HTTPS=on:"
+        "\n%s" % (inst.https_port, wikis_content)
+    )
+
+    env = read_env(inst.env_path())
+    assert env.get("MW_SITE_SERVER", "").startswith("https://"), (
+        "MW_SITE_SERVER should use https scheme: %s"
+        % env.get("MW_SITE_SERVER")
+    )
+    assert inst.https_port in env.get("MW_SITE_SERVER", ""), (
+        "MW_SITE_SERVER should contain HTTPS_PORT %s: %s"
+        % (inst.https_port, env.get("MW_SITE_SERVER"))
+    )
+    assert inst.https_port in env.get("MW_SITE_FQDN", ""), (
+        "MW_SITE_FQDN should contain HTTPS_PORT %s: %s"
+        % (inst.https_port, env.get("MW_SITE_FQDN"))
+    )
+
+    print("Toggling CADDY_AUTO_HTTPS back to off...")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "CADDY_AUTO_HTTPS=off", "--no-restart",
+    )
+
+    print("Checking wikis.yaml is back to bare localhost (HTTP_PORT=80)...")
+    with open(wikis_yaml_path) as f:
+        wikis_content = f.read()
+    assert (":%s" % inst.https_port) not in wikis_content, (
+        "wikis.yaml should not reference HTTPS_PORT after toggle off:\n%s"
+        % wikis_content
+    )
+    env = read_env(inst.env_path())
+    assert env.get("MW_SITE_SERVER", "").startswith("http://"), (
+        "MW_SITE_SERVER should use http scheme after toggle off: %s"
+        % env.get("MW_SITE_SERVER")
+    )
+
 
 def test_backup_advanced(inst):
     """Test backup purge, schedule, check, and list operations."""
