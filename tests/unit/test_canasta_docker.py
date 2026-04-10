@@ -152,13 +152,11 @@ class TestSSHAgentForward:
     """SSH_AUTH_SOCK forwarding should be skipped when the socket lives in
     a path Docker Desktop's virtiofs cannot share."""
 
-    def test_skipped_when_socket_in_launchd_tmp(self):
-        # Create a real socket at a launchd-style path. /private/tmp is
-        # world-writable on macOS (and a regular dir on Linux), so this
-        # works on both. Path length stays well under the 104-byte
-        # AF_UNIX limit.
-        if not os.path.isdir("/private/tmp"):
-            pytest.skip("/private/tmp not present (non-macOS layout)")
+    def _make_launchd_socket(self):
+        """Create a real socket at a launchd-style path. /private/tmp is
+        world-writable on macOS (a regular dir on Linux too). Path length
+        stays well under the 104-byte AF_UNIX limit. Returns the socket
+        path; caller is responsible for cleanup via _cleanup_launchd."""
         launchd_dir = "/private/tmp/com.apple.launchd.CANASTA_TEST"
         sock_path = launchd_dir + "/Listeners"
         if os.path.lexists(sock_path):
@@ -166,6 +164,15 @@ class TestSSHAgentForward:
         if os.path.isdir(launchd_dir):
             shutil.rmtree(launchd_dir)
         os.makedirs(launchd_dir)
+        return sock_path, launchd_dir
+
+    def test_skipped_silently_when_socket_in_launchd_tmp(self):
+        # The skip happens silently by default — passphraseless keys in
+        # ~/.ssh continue to work via the $HOME mount, so the warning
+        # would just be noise on every command.
+        if not os.path.isdir("/private/tmp"):
+            pytest.skip("/private/tmp not present (non-macOS layout)")
+        sock_path, launchd_dir = self._make_launchd_socket()
         srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             srv.bind(sock_path)
@@ -179,7 +186,31 @@ class TestSSHAgentForward:
                 "expected SSH agent mount to be skipped, found %s"
                 % forwarded
             )
-            assert "skipping SSH agent forward" in stderr
+            assert "skipping" not in stderr, (
+                "skip message should be silent without "
+                "CANASTA_DOCKER_VERBOSE=1, got stderr:\n%s" % stderr
+            )
+        finally:
+            srv.close()
+            shutil.rmtree(launchd_dir, ignore_errors=True)
+
+    def test_skip_message_shown_with_verbose_env(self):
+        if not os.path.isdir("/private/tmp"):
+            pytest.skip("/private/tmp not present (non-macOS layout)")
+        sock_path, launchd_dir = self._make_launchd_socket()
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            srv.bind(sock_path)
+            _, stderr = run_dry(
+                ["doctor"],
+                env={
+                    "SSH_AUTH_SOCK": sock_path,
+                    "CANASTA_DOCKER_VERBOSE": "1",
+                },
+            )
+            assert "skipping agent forward" in stderr, (
+                "expected verbose skip message in stderr:\n%s" % stderr
+            )
         finally:
             srv.close()
             shutil.rmtree(launchd_dir, ignore_errors=True)
@@ -195,7 +226,7 @@ class TestSSHAgentForward:
             )
             assert_volume_mount(argv, sock_path, "/tmp/ssh-agent.sock")
             assert_env_var(argv, "SSH_AUTH_SOCK", "/tmp/ssh-agent.sock")
-            assert "skipping SSH agent forward" not in stderr
+            assert "skipping" not in stderr
         finally:
             srv.close()
 

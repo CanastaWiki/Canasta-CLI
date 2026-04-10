@@ -296,21 +296,23 @@ set -- ${NEW_ARGS[@]+"${NEW_ARGS[@]}"}
 # /private/tmp/com.apple.launchd.*/Listeners, which Docker Desktop's
 # virtiofs file sharing does not expose by default — bind-mounting
 # that path causes the container to fail to start with
-# "mountpoint ... is outside of rootfs". Detect that case and skip
-# the agent forward; the user can fall back to unencrypted keys or
-# point SSH_AUTH_SOCK at a path under $HOME / inside Docker Desktop's
-# shared paths.
+# "mountpoint ... is outside of rootfs". When SSH_AUTH_SOCK is at
+# such a path we silently skip the agent forward — passphraseless
+# keys in $HOME/.ssh continue to work via the $HOME mount. If the
+# user has passphrase-protected keys they will get an interactive
+# prompt inside the container the first time SSH is invoked, which
+# is self-explanatory; pointing SSH_AUTH_SOCK at a socket under
+# $HOME (or another shared path) re-enables forwarding. Set
+# CANASTA_DOCKER_VERBOSE=1 to see the skip message.
 SSH_FWD_OK=false
 if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
     SSH_FWD_OK=true
     case "$SSH_AUTH_SOCK" in
         /private/tmp/com.apple.launchd.*|/var/folders/*)
             SSH_FWD_OK=false
-            echo "canasta-docker: SSH_AUTH_SOCK is at a path Docker Desktop" \
-                "cannot share ($SSH_AUTH_SOCK); skipping SSH agent forward." \
-                "Passphrase-protected SSH keys will prompt inside the" \
-                "container. To enable agent forwarding, point" \
-                "SSH_AUTH_SOCK at a socket under \$HOME." >&2
+            if [[ -n "${CANASTA_DOCKER_VERBOSE:-}" ]]; then
+                echo "canasta-docker: SSH_AUTH_SOCK is at a Docker-Desktop-unshareable path; skipping agent forward." >&2
+            fi
             ;;
     esac
 fi
