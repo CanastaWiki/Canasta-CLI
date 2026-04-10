@@ -34,7 +34,37 @@ jobs:
             --cov=scripts/validate_definitions.py \
             --cov=canasta.py \
             --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html:htmlcov \
             --cov-fail-under=70
+
+      - name: Coverage summary
+        if: always() && hashFiles('coverage.xml') != ''
+        run: |
+          # Total as a single integer percentage, plus the per-module
+          # markdown table that coverage.py generates directly.
+          TOTAL=$(.venv/bin/coverage report --format=total)
+          {
+            echo "## Unit Test Coverage: ${TOTAL}%"
+            echo ""
+            .venv/bin/coverage report --format=markdown
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage HTML report
+        if: always() && hashFiles('htmlcov/index.html') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: htmlcov/
+          if-no-files-found: warn
+
+      - name: Upload coverage XML
+        if: always() && hashFiles('coverage.xml') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: warn
 
       - name: Validate command definitions
         run: .venv/bin/python scripts/validate_definitions.py
