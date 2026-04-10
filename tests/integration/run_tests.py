@@ -601,6 +601,38 @@ def test_config_side_effects(inst):
         % (new_http_port, env.get("MW_SITE_FQDN"))
     )
 
+    print("Reading the value back with config get...")
+    output = inst.run_quiet(
+        "config", "get", "-i", inst.id, "--key", "HTTP_PORT",
+    )
+    assert new_http_port in output, (
+        "config get HTTP_PORT did not return %s:\n%s"
+        % (new_http_port, output)
+    )
+
+    print("Setting an arbitrary key for config unset to remove...")
+    # canasta config set rejects unknown keys unless --force is given.
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "CANASTA_TEST_MARKER=hello", "--force", "--no-restart",
+    )
+    env = read_env(inst.env_path())
+    assert env.get("CANASTA_TEST_MARKER") == "hello", (
+        "marker should be set in .env, got: %s"
+        % env.get("CANASTA_TEST_MARKER")
+    )
+
+    print("Removing the marker key with config unset...")
+    inst.run_ok(
+        "config", "unset", "-i", inst.id,
+        "CANASTA_TEST_MARKER", "--force", "--no-restart",
+    )
+    env = read_env(inst.env_path())
+    assert "CANASTA_TEST_MARKER" not in env, (
+        "marker should be gone from .env after unset, still present: %s"
+        % env.get("CANASTA_TEST_MARKER")
+    )
+
     print("Resetting HTTP_PORT to 80...")
     inst.run_ok(
         "config", "set", "-i", inst.id,
@@ -671,6 +703,47 @@ def test_backup_advanced(inst):
     output = inst.run_quiet("backup", "list", "-i", inst.id)
     # Both snapshots are recent (<1h old), so both should survive
     assert "snap2" in output, "snap2 should remain after purge"
+
+    print("Resolving snapshot IDs from list output...")
+    # `backup list` prints one snapshot per row including a short ID;
+    # parse them out so we can target individual snapshots by ID.
+    snap_ids = []
+    for line in output.splitlines():
+        # Snapshot ID rows start with an 8-char hex ID
+        parts = line.split()
+        if parts and len(parts[0]) == 8 and all(
+            c in "0123456789abcdef" for c in parts[0]
+        ):
+            snap_ids.append(parts[0])
+    assert len(snap_ids) >= 2, (
+        "expected at least 2 snapshot IDs in list output, got: %s\n%s"
+        % (snap_ids, output)
+    )
+    snap1_id, snap2_id = snap_ids[0], snap_ids[1]
+
+    print("Listing files in snapshot %s..." % snap1_id)
+    output = inst.run_quiet(
+        "backup", "files", "-i", inst.id, "-s", snap1_id,
+    )
+    assert output.strip(), "backup files produced no output for %s" % snap1_id
+
+    print("Diffing snapshots %s..%s..." % (snap1_id, snap2_id))
+    inst.run_ok(
+        "backup", "diff", "-i", inst.id,
+        "-s", snap1_id, "--snapshot2", snap2_id,
+    )
+
+    print("Deleting snapshot %s..." % snap1_id)
+    inst.run_ok("backup", "delete", "-i", inst.id, "-s", snap1_id)
+
+    print("Verifying %s is gone..." % snap1_id)
+    output = inst.run_quiet("backup", "list", "-i", inst.id)
+    assert snap1_id not in output, (
+        "%s still in list after delete:\n%s" % (snap1_id, output)
+    )
+
+    print("Unlocking the backup repository (no-op when not locked)...")
+    inst.run_ok("backup", "unlock", "-i", inst.id)
 
     # Note: backup schedule set/list/remove tests are skipped in CI
     # because the cron expression positional argument doesn't survive
@@ -879,6 +952,93 @@ def test_k8s_lifecycle(inst):
     assert inst.id not in output, "Instance still in list after delete"
 
 
+def test_version(inst):
+    """`canasta version` reports a version string and orchestrator info."""
+    output = inst.run_quiet("version")
+    # The output format is governed by playbooks/version.yml; we just
+    # need to confirm the command runs and emits something. The exact
+    # version string is asserted on by tests/unit/ already.
+    assert output.strip(), "version produced no output"
+
+
+def test_doctor(inst):
+    """`canasta doctor` runs preflight checks against the local host."""
+    output = inst.run_quiet("doctor")
+    # Sanity-check that doctor at least mentions Docker — the actual
+    # OK/NOT RUNNING result depends on the runner environment but the
+    # check itself should always show up.
+    assert "Docker" in output, (
+        "doctor output should mention Docker:\n%s" % output
+    )
+
+
+def test_host_management(inst):
+    """`canasta host add/list/remove` manages entries in hosts.yml."""
+    host_name = "canasta-int-test-host-%s" % inst.id
+    print("Adding host entry %s..." % host_name)
+    inst.run_ok(
+        "host", "add",
+        "--name", host_name,
+        "--ssh", "user@example.invalid",
+    )
+
+    print("Listing hosts and verifying %s is present..." % host_name)
+    output = inst.run_quiet("host", "list")
+    assert host_name in output, (
+        "host %s not found in list output:\n%s" % (host_name, output)
+    )
+
+    print("Removing host entry %s..." % host_name)
+    inst.run_ok("host", "remove", "--name", host_name)
+
+    print("Verifying host is gone...")
+    output = inst.run_quiet("host", "list")
+    assert host_name not in output, (
+        "host %s still in list after remove:\n%s" % (host_name, output)
+    )
+
+
+def test_sitemap(inst):
+    """Generate and remove an XML sitemap."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Generating sitemap...")
+    inst.run_ok("sitemap", "generate", "-i", inst.id, "-w", "main")
+
+    print("Removing sitemap...")
+    inst.run_ok("sitemap", "remove", "-i", inst.id, "-w", "main")
+
+
+def test_maintenance(inst):
+    """Run a MediaWiki maintenance script and the bundled update playbook."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Running maintenance update (skip jobs to keep CI fast)...")
+    inst.run_ok(
+        "maintenance", "update", "-i", inst.id, "-w", "main",
+        "--skip-jobs",
+    )
+
+    print("Running showSiteStats.php as a generic maintenance script...")
+    # script_args is a variadic positional, not a --script-args flag.
+    inst.run_ok(
+        "maintenance", "script", "-i", inst.id, "-w", "main",
+        "showSiteStats.php",
+    )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -893,6 +1053,11 @@ ALL_TESTS = {
     "extension-skin": test_extension_skin,
     "wiki-farm": test_wiki_farm,
     "config-side-effects": test_config_side_effects,
+    "version": test_version,
+    "doctor": test_doctor,
+    "host-management": test_host_management,
+    "sitemap": test_sitemap,
+    "maintenance": test_maintenance,
 }
 
 
