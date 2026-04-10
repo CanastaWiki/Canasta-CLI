@@ -408,11 +408,11 @@ commands:
     description: "Show configuration settings"
     long_description: |
       Show configuration settings from the instance .env file.
-      With no arguments, prints all settings. With a KEY argument,
-      prints just that value.
+      With no --key, prints all settings. With --key, prints
+      just that value.
     examples:
       - "canasta config get -i mysite"
-      - "canasta config get -i mysite MW_SITE_SERVER"
+      - "canasta config get -i mysite --key MW_SITE_SERVER"
     playbook: config_get.yml
     parameters:
       - name: id
@@ -420,8 +420,8 @@ commands:
         type: string
         description: "Canasta instance ID"
       - name: key
+        short: k
         type: string
-        positional: true
         description: "Configuration key to query"
       - name: force
         short: f
@@ -1213,13 +1213,13 @@ commands:
       Add or update a host definition in $CANASTA_CONFIG_DIR/hosts.yml.
       Saved hosts can then be targeted by short name with --host.
     examples:
-      - "canasta host add prod1 --ssh ubuntu@prod1.example.com"
-      - "canasta host add prod2 --ssh canasta@10.0.0.5 --python /usr/bin/python3"
+      - "canasta host add --name prod1 --ssh ubuntu@prod1.example.com"
+      - "canasta host add --name prod2 --ssh canasta@10.0.0.5 --python /usr/bin/python3"
     playbook: host_add.yml
     parameters:
       - name: host_name
         long: name
-        positional: true
+        short: n
         type: string
         required: true
         description: "Short name for the host (used with --host)"
@@ -1234,12 +1234,12 @@ commands:
   - name: host_remove
     description: "Remove a host entry from the persistent hosts.yml"
     examples:
-      - "canasta host remove prod1"
+      - "canasta host remove --name prod1"
     playbook: host_remove.yml
     parameters:
       - name: host_name
         long: name
-        positional: true
+        short: n
         type: string
         required: true
         description: "Short name of the host to remove"
