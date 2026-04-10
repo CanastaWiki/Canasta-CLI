@@ -81,11 +81,19 @@ class TestBuildParser:
                 "-o", "invalid"
             ])
 
-    def test_positional_argument(self, parser):
-        args = parser.parse_args(["config", "get", "-i", "mysite", "KEY"])
+    def test_config_get_key_flag(self, parser):
+        args = parser.parse_args(
+            ["config", "get", "-i", "mysite", "--key", "KEY"],
+        )
         assert args.key == "KEY"
 
-    def test_positional_argument_optional(self, parser):
+    def test_config_get_key_short_flag(self, parser):
+        args = parser.parse_args(
+            ["config", "get", "-i", "mysite", "-k", "KEY"],
+        )
+        assert args.key == "KEY"
+
+    def test_config_get_key_optional(self, parser):
         args = parser.parse_args(["config", "get", "-i", "mysite"])
         assert args.key is None
 
