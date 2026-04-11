@@ -4,14 +4,31 @@
 # Input: instance_path, instance_id
 #
 # ConfigMaps created:
-#   canasta-<id>-web-config    — wikis.yaml, .env, settings/*, composer.local.json
-#   canasta-<id>-caddy-config  — Caddyfile, Caddyfile.site, Caddyfile.global
+#   canasta-<id>-web-config     — wikis.yaml, .env, settings/*, composer.local.json
+#   canasta-<id>-env            — allowlisted runtime env vars parsed from .env (#51)
+#   canasta-<id>-caddy-config   — Caddyfile, Caddyfile.site, Caddyfile.global
 #   canasta-<id>-varnish-config — default.vcl
-#   canasta-<id>-db-config     — my.cnf
+#   canasta-<id>-db-config      — my.cnf
 
-- name: Set K8s namespace
+- name: Set K8s namespace and pod env allowlist
   ansible.builtin.set_fact:
     _k8s_namespace: "canasta-{{ instance_id }}"
+    # The subset of .env keys that should land in the web/jobrunner
+    # pod's environment on K8s. Mirrors the Compose template's
+    # `environment:` block for the web service. Secrets
+    # (MYSQL_PASSWORD, MW_SECRET_KEY) are NOT in this list — they flow
+    # through K8s Secrets instead. MW_SITE_SERVER, MW_SITE_FQDN, and
+    # CANASTA_ENABLE_VARNISH also stay out because they're sourced from
+    # values.yaml fields that double-duty as K8s-level config (Ingress
+    # hostnames, Varnish deployment gate); see #53. See #51 for the
+    # rationale for an allowlist over a denylist.
+    _k8s_pod_env_allowlist:
+      - PHP_UPLOAD_MAX_FILESIZE
+      - PHP_POST_MAX_SIZE
+      - PHP_MAX_INPUT_VARS
+      - CANASTA_ENABLE_WIKI_DIRECTORY
+      - CANASTA_ENABLE_VERY_SHORT_URLS
+      - MW_SITEMAP_PAUSE_DAYS
 
 # --- Gather config files ---
 
@@ -19,6 +36,13 @@
   ansible.builtin.slurp:
     src: "{{ instance_path }}/.env"
   register: _sync_env
+
+- name: Read all .env entries as a dict (for pod env allowlist)
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _sync_env_dict
+  no_log: true
 
 - name: Read wikis.yaml
   ansible.builtin.slurp:
@@ -72,6 +96,17 @@
                | zip(_sync_settings_contents.results | map(attribute='content') | map('b64decode'))
                | list))
       }}
+
+# Extract the allowlisted keys from .env into a plain dict. Keys not
+# present in .env are skipped entirely — the pod then gets whatever
+# default the image has built in, matching Compose behavior for
+# unset vars.
+- name: Build pod env config data
+  ansible.builtin.set_fact:
+    _env_config_data: >-
+      {{ _sync_env_dict.variables | default({}) | dict2items
+         | selectattr('key', 'in', _k8s_pod_env_allowlist)
+         | items2dict }}
 
 # --- Caddy config ---
 
@@ -158,6 +193,7 @@
     content: >-
       {{ {'configData': {
             'web': _web_config_data,
+            'env': _env_config_data,
             'caddy': _caddy_config_data,
             'varnish': _varnish_config_data,
             'db': _db_config_data

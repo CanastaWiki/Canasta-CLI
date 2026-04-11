@@ -20,6 +20,7 @@ spec:
         app.kubernetes.io/component: jobrunner
       annotations:
         checksum/web-config: {{ .Values.configData.web | toJson | sha256sum }}
+        checksum/env-config: {{ .Values.configData.env | default dict | toJson | sha256sum }}
     spec:
       initContainers:
         - name: assemble-config
@@ -55,6 +56,15 @@ spec:
                 php maintenance/runJobs.php --wait --maxjobs=10
                 sleep 5
               done
+          # See deployment-web.yaml for the full explanation of the
+          # env-vs-envFrom split. The jobrunner shares the same env
+          # ConfigMap as the web pod because maintenance scripts and job
+          # processing need the same runtime knobs (PHP_*, wiki directory,
+          # very short URLs, etc.).
+          envFrom:
+            - configMapRef:
+                name: {{ include "canasta.fullname" . }}-env
+                optional: true
           env:
             - name: MYSQL_HOST
               value: db

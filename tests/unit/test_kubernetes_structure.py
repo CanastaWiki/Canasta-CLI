@@ -45,6 +45,7 @@ class TestHelmChart:
         templates = os.path.join(HELM_CHART, "templates")
         required = [
             "_helpers.tpl",
+            "configmap-env.yaml",
             "deployment-caddy.yaml",
             "deployment-web.yaml",
             "deployment-varnish.yaml",
@@ -60,6 +61,31 @@ class TestHelmChart:
         for template in required:
             assert os.path.isfile(os.path.join(templates, template)), (
                 "Missing template: %s" % template
+            )
+
+    def test_values_yaml_has_env_config_data(self):
+        """configData.env must exist so configmap-env.yaml renders (#51)."""
+        with open(os.path.join(HELM_CHART, "values.yaml")) as f:
+            values = yaml.safe_load(f)
+        assert "configData" in values
+        assert "env" in values["configData"], (
+            "configData.env is required for the env ConfigMap template"
+        )
+
+    def test_web_and_jobrunner_reference_env_configmap(self):
+        """deployment-web and deployment-jobrunner must pull env vars from
+        the canasta-<id>-env ConfigMap via envFrom, so that .env changes
+        propagated by k8s_sync_config.yml actually reach the pod (#51)."""
+        templates = os.path.join(HELM_CHART, "templates")
+        for template_name in ("deployment-web.yaml", "deployment-jobrunner.yaml"):
+            with open(os.path.join(templates, template_name)) as f:
+                content = f.read()
+            assert "envFrom:" in content, (
+                "%s must reference the env ConfigMap via envFrom" % template_name
+            )
+            assert '{{ include "canasta.fullname" . }}-env' in content, (
+                "%s must reference the canasta-<id>-env ConfigMap by name"
+                % template_name
             )
 
 
