@@ -71,7 +71,14 @@ analogous concepts exist but the commands differ.
 ```bash
 # Launch 2 EC2 instances:
 #   - AMI: Ubuntu 22.04 or 24.04 (amd64)
-#   - Type: t3.small or larger
+#   - Type: needs at least 4 GiB of total RAM. Working choices for
+#     a small wiki without Elasticsearch include c7i-flex.large
+#     (4 GiB), t3.medium (4 GiB), t3.large (8 GiB), and
+#     c7i-flex.xlarge (8 GiB). For wikis with Elasticsearch enabled
+#     or with significant traffic, use 8 GiB or larger.
+#   - Storage: 20 GB gp3 EBS root volume or larger. The default
+#     8 GB Ubuntu AMI is too small once the Canasta image, k3s
+#     images, and PVC working space are accounted for.
 #   - Key pair: your SSH key
 #   - Security group rules:
 #     1. SSH (22/TCP) from your controller's IP
