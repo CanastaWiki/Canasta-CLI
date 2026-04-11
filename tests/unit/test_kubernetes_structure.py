@@ -131,6 +131,35 @@ class TestHelmChart:
                 % template_name
             )
 
+    def test_k8s_preflight_uses_capacity_not_allocatable(self):
+        """k8s_preflight.yml should read .status.capacity for the memory
+        check, not .status.allocatable. Allocatable on a 4 GiB node is
+        ~3.5 GiB, so a 4 GiB threshold against allocatable would reject
+        the smallest instance we want to support. See #58."""
+        with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_preflight.yml")) as f:
+            content = f.read()
+        assert ".status.capacity.memory" in content, (
+            "k8s_preflight.yml must read .status.capacity.memory"
+        )
+        assert ".status.allocatable.memory" not in content, (
+            "k8s_preflight.yml should not read .status.allocatable.memory; "
+            "use capacity instead. See #58."
+        )
+
+    def test_k8s_preflight_min_memory_is_4096(self):
+        """The K8s preflight memory minimum should match the 4 GiB Compose
+        threshold (#58). 1216 MiB (the old request-sum value) is too
+        permissive and lets t3.small / c7i-flex.large pass."""
+        with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_preflight.yml")) as f:
+            content = f.read()
+        assert "_min_memory_mi: 4096" in content, (
+            "k8s_preflight.yml _min_memory_mi must be 4096 (4 GiB)"
+        )
+        assert "_min_memory_mi: 1216" not in content, (
+            "k8s_preflight.yml still has the old 1216 MiB minimum; "
+            "should be 4096. See #58."
+        )
+
 
 class TestGitopsDispatchers:
     """Verify that each dispatched gitops command has both variants."""

@@ -26,7 +26,11 @@
     - orchestrator | default('compose') == 'compose'
     - _docker_check.rc | default(0) != 0
 
-- name: Check system memory (minimum 4GB)
+# Compose-only host memory preflight. The K8s path has its own
+# per-node memory check in k8s_preflight.yml — running this on a K8s
+# create would measure the controller host, not the cluster nodes,
+# which is the wrong thing. See #58.
+- name: Check target host total memory (minimum 4 GiB) — Compose only
   ansible.builtin.command:
     cmd: >-
       python3 -c "import os;
@@ -36,13 +40,20 @@
   register: _mem_check
   changed_when: false
   ignore_errors: true
+  when: orchestrator | default('compose') == 'compose'
 
-- name: Warn about low memory
-  ansible.builtin.debug:
+- name: Fail if target host has less than 4 GiB total memory
+  ansible.builtin.fail:
     msg: >-
-      WARNING: System has less than 4GB RAM.
-      Canasta may not run properly.
-  when: _mem_check.rc != 0
+      Canasta requires at least 4 GiB of total memory on the target
+      host. The host has less than that. If you intentionally want to
+      run on a smaller host (with Elasticsearch and Varnish disabled
+      and only the lightest workload), you'll need to make this check
+      configurable — but in practice 4 GiB is the floor below which
+      Canasta will not start reliably.
+  when:
+    - orchestrator | default('compose') == 'compose'
+    - _mem_check.rc | default(0) != 0
 
 # --- Step 1: Validate inputs ---
 - name: Validate instance ID

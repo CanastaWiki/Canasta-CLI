@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """Check that at least one Kubernetes node meets minimum resource requirements.
 
-Reads node allocatable data from NODE_DATA env var (tab-separated lines of
-name, cpu, memory, ephemeral-storage as output by kubectl jsonpath) and
-compares against MIN_CPU_MILLI, MIN_MEMORY_MI, and MIN_STORAGE_GI.
+Reads node capacity data from NODE_DATA env var (tab-separated lines of
+name, cpu, memory, ephemeral-storage as output by kubectl jsonpath against
+.status.capacity) and compares against MIN_CPU_MILLI, MIN_MEMORY_MI, and
+MIN_STORAGE_GI.
+
+Capacity, not allocatable: see #58 for the rationale. Allocatable is what
+kubelet will schedule (capacity minus kube-reserved minus system-reserved
+minus eviction-threshold), and on a 4 GiB node it's ~3.5 GiB. Checking
+against capacity makes the threshold match what the user sees as their
+instance size.
 
 Exits 0 if any node qualifies, 1 otherwise.  Prints a per-node summary to
 stdout so Ansible can include it in its failure message.
@@ -44,7 +51,7 @@ def parse_storage(value):
 def main():
     node_data = os.environ.get("NODE_DATA", "").strip()
     min_cpu = int(os.environ.get("MIN_CPU_MILLI", 600))
-    min_mem = int(os.environ.get("MIN_MEMORY_MI", 1216))
+    min_mem = int(os.environ.get("MIN_MEMORY_MI", 4096))
     min_stor = int(os.environ.get("MIN_STORAGE_GI", 15))
 
     if not node_data:
