@@ -50,7 +50,15 @@
 - name: Report setup complete
   ansible.builtin.debug:
     msg:
-      - "EFS storage configured. StorageClass '{{ storage_class_name | default('efs') }}' is ready and set as the default for new Kubernetes instances."
-      - "To run a multi-replica web pod across nodes, also pass --access-mode ReadWriteMany when creating the instance:"
-      - "  canasta create -i myinstance --orchestrator kubernetes --storage-class {{ storage_class_name | default('efs') }} --access-mode ReadWriteMany ..."
+      - >-
+        EFS storage configured. StorageClass
+        '{{ storage_class_name | default('efs') }}' is ready and set
+        as the default for new Kubernetes instances.
+      - >-
+        To run a multi-replica web pod across nodes, also pass
+        --access-mode ReadWriteMany when creating the instance:
+      - >-
+        canasta create -i <id> --orchestrator kubernetes
+        --storage-class {{ storage_class_name | default('efs') }}
+        --access-mode ReadWriteMany ...
       - "See docs/multi-node.md for the full walkthrough."
