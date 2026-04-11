@@ -7,7 +7,7 @@ metadata:
     {{- include "canasta.labels" . | nindent 4 }}
 spec:
   accessModes:
-    - ReadWriteOnce
+    - {{ .Values.persistence.publicAssets.accessMode }}
   {{- if .Values.persistence.publicAssets.storageClass }}
   storageClassName: {{ .Values.persistence.publicAssets.storageClass }}
   {{- end }}

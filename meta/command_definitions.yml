@@ -161,6 +161,10 @@ commands:
         type: string
         orchestrator_only: kubernetes
         description: "Kubernetes storage class for shared volumes (e.g. nfs, efs)"
+      - name: access_mode
+        type: string
+        orchestrator_only: kubernetes
+        description: "Access mode for content PVCs (ReadWriteOnce or ReadWriteMany). Use ReadWriteMany when also setting an RWM-capable storage class for multi-node multi-replica web pods."
       - name: tls_email
         type: string
         orchestrator_only: kubernetes
