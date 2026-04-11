@@ -43,13 +43,21 @@
       See https://helm.sh/docs/intro/install/
   when: _helm_check.rc != 0
 
-- name: Get node allocatable resources
+- name: Get node capacity resources
   vars:
+    # Read .status.capacity (the total capacity reported by the kernel,
+    # ≈ MemTotal) rather than .status.allocatable (capacity minus
+    # kube-reserved minus system-reserved minus eviction-threshold).
+    # Allocatable on a 4 GiB node is ~3.5 GiB, so a 4 GiB threshold
+    # against allocatable would reject the smallest instance we want
+    # to support. Capacity is the right field for matching against
+    # the user's intuitive "this is a 4 GiB instance" understanding.
+    # See #58.
     _jp: >-
       {range .items[*]}{.metadata.name}{"\t"}
-      {.status.allocatable.cpu}{"\t"}
-      {.status.allocatable.memory}{"\t"}
-      {.status.allocatable.ephemeral-storage}{"\n"}{end}
+      {.status.capacity.cpu}{"\t"}
+      {.status.capacity.memory}{"\t"}
+      {.status.capacity.ephemeral-storage}{"\n"}{end}
   ansible.builtin.command:
     cmd: >-
       kubectl get nodes
@@ -59,12 +67,23 @@
 
 - name: Check node resources are sufficient
   vars:
-    # Minimum requirements for a Canasta instance.
-    # CPU: 600m total requests (web 250 + caddy 50 + varnish 100 + db 100 + jobrunner 100)
-    # Memory: 1216Mi total requests (web 512 + caddy 64 + varnish 128 + db 256 + jobrunner 256)
-    # Ephemeral storage: 20Gi (Canasta image is several GB when unpacked)
+    # Minimum requirements for a Canasta instance, expressed against
+    # node capacity (not allocatable; not the sum of pod requests).
+    # Memory: 4 GiB total. This matches the Compose-side check in
+    # roles/create/tasks/main.yml and is the documented floor below
+    # which Canasta will not run reliably. With Elasticsearch enabled
+    # or under heavy traffic, 8 GiB+ is recommended; users opting in
+    # to those should size up.
+    # CPU: 600m, the sum of resource requests across the chart's
+    # default components. This is the minimum that schedules; it's
+    # not a memory-style hard floor because Canasta is mostly memory
+    # bound, not CPU bound.
+    # Storage: 15 GiB ephemeral, enough for the Canasta image and
+    # k3s images plus working space. Real wikis with non-trivial
+    # content should use a larger storage class for the content
+    # PVCs; this minimum is only about ephemeral / image space.
     _min_cpu_milli: 600
-    _min_memory_mi: 1216
+    _min_memory_mi: 4096
     _min_storage_gi: 15
   block:
     - name: Evaluate node capacity
@@ -84,10 +103,11 @@
     - name: Fail if no node has sufficient resources
       ansible.builtin.fail:
         msg: >-
-          No Kubernetes node meets the minimum resource requirements for a
-          Canasta instance.  Minimum: {{ _min_cpu_milli }}m CPU,
-          {{ _min_memory_mi }}Mi memory, {{ _min_storage_gi }}Gi ephemeral
-          storage.  Node details:
+          No Kubernetes node meets the minimum resource requirements
+          for a Canasta instance. Required (against node capacity):
+          at least {{ _min_memory_mi }} MiB total memory,
+          {{ _min_cpu_milli }}m CPU, {{ _min_storage_gi }} GiB
+          ephemeral storage. Node details:
           {{ _resource_check.stdout | default('(check script failed)') }}
       when: _resource_check.rc != 0
 
