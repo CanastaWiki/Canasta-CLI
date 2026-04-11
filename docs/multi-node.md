@@ -4,10 +4,6 @@ This guide walks through running Canasta on a multi-node Kubernetes
 cluster, with multiple web pods spread across nodes for load balancing
 and improved availability.
 
-For testing this end-to-end against a real cloud cluster, see
-[`MULTI_NODE_TEST_PLAN.md`](../../MULTI_NODE_TEST_PLAN.md) at the
-workspace root, which is the formal test plan we run before releases.
-
 ## When you need this
 
 You probably want a multi-node multi-replica deployment if any of these
@@ -346,9 +342,8 @@ canasta restart --id mywiki     # forces rescheduling
 kubectl uncordon <node-name>    # re-allow scheduling
 ```
 
-This is a known limitation. Adding pod anti-affinity or topology
-spread constraints to the chart would solve it properly and is
-tracked as a separate follow-up.
+If your workload depends on guaranteed pod spread for fault
+tolerance, the cordon workaround above is the current solution.
 
 ## Caveats and known limitations
 
@@ -363,25 +358,28 @@ hosting the DB pod fails, the DB pod cannot reschedule until that
 node recovers, and the entire wiki goes down regardless of how many
 web replicas you have.
 
-**For production HA, the recommended approach is to use an external
-database service** (RDS Multi-AZ, Aurora, CloudSQL, managed Galera,
-etc.) and point Canasta at it. External DB support is on the roadmap;
-see [issue #347 in
-Canasta-CLI](https://github.com/CanastaWiki/Canasta-CLI/issues/347)
-for the current status and the broader HA discussion.
+For production high availability, the recommended approach is to use
+an external database service (a managed MariaDB or MySQL such as RDS
+Multi-AZ, Aurora, Cloud SQL, or a self-managed Galera cluster) and
+point Canasta at it instead of running the bundled DB pod. The
+external database handles its own replication, failover, and backups,
+which removes the database tier as a single point of failure for the
+wiki.
 
-In the meantime, "multi-replica web with single-pod local-path DB" is
-useful for load distribution and partial fault tolerance (any node
-failure that isn't the DB node leaves the wiki running) but should
-not be confused with full HA.
+If you keep the bundled DB pod, "multi-replica web with single-pod
+local-path DB" is useful for load distribution and partial fault
+tolerance — any node failure that isn't the DB node leaves the wiki
+running — but should not be confused with full high availability.
 
 ### Caddy
 
-Caddy is still single-replica in the default chart. The `caddy-data`
-PVC stores TLS certificates and is `ReadWriteOnce`, and multiple
-Caddy replicas would also independently provision Let's Encrypt
-certificates and hit ACME rate limits. Caddy clustering is a separate
-follow-up.
+Caddy is single-replica in the default chart. The `caddy-data` PVC
+stores TLS certificates and is `ReadWriteOnce`, and multiple Caddy
+replicas would also independently provision Let's Encrypt
+certificates and hit ACME rate limits. If you need a highly available
+HTTPS termination layer, the supported approach is to put an external
+load balancer or ingress controller in front of Canasta and disable
+Canasta's own TLS handling with the `--skip-tls` flag at create time.
 
 ### Elasticsearch / OpenSearch
 
@@ -391,9 +389,11 @@ to configure it yourself outside the chart.
 
 ### Pod scheduling
 
-As noted in Step 5, the chart does not yet declare pod anti-affinity
-or topology spread constraints. Multi-replica spread is best-effort,
-not guaranteed.
+As noted in Step 5, the chart does not declare pod anti-affinity or
+topology spread constraints. Multi-replica spread is best-effort,
+based on the Kubernetes scheduler's default scoring (resource
+availability and balance). Use the cordon workaround above if you
+need to force pods onto specific nodes.
 
 ## Troubleshooting
 
@@ -417,6 +417,6 @@ attached to a different node. Either set `--access-mode ReadWriteMany`
 when creating the instance, or accept that all replicas must land on
 the node holding the PVC.
 
-**Pods all on one node despite multi-node cluster.** No anti-affinity
-in the chart yet. Use the cordon workaround in Step 5, or wait for the
-anti-affinity follow-up.
+**Pods all on one node despite multi-node cluster.** The Kubernetes
+scheduler doesn't guarantee spread without anti-affinity rules. Use
+the cordon workaround in Step 5 to force a re-schedule.
