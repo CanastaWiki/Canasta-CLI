@@ -31,15 +31,35 @@ secrets:
 
 argocd:
   namespace: {{ argocd_namespace | default('argocd') }}
-{% if storage_class is defined and storage_class != '' %}
+{% if (storage_class is defined and storage_class != '') or (access_mode is defined and access_mode != '') %}
 
 persistence:
   images:
+{% if storage_class is defined and storage_class != '' %}
     storageClass: {{ storage_class }}
+{% endif %}
+{% if access_mode is defined and access_mode != '' %}
+    accessMode: {{ access_mode }}
+{% endif %}
   extensions:
+{% if storage_class is defined and storage_class != '' %}
     storageClass: {{ storage_class }}
+{% endif %}
+{% if access_mode is defined and access_mode != '' %}
+    accessMode: {{ access_mode }}
+{% endif %}
   skins:
+{% if storage_class is defined and storage_class != '' %}
     storageClass: {{ storage_class }}
+{% endif %}
+{% if access_mode is defined and access_mode != '' %}
+    accessMode: {{ access_mode }}
+{% endif %}
   publicAssets:
+{% if storage_class is defined and storage_class != '' %}
     storageClass: {{ storage_class }}
+{% endif %}
+{% if access_mode is defined and access_mode != '' %}
+    accessMode: {{ access_mode }}
+{% endif %}
 {% endif %}

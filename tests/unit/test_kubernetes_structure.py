@@ -88,6 +88,49 @@ class TestHelmChart:
                 % template_name
             )
 
+    def test_persistence_subkeys_have_access_mode_default(self):
+        """Each content PVC must have an accessMode default in values.yaml
+        so the chart renders without requiring users to set it (#55)."""
+        with open(os.path.join(HELM_CHART, "values.yaml")) as f:
+            values = yaml.safe_load(f)
+        assert "persistence" in values
+        for subkey in ("images", "extensions", "skins", "publicAssets"):
+            assert subkey in values["persistence"], (
+                "persistence.%s missing from values.yaml" % subkey
+            )
+            assert "accessMode" in values["persistence"][subkey], (
+                "persistence.%s.accessMode missing from values.yaml" % subkey
+            )
+            mode = values["persistence"][subkey]["accessMode"]
+            assert mode in ("ReadWriteOnce", "ReadWriteMany"), (
+                "persistence.%s.accessMode must be ReadWriteOnce or "
+                "ReadWriteMany, got %r" % (subkey, mode)
+            )
+
+    def test_content_pvcs_use_configurable_access_mode(self):
+        """The four content PVC templates must read accessMode from values.yaml
+        rather than hardcoding ReadWriteOnce, so multi-node multi-replica
+        web on RWM-capable storage is contractually correct (#55)."""
+        templates = os.path.join(HELM_CHART, "templates")
+        pvc_subkey_map = {
+            "pvc-images.yaml": "images",
+            "pvc-extensions.yaml": "extensions",
+            "pvc-skins.yaml": "skins",
+            "pvc-public-assets.yaml": "publicAssets",
+        }
+        for template_name, subkey in pvc_subkey_map.items():
+            with open(os.path.join(templates, template_name)) as f:
+                content = f.read()
+            expected = ".Values.persistence.%s.accessMode" % subkey
+            assert expected in content, (
+                "%s must read accessMode from %s" % (template_name, expected)
+            )
+            # Sanity: the old hardcoded "- ReadWriteOnce" line should be gone.
+            assert "- ReadWriteOnce" not in content, (
+                "%s still has hardcoded '- ReadWriteOnce' — should be templated"
+                % template_name
+            )
+
 
 class TestGitopsDispatchers:
     """Verify that each dispatched gitops command has both variants."""
