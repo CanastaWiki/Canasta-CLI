@@ -1041,6 +1041,56 @@ def test_k8s_lifecycle(inst):
         "No running pods after start: %s" % result.stdout
     )
 
+    # #51: verify that `canasta config set` on a K8s instance actually
+    # propagates an env var all the way to the running pod. Prior to
+    # the env ConfigMap + envFrom plumbing, this would silently no-op:
+    # .env on the controller would update but the pod's getenv() would
+    # never see the change.
+    print("Setting PHP_UPLOAD_MAX_FILESIZE via config set...")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "PHP_UPLOAD_MAX_FILESIZE=77M",
+    )
+
+    # Wait for the rollout triggered by config set to complete. The
+    # deployment has a checksum/env-config annotation that changes
+    # when configData.env changes, which forces a pod restart.
+    namespace = "canasta-%s" % inst.id
+    print("Waiting for web rollout to complete...")
+    result = subprocess.run(
+        ["kubectl", "rollout", "status",
+         "deployment/canasta-%s-web" % inst.id,
+         "-n", namespace, "--timeout=180s"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "Rollout did not complete: %s\n%s" % (result.stdout, result.stderr)
+    )
+
+    print("Verifying PHP_UPLOAD_MAX_FILESIZE reaches the web pod...")
+    result = subprocess.run(
+        ["kubectl", "get", "pods", "-n", namespace,
+         "-l", "app.kubernetes.io/component=web",
+         "-o", "jsonpath={.items[0].metadata.name}"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0 and result.stdout, (
+        "Could not find web pod: %s" % result.stderr
+    )
+    web_pod = result.stdout.strip()
+
+    result = subprocess.run(
+        ["kubectl", "exec", "-n", namespace, web_pod, "--",
+         "printenv", "PHP_UPLOAD_MAX_FILESIZE"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "printenv failed in pod %s: %s" % (web_pod, result.stderr)
+    )
+    assert result.stdout.strip() == "77M", (
+        "Expected PHP_UPLOAD_MAX_FILESIZE=77M in pod, got: %r" % result.stdout
+    )
+
     print("Deleting instance...")
     inst.run_ok("delete", "-i", inst.id, "--yes")
 

@@ -124,6 +124,7 @@ secrets:
 # When empty, ConfigMaps are not created (allows external management).
 configData:
   web: {}       # .env, wikis.yaml, settings--*--*.php, composer.local.json
+  env: {}       # allowlisted env vars extracted from .env, one per ConfigMap key
   caddy: {}     # Caddyfile, Caddyfile.site, Caddyfile.global
   varnish: {}   # default.vcl
   db: {}        # my.cnf
