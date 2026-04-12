@@ -86,7 +86,6 @@ spec:
           #       exists at all. Moving just the pod env vars to the ConfigMap
           #       would create half-broken state where the pod sees one value
           #       and the cluster resources still reflect the old one.
-
           #
           #       MYSQL_HOST is a constant. MYSQL_PASSWORD and MW_SECRET_KEY
           #       stay as secretKeyRef because secrets don't belong in
