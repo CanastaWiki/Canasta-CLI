@@ -129,7 +129,7 @@ jobs:
 
   integration-gitops:
     name: "Integration: GitOps"
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -140,6 +140,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y git-crypt
+          sudo groupadd -f www-data
+          sudo usermod -aG www-data $(whoami)
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install kubernetes
@@ -148,8 +150,8 @@ jobs:
           git config --global user.email "ci@canasta.wiki"
       - name: Run gitops tests
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
-          gitops gitops-pull-diff
+          sg www-data -c '.venv/bin/python tests/integration/run_tests.py
+          gitops gitops-pull-diff'
         timeout-minutes: 15
 
   integration-k8s:
