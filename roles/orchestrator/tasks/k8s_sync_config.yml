@@ -20,8 +20,7 @@
     # through K8s Secrets instead. MW_SITE_SERVER, MW_SITE_FQDN, and
     # CANASTA_ENABLE_VARNISH also stay out because they're sourced from
     # values.yaml fields that double-duty as K8s-level config (Ingress
-    # hostnames, Varnish deployment gate). See
-    # rationale for an allowlist over a denylist.
+    # hostnames, Varnish deployment gate).
     _k8s_pod_env_allowlist:
       - PHP_UPLOAD_MAX_FILESIZE
       - PHP_POST_MAX_SIZE
