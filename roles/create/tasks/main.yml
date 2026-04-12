@@ -30,27 +30,33 @@
 # per-node memory check in k8s_preflight.yml — running this on a K8s
 # create would measure the controller host, not the cluster nodes,
 # which is the wrong thing. See #58.
-- name: Check target host total memory (minimum 4 GiB) — Compose only
+#
+# Threshold is 3500 MiB rather than a round 4096 MiB because cloud
+# instances marketed as "4 GiB" actually expose ~3700-3900 MiB to the
+# kernel after BIOS/UEFI/hypervisor reserves. AWS c7i-flex.large
+# (4 GiB advertised) reports ~3826 MiB MemTotal, for example. The
+# 3500 MiB floor is comfortably above what 2 GiB instances report
+# (~1700-1900 MiB) and below what real 4 GiB cloud instances report.
+# See #65.
+- name: Check target host total memory (minimum 3500 MiB) — Compose only
   ansible.builtin.command:
     cmd: >-
       python3 -c "import os;
-      mem = os.sysconf('SC_PAGE_SIZE')
-      * os.sysconf('SC_PHYS_PAGES') // (1024**3);
-      exit(0 if mem >= 4 else 1)"
+      mem_mib = os.sysconf('SC_PAGE_SIZE')
+      * os.sysconf('SC_PHYS_PAGES') // (1024**2);
+      exit(0 if mem_mib >= 3500 else 1)"
   register: _mem_check
   changed_when: false
   ignore_errors: true
   when: orchestrator | default('compose') == 'compose'
 
-- name: Fail if target host has less than 4 GiB total memory
+- name: Fail if target host has less than 3500 MiB total memory
   ansible.builtin.fail:
     msg: >-
-      Canasta requires at least 4 GiB of total memory on the target
-      host. The host has less than that. If you intentionally want to
-      run on a smaller host (with Elasticsearch and Varnish disabled
-      and only the lightest workload), you'll need to make this check
-      configurable — but in practice 4 GiB is the floor below which
-      Canasta will not start reliably.
+      Canasta requires at least 3500 MiB of total memory on the target
+      host (in practice, a 4 GiB instance class or larger — cloud
+      instances marketed as 4 GiB report ~3700-3900 MiB after kernel
+      and firmware reserves). The host has less than that.
   when:
     - orchestrator | default('compose') == 'compose'
     - _mem_check.rc | default(0) != 0
