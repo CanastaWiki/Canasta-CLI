@@ -1,4 +1,3 @@
-{{- if .Values.configData.varnish }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,8 +7,12 @@ metadata:
     {{- include "canasta.labels" . | nindent 4 }}
     app.kubernetes.io/component: varnish
 data:
+  {{- if .Values.configData.varnish }}
   {{- range $key, $value := .Values.configData.varnish }}
   {{ $key }}: |
     {{- $value | nindent 4 }}
   {{- end }}
-{{- end }}
+  {{- else }}
+  default.vcl: |
+    {{- .Files.Get "files/default.vcl" | nindent 4 }}
+  {{- end }}

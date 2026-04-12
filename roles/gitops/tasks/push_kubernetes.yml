@@ -8,6 +8,12 @@
   ansible.builtin.set_fact:
     _k8s_namespace: "canasta-{{ instance_id }}"
 
+# Regenerate the Caddyfile from wikis.yaml before syncing config.
+# Without this, a canasta add → gitops push would push a stale
+# Caddyfile that doesn't route the new wiki.
+- name: Regenerate Caddyfile from current wikis.yaml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/rewrite_caddy.yml"
+
 - name: Sync config files
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
