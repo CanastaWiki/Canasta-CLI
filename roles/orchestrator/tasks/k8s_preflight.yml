@@ -63,7 +63,6 @@
     # against allocatable would reject the smallest instance we want
     # to support. Capacity is the right field for matching against
     # the user's intuitive "this is a 4 GiB instance" understanding.
-
     _jp: >-
       {range .items[*]}{.metadata.name}{"\t"}
       {.status.capacity.cpu}{"\t"}
