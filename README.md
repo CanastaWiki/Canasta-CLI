@@ -59,9 +59,10 @@ Run `canasta doctor` to verify all dependencies on a target host.
 Only Docker is required. No Python, no Ansible.
 
 ```bash
-sudo curl -o /usr/local/bin/canasta \
+sudo curl -o /usr/local/bin/canasta-docker \
   https://raw.githubusercontent.com/CanastaWiki/Canasta-Ansible/main/canasta-docker
-sudo chmod +x /usr/local/bin/canasta
+sudo chmod +x /usr/local/bin/canasta-docker
+sudo ln -sf /usr/local/bin/canasta-docker /usr/local/bin/canasta
 ```
 
 The wrapper automatically pulls the `canasta-ansible` image on first
@@ -75,7 +76,19 @@ cd /opt/canasta-ansible
 sudo python3 -m venv .venv
 sudo .venv/bin/pip install -r requirements.txt
 sudo .venv/bin/ansible-galaxy collection install -r requirements.yml
-sudo ln -sf /opt/canasta-ansible/canasta-native /usr/local/bin/canasta
+sudo ln -sf /opt/canasta-ansible/canasta-native /usr/local/bin/canasta-native
+sudo ln -sf /usr/local/bin/canasta-native /usr/local/bin/canasta
+```
+
+### Both wrappers available
+
+Whichever option you chose, both wrappers can coexist at
+`/usr/local/bin`. If you installed via Docker, you can also set up
+native as a backup (or vice versa). Switch the default at any time:
+
+```bash
+sudo ln -sf /usr/local/bin/canasta-docker /usr/local/bin/canasta   # use Docker
+sudo ln -sf /usr/local/bin/canasta-native /usr/local/bin/canasta   # use native
 ```
 
 ### Remote hosts (both options)

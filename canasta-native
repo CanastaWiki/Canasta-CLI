@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 # Thin wrapper that invokes the Python CLI.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+#
+# Resolves symlinks so this script can be symlinked from /usr/local/bin
+# and still find canasta.py and .venv relative to the actual repo checkout.
+#
+# Install layout:
+#   /usr/local/bin/canasta-native  → symlink to <repo>/canasta-native
+#   /usr/local/bin/canasta-docker  → symlink to <repo>/canasta-docker (or copy)
+#   /usr/local/bin/canasta         → symlink to whichever is preferred
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+    DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+
 if [[ -x "${SCRIPT_DIR}/.venv/bin/python" ]]; then
     exec "${SCRIPT_DIR}/.venv/bin/python" "${SCRIPT_DIR}/canasta.py" "$@"
 else
