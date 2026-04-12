@@ -9,7 +9,6 @@ the pods consume via envFrom: configMapRef in their deployment templates.
 Deliberately kept separate from the web-config ConfigMap (which holds
 opaque file contents like wikis.yaml and settings/*) so that the envFrom
 semantics — one ConfigMap key = one environment variable — stay clean.
-
 */}}
 {{- if .Values.configData.env }}
 apiVersion: v1
