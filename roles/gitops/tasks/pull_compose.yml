@@ -122,6 +122,12 @@
 - name: Render wikis.yaml from template
   when: _pull_wikis_template_stat.stat.exists
   block:
+    - name: Ensure config directory exists and is writable
+      ansible.builtin.file:
+        path: "{{ instance_path }}/config"
+        state: directory
+        mode: "0755"
+
     - name: Read wikis.yaml.template
       ansible.builtin.slurp:
         src: "{{ instance_path }}/wikis.yaml.template"
