@@ -1,32 +1,276 @@
 ---
+# GitOps join — connect an existing Canasta instance to an existing
+# gitops repository. The instance must already be created (canasta create).
+# This is the multi-host onboarding flow: Host A did 'gitops init',
+# Host B runs 'gitops join' to connect to the same repo.
+#
+# Input: host_name, role, repo, key, force
+# Requires: instance_path, instance_id, instance_orchestrator (set by dispatcher)
+
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: Not applicable for Kubernetes
   ansible.builtin.fail:
     msg: >-
-      'canasta gitops join' is not applicable for the kubernetes orchestrator.
-      Multi-host configuration is handled through the cluster rather than
-      individual machine join operations.
+      'canasta gitops join' is not yet implemented for the kubernetes
+      orchestrator. Multi-environment K8s gitops requires a different
+      repo structure (per-environment branches or directories) that
+      is not yet supported.
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+# --- Step 1: Validate prerequisites ---
+- name: Check git is installed
+  ansible.builtin.command:
+    cmd: "git --version"
+  changed_when: false
+
+- name: Check git-crypt is installed
+  ansible.builtin.command:
+    cmd: "git-crypt --version"
+  changed_when: false
+
+- name: Check for existing .git directory
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git"
+  register: _join_existing_git
+
+- name: Fail if git repo already exists
+  ansible.builtin.fail:
+    msg: >-
+      GitOps already initialized ({{ instance_path }}/.git exists).
+      This instance is already connected to a gitops repository.
+  when: _join_existing_git.stat.exists
+
+- name: Check key file exists
+  ansible.builtin.stat:
+    path: "{{ key }}"
+  register: _join_key_exists
+
+- name: Fail if key file not found
+  ansible.builtin.fail:
+    msg: >-
+      Key file '{{ key }}' not found. This should be the git-crypt
+      key exported during 'gitops init' on the source host.
+  when: not _join_key_exists.stat.exists
+
+# --- Step 2: Clone repo to temp location ---
+- name: Create temp directory for clone
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: "canasta-join-"
+  register: _join_tmpdir
 
 - name: Clone gitops repository
   ansible.builtin.command:
-    cmd: "git clone {{ repo }} {{ instance_path }}/config-gitops"
+    cmd: "git clone {{ repo }} ."
+    chdir: "{{ _join_tmpdir.path }}"
   changed_when: true
 
-- name: Unlock with git-crypt key
+# --- Step 3: Unlock git-crypt ---
+- name: Unlock git-crypt with provided key
   ansible.builtin.command:
     cmd: "git-crypt unlock {{ key }}"
-    chdir: "{{ instance_path }}/config-gitops"
+    chdir: "{{ _join_tmpdir.path }}"
   changed_when: true
 
-- name: Add host to hosts.yaml
-  ansible.builtin.lineinfile:
-    path: "{{ instance_path }}/config-gitops/hosts.yaml"
-    line: "    - name: {{ host_name }}"
-    insertafter: "hosts:"
+# --- Step 4: Validate host name not already in config ---
+- name: Read hosts.yaml from cloned repo
+  ansible.builtin.slurp:
+    src: "{{ _join_tmpdir.path }}/hosts/hosts.yaml"
+  register: _join_hosts_raw
 
+- name: Parse hosts config
+  ansible.builtin.set_fact:
+    _join_hosts: "{{ _join_hosts_raw.content | b64decode | from_yaml }}"
+
+- name: Fail if host name already exists
+  ansible.builtin.fail:
+    msg: >-
+      Host '{{ host_name }}' already exists in the gitops repository.
+      Choose a different name or remove the existing host first.
+  when: >-
+    _join_hosts.hosts | default([])
+    | selectattr('name', 'equalto', host_name)
+    | list | length > 0
+
+# --- Step 5: Move .git into instance directory ---
+- name: Remove legacy .gitignore files
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ item }}"
+    state: absent
+  loop:
+    - extensions/.gitignore
+    - skins/.gitignore
+    - config/.gitignore
+
+- name: Move .git from temp clone to instance
+  ansible.builtin.command:
+    cmd: "mv {{ _join_tmpdir.path }}/.git {{ instance_path }}/.git"
+  changed_when: true
+
+- name: Checkout tracked files from repo (decrypted via git-crypt)
+  ansible.builtin.command:
+    cmd: "git checkout HEAD -- ."
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+# --- Step 6: Extract vars from current .env ---
+- name: Define placeholder keys
+  ansible.builtin.set_fact:
+    _join_placeholder_keys:
+      - MYSQL_PASSWORD
+      - WIKI_DB_PASSWORD
+      - MW_SECRET_KEY
+      - RESTIC_REPOSITORY
+      - RESTIC_PASSWORD
+      - MW_SITE_SERVER
+      - MW_SITE_FQDN
+      - HTTPS_PORT
+      - HTTP_PORT
+    _join_secret_prefixes: "^(AWS_|AZURE_|B2_|GOOGLE_|OS_|ST_|RCLONE_)"
+
+- name: Read current .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _join_env
+
+- name: Read wikis for URL and password extraction
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _join_wikis
+
+- name: Build vars from current .env and wikis
+  ansible.builtin.set_fact:
+    _join_vars: >-
+      {{
+        dict(
+          _join_env.variables | dict2items
+          | selectattr('key', 'in', _join_placeholder_keys)
+          | map(attribute='key')
+          | map('lower')
+          | zip(
+              _join_env.variables | dict2items
+              | selectattr('key', 'in', _join_placeholder_keys)
+              | map(attribute='value')
+              | list)
+          | list
+        )
+        | combine(
+            dict(
+              _join_env.variables | dict2items
+              | selectattr('key', 'match', _join_secret_prefixes)
+              | map(attribute='key')
+              | map('lower')
+              | zip(
+                  _join_env.variables | dict2items
+                  | selectattr('key', 'match', _join_secret_prefixes)
+                  | map(attribute='value')
+                  | list)
+              | list
+            )
+          )
+      }}
+
+- name: Add wiki URL vars
+  ansible.builtin.set_fact:
+    _join_vars: >-
+      {{ _join_vars | combine(
+           dict(_join_wikis.wikis | default([])
+                | map(attribute='id')
+                | map('regex_replace', '^', 'wiki_url_')
+                | zip(_join_wikis.wikis | default([])
+                      | map(attribute='url')
+                      | list)
+                | list)
+         ) }}
+
+- name: Add admin password vars
+  ansible.builtin.set_fact:
+    _join_vars: >-
+      {{ _join_vars | combine(
+           dict(_join_wikis.wiki_ids | default([])
+                | map('regex_replace', '^', 'admin_password_')
+                | zip(_join_wikis.wiki_ids | default([])
+                      | map('extract', lookup('file',
+                          instance_path ~ '/admin-password_' ~ item,
+                          errors='ignore') | default(''))
+                      | list)
+                | list)
+         ) }}
+  ignore_errors: true  # OK if some admin password files don't exist
+
+# --- Step 7: Add host to config and write vars ---
+- name: Add host to hosts.yaml
+  ansible.builtin.copy:
+    content: |
+      {{ _join_hosts
+         | combine({'hosts': _join_hosts.hosts | default([])
+                    + [{'name': host_name,
+                        'role': role | default('both')}]},
+                   recursive=True)
+         | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/hosts/hosts.yaml"
+    mode: "0644"
+
+- name: Create host vars directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/hosts/{{ host_name }}"
+    state: directory
+    mode: "0755"
+
+- name: Write host vars
+  ansible.builtin.copy:
+    content: "{{ _join_vars | to_nice_yaml(indent=2) }}"
+    dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
+    mode: "0644"
+  no_log: true
+
+# --- Step 8: Write .gitops-host ---
+- name: Save .gitops-host identity
+  ansible.builtin.copy:
+    content: "{{ host_name }}"
+    dest: "{{ instance_path }}/.gitops-host"
+    mode: "0644"
+
+# --- Step 9: Update submodules ---
+- name: Update submodules
+  ansible.builtin.command:
+    cmd: "git submodule update --init --recursive"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  ignore_errors: true  # OK if no submodules configured
+
+# --- Step 10: Commit and push ---
+- name: Stage all changes
+  ansible.builtin.command:
+    cmd: "git add -A"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Commit
+  ansible.builtin.command:
+    cmd: "git commit -m 'Add host {{ host_name }}'"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Push to remote
+  ansible.builtin.command:
+    cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+# --- Step 11: Clean up temp dir ---
+- name: Remove temp clone directory
+  ansible.builtin.file:
+    path: "{{ _join_tmpdir.path }}"
+    state: absent
+
+# --- Step 12: Report ---
 - name: Report gitops joined
   ansible.builtin.debug:
-    msg: "Joined gitops repository for '{{ instance_id }}'."
+    msg: >-
+      Joined gitops repository for '{{ instance_id }}' as
+      host '{{ host_name }}' with role '{{ role | default('both') }}'.
