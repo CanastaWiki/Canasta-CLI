@@ -15,19 +15,26 @@
       See https://kubernetes.io/docs/tasks/tools/
   when: _kubectl_check.rc != 0
 
+# Skip the cluster-reachability check when --install-k3s is set —
+# the cluster doesn't exist yet and will be created after preflight.
+# Still check kubectl and helm are installed (above/below) so those
+# failures are caught early. See #77.
 - name: Check cluster is reachable
   ansible.builtin.command:
     cmd: kubectl cluster-info
   register: _cluster_check
   changed_when: false
   ignore_errors: true
+  when: not (install_k3s | default(false) | bool)
 
 - name: Fail if cluster not reachable
   ansible.builtin.fail:
     msg: >-
       Cannot reach Kubernetes cluster. Ensure kubectl is configured with a
       valid kubeconfig. Use --install-k3s to install a local cluster.
-  when: _cluster_check.rc != 0
+  when:
+    - not (install_k3s | default(false) | bool)
+    - _cluster_check.rc | default(0) != 0
 
 - name: Check helm is available
   ansible.builtin.command:
@@ -43,7 +50,11 @@
       See https://helm.sh/docs/intro/install/
   when: _helm_check.rc != 0
 
+# Skip the node resource check when --install-k3s is set — there are
+# no nodes yet. The check will effectively run on the first start
+# after k3s is installed. See #77.
 - name: Get node capacity resources
+  when: not (install_k3s | default(false) | bool)
   vars:
     # Read .status.capacity (the total capacity reported by the kernel,
     # ≈ MemTotal) rather than .status.allocatable (capacity minus
@@ -66,6 +77,7 @@
   changed_when: false
 
 - name: Check node resources are sufficient
+  when: not (install_k3s | default(false) | bool)
   vars:
     # Minimum requirements for a Canasta instance, expressed against
     # node capacity (not allocatable; not the sum of pod requests).
