@@ -21,6 +21,17 @@ RUN mkdir -p /usr/local/lib/docker/cli-plugins \
          -o /usr/local/lib/docker/cli-plugins/docker-compose \
     && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
+# Install kubectl (latest stable). dpkg --print-architecture maps to
+# amd64 / arm64, matching the directories under dl.k8s.io. See #62.
+RUN curl -fsSL \
+        "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/$(dpkg --print-architecture)/kubectl" \
+        -o /usr/local/bin/kubectl \
+    && chmod +x /usr/local/bin/kubectl
+
+# Install Helm (3.x via the official installer script).
+RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
+        | bash
+
 # Copy application
 WORKDIR /opt/canasta-ansible
 COPY requirements.txt requirements.yml ./
