@@ -114,11 +114,6 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
           startupProbe:
             tcpSocket:
               port: http
