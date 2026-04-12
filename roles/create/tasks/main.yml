@@ -37,7 +37,6 @@
 # (4 GiB advertised) reports ~3826 MiB MemTotal, for example. The
 # 3500 MiB floor is comfortably above what 2 GiB instances report
 # (~1700-1900 MiB) and below what real 4 GiB cloud instances report.
-#
 - name: Check target host total memory (minimum 3500 MiB) — Compose only
   ansible.builtin.command:
     cmd: >-
