@@ -72,14 +72,20 @@
 
 # --- Copy Helm chart into instance directory ---
 # Argo CD needs the chart in the git repo to render templates.
-- name: Copy Helm chart structure into instance directory
+- name: Copy Chart.yaml into instance directory
   ansible.builtin.copy:
-    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/{{ item }}"
-    dest: "{{ instance_path }}/{{ item }}"
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/Chart.yaml"
+    dest: "{{ instance_path }}/Chart.yaml"
     mode: preserve
-  loop:
-    - Chart.yaml
-    - templates
+
+# Trailing / on src is critical: without it, Ansible's copy module
+# copies the directory AS 'templates' under the dest, creating
+# templates/templates/. With the trailing /, it copies the CONTENTS.
+- name: Copy Helm templates into instance directory
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/templates/"
+    dest: "{{ instance_path }}/templates/"
+    mode: preserve
 
 - name: Merge chart defaults with instance values
   ansible.builtin.copy:
@@ -119,6 +125,13 @@
 
       # Transient config sync file
       values-configdata.yaml
+
+      # Runtime data directories (backed by PVCs on K8s, not by git)
+      images/
+      extensions/
+      skins/
+      public_assets/
+      wikis/
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 
