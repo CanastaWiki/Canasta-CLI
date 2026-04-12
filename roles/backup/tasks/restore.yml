@@ -129,7 +129,7 @@
           ls /currentsnapshot/config/backup/
       register: _restore_db_files
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if no DB dumps in snapshot
 
     - name: Import each DB dump
       when: _restore_db_files is succeeded and _restore_db_files.stdout | trim | length > 0
@@ -226,7 +226,7 @@
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/config/backup"
-  ignore_errors: true
+  ignore_errors: true  # OK if backup dir doesn't exist
   when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Restart instance after restore

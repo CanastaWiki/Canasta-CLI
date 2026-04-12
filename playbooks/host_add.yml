@@ -23,7 +23,7 @@
   ansible.builtin.slurp:
     src: "{{ _config_dir }}/hosts.yml"
   register: _existing_hosts
-  ignore_errors: true
+  ignore_errors: true  # OK if file doesn't exist yet
   delegate_to: localhost
   vars:
     ansible_connection: local

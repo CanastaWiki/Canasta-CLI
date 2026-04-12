@@ -38,7 +38,7 @@
     chdir: "{{ instance_path }}"
   register: _git_staged
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # rc=1 means there are changes
 
 - name: Commit and push
   when: _git_staged.rc != 0

@@ -7,13 +7,13 @@
   ansible.builtin.slurp:
     src: "{{ instance_path }}/.gitops-host"
   register: _gops_host_file
-  ignore_errors: true
+  ignore_errors: true  # OK if file doesn't exist
 
 - name: Read hosts.yaml
   ansible.builtin.slurp:
     src: "{{ instance_path }}/hosts/hosts.yaml"
   register: _gops_hosts_yaml
-  ignore_errors: true
+  ignore_errors: true  # OK if file doesn't exist
 
 - name: Get current commit
   ansible.builtin.command:
@@ -21,7 +21,7 @@
     chdir: "{{ instance_path }}"
   register: _gops_commit
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if no commits yet
 
 - name: Get last applied commit
   ansible.builtin.command:
@@ -29,7 +29,7 @@
     chdir: "{{ instance_path }}"
   register: _gops_applied
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if file doesn't exist
 
 - name: Get staged files
   ansible.builtin.command:
@@ -51,7 +51,7 @@
     chdir: "{{ instance_path }}"
   register: _gops_revcount
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if no upstream configured
 
 - name: Parse host info
   ansible.builtin.set_fact:
@@ -68,7 +68,7 @@
           | b64decode
           | from_yaml).hosts[0].pull_requests
          | default(false) }}
-  ignore_errors: true
+  ignore_errors: true  # OK if YAML structure unexpected
 
 - name: Parse ahead/behind
   ansible.builtin.set_fact:

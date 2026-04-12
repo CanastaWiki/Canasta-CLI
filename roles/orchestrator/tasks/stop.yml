@@ -41,7 +41,7 @@
           -o jsonpath={.metadata.name}
       register: _stop_argocd_app
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if no Argo CD app exists
 
     - name: Suspend Argo CD auto-sync
       ansible.builtin.command:

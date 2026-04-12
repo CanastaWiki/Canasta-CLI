@@ -63,7 +63,7 @@
       --wiki={{ item | quote }}
     _maint_label: "rebuildData.php ({{ item }})"
   loop: "{{ _update_wikis }}"
-  ignore_errors: true
+  ignore_errors: true  # OK if SMW rebuild fails for a wiki
 
 - name: Report complete
   ansible.builtin.debug:

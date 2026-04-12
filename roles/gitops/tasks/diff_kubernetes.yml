@@ -17,7 +17,7 @@
     chdir: "{{ instance_path }}"
   register: _kdiff_local
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if no upstream configured
 
 - name: Get remote unpulled changes
   ansible.builtin.command:
@@ -25,7 +25,7 @@
     chdir: "{{ instance_path }}"
   register: _kdiff_remote
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if no upstream configured
 
 # --- Argo CD live diff ---
 - name: Render Helm template to temp file
@@ -36,7 +36,7 @@
       -f {{ instance_path }}/values.yaml
   register: _kdiff_rendered
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if Helm chart not available
 
 - name: Write rendered manifest
   ansible.builtin.copy:
@@ -50,7 +50,7 @@
     cmd: "kubectl diff -n canasta-{{ instance_id }} -f /tmp/canasta-diff-{{ instance_id }}.yaml"
   register: _kdiff_cluster
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # rc=1 means there are differences
   when: _kdiff_rendered is succeeded
 
 - name: Clean up temp manifest

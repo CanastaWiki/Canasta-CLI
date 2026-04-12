@@ -9,7 +9,7 @@
     chdir: "{{ _repo_path }}"
   register: _sub_url
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if not a git repo
 
 - name: Convert to submodule
   when: _sub_url.rc == 0 and _sub_url.stdout | trim | length > 0

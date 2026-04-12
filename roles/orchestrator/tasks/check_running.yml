@@ -26,7 +26,7 @@
     chdir: "{{ _check_chdir | default(omit) }}"
   register: _ps_result
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if container/pod not running
 
 - name: Set running status
   ansible.builtin.set_fact:

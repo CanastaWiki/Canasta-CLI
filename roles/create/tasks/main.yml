@@ -14,7 +14,7 @@
     cmd: docker info
   register: _docker_check
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if Docker not installed
   when: orchestrator | default('compose') == 'compose'
 
 - name: Fail if Docker not available
@@ -46,7 +46,7 @@
       exit(0 if mem_mib >= 3500 else 1)"
   register: _mem_check
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if memory check unavailable
   when: orchestrator | default('compose') == 'compose'
 
 - name: Fail if target host has less than 3500 MiB total memory
@@ -73,7 +73,7 @@
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _existing
-  ignore_errors: true
+  ignore_errors: true  # OK if instance doesn't exist yet
 
 - name: Fail if instance already exists
   ansible.builtin.fail:

@@ -24,7 +24,7 @@
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/images/{{ wiki | quote }}"
-  ignore_errors: true
+  ignore_errors: true  # OK if images dir doesn't exist
 
 # Clean up public assets (sitemaps etc.)
 - name: Remove wiki public assets
@@ -32,7 +32,7 @@
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/public_assets/{{ wiki | quote }}"
-  ignore_errors: true
+  ignore_errors: true  # OK if assets dir doesn't exist
 
 - name: Remove wiki from wikis.yaml
   canasta_wikis_yaml:
@@ -47,7 +47,7 @@
     exec_command: >-
       mariadb -u root -p{{ _remove_dbpass.value | default('mediawiki') | quote }}
       -e 'DROP DATABASE IF EXISTS {{ wiki | quote }}'
-  ignore_errors: true
+  ignore_errors: true  # OK if database doesn't exist
 
 - name: Remove per-wiki settings directory
   ansible.builtin.file:

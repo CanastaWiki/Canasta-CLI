@@ -14,7 +14,7 @@
     chdir: "{{ instance_path }}/config"
   register: _git_staged
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # rc=1 means there are changes
 
 - name: Commit changes
   ansible.builtin.command:

@@ -15,7 +15,7 @@
         cmd: "crontab -l"
       register: _cron_list
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if no crontab exists
 
     - name: Filter backup schedule
       ansible.builtin.set_fact:

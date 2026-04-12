@@ -21,7 +21,7 @@
         ansible_connection: local
         ansible_python_interpreter: "{{ ansible_playbook_python }}"
       register: _delete_pwd_query
-      ignore_errors: true
+      ignore_errors: true  # OK if instance not in registry
 
     - name: Fail if no instance found for current directory
       ansible.builtin.fail:
@@ -43,7 +43,7 @@
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _delete_query
-  ignore_errors: true
+  ignore_errors: true  # OK if instance not in registry
 
 - name: Set instance facts from registry
   ansible.builtin.set_fact:
@@ -73,7 +73,7 @@
         cmd: "kubectl version --client"
       register: _kubectl_check
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if kubectl not installed
 
     - name: Fail if no kubectl (Compose instance not in registry)
       ansible.builtin.fail:
@@ -85,7 +85,7 @@
         cmd: "helm status canasta-{{ id }} -n canasta-{{ id }}"
       register: _helm_status
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if no Helm release exists
 
     - name: Check for Kubernetes namespace
       kubernetes.core.k8s_info:
@@ -93,7 +93,7 @@
         kind: Namespace
         name: "canasta-{{ id }}"
       register: _ns_check
-      ignore_errors: true
+      ignore_errors: true  # OK if namespace doesn't exist
 
     - name: Set Kubernetes facts for unregistered instance
       ansible.builtin.set_fact:
@@ -218,7 +218,7 @@
     chdir: "{{ instance_path }}"
   when: instance_orchestrator | default('compose') == 'compose'
   changed_when: true
-  ignore_errors: true
+  ignore_errors: true  # OK if containers already removed
 
 - name: Clean up container-owned files (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
@@ -227,14 +227,14 @@
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: check_running.yml
-      ignore_errors: true
+      ignore_errors: true  # OK if pods not running
 
     - name: Remove files inside K8s pod
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: web
         exec_command: "find /mediawiki/images /mediawiki/config /mediawiki/public_assets -mindepth 1 -delete 2>/dev/null || true"
-      ignore_errors: true
+      ignore_errors: true  # OK if dirs already empty or missing
       when: _container_running | default(false) | bool
 
 # Remove backup schedule from crontab
@@ -242,7 +242,7 @@
   ansible.builtin.cron:
     name: "canasta-backup-{{ instance_id }}"
     state: absent
-  ignore_errors: true
+  ignore_errors: true  # OK if no crontab entry exists
 
 - name: Remove Argo CD Application if present
   kubernetes.core.k8s:
@@ -251,14 +251,14 @@
     kind: Application
     name: "canasta-{{ instance_id }}"
     namespace: "{{ argocd_namespace | default('argocd') }}"
-  ignore_errors: true
+  ignore_errors: true  # OK if Argo CD not installed
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
 - name: Destroy containers and volumes
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: destroy.yml
-  ignore_errors: true
+  ignore_errors: true  # OK if already destroyed
 
 - name: Remove instance directory contents
   ansible.builtin.command:
@@ -266,7 +266,7 @@
     chdir: "/"
   changed_when: true
   when: instance_path | default('') | length > 0
-  ignore_errors: true
+  ignore_errors: true  # OK if some files can't be removed
   register: _rmdir_contents
 
 - name: Remove empty instance directory
@@ -275,7 +275,7 @@
     chdir: "/"
   changed_when: true
   when: instance_path | default('') | length > 0
-  ignore_errors: true
+  ignore_errors: true  # OK if dir is cwd or already gone
   register: _rmdir
 
 - name: Warn if directory could not be removed

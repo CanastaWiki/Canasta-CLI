@@ -42,7 +42,7 @@
     cmd: "git ls-remote {{ repo }}"
   register: _remote_check
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if remote unreachable
   when: not (force | default(false) | bool)
 
 - name: Fail if remote is not empty

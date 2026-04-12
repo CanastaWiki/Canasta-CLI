@@ -59,7 +59,7 @@
       loop_control:
         label: "{{ item.key }}"
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if host unreachable or dir gone
 
     - name: Build directory existence map
       ansible.builtin.set_fact:
@@ -82,7 +82,7 @@
       loop_control:
         label: "{{ item.key }}"
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if wikis.yaml missing
       when: (_dir_exists | default({}))[item.key] | default(false)
 
     - name: Parse wikis from YAML output
@@ -114,7 +114,7 @@
       loop_control:
         label: "{{ item.key }}"
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if containers not running
       when:
         - item.value.orchestrator | default('compose') == 'compose'
         - (_dir_exists | default({}))[item.key] | default(false)
@@ -131,7 +131,7 @@
       loop_control:
         label: "{{ item.key }}"
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if cluster unreachable
       when: >-
         item.value.orchestrator | default('compose')
         in ['kubernetes', 'k8s']
