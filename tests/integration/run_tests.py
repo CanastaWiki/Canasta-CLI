@@ -1098,7 +1098,7 @@ def test_k8s_lifecycle(inst):
     print("Testing config set → values.yaml propagation (#53)...")
     import yaml as _yaml  # for reading values.yaml
 
-    values_path = os.path.join(inst.work_dir, "values.yaml")
+    values_path = os.path.join(inst.instance_path(), "values.yaml")
 
     # First, hand-edit replicaCount into values.yaml to verify it
     # survives the config set round-trip. This is the #53 acceptance
