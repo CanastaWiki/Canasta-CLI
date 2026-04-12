@@ -146,18 +146,24 @@ class TestHelmChart:
             "use capacity instead. See #58."
         )
 
-    def test_k8s_preflight_min_memory_is_4096(self):
-        """The K8s preflight memory minimum should match the 4 GiB Compose
-        threshold (#58). 1216 MiB (the old request-sum value) is too
-        permissive and lets t3.small / c7i-flex.large pass."""
+    def test_k8s_preflight_min_memory_is_3500(self):
+        """The K8s preflight memory minimum should match the Compose
+        threshold and accommodate cloud-instance kernel overhead (#65).
+        4096 MiB rejects real 4 GiB cloud instances (which report
+        ~3826 MiB capacity); 3500 is the working threshold."""
         with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_preflight.yml")) as f:
             content = f.read()
-        assert "_min_memory_mi: 4096" in content, (
-            "k8s_preflight.yml _min_memory_mi must be 4096 (4 GiB)"
+        assert "_min_memory_mi: 3500" in content, (
+            "k8s_preflight.yml _min_memory_mi must be 3500 (the cloud-"
+            "overhead-aware floor for 4 GiB instances)"
+        )
+        assert "_min_memory_mi: 4096" not in content, (
+            "k8s_preflight.yml still has the old 4096 MiB minimum; "
+            "should be 3500. See #65."
         )
         assert "_min_memory_mi: 1216" not in content, (
-            "k8s_preflight.yml still has the old 1216 MiB minimum; "
-            "should be 4096. See #58."
+            "k8s_preflight.yml still has the original 1216 MiB minimum; "
+            "should be 3500. See #58 / #65."
         )
 
 

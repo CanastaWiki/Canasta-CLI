@@ -69,11 +69,16 @@
   vars:
     # Minimum requirements for a Canasta instance, expressed against
     # node capacity (not allocatable; not the sum of pod requests).
-    # Memory: 4 GiB total. This matches the Compose-side check in
-    # roles/create/tasks/main.yml and is the documented floor below
-    # which Canasta will not run reliably. With Elasticsearch enabled
-    # or under heavy traffic, 8 GiB+ is recommended; users opting in
-    # to those should size up.
+    # Memory: 3500 MiB. This matches the Compose-side check in
+    # roles/create/tasks/main.yml. The threshold is intentionally
+    # below a round 4096 MiB because cloud instances marketed as
+    # "4 GiB" actually expose ~3700-3900 MiB to the kernel after
+    # BIOS/UEFI/hypervisor reserves. AWS c7i-flex.large (4 GiB
+    # advertised) reports ~3826 MiB capacity, for example. 3500 MiB
+    # is comfortably above what 2 GiB instances report (~1700-1900)
+    # and below what real 4 GiB cloud instances report. See #65.
+    # With Elasticsearch enabled or under heavy traffic, 8 GiB+ is
+    # recommended; users opting in to those should size up.
     # CPU: 600m, the sum of resource requests across the chart's
     # default components. This is the minimum that schedules; it's
     # not a memory-style hard floor because Canasta is mostly memory
@@ -83,7 +88,7 @@
     # content should use a larger storage class for the content
     # PVCs; this minimum is only about ephemeral / image space.
     _min_cpu_milli: 600
-    _min_memory_mi: 4096
+    _min_memory_mi: 3500
     _min_storage_gi: 15
   block:
     - name: Evaluate node capacity
@@ -105,7 +110,8 @@
         msg: >-
           No Kubernetes node meets the minimum resource requirements
           for a Canasta instance. Required (against node capacity):
-          at least {{ _min_memory_mi }} MiB total memory,
+          at least {{ _min_memory_mi }} MiB total memory (in
+          practice, a 4 GiB instance class or larger),
           {{ _min_cpu_milli }}m CPU, {{ _min_storage_gi }} GiB
           ephemeral storage. Node details:
           {{ _resource_check.stdout | default('(check script failed)') }}

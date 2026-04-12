@@ -51,7 +51,9 @@ def parse_storage(value):
 def main():
     node_data = os.environ.get("NODE_DATA", "").strip()
     min_cpu = int(os.environ.get("MIN_CPU_MILLI", 600))
-    min_mem = int(os.environ.get("MIN_MEMORY_MI", 4096))
+    # 3500 MiB rather than a round 4096 because cloud instances
+    # marketed as "4 GiB" report ~3700-3900 MiB capacity. See #65.
+    min_mem = int(os.environ.get("MIN_MEMORY_MI", 3500))
     min_stor = int(os.environ.get("MIN_STORAGE_GI", 15))
 
     if not node_data:
