@@ -1,4 +1,3 @@
-{{- if .Values.configData.db }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,8 +7,12 @@ metadata:
     {{- include "canasta.labels" . | nindent 4 }}
     app.kubernetes.io/component: db
 data:
+  {{- if .Values.configData.db }}
   {{- range $key, $value := .Values.configData.db }}
   {{ $key }}: |
     {{- $value | nindent 4 }}
   {{- end }}
-{{- end }}
+  {{- else }}
+  my.cnf: |
+    {{- .Files.Get "files/my.cnf" | nindent 4 }}
+  {{- end }}

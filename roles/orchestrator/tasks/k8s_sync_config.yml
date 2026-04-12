@@ -114,22 +114,18 @@
     src: "{{ instance_path }}/config/Caddyfile"
   register: _sync_caddyfile
 
-- name: Check optional config files
+- name: Check optional caddy config files
   ansible.builtin.stat:
     path: "{{ item }}"
   register: _sync_optional_stats
   loop:
     - "{{ instance_path }}/config/Caddyfile.site"
     - "{{ instance_path }}/config/Caddyfile.global"
-    - "{{ instance_path }}/config/default.vcl"
-    - "{{ instance_path }}/my.cnf"
 
 - name: Set optional file existence flags
   ansible.builtin.set_fact:
     _has_caddyfile_site: "{{ _sync_optional_stats.results[0].stat.exists }}"
     _has_caddyfile_global: "{{ _sync_optional_stats.results[1].stat.exists }}"
-    _has_vcl: "{{ _sync_optional_stats.results[2].stat.exists }}"
-    _has_mycnf: "{{ _sync_optional_stats.results[3].stat.exists }}"
 
 - name: Read Caddyfile.site
   ansible.builtin.slurp:
@@ -154,38 +150,15 @@
           | ternary({'Caddyfile.global': _sync_caddyfile_global.content | default('') | b64decode}, {}))
       }}
 
-# --- Varnish config ---
-
-- name: Read default.vcl
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/config/default.vcl"
-  register: _sync_vcl
-  when: _has_vcl | bool
-
-# --- DB config ---
-
-- name: Read my.cnf
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/my.cnf"
-  register: _sync_mycnf
-  when: _has_mycnf | bool
-
 # --- Write configData into values.yaml ---
 # The Helm chart templates render ConfigMaps from configData values.
 # This allows both Ansible-driven and Argo CD-driven workflows to use
 # the same mechanism.
-
-- name: Build varnish config data
-  ansible.builtin.set_fact:
-    _varnish_config_data: >-
-      {{ (_has_vcl | bool)
-         | ternary({'default.vcl': _sync_vcl.content | default('') | b64decode}, {}) }}
-
-- name: Build db config data
-  ansible.builtin.set_fact:
-    _db_config_data: >-
-      {{ (_has_mycnf | bool)
-         | ternary({'my.cnf': _sync_mycnf.content | default('') | b64decode}, {}) }}
+#
+# default.vcl and my.cnf are NOT synced here — the Helm chart ships
+# built-in defaults via .Files.Get (files/default.vcl, files/my.cnf).
+# configData.varnish and configData.db are only populated if the user
+# has custom overrides, which is handled by gitops push (not here).
 
 - name: Write configData to separate values file
   ansible.builtin.copy:
@@ -194,8 +167,6 @@
             'web': _web_config_data,
             'env': _env_config_data,
             'caddy': _caddy_config_data,
-            'varnish': _varnish_config_data,
-            'db': _db_config_data
           }} | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values-configdata.yaml"
     mode: "0644"
