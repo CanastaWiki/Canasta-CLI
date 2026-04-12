@@ -5,9 +5,10 @@
 # Only Docker is required on the host. No Python, no Ansible.
 #
 # Install:
-#   curl -o /usr/local/bin/canasta \
+#   sudo curl -o /usr/local/bin/canasta-docker \
 #     https://raw.githubusercontent.com/CanastaWiki/Canasta-Ansible/main/canasta-docker
-#   chmod +x /usr/local/bin/canasta
+#   sudo chmod +x /usr/local/bin/canasta-docker
+#   sudo ln -sf /usr/local/bin/canasta-docker /usr/local/bin/canasta
 #
 # Usage is identical to the native install:
 #   canasta create -i mysite -w main
