@@ -25,19 +25,73 @@
       Use 'gitops join' to join an existing repo.
   when: _gitops_existing.stat.exists
 
-- name: Check key file does not exist
+# --- SSH deploy key ---
+# On K8s, --key is the path where the SSH deploy key lives (or will
+# be generated). Analogous to the Compose path's git-crypt key
+# export: the credential is saved at --key for future operations
+# (gitops push, gitops join on another host).
+#
+# If the file already exists and contains a PEM key, we reuse it
+# (re-init or user-supplied key). Otherwise we generate a new one.
+- name: Check if SSH deploy key already exists
   ansible.builtin.stat:
     path: "{{ key }}"
   register: _gitops_key_exists
 
-- name: Fail if key file already exists
-  ansible.builtin.fail:
-    msg: "Key file '{{ key }}' already exists. Remove it first or use a different path."
+- name: Read existing SSH deploy key
+  ansible.builtin.slurp:
+    src: "{{ key }}"
+  register: _gitops_ssh_key_existing
   when: _gitops_key_exists.stat.exists
+  no_log: true
+
+- name: Check if existing file is a real SSH key
+  ansible.builtin.set_fact:
+    _existing_is_ssh_key: >-
+      {{ _gitops_key_exists.stat.exists and
+         (_gitops_ssh_key_existing.content | default('') | b64decode)
+         is search('-----BEGIN') }}
+
+- name: Generate SSH deploy key pair
+  ansible.builtin.command:
+    cmd: >-
+      ssh-keygen -t ed25519
+      -f {{ key }}
+      -N ''
+      -C 'canasta-{{ instance_id }}'
+  when: not (_existing_is_ssh_key | bool)
+
+- name: Read the SSH deploy key (generated or existing)
+  ansible.builtin.slurp:
+    src: "{{ key }}"
+  register: _gitops_ssh_key
+  no_log: true
+
+- name: Read the public key for display
+  ansible.builtin.slurp:
+    src: "{{ key }}.pub"
+  register: _gitops_ssh_pubkey
+
+- name: Display public key for deploy key setup
+  ansible.builtin.debug:
+    msg:
+      - "SSH deploy key {{ (_existing_is_ssh_key | bool) | ternary('found', 'generated') }}."
+      - "Add this public key as a deploy key (with WRITE access) on your git repository:"
+      - ""
+      - "  {{ _gitops_ssh_pubkey.content | b64decode | trim }}"
+      - ""
+      - "Repository: {{ repo }}"
+      - "GitHub: go to Settings > Deploy keys > Add deploy key"
+
+- name: Pause for user to add deploy key to git repository
+  ansible.builtin.pause:
+    prompt: "Press Enter after you have added the deploy key to your repository (or Ctrl+C then A to abort)"
 
 - name: Check remote is empty
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
+  environment:
+    GIT_SSH_COMMAND: "ssh -i {{ key }} -o StrictHostKeyChecking=no"
   register: _gitops_remote
   changed_when: false
   ignore_errors: true
@@ -53,14 +107,20 @@
 
 # --- Copy Helm chart into instance directory ---
 # Argo CD needs the chart in the git repo to render templates.
-- name: Copy Helm chart structure into instance directory
+- name: Copy Chart.yaml into instance directory
   ansible.builtin.copy:
-    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/{{ item }}"
-    dest: "{{ instance_path }}/{{ item }}"
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/Chart.yaml"
+    dest: "{{ instance_path }}/Chart.yaml"
     mode: preserve
-  loop:
-    - Chart.yaml
-    - templates
+
+# Trailing / on src is critical: without it, Ansible's copy module
+# copies the directory AS 'templates' under the dest, creating
+# templates/templates/. With the trailing /, it copies the CONTENTS.
+- name: Copy Helm templates into instance directory
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/templates/"
+    dest: "{{ instance_path }}/templates/"
+    mode: preserve
 
 - name: Merge chart defaults with instance values
   ansible.builtin.copy:
@@ -100,6 +160,13 @@
 
       # Transient config sync file
       values-configdata.yaml
+
+      # Runtime data directories (backed by PVCs on K8s, not by git)
+      images/
+      extensions/
+      skins/
+      public_assets/
+      wikis/
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 
@@ -146,15 +213,8 @@
     dest: "{{ instance_path }}/.gitops-host"
     mode: "0644"
 
-# --- Note about key file (no git-crypt on K8s path) ---
-- name: Create placeholder key file
-  ansible.builtin.copy:
-    content: |
-      # Kubernetes gitops does not use git-crypt.
-      # Secrets are managed via K8s Secrets, not encrypted in the repo.
-      # This file is a placeholder for compatibility with the CLI interface.
-    dest: "{{ key }}"
-    mode: "0600"
+# Key file is either the user's existing key or the one we just
+# generated. No placeholder needed — we always have a real key now.
 
 # --- Sync config files into values.yaml ---
 - name: Set K8s namespace for config sync
@@ -196,15 +256,45 @@
   ansible.builtin.command:
     cmd: "git push -u origin main {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
+  environment:
+    GIT_SSH_COMMAND: "ssh -i {{ key }} -o StrictHostKeyChecking=no"
   changed_when: true
+
+# --- Create Argo CD repo credential Secret ---
+# The SSH deploy key (generated or user-supplied) is stored as a K8s
+# Secret that Argo CD discovers via the repository label. This is what
+# lets Argo CD pull from the git repo without manual kubectl steps.
+# See #69.
+- name: Create or update Argo CD repo credential Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "canasta-{{ instance_id }}-repo"
+        namespace: "{{ argocd_namespace | default('argocd') }}"
+        labels:
+          argocd.argoproj.io/secret-type: repository
+          app.kubernetes.io/managed-by: canasta-ansible
+          app.kubernetes.io/instance: "{{ instance_id }}"
+      type: Opaque
+      stringData:
+        type: git
+        url: "{{ repo }}"
+        sshPrivateKey: "{{ _gitops_ssh_key.content | b64decode }}"
+  no_log: true
 
 # --- Register Argo CD Application ---
 - name: Apply Argo CD Application to cluster
   kubernetes.core.k8s:
     state: present
     src: "{{ instance_path }}/argocd/application.yaml"
-  ignore_errors: true
 
 - name: Report gitops initialized
   ansible.builtin.debug:
-    msg: "GitOps initialized for '{{ instance_id }}'. Key exported to {{ key }}"
+    msg:
+      - "GitOps initialized for '{{ instance_id }}'."
+      - "SSH deploy key saved to: {{ key }}"
+      - "Argo CD repo credential Secret created."
+      - "Store the key securely — it is needed to push config changes and to set up additional hosts."

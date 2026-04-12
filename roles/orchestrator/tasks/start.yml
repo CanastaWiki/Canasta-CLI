@@ -99,3 +99,46 @@
           kubectl rollout status deployment/canasta-{{ instance_id }}-web
           -n {{ _k8s_namespace }} --timeout=300s
       changed_when: false
+
+    # Re-enable Argo CD auto-sync after start. The stop flow suspends
+    # sync to prevent selfHeal from reverting the scale-to-zero. We
+    # read the sync policy from the instance's values.yaml so we
+    # restore whatever the user configured, not a hardcoded default.
+    # See #70.
+    - name: Check if Argo CD Application exists for this instance
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get application canasta-{{ instance_id }}
+          -n {{ argocd_namespace | default('argocd') }}
+          -o jsonpath={.metadata.name}
+      register: _start_argocd_app
+      changed_when: false
+      ignore_errors: true
+
+    - name: Re-enable Argo CD auto-sync
+      when: _start_argocd_app.rc == 0
+      block:
+        - name: Read sync policy from values.yaml
+          ansible.builtin.set_fact:
+            _argocd_sync_policy: >-
+              {{ (lookup('file', instance_path ~ '/values.yaml')
+                  | from_yaml).get('argocd', {}).get('syncPolicy', {}) }}
+
+        - name: Build sync policy patch
+          ansible.builtin.set_fact:
+            _sync_patch:
+              spec:
+                syncPolicy:
+                  automated:
+                    selfHeal: "{{ _argocd_sync_policy.get('selfHeal', true) }}"
+                    prune: "{{ _argocd_sync_policy.get('prune', true) }}"
+                  syncOptions:
+                    - CreateNamespace=true
+
+        - name: Patch Application to restore auto-sync
+          ansible.builtin.command:
+            cmd: >-
+              kubectl patch application canasta-{{ instance_id }}
+              -n {{ argocd_namespace | default('argocd') }}
+              --type merge -p '{{ _sync_patch | to_json }}'
+          changed_when: true
