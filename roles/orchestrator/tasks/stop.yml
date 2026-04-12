@@ -32,7 +32,7 @@
 
     # Suspend Argo CD auto-sync before scaling to zero. If we don't,
     # selfHeal detects the scale-to-zero as drift and immediately
-    # reverts it by re-creating the pods. See #70.
+    # reverts it by re-creating the pods.
     - name: Check if Argo CD Application exists for this instance
       ansible.builtin.command:
         cmd: >-

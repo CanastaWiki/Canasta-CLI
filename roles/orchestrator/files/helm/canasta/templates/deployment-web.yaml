@@ -73,7 +73,7 @@ spec:
           #       CANASTA_ENABLE_WIKI_DIRECTORY, CANASTA_ENABLE_VERY_SHORT_URLS,
           #       MW_SITEMAP_PAUSE_DAYS, and any other .env key listed in the
           #       sync task's allowlist. `canasta config set <key>=<value>`
-          #       propagates cleanly through this path. See #51.
+          #       propagates cleanly through this path.
           #
           #   env: hardcoded entries below
           #       Three of these (MW_SITE_SERVER, MW_SITE_FQDN,
@@ -85,8 +85,8 @@ spec:
           #       .Values.varnish.enabled gates whether the Varnish deployment
           #       exists at all. Moving just the pod env vars to the ConfigMap
           #       would create half-broken state where the pod sees one value
-          #       and the cluster resources still reflect the old one. Tracked
-          #       separately as #53.
+          #       and the cluster resources still reflect the old one.
+
           #
           #       MYSQL_HOST is a constant. MYSQL_PASSWORD and MW_SECRET_KEY
           #       stay as secretKeyRef because secrets don't belong in

@@ -18,7 +18,7 @@
 # Skip the cluster-reachability check when --install-k3s is set —
 # the cluster doesn't exist yet and will be created after preflight.
 # Still check kubectl and helm are installed (above/below) so those
-# failures are caught early. See #77.
+# failures are caught early.
 - name: Check cluster is reachable
   ansible.builtin.command:
     cmd: kubectl cluster-info
@@ -52,7 +52,7 @@
 
 # Skip the node resource check when --install-k3s is set — there are
 # no nodes yet. The check will effectively run on the first start
-# after k3s is installed. See #77.
+# after k3s is installed.
 - name: Get node capacity resources
   when: not (install_k3s | default(false) | bool)
   vars:
@@ -63,7 +63,7 @@
     # against allocatable would reject the smallest instance we want
     # to support. Capacity is the right field for matching against
     # the user's intuitive "this is a 4 GiB instance" understanding.
-    # See #58.
+
     _jp: >-
       {range .items[*]}{.metadata.name}{"\t"}
       {.status.capacity.cpu}{"\t"}
@@ -88,7 +88,7 @@
     # BIOS/UEFI/hypervisor reserves. AWS c7i-flex.large (4 GiB
     # advertised) reports ~3826 MiB capacity, for example. 3500 MiB
     # is comfortably above what 2 GiB instances report (~1700-1900)
-    # and below what real 4 GiB cloud instances report. See #65.
+    # and below what real 4 GiB cloud instances report.
     # With Elasticsearch enabled or under heavy traffic, 8 GiB+ is
     # recommended; users opting in to those should size up.
     # CPU: 600m, the sum of resource requests across the chart's

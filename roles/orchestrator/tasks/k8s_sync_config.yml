@@ -5,7 +5,7 @@
 #
 # ConfigMaps created:
 #   canasta-<id>-web-config     — wikis.yaml, .env, settings/*, composer.local.json
-#   canasta-<id>-env            — allowlisted runtime env vars parsed from .env (#51)
+#   canasta-<id>-env            — allowlisted runtime env vars parsed from .env
 #   canasta-<id>-caddy-config   — Caddyfile, Caddyfile.site, Caddyfile.global
 #   canasta-<id>-varnish-config — default.vcl
 #   canasta-<id>-db-config      — my.cnf
@@ -20,7 +20,7 @@
     # through K8s Secrets instead. MW_SITE_SERVER, MW_SITE_FQDN, and
     # CANASTA_ENABLE_VARNISH also stay out because they're sourced from
     # values.yaml fields that double-duty as K8s-level config (Ingress
-    # hostnames, Varnish deployment gate); see #53. See #51 for the
+    # hostnames, Varnish deployment gate). See
     # rationale for an allowlist over a denylist.
     _k8s_pod_env_allowlist:
       - PHP_UPLOAD_MAX_FILESIZE
