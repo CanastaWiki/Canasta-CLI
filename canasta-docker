@@ -116,6 +116,26 @@ with open(sys.argv[2], 'w') as f:
     fi
 fi
 
+# Sanitize kubeconfig for the container.
+# Docker Desktop on macOS exposes the K8s API server at 127.0.0.1:6443
+# from the host (via port forwarding from the VM). Inside a container,
+# 127.0.0.1 is the container's own loopback — the host is reachable at
+# kubernetes.docker.internal instead (which is also in the API server's
+# TLS certificate SANs, so no --insecure-skip-tls-verify needed).
+# Without this fix, every K8s command via canasta-docker against Docker
+# Desktop fails with "Cannot reach Kubernetes cluster." See #78.
+KUBE_CONFIG="$HOME/.kube/config"
+if [[ -f "$KUBE_CONFIG" ]] \
+    && grep -qE 'server:.*https://(127\.0\.0\.1|localhost)' "$KUBE_CONFIG" 2>/dev/null; then
+    CANASTA_KUBE_CONFIG="$CONFIG_DIR/.kube-config"
+    sed -e 's|server: https://127\.0\.0\.1|server: https://kubernetes.docker.internal|g' \
+        -e 's|server: https://localhost|server: https://kubernetes.docker.internal|g' \
+        "$KUBE_CONFIG" > "$CANASTA_KUBE_CONFIG" 2>/dev/null
+    if [[ -f "$CANASTA_KUBE_CONFIG" ]]; then
+        MOUNTS+=(-v "$CANASTA_KUBE_CONFIG":"$HOME/.kube/config":ro)
+    fi
+fi
+
 # Ensure the container has a passwd entry for the host UID so that
 # SSH and Ansible can resolve the current user (required for remote
 # host connections via -H).
