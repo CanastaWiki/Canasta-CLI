@@ -6,7 +6,7 @@ name, cpu, memory, ephemeral-storage as output by kubectl jsonpath against
 .status.capacity) and compares against MIN_CPU_MILLI, MIN_MEMORY_MI, and
 MIN_STORAGE_GI.
 
-Capacity, not allocatable: see #58 for the rationale. Allocatable is what
+Capacity, not allocatable. Allocatable is what
 kubelet will schedule (capacity minus kube-reserved minus system-reserved
 minus eviction-threshold), and on a 4 GiB node it's ~3.5 GiB. Checking
 against capacity makes the threshold match what the user sees as their
@@ -52,7 +52,7 @@ def main():
     node_data = os.environ.get("NODE_DATA", "").strip()
     min_cpu = int(os.environ.get("MIN_CPU_MILLI", 600))
     # 3500 MiB rather than a round 4096 because cloud instances
-    # marketed as "4 GiB" report ~3700-3900 MiB capacity. See #65.
+    # marketed as "4 GiB" report ~3700-3900 MiB capacity.
     min_mem = int(os.environ.get("MIN_MEMORY_MI", 3500))
     min_stor = int(os.environ.get("MIN_STORAGE_GI", 15))
 

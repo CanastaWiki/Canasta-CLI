@@ -30,7 +30,7 @@
 # at request time as a safety net for hand-edited configs, but the
 # user-facing UX of failing fast at the CLI is much friendlier than
 # discovering the problem when the container restart-loops on next
-# start. See CanastaBase #138 / #150 for the runtime side. See #50.
+# start.
 - name: Validate CANASTA_ENABLE_VERY_SHORT_URLS=true does not collide with current state
   when:
     - _config_key == 'CANASTA_ENABLE_VERY_SHORT_URLS'
@@ -174,7 +174,7 @@
 # reflected in wikis.yaml and MW_SITE_*). The HTTP_PORT/HTTPS_PORT
 # handler above only fires when the port values change; we need a
 # parallel handler for when the *scheme* changes but the port values
-# don't. See #46.
+# don't.
 - name: Apply CADDY_AUTO_HTTPS side effects
   when: _config_key == 'CADDY_AUTO_HTTPS'
   block:

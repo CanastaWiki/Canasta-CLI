@@ -262,7 +262,6 @@
 # The SSH deploy key (generated or user-supplied) is stored as a K8s
 # Secret that Argo CD discovers via the repository label. This is what
 # lets Argo CD pull from the git repo without manual kubectl steps.
-# See #69.
 - name: Create or update Argo CD repo credential Secret
   kubernetes.core.k8s:
     state: present

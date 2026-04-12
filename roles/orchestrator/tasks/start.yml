@@ -104,7 +104,6 @@
     # sync to prevent selfHeal from reverting the scale-to-zero. We
     # read the sync policy from the instance's values.yaml so we
     # restore whatever the user configured, not a hardcoded default.
-    # See #70.
     - name: Check if Argo CD Application exists for this instance
       ansible.builtin.command:
         cmd: >-

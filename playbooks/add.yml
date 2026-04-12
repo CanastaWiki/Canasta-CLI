@@ -19,10 +19,10 @@
          | regex_replace('^/', '') }}
 
 # Refuse path-based wikis when the instance has very short URLs on.
-# The runtime in CanastaBase #150 catches this too, but failing fast
+# The runtime catches this too, but failing fast
 # at the CLI gives the user a clear error before the wiki actually
 # gets installed (which would otherwise leave a half-created wiki
-# database that the next restart would refuse to load). #50.
+# database that the next restart would refuse to load).
 - name: Read CANASTA_ENABLE_VERY_SHORT_URLS from .env to validate URL shape
   canasta_env:
     path: "{{ instance_path }}/.env"
