@@ -266,3 +266,55 @@
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: ensure_observability_credentials.yml
+
+# --- Kubernetes values.yaml propagation ---
+# On K8s, certain env keys are sourced from values.yaml fields that
+# double-duty as cluster-level configuration (Ingress hostnames,
+# deployment gates, etc.). When these keys change via config set, we
+# must also update the corresponding values.yaml field so the change
+# reaches the cluster on the next helm upgrade (which the restart
+# that config set triggers will do). Without this, the value lands
+# in .env on the controller but the running pods and K8s resources
+# never see it.
+#
+# Mapping table:
+#   MW_SITE_FQDN         → domains: [<value>]
+#   CANASTA_ENABLE_VARNISH → varnish.enabled: <bool>
+#   CANASTA_ENABLE_ELASTICSEARCH → elasticsearch.enabled: <bool>
+- name: Propagate config key to K8s values.yaml
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH', 'CANASTA_ENABLE_ELASTICSEARCH']
+  block:
+    - name: Read current values.yaml
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/values.yaml"
+      register: _k8s_values_raw
+
+    - name: Parse current values
+      ansible.builtin.set_fact:
+        _k8s_values: "{{ _k8s_values_raw.content | b64decode | from_yaml }}"
+
+    - name: Build values.yaml override for MW_SITE_FQDN
+      ansible.builtin.set_fact:
+        _k8s_override: "{{ {'domains': [_config_value | regex_replace(':[0-9]+$', '')]} }}"
+      when: _config_key == 'MW_SITE_FQDN'
+
+    - name: Build values.yaml override for CANASTA_ENABLE_VARNISH
+      ansible.builtin.set_fact:
+        _k8s_override: "{{ {'varnish': {'enabled': _config_value | lower == 'true'}} }}"
+      when: _config_key == 'CANASTA_ENABLE_VARNISH'
+
+    - name: Build values.yaml override for CANASTA_ENABLE_ELASTICSEARCH
+      ansible.builtin.set_fact:
+        _k8s_override: "{{ {'elasticsearch': {'enabled': _config_value | lower == 'true'}} }}"
+      when: _config_key == 'CANASTA_ENABLE_ELASTICSEARCH'
+
+    - name: Write updated values.yaml
+      ansible.builtin.copy:
+        content: >-
+          {{ _k8s_values
+             | combine(_k8s_override, recursive=True)
+             | to_nice_yaml(indent=2) }}
+        dest: "{{ instance_path }}/values.yaml"
+        mode: "0644"

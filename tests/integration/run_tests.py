@@ -1091,6 +1091,50 @@ def test_k8s_lifecycle(inst):
         "Expected PHP_UPLOAD_MAX_FILESIZE=77M in pod, got: %r" % result.stdout
     )
 
+    # #53: verify that config set propagates values.yaml-backed knobs
+    # on K8s. Previously, setting CANASTA_ENABLE_VARNISH via config set
+    # updated .env but not values.yaml, so the Helm chart and the
+    # running pod never saw the change.
+    print("Testing config set → values.yaml propagation (#53)...")
+    import yaml as _yaml  # for reading values.yaml
+
+    values_path = os.path.join(inst.work_dir, "values.yaml")
+
+    # First, hand-edit replicaCount into values.yaml to verify it
+    # survives the config set round-trip. This is the #53 acceptance
+    # criterion: unrelated hand-edits must not be clobbered.
+    with open(values_path) as f:
+        values = _yaml.safe_load(f)
+    values.setdefault("web", {})["replicaCount"] = 7
+    with open(values_path, "w") as f:
+        _yaml.dump(values, f, default_flow_style=False)
+
+    # Set a values.yaml-backed knob via config set
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "CANASTA_ENABLE_VARNISH=false", "--no-restart",
+    )
+
+    # Read values.yaml back and verify both:
+    # 1. varnish.enabled is now false
+    # 2. web.replicaCount is still 7 (not clobbered)
+    with open(values_path) as f:
+        values_after = _yaml.safe_load(f)
+    assert values_after.get("varnish", {}).get("enabled") is False, (
+        "Expected varnish.enabled=false in values.yaml after config set, "
+        "got: %s" % values_after.get("varnish", {}).get("enabled")
+    )
+    assert values_after.get("web", {}).get("replicaCount") == 7, (
+        "Hand-edited web.replicaCount=7 was clobbered by config set! "
+        "Got: %s" % values_after.get("web", {}).get("replicaCount")
+    )
+
+    # Revert varnish
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "CANASTA_ENABLE_VARNISH=true", "--no-restart",
+    )
+
     print("Deleting instance...")
     inst.run_ok("delete", "-i", inst.id, "--yes")
 

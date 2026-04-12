@@ -65,31 +65,12 @@ spec:
             - name: http
               containerPort: 80
               protocol: TCP
-          # The env vars the pod receives come from two places:
-          #
-          #   envFrom: canasta-<id>-env ConfigMap
-          #       Populated by k8s_sync_config.yml from the instance's .env
-          #       file on each restart. Covers the PHP_* knobs,
-          #       CANASTA_ENABLE_WIKI_DIRECTORY, CANASTA_ENABLE_VERY_SHORT_URLS,
-          #       MW_SITEMAP_PAUSE_DAYS, and any other .env key listed in the
-          #       sync task's allowlist. `canasta config set <key>=<value>`
-          #       propagates cleanly through this path.
-          #
-          #   env: hardcoded entries below
-          #       Three of these (MW_SITE_SERVER, MW_SITE_FQDN,
-          #       CANASTA_ENABLE_VARNISH) intentionally stay here instead of
-          #       moving to the ConfigMap above. They are sourced from
-          #       values.yaml fields (.Values.domains, .Values.varnish.enabled)
-          #       that double-duty as K8s-level configuration:
-          #       .Values.domains drives Ingress hostnames and TLS hosts;
-          #       .Values.varnish.enabled gates whether the Varnish deployment
-          #       exists at all. Moving just the pod env vars to the ConfigMap
-          #       would create half-broken state where the pod sees one value
-          #       and the cluster resources still reflect the old one.
-          #
-          #       MYSQL_HOST is a constant. MYSQL_PASSWORD and MW_SECRET_KEY
-          #       stay as secretKeyRef because secrets don't belong in
-          #       ConfigMaps.
+          # Runtime knobs from .env come via the envFrom ConfigMap.
+          # MW_SITE_SERVER, MW_SITE_FQDN, and CANASTA_ENABLE_VARNISH
+          # stay as hardcoded env: entries because they're sourced from
+          # values.yaml fields that also drive K8s resources (Ingress
+          # hostnames, Varnish deployment gate). config set updates
+          # both .env and values.yaml for these keys.
           envFrom:
             - configMapRef:
                 name: {{ include "canasta.fullname" . }}-env
