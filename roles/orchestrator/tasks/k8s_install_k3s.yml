@@ -8,7 +8,7 @@
     cmd: k3s kubectl cluster-info
   register: _k3s_running
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if k3s not installed yet
 
 - name: Install k3s
   when: _k3s_running.rc != 0

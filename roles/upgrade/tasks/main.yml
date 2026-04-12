@@ -154,7 +154,7 @@
       vars:
         exec_service: web
         exec_command: "touch /var/www/mediawiki/w/LocalSettings.php"
-      ignore_errors: true
+      ignore_errors: true  # OK if container not ready yet
 
     - name: Report instance upgraded
       ansible.builtin.debug:

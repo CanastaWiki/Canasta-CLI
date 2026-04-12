@@ -45,7 +45,7 @@
     chdir: "{{ playbook_dir }}"
   register: _git_commit
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if not a git checkout
   when: not _build_commit_file.stat.exists
   delegate_to: localhost
   vars:
@@ -58,7 +58,7 @@
     chdir: "{{ playbook_dir }}"
   register: _git_date
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if not a git checkout
   when: not _build_commit_file.stat.exists
   delegate_to: localhost
   vars:

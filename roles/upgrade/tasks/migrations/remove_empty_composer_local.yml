@@ -27,4 +27,4 @@
         _composer_data.extra['merge-plugin'] is defined and
         _composer_data.extra['merge-plugin'].include is defined and
         _composer_data.extra['merge-plugin'].include | length == 0
-  ignore_errors: true
+  ignore_errors: true  # OK if JSON structure unexpected

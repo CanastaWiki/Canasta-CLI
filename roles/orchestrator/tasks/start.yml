@@ -45,7 +45,7 @@
           -o jsonpath={.spec.replicas}
       register: _current_replicas
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if deployment doesn't exist yet
 
     - name: Apply values and upgrade Helm release
       ansible.builtin.include_tasks: helm_deploy.yml
@@ -84,7 +84,7 @@
               --replicas=1
               -n {{ _k8s_namespace }}
           changed_when: true
-          ignore_errors: true
+          ignore_errors: true  # OK if some deployments don't exist
 
     - name: Wait for DB readiness
       ansible.builtin.command:
@@ -112,7 +112,7 @@
           -o jsonpath={.metadata.name}
       register: _start_argocd_app
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if no Argo CD app exists
 
     - name: Re-enable Argo CD auto-sync
       when: _start_argocd_app.rc == 0

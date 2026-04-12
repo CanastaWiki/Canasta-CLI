@@ -10,4 +10,4 @@
   ansible.builtin.command:
     cmd: "kind delete cluster --name {{ _kind_cluster_name }}"
   changed_when: true
-  ignore_errors: true
+  ignore_errors: true  # OK if cluster already deleted

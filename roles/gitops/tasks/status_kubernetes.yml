@@ -8,7 +8,7 @@
   ansible.builtin.slurp:
     src: "{{ instance_path }}/.gitops-host"
   register: _gops_host_file
-  ignore_errors: true
+  ignore_errors: true  # OK if file doesn't exist
 
 - name: Get current commit
   ansible.builtin.command:
@@ -16,7 +16,7 @@
     chdir: "{{ instance_path }}"
   register: _gops_commit
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if no commits yet
 
 - name: Get ahead/behind counts
   ansible.builtin.command:
@@ -24,7 +24,7 @@
     chdir: "{{ instance_path }}"
   register: _gops_revcount
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if no upstream configured
 
 - name: Parse git info
   ansible.builtin.set_fact:
@@ -40,7 +40,7 @@
     name: "canasta-{{ instance_id }}"
     namespace: "{{ argocd_namespace | default('argocd') }}"
   register: _argocd_app
-  ignore_errors: true
+  ignore_errors: true  # OK if Argo CD not installed
 
 - name: Set Argo CD resource shorthand
   ansible.builtin.set_fact:

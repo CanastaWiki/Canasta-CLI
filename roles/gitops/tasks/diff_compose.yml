@@ -17,7 +17,7 @@
     chdir: "{{ instance_path }}"
   register: _gdiff_local
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if no upstream configured
 
 # Remote changes (on remote but not pulled)
 - name: Get remote changes
@@ -26,7 +26,7 @@
     chdir: "{{ instance_path }}"
   register: _gdiff_remote
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if no upstream configured
 
 # Submodule changes
 - name: Check submodule status
@@ -35,7 +35,7 @@
     chdir: "{{ instance_path }}"
   register: _gdiff_submodules
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if no submodules configured
 
 - name: Display diff
   ansible.builtin.debug:

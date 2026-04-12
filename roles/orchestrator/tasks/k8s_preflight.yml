@@ -6,7 +6,7 @@
     cmd: kubectl version --client --output=json
   register: _kubectl_check
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if kubectl not installed
 
 - name: Fail if kubectl not available
   ansible.builtin.fail:
@@ -24,7 +24,7 @@
     cmd: kubectl cluster-info
   register: _cluster_check
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if no cluster yet
   when: not (install_k3s | default(false) | bool)
 
 - name: Fail if cluster not reachable
@@ -41,7 +41,7 @@
     cmd: helm version --short
   register: _helm_check
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if Helm not installed
 
 - name: Fail if helm not available
   ansible.builtin.fail:
@@ -114,7 +114,7 @@
         MIN_STORAGE_GI: "{{ _min_storage_gi }}"
       register: _resource_check
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if nodes lack resources
 
     - name: Fail if no node has sufficient resources
       ansible.builtin.fail:

@@ -8,7 +8,7 @@
     cmd: "kubectl get deployment argocd-server -n {{ argocd_namespace | default('argocd') }}"
   register: _argocd_check
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if Argo CD not installed yet
 
 - name: Install Argo CD
   when: _argocd_check.rc != 0

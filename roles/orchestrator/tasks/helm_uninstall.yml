@@ -8,7 +8,7 @@
     release_namespace: "{{ _k8s_namespace }}"
     state: absent
     wait: true
-  ignore_errors: true
+  ignore_errors: true  # OK if release already uninstalled
 
 - name: Delete Ansible-managed resources
   kubernetes.core.k8s:
@@ -24,7 +24,7 @@
     - { kind: ConfigMap, name: "canasta-{{ instance_id }}-caddy-config" }
     - { kind: ConfigMap, name: "canasta-{{ instance_id }}-varnish-config" }
     - { kind: ConfigMap, name: "canasta-{{ instance_id }}-db-config" }
-  ignore_errors: true
+  ignore_errors: true  # OK if resources already deleted
 
 - name: Delete namespace
   kubernetes.core.k8s:

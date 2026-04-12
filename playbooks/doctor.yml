@@ -12,28 +12,28 @@
     cmd: python3 --version
   register: _doc_python
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if installed
 
 - name: Check Docker
   ansible.builtin.command:
     cmd: docker --version
   register: _doc_docker
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if installed
 
 - name: Check Docker Compose
   ansible.builtin.command:
     cmd: docker compose version
   register: _doc_compose
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if installed
 
 - name: Check Docker daemon running
   ansible.builtin.command:
     cmd: docker info
   register: _doc_daemon
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if daemon running
 
 # --- Required for Kubernetes ---
 - name: Check kubectl
@@ -41,35 +41,35 @@
     cmd: kubectl version --client --output=yaml
   register: _doc_kubectl
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if installed
 
 - name: Check Helm
   ansible.builtin.command:
     cmd: helm version --short
   register: _doc_helm
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if installed
 
 - name: Check k3s
   ansible.builtin.command:
     cmd: k3s --version
   register: _doc_k3s
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if installed
 
 - name: Check Argo CD
   ansible.builtin.command:
     cmd: kubectl get deployment argocd-server -n argocd
   register: _doc_argocd
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if installed
 
 - name: Check cluster reachable
   ansible.builtin.command:
     cmd: kubectl cluster-info
   register: _doc_cluster
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if cluster reachable
 
 # --- Required for GitOps ---
 - name: Check git
@@ -77,14 +77,14 @@
     cmd: git --version
   register: _doc_git
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if installed
 
 - name: Check git-crypt
   ansible.builtin.command:
     cmd: git-crypt --version
   register: _doc_gitcrypt
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # Checking if installed
 
 # --- System resources ---
 - name: Check system memory
@@ -96,14 +96,14 @@
       print(str(mem) + ' GB')"
   register: _doc_memory
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if sysconf unavailable
 
 - name: Check disk space
   ansible.builtin.shell:
     cmd: "df -h / | awk 'NR==2{print $4}'"
   register: _doc_disk
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if df unavailable
 
 # --- Report ---
 - name: Display dependency report

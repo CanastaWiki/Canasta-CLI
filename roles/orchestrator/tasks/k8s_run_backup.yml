@@ -153,4 +153,4 @@
     kind: Job
     name: "{{ _backup_job_name }}"
     namespace: "{{ _k8s_namespace }}"
-  ignore_errors: true
+  ignore_errors: true  # OK if job already cleaned up by TTL

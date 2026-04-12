@@ -10,7 +10,7 @@
     name: cert-manager
     namespace: cert-manager
   register: _cm_check
-  ignore_errors: true
+  ignore_errors: true  # OK if cert-manager not installed
 
 - name: Install cert-manager
   when: _cm_check.resources | default([]) | length == 0
@@ -46,7 +46,7 @@
     kind: ClusterIssuer
     name: letsencrypt-prod
   register: _issuer_check
-  ignore_errors: true
+  ignore_errors: true  # OK if CRD not registered yet
 
 - name: Create Let's Encrypt ClusterIssuer
   kubernetes.core.k8s:

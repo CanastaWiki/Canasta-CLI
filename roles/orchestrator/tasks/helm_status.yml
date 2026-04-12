@@ -8,7 +8,7 @@
     name: "canasta-{{ instance_id }}"
     release_namespace: "{{ _k8s_namespace }}"
   register: _helm_info
-  ignore_errors: true
+  ignore_errors: true  # OK if release not installed
 
 - name: Set release status facts
   ansible.builtin.set_fact:

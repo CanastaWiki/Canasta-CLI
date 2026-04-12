@@ -92,7 +92,7 @@
     GIT_SSH_COMMAND: "ssh -i {{ key }} -o StrictHostKeyChecking=no"
   register: _gitops_remote
   changed_when: false
-  ignore_errors: true
+  ignore_errors: true  # OK if remote unreachable
 
 - name: Fail if remote is not empty
   ansible.builtin.fail:

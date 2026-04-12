@@ -107,4 +107,4 @@
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/config/backup"
-  ignore_errors: true
+  ignore_errors: true  # OK if backup dir doesn't exist

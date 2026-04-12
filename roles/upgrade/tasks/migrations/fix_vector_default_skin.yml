@@ -14,7 +14,7 @@
         cmd: "grep -c 'wgDefaultSkin' {{ instance_path }}/config/settings/global/Vector.php"
       register: _has_default_skin
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # OK if grep finds no matches
 
     - name: Append wgDefaultSkin line
       ansible.builtin.lineinfile:

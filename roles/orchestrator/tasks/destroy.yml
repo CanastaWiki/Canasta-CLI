@@ -10,13 +10,13 @@
         cmd: "docker compose down -v"
         chdir: "{{ instance_path }}"
       changed_when: true
-      ignore_errors: true
+      ignore_errors: true  # OK if containers already removed
 
     - name: Remove backup staging volume
       ansible.builtin.command:
         cmd: "docker volume rm {{ instance_path | basename }}-backup"
       changed_when: true
-      ignore_errors: true
+      ignore_errors: true  # OK if volume doesn't exist
 
 - name: Destroy (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']

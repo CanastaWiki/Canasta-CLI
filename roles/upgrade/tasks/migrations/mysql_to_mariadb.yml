@@ -18,7 +18,7 @@
         exec_service: db
         exec_command: "test -f /var/lib/mysql/.rocksdb && echo mysql8 || echo mariadb"
       register: _mysql_check
-      ignore_errors: true
+      ignore_errors: true  # OK if db container not running
 
     - name: Set MySQL 8 detection flag
       ansible.builtin.set_fact:
@@ -69,7 +69,7 @@
             cmd: "docker volume rm {{ instance_path | basename }}_mysql-data-volume"
             chdir: "{{ instance_path }}"
           changed_when: true
-          ignore_errors: true
+          ignore_errors: true  # OK if volume already removed
 
         - name: Start new MariaDB containers
           ansible.builtin.include_role:

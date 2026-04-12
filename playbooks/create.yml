@@ -14,7 +14,7 @@
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _pre_check
-  ignore_errors: true
+  ignore_errors: true  # OK if instance doesn't exist yet
 
 - name: Fail early if instance already exists
   ansible.builtin.fail:
@@ -35,7 +35,7 @@
         - instance_path is defined
         - not (keep_config | default(false) | bool)
         - (orchestrator | default('compose')) == 'compose'
-      ignore_errors: true
+      ignore_errors: true  # Best-effort cleanup on failure
 
     - name: Clean up on failure (uninstall Helm release)
       ansible.builtin.command:
@@ -43,7 +43,7 @@
       when:
         - not (keep_config | default(false) | bool)
         - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
-      ignore_errors: true
+      ignore_errors: true  # Best-effort cleanup on failure
 
     - name: Clean up on failure (delete K8s namespace)
       ansible.builtin.command:
@@ -51,7 +51,7 @@
       when:
         - not (keep_config | default(false) | bool)
         - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
-      ignore_errors: true
+      ignore_errors: true  # Best-effort cleanup on failure
 
     - name: Clean up on failure (remove directory)
       ansible.builtin.file:
@@ -60,7 +60,7 @@
       when:
         - instance_path is defined
         - not (keep_config | default(false) | bool)
-      ignore_errors: true
+      ignore_errors: true  # Best-effort cleanup on failure
 
     - name: Deregister instance on failure
       canasta_registry:
@@ -70,7 +70,7 @@
       vars:
         ansible_connection: local
         ansible_python_interpreter: "{{ ansible_playbook_python }}"
-      ignore_errors: true
+      ignore_errors: true  # OK if never registered
 
     - name: Report failure
       ansible.builtin.fail:

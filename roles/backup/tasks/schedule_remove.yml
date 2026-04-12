@@ -16,7 +16,7 @@
     name: "canasta-backup-{{ instance_id }}"
     namespace: "canasta-{{ instance_id }}"
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-  ignore_errors: true
+  ignore_errors: true  # OK if CronJob doesn't exist
 
 - name: Report schedule removed
   ansible.builtin.debug:

@@ -31,7 +31,7 @@
         label: "{{ item.path | basename }}"
       when: item.path | basename not in ['settings', 'logstash', 'backup']
       changed_when: true
-      ignore_errors: true
+      ignore_errors: true  # OK if dir already moved
 
 - name: Check for PHP files in config/settings/ (not in global/)
   ansible.builtin.find:

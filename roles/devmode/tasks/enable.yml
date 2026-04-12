@@ -74,7 +74,7 @@
       ansible.builtin.command:
         cmd: "docker start canasta-dev-extract && docker exec canasta-dev-extract /create-symlinks.sh"
       changed_when: true
-      ignore_errors: true
+      ignore_errors: true  # OK if script missing in image
 
     - name: Extract code from container
       ansible.builtin.shell:
