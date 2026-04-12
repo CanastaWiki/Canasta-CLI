@@ -74,14 +74,12 @@
 
 - name: Display public key for deploy key setup
   ansible.builtin.debug:
-    msg:
-      - "SSH deploy key {{ (_existing_is_ssh_key | bool) | ternary('found', 'generated') }}."
-      - "Add this public key as a deploy key (with WRITE access) on your git repository:"
-      - ""
-      - "  {{ _gitops_ssh_pubkey.content | b64decode | trim }}"
-      - ""
-      - "Repository: {{ repo }}"
-      - "GitHub: go to Settings > Deploy keys > Add deploy key"
+    msg: >-
+      SSH deploy key {{ (_existing_is_ssh_key | bool) | ternary('found', 'generated') }}.
+      Add this public key as a deploy key (with WRITE access) on your git repository.
+      Repository: {{ repo }}
+      GitHub: go to Settings > Deploy keys > Add deploy key.
+      Public key: {{ _gitops_ssh_pubkey.content | b64decode | trim }}
 
 - name: Pause for user to add deploy key to git repository
   ansible.builtin.pause:
@@ -293,8 +291,9 @@
 
 - name: Report gitops initialized
   ansible.builtin.debug:
-    msg:
-      - "GitOps initialized for '{{ instance_id }}'."
-      - "SSH deploy key saved to: {{ key }}"
-      - "Argo CD repo credential Secret created."
-      - "Store the key securely — it is needed to push config changes and to set up additional hosts."
+    msg: >-
+      GitOps initialized for '{{ instance_id }}'.
+      SSH deploy key saved to: {{ key }}.
+      Argo CD repo credential Secret created.
+      Store the key securely — it is needed to push config changes
+      and to set up additional hosts.
