@@ -83,6 +83,39 @@ MOUNTS=(
     --user "$(id -u):$(id -g)"
 )
 
+# Sanitize Docker config.json for the container.
+# macOS Docker Desktop's config.json typically contains
+# "credsStore": "desktop" which references docker-credential-desktop,
+# a macOS-specific binary that doesn't exist inside the Linux
+# container. When Docker CLI inside the container tries to pull an
+# image (e.g., during 'docker compose up'), it fails with
+# "docker-credential-desktop: executable file not found in $PATH"
+# even for public images. The fix: mount a sanitized copy with
+# credsStore stripped. The $HOME mount brings the original config.json
+# into the container, but a more specific file mount overrides it.
+DOCKER_CONFIG_HOST="$HOME/.docker/config.json"
+if [[ -f "$DOCKER_CONFIG_HOST" ]] && grep -q '"credsStore"' "$DOCKER_CONFIG_HOST" 2>/dev/null; then
+    CANASTA_DOCKER_CONFIG="$CONFIG_DIR/.docker-config.json"
+    if command -v python3 &>/dev/null; then
+        python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    c = json.load(f)
+c.pop('credsStore', None)
+c.pop('credStore', None)
+with open(sys.argv[2], 'w') as f:
+    json.dump(c, f, indent=2)
+" "$DOCKER_CONFIG_HOST" "$CANASTA_DOCKER_CONFIG" 2>/dev/null
+    else
+        # Fallback: sed-based strip (handles the common single-line case)
+        sed 's/"credsStore"[[:space:]]*:[[:space:]]*"[^"]*"[[:space:]]*,\?//' \
+            "$DOCKER_CONFIG_HOST" > "$CANASTA_DOCKER_CONFIG" 2>/dev/null
+    fi
+    if [[ -f "$CANASTA_DOCKER_CONFIG" ]]; then
+        MOUNTS+=(-v "$CANASTA_DOCKER_CONFIG":"$HOME/.docker/config.json":ro)
+    fi
+fi
+
 # Ensure the container has a passwd entry for the host UID so that
 # SSH and Ansible can resolve the current user (required for remote
 # host connections via -H).
