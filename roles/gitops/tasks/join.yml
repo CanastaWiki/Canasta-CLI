@@ -42,16 +42,22 @@
       This instance is already connected to a gitops repository.
   when: _join_existing_git.stat.exists
 
-- name: Check key file exists
+# --key is a controller-local path. Check it on the controller,
+# then copy it to the remote host for git-crypt unlock.
+- name: Check key file exists on controller
   ansible.builtin.stat:
     path: "{{ key }}"
   register: _join_key_exists
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 - name: Fail if key file not found
   ansible.builtin.fail:
     msg: >-
-      Key file '{{ key }}' not found. This should be the git-crypt
-      key exported during 'gitops init' on the source host.
+      Key file '{{ key }}' not found on the controller. This should
+      be the git-crypt key exported during 'gitops init'.
   when: not _join_key_exists.stat.exists
 
 # --- Step 2: Clone repo to temp location ---
@@ -67,12 +73,23 @@
     chdir: "{{ _join_tmpdir.path }}"
   changed_when: true
 
-# --- Step 3: Unlock git-crypt ---
+# --- Step 3: Copy key to remote and unlock git-crypt ---
+- name: Copy git-crypt key from controller to remote
+  ansible.builtin.copy:
+    src: "{{ key }}"
+    dest: "/tmp/canasta-gitcrypt-key"
+    mode: "0600"
+
 - name: Unlock git-crypt with provided key
   ansible.builtin.command:
-    cmd: "git-crypt unlock {{ key }}"
+    cmd: "git-crypt unlock /tmp/canasta-gitcrypt-key"
     chdir: "{{ _join_tmpdir.path }}"
   changed_when: true
+
+- name: Remove temp key from remote
+  ansible.builtin.file:
+    path: "/tmp/canasta-gitcrypt-key"
+    state: absent
 
 # --- Step 4: Validate host name not already in config ---
 - name: Read hosts.yaml from cloned repo
