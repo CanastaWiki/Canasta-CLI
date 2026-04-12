@@ -1111,12 +1111,17 @@ commands:
     long_description: "Push configuration changes to the remote gitops repository."
     examples:
       - "canasta gitops push -i mysite"
+      - "canasta gitops push -i mysite -m 'Add docs wiki'"
     playbook: gitops_push.yml
     parameters:
       - name: id
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: message
+        short: m
+        type: string
+        description: "Commit message (defaults to 'Configuration update')"
 
   - name: gitops_pull
     description: "Pull configuration changes"

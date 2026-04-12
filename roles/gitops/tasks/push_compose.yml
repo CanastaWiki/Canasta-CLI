@@ -1,35 +1,73 @@
 ---
-# GitOps push (Compose).
-# Requires: instance_path (set by dispatcher)
+# GitOps push (Compose) — commit staged changes and push to remote.
+# Matches Go CLI's push flow: validates role, accepts message, supports
+# the staged-changes-only model.
+# Requires: instance_path, instance_id (set by dispatcher)
+# Optional: message (commit message, defaults to 'Configuration update')
 
+# --- Validate role allows push ---
+- name: Read hosts.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/hosts.yaml"
+  register: _push_hosts_raw
+
+- name: Read .gitops-host
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _push_host_raw
+
+- name: Parse host config
+  ansible.builtin.set_fact:
+    _push_hostname: "{{ _push_host_raw.content | b64decode | trim }}"
+    _push_hosts: "{{ _push_hosts_raw.content | b64decode | from_yaml }}"
+
+- name: Find current host role
+  ansible.builtin.set_fact:
+    _push_role: >-
+      {{ (_push_hosts.hosts | default([])
+          | selectattr('name', 'equalto', _push_hostname)
+          | first | default({})).get('role', 'both') }}
+
+- name: Fail if role does not allow push
+  ansible.builtin.fail:
+    msg: >-
+      Host '{{ _push_hostname }}' has role '{{ _push_role }}' which
+      does not allow pushing. Only 'source' and 'both' roles can push.
+  when: _push_role not in ['source', 'both']
+
+# --- Stage and push ---
 - name: Stage all changes
   ansible.builtin.command:
     cmd: "git add -A"
-    chdir: "{{ instance_path }}/config"
+    chdir: "{{ instance_path }}"
   changed_when: false
 
 - name: Check for staged changes
   ansible.builtin.command:
     cmd: "git diff --cached --quiet"
-    chdir: "{{ instance_path }}/config"
-  register: _git_staged
+    chdir: "{{ instance_path }}"
+  register: _push_staged
   changed_when: false
   ignore_errors: true  # rc=1 means there are changes
 
-- name: Commit changes
-  ansible.builtin.command:
-    cmd: "git commit -m 'Configuration update'"
-    chdir: "{{ instance_path }}/config"
-  when: _git_staged.rc != 0
-  changed_when: true
+- name: Commit and push
+  when: _push_staged.rc != 0
+  block:
+    - name: Commit changes
+      ansible.builtin.command:
+        cmd: >-
+          git commit -m "{{ message | default('Configuration update') }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
 
-- name: Push to remote
-  ansible.builtin.command:
-    cmd: "git push"
-    chdir: "{{ instance_path }}/config"
-  when: _git_staged.rc != 0
-  changed_when: true
+    - name: Push to remote
+      ansible.builtin.command:
+        cmd: "git push"
+        chdir: "{{ instance_path }}"
+      changed_when: true
 
 - name: Report result
   ansible.builtin.debug:
-    msg: "{{ (_git_staged.rc != 0) | ternary('Configuration pushed.', 'No changes to push.') }}"
+    msg: >-
+      {{ (_push_staged.rc != 0)
+         | ternary('Configuration pushed.', 'No changes to push.') }}
