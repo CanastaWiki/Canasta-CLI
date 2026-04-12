@@ -267,7 +267,7 @@
     name: orchestrator
     tasks_from: ensure_observability_credentials.yml
 
-# --- Kubernetes values.yaml propagation (#53) ---
+# --- Kubernetes values.yaml propagation ---
 # On K8s, certain env keys are sourced from values.yaml fields that
 # double-duty as cluster-level configuration (Ingress hostnames,
 # deployment gates, etc.). When these keys change via config set, we
@@ -275,7 +275,7 @@
 # reaches the cluster on the next helm upgrade (which the restart
 # that config set triggers will do). Without this, the value lands
 # in .env on the controller but the running pods and K8s resources
-# never see it. See #53.
+# never see it.
 #
 # Mapping table:
 #   MW_SITE_FQDN         → domains: [<value>]
