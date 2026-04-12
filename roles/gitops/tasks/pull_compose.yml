@@ -1,14 +1,214 @@
 ---
-# GitOps pull (Compose).
-# Requires: instance_path (set by dispatcher)
+# GitOps pull (Compose) — full multi-host flow matching Go implementation.
+# Pulls from remote, renders .env and wikis.yaml from templates + host
+# vars, writes admin passwords, detects what changed, and flags whether
+# a restart or maintenance update is needed.
+# Requires: instance_path, instance_id (set by dispatcher)
 
-- name: Pull configuration
+# --- Step 1: Check for uncommitted changes ---
+- name: Check for uncommitted changes
+  ansible.builtin.command:
+    cmd: "git status --porcelain"
+    chdir: "{{ instance_path }}"
+  register: _pull_uncommitted
+  changed_when: false
+
+- name: Fail if uncommitted changes exist
+  ansible.builtin.fail:
+    msg: >-
+      Cannot pull: there are uncommitted changes in the instance
+      directory. Commit or stash them first, then retry.
+      Changed files: {{ _pull_uncommitted.stdout }}
+  when: _pull_uncommitted.stdout | trim | length > 0
+
+# --- Step 2: Save state before pull ---
+- name: Get current commit hash
+  ansible.builtin.command:
+    cmd: "git rev-parse HEAD"
+    chdir: "{{ instance_path }}"
+  register: _pull_prev_commit
+  changed_when: false
+
+- name: Save current .env for comparison
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.env"
+  register: _pull_old_env
+  ignore_errors: true  # OK if .env doesn't exist yet (first pull on a joined host)
+
+- name: Save current wikis.yaml for comparison
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/wikis.yaml"
+  register: _pull_old_wikis
+  ignore_errors: true  # OK if wikis.yaml doesn't exist yet
+
+# --- Step 3: Pull and update submodules ---
+- name: Pull from remote
   ansible.builtin.command:
     cmd: "git pull"
-    chdir: "{{ instance_path }}/config"
-  register: _git_pull
-  changed_when: "'Already up to date' not in _git_pull.stdout"
+    chdir: "{{ instance_path }}"
+  register: _pull_result
+  changed_when: "'Already up to date' not in _pull_result.stdout"
 
-- name: Display result
+- name: Update submodules
+  ansible.builtin.command:
+    cmd: "git submodule update --init --recursive"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  ignore_errors: true  # OK if no submodules configured
+
+# --- Step 4: Check if anything changed ---
+- name: Get new commit hash
+  ansible.builtin.command:
+    cmd: "git rev-parse HEAD"
+    chdir: "{{ instance_path }}"
+  register: _pull_new_commit
+  changed_when: false
+
+- name: Skip rendering if no changes
+  when: _pull_prev_commit.stdout == _pull_new_commit.stdout
+  block:
+    - name: Report no changes
+      ansible.builtin.debug:
+        msg: "Already up to date."
+    - name: End play for no-change case
+      ansible.builtin.meta: end_play
+
+# --- Step 5: Read host identity and vars ---
+- name: Read .gitops-host
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _pull_host_raw
+
+- name: Set host name
+  ansible.builtin.set_fact:
+    _pull_hostname: "{{ _pull_host_raw.content | b64decode | trim }}"
+
+- name: Read host vars
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/{{ _pull_hostname }}/vars.yaml"
+  register: _pull_vars_raw
+
+- name: Parse host vars
+  ansible.builtin.set_fact:
+    _pull_vars: "{{ _pull_vars_raw.content | b64decode | from_yaml }}"
+
+# --- Step 6: Render .env from env.template + vars ---
+- name: Read env.template
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/env.template"
+  register: _pull_env_template_raw
+
+- name: Render .env from template
+  ansible.builtin.copy:
+    content: |
+      {% for line in (_pull_env_template_raw.content | b64decode).split('\n') %}
+      {% if '={{' in line and '}}' in line %}
+      {% set key = line.split('=', 1)[0] %}
+      {% set placeholder = line.split('={{', 1)[1].split('}}', 1)[0] %}
+      {{ key }}={{ _pull_vars[placeholder] | default('') }}
+      {% else %}
+      {{ line }}
+      {% endif %}
+      {% endfor %}
+    dest: "{{ instance_path }}/.env"
+    mode: "0600"
+
+# --- Step 7: Render wikis.yaml from template + vars (if template exists) ---
+- name: Check if wikis.yaml.template exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/wikis.yaml.template"
+  register: _pull_wikis_template_stat
+
+- name: Render wikis.yaml from template
+  when: _pull_wikis_template_stat.stat.exists
+  block:
+    - name: Read wikis.yaml.template
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/wikis.yaml.template"
+      register: _pull_wikis_template_raw
+
+    - name: Render config/wikis.yaml from template
+      ansible.builtin.copy:
+        content: |
+          {% for line in (_pull_wikis_template_raw.content | b64decode).split('\n') %}
+          {% if '{{' in line and '}}' in line %}
+          {% set before = line.split('{{', 1)[0] %}
+          {% set placeholder = line.split('{{', 1)[1].split('}}', 1)[0] %}
+          {% set after = line.split('}}', 1)[1] if '}}' in line else '' %}
+          {{ before }}{{ _pull_vars[placeholder] | default('') }}{{ after }}
+          {% else %}
+          {{ line }}
+          {% endif %}
+          {% endfor %}
+        dest: "{{ instance_path }}/config/wikis.yaml"
+        mode: "0644"
+
+# --- Step 8: Write admin password files ---
+- name: Write admin password files from vars
+  ansible.builtin.copy:
+    content: "{{ item.value }}"
+    dest: >-
+      {{ instance_path }}/admin-password_{{ item.key
+         | regex_replace('^admin_password_', '') }}
+    mode: "0600"
+  loop: >-
+    {{ _pull_vars | dict2items
+       | selectattr('key', 'match', '^admin_password_')
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+
+# --- Step 9: Detect what changed ---
+- name: Get list of changed files
+  ansible.builtin.command:
+    cmd: "git diff --name-only {{ _pull_prev_commit.stdout }}"
+    chdir: "{{ instance_path }}"
+  register: _pull_changed_files
+  changed_when: false
+
+- name: Read new .env for comparison
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.env"
+  register: _pull_new_env
+
+- name: Read new wikis.yaml for comparison
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/wikis.yaml"
+  register: _pull_new_wikis
+  ignore_errors: true  # OK if wikis.yaml doesn't exist
+
+- name: Determine if restart is needed
+  ansible.builtin.set_fact:
+    _pull_needs_restart: >-
+      {{ (_pull_old_env.content | default('') !=
+          _pull_new_env.content | default(''))
+         or (_pull_old_wikis.content | default('') !=
+             _pull_new_wikis.content | default(''))
+         or (_pull_changed_files.stdout_lines | default([])
+             | select('match',
+               '^(env\.template|config/Caddyfile|docker-compose\.override\.yml)')
+             | list | length > 0) }}
+    _pull_needs_maintenance: >-
+      {{ _pull_changed_files.stdout_lines | default([])
+         | select('match', '^(extensions/|skins/)')
+         | list | length > 0 }}
+
+# --- Step 10: Save applied commit ---
+- name: Write .gitops-applied
+  ansible.builtin.copy:
+    content: "{{ _pull_new_commit.stdout }}"
+    dest: "{{ instance_path }}/.gitops-applied"
+    mode: "0644"
+
+# --- Step 11: Report results ---
+- name: Report pull results
   ansible.builtin.debug:
-    msg: "{{ _git_pull.stdout }}"
+    msg: >-
+      Pulled {{ _pull_prev_commit.stdout[:7] }}..{{ _pull_new_commit.stdout[:7] }}.
+      {{ (_pull_needs_restart | bool)
+         | ternary('Restart needed.', '') }}
+      {{ (_pull_needs_maintenance | bool)
+         | ternary('Maintenance update needed (extensions/skins changed).', '') }}
+      {{ (not _pull_needs_restart | bool and not _pull_needs_maintenance | bool)
+         | ternary('No restart needed.', '') }}
