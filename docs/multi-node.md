@@ -308,16 +308,26 @@ kubectl get pvc -n canasta-mywiki
 
 ## Step 5 — Scale the web tier
 
-Edit the instance's `values.yaml` and set `web.replicaCount`:
+The generated `values.yaml` does not include a `web:` section by
+default — it inherits `web.replicaCount: 1` from the chart defaults.
+To scale up, you need to **add** the section:
 
 ```bash
 # Find the instance path:
 canasta list
 
-# Edit instance_path/values.yaml:
+# Add a web: section to instance_path/values.yaml. For example,
+# insert before the "domains:" line:
+#
 #   web:
 #     replicaCount: 3
 #
+# Or via sed:
+sed -i '' '/^domains:/i\
+web:\
+  replicaCount: 3\
+' <instance_path>/values.yaml
+
 # Then restart so the helm upgrade picks up the change:
 canasta restart --id mywiki
 ```
