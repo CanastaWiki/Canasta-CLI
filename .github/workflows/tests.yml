@@ -6,6 +6,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual trigger for re-running the full suite (including the
+  # integration jobs that are normally gated to push-to-main only).
+  # Useful when reviewing a PR that touches integration-relevant
+  # code. See #67.
+  workflow_dispatch:
 
 jobs:
   unit:
@@ -71,6 +76,9 @@ jobs:
 
   integration-core:
     name: "Integration: Core Lifecycle"
+    # Skip on PRs (run only on push to main and manual workflow_dispatch).
+    # See #67.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -95,6 +103,7 @@ jobs:
 
   integration-features:
     name: "Integration: Features"
+    if: github.event_name != 'pull_request'  # See #67
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -120,6 +129,7 @@ jobs:
 
   integration-gitops:
     name: "Integration: GitOps"
+    if: github.event_name != 'pull_request'  # See #67
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -144,6 +154,7 @@ jobs:
 
   integration-k8s:
     name: "Integration: Kubernetes"
+    if: github.event_name != 'pull_request'  # See #67
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -182,6 +193,7 @@ jobs:
 
   remote-integration:
     name: Remote Host Integration Tests
+    if: github.event_name != 'pull_request'  # See #67
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
