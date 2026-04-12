@@ -25,16 +25,14 @@
       Use 'gitops join' to join an existing repo.
   when: _gitops_existing.stat.exists
 
-# On K8s, --key can be either:
-#   - An existing SSH private key (INPUT): used to create the Argo CD
-#     repo credential Secret so Argo CD can pull from the repo. The
-#     user pre-generates the key, adds the public half to GitHub, and
-#     passes the private half here.
-#   - A non-existent path (OUTPUT): a placeholder file is created for
-#     CLI compatibility, but no Argo CD Secret is created (the user
-#     must create it manually — legacy behavior, see #69).
-# The Compose path uses --key as an output for git-crypt's symmetric
-# key, which is a different concept entirely.
+# --- SSH deploy key ---
+# On K8s, --key is the path where the SSH deploy key lives (or will
+# be generated). Analogous to the Compose path's git-crypt key
+# export: the credential is saved at --key for future operations
+# (gitops push, gitops join on another host).
+#
+# If the file already exists and contains a PEM key, we reuse it
+# (re-init or user-supplied key). Otherwise we generate a new one.
 - name: Check if SSH deploy key already exists
   ansible.builtin.stat:
     path: "{{ key }}"
@@ -43,20 +41,57 @@
 - name: Read existing SSH deploy key
   ansible.builtin.slurp:
     src: "{{ key }}"
-  register: _gitops_ssh_key
+  register: _gitops_ssh_key_existing
   when: _gitops_key_exists.stat.exists
   no_log: true
 
-- name: Set flag for whether we have a real SSH key
+- name: Check if existing file is a real SSH key
   ansible.builtin.set_fact:
-    _have_ssh_key: >-
+    _existing_is_ssh_key: >-
       {{ _gitops_key_exists.stat.exists and
-         (_gitops_ssh_key.content | default('') | b64decode)
+         (_gitops_ssh_key_existing.content | default('') | b64decode)
          is search('-----BEGIN') }}
+
+- name: Generate SSH deploy key pair
+  ansible.builtin.command:
+    cmd: >-
+      ssh-keygen -t ed25519
+      -f {{ key }}
+      -N ''
+      -C 'canasta-{{ instance_id }}'
+  when: not (_existing_is_ssh_key | bool)
+
+- name: Read the SSH deploy key (generated or existing)
+  ansible.builtin.slurp:
+    src: "{{ key }}"
+  register: _gitops_ssh_key
+  no_log: true
+
+- name: Read the public key for display
+  ansible.builtin.slurp:
+    src: "{{ key }}.pub"
+  register: _gitops_ssh_pubkey
+
+- name: Display public key for deploy key setup
+  ansible.builtin.debug:
+    msg:
+      - "SSH deploy key {{ (_existing_is_ssh_key | bool) | ternary('found', 'generated') }}."
+      - "Add this public key as a deploy key (with WRITE access) on your git repository:"
+      - ""
+      - "  {{ _gitops_ssh_pubkey.content | b64decode | trim }}"
+      - ""
+      - "Repository: {{ repo }}"
+      - "GitHub: go to Settings > Deploy keys > Add deploy key"
+
+- name: Pause for user to add deploy key to git repository
+  ansible.builtin.pause:
+    prompt: "Press Enter after you have added the deploy key to your repository (or Ctrl+C then A to abort)"
 
 - name: Check remote is empty
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
+  environment:
+    GIT_SSH_COMMAND: "ssh -i {{ key }} -o StrictHostKeyChecking=no"
   register: _gitops_remote
   changed_when: false
   ignore_errors: true
@@ -178,21 +213,8 @@
     dest: "{{ instance_path }}/.gitops-host"
     mode: "0644"
 
-# --- Key file handling ---
-# If the user passed an existing SSH key, we already read it above
-# and will use it to create the Argo CD Secret below. If they passed
-# a non-existent path, create a placeholder for CLI compatibility.
-- name: Create placeholder key file (no SSH key provided)
-  ansible.builtin.copy:
-    content: |
-      # Kubernetes gitops does not use git-crypt.
-      # Secrets are managed via K8s Secrets, not encrypted in the repo.
-      # This file is a placeholder for compatibility with the CLI interface.
-      # To enable automatic Argo CD repo authentication, re-run gitops
-      # init with --key pointing at an existing SSH private key file.
-    dest: "{{ key }}"
-    mode: "0600"
-  when: not (_have_ssh_key | bool)
+# Key file is either the user's existing key or the one we just
+# generated. No placeholder needed — we always have a real key now.
 
 # --- Sync config files into values.yaml ---
 - name: Set K8s namespace for config sync
@@ -234,12 +256,15 @@
   ansible.builtin.command:
     cmd: "git push -u origin main {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
+  environment:
+    GIT_SSH_COMMAND: "ssh -i {{ key }} -o StrictHostKeyChecking=no"
   changed_when: true
 
 # --- Create Argo CD repo credential Secret ---
-# Only when the user supplied a real SSH deploy key via --key.
-# Without this Secret, Argo CD can't authenticate to the git repo and
-# syncs fail with auth errors. See #69.
+# The SSH deploy key (generated or user-supplied) is stored as a K8s
+# Secret that Argo CD discovers via the repository label. This is what
+# lets Argo CD pull from the git repo without manual kubectl steps.
+# See #69.
 - name: Create or update Argo CD repo credential Secret
   kubernetes.core.k8s:
     state: present
@@ -259,16 +284,6 @@
         url: "{{ repo }}"
         sshPrivateKey: "{{ _gitops_ssh_key.content | b64decode }}"
   no_log: true
-  when: _have_ssh_key | bool
-
-- name: Warn if no SSH key provided for Argo CD
-  ansible.builtin.debug:
-    msg: >-
-      No SSH deploy key was provided (--key did not point at an
-      existing private key file). The Argo CD repo credential Secret
-      was NOT created. Argo CD will fail to sync until you create
-      the Secret manually. See #69 for details.
-  when: not (_have_ssh_key | bool)
 
 # --- Register Argo CD Application ---
 - name: Apply Argo CD Application to cluster
@@ -278,4 +293,8 @@
 
 - name: Report gitops initialized
   ansible.builtin.debug:
-    msg: "GitOps initialized for '{{ instance_id }}'. Key exported to {{ key }}"
+    msg:
+      - "GitOps initialized for '{{ instance_id }}'."
+      - "SSH deploy key saved to: {{ key }}"
+      - "Argo CD repo credential Secret created."
+      - "Store the key securely — it is needed to push config changes and to set up additional hosts."
