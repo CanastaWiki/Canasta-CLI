@@ -25,15 +25,34 @@
       Use 'gitops join' to join an existing repo.
   when: _gitops_existing.stat.exists
 
-- name: Check key file does not exist
+# On K8s, --key can be either:
+#   - An existing SSH private key (INPUT): used to create the Argo CD
+#     repo credential Secret so Argo CD can pull from the repo. The
+#     user pre-generates the key, adds the public half to GitHub, and
+#     passes the private half here.
+#   - A non-existent path (OUTPUT): a placeholder file is created for
+#     CLI compatibility, but no Argo CD Secret is created (the user
+#     must create it manually — legacy behavior, see #69).
+# The Compose path uses --key as an output for git-crypt's symmetric
+# key, which is a different concept entirely.
+- name: Check if SSH deploy key already exists
   ansible.builtin.stat:
     path: "{{ key }}"
   register: _gitops_key_exists
 
-- name: Fail if key file already exists
-  ansible.builtin.fail:
-    msg: "Key file '{{ key }}' already exists. Remove it first or use a different path."
+- name: Read existing SSH deploy key
+  ansible.builtin.slurp:
+    src: "{{ key }}"
+  register: _gitops_ssh_key
   when: _gitops_key_exists.stat.exists
+  no_log: true
+
+- name: Set flag for whether we have a real SSH key
+  ansible.builtin.set_fact:
+    _have_ssh_key: >-
+      {{ _gitops_key_exists.stat.exists and
+         (_gitops_ssh_key.content | default('') | b64decode)
+         is search('-----BEGIN') }}
 
 - name: Check remote is empty
   ansible.builtin.command:
@@ -146,15 +165,21 @@
     dest: "{{ instance_path }}/.gitops-host"
     mode: "0644"
 
-# --- Note about key file (no git-crypt on K8s path) ---
-- name: Create placeholder key file
+# --- Key file handling ---
+# If the user passed an existing SSH key, we already read it above
+# and will use it to create the Argo CD Secret below. If they passed
+# a non-existent path, create a placeholder for CLI compatibility.
+- name: Create placeholder key file (no SSH key provided)
   ansible.builtin.copy:
     content: |
       # Kubernetes gitops does not use git-crypt.
       # Secrets are managed via K8s Secrets, not encrypted in the repo.
       # This file is a placeholder for compatibility with the CLI interface.
+      # To enable automatic Argo CD repo authentication, re-run gitops
+      # init with --key pointing at an existing SSH private key file.
     dest: "{{ key }}"
     mode: "0600"
+  when: not (_have_ssh_key | bool)
 
 # --- Sync config files into values.yaml ---
 - name: Set K8s namespace for config sync
@@ -198,12 +223,45 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+# --- Create Argo CD repo credential Secret ---
+# Only when the user supplied a real SSH deploy key via --key.
+# Without this Secret, Argo CD can't authenticate to the git repo and
+# syncs fail with auth errors. See #69.
+- name: Create or update Argo CD repo credential Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "canasta-{{ instance_id }}-repo"
+        namespace: "{{ argocd_namespace | default('argocd') }}"
+        labels:
+          argocd.argoproj.io/secret-type: repository
+          app.kubernetes.io/managed-by: canasta-ansible
+          app.kubernetes.io/instance: "{{ instance_id }}"
+      type: Opaque
+      stringData:
+        type: git
+        url: "{{ repo }}"
+        sshPrivateKey: "{{ _gitops_ssh_key.content | b64decode }}"
+  no_log: true
+  when: _have_ssh_key | bool
+
+- name: Warn if no SSH key provided for Argo CD
+  ansible.builtin.debug:
+    msg: >-
+      No SSH deploy key was provided (--key did not point at an
+      existing private key file). The Argo CD repo credential Secret
+      was NOT created. Argo CD will fail to sync until you create
+      the Secret manually. See #69 for details.
+  when: not (_have_ssh_key | bool)
+
 # --- Register Argo CD Application ---
 - name: Apply Argo CD Application to cluster
   kubernetes.core.k8s:
     state: present
     src: "{{ instance_path }}/argocd/application.yaml"
-  ignore_errors: true
 
 - name: Report gitops initialized
   ansible.builtin.debug:
