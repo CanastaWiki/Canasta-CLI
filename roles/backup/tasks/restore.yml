@@ -104,17 +104,17 @@
         cmd: >-
           kubectl exec -n {{ _k8s_namespace }} restic-restore --
           tar cf - -C /currentsnapshot/config . 2>/dev/null |
-          tar xf - -C {{ instance_path }}/config/
+          tar xf - -C "{{ instance_path }}/config/"
       changed_when: true
-      ignore_errors: true
+      ignore_errors: true  # OK if config dir is empty in the snapshot
 
     - name: Copy restored .env to host
       ansible.builtin.shell:
         cmd: >-
           kubectl cp {{ _k8s_namespace }}/restic-restore:/currentsnapshot/.env
-          {{ instance_path }}/.env
+          "{{ instance_path }}/.env"
       changed_when: true
-      ignore_errors: true
+      ignore_errors: true  # OK if .env is missing from snapshot
 
     - name: Get DB pod name
       ansible.builtin.include_tasks: >-
@@ -172,9 +172,8 @@
   ansible.builtin.shell:
     cmd: |
       docker run --rm \
-        -v canasta-backup-{{ instance_path | basename
-        }}:/currentsnapshot:ro \
-        -v {{ instance_path }}:/install \
+        -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
+        -v "{{ instance_path }}:/install" \
         alpine sh -c "
         for d in config extensions images skins public_assets; do
           if [ -d /currentsnapshot/\$d ]; then

@@ -69,6 +69,15 @@
         instance_orchestrator | default('compose')
         in ['kubernetes', 'k8s']
 
+    - name: Fail if no running web pod found
+      ansible.builtin.fail:
+        msg: >-
+          No running web pod found in namespace canasta-{{ instance_id }}.
+          Check that the instance is started and the web pod is Ready.
+      when:
+        - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+        - _k8s_pod.stdout | default('') | trim == ''
+
     - name: Build K8s extract command
       ansible.builtin.set_fact:
         _extract_cmd: >-

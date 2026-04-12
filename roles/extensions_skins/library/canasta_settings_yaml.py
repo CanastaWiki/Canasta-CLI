@@ -54,10 +54,19 @@ HEADER = "# Canasta will add and remove lines from this file as extensions and s
 
 
 def config_path(instance_path, wiki=None):
-    """Return the path to settings.yaml (global or per-wiki)."""
+    """Return the path to settings.yaml (global or per-wiki), validated against path traversal."""
     if wiki:
-        return os.path.join(instance_path, "config", "settings", "wikis", wiki, "settings.yaml")
-    return os.path.join(instance_path, "config", "settings", "global", "settings.yaml")
+        path = os.path.join(instance_path, "config", "settings", "wikis", wiki, "settings.yaml")
+    else:
+        path = os.path.join(instance_path, "config", "settings", "global", "settings.yaml")
+    real_path = os.path.realpath(path)
+    real_base = os.path.realpath(instance_path)
+    if not real_path.startswith(real_base + os.sep):
+        raise ValueError(
+            "settings.yaml path '%s' escapes instance directory '%s'"
+            % (real_path, real_base)
+        )
+    return path
 
 
 def validate_name(name):

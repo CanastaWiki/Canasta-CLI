@@ -459,12 +459,32 @@ def resolve_command_name(args):
     return cmd
 
 
+def _cleanup_stale_vars_files():
+    """Remove canasta-vars-*.json temp files older than 1 hour.
+
+    These accumulate because os.execvp replaces the process before
+    any cleanup can run. Each canasta invocation cleans up files left
+    by previous invocations.
+    """
+    import glob
+    import time
+    cutoff = time.time() - 3600  # 1 hour
+    for f in glob.glob(os.path.join(tempfile.gettempdir(), "canasta-vars-*.json")):
+        try:
+            if os.path.getmtime(f) < cutoff:
+                os.unlink(f)
+        except OSError:
+            pass
+
+
 def build_ansible_args(ansible_playbook, command_name, args, data):
     """Build the ansible-playbook command line.
 
     Extra vars are passed via a temp JSON file (-e @file) to avoid
     Jinja2 injection and shell quoting issues.
     """
+    _cleanup_stale_vars_files()
+
     cmd_index = {c["name"]: c for c in data["commands"]}
     cmd_def = cmd_index.get(command_name, {})
     params = cmd_def.get("parameters", [])
@@ -507,7 +527,10 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         else:
             extra_vars[name] = str(value)
 
-    # Write vars to temp file (bypasses Jinja2 interpolation)
+    # Write vars to temp file (bypasses Jinja2 interpolation).
+    # delete=False because ansible-playbook needs to read it after
+    # execvp replaces this process. Stale files are cleaned up by
+    # _cleanup_stale_vars_files() at the start of each invocation.
     vars_file = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="canasta-vars-",
         delete=False,
