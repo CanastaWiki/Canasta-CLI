@@ -17,14 +17,18 @@
   ignore_errors: true  # OK if Docker not installed
   when: orchestrator | default('compose') == 'compose'
 
-- name: Fail if Docker not available
-  ansible.builtin.fail:
-    msg: >-
-      Docker is not available on this host.
-      Run 'canasta doctor' to check all dependencies.
-  when:
-    - orchestrator | default('compose') == 'compose'
-    - _docker_check.rc | default(0) != 0
+- name: Make sure docker compose is installed
+  ansible.builtin.command:
+    cmd: docker compose version
+  register: _docker_compose_check
+  changed_when: false
+  ignore_errors: true
+  when: orchestrator | default('compose') == 'compose'
+
+- name: Install Docker and/or Docker Compose
+  ansible.builtin.include_role:
+    name: docker
+    tasks_from: install_docker.yml
 
 # Compose-only host memory preflight. The K8s path has its own
 # per-node memory check in k8s_preflight.yml — running this on a K8s
