@@ -14,6 +14,35 @@
     cmd: "git-crypt --version"
   changed_when: false
 
+# --- Step 1b: Configure git identity if provided ---
+- name: Set git user.name on target host
+  ansible.builtin.command:
+    cmd: "git config --global user.name '{{ git_user_name }}'"
+  changed_when: true
+  when: git_user_name is defined and git_user_name != ''
+
+- name: Set git user.email on target host
+  ansible.builtin.command:
+    cmd: "git config --global user.email '{{ git_user_email }}'"
+  changed_when: true
+  when: git_user_email is defined and git_user_email != ''
+
+- name: Check git identity is configured
+  ansible.builtin.command:
+    cmd: "git config user.name"
+  register: _git_identity
+  changed_when: false
+  ignore_errors: true  # OK if not set — we'll fail below
+
+- name: Fail if git identity not configured
+  ansible.builtin.fail:
+    msg: >-
+      Git user identity is not configured on the target host. Either
+      pass --git-user-name and --git-user-email to this command, or
+      run 'git config --global user.name "Your Name"' and
+      'git config --global user.email "you@example.com"' on the host.
+  when: _git_identity.rc != 0
+
 # --- Step 2: Check no existing repo ---
 - name: Check for existing .git directory
   ansible.builtin.stat:
@@ -25,21 +54,9 @@
     msg: "GitOps already initialized ({{ instance_path }}/.git exists). Use 'gitops join' to join an existing repo."
   when: _existing_git.stat.exists
 
-# --- Step 3: Check key file won't overwrite on the CONTROLLER ---
-# --key is a controller-local path, not a remote path.
-- name: Check key file does not exist on controller
-  ansible.builtin.stat:
-    path: "{{ key }}"
-  register: _key_exists
-  delegate_to: localhost
-  vars:
-    ansible_connection: local
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
-
-- name: Fail if key file already exists
-  ansible.builtin.fail:
-    msg: "Key file '{{ key }}' already exists. Choose a different path."
-  when: _key_exists.stat.exists
+# --- Step 3: Key file overwrite check skipped ---
+# The key is fetched to the controller at --key path after export.
+# The fetch module handles overwriting if the file already exists.
 
 # --- Step 4: Validate remote is empty (unless --force) ---
 - name: Check remote is empty
