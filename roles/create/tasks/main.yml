@@ -77,7 +77,11 @@
 
 - name: Fail if instance already exists
   ansible.builtin.fail:
-    msg: "Instance '{{ id }}' already exists at {{ _existing.instance.path }}"
+    msg: >-
+      Instance '{{ id }}' already exists in the registry
+      (path: {{ _existing.instance.path }},
+      host: {{ _existing.instance.host | default('localhost') }}).
+      Run 'canasta delete --id {{ id }} --yes' to remove it first.
   when: _existing is succeeded
 
 # --- Step 2: Determine base image ---
