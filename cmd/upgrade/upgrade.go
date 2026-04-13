@@ -648,10 +648,11 @@ func removeLegacyGitDir(installPath string, dryRun bool) (bool, error) {
 	return true, nil
 }
 
-// backfillCanastaImage ensures CANASTA_IMAGE in .env matches the current
-// CLI's default image tag. This handles both instances that predate the
-// CANASTA_IMAGE variable and instances where the CLI was upgraded to a
-// newer version but the image tag was not updated.
+// backfillCanastaImage ensures CANASTA_IMAGE is present in .env for
+// instances that predate the variable. If the user has already set
+// CANASTA_IMAGE (e.g. via config set to pin a specific version), the
+// existing value is preserved — upgrade should not override intentional
+// user configuration.
 func backfillCanastaImage(installPath string, dryRun bool) (bool, error) {
 	envPath := filepath.Join(installPath, ".env")
 
@@ -662,7 +663,7 @@ func backfillCanastaImage(installPath string, dryRun bool) (bool, error) {
 
 	image := canasta.GetDefaultImage()
 
-	if val, ok := envVars["CANASTA_IMAGE"]; ok && val == image {
+	if _, ok := envVars["CANASTA_IMAGE"]; ok {
 		return false, nil
 	}
 

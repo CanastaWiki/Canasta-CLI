@@ -241,9 +241,9 @@ func TestBackfillCanastaImage(t *testing.T) {
 			wantChanged: true,
 		},
 		{
-			name:        "outdated version",
+			name:        "user-set version preserved",
 			envContent:  "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:3.3.1\nMYSQL_PASSWORD=secret\n",
-			wantChanged: true,
+			wantChanged: false,
 		},
 		{
 			name:        "already current",
@@ -251,9 +251,9 @@ func TestBackfillCanastaImage(t *testing.T) {
 			wantChanged: false,
 		},
 		{
-			name:        "empty value",
+			name:        "empty value preserved",
 			envContent:  "CANASTA_IMAGE=\nMYSQL_PASSWORD=secret\n",
-			wantChanged: true,
+			wantChanged: false,
 		},
 	}
 
