@@ -118,20 +118,49 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
-# Export to a temp path on the remote host, then fetch to the
-# controller at the --key path. The controller-to-target model
-# means --key is a LOCAL path on the controller, not on the remote.
+# Export to a temp path on the remote host, then transfer to the
+# controller at the --key path. Uses slurp to read the binary key
+# from the remote, then a controller-side script to write it.
+# Neither fetch nor delegate_to:localhost work here because the play
+# targets localhost with connection switched to SSH via set_fact —
+# both still route through the SSH connection to the remote host.
 - name: Export git-crypt key on remote host
   ansible.builtin.command:
     cmd: "git-crypt export-key /tmp/canasta-gitcrypt-key"
     chdir: "{{ instance_path }}"
   changed_when: true
 
-- name: Fetch git-crypt key to controller
-  ansible.builtin.fetch:
+- name: Read git-crypt key from remote host
+  ansible.builtin.slurp:
     src: "/tmp/canasta-gitcrypt-key"
+  register: _gitcrypt_key_b64
+
+- name: Save connection state before local key write
+  ansible.builtin.set_fact:
+    _saved_conn: "{{ ansible_connection }}"
+    _saved_host: "{{ ansible_host }}"
+    _saved_user: "{{ ansible_user | default('') }}"
+    _saved_python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
+
+- name: Switch to local connection for key write
+  ansible.builtin.set_fact:
+    ansible_connection: local
+    ansible_host: localhost
+    ansible_user: ""
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+- name: Write git-crypt key to controller
+  ansible.builtin.copy:
+    content: "{{ _gitcrypt_key_b64.content | b64decode }}"
     dest: "{{ key }}"
-    flat: true
+    mode: "0600"
+
+- name: Restore connection after key write
+  ansible.builtin.set_fact:
+    ansible_connection: "{{ _saved_conn }}"
+    ansible_host: "{{ _saved_host }}"
+    ansible_user: "{{ _saved_user }}"
+    ansible_python_interpreter: "{{ _saved_python }}"
 
 - name: Remove temp key from remote host
   ansible.builtin.file:
