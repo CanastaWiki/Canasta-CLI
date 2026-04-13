@@ -3,6 +3,12 @@
 # Input: install_k3s (bool)
 # Idempotent — checks if k3s is already running.
 
+# gather_facts is false globally — collect ansible_env.HOME for
+# kubeconfig path.
+- name: Gather minimal facts for HOME directory
+  ansible.builtin.setup:
+    filter: ansible_env
+
 - name: Check if k3s is already running
   ansible.builtin.command:
     cmd: k3s kubectl cluster-info
