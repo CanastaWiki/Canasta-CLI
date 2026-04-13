@@ -35,7 +35,7 @@
       does not allow pushing. Only 'source' and 'both' roles can push.
   when: _push_role not in ['source', 'both']
 
-# --- Stage and push ---
+# --- Stage, commit, and push ---
 - name: Stage all changes
   ansible.builtin.command:
     cmd: "git add -A"
@@ -50,21 +50,28 @@
   changed_when: false
   ignore_errors: true  # rc=1 means there are changes
 
-- name: Commit and push
+- name: Commit staged changes
+  ansible.builtin.command:
+    cmd: >-
+      git commit -m "{{ message | default('Configuration update') }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
   when: _push_staged.rc != 0
-  block:
-    - name: Commit changes
-      ansible.builtin.command:
-        cmd: >-
-          git commit -m "{{ message | default('Configuration update') }}"
-        chdir: "{{ instance_path }}"
-      changed_when: true
 
-    - name: Push to remote
-      ansible.builtin.command:
-        cmd: "git push"
-        chdir: "{{ instance_path }}"
-      changed_when: true
+- name: Check for unpushed commits
+  ansible.builtin.command:
+    cmd: "git log origin/main..HEAD --oneline"
+    chdir: "{{ instance_path }}"
+  register: _push_unpushed
+  changed_when: false
+  ignore_errors: true  # OK if no upstream configured yet
+
+- name: Push to remote
+  ansible.builtin.command:
+    cmd: "git push"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: _push_unpushed.stdout | default('') | trim | length > 0
 
 - name: Report result
   ansible.builtin.debug:

@@ -581,14 +581,16 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         if ssh_user:
             ansible_args.extend(["-u", ssh_user])
 
-        # Auto-accept new SSH host keys on first connection (matching
-        # ssh's 'StrictHostKeyChecking=accept-new'). Known hosts with
-        # changed keys are still rejected.
-        os.environ.setdefault(
-            "ANSIBLE_SSH_ARGS",
-            "-o StrictHostKeyChecking=accept-new "
-            "-o UserKnownHostsFile=~/.ssh/known_hosts",
-        )
+    # Auto-accept new SSH host keys on first connection (matching
+    # ssh's 'StrictHostKeyChecking=accept-new'). Applies to all
+    # commands, not just -H commands — when the host is resolved from
+    # the registry, the SSH connection still needs this. Known hosts
+    # with changed keys are still rejected.
+    os.environ.setdefault(
+        "ANSIBLE_SSH_ARGS",
+        "-o StrictHostKeyChecking=accept-new "
+        "-o UserKnownHostsFile=~/.ssh/known_hosts",
+    )
 
     return ansible_args
 
