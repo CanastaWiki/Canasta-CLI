@@ -521,12 +521,19 @@
     install_wiki_db_password: "{{ _wikidbpass }}"
 
 # --- Step 13: Register instance ---
+# Capture host identity BEFORE delegate_to: localhost, because
+# delegation overrides ansible_host/ansible_user with the delegate's
+# values (localhost), not the play target's.
+- name: Build registry host string
+  ansible.builtin.set_fact:
+    _registry_host: "{{ (ansible_user | default('') + '@') if (ansible_user | default('')) else '' }}{{ ansible_host | default(inventory_hostname) }}"
+
 - name: Register instance in controller config
   canasta_registry:
     id: "{{ id }}"
     path: "{{ instance_path }}"
     orchestrator: "{{ orchestrator | default('compose') }}"
-    host: "{{ (ansible_user | default('') + '@') if (ansible_user | default('')) else '' }}{{ ansible_host | default(inventory_hostname) }}"
+    host: "{{ _registry_host }}"
     managed_cluster: false
     build_from: "{{ build_from | default(omit) }}"
     state: present
