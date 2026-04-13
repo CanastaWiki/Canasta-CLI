@@ -3,6 +3,12 @@
 # Input: install_k3s (bool)
 # Idempotent — checks if k3s is already running.
 
+# gather_facts is false globally — collect ansible_env.HOME for
+# kubeconfig path.
+- name: Gather minimal facts for HOME directory
+  ansible.builtin.setup:
+    filter: ansible_env
+
 - name: Check if k3s is already running
   ansible.builtin.command:
     cmd: k3s kubectl cluster-info
@@ -48,6 +54,16 @@
     cmd: "curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
   changed_when: true
   when: _helm_installed.rc != 0
+
+# k3s writes its kubeconfig to /etc/rancher/k3s/k3s.yaml with mode
+# 600 (root-only). The k3s binary (used via the kubectl symlink)
+# reads this file by default. Make it readable so non-root users
+# can use kubectl without sudo.
+- name: Make k3s kubeconfig readable
+  ansible.builtin.file:
+    path: /etc/rancher/k3s/k3s.yaml
+    mode: "0644"
+  become: true
 
 - name: Ensure kubeconfig directory exists
   ansible.builtin.file:
