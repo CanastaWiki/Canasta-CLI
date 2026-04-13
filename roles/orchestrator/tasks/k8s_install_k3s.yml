@@ -27,6 +27,28 @@
       delay: 5
       changed_when: false
 
+# k3s bundles kubectl as 'k3s kubectl' but many tools (Helm, Ansible
+# k8s modules) expect a standalone 'kubectl' binary on the PATH.
+- name: Create kubectl symlink
+  ansible.builtin.file:
+    src: /usr/local/bin/k3s
+    dest: /usr/local/bin/kubectl
+    state: link
+  become: true
+
+- name: Check if helm is installed
+  ansible.builtin.command:
+    cmd: helm version --short
+  register: _helm_installed
+  changed_when: false
+  ignore_errors: true
+
+- name: Install helm
+  ansible.builtin.shell:
+    cmd: "curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+  changed_when: true
+  when: _helm_installed.rc != 0
+
 - name: Ensure kubeconfig directory exists
   ansible.builtin.file:
     path: "{{ ansible_env.HOME }}/.kube"

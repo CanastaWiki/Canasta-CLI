@@ -7,18 +7,19 @@
   register: _kubectl_check
   changed_when: false
   ignore_errors: true  # OK if kubectl not installed
+  when: not (install_k3s | default(false) | bool)
 
 - name: Fail if kubectl not available
   ansible.builtin.fail:
     msg: >-
       kubectl is not installed. Install kubectl to manage Kubernetes instances.
       See https://kubernetes.io/docs/tasks/tools/
-  when: _kubectl_check.rc != 0
+  when:
+    - not (install_k3s | default(false) | bool)
+    - _kubectl_check.rc | default(0) != 0
 
 # Skip the cluster-reachability check when --install-k3s is set —
 # the cluster doesn't exist yet and will be created after preflight.
-# Still check kubectl and helm are installed (above/below) so those
-# failures are caught early.
 - name: Check cluster is reachable
   ansible.builtin.command:
     cmd: kubectl cluster-info
@@ -42,13 +43,16 @@
   register: _helm_check
   changed_when: false
   ignore_errors: true  # OK if Helm not installed
+  when: not (install_k3s | default(false) | bool)
 
 - name: Fail if helm not available
   ansible.builtin.fail:
     msg: >-
       Helm is not installed. Install Helm 3.10+ to manage Kubernetes instances.
       See https://helm.sh/docs/intro/install/
-  when: _helm_check.rc != 0
+  when:
+    - not (install_k3s | default(false) | bool)
+    - _helm_check.rc | default(0) != 0
 
 # Skip the node resource check when --install-k3s is set — there are
 # no nodes yet. The check will effectively run on the first start
