@@ -65,6 +65,54 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"
   when: _delete_query is succeeded
 
+# If the remote host is unreachable (VM destroyed, IP changed),
+# deregister from the controller and exit gracefully rather than
+# failing with "Host unreachable".
+- name: Test remote host reachability
+  ansible.builtin.command:
+    cmd: "echo reachable"
+  register: _host_reachable
+  changed_when: false
+  ignore_errors: true
+  when:
+    - _delete_query is succeeded
+    - _instance_host | default('localhost') != 'localhost'
+
+- name: Handle unreachable remote host
+  when:
+    - _delete_query is succeeded
+    - _instance_host | default('localhost') != 'localhost'
+    - _host_reachable is failed
+  block:
+    - name: Require confirmation for unreachable delete
+      ansible.builtin.fail:
+        msg: >-
+          Remote host '{{ _instance_host }}' is unreachable.
+          Deleting will remove '{{ instance_id }}' from the registry
+          but cannot clean up remote resources.
+          Use --yes to confirm.
+      when: not (yes | default(false) | bool)
+
+    - name: Deregister unreachable instance from controller
+      canasta_registry:
+        id: "{{ instance_id }}"
+        state: absent
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Report unreachable host deletion
+      ansible.builtin.debug:
+        msg: >-
+          Instance '{{ instance_id }}' removed from the registry.
+          Warning: remote host '{{ _instance_host }}' was unreachable —
+          remote resources (containers, files, target registry) were
+          not cleaned up.
+
+    - name: End play for unreachable host
+      ansible.builtin.meta: end_play
+
 - name: Discover unregistered instance
   when: _delete_query is failed
   block:
