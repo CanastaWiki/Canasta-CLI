@@ -17,11 +17,21 @@
 - name: Sync config files
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
+- name: Read values.yaml from remote
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _push_values
+
+- name: Read values-configdata.yaml from remote
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values-configdata.yaml"
+  register: _push_configdata
+
 - name: Merge configData into values.yaml for git
   ansible.builtin.copy:
     content: >-
-      {{ lookup('file', instance_path ~ '/values.yaml') | from_yaml
-         | combine(lookup('file', instance_path ~ '/values-configdata.yaml') | from_yaml, recursive=True)
+      {{ _push_values.content | b64decode | from_yaml
+         | combine(_push_configdata.content | b64decode | from_yaml, recursive=True)
          | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values.yaml"
     mode: "0644"
