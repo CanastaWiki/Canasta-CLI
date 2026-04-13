@@ -35,6 +35,12 @@
   changed_when: false
   ignore_errors: true  # Checking if daemon running
 
+- name: Check www-data group membership
+  ansible.builtin.command:
+    cmd: id -nG
+  register: _doc_groups
+  changed_when: false
+
 # --- Required for Kubernetes ---
 - name: Check kubectl
   ansible.builtin.command:
@@ -132,6 +138,7 @@
       System:
         Memory:          {{ _doc_memory.stdout | default('unknown') | trim }}
         Disk (/ avail):  {{ _doc_disk.stdout | default('unknown') | trim }}
+        www-data group:  {{ ('www-data' in (_doc_groups.stdout | default('')).split()) | ternary('OK (member)', 'NOT A MEMBER — Canasta containers write files as www-data; add yourself with: sudo usermod -aG www-data ' + ansible_user | default('$USER')) }}
 
 - name: Fail if core dependencies missing
   ansible.builtin.fail:
