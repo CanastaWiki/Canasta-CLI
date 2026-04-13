@@ -3,6 +3,14 @@
 # Input: instance_id, instance_path, _k8s_namespace
 # Optional: helm_wait (bool, default true), helm_reset_values (bool, default true)
 
+# Copy the Helm chart to the remote host. The chart lives in the
+# controller's repo at canasta_root, but helm runs on the target.
+- name: Copy Helm chart to instance directory
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/"
+    dest: "{{ instance_path }}/_chart/"
+    mode: preserve
+
 - name: Check for configData values file
   ansible.builtin.stat:
     path: "{{ instance_path }}/values-configdata.yaml"
@@ -12,7 +20,7 @@
   ansible.builtin.command:
     cmd: >-
       helm upgrade --install canasta-{{ instance_id }}
-      {{ canasta_root }}/roles/orchestrator/files/helm/canasta
+      {{ instance_path }}/_chart
       --namespace {{ _k8s_namespace }} --create-namespace
       -f {{ instance_path }}/values.yaml
       {{ (_configdata_file.stat.exists | default(false))

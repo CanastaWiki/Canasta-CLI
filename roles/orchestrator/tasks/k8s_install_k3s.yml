@@ -55,6 +55,21 @@
   changed_when: true
   when: _helm_installed.rc != 0
 
+# Ansible k8s modules require the Python kubernetes library.
+- name: Check if Python kubernetes library is available
+  ansible.builtin.command:
+    cmd: "python3 -c 'import kubernetes'"
+  register: _k8s_python
+  changed_when: false
+  ignore_errors: true
+
+- name: Install Python kubernetes library
+  ansible.builtin.apt:
+    name: python3-kubernetes
+    state: present
+  become: true
+  when: _k8s_python.rc != 0
+
 # k3s writes its kubeconfig to /etc/rancher/k3s/k3s.yaml with mode
 # 600 (root-only). The k3s binary (used via the kubectl symlink)
 # reads this file by default. Make it readable so non-root users

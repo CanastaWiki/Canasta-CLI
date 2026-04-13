@@ -42,7 +42,7 @@
 
 - name: Write Caddyfile from template
   ansible.builtin.template:
-    src: "{{ role_path }}/templates/Caddyfile.j2"
+    src: "{{ canasta_root }}/roles/orchestrator/templates/Caddyfile.j2"
     dest: "{{ instance_path }}/config/Caddyfile"
     mode: "0644"
     # The Canasta web container's run-all.sh rsyncs $MW_ORIGIN_FILES
