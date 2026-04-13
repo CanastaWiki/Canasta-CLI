@@ -526,7 +526,7 @@
     id: "{{ id }}"
     path: "{{ instance_path }}"
     orchestrator: "{{ orchestrator | default('compose') }}"
-    host: "{{ (ansible_user | default('') + '@') if (ansible_user | default('')) else '' }}{{ inventory_hostname }}"
+    host: "{{ (ansible_user | default('') + '@') if (ansible_user | default('')) else '' }}{{ ansible_host | default(inventory_hostname) }}"
     managed_cluster: false
     build_from: "{{ build_from | default(omit) }}"
     state: present

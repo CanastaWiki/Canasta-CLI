@@ -1055,6 +1055,12 @@ commands:
         type: bool
         default: false
         description: "Require pull requests instead of pushing to main"
+      - name: git_user_name
+        type: string
+        description: "Git user.name for commits on the target host (set if not already configured)"
+      - name: git_user_email
+        type: string
+        description: "Git user.email for commits on the target host (set if not already configured)"
 
   - name: gitops_join
     description: "Join an existing gitops repository"
@@ -1081,6 +1087,12 @@ commands:
         type: path
         required: true
         description: "Path to git-crypt key"
+      - name: git_user_name
+        type: string
+        description: "Git user.name for commits on the target host (set if not already configured)"
+      - name: git_user_email
+        type: string
+        description: "Git user.email for commits on the target host (set if not already configured)"
 
   - name: gitops_add
     description: "Add configuration changes to git"

@@ -30,6 +30,34 @@
     cmd: "git-crypt --version"
   changed_when: false
 
+- name: Set git user.name on target host
+  ansible.builtin.command:
+    cmd: "git config --global user.name '{{ git_user_name }}'"
+  changed_when: true
+  when: git_user_name is defined and git_user_name != ''
+
+- name: Set git user.email on target host
+  ansible.builtin.command:
+    cmd: "git config --global user.email '{{ git_user_email }}'"
+  changed_when: true
+  when: git_user_email is defined and git_user_email != ''
+
+- name: Check git identity is configured
+  ansible.builtin.command:
+    cmd: "git config user.name"
+  register: _git_identity
+  changed_when: false
+  ignore_errors: true  # OK if not set — we'll fail below
+
+- name: Fail if git identity not configured
+  ansible.builtin.fail:
+    msg: >-
+      Git user identity is not configured on the target host. Either
+      pass --git-user-name and --git-user-email to this command, or
+      run 'git config --global user.name "Your Name"' and
+      'git config --global user.email "you@example.com"' on the host.
+  when: _git_identity.rc != 0
+
 - name: Check for existing .git directory
   ansible.builtin.stat:
     path: "{{ instance_path }}/.git"
@@ -42,23 +70,10 @@
       This instance is already connected to a gitops repository.
   when: _join_existing_git.stat.exists
 
-# --key is a controller-local path. Check it on the controller,
-# then copy it to the remote host for git-crypt unlock.
-- name: Check key file exists on controller
-  ansible.builtin.stat:
-    path: "{{ key }}"
-  register: _join_key_exists
-  delegate_to: localhost
-  vars:
-    ansible_connection: local
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
-
-- name: Fail if key file not found
-  ansible.builtin.fail:
-    msg: >-
-      Key file '{{ key }}' not found on the controller. This should
-      be the git-crypt key exported during 'gitops init'.
-  when: not _join_key_exists.stat.exists
+# --key is a controller-local path. The ansible.builtin.copy task
+# below reads src from the controller automatically (Ansible's
+# default copy behavior). If the file doesn't exist, copy will
+# fail with a clear error.
 
 # --- Step 2: Clone repo to temp location ---
 - name: Create temp directory for clone
