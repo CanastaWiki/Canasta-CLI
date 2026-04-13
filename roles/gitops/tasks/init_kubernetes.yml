@@ -120,12 +120,18 @@
     dest: "{{ instance_path }}/templates/"
     mode: preserve
 
+# lookup('file') runs on the controller — use slurp for remote files.
+- name: Read instance values.yaml from remote
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _gitops_instance_values
+
 - name: Merge chart defaults with instance values
   ansible.builtin.copy:
     content: |
       {{ lookup('file', canasta_root ~ '/roles/orchestrator/files/helm/canasta/values.yaml')
          | from_yaml
-         | combine(lookup('file', instance_path ~ '/values.yaml') | from_yaml, recursive=True)
+         | combine(_gitops_instance_values.content | b64decode | from_yaml, recursive=True)
          | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values.yaml"
     mode: "0644"
@@ -222,11 +228,21 @@
 - name: Sync config files
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
+- name: Read values.yaml from remote for configData merge
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _gitops_values_for_merge
+
+- name: Read values-configdata.yaml from remote
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values-configdata.yaml"
+  register: _gitops_configdata_for_merge
+
 - name: Merge configData into values.yaml for git
   ansible.builtin.copy:
     content: >-
-      {{ lookup('file', instance_path ~ '/values.yaml') | from_yaml
-         | combine(lookup('file', instance_path ~ '/values-configdata.yaml') | from_yaml, recursive=True)
+      {{ _gitops_values_for_merge.content | b64decode | from_yaml
+         | combine(_gitops_configdata_for_merge.content | b64decode | from_yaml, recursive=True)
          | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values.yaml"
     mode: "0644"
