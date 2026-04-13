@@ -20,3 +20,4 @@ htmlcov/
 admin-password_*
 values-configdata.yaml
 inventory/hosts.yml
+.DS_Store

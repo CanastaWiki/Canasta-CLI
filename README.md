@@ -4,12 +4,13 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 
 ## Features
 
-- **57 commands** covering instance lifecycle, wiki management, configuration, extensions, skins, maintenance, backup/restore, gitops, devmode, sitemaps, storage provisioning, and more
+- **60 commands** covering instance lifecycle, wiki management, configuration, extensions, skins, maintenance, backup/restore, gitops, devmode, sitemaps, storage provisioning, and more
 - **Docker Compose and Kubernetes** (Helm + Argo CD) orchestrator support
 - **Multi-host management** from a single controller node via SSH
-- **Multi-node Kubernetes** with ConfigMap-based config, PVC storage, and CronJob backups
+- **Multi-node Kubernetes** with configurable PVC access modes, multi-replica web pods, and ConfigMap-based config sync
+- **Multi-host GitOps** with git-crypt encrypted per-host secrets, template rendering, and dev → staging → prod promotion
 - **Auto-generated documentation** from a single command definitions file
-- **247 unit tests** + Docker and Kubernetes integration tests in CI
+- **328 unit tests** + Docker Compose, Kubernetes, GitOps, and remote-host integration tests in CI
 - **Zero-migration compatibility** with existing Canasta-CLI installations (reads the same `conf.json` registry)
 
 ## Requirements
@@ -29,6 +30,7 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 | Python 3 | Ansible module execution |
 | Docker + Docker Compose v2 | Container orchestration |
 | SSH server | Remote management (not needed if controller = target) |
+| User in `www-data` group | Write access to container-created directories (`sudo usermod -aG www-data $USER`) |
 
 ### Target host (Kubernetes)
 
@@ -266,23 +268,21 @@ notifications.
 
 **Multi-node shared storage:**
 
-For multi-node clusters, set up a shared StorageClass (NFS, EFS, etc.).
-The storage class is saved as the default for all future Kubernetes
-instances:
+For multi-node clusters with multiple web replicas, set up a shared
+StorageClass (NFS, EFS, etc.) and pass `--access-mode ReadWriteMany`:
 
 ```bash
-./canasta storage setup nfs --server 10.0.0.1 --share /srv/nfs/canasta
-./canasta create --id mysite --wiki main --domain-name example.com \
-  --orchestrator kubernetes
+canasta storage setup nfs --server 10.0.0.1 --share /srv/nfs/canasta
+canasta create --id mysite --wiki main --domain-name example.com \
+  --orchestrator kubernetes --storage-class nfs --access-mode ReadWriteMany
 ```
 
-To override the default, pass `--storage-class` explicitly.
+Then scale web replicas by adding `web: { replicaCount: 3 }` to the
+instance's `values.yaml` and running `canasta restart`.
 
-For multi-node clusters, k3s scales by joining additional nodes
-(`k3s agent --server <url> --token <token>`) — no instance migration
-required. Pod placement across nodes is automatic by default and can
-be controlled via `nodeSelector` and `affinity` rules in the instance's
-`values.yaml`.
+See [docs/multi-node.md](docs/multi-node.md) for the full
+walkthrough including cluster setup, storage provisioning, scaling,
+and known limitations.
 
 ## Commands
 
