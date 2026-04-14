@@ -7,49 +7,77 @@
 - name: Write Compose stack files
   when: instance_orchestrator | default('compose') == 'compose'
   block:
+    - name: Report writing docker-compose.yml
+      ansible.builtin.debug:
+        msg: ...Writing docker-compose.yml
+
     - name: Copy docker-compose.yml
       ansible.builtin.copy:
         src: "{{ role_path }}/files/compose/docker-compose.yml"
         dest: "{{ instance_path }}/docker-compose.yml"
         force: false
-        mode: "0644"
+        mode: '0644'
+
+    - name: Report writing docker-compose.override.yml.example
+      ansible.builtin.debug:
+        msg: ...Writing docker-compose.override.yml.example
 
     - name: Copy docker-compose.override.yml.example
       ansible.builtin.copy:
         src: "{{ role_path }}/files/compose/docker-compose.override.yml.example"
         dest: "{{ instance_path }}/docker-compose.override.yml.example"
         force: false
-        mode: "0644"
+        mode: '0644'
+
+    - name: Report writing logstash pipeline configs
+      ansible.builtin.debug:
+        msg: ...Writing logstash pipeline configs
 
     - name: Copy logstash pipeline configs
       ansible.builtin.copy:
         src: "{{ role_path }}/files/compose/config/logstash/"
         dest: "{{ instance_path }}/config/logstash/"
         force: false
-        mode: "0644"
+        mode: '0644'
+
+    - name: Report writing observable-init script
+      ansible.builtin.debug:
+        msg: ...Writing observable-init script
 
     - name: Copy observable-init script
       ansible.builtin.copy:
         src: "{{ role_path }}/files/compose/scripts/"
         dest: "{{ instance_path }}/scripts/"
         force: false
-        mode: "0755"
+        mode: '0755'
+
+    - name: Report Docker Compose files written
+      ansible.builtin.debug:
+        msg: ...Docker Compose files written
 
 - name: Write Kubernetes stack files
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:
+    - name: Report creating Kubernetes directories
+      ansible.builtin.debug:
+        msg: ...Creating Kubernetes instance directories
+
     - name: Create instance directories for Kubernetes
       ansible.builtin.file:
         path: "{{ instance_path }}/{{ item }}"
         state: directory
-        mode: "0755"
+        mode: '0755'
       loop:
         - wikis
         - argocd
+
+    - name: Report scaffolding values.yaml
+      ansible.builtin.debug:
+        msg: ...Scaffolding Helm values.yaml
 
     - name: Scaffold values.yaml from chart defaults
       ansible.builtin.copy:
         src: "{{ role_path }}/files/helm/canasta/values.yaml"
         dest: "{{ instance_path }}/values.yaml"
         force: false
-        mode: "0644"
+        mode: '0644'

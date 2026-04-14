@@ -9,6 +9,10 @@
 #   global_settings, composer, override, keep_config
 
 # --- Step 0: Pre-flight checks ---
+- name: Report connecting to host
+  ansible.builtin.debug:
+    msg: "Connecting to {{ ansible_host | default(inventory_hostname) }}..."
+
 - name: Check Docker is available
   ansible.builtin.command:
     cmd: docker info
@@ -61,6 +65,10 @@
     - _mem_check.rc | default(0) != 0
 
 # --- Step 1: Validate inputs ---
+- name: Report validating inputs
+  ansible.builtin.debug:
+    msg: "Validating inputs..."
+
 - name: Validate instance ID
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_instance_id.yml"
 
@@ -85,6 +93,10 @@
   when: _existing is succeeded
 
 # --- Step 2: Determine base image ---
+- name: Report preparing image
+  ansible.builtin.debug:
+    msg: "Preparing container image..."
+
 - name: Build from source if requested
   when: build_from is defined and build_from != ''
   ansible.builtin.include_role:
@@ -99,6 +111,10 @@
          canasta_image | default(canasta_default_image)) }}
 
 # --- Step 3: Set instance facts early (needed by write_stack_files and init_config) ---
+- name: Report setting up instance
+  ansible.builtin.debug:
+    msg: "Setting up instance directory..."
+
 - name: Resolve base path (absolute without resolving symlinks)
   ansible.builtin.command:
     cmd: "python3 -c \"import os, sys; print(os.path.abspath(sys.argv[1]))\" {{ path | default('.') | quote }}"
@@ -123,12 +139,20 @@
     mode: "0755"
 
 # --- Step 4: Write stack files ---
+- name: Report writing Docker Compose files
+  ansible.builtin.debug:
+    msg: "Writing Docker Compose configuration..."
+
 - name: Write Docker Compose stack files
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: write_stack_files.yml
 
 # --- Step 5: Copy instance template files (no-clobber) ---
+- name: Report copying template files
+  ansible.builtin.debug:
+    msg: "Copying instance template files (please wait)..."
+
 - name: Copy instance template
   ansible.builtin.copy:
     src: "{{ canasta_root }}/instance_template/"
@@ -136,11 +160,12 @@
     force: false
     mode: "0644"
 
+- name: Report directory creation
+  ansible.builtin.debug:
+    msg: "Create some directories..."
+
 - name: Ensure directories exist
-  ansible.builtin.file:
-    path: "{{ instance_path }}/{{ item.dir }}"
-    state: directory
-    mode: "{{ item.mode | default('0755') }}"
+  include_tasks: noisy_create_dir.yml
   loop:
     - { dir: extensions }
     - { dir: skins }
@@ -266,6 +291,10 @@
     msg: "Successfully written to wikis.yaml"
 
 # --- Step 9: Update .env file ---
+- name: Report updating env
+  ansible.builtin.debug:
+    msg: "Updating .env configuration"
+
 - name: Validate passwords for problematic characters
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_passwords.yml"
   vars:
@@ -315,6 +344,10 @@
     tasks_from: generate_secret_key.yml
 
 # --- Step 9: Copy optional settings files ---
+- name: Report copying settings files
+  ansible.builtin.debug:
+    msg: "Copying per-wiki settings directory"
+
 - name: Create per-wiki settings directory
   ansible.builtin.file:
     path: "{{ instance_path }}/config/settings/wikis/{{ item }}"
@@ -323,25 +356,40 @@
   loop: "{{ _created_wikis.wiki_ids }}"
 
 - name: Copy per-wiki Settings.php if provided
-  ansible.builtin.copy:
-    src: "{{ wiki_settings }}"
-    dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php"
-    mode: "0644"
   when: wiki_settings is defined and wiki_settings != ''
+  block:
+    - name: Print it out
+      ansible.builtin.debug:
+        msg: "Copying per-wiki Settings.php"
+    - name: do it
+      ansible.builtin.copy:
+        src: "{{ wiki_settings }}"
+        dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php"
+        mode: "0644"
 
 - name: Copy global settings if provided
-  ansible.builtin.copy:
-    src: "{{ global_settings }}"
-    dest: "{{ instance_path }}/config/settings/global/{{ global_settings | basename }}"
-    mode: "0644"
   when: global_settings is defined and global_settings != ''
+  block:
+    - name: Print it out
+      ansible.builtin.debug:
+        msg: "Copying global settings"
+    - name: do it
+      ansible.builtin.copy:
+        src: "{{ global_settings }}"
+        dest: "{{ instance_path }}/config/settings/global/{{ global_settings | basename }}"
+        mode: "0644"
 
 - name: Copy composer.local.json if provided
-  ansible.builtin.copy:
-    src: "{{ composer }}"
-    dest: "{{ instance_path }}/config/composer.local.json"
-    mode: "0644"
   when: composer is defined and composer != ''
+  block:
+    - name: Print it out
+      ansible.builtin.debug:
+        msg: "Copying composer.local.json"
+    - name: do it
+      ansible.builtin.copy:
+        src: "{{ composer }}"
+        dest: "{{ instance_path }}/config/composer.local.json"
+        mode: "0644"
 
 # --- Step 9b: Disable auto-HTTPS when requested or when on K8s ---
 # K8s always disables Caddy auto-HTTPS because TLS is handled by the
@@ -445,6 +493,10 @@
           changed_when: true
 
 # --- Step 11: Start containers (without dev mode) ---
+- name: Report pulling Docker images
+  ansible.builtin.debug:
+    msg: "Pulling Docker images (this may take a while)"
+
 - name: Report starting
   ansible.builtin.debug:
     msg: "Creating Canasta instance '{{ id }}'..."
@@ -479,6 +531,10 @@
       changed_when: false
 
 # --- Step 12: Database setup ---
+- name: Report waiting for database
+  ansible.builtin.debug:
+    msg: "Waiting for database to be ready"
+
 - name: Wait for database
   ansible.builtin.include_role:
     name: mediawiki

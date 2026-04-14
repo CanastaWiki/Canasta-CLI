@@ -21,6 +21,10 @@
              (_override_exists.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
              ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
 
+    - name: Say we're starting the containers
+      ansible.builtin.debug:
+        msg: "Starting containers in {{ instance_path }}"
+
     - name: Start containers
       ansible.builtin.command:
         cmd: "docker compose {{ _compose_files | join(' ') }} up -d"
