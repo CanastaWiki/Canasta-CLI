@@ -307,7 +307,7 @@ def handle_interactive_exec(args):
                 " ".join(shlex.quote(a) for a in docker_cmd),
             )
             try:
-                ssh_args = ["ssh", "-t"]
+                ssh_args = ["ssh", "-t", "-o", "LogLevel=ERROR"]
                 # Include any custom SSH args (e.g. from ANSIBLE_SSH_ARGS)
                 extra_ssh = os.environ.get("ANSIBLE_SSH_ARGS", "")
                 if extra_ssh:
