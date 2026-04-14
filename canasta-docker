@@ -458,9 +458,23 @@ EXTRA_ARGS=()
 HAS_CREATE=false
 HAS_PATH=false
 HAS_HOST=false
+FIRST_CMD=""
 for arg in "$@"; do
     case "$arg" in
-        create) HAS_CREATE=true ;;
+        -*) ;;  # skip flags and their values
+        *)
+            # Track the first positional argument (the top-level command).
+            # Only match 'create' as a top-level command, not as a
+            # subcommand (e.g. 'backup create').
+            if [[ -z "$FIRST_CMD" ]]; then
+                FIRST_CMD="$arg"
+                if [[ "$arg" == "create" ]]; then
+                    HAS_CREATE=true
+                fi
+            fi
+            ;;
+    esac
+    case "$arg" in
         -p|--path|-p=*|--path=*) HAS_PATH=true ;;
         -H|--host|-H=*|--host=*) HAS_HOST=true ;;
     esac
