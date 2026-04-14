@@ -2,6 +2,11 @@
 # Install Docker and Docker Compose from distribution repositories.
 # Assumes running as root or with sudo.
 
+- name: Gather distribution facts
+  ansible.builtin.setup:
+    gather_subset:
+      - distribution
+
 - name: Check for apt package manager
   ansible.builtin.stat:
     path: /usr/bin/apt
@@ -15,6 +20,10 @@
 - name: Handle Debian and derivatives
   when: _apt_exists.stat.exists
   block:
+    - name: Debug
+      ansible.builtin.debug:
+        msg: Install pre-reqs
+
     - name: Install prerequisites
       ansible.builtin.apt:
         name:
@@ -31,16 +40,24 @@
         mode: '0755'
 
     - name: Download Docker GPG key
-      ansible.builtin.apt_key:
+      ansible.builtin.get_url:
         url: https://download.docker.com/linux/debian/gpg
-        id: 0EBFCD88
-        state: present
+        dest: /etc/apt/keyrings/docker.gpg
+        mode: '0644'
+
+    - name: Debug
+      ansible.builtin.debug:
+        msg: Add docker repo
 
     - name: Add Docker repository
       ansible.builtin.apt_repository:
-        repo: deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_facts.distribution_release }} stable
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
         state: present
         filename: docker
+
+    - name: Debug
+      ansible.builtin.debug:
+        msg: Install docker packages
 
     - name: Install Docker packages
       ansible.builtin.apt:
