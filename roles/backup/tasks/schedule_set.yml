@@ -13,12 +13,15 @@
   block:
     - name: Build backup command for cron
       ansible.builtin.set_fact:
-        _cron_cmd: >-
-          canasta backup create -i {{ instance_id }} --tag scheduled
-          {{ (purge_older_than is defined and purge_older_than != '') | ternary(
-             '&& canasta backup purge -i ' + instance_id +
-             ' --keep-within ' + (purge_older_than | default('')), '') }}
-          >> "{{ instance_path }}/backup.log" 2>&1
+        _cron_base: "canasta backup create -i {{ instance_id }} --tag scheduled"
+        _cron_purge: >-
+          {{ (purge_older_than is defined and purge_older_than != '')
+             | ternary('&& canasta backup purge -i ' + instance_id + ' --keep-within ' + (purge_older_than | default('')), '') }}
+        _cron_log: '>> "{{ instance_path }}/backup.log" 2>&1'
+
+    - name: Assemble cron command
+      ansible.builtin.set_fact:
+        _cron_cmd: "{{ (_cron_base + ' ' + _cron_purge + ' ' + _cron_log) | regex_replace('\\s+', ' ') | trim }}"
 
     - name: Set cron schedule
       ansible.builtin.cron:
