@@ -413,6 +413,34 @@ class TestHostCommandsBehavior:
         captured = capsys.readouterr()
         assert "ignored" in captured.err.lower() or "Warning" in captured.err
 
+    def test_host_flag_on_doctor(self, data):
+        """-H should be passed through for 'doctor' so users can check a
+        remote host's dependencies before creating an instance."""
+        from argparse import Namespace
+        args = Namespace(
+            command="doctor", host="newhost.example.com", verbose=False,
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "doctor", args, data
+        )
+        extra = self._get_vars(result)
+        assert extra["target_host"] == "newhost.example.com"
+        assert "--limit" in result
+        assert "newhost.example.com" in result
+
+    def test_host_flag_absent_on_doctor_runs_locally(self, data):
+        """Without -H, doctor runs on localhost (no target_host set)."""
+        from argparse import Namespace
+        args = Namespace(
+            command="doctor", host=None, verbose=False,
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "doctor", args, data
+        )
+        extra = self._get_vars(result)
+        assert "target_host" not in extra
+        assert "--limit" not in result
+
 
 class TestRemainderArgs:
     """Test that exec_args/script_args consume flags after command."""
