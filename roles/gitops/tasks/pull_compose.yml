@@ -88,9 +88,23 @@
     src: "{{ instance_path }}/hosts/{{ _pull_hostname }}/vars.yaml"
   register: _pull_vars_raw
 
-- name: Parse host vars
+- name: Check for shared vars
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/hosts/_shared/vars.yaml"
+  register: _pull_shared_vars_stat
+
+- name: Read shared vars (if present)
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/_shared/vars.yaml"
+  register: _pull_shared_vars_raw
+  when: _pull_shared_vars_stat.stat.exists
+
+- name: Parse host vars (with shared merged in; host wins)
   ansible.builtin.set_fact:
-    _pull_vars: "{{ _pull_vars_raw.content | b64decode | from_yaml }}"
+    _pull_vars: >-
+      {{ (_pull_shared_vars_stat.stat.exists
+          | ternary(_pull_shared_vars_raw.content | b64decode | from_yaml, {}))
+         | combine(_pull_vars_raw.content | b64decode | from_yaml) }}
 
 # --- Step 6: Render .env from env.template + vars ---
 - name: Read env.template
