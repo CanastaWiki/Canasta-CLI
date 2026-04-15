@@ -78,6 +78,9 @@ cd /opt/canasta-ansible
 sudo python3 -m venv .venv
 sudo .venv/bin/pip install -r requirements.txt
 sudo .venv/bin/ansible-galaxy collection install -r requirements.yml
+sudo make build-info   # capture version metadata — the sudo clone
+                       # leaves .git root-owned, so runtime 'git
+                       # rev-parse' refuses under the non-root user
 sudo ln -sf /opt/canasta-ansible/canasta-native /usr/local/bin/canasta-native
 sudo ln -sf /usr/local/bin/canasta-native /usr/local/bin/canasta
 ```
