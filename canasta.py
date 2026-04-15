@@ -26,7 +26,7 @@ os.environ.setdefault("ANSIBLE_CONFIG", ANSIBLE_CFG)
 
 # Commands that have subcommands (e.g., "config get" -> "config_get")
 SUBCOMMAND_GROUPS = {
-    "config": ["get", "set", "unset"],
+    "config": ["get", "set", "unset", "regenerate"],
     "extension": ["list", "enable", "disable"],
     "skin": ["list", "enable", "disable"],
     "maintenance": ["update", "script", "extension", "exec"],

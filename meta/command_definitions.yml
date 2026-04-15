@@ -465,6 +465,23 @@ commands:
         default: false
         description: "Allow setting unrecognized keys"
 
+  - name: config_regenerate
+    description: "Regenerate rendered config files (e.g. Caddyfile) from current sources"
+    long_description: |
+      Re-render the orchestrator's config files from the current .env
+      and wikis.yaml. Useful after 'canasta backup restore' (which
+      overwrites rendered files with the source host's copies) or
+      after any manual edit that left rendered state drifted from the
+      canonical sources.
+    examples:
+      - "canasta config regenerate -i mysite"
+    playbook: config_regenerate.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
   - name: config_unset
     description: "Remove configuration keys"
     long_description: |
