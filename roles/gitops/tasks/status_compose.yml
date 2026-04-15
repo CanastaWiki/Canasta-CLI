@@ -45,6 +45,16 @@
   register: _gops_unstaged
   changed_when: false
 
+# Fetch before comparing so ahead/behind reflects the actual remote,
+# not the stale local cache. Without this, 'status' happily reports
+# "Up to date with remote." while another host has already pushed.
+- name: Fetch from remote (for up-to-date comparison)
+  ansible.builtin.command:
+    cmd: git fetch
+    chdir: "{{ instance_path }}"
+  changed_when: false
+  ignore_errors: true  # OK if offline or no remote — fall back to cache
+
 - name: Check ahead/behind
   ansible.builtin.command:
     cmd: git rev-list --left-right --count HEAD...@{upstream}
