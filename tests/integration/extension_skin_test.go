@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +62,44 @@ func querySiteInfo(t *testing.T, httpPort, siprop string, maxRetries int) siteIn
 	return result // unreachable
 }
 
+// waitForExtensionState polls siteinfo until the named extension matches
+// the expected state (present or absent), or times out.
+func waitForExtensionState(t *testing.T, httpPort, name string, wantPresent bool, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		info := querySiteInfo(t, httpPort, "extensions", 1)
+		if hasExtension(info, name) == wantPresent {
+			return
+		}
+		time.Sleep(5 * time.Second)
+	}
+	state := "enabled"
+	if !wantPresent {
+		state = "disabled"
+	}
+	t.Errorf("expected %s extension to be %s, but it was not after %v", name, state, timeout)
+}
+
+// waitForSkinState polls siteinfo until the named skin matches the
+// expected state (present or absent), or times out.
+func waitForSkinState(t *testing.T, httpPort, name string, wantPresent bool, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		info := querySiteInfo(t, httpPort, "skins", 1)
+		if hasSkin(info, name) == wantPresent {
+			return
+		}
+		time.Sleep(5 * time.Second)
+	}
+	state := "enabled"
+	if !wantPresent {
+		state = "disabled"
+	}
+	t.Errorf("expected %s skin to be %s, but it was not after %v", name, state, timeout)
+}
+
 // hasExtension checks if the given extension name appears in the siteinfo response.
 func hasExtension(info siteInfoResponse, name string) bool {
 	for _, ext := range info.Query.Extensions {
@@ -100,6 +140,18 @@ func TestExtensionSkin_EnableDisable(t *testing.T) {
 		t.Fatalf("canasta create failed: %v\n%s", err, out)
 	}
 
+	// Grant anonymous read so the siteinfo API can be queried without auth.
+	// Files in config/settings/global/ are loaded after CanastaDefaultSettings,
+	// in lexicographic order, so the "zz-" prefix ensures this runs last.
+	globalDir := filepath.Join(inst.WorkDir, inst.ID, "config", "settings", "global")
+	if err := os.MkdirAll(globalDir, 0755); err != nil {
+		t.Fatalf("failed to create global settings dir: %v", err)
+	}
+	publicPHP := filepath.Join(globalDir, "zz-test-public.php")
+	if err := os.WriteFile(publicPHP, []byte("<?php\n$wgGroupPermissions['*']['read'] = true;\n"), 0644); err != nil {
+		t.Fatalf("failed to write public settings file: %v", err)
+	}
+
 	// Wait for the wiki to be accessible
 	waitForWiki(t, inst.HTTPPort, 5*time.Minute)
 
@@ -108,46 +160,26 @@ func TestExtensionSkin_EnableDisable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canasta extension enable failed: %v\n%s", err, out)
 	}
-	time.Sleep(5 * time.Second)
-
-	info := querySiteInfo(t, inst.HTTPPort, "extensions", 6)
-	if !hasExtension(info, "Cite") {
-		t.Errorf("expected Cite extension to be enabled, but it was not found in siteinfo")
-	}
+	waitForExtensionState(t, inst.HTTPPort, "Cite", true, 2*time.Minute)
 
 	// --- Extension disable ---
 	out, err = inst.run(t, "extension", "disable", "-i", inst.ID, "Cite")
 	if err != nil {
 		t.Fatalf("canasta extension disable failed: %v\n%s", err, out)
 	}
-	time.Sleep(5 * time.Second)
-
-	info = querySiteInfo(t, inst.HTTPPort, "extensions", 6)
-	if hasExtension(info, "Cite") {
-		t.Errorf("expected Cite extension to be disabled, but it still appears in siteinfo")
-	}
+	waitForExtensionState(t, inst.HTTPPort, "Cite", false, 2*time.Minute)
 
 	// --- Skin enable ---
 	out, err = inst.run(t, "skin", "enable", "-i", inst.ID, "Timeless")
 	if err != nil {
 		t.Fatalf("canasta skin enable failed: %v\n%s", err, out)
 	}
-	time.Sleep(5 * time.Second)
-
-	info = querySiteInfo(t, inst.HTTPPort, "skins", 6)
-	if !hasSkin(info, "timeless") {
-		t.Errorf("expected Timeless skin to be enabled, but it was not found in siteinfo")
-	}
+	waitForSkinState(t, inst.HTTPPort, "timeless", true, 2*time.Minute)
 
 	// --- Skin disable ---
 	out, err = inst.run(t, "skin", "disable", "-i", inst.ID, "Timeless")
 	if err != nil {
 		t.Fatalf("canasta skin disable failed: %v\n%s", err, out)
 	}
-	time.Sleep(5 * time.Second)
-
-	info = querySiteInfo(t, inst.HTTPPort, "skins", 6)
-	if hasSkin(info, "timeless") {
-		t.Errorf("expected Timeless skin to be disabled, but it still appears in siteinfo")
-	}
+	waitForSkinState(t, inst.HTTPPort, "timeless", false, 2*time.Minute)
 }
