@@ -1,4 +1,4 @@
-.PHONY: test-unit test-integration test lint docs validate audit-coverage clean
+.PHONY: test-unit test-integration test lint docs validate audit-coverage clean build-info
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
@@ -45,6 +45,16 @@ validate: venv
 # test exercising them. Doesn't run any tests; just walks the test source.
 audit-coverage: venv
 	$(PYTHON) scripts/audit_command_coverage.py
+
+# --- Build info --------------------------------------------------------------
+# Capture the current git commit and date into BUILD_COMMIT / BUILD_DATE so
+# 'canasta version' works correctly even when the repo ownership makes git
+# refuse at runtime (e.g. sudo-cloned /opt/canasta-ansible run as a non-root
+# user). Run this once as part of install, from inside the repo as the same
+# user that owns the .git directory.
+build-info:
+	git rev-parse --short HEAD > BUILD_COMMIT
+	git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' > BUILD_DATE
 
 # --- Clean -------------------------------------------------------------------
 
