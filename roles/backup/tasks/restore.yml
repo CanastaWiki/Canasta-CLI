@@ -229,6 +229,33 @@
   ignore_errors: true  # OK if backup dir doesn't exist
   when: instance_orchestrator | default('compose') == 'compose'
 
+# When the instance is under gitops, the snapshot just restored contains
+# the SOURCE host's rendered files (.env, wikis.yaml, Caddyfile). On this
+# host those need to be re-rendered from the templates + current host
+# vars, otherwise Caddy tries to issue a cert for the source host's FQDN,
+# MediaWiki serves URLs pointing at the wrong host, etc.
+- name: Detect gitops instance
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _restore_gitops_stat
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Re-render gitops templates against this host's vars
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: render_compose.yml
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - _restore_gitops_stat.stat.exists | default(false)
+
+- name: Regenerate orchestrator config (e.g. Caddyfile)
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - _restore_gitops_stat.stat.exists | default(false)
+
 - name: Restart instance after restore
   ansible.builtin.include_role:
     name: instance_lifecycle
