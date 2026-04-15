@@ -17,6 +17,38 @@
   register: _restore_dbpass
   no_log: true
 
+# Resolve 'latest' to a concrete snapshot ID, filtering out
+# safety-before-restore snapshots. Restic's own "latest" keyword
+# doesn't know about our tags — without this filter, running restore
+# a second time picks up the safety snapshot just created (which is
+# internal and typically empty) instead of the user's most recent
+# real backup.
+- name: Resolve 'latest' snapshot (excluding internal safety snapshots)
+  when: snapshot == 'latest'
+  block:
+    - name: List all snapshots as JSON
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
+      vars:
+        backup_args:
+          - "snapshots"
+          - "--json"
+
+    - name: Pick latest non-safety snapshot
+      ansible.builtin.set_fact:
+        snapshot: "{{ item.short_id }}"
+      loop: "{{ (_restic_result.stdout | from_json) | sort(attribute='time') }}"
+      when: "'safety-before-restore' not in (item.tags | default([]))"
+      loop_control:
+        label: "{{ item.short_id }} ({{ item.time }})"
+
+    - name: Fail if no non-safety snapshot exists
+      ansible.builtin.fail:
+        msg: >-
+          No backup snapshots found (excluding safety-before-restore
+          snapshots). Create a backup first with 'canasta backup create'.
+      when: snapshot == 'latest'
+
 - name: Take safety backup before restore
   when: not (skip_safety_backup | default(false) | bool)
   ansible.builtin.include_tasks: >-
