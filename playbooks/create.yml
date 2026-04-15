@@ -18,7 +18,7 @@
 
 - name: Fail early if instance already exists
   ansible.builtin.fail:
-    msg: "Instance '{{ id }}' already exists at {{ _pre_check.instance.path }}"
+    msg: "Instance '{{ id }}' already exists in local config\nHost: {{ _pre_check.instance.host }}\nPath: {{ _pre_check.instance.path }}"
   when: _pre_check is succeeded
 
 - name: Create Canasta instance
