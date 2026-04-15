@@ -2,6 +2,10 @@
 # Migration: Remove skip-binary-as-hex from my.cnf in non-[mysql] sections.
 # This setting is valid for mysql client but breaks mariadb-admin health checks.
 
+- name: Display a progress message
+  ansible.builtin.debug:
+    msg: ...Remove skip-binary-as-hex from my.cnf
+
 - name: Check if my.cnf exists
   ansible.builtin.stat:
     path: "{{ instance_path }}/my.cnf"

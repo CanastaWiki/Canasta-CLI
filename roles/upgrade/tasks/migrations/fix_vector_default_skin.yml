@@ -1,6 +1,10 @@
 ---
 # Migration: Add $wgDefaultSkin = "vector-2022"; to Vector.php if missing.
 
+- name: Display a progress message
+  ansible.builtin.debug:
+    msg: ...Ensure default skin
+
 - name: Check if Vector.php exists
   ansible.builtin.stat:
     path: "{{ instance_path }}/config/settings/global/Vector.php"

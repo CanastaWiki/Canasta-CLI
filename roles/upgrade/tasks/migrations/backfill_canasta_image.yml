@@ -1,6 +1,10 @@
 ---
 # Migration: Ensure CANASTA_IMAGE is set in .env.
 
+- name: Display a progress message
+  ansible.builtin.debug:
+    msg: ...Ensure CANASTA_IMAGE is set in .env.
+
 - name: Check if CANASTA_IMAGE is set
   canasta_env:
     path: "{{ instance_path }}/.env"

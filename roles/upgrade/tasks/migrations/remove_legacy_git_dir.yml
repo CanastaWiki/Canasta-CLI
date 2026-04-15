@@ -2,6 +2,10 @@
 # Migration: Remove .git/ directory from instances previously cloned from Canasta-DockerCompose.
 # Skips if .gitops-host exists (gitops is using the repo).
 
+- name: Display a progress message
+  ansible.builtin.debug:
+    msg: ...Remove old .git directories
+
 - name: Check for .gitops-host
   ansible.builtin.stat:
     path: "{{ instance_path }}/.gitops-host"
