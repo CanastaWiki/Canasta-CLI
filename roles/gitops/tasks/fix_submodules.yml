@@ -10,10 +10,155 @@
       managed as git submodules.
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
-- name: Fix submodule registration
+# --- Step 1: Convert any loose git repos in extensions/ and skins/ to submodules ---
+# This mirrors the logic gitops init runs, so extensions added after init
+# can still be promoted to proper submodules.
+- name: Find git repos in extensions
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/extensions"
+    patterns: ".git"
+    file_type: directory
+    hidden: true
+    recurse: false
+    depth: 2
+  register: _ext_git_repos
+
+- name: Read .gitmodules
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitmodules"
+  register: _gitmodules_content
+  ignore_errors: true
+
+- name: Parse registered submodule paths
+  ansible.builtin.set_fact:
+    _registered_paths: >-
+      {{ (_gitmodules_content.content | default('') | b64decode).split('\n')
+         | select('match', '^\s*path\s*=')
+         | map('regex_replace', '^\s*path\s*=\s*', '')
+         | map('trim')
+         | list }}
+
+- name: Convert unregistered extension git repos to submodules
+  ansible.builtin.include_tasks: _convert_submodule.yml
+  loop: "{{ _ext_git_repos.files | map(attribute='path') | map('dirname') | list }}"
+  loop_control:
+    loop_var: _repo_path
+  when: (_repo_path | relpath(instance_path)) not in _registered_paths
+
+- name: Find git repos in skins
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/skins"
+    patterns: ".git"
+    file_type: directory
+    hidden: true
+    recurse: false
+    depth: 2
+  register: _skin_git_repos
+
+- name: Convert unregistered skin git repos to submodules
+  ansible.builtin.include_tasks: _convert_submodule.yml
+  loop: "{{ _skin_git_repos.files | map(attribute='path') | map('dirname') | list }}"
+  loop_control:
+    loop_var: _repo_path
+  when: (_repo_path | relpath(instance_path)) not in _registered_paths
+
+# --- Step 2: Recover orphan gitlinks (committed as submodules but missing from .gitmodules) ---
+- name: List gitlinks in the index
+  ansible.builtin.shell:
+    cmd: "git ls-files --stage | awk '$1 == \"160000\" {print $4}'"
+    chdir: "{{ instance_path }}"
+  register: _gitlinks
+  changed_when: false
+
+- name: Re-read .gitmodules after possible conversion above
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitmodules"
+  register: _gitmodules_after
+  ignore_errors: true
+
+- name: Parse registered submodule paths (refreshed)
+  ansible.builtin.set_fact:
+    _registered_paths: >-
+      {{ (_gitmodules_after.content | default('') | b64decode).split('\n')
+         | select('match', '^\s*path\s*=')
+         | map('regex_replace', '^\s*path\s*=\s*', '')
+         | map('trim')
+         | list }}
+
+- name: Identify orphan gitlinks
+  ansible.builtin.set_fact:
+    _orphan_gitlinks: >-
+      {{ _gitlinks.stdout_lines
+         | reject('in', _registered_paths)
+         | list }}
+
+- name: Recover .gitmodules entry for orphan gitlinks
+  when: _orphan_gitlinks | length > 0
+  block:
+    - name: Get remote URL from each orphan's local clone
+      ansible.builtin.command:
+        cmd: "git -C {{ instance_path }}/{{ item }} config --get remote.origin.url"
+        chdir: "{{ instance_path }}"
+      register: _orphan_urls
+      changed_when: false
+      ignore_errors: true
+      loop: "{{ _orphan_gitlinks }}"
+
+    - name: Fail with actionable message if any orphan has no recoverable URL
+      ansible.builtin.fail:
+        msg: >-
+          Cannot recover submodule URL for '{{ item.item }}' — the directory
+          has no remote.origin.url configured. Either delete the gitlink
+          ('git rm --cached {{ item.item }}' and commit) or manually add a
+          [submodule] block for it to .gitmodules with the correct URL.
+      when: item.rc != 0 or (item.stdout | default('') | trim | length == 0)
+      loop: "{{ _orphan_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Append recovered entries to .gitmodules
+      ansible.builtin.blockinfile:
+        path: "{{ instance_path }}/.gitmodules"
+        create: true
+        marker: "# {mark} ANSIBLE MANAGED BLOCK (fix-submodules {{ item.item }})"
+        block: |
+          [submodule "{{ item.item }}"]
+          	path = {{ item.item }}
+          	url = {{ item.stdout | trim }}
+      loop: "{{ _orphan_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Sync and initialize recovered submodules
+      ansible.builtin.command:
+        cmd: "git submodule sync -- {{ item.item }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      loop: "{{ _orphan_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Stage updated .gitmodules
+      ansible.builtin.command:
+        cmd: "git add .gitmodules"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Commit recovered .gitmodules entries
+      ansible.builtin.command:
+        cmd: "git commit -m 'Register orphan submodule gitlinks in .gitmodules'"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      register: _recover_commit
+      failed_when:
+        - _recover_commit.rc != 0
+        - "'nothing to commit' not in _recover_commit.stdout"
+
+# --- Step 3: Initialize any remaining submodules ---
+- name: Update and initialize all submodules
   ansible.builtin.command:
     cmd: "git submodule update --init --recursive"
-    chdir: "{{ instance_path }}/config"
+    chdir: "{{ instance_path }}"
   changed_when: true
 
 - name: Report submodules fixed
