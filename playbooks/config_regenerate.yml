@@ -1,0 +1,20 @@
+---
+# canasta config regenerate - Regenerate rendered config files from
+# current sources of truth (.env, wikis.yaml).
+#
+# Useful after operations that overwrite rendered files (e.g. restore)
+# or after manual edits that drifted rendered Caddyfile from the
+# canonical state.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Regenerate rendered config
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
+- name: Report
+  ansible.builtin.debug:
+    msg: "Regenerated config for '{{ instance_id }}'. Restart the instance to apply."
