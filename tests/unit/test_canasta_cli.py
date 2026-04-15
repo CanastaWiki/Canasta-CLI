@@ -97,6 +97,15 @@ class TestBuildParser:
         args = parser.parse_args(["config", "get", "-i", "mysite"])
         assert args.key is None
 
+    def test_config_regenerate_subcommand(self, parser):
+        args = parser.parse_args(
+            ["config", "regenerate", "-i", "mysite"],
+        )
+        assert args.command == "config"
+        assert args.subcommand == "regenerate"
+        assert args.id == "mysite"
+        assert canasta_cli.resolve_command_name(args) == "config_regenerate"
+
     def test_short_flags(self, parser):
         args = parser.parse_args(["create", "-i", "mysite", "-w", "main",
                                    "-n", "example.com"])
