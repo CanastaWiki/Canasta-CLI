@@ -1,0 +1,106 @@
+---
+# Render rendered files (.env, wikis.yaml, admin passwords) from the
+# current on-disk templates + host vars (+ optional shared vars).
+#
+# Does NOT touch git; safe to call whenever local rendered files have
+# drifted from the canonical templates, e.g. after 'canasta backup
+# restore' overwrites them with the source host's copies.
+#
+# Requires: instance_path. Must only be called when the instance is
+# a gitops checkout (.gitops-host exists).
+
+- name: Read .gitops-host
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _render_host_raw
+
+- name: Set host name
+  ansible.builtin.set_fact:
+    _render_hostname: "{{ _render_host_raw.content | b64decode | trim }}"
+
+- name: Read host vars
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/{{ _render_hostname }}/vars.yaml"
+  register: _render_vars_raw
+
+- name: Check for shared vars
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/hosts/_shared/vars.yaml"
+  register: _render_shared_vars_stat
+
+- name: Read shared vars (if present)
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/_shared/vars.yaml"
+  register: _render_shared_vars_raw
+  when: _render_shared_vars_stat.stat.exists
+
+- name: Parse host vars (with shared merged in; host wins)
+  ansible.builtin.set_fact:
+    _render_vars: >-
+      {{ (_render_shared_vars_stat.stat.exists
+          | ternary(_render_shared_vars_raw.content | b64decode | from_yaml, {}))
+         | combine(_render_vars_raw.content | b64decode | from_yaml) }}
+
+- name: Read env.template
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/env.template"
+  register: _render_env_template_raw
+
+- name: Render .env from template
+  ansible.builtin.copy:
+    content: |
+      {% for line in (_render_env_template_raw.content | b64decode).split('\n') %}
+      {% if '={{' in line and '}}' in line %}
+      {% set key = line.split('=', 1)[0] %}
+      {% set placeholder = line.split('={{', 1)[1].split('}}', 1)[0] %}
+      {{ key }}={{ _render_vars[placeholder] | default('') }}
+      {% else %}
+      {{ line }}
+      {% endif %}
+      {% endfor %}
+    dest: "{{ instance_path }}/.env"
+    mode: "0600"
+
+- name: Check if wikis.yaml.template exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/wikis.yaml.template"
+  register: _render_wikis_template_stat
+
+- name: Render wikis.yaml from template
+  when: _render_wikis_template_stat.stat.exists
+  block:
+    - name: Read wikis.yaml.template
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/wikis.yaml.template"
+      register: _render_wikis_template_raw
+
+    - name: Render config/wikis.yaml from template
+      ansible.builtin.copy:
+        content: |
+          {% for line in (_render_wikis_template_raw.content | b64decode).split('\n') %}
+          {% if '{{' in line and '}}' in line %}
+          {% set before = line.split('{{', 1)[0] %}
+          {% set placeholder = line.split('{{', 1)[1].split('}}', 1)[0] %}
+          {% set after = line.split('}}', 1)[1] if '}}' in line else '' %}
+          {{ before }}{{ _render_vars[placeholder] | default('') }}{{ after }}
+          {% else %}
+          {{ line }}
+          {% endif %}
+          {% endfor %}
+        dest: "{{ instance_path }}/config/wikis.yaml"
+        mode: "0644"
+
+- name: Write admin password files from vars
+  ansible.builtin.copy:
+    content: "{{ item.value }}"
+    dest: >-
+      {{ instance_path }}/admin-password_{{ item.key
+         | regex_replace('^admin_password_', '') }}
+    mode: "0600"
+  loop: >-
+    {{ _render_vars | dict2items
+       | selectattr('key', 'match', '^admin_password_')
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
