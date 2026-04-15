@@ -1,133 +1,90 @@
 # Multi-node Kubernetes deployments
 
 This guide walks through running Canasta on a multi-node Kubernetes
-cluster, with multiple web pods spread across nodes for load balancing
-and improved availability.
+cluster. It covers provisioning the cluster (with AWS EC2 + k3s as a
+worked example), shared storage, creating the instance, browsing to
+the wiki, connecting to Argo CD for gitops, and scaling.
 
 ## When you need this
 
-You probably want a multi-node multi-replica deployment if any of these
-are true:
+Multi-node multi-replica is appropriate if your wiki gets enough
+traffic that a single web pod is a bottleneck, you need the wiki to
+keep serving during node maintenance, or you're on a managed K8s
+service (EKS, GKE, AKS) where multi-node is routine.
 
-- Your wiki gets enough traffic that a single web pod is a bottleneck.
-- You need the wiki to keep serving page views during a node restart or
-  routine maintenance.
-- You're running on a managed Kubernetes service (EKS, GKE, AKS) where
-  multi-node clusters are the default and node failures are routine.
+It is **not** a substitute for full HA. The default deployment keeps
+several single-points-of-failure that multi-replica web alone does
+not fix:
 
-You probably do **not** need this if:
+| Capability | Multi-node multi-replica web |
+|---|---|
+| Page-view load balancing | Yes |
+| Survives a single web pod crash | Yes |
+| Survives a node failure | Only if pods are spread across nodes |
+| Database HA | No — still one DB pod on node-local storage |
+| Caddy HA | No — still single-replica |
 
-- You're running a small wiki on a single VM or single-node cluster.
-- Your traffic is low enough that a single web pod handles it without
-  load.
-- The database is your single point of failure (it usually is — see
-  the "Caveats and known limitations" section below before assuming
-  multi-replica web alone gives you HA).
-
-## What "multi-node multi-replica" actually buys you
-
-| Capability | Single-node default | Multi-node multi-replica web |
-|---|---|---|
-| Page-view load balancing across pods | No (one pod) | Yes |
-| Survives a single web pod crash | Yes (K8s reschedules) | Yes |
-| Survives a node failure | No (everything goes down) | **Only if pods are spread across nodes** — see caveats below |
-| Database HA | No | No (still a single DB pod by default; see "Caveats") |
-| Caddy HA | No | No (Caddy is still single-replica; see "Caveats") |
-
-So this guide gets you part of the way to a fully highly available
-deployment. The rest depends on what you do about the database, which
-is the bigger HA story.
+For true HA, add an external database (RDS Multi-AZ, Aurora, Cloud
+SQL, Galera) and either put an external load balancer in front with
+`--skip-tls`, or accept Caddy as a single-replica TLS terminator.
 
 ## Prerequisites
 
 - A multi-node Kubernetes cluster you can reach with `kubectl`.
 - ReadWriteMany-capable storage (NFS, EFS, CephFS, Longhorn-with-RWM,
   or similar). Without RWM, you can have multiple replicas but they
-  cannot be spread across nodes.
-- `helm` 3.10 or newer on the host where you'll run `canasta`.
-- A domain name pointed at your cluster's ingress (for production HTTPS).
-- The Canasta-Ansible CLI installed and your controller's hosts.yml
-  configured to reach the host that has `kubectl` access to the cluster.
+  cannot spread across nodes.
+- `helm` 3.10+ on the controller (the host that will run `canasta`).
+- A domain name with DNS control.
+- Canasta-Ansible CLI installed on the controller.
+  ([Canasta-Ansible README](https://github.com/CanastaWiki/Canasta-Ansible)
+  covers install.)
 
 ## Step 1 — Provision the cluster
 
 Canasta-Ansible does not currently provision multi-node clusters for
-you. You need to bring up the cluster yourself, then point Canasta at
-it.
+you. Bring up the cluster yourself, then point Canasta at it.
 
-### Self-managed k3s on cloud VMs (worked example: AWS EC2)
+### Self-managed k3s on AWS EC2 (worked example)
 
-This example uses two AWS EC2 instances. The same shape works on any
-cloud or on bare metal — just adapt the security-group / firewall
-sections to your provider.
+The same shape works on any cloud or bare metal — adapt the
+security-group / firewall sections to your provider.
 
-**EC2-specific bits**: launching the instances, security group rules,
-the use of private vs public IPs, and the `--tls-san` flag for the
-public IP. On other clouds (GCE, Azure, Hetzner, bare metal) the
-analogous concepts exist but the commands differ.
+**Launch two EC2 instances** (one control plane, one worker; add more
+later if needed):
 
-#### 1a. Launch two instances
+- **AMI:** Ubuntu 22.04 or 24.04 (amd64)
+- **Type:** at least 4 GiB RAM (`c7i-flex.large`, `t3.medium`). For
+  Elasticsearch or heavy traffic use 8 GiB+.
+- **Storage:** 20 GB gp3 EBS root volume (the default 8 GB Ubuntu
+  AMI is too small for the Canasta image + k3s images + PVC space).
+- **Key pair:** your SSH key.
+- **Security group:**
+  1. SSH (22/TCP) from your controller's IP
+  2. HTTP (80/TCP) from anywhere — required for Let's Encrypt HTTP-01
+  3. HTTPS (443/TCP) from anywhere
+  4. K8s API (6443/TCP) from your controller's IP
+  5. **All traffic (TCP + UDP)** between instances in the same
+     security group. k3s uses VXLAN on UDP 8472 for cross-node pod
+     networking; TCP-only will silently break cross-node DNS and
+     ClusterIP services.
 
-```bash
-# Launch 2 EC2 instances:
-#   - AMI: Ubuntu 22.04 or 24.04 (amd64)
-#   - Type: needs at least 4 GiB of total RAM. Working choices for
-#     a small wiki without Elasticsearch include c7i-flex.large
-#     (4 GiB), t3.medium (4 GiB), t3.large (8 GiB), and
-#     c7i-flex.xlarge (8 GiB). For wikis with Elasticsearch enabled
-#     or with significant traffic, use 8 GiB or larger.
-#   - Storage: 20 GB gp3 EBS root volume or larger. The default
-#     8 GB Ubuntu AMI is too small once the Canasta image, k3s
-#     images, and PVC working space are accounted for.
-#   - Key pair: your SSH key
-#   - Security group rules:
-#     1. SSH (22/TCP) from your controller's IP
-#     2. HTTP (80/TCP) from anywhere (required for Let's Encrypt
-#        HTTP-01 challenge)
-#     3. HTTPS (443/TCP) from anywhere
-#     4. K8s API (6443/TCP) from your controller's IP
-#     5. *** All traffic (TCP + UDP) between instances in the same
-#        security group ***
-```
+Record: `NODE1_IP` (control plane public IP), `NODE2_IP` (worker
+public IP), `NODE1_PRIVATE` (control plane private IP).
 
-The fifth rule is the one that catches people. **k3s uses VXLAN on
-UDP port 8472 for pod-to-pod networking across nodes.** If your
-security group only allows TCP between nodes, cross-node pod
-networking will silently fail — pods on the worker node will be
-unable to reach ClusterIP services (including CoreDNS) hosted on
-other nodes, and the symptoms look like generic DNS resolution
-failures inside pods. Always allow all UDP between nodes, not just
-all TCP.
-
-On other clouds, look for the equivalent: GCP firewall rules need
-"Allow all internal traffic" between cluster nodes; Azure NSGs
-need both TCP and UDP between subnets; etc.
-
-Record these values from the AWS console or CLI:
-
-- `NODE1_IP` — public IP of node 1 (will be the control plane)
-- `NODE2_IP` — public IP of node 2 (will be the worker)
-- `NODE1_PRIVATE` — **private** IP of node 1 (used for in-cluster
-  communication; the worker node joins via this address)
-
-#### 1b. Install k3s server on node 1
+**Install k3s on node 1 (control plane):**
 
 ```bash
 ssh ubuntu@<NODE1_IP>
 curl -sfL https://get.k3s.io | sudo sh -s - --tls-san <NODE1_IP>
-sudo cat /var/lib/rancher/k3s/server/node-token
-# Save this token: <TOKEN>
+sudo cat /var/lib/rancher/k3s/server/node-token   # save as <TOKEN>
 exit
 ```
 
-**EC2-specific note**: `--tls-san <NODE1_IP>` adds the public IP to
-the K8s API server's TLS certificate. Without it, kubectl from your
-controller laptop fails TLS validation when connecting to the public
-IP. On a cluster where the controller and k8s nodes share an internal
-network and the controller can reach the k8s API server by its
-internal IP, you don't need `--tls-san`.
+`--tls-san <NODE1_IP>` adds the public IP to the K8s API server's TLS
+certificate so `kubectl` from the controller works.
 
-#### 1c. Join node 2 as a k3s worker
+**Join node 2 as a worker:**
 
 ```bash
 ssh ubuntu@<NODE2_IP>
@@ -137,140 +94,124 @@ curl -sfL https://get.k3s.io | sudo -E sh -
 exit
 ```
 
-This is vanilla k3s — no Canasta involvement. The same pattern works
-for adding more worker nodes later: each one runs the same `curl |
-sh` with the same `K3S_URL` and `K3S_TOKEN`.
+Repeat this block on any additional worker nodes later.
 
-#### 1d. Configure kubectl on the controller
+> **Why not `canasta create --install-k3s`?** That flag installs k3s
+> as part of a single-node create. For multi-node with shared storage
+> the order has to be: k3s up → NFS StorageClass → create. Installing
+> k3s manually here is the simplest way to get that order right. See
+> "Known gaps" at the end for a proposed standalone install command.
+
+**Configure `kubectl` on the controller:**
 
 ```bash
 mkdir -p ~/.kube
 ssh ubuntu@<NODE1_IP> "sudo k3s kubectl config view --raw" > ~/.kube/config
-
-# Replace 127.0.0.1 with the public IP so the controller can reach
-# the API server. macOS:
+# Replace 127.0.0.1 with the public IP.
+# macOS:
 sed -i '' "s/127.0.0.1/<NODE1_IP>/" ~/.kube/config
-# Linux:
-# sed -i "s/127.0.0.1/<NODE1_IP>/" ~/.kube/config
-
+# Linux / WSL:
+sed -i "s/127.0.0.1/<NODE1_IP>/" ~/.kube/config
 chmod 600 ~/.kube/config
-kubectl get nodes
-# Expected: 2 nodes, both Ready
+kubectl get nodes   # expect 2 nodes, both Ready
 ```
 
 ### Managed Kubernetes (EKS, GKE, AKS)
 
-Skip k3s entirely. Provision your managed cluster the way your cloud
-provider documents — `eksctl`, Terraform, the cloud console, etc.
-Make sure to:
+Skip k3s entirely. Provision the cluster as your cloud provider
+documents, then configure kubeconfig on the controller:
 
-- Launch worker nodes in at least two availability zones for real HA.
-- Configure your kubeconfig on the controller with whatever
-  cloud-specific tooling exists. For EKS this is
-  `aws eks update-kubeconfig --name <cluster> --region <region>`;
-  for GKE it's `gcloud container clusters get-credentials`; for AKS
-  it's `az aks get-credentials`.
-- Verify with `kubectl get nodes` that the controller can reach the
-  cluster.
+- EKS: `aws eks update-kubeconfig --name <cluster> --region <region>`
+- GKE: `gcloud container clusters get-credentials <cluster>`
+- AKS: `az aks get-credentials --name <cluster>`
 
-Once kubectl works, the rest of this guide is the same — Canasta
-treats any K8s cluster the same way regardless of where it came from.
+Verify `kubectl get nodes` before continuing. For real HA, launch
+worker nodes in at least two availability zones.
 
-## Step 2 — Provision shared storage
-
-### Option A: NFS (works anywhere)
-
-You need an NFS server reachable from every node in the cluster. The
-simplest way is to install one on the same node that runs the k3s
-control plane, exporting a directory via NFS.
+### Verify with `canasta doctor`
 
 ```bash
-# On node 1:
-ssh ubuntu@<NODE1_IP>
-sudo apt-get update -qq
-sudo apt-get install -y nfs-kernel-server
-sudo mkdir -p /srv/nfs/canasta
-echo "/srv/nfs/canasta *(rw,sync,no_subtree_check,no_root_squash)" \
-  | sudo tee -a /etc/exports
-sudo exportfs -ra
-exit
+canasta doctor
+```
+
+Flags missing dependencies (helm, kubectl) before you hit them later.
+
+## Step 2 — Register hosts (optional)
+
+Canasta can target remote hosts via SSH using short names saved in
+`$CANASTA_CONFIG_DIR/hosts.yml`. If you plan to manage several
+clusters from one controller, register each:
+
+```bash
+canasta host add --name node1 --ssh ubuntu@<NODE1_IP>
+```
+
+Then every subsequent command accepts `--host node1` to target that
+cluster. If you're only managing one cluster and running `canasta`
+directly on the controller with a local kubeconfig, you can skip this
+step.
+
+## Step 3 — Provision shared storage
+
+### NFS (works anywhere)
+
+The simplest NFS target is the control plane node itself.
+`canasta storage setup nfs --install-server` installs the server
+package, creates the share directory, exports it, and installs the
+NFS CSI driver + StorageClass on the cluster in one step:
+
+```bash
+canasta storage setup nfs \
+  --install-server \
+  --share /srv/nfs/canasta \
+  --storage-class-name nfs
+```
+
+If the NFS server is a separate host, pass `--server <IP>` instead of
+`--install-server`.
+
+```bash
+kubectl get storageclass   # expect 'nfs' listed
 ```
 
 In production you'd usually use a dedicated NFS host or managed NFS
-(EFS on AWS, Filestore on GCP, Azure Files on Azure) — running NFS on
-the same node as the K8s control plane is fine for testing but
-couples the storage's availability to that node's availability.
+(EFS, Filestore, Azure Files) — colocating NFS with the control plane
+couples storage availability to that node.
 
-Then install the NFS CSI driver and create a StorageClass:
+### AWS EFS
 
-```bash
-# From your controller:
-canasta storage setup nfs \
-  --server <NODE1_PRIVATE> \
-  --share /srv/nfs/canasta \
-  --storage-class-name nfs
+For EKS, EFS is the natural fit:
 
-kubectl get storageclass
-# Expected: nfs StorageClass listed
-```
-
-`canasta storage setup nfs` runs against the host you target with
-`--host` (defaulting to the local controller). It installs the
-`csi-driver-nfs` Helm chart on whatever K8s cluster is in the
-target's kubeconfig and creates a StorageClass pointing at the NFS
-server you specified.
-
-### Option B: AWS EFS
-
-For EKS or any other AWS-hosted cluster, EFS is the natural fit. It's
-managed, multi-AZ, and the EFS CSI driver is well-supported.
-
-1. Create an EFS filesystem in the same VPC as your EKS cluster.
-2. Add mount targets in each AZ where worker nodes run.
-3. Configure security groups to allow NFS (TCP 2049) from worker
-   security groups to the EFS mount target security group.
-4. Set up IRSA (IAM Roles for Service Accounts) so the EFS CSI driver
-   can manage access points. AWS documentation walks through this.
-
-Then:
+1. Create an EFS filesystem in the EKS cluster's VPC.
+2. Add mount targets in each AZ with worker nodes.
+3. Allow NFS (TCP 2049) from worker SGs to the EFS mount target SG.
+4. Set up IRSA so the EFS CSI driver can manage access points.
 
 ```bash
 canasta storage setup efs --filesystem-id fs-0123456789abcdef0
 ```
 
-This installs the AWS EFS CSI driver and creates an `efs`
-StorageClass.
+### Bring your own RWM storage
 
-### Option C: bring-your-own RWM storage
-
-If you already have RWM-capable storage on the cluster (CephFS,
-Longhorn-with-RWM, NetApp Trident, vendor-specific CSI drivers, etc.),
-you don't need `canasta storage setup` at all. Just verify with
+CephFS, Longhorn-with-RWM, NetApp Trident, vendor CSI — confirm with
 `kubectl get storageclass` that an RWM-capable class exists, and use
-its name when creating the instance below.
+its name below.
 
-## Step 3 — DNS
+## Step 4 — DNS
 
-Point your domain at the public IP of one of the cluster nodes. k3s
-includes Traefik as the default ingress controller, listening on
-ports 80 and 443 on every node, so the IP can be any node.
+Point your domain at any node IP (k3s's Traefik ingress listens on
+80/443 on every node). On managed K8s, point at the load balancer.
 
-```bash
-# Create an A record:
-#   wiki.example.com  →  <NODE1_IP>
-
-dig +short wiki.example.com
-# Expected: <NODE1_IP>
+```
+wiki.example.com  A  <NODE1_IP>
 ```
 
-For wiki farms with subdomain routing, add a wildcard:
+Verify: `dig +short wiki.example.com`.
+
+For subdomain-routed wiki farms, add a wildcard:
 `*.wiki.example.com → <NODE1_IP>`.
 
-On managed Kubernetes services, you'll typically have a load balancer
-in front of the ingress controller, and DNS points at the load
-balancer rather than at a node IP directly.
-
-## Step 4 — Create the instance
+## Step 5 — Create the instance
 
 ```bash
 canasta create \
@@ -283,157 +224,204 @@ canasta create \
 ```
 
 Both `--storage-class` and `--access-mode` are needed for multi-node
-multi-replica web. The two together tell the chart "use the NFS
-storage class for the four content PVCs, and declare them as
-ReadWriteMany so they can be mounted from multiple nodes
-simultaneously."
+multi-replica web. `ReadWriteMany` declares the four content PVCs as
+RWM so they can mount from multiple nodes at once; without it they
+default to RWO and the chart's declared contract will be wrong, even
+if the NFS CSI driver's leniency makes it look like it works.
 
-If you omit `--access-mode`, the PVCs default to `ReadWriteOnce`. They
-will then physically work on most NFS implementations because the
-NFS CSI driver is lenient about access mode enforcement, but the
-chart's declared contract will be wrong, and the same setup will fail
-on stricter RWM backends like EFS or CephFS.
+When a real domain name is used, cert-manager and Let's Encrypt are
+configured automatically — no manual TLS setup.
 
-After `canasta create` completes:
+Verify:
 
 ```bash
-kubectl get pods -n canasta-mywiki
-# Expected: web, caddy, varnish, db, jobrunner — all Running
-
-kubectl get pvc -n canasta-mywiki
-# Expected: images, extensions, skins, public-assets bound on the nfs
-#           StorageClass with ACCESS MODES = RWX
-#           (db-data uses local-path by default — see Caveats)
+kubectl get pods -n canasta-mywiki   # all Running
+kubectl get pvc -n canasta-mywiki    # content PVCs RWX on nfs
+kubectl get certificate -n canasta-mywiki   # Ready=True
 ```
 
-## Step 5 — Scale the web tier
+## Step 6 — Browse to the wiki
+
+Open `https://wiki.example.com/wiki/Main_Page` in a browser. You
+should see the MediaWiki main page with a valid Let's Encrypt
+certificate (green padlock, no warnings).
+
+If the certificate isn't ready yet, give cert-manager 30–60 seconds
+to complete the ACME challenge. Check status with
+`kubectl describe certificate -n canasta-mywiki`.
+
+## Step 7 — Argo CD dashboard
+
+`canasta create --orchestrator kubernetes` installs Argo CD by
+default. To open the UI:
+
+```bash
+# Get the admin password:
+kubectl get secret argocd-initial-admin-secret -n argocd \
+  -o jsonpath='{.data.password}' | base64 -d ; echo
+
+# Port-forward (run in a separate terminal):
+kubectl port-forward svc/argocd-server -n argocd 8443:443
+```
+
+Browse `https://localhost:8443`, accept the self-signed certificate,
+log in as `admin`. Applications managed via `canasta gitops` show up
+here as synced Argo CD Applications.
+
+## Step 8 — Connect to gitops
+
+Put the instance's configuration under git so Argo CD can sync
+changes from the repo:
+
+```bash
+canasta gitops init \
+  --id mywiki \
+  -n $(hostname) \
+  --repo git@github.com:<org>/<repo>.git \
+  --key ~/mywiki-deploy-key
+```
+
+The command pauses and prints an SSH public key — add it as a deploy
+key with write access at `https://github.com/<org>/<repo>/settings/keys`,
+then press Enter. Argo CD picks up the repo and starts syncing.
+
+```bash
+canasta gitops status --id mywiki
+kubectl get application -n argocd   # expect Synced / Healthy
+```
+
+## Step 9 — Scale the web tier
 
 The generated `values.yaml` does not include a `web:` section by
-default — it inherits `web.replicaCount: 1` from the chart defaults.
-To scale up, you need to **add** the section:
+default — it inherits `web.replicaCount: 1` from the chart. To scale:
 
 ```bash
-# Find the instance path:
-canasta list
-
-# Add a web: section to instance_path/values.yaml. For example,
-# insert before the "domains:" line:
-#
+canasta list                        # note the instance path
+# Add to <instance_path>/values.yaml before 'domains:':
 #   web:
 #     replicaCount: 3
-#
-# Or via sed:
-sed -i '' '/^domains:/i\
-web:\
-  replicaCount: 3\
-' <instance_path>/values.yaml
-
-# Then restart so the helm upgrade picks up the change:
 canasta restart --id mywiki
-```
-
-There is no `canasta scale` command yet — the canonical way to change
-replica counts is to edit `values.yaml` and run `canasta restart`. The
-restart flow reads `web.replicaCount` from `values.yaml` and applies
-it via `helm upgrade`.
-
-```bash
 kubectl get pods -n canasta-mywiki -o wide | grep web
-# Expected: 3 web pods, ideally on multiple nodes
 ```
+
+There is no `canasta scale` command yet — editing `values.yaml` and
+running `canasta restart` is the canonical way. The restart flow
+reads `web.replicaCount` and applies it via `helm upgrade`. See
+"Known gaps" below.
 
 ### Pod spread caveat
 
-The default Kubernetes scheduler will try to distribute pods across
-nodes based on resource availability, but **it does not guarantee
-spread**. With `replicaCount: 3` and two nodes, you may get two pods
-on one node and one on the other, or all three on the same node, or
-2-1, depending on what the scheduler thinks is optimal at the time.
-
-If you need stricter spread guarantees, you can manually force a
-re-schedule by cordoning the node where pods are clustered:
+The K8s scheduler tries to distribute pods by resource availability
+but does **not guarantee** spread. With `replicaCount: 3` on two
+nodes you may get 2-1 or 3-0 depending on the scheduler. If you need
+guaranteed spread, cordon the crowded node to force reschedule:
 
 ```bash
-kubectl cordon <node-name>      # mark node unschedulable
-canasta restart --id mywiki     # forces rescheduling
-kubectl uncordon <node-name>    # re-allow scheduling
+kubectl cordon <node-name>
+canasta restart --id mywiki
+kubectl uncordon <node-name>
 ```
 
-If your workload depends on guaranteed pod spread for fault
-tolerance, the cordon workaround above is the current solution.
+## Adding more workers
+
+```bash
+# On the new node:
+ssh ubuntu@<NEW_NODE_IP>
+export K3S_URL=https://<NODE1_PRIVATE>:6443
+export K3S_TOKEN=<TOKEN>   # same token used earlier; retrieve from node 1 if lost
+curl -sfL https://get.k3s.io | sudo -E sh -
+exit
+
+# From the controller:
+kubectl get nodes   # new node should be Ready within ~30s
+```
+
+Shared storage (NFS) and ingress (Traefik) already cover any number
+of nodes — no reconfiguration needed. New web replicas (after
+`canasta restart`) can schedule onto the new node.
+
+## Cleanup
+
+```bash
+canasta delete --id mywiki --yes
+# Terminate the EC2 instances in the AWS console to stop billing.
+```
+
+## Windows / WSL notes
+
+Everything in this guide works unmodified on WSL2 Ubuntu. Watch out
+for:
+
+- **SSH key permissions.** If the AWS key lives on `/mnt/c/...`, WSL
+  sees it as mode `0777` and `ssh` refuses to use it. Copy the key
+  into `~/.ssh/` inside WSL and `chmod 600` it.
+- **`dig` isn't preinstalled** — `sudo apt install dnsutils`.
+- **Python + pip** for the canasta CLI — `sudo apt install python3-pip`,
+  then follow the repo README. Alternatively use `canasta-docker`
+  (requires Docker Desktop with WSL2 integration); some host-mount
+  quirks seen on macOS may surface on Windows too.
+- **Argo CD port-forward.** WSL2 auto-forwards localhost to the
+  Windows host, so `https://localhost:8443` works from the Windows
+  browser without extra setup.
+- **`sed` syntax.** Use the Linux form (no `''` after `-i`) — the
+  macOS form errors on WSL.
 
 ## Caveats and known limitations
 
-Multi-node multi-replica web is **not** the same as full HA. Several
-single-points-of-failure remain by default:
-
 ### Database
 
-The default deployment runs **one** MariaDB pod backed by a
-node-local PVC (`local-path` storage class on k3s). If the node
-hosting the DB pod fails, the DB pod cannot reschedule until that
-node recovers, and the entire wiki goes down regardless of how many
-web replicas you have.
-
-For production high availability, the recommended approach is to use
-an external database service (a managed MariaDB or MySQL such as RDS
-Multi-AZ, Aurora, Cloud SQL, or a self-managed Galera cluster) and
-point Canasta at it instead of running the bundled DB pod. The
-external database handles its own replication, failover, and backups,
-which removes the database tier as a single point of failure for the
-wiki.
-
-If you keep the bundled DB pod, "multi-replica web with single-pod
-local-path DB" is useful for load distribution and partial fault
-tolerance — any node failure that isn't the DB node leaves the wiki
-running — but should not be confused with full high availability.
+The default deployment runs **one** MariaDB pod on node-local
+(`local-path`) storage. A node failure on the DB's node takes the
+wiki down regardless of web replica count. For production HA, point
+Canasta at an external managed database (RDS, Aurora, Cloud SQL, or a
+Galera cluster). See issue #57 (external DB support).
 
 ### Caddy
 
-Caddy is single-replica in the default chart. The `caddy-data` PVC
-stores TLS certificates and is `ReadWriteOnce`, and multiple Caddy
-replicas would also independently provision Let's Encrypt
-certificates and hit ACME rate limits. If you need a highly available
-HTTPS termination layer, the supported approach is to put an external
-load balancer or ingress controller in front of Canasta and disable
-Canasta's own TLS handling with the `--skip-tls` flag at create time.
+Caddy is single-replica. The `caddy-data` PVC holds Let's Encrypt
+certificates and is RWO; multiple replicas would also independently
+provision certs and hit ACME rate limits. For an HA TLS layer, put an
+external load balancer in front of Canasta and disable Canasta's TLS
+with `--skip-tls`.
 
 ### Elasticsearch / OpenSearch
 
-Both run as single-node by default with `discovery.type=single-node`
-hardcoded. If you need a clustered Elasticsearch, you currently have
-to configure it yourself outside the chart.
+Both run single-node by default (`discovery.type=single-node`
+hardcoded). Clustered Elasticsearch needs out-of-chart configuration.
 
 ### Pod scheduling
 
-As noted in Step 5, the chart does not declare pod anti-affinity or
-topology spread constraints. Multi-replica spread is best-effort,
-based on the Kubernetes scheduler's default scoring (resource
-availability and balance). Use the cordon workaround above if you
-need to force pods onto specific nodes.
+The chart doesn't declare pod anti-affinity or topology spread
+constraints — multi-replica spread is best-effort. Use the cordon
+workaround in Step 9 to force placement.
+
+## Known gaps
+
+- **No standalone `canasta install k3s` command.** `--install-k3s` is
+  coupled to `canasta create`, but multi-node with shared storage
+  needs k3s up *before* create (so NFS can be provisioned first).
+  Manual k3s install on node 1 is the current workaround.
+- **No `canasta scale` command.** Changing `web.replicaCount` means
+  editing `values.yaml` and running `canasta restart`.
 
 ## Troubleshooting
 
-**Pods on the worker node cannot resolve DNS or reach ClusterIP
-services.** This is the VXLAN/UDP problem on EC2 (and analogous
-issues on other clouds). Verify the security group allows all UDP
-between cluster nodes, not just TCP. The smoking-gun symptom is the
-web pod's `wait-for-db` init container hanging on DNS lookup of `db`.
+**Pods on the worker node can't resolve DNS or reach ClusterIP
+services.** VXLAN/UDP blocked between nodes. Verify the security
+group allows all UDP (not just TCP) between cluster nodes. Smoking
+gun: web pod's `wait-for-db` init container hangs on DNS lookup.
 
-**PVCs stuck in `Pending`.** Run `kubectl describe pvc <name>` to see
-the actual binding error. Common causes:
+**PVCs stuck `Pending`.** `kubectl describe pvc <name>` shows the
+cause. Usually: StorageClass missing, StorageClass doesn't support
+RWM, or CSI driver pod not running (check IAM on EKS).
 
-- StorageClass doesn't exist (check `kubectl get storageclass`).
-- StorageClass exists but doesn't support the requested access mode
-  (e.g. asking for `ReadWriteMany` against a class backed by EBS).
-- Provisioner is failing (CSI driver pod is not running or doesn't
-  have the right IAM permissions on EKS).
+**Web replicas Pending after scale-up.** RWO PVC already attached to
+a different node. Recreate the instance with
+`--access-mode ReadWriteMany`.
 
-**Web replicas pending after scale-up.** Likely an RWO PVC is already
-attached to a different node. Either set `--access-mode ReadWriteMany`
-when creating the instance, or accept that all replicas must land on
-the node holding the PVC.
+**Pods all on one node.** Scheduler doesn't guarantee spread. Use
+the cordon workaround (Step 9).
 
-**Pods all on one node despite multi-node cluster.** The Kubernetes
-scheduler doesn't guarantee spread without anti-affinity rules. Use
-the cordon workaround in Step 5 to force a re-schedule.
+**Certificate stuck `Ready=False`.** Usually DNS hasn't propagated,
+or port 80 isn't open from the internet (Let's Encrypt HTTP-01
+challenge requires reachable port 80).
