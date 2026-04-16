@@ -15,11 +15,12 @@
         src: "{{ instance_path }}/my.cnf"
       register: _mycnf_content
 
-    - name: Process my.cnf to remove skip-binary-as-hex
-      ansible.builtin.copy:
-        content: |
+    - name: Compute cleaned my.cnf content
+      ansible.builtin.set_fact:
+        _mycnf_original: "{{ _mycnf_content.content | b64decode }}"
+        _mycnf_cleaned: |
           {% set ns = namespace(section='') %}
-          {% for line in (_mycnf_content.content | b64decode).split('\n') %}
+          {% for line in (_mycnf_content.content | b64decode | regex_replace('\n+$', '')).split('\n') %}
           {% if line | regex_search('^\[.*\]') %}
           {% set ns.section = line | regex_replace('^\[|\]$', '') | trim %}
           {{ line }}
@@ -28,5 +29,10 @@
           {{ line }}
           {% endif %}
           {% endfor %}
+
+    - name: Write cleaned my.cnf (only if it changed)
+      ansible.builtin.copy:
+        content: "{{ _mycnf_cleaned }}"
         dest: "{{ instance_path }}/my.cnf"
         mode: "0644"
+      when: _mycnf_original != _mycnf_cleaned
