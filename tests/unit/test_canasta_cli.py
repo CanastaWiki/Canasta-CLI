@@ -871,16 +871,39 @@ class TestPathResolution:
 
 
 class TestDoctorRobertEasterEgg:
-    """Test the 'canasta doctor robert' Easter egg."""
+    """Test the 'canasta doctor robert' Easter egg via command definitions."""
 
-    def test_doctor_robert_lyrics(self, monkeypatch, capsys):
-        monkeypatch.setattr("sys.argv", ["canasta", "doctor", "robert"])
-        with pytest.raises(SystemExit) as exc_info:
-            canasta_cli.main()
-        assert exc_info.value.code == 0
-        captured = capsys.readouterr()
-        assert "Doctor Robert" in captured.out
-        assert "Ring my friend" in captured.out
+    def test_doctor_robert_parses_as_subcommand(self, parser):
+        """'doctor robert' should be parsed as a subcommand."""
+        args = parser.parse_args(["doctor", "robert"])
+        assert args.command == "doctor"
+        assert args.subcommand == "robert"
+
+    def test_doctor_robert_resolves_to_doctor_robert(self, parser):
+        """'doctor robert' should resolve to internal name 'doctor_robert'."""
+        args = parser.parse_args(["doctor", "robert"])
+        name = canasta_cli.resolve_command_name(args)
+        assert name == "doctor_robert"
+
+    def test_doctor_robert_command_in_definitions(self, data):
+        """'doctor_robert' should exist in command definitions."""
+        names = {c["name"] for c in data["commands"]}
+        assert "doctor_robert" in names
+
+    def test_doctor_robert_has_playbook(self, data):
+        """'doctor_robert' should have a playbook defined."""
+        cmd = next(c for c in data["commands"] if c["name"] == "doctor_robert")
+        assert cmd["playbook"] == "doctor_robert.yml"
+
+    def test_doctor_without_subcommand_still_works(self, data):
+        """'canasta doctor' (no subcommand) should still resolve to 'doctor'."""
+        from argparse import Namespace
+        args = Namespace(command="doctor", subcommand=None)
+        name = canasta_cli.resolve_command_name(args)
+        assert name == "doctor"
+        # And doctor should still be in the definitions
+        names = {c["name"] for c in data["commands"]}
+        assert "doctor" in names
 
     def test_doctor_robert_case_sensitive(self, parser):
         """'canasta doctor Robert' (capitalized) should NOT trigger the

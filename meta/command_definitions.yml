@@ -269,6 +269,14 @@ commands:
     playbook: doctor.yml
     parameters: []
 
+  - name: doctor_robert
+    description: "Easter egg"
+    long_description: "Doctor Robert by The Beatles."
+    examples:
+      - "canasta doctor robert"
+    playbook: doctor_robert.yml
+    parameters: []
+
   - name: upgrade
     description: "Upgrade Canasta instances"
     long_description: |

@@ -15,7 +15,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 import audit_command_coverage as audit  # noqa: E402
 
 
-GROUPS = {"backup", "config", "extension", "skin", "gitops", "host",
+GROUPS = {"backup", "config", "doctor", "extension", "skin", "gitops", "host",
           "maintenance", "sitemap", "devmode", "storage"}
 
 
