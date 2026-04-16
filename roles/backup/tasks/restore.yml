@@ -23,6 +23,11 @@
 # a second time picks up the safety snapshot just created (which is
 # internal and typically empty) instead of the user's most recent
 # real backup.
+#
+# Note: `snapshot` is passed via -e extra vars (precedence 22), which
+# shadows any set_fact (precedence 20). We resolve into a *new* fact
+# (`_resolved_snapshot`) and use that everywhere downstream instead of
+# trying to rebind `snapshot` itself.
 - name: Resolve 'latest' snapshot (excluding internal safety snapshots)
   when: snapshot == 'latest'
   block:
@@ -36,7 +41,7 @@
 
     - name: Pick latest non-safety snapshot
       ansible.builtin.set_fact:
-        snapshot: "{{ item.short_id }}"
+        _resolved_snapshot: "{{ item.short_id }}"
       loop: "{{ (_restic_result.stdout | from_json) | sort(attribute='time') }}"
       when: "'safety-before-restore' not in (item.tags | default([]))"
       loop_control:
@@ -47,7 +52,12 @@
         msg: >-
           No backup snapshots found (excluding safety-before-restore
           snapshots). Create a backup first with 'canasta backup create'.
-      when: snapshot == 'latest'
+      when: _resolved_snapshot is not defined
+
+- name: Set effective snapshot ID
+  ansible.builtin.set_fact:
+    _resolved_snapshot: "{{ snapshot }}"
+  when: _resolved_snapshot is not defined
 
 - name: Take safety backup before restore
   when: not (skip_safety_backup | default(false) | bool)
@@ -93,7 +103,7 @@
                   - sh
                   - -c
                   - |
-                    restic --cache-dir /tmp/restic-cache restore {{ snapshot }} --target / && \
+                    restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target / && \
                     touch /tmp/restore-done && \
                     sleep 3600
                 env:
@@ -195,7 +205,7 @@
   vars:
     backup_args:
       - "restore"
-      - "{{ snapshot }}"
+      - "{{ _resolved_snapshot }}"
       - "--target"
       - "/"
   when: instance_orchestrator | default('compose') == 'compose'
@@ -295,4 +305,4 @@
 
 - name: Display result
   ansible.builtin.debug:
-    msg: "Restored from snapshot {{ snapshot }}."
+    msg: "Restored from snapshot {{ _resolved_snapshot }}."
