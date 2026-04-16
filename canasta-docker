@@ -177,6 +177,42 @@ if ! grep -q "^[^:]*:[^:]*:$(id -u):" "$CANASTA_PASSWD" 2>/dev/null; then
     echo "canasta:x:$(id -u):$(id -g):canasta:$HOME:/bin/sh" >> "$CANASTA_PASSWD"
 fi
 MOUNTS+=(-v "$CANASTA_PASSWD:/etc/passwd:ro")
+# Ensure the container has group entries for the host user's GIDs so
+# that commands like `id -nG` can resolve numeric GIDs to names.
+CANASTA_GROUP="$CONFIG_DIR/.canasta-group"
+GROUP_STALE=false
+if [[ ! -f "$CANASTA_GROUP" ]]; then
+    GROUP_STALE=true
+elif [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
+    if [[ -n "${PASSWD_IMAGE_ID:-}" ]] \
+        && ! grep -q "# ${PASSWD_IMAGE_ID}" "$CANASTA_GROUP" 2>/dev/null; then
+        GROUP_STALE=true
+    fi
+fi
+if [[ "$GROUP_STALE" == "true" ]]; then
+    if [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
+        docker run --rm --entrypoint cat "$IMAGE" /etc/group \
+            > "$CANASTA_GROUP" 2>/dev/null || true
+        echo "# ${PASSWD_IMAGE_ID:-}" >> "$CANASTA_GROUP"
+    else
+        : > "$CANASTA_GROUP"
+    fi
+fi
+# Append host groups not already present in the container's group file.
+for gid in $(id -G); do
+    if ! grep -q "^[^:]*:[^:]*:${gid}:" "$CANASTA_GROUP" 2>/dev/null; then
+        if command -v getent &>/dev/null; then
+            entry=$(getent group "$gid" 2>/dev/null || true)
+        else
+            entry=$(grep "^[^:]*:[^:]*:${gid}:" /etc/group 2>/dev/null \
+                || true)
+        fi
+        if [[ -n "$entry" ]]; then
+            echo "$entry" >> "$CANASTA_GROUP"
+        fi
+    fi
+done
+MOUNTS+=(-v "$CANASTA_GROUP:/etc/group:ro")
 # Add the docker socket GID and all of the host user's supplementary
 # groups so the container process has the same group memberships as the
 # host user (e.g., www-data for writing to container-owned files).

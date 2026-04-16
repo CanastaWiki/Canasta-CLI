@@ -92,6 +92,21 @@ def assert_volume_mount(argv, src, dst, ro=False):
     assert found, "expected -v %s in argv:\n%s" % (target, "\n".join(argv))
 
 
+class TestGroupFileMount:
+    """Verify the container gets /etc/group with host group entries."""
+
+    def test_group_file_is_mounted(self):
+        argv, _ = run_dry(["doctor"])
+        group_mounts = [
+            argv[i + 1] for i, a in enumerate(argv)
+            if a == "-v" and i + 1 < len(argv)
+            and argv[i + 1].endswith(":/etc/group:ro")
+        ]
+        assert group_mounts, (
+            "expected /etc/group mount in argv:\n%s" % "\n".join(argv)
+        )
+
+
 class TestDockerHostOverride:
     """Verify the in-container docker CLI is forced to use the mounted socket."""
 
