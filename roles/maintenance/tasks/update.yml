@@ -17,7 +17,7 @@
 - name: Determine wikis to update
   ansible.builtin.set_fact:
     _update_wikis: >-
-      {{ (wiki is defined and wiki != '')
+      {{ ((wiki | default('')) != '')
          | ternary([wiki], _maint_wikis.wiki_ids) }}
 
 - name: Run update.php for each wiki
