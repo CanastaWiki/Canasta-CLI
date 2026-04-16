@@ -59,16 +59,88 @@
     _resolved_snapshot: "{{ snapshot }}"
   when: _resolved_snapshot is not defined
 
-- name: Take safety backup before restore
-  when: not (skip_safety_backup | default(false) | bool)
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
-  vars:
-    backup_args:
-      - "--tag"
-      - "safety-before-restore"
-      - "backup"
-      - "/currentsnapshot"
+- name: Take safety backup before restore (Compose)
+  when:
+    - not (skip_safety_backup | default(false) | bool)
+    - instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Read wiki IDs for safety DB dump
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _safety_wikis
+
+    - name: Create backup staging directory
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_command: "mkdir -p /mediawiki/config/backup"
+
+    - name: Dump each wiki database for safety backup
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_no_log: true
+        exec_command: >-
+          mariadb-dump -h db -u root
+          -p{{ _restore_dbpass.value | quote }}
+          --single-transaction
+          --databases {{ item | quote }}
+          > /mediawiki/config/backup/db_{{ item | quote }}.sql
+      loop: "{{ _safety_wikis.wiki_ids }}"
+      no_log: true
+
+    - name: Build safety backup volume map
+      ansible.builtin.set_fact:
+        _safety_volumes: >-
+          {{ {
+            instance_path + '/config': '/currentsnapshot/config',
+            instance_path + '/extensions': '/currentsnapshot/extensions',
+            instance_path + '/images': '/currentsnapshot/images',
+            instance_path + '/skins': '/currentsnapshot/skins',
+            instance_path + '/public_assets': '/currentsnapshot/public_assets',
+            instance_path + '/.env': '/currentsnapshot/.env'
+          } }}
+
+    - name: Check for optional files (safety)
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/{{ item }}"
+      register: _safety_opt_files
+      loop:
+        - docker-compose.override.yml
+        - my.cnf
+
+    - name: Add optional files to safety staging
+      ansible.builtin.set_fact:
+        _safety_volumes: >-
+          {{ _safety_volumes | combine(
+             {instance_path + '/' + item.item:
+              '/currentsnapshot/' + item.item}) }}
+      loop: "{{ _safety_opt_files.results }}"
+      when: item.stat.exists
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Run safety backup with staged files
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
+      vars:
+        backup_args:
+          - "--tag"
+          - "safety-before-restore"
+          - "backup"
+          - "/currentsnapshot"
+        backup_volumes: "{{ _safety_volumes }}"
+
+    - name: Clean up safety DB dump directory
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_command: "rm -rf /mediawiki/config/backup"
+      ignore_errors: true
 
 # --- Kubernetes restore path ---
 - name: Restore (Kubernetes)
