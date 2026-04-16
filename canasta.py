@@ -54,6 +54,59 @@ NESTED_SUBCOMMAND_GROUPS = {
     },
 }
 
+# Easter egg lyrics for "canasta doctor robert"
+DOCTOR_ROBERT_LYRICS = """\
+Ring my friend, I said you'd call
+Doctor Robert
+Day or night, he'll be there any time at all
+Doctor Robert
+Doctor Robert
+You're a new and better man
+He helps you to understand
+He does everything he can
+Doctor Robert
+If you're down, he'll pick you up
+Doctor Robert
+Take a drink from his special cup
+Doctor Robert
+Doctor Robert
+He's a man you must believe
+Helping anyone in need
+No one can succeed like
+Doctor Robert
+Well, well, well, you're feeling fine
+Well, well, well, he'll make you
+Doctor Robert
+My friend works for the National Health
+Doctor Robert
+You'll pay money just to see yourself
+With Doctor Robert
+Doctor Robert
+You're a new and better man
+He helps you to understand
+He does everything he can
+Bob Robert
+Well, well, well, you're feeling fine
+Well, well, well, he'll make you
+Doctor Robert
+Ring my friend, I said you'd call
+Doctor Robert
+Day or night, he'll be there any time at all
+Doctor Robert
+Doctor Robert
+He's a man you must believe
+Helping anyone in need
+No one can succeed like
+Doctor Robert
+Well, well, well, you're feeling fine
+Well, well, well, he'll make you
+Doctor Robert
+Ring my friend, I said you'd call
+Doctor Robert
+Ring my friend, I said you'd call
+Bob Robert
+Doctor Robert"""
+
 
 def load_definitions():
     """Load command definitions from YAML."""
@@ -602,13 +655,20 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
 
 
 def main():
+    # Easter egg: "canasta doctor robert"
+    raw_args = sys.argv[1:]
+    non_flag_args = [a for a in raw_args if not a.startswith("-")]
+    if non_flag_args == ["doctor", "robert"]:
+        print(DOCTOR_ROBERT_LYRICS)
+        sys.exit(0)
+
     data = load_definitions()
     parser = build_parser(data)
 
     # Extract global flags (--verbose/-v, --host/-H) only from args
     # BEFORE the subcommand. This prevents "-v" in
     # "maintenance exec -i x php -v" from being consumed as --verbose.
-    raw_args = sys.argv[1:]
+    
     pre_cmd = []
     post_cmd = []
     found_cmd = False

@@ -868,3 +868,22 @@ class TestPathResolution:
         extra = self._get_vars(result)
         assert extra["path"] == os.path.expanduser("~")
         assert not extra["path"].startswith("~")
+
+
+class TestDoctorRobertEasterEgg:
+    """Test the 'canasta doctor robert' Easter egg."""
+
+    def test_doctor_robert_lyrics(self, monkeypatch, capsys):
+        monkeypatch.setattr("sys.argv", ["canasta", "doctor", "robert"])
+        with pytest.raises(SystemExit) as exc_info:
+            canasta_cli.main()
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "Doctor Robert" in captured.out
+        assert "Ring my friend" in captured.out
+
+    def test_doctor_robert_case_sensitive(self, parser):
+        """'canasta doctor Robert' (capitalized) should NOT trigger the
+        Easter egg — argparse should handle it normally (and error)."""
+        with pytest.raises(SystemExit):
+            parser.parse_args(["doctor", "Robert"])
