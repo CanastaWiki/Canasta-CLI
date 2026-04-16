@@ -668,7 +668,6 @@ def main():
     # Extract global flags (--verbose/-v, --host/-H) only from args
     # BEFORE the subcommand. This prevents "-v" in
     # "maintenance exec -i x php -v" from being consumed as --verbose.
-    
     pre_cmd = []
     post_cmd = []
     found_cmd = False
