@@ -139,7 +139,7 @@
         value: "{{ canasta_default_image }}"
       when:
         - _upgrade_current_image.found
-        - _upgrade_current_image.value | regex_search('^ghcr\\.io/canastawiki/canasta:')
+        - _upgrade_current_image.value is match('^ghcr\\.io/canastawiki/canasta:')
         - _upgrade_current_image.value != canasta_default_image
 
 # --- Pull and restart ---
