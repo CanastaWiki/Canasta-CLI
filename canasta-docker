@@ -200,12 +200,12 @@ if [[ "$GROUP_STALE" == "true" ]]; then
 fi
 # Append host groups not already present in the container's group file.
 for gid in $(id -G); do
-    if ! grep -q "^[^:]*:[^:]*:${gid}:" "$CANASTA_GROUP" 2>/dev/null; then
+    gid_pat="^[^:]*:[^:]*:${gid}:"
+    if ! grep -q "$gid_pat" "$CANASTA_GROUP" 2>/dev/null; then
         if command -v getent &>/dev/null; then
             entry=$(getent group "$gid" 2>/dev/null || true)
         else
-            entry=$(grep "^[^:]*:[^:]*:${gid}:" /etc/group 2>/dev/null \
-                || true)
+            entry=$(grep "$gid_pat" /etc/group 2>/dev/null || true)
         fi
         if [[ -n "$entry" ]]; then
             echo "$entry" >> "$CANASTA_GROUP"
