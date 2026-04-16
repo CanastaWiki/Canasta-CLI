@@ -26,7 +26,7 @@ os.environ.setdefault("ANSIBLE_CONFIG", ANSIBLE_CFG)
 
 # Commands that have subcommands (e.g., "config get" -> "config_get")
 SUBCOMMAND_GROUPS = {
-    "config": ["get", "set", "unset"],
+    "config": ["get", "set", "unset", "regenerate"],
     "extension": ["list", "enable", "disable"],
     "skin": ["list", "enable", "disable"],
     "maintenance": ["update", "script", "extension", "exec"],
@@ -494,7 +494,7 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
 
     # Only pass target_host for commands that need it.
     # Other commands resolve the host from the instance registry.
-    HOST_COMMANDS = {"create", "list"}
+    HOST_COMMANDS = {"create", "list", "doctor"}
     if args.host and command_name in HOST_COMMANDS:
         extra_vars["target_host"] = args.host
     elif args.host and command_name not in HOST_COMMANDS:
@@ -524,6 +524,12 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         if ptype == "bool":
             if value:
                 extra_vars[name] = "true"
+        elif ptype == "path":
+            # Resolve against the invoking shell's CWD (and expand ~).
+            # Ansible otherwise resolves relative paths against
+            # playbook_dir, which is the canasta.py install directory
+            # — not what users expect when they pass `-p .`.
+            extra_vars[name] = os.path.abspath(os.path.expanduser(str(value)))
         else:
             extra_vars[name] = str(value)
 

@@ -71,12 +71,12 @@
       {{ (_build_commit_content.content | default('')
           | b64decode | trim)
          if _build_commit_file.stat.exists
-         else (_git_commit.stdout | default('unknown') | trim) }}
+         else (_git_commit.stdout | default('', true) | trim | default('unknown', true)) }}
     _version_date: >-
       {{ (_build_date_content.content | default('')
           | b64decode | trim)
          if _build_commit_file.stat.exists
-         else (_git_date.stdout | default('unknown') | trim) }}
+         else (_git_date.stdout | default('', true) | trim | default('unknown', true)) }}
 
 - name: Display version
   ansible.builtin.debug:

@@ -21,3 +21,7 @@ admin-password_*
 values-configdata.yaml
 inventory/hosts.yml
 .DS_Store
+
+# Version metadata captured at install time (Makefile: build-info)
+BUILD_COMMIT
+BUILD_DATE

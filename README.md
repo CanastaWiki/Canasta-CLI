@@ -30,7 +30,7 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 | Python 3 | Ansible module execution |
 | Docker + Docker Compose v2 | Container orchestration |
 | SSH server | Remote management (not needed if controller = target) |
-| User in `www-data` group | Write access to container-created directories (`sudo usermod -aG www-data $USER`) |
+| User in `www-data` group | Write access to container-created directories (`sudo usermod -aG www-data $USER`, then log out and back in) |
 
 ### Target host (Kubernetes)
 
@@ -78,6 +78,9 @@ cd /opt/canasta-ansible
 sudo python3 -m venv .venv
 sudo .venv/bin/pip install -r requirements.txt
 sudo .venv/bin/ansible-galaxy collection install -r requirements.yml
+sudo make build-info   # capture version metadata — the sudo clone
+                       # leaves .git root-owned, so runtime 'git
+                       # rev-parse' refuses under the non-root user
 sudo ln -sf /opt/canasta-ansible/canasta-native /usr/local/bin/canasta-native
 sudo ln -sf /usr/local/bin/canasta-native /usr/local/bin/canasta
 ```

@@ -40,6 +40,7 @@
     cmd: id -nG
   register: _doc_groups
   changed_when: false
+  ignore_errors: true  # Some GIDs may not resolve to names
 
 # --- Required for Kubernetes ---
 - name: Check kubectl
@@ -138,7 +139,7 @@
       System:
         Memory:          {{ _doc_memory.stdout | default('unknown') | trim }}
         Disk (/ avail):  {{ _doc_disk.stdout | default('unknown') | trim }}
-        www-data group:  {{ ('www-data' in (_doc_groups.stdout | default('')).split()) | ternary('OK (member)', 'NOT A MEMBER — Canasta containers write files as www-data; add yourself with: sudo usermod -aG www-data ' + ansible_user | default('$USER')) }}
+        www-data group:  {{ ('www-data' in (_doc_groups.stdout | default('')).split()) | ternary('OK (member)', 'NOT A MEMBER — Canasta containers write files as www-data; add yourself with: sudo usermod -aG www-data ' + ansible_user | default('$USER') + ' (then log out and back in, or start a new shell, for the change to take effect)') }}
 
 - name: Fail if core dependencies missing
   ansible.builtin.fail:

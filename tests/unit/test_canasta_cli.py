@@ -97,6 +97,15 @@ class TestBuildParser:
         args = parser.parse_args(["config", "get", "-i", "mysite"])
         assert args.key is None
 
+    def test_config_regenerate_subcommand(self, parser):
+        args = parser.parse_args(
+            ["config", "regenerate", "-i", "mysite"],
+        )
+        assert args.command == "config"
+        assert args.subcommand == "regenerate"
+        assert args.id == "mysite"
+        assert canasta_cli.resolve_command_name(args) == "config_regenerate"
+
     def test_short_flags(self, parser):
         args = parser.parse_args(["create", "-i", "mysite", "-w", "main",
                                    "-n", "example.com"])
@@ -403,6 +412,34 @@ class TestHostCommandsBehavior:
         assert "--limit" not in result
         captured = capsys.readouterr()
         assert "ignored" in captured.err.lower() or "Warning" in captured.err
+
+    def test_host_flag_on_doctor(self, data):
+        """-H should be passed through for 'doctor' so users can check a
+        remote host's dependencies before creating an instance."""
+        from argparse import Namespace
+        args = Namespace(
+            command="doctor", host="newhost.example.com", verbose=False,
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "doctor", args, data
+        )
+        extra = self._get_vars(result)
+        assert extra["target_host"] == "newhost.example.com"
+        assert "--limit" in result
+        assert "newhost.example.com" in result
+
+    def test_host_flag_absent_on_doctor_runs_locally(self, data):
+        """Without -H, doctor runs on localhost (no target_host set)."""
+        from argparse import Namespace
+        args = Namespace(
+            command="doctor", host=None, verbose=False,
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "doctor", args, data
+        )
+        extra = self._get_vars(result)
+        assert "target_host" not in extra
+        assert "--limit" not in result
 
 
 class TestRemainderArgs:
@@ -776,3 +813,58 @@ class TestHelperFunctions:
     def test_display_name(self):
         assert canasta_cli.display_name("fix_submodules") == "fix-submodules"
         assert canasta_cli.display_name("create") == "create"
+
+
+class TestPathResolution:
+    """Path-type args should be anchored to the caller's CWD, not
+    playbook_dir, so 'canasta create -p .' lands in the user's working
+    directory instead of the canasta.py install directory."""
+
+    def _get_vars(self, result):
+        import json
+        for i, arg in enumerate(result):
+            if arg == "-e" and i + 1 < len(result) and result[i + 1].startswith("@"):
+                with open(result[i + 1][1:]) as f:
+                    return json.load(f)
+        return {}
+
+    def test_path_dot_resolves_to_cwd(self, data, tmp_path, monkeypatch):
+        from argparse import Namespace
+        monkeypatch.chdir(tmp_path)
+        args = Namespace(
+            command="create", host=None, verbose=False, id="mysite",
+            wiki="main", domain_name=None, site_name=None,
+            database=None, path=".", orchestrator=None,
+            admin_password=None, wiki_db_password=None,
+            root_db_password=None,
+        )
+        result = canasta_cli.build_ansible_args("ap", "create", args, data)
+        extra = self._get_vars(result)
+        assert extra["path"] == str(tmp_path)
+
+    def test_path_absolute_passthrough(self, data):
+        from argparse import Namespace
+        args = Namespace(
+            command="create", host=None, verbose=False, id="mysite",
+            wiki="main", domain_name=None, site_name=None,
+            database=None, path="/srv/canasta", orchestrator=None,
+            admin_password=None, wiki_db_password=None,
+            root_db_password=None,
+        )
+        result = canasta_cli.build_ansible_args("ap", "create", args, data)
+        extra = self._get_vars(result)
+        assert extra["path"] == "/srv/canasta"
+
+    def test_path_tilde_expands(self, data):
+        from argparse import Namespace
+        args = Namespace(
+            command="create", host=None, verbose=False, id="mysite",
+            wiki="main", domain_name=None, site_name=None,
+            database=None, path="~", orchestrator=None,
+            admin_password=None, wiki_db_password=None,
+            root_db_password=None,
+        )
+        result = canasta_cli.build_ansible_args("ap", "create", args, data)
+        extra = self._get_vars(result)
+        assert extra["path"] == os.path.expanduser("~")
+        assert not extra["path"].startswith("~")
