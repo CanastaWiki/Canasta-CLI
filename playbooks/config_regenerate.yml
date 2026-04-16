@@ -1,16 +1,33 @@
 ---
-# canasta config regenerate - Regenerate rendered config files from
-# current sources of truth (.env, wikis.yaml).
+# canasta config regenerate - Regenerate all rendered config files from
+# current sources of truth (env.template, vars.yaml, wikis.yaml.template).
 #
-# Useful after operations that overwrite rendered files (e.g. restore)
-# or after manual edits that drifted rendered Caddyfile from the
-# canonical state.
+# For gitops instances: re-renders .env, wikis.yaml, and admin password
+# files from templates + host vars (including _shared/vars.yaml).
+# For all instances: regenerates orchestrator config (e.g. Caddyfile).
+#
+# Useful after operations that overwrite rendered files (e.g. restore),
+# after adding hosts/_shared/vars.yaml, or after manual edits that left
+# rendered state drifted from canonical sources.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
-- name: Regenerate rendered config
+- name: Check for gitops instance
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _regen_gitops_stat
+
+- name: Re-render gitops templates
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: render_compose.yml
+  when:
+    - _regen_gitops_stat.stat.exists | default(false)
+    - instance_orchestrator | default('compose') == 'compose'
+
+- name: Regenerate orchestrator config (e.g. Caddyfile)
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: update_config.yml
