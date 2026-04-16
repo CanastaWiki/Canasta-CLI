@@ -116,6 +116,32 @@
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
 
+# --- Update Compose CANASTA_IMAGE tag ---
+# Match Go CLI behavior: bump the tag if it's the default ghcr.io image,
+# leave it alone if user set a custom/local-build image.
+- name: Update Compose image tag
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - _upgrade_inst.instance.buildFrom | default('') == ''
+  block:
+    - name: Read current CANASTA_IMAGE
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CANASTA_IMAGE
+      register: _upgrade_current_image
+
+    - name: Update CANASTA_IMAGE to latest default tag
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: CANASTA_IMAGE
+        value: "{{ canasta_default_image }}"
+      when:
+        - _upgrade_current_image.found
+        - _upgrade_current_image.value | regex_search('^ghcr\\.io/canastawiki/canasta:')
+        - _upgrade_current_image.value != canasta_default_image
+
 # --- Pull and restart ---
 - name: Report pulling images
   ansible.builtin.debug:
