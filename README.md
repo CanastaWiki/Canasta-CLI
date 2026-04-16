@@ -30,7 +30,7 @@ Ansible-based management tool for [Canasta](https://canasta.wiki) MediaWiki inst
 | Python 3 | Ansible module execution |
 | Docker + Docker Compose v2 | Container orchestration |
 | SSH server | Remote management (not needed if controller = target) |
-| User in `www-data` group | Write access to container-created directories (`sudo usermod -aG www-data $USER`) |
+| User in `www-data` group | Write access to container-created directories (`sudo usermod -aG www-data $USER`, then log out and back in) |
 
 ### Target host (Kubernetes)
 
