@@ -126,6 +126,20 @@
     name: restic-restore
     namespace: "{{ _k8s_namespace }}"
 
+# Re-render gitops templates after restore. The snapshot contains the
+# SOURCE host's rendered .env and config. On this host those need to
+# be re-rendered from templates + current host vars.
+- name: Detect gitops instance
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _restore_k8s_gitops_stat
+
+- name: Re-render gitops templates against this host's vars
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: render_compose.yml
+  when: _restore_k8s_gitops_stat.stat.exists | default(false)
+
 - name: Sync config to ConfigMaps
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml
