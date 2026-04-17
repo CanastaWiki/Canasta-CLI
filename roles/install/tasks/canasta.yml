@@ -1,0 +1,100 @@
+---
+# Install canasta-native on the target host.
+# Clones the repo, sets up venv + deps, creates symlinks.
+# Idempotent — skips if canasta is already installed.
+
+- name: Fail if targeting localhost
+  ansible.builtin.fail:
+    msg: >-
+      canasta is already installed (you're using it). To update, run
+      'canasta upgrade'. To install on a remote host, use '--host'.
+  when: >-
+    (ansible_host | default('localhost')) == 'localhost'
+    and (ansible_connection | default('local')) != 'ssh'
+
+- name: Check if canasta is already installed
+  ansible.builtin.command:
+    cmd: canasta version
+  register: _canasta_installed
+  changed_when: false
+  ignore_errors: true
+
+- name: Skip if canasta already available
+  ansible.builtin.debug:
+    msg: >-
+      canasta is already installed on this host.
+      Run 'canasta upgrade' on the target to update.
+  when: _canasta_installed.rc == 0
+
+- name: Install canasta-native
+  when: _canasta_installed.rc != 0
+  become: true
+  block:
+    - name: Report installing canasta
+      ansible.builtin.debug:
+        msg: "Installing canasta-native (this may take a few minutes)..."
+
+    - name: Install system prerequisites
+      ansible.builtin.apt:
+        name:
+          - python3
+          - python3-venv
+          - python3-pip
+          - git
+          - git-crypt
+        state: present
+        update_cache: true
+      when: ansible_os_family | default('Debian') == 'Debian'
+
+    - name: Install system prerequisites (RHEL)
+      ansible.builtin.dnf:
+        name:
+          - python3
+          - python3-pip
+          - git
+          - git-crypt
+        state: present
+      when: ansible_os_family | default('') == 'RedHat'
+
+    - name: Clone Canasta-Ansible repository
+      ansible.builtin.git:
+        repo: "https://github.com/CanastaWiki/Canasta-Ansible.git"
+        dest: /opt/canasta-ansible
+        version: main
+
+    - name: Create Python virtual environment
+      ansible.builtin.command:
+        cmd: "python3 -m venv /opt/canasta-ansible/.venv"
+      changed_when: true
+
+    - name: Install Python dependencies
+      ansible.builtin.command:
+        cmd: "/opt/canasta-ansible/.venv/bin/pip install -r /opt/canasta-ansible/requirements.txt"
+      changed_when: true
+
+    - name: Install Ansible collections
+      ansible.builtin.command:
+        cmd: "/opt/canasta-ansible/.venv/bin/ansible-galaxy collection install -r /opt/canasta-ansible/requirements.yml"
+      changed_when: true
+
+    - name: Generate build info
+      ansible.builtin.command:
+        cmd: "make build-info"
+        chdir: "/opt/canasta-ansible"
+      changed_when: true
+
+    - name: Create canasta-native symlink
+      ansible.builtin.file:
+        src: /opt/canasta-ansible/canasta-native
+        dest: /usr/local/bin/canasta-native
+        state: link
+
+    - name: Create canasta symlink
+      ansible.builtin.file:
+        src: /usr/local/bin/canasta-native
+        dest: /usr/local/bin/canasta
+        state: link
+
+    - name: Report canasta installed
+      ansible.builtin.debug:
+        msg: "canasta-native installed at /opt/canasta-ansible."
