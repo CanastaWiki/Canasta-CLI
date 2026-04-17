@@ -51,10 +51,6 @@
         force: false
         mode: "0755"
 
-    - name: Report Docker Compose files written
-      ansible.builtin.debug:
-        msg: ...Docker Compose files written
-
 - name: Write Kubernetes stack files
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:

@@ -162,7 +162,7 @@
 
 - name: Report directory creation
   ansible.builtin.debug:
-    msg: "Create some directories..."
+    msg: "Creating some directories..."
 
 - name: Ensure directories exist
   include_tasks: noisy_create_dir.yml
