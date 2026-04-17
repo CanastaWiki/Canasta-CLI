@@ -182,17 +182,17 @@ if ! grep -q "^[^:]*:[^:]*:$(id -u):" "$CANASTA_PASSWD" 2>/dev/null; then
     echo "canasta:x:$(id -u):$(id -g):canasta:$HOME:/bin/sh" >> "$CANASTA_PASSWD"
 fi
 MOUNTS+=(-v "$CANASTA_PASSWD:/etc/passwd:ro")
-# Add the docker socket GID and all of the host user's supplementary
-# groups so the container process has the same group memberships as the
-# host user (e.g., www-data for writing to container-owned files).
+# Add only the groups the container actually needs: the Docker socket
+# GID (for docker commands) and www-data (for writing to container-
+# created files). Previously all host supplementary groups were passed
+# via --group-add, but most (dialout, cdrom, floppy, etc.) don't exist
+# in the container's /etc/group, causing 'id -nG' to emit noisy
+# "cannot find name for group ID" warnings.
 if [[ -n "$DOCKER_SOCK_GID" ]]; then
     MOUNTS+=(--group-add "$DOCKER_SOCK_GID")
 fi
-for gid in $(id -G); do
-    [[ "$gid" == "$(id -g)" ]] && continue  # skip primary (already set)
-    [[ "$gid" == "$DOCKER_SOCK_GID" ]] && continue  # skip if already added
-    MOUNTS+=(--group-add "$gid")
-done
+# www-data is GID 33 on Debian-based images (which canasta-ansible uses).
+MOUNTS+=(--group-add 33)
 
 # Parse args to find instance path from --id/-i (look up in conf.json)
 # so we can mount it if it's outside the current directory.
