@@ -1,5 +1,5 @@
 ---
-- name: Show a message
+- name: Report creating {{ item.dir }}
   ansible.builtin.debug:
     msg: "...Creating {{ item.dir }}"
 - name: Create a directory
