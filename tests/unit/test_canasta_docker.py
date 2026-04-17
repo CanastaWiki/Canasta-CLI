@@ -394,3 +394,23 @@ class TestDatabaseFileMount:
             "database file under cwd should not be double-mounted, "
             "found: %s" % v_mounts
         )
+
+
+class TestHostPWDEnvVar:
+    """Verify canasta-docker passes CANASTA_HOST_PWD into the container."""
+
+    def test_canasta_host_pwd_is_set(self):
+        argv, _ = run_dry(["version"])
+        env_args = [
+            argv[i + 1] for i, a in enumerate(argv)
+            if a == "-e" and i + 1 < len(argv)
+            and argv[i + 1].startswith("CANASTA_HOST_PWD=")
+        ]
+        assert env_args, (
+            "expected -e CANASTA_HOST_PWD=... in argv:\n%s"
+            % "\n".join(argv)
+        )
+        val = env_args[0].split("=", 1)[1]
+        assert val and os.path.isabs(val), (
+            "CANASTA_HOST_PWD should be an absolute path, got: %s" % val
+        )

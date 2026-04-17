@@ -24,7 +24,7 @@
 
 - name: Resolve output path
   ansible.builtin.set_fact:
-    _export_file: "{{ _export_raw if _export_raw.startswith('/') else lookup('env', 'PWD') + '/' + _export_raw }}"
+    _export_file: "{{ _export_raw if _export_raw.startswith('/') else (lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true)) + '/' + _export_raw }}"
 
 - name: Check if gzip requested
   ansible.builtin.set_fact:

@@ -81,6 +81,11 @@ MOUNTS=(
     -e "HOME=$HOME"
     -v "$(pwd)":"$(pwd)"
     -w "$(pwd)"
+    # Pass the host's real PWD so playbooks can resolve instances by
+    # current directory. Inside the container, $PWD is the container's
+    # working directory — which may differ from the host path after
+    # Docker remaps it.
+    -e "CANASTA_HOST_PWD=$(pwd)"
     --user "$(id -u):$(id -g)"
 )
 
