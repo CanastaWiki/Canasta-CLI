@@ -870,6 +870,31 @@ class TestPathResolution:
         assert not extra["path"].startswith("~")
 
 
+class TestSubcommandGroupHelp:
+    """Invoking a subcommand group with no subcommand should list
+    subcommands, not error with 'Unknown command'."""
+
+    def test_prints_subcommands_for_gitops(self, data, capsys):
+        canasta_cli.print_subcommand_help("gitops", data)
+        out = capsys.readouterr().out
+        assert "Available 'gitops' subcommands:" in out
+        assert "init" in out
+        assert "fix-submodules" in out
+        assert "Run 'canasta gitops <subcommand> --help'" in out
+
+    def test_prints_subcommands_for_config(self, data, capsys):
+        canasta_cli.print_subcommand_help("config", data)
+        out = capsys.readouterr().out
+        assert "regenerate" in out
+        assert "Regenerate rendered config" in out
+
+    def test_prints_nested_group_marker_for_backup(self, data, capsys):
+        canasta_cli.print_subcommand_help("backup", data)
+        out = capsys.readouterr().out
+        assert "schedule" in out
+        assert "subcommand group" in out
+
+
 class TestDoctorRobertEasterEgg:
     """Test the 'canasta doctor robert' Easter egg via command definitions."""
 

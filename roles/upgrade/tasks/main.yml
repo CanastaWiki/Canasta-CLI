@@ -116,6 +116,32 @@
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
 
+# --- Update Compose CANASTA_IMAGE tag ---
+# Match Go CLI behavior: bump the tag if it's the default ghcr.io image,
+# leave it alone if user set a custom/local-build image.
+- name: Update Compose image tag
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - _upgrade_inst.instance.buildFrom | default('') == ''
+  block:
+    - name: Read current CANASTA_IMAGE
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CANASTA_IMAGE
+      register: _upgrade_current_image
+
+    - name: Update CANASTA_IMAGE to latest default tag
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: CANASTA_IMAGE
+        value: "{{ canasta_default_image }}"
+      when:
+        - _upgrade_current_image.found
+        - _upgrade_current_image.value is match('^ghcr\\.io/canastawiki/canasta:')
+        - _upgrade_current_image.value != canasta_default_image
+
 # --- Pull and restart ---
 - name: Report pulling images
   ansible.builtin.debug:
@@ -128,9 +154,74 @@
     tasks_from: pull.yml
   when: _upgrade_inst.instance.buildFrom | default('') == ''
 
-- name: Check if new images were pulled (Compose)
+- name: Check if new images were pulled
   ansible.builtin.set_fact:
-    _images_updated: "{{ _pull_result is defined and _pull_result is changed }}"
+    _images_updated: "{{ _pull_changed | default(false) | bool }}"
+
+# Also check if the running web container's image differs from what
+# .env configures. Catches the case where a prior upgrade pulled the
+# new image but failed to restart (e.g., due to the old detection bug).
+- name: Check running container image vs configured (Compose)
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - not (_images_updated | bool)
+  block:
+    - name: Get running web container image ID
+      ansible.builtin.shell:
+        cmd: >-
+          docker compose ps web --format {% raw %}'{{.Image}}'{% endraw %}
+        chdir: "{{ instance_path }}"
+      register: _running_image
+      changed_when: false
+      ignore_errors: true
+
+    - name: Read configured CANASTA_IMAGE
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CANASTA_IMAGE
+      register: _configured_image
+
+    - name: Pull configured image if not on disk (handles buildable services skipped by docker compose pull)
+      ansible.builtin.command:
+        cmd: "docker pull {{ _configured_image.value }}"
+      register: _ensure_pull
+      changed_when: "'Downloaded newer image' in (_ensure_pull.stdout | default(''))"
+      ignore_errors: true
+      when: _configured_image.found
+
+    - name: Get configured image ID
+      ansible.builtin.command:
+        cmd: "docker image inspect {{ _configured_image.value }} --format {% raw %}{{.Id}}{% endraw %}"
+      register: _configured_id
+      changed_when: false
+      ignore_errors: true
+
+    - name: Get running image ID
+      ansible.builtin.command:
+        cmd: "docker image inspect {{ _running_image.stdout | trim }} --format {% raw %}{{.Id}}{% endraw %}"
+      register: _running_id
+      changed_when: false
+      ignore_errors: true
+      when: _running_image is succeeded
+
+    - name: Flag restart if running image differs from configured
+      ansible.builtin.set_fact:
+        _images_updated: true
+      when:
+        - _configured_id is succeeded
+        - _running_id is succeeded
+        - (_configured_id.stdout | default('')) != (_running_id.stdout | default(''))
+
+    - name: Rebuild buildable services if image was bumped
+      ansible.builtin.command:
+        cmd: "docker compose build --build-arg CANASTA_IMAGE={{ _configured_image.value }} web"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      ignore_errors: true
+      when:
+        - _images_updated | bool
+        - _configured_image.found
 
 - name: Restart containers
   when: _images_updated | bool

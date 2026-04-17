@@ -59,144 +59,96 @@
     _resolved_snapshot: "{{ snapshot }}"
   when: _resolved_snapshot is not defined
 
-- name: Take safety backup before restore
-  when: not (skip_safety_backup | default(false) | bool)
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
-  vars:
-    backup_args:
-      - "--tag"
-      - "safety-before-restore"
-      - "backup"
-      - "/currentsnapshot"
+- name: Take safety backup before restore (Compose)
+  when:
+    - not (skip_safety_backup | default(false) | bool)
+    - instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Read wiki IDs for safety DB dump
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _safety_wikis
+
+    - name: Create backup staging directory
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_command: "mkdir -p /mediawiki/config/backup"
+
+    - name: Dump each wiki database for safety backup
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_no_log: true
+        exec_command: >-
+          mariadb-dump -h db -u root
+          -p{{ _restore_dbpass.value | quote }}
+          --single-transaction
+          --databases {{ item | quote }}
+          > /mediawiki/config/backup/db_{{ item | quote }}.sql
+      loop: "{{ _safety_wikis.wiki_ids }}"
+      no_log: true
+
+    - name: Build safety backup volume map
+      ansible.builtin.set_fact:
+        _safety_volumes: >-
+          {{ {
+            instance_path + '/config': '/currentsnapshot/config',
+            instance_path + '/extensions': '/currentsnapshot/extensions',
+            instance_path + '/images': '/currentsnapshot/images',
+            instance_path + '/skins': '/currentsnapshot/skins',
+            instance_path + '/public_assets': '/currentsnapshot/public_assets',
+            instance_path + '/.env': '/currentsnapshot/.env'
+          } }}
+
+    - name: Check for optional files (safety)
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/{{ item }}"
+      register: _safety_opt_files
+      loop:
+        - docker-compose.override.yml
+        - my.cnf
+
+    - name: Add optional files to safety staging
+      ansible.builtin.set_fact:
+        _safety_volumes: >-
+          {{ _safety_volumes | combine(
+             {instance_path + '/' + item.item:
+              '/currentsnapshot/' + item.item}) }}
+      loop: "{{ _safety_opt_files.results }}"
+      when: item.stat.exists
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Run safety backup with staged files
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
+      vars:
+        backup_args:
+          - "--tag"
+          - "safety-before-restore"
+          - "backup"
+          - "/currentsnapshot"
+        backup_volumes: "{{ _safety_volumes }}"
+
+    - name: Clean up safety DB dump directory
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_command: "rm -rf /mediawiki/config/backup"
+      ignore_errors: true
 
 # --- Kubernetes restore path ---
+# Uses include_tasks (dynamic) so kubernetes.core.k8s is only parsed
+# when actually running K8s. Compose-only controllers no longer need
+# the kubernetes.core collection installed.
 - name: Restore (Kubernetes)
+  ansible.builtin.include_tasks: restore_k8s.yml
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-  block:
-    - name: Set K8s namespace
-      ansible.builtin.set_fact:
-        _k8s_namespace: "canasta-{{ instance_id }}"
-
-    - name: Read restic env vars
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read_all
-      register: _restore_env
-      no_log: true
-
-    - name: Create restore pod
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Pod
-          metadata:
-            name: restic-restore
-            namespace: "{{ _k8s_namespace }}"
-          spec:
-            restartPolicy: Never
-            containers:
-              - name: restic
-                image: restic/restic:latest
-                command:
-                  - sh
-                  - -c
-                  - |
-                    restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target / && \
-                    touch /tmp/restore-done && \
-                    sleep 3600
-                env:
-                  - name: RESTIC_REPOSITORY
-                    value: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
-                  - name: RESTIC_PASSWORD
-                    value: "{{ _restore_env.variables.RESTIC_PASSWORD }}"
-                volumeMounts:
-                  - name: restore-data
-                    mountPath: /currentsnapshot
-                  - name: local-repo
-                    mountPath: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
-            volumes:
-              - name: restore-data
-                emptyDir: {}
-              - name: local-repo
-                hostPath:
-                  path: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
-                  type: DirectoryOrCreate
-
-    - name: Wait for restore pod to be running
-      ansible.builtin.command:
-        cmd: >-
-          kubectl wait pod/restic-restore
-          -n {{ _k8s_namespace }}
-          --for=condition=Ready
-          --timeout=120s
-      changed_when: false
-
-    - name: Wait for restore to complete
-      ansible.builtin.command:
-        cmd: >-
-          kubectl exec -n {{ _k8s_namespace }} restic-restore --
-          sh -c "while ! test -f /tmp/restore-done; do sleep 2; done"
-      changed_when: false
-      timeout: 600
-
-    - name: Copy restored config to host
-      ansible.builtin.shell:
-        cmd: >-
-          kubectl exec -n {{ _k8s_namespace }} restic-restore --
-          tar cf - -C /currentsnapshot/config . 2>/dev/null |
-          tar xf - -C "{{ instance_path }}/config/"
-      changed_when: true
-      ignore_errors: true  # OK if config dir is empty in the snapshot
-
-    - name: Copy restored .env to host
-      ansible.builtin.shell:
-        cmd: >-
-          kubectl cp {{ _k8s_namespace }}/restic-restore:/currentsnapshot/.env
-          "{{ instance_path }}/.env"
-      changed_when: true
-      ignore_errors: true  # OK if .env is missing from snapshot
-
-    - name: Get DB pod name
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/orchestrator/tasks/k8s_get_pod.yml
-      vars:
-        _k8s_component: db
-
-    - name: Find DB dump files in restore pod
-      ansible.builtin.command:
-        cmd: >-
-          kubectl exec -n {{ _k8s_namespace }} restic-restore --
-          ls /currentsnapshot/config/backup/
-      register: _restore_db_files
-      changed_when: false
-      ignore_errors: true  # OK if no DB dumps in snapshot
-
-    - name: Import each DB dump
-      when: _restore_db_files is succeeded and _restore_db_files.stdout | trim | length > 0
-      ansible.builtin.shell:
-        cmd: >-
-          kubectl exec -n {{ _k8s_namespace }} restic-restore --
-          cat /currentsnapshot/config/backup/{{ item }} |
-          kubectl exec -i -n {{ _k8s_namespace }} {{ _k8s_pod_name }} --
-          mariadb -u root -p"{{ _restore_dbpass.value }}"
-      loop: >-
-        {{ _restore_db_files.stdout_lines | default([])
-           | select('match', '^db_.*\\.sql$') | list }}
-      no_log: true
-
-    - name: Delete restore pod
-      kubernetes.core.k8s:
-        state: absent
-        api_version: v1
-        kind: Pod
-        name: restic-restore
-        namespace: "{{ _k8s_namespace }}"
-
-    - name: Sync config to ConfigMaps
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml
 
 # --- Compose restore path (unchanged from original) ---
 - name: Restore snapshot into backup volume

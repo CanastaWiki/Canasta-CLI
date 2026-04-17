@@ -443,6 +443,31 @@ def build_parser(data):
     return parser
 
 
+def print_subcommand_help(group, data):
+    """Print subcommands available for a group with one-line descriptions."""
+    cmd_index = {c["name"]: c for c in data["commands"]}
+    subcmds = SUBCOMMAND_GROUPS.get(group, [])
+    nested = NESTED_SUBCOMMAND_GROUPS.get(group, {})
+
+    rows = []
+    for sub in subcmds:
+        internal = "%s_%s" % (group, internal_name(sub))
+        desc = cmd_index.get(internal, {}).get("description", "") or ""
+        rows.append((sub, desc))
+    # Include nested subcommand names (e.g., 'schedule' under 'backup')
+    for nested_name in nested:
+        if nested_name not in subcmds:
+            # The nested group itself; describe it succinctly
+            rows.append((nested_name, "(subcommand group; run 'canasta %s %s' for subcommands)" % (group, nested_name)))
+
+    width = max((len(r[0]) for r in rows), default=0)
+    print("Available '%s' subcommands:" % group)
+    for name, desc in rows:
+        print("  %-*s  %s" % (width, name, desc))
+    print("")
+    print("Run 'canasta %s <subcommand> --help' for details." % group)
+
+
 def resolve_command_name(args):
     """Resolve the internal command name from parsed args."""
     cmd = args.command
@@ -718,6 +743,11 @@ def main():
     # Verify command exists in definitions
     all_cmd_names = {c["name"] for c in data["commands"]}
     if command_name not in all_cmd_names:
+        # Subcommand group invoked without a subcommand (e.g. 'canasta gitops'):
+        # list the subcommands with descriptions instead of erroring.
+        if command_name in SUBCOMMAND_GROUPS:
+            print_subcommand_help(command_name, data)
+            sys.exit(2)
         print("Unknown command: %s" % command_name, file=sys.stderr)
         sys.exit(1)
 

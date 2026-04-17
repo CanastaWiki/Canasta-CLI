@@ -177,12 +177,12 @@ class TestEnvFileMount:
         cwd_dir = tempfile.mkdtemp(prefix="cd-cwd-", dir="/tmp")
         try:
             envfile = self._make_envfile(short_tmp)
-            envfile_dir = os.path.dirname(envfile)
             argv, _ = run_dry(
                 ["create", "-i", "x", "-w", "main", "-e", envfile],
                 cwd=cwd_dir,
             )
-            assert_volume_mount(argv, envfile_dir, envfile_dir, ro=True)
+            # The individual file (not its parent dir) should be mounted
+            assert_volume_mount(argv, envfile, envfile, ro=True)
             # Look at args passed to canasta.py (after the image name);
             # the first -e in the full argv is the docker run -e for
             # DOCKER_HOST, not the user's flag.
@@ -196,13 +196,13 @@ class TestEnvFileMount:
         cwd_dir = tempfile.mkdtemp(prefix="cd-cwd-", dir="/tmp")
         try:
             envfile = self._make_envfile(short_tmp)
-            envfile_dir = os.path.dirname(envfile)
             argv, _ = run_dry(
                 ["create", "-i", "x", "-w", "main",
                  "--envfile", envfile],
                 cwd=cwd_dir,
             )
-            assert_volume_mount(argv, envfile_dir, envfile_dir, ro=True)
+            # The individual file (not its parent dir) should be mounted
+            assert_volume_mount(argv, envfile, envfile, ro=True)
         finally:
             shutil.rmtree(cwd_dir, ignore_errors=True)
 
@@ -227,15 +227,15 @@ class TestEnvFileMount:
             ["create", "-i", "x", "-w", "main", "-e", "test.env"],
             cwd=str(tmp_path),
         )
-        # The envfile's parent dir is $PWD (already mounted), so no
-        # extra -v entry should be added for it.
-        target = "%s:%s:ro" % (str(tmp_path), str(tmp_path))
+        # The envfile is inside $PWD (already mounted), so no extra -v
+        # entry should be added for it.
+        target = "%s:%s:ro" % (str(envfile), str(envfile))
         v_mounts = [
             argv[i + 1] for i, a in enumerate(argv)
             if a == "-v" and i + 1 < len(argv)
         ]
         assert target not in v_mounts, (
-            "envfile parent dir under cwd should not be double-mounted, "
+            "envfile under cwd should not be double-mounted, "
             "found: %s" % v_mounts
         )
 
@@ -346,3 +346,51 @@ class TestArgumentRewriting:
         )
         p_idx = argv.index("-p")
         assert argv[p_idx + 1] == str(target)
+
+
+class TestDatabaseFileMount:
+    """Verify -d/--database mounts the individual file, not the parent
+    directory, so system dirs like /tmp are not clobbered read-only."""
+
+    def test_database_file_mounted_not_parent_dir(self, short_tmp):
+        """A database file under /tmp must mount only the file, not /tmp."""
+        cwd_dir = tempfile.mkdtemp(prefix="cd-cwd-", dir="/tmp")
+        try:
+            db_file = os.path.join(short_tmp, "dump.sql")
+            with open(db_file, "w") as f:
+                f.write("")
+            argv, _ = run_dry(
+                ["add", "-i", "x", "-w", "main", "-d", db_file],
+                cwd=cwd_dir,
+            )
+            # The individual file should be mounted read-only
+            assert_volume_mount(argv, db_file, db_file, ro=True)
+            # The parent directory must NOT be mounted (that would
+            # clobber /tmp and break Ansible temp dirs)
+            parent_target = "%s:%s:ro" % (short_tmp, short_tmp)
+            v_mounts = [
+                argv[i + 1] for i, a in enumerate(argv)
+                if a == "-v" and i + 1 < len(argv)
+            ]
+            assert parent_target not in v_mounts, (
+                "parent dir should not be mounted, found: %s" % v_mounts
+            )
+        finally:
+            shutil.rmtree(cwd_dir, ignore_errors=True)
+
+    def test_database_inside_cwd_not_double_mounted(self, tmp_path):
+        db_file = tmp_path / "dump.sql"
+        db_file.write_text("")
+        argv, _ = run_dry(
+            ["add", "-i", "x", "-w", "main", "-d", "dump.sql"],
+            cwd=str(tmp_path),
+        )
+        target = "%s:%s:ro" % (str(db_file), str(db_file))
+        v_mounts = [
+            argv[i + 1] for i, a in enumerate(argv)
+            if a == "-v" and i + 1 < len(argv)
+        ]
+        assert target not in v_mounts, (
+            "database file under cwd should not be double-mounted, "
+            "found: %s" % v_mounts
+        )
