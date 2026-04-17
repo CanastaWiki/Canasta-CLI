@@ -35,6 +35,17 @@
         ansible_python_interpreter: "{{ ansible_playbook_python }}"
       register: _current_version
 
+    - name: Get current commit hash
+      ansible.builtin.command:
+        cmd: "git rev-parse --short HEAD"
+        chdir: "{{ _repo_dir }}"
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      register: _current_commit
+      changed_when: false
+
     - name: Fetch latest from remote
       ansible.builtin.command:
         cmd: "git fetch origin"
@@ -58,7 +69,10 @@
 
     - name: Report no updates
       ansible.builtin.debug:
-        msg: "Canasta-Ansible is already up to date (version {{ _current_version.content | b64decode | trim }})."
+        msg: >-
+          Canasta-Ansible is already up to date
+          (version {{ _current_version.content | b64decode | trim }},
+          commit {{ _current_commit.stdout | trim }}).
       when: _pending_updates.stdout | trim | length == 0
 
     - name: Pull latest changes
@@ -93,10 +107,35 @@
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           register: _new_version
 
+        - name: Get new commit hash
+          ansible.builtin.command:
+            cmd: "git rev-parse --short HEAD"
+            chdir: "{{ _repo_dir }}"
+          delegate_to: localhost
+          vars:
+            ansible_connection: local
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          register: _new_commit
+          changed_when: false
+
+        - name: Update BUILD_COMMIT and BUILD_DATE after pull
+          ansible.builtin.shell:
+            cmd: >-
+              git rev-parse --short HEAD > BUILD_COMMIT &&
+              git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' > BUILD_DATE
+            chdir: "{{ _repo_dir }}"
+          delegate_to: localhost
+          vars:
+            ansible_connection: local
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          changed_when: true
+
         - name: Report update
           ansible.builtin.debug:
             msg: >-
               Updated Canasta-Ansible from
-              {{ _current_version.content | b64decode | trim }} to
-              {{ _new_version.content | b64decode | trim }}.
+              {{ _current_version.content | b64decode | trim }}
+              ({{ _current_commit.stdout | trim }}) to
+              {{ _new_version.content | b64decode | trim }}
+              ({{ _new_commit.stdout | trim }}).
           when: _pull_result.rc == 0
