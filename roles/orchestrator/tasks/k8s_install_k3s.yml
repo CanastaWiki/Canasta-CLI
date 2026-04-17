@@ -24,6 +24,16 @@
         cmd: "curl -sfL https://get.k3s.io | sh -"
       changed_when: true
 
+    - name: Make k3s kubeconfig readable (before verification)
+      ansible.builtin.file:
+        path: /etc/rancher/k3s/k3s.yaml
+        mode: "0644"
+      become: true
+      retries: 10
+      delay: 3
+      until: _chmod_result is succeeded
+      register: _chmod_result
+
     - name: Wait for k3s to be ready
       ansible.builtin.command:
         cmd: k3s kubectl cluster-info
@@ -70,15 +80,8 @@
   become: true
   when: _k8s_python.rc != 0
 
-# k3s writes its kubeconfig to /etc/rancher/k3s/k3s.yaml with mode
-# 600 (root-only). The k3s binary (used via the kubectl symlink)
-# reads this file by default. Make it readable so non-root users
-# can use kubectl without sudo.
-- name: Make k3s kubeconfig readable
-  ansible.builtin.file:
-    path: /etc/rancher/k3s/k3s.yaml
-    mode: "0644"
-  become: true
+# k3s kubeconfig permissions were already set in the install block
+# above (before the wait-for-ready check). No need to repeat here.
 
 - name: Ensure kubeconfig directory exists
   ansible.builtin.file:
