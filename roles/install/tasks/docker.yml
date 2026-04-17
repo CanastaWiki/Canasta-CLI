@@ -3,6 +3,10 @@
 # Supports Debian/Ubuntu (apt) and RHEL/CentOS/Fedora (dnf).
 # Idempotent — skips if Docker is already installed and running.
 
+- name: Capture real username before become
+  ansible.builtin.set_fact:
+    _install_user: "{{ ansible_user | default(ansible_env.USER) }}"
+
 - name: Check if Docker is already installed
   ansible.builtin.command:
     cmd: docker compose version
@@ -102,7 +106,7 @@
 
     - name: Add current user to docker group
       ansible.builtin.user:
-        name: "{{ ansible_user | default(ansible_env.USER) }}"
+        name: "{{ _install_user }}"
         groups: docker
         append: true
       ignore_errors: true
