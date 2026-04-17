@@ -35,12 +35,10 @@
       does not allow pushing. Only 'source' and 'both' roles can push.
   when: _push_role not in ['source', 'both']
 
-# --- Stage, commit, and push ---
-- name: Stage all changes
-  ansible.builtin.command:
-    cmd: "git add -A"
-    chdir: "{{ instance_path }}"
-  changed_when: false
+# --- Commit and push ---
+# Note: no 'git add -A' here. Users stage changes explicitly via
+# 'canasta gitops add' (which runs git add -A). Push only commits
+# what's already staged and pushes any unpushed commits.
 
 - name: Check for staged changes
   ansible.builtin.command:
@@ -76,5 +74,6 @@
 - name: Report result
   ansible.builtin.debug:
     msg: >-
-      {{ (_push_staged.rc != 0)
+      {{ (_push_staged.rc != 0 or
+          (_push_unpushed.stdout | default('') | trim | length > 0))
          | ternary('Configuration pushed.', 'No changes to push.') }}
