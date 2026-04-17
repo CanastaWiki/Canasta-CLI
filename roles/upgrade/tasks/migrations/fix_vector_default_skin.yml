@@ -3,7 +3,7 @@
 
 - name: Display a progress message
   ansible.builtin.debug:
-    msg: ...Ensure default skin
+    msg: "Checking default skin..."
 
 - name: Check if Vector.php exists
   ansible.builtin.stat:

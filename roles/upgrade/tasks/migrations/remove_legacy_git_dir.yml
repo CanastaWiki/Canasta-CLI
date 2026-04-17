@@ -4,7 +4,7 @@
 
 - name: Display a progress message
   ansible.builtin.debug:
-    msg: ...Remove old .git directories
+    msg: "Checking for legacy .git directories..."
 
 - name: Check for .gitops-host
   ansible.builtin.stat:
