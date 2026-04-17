@@ -345,6 +345,44 @@
   when: (wikidbuser | default('root')) != 'root'
   no_log: true
 
+# --- External database setup ---
+# If USE_EXTERNAL_DB=true was set (via -e envfile), validate that
+# MYSQL_HOST is also present, and configure COMPOSE_PROFILES to skip
+# the bundled db container.
+- name: Check for external database configuration
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: USE_EXTERNAL_DB
+  register: _ext_db_check
+
+- name: Validate external DB config
+  when: _ext_db_check.found and _ext_db_check.value | lower == 'true'
+  block:
+    - name: Check MYSQL_HOST is set
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MYSQL_HOST
+      register: _ext_db_host
+
+    - name: Fail if MYSQL_HOST not set for external DB
+      ansible.builtin.fail:
+        msg: >-
+          USE_EXTERNAL_DB=true but MYSQL_HOST is not set. Include
+          MYSQL_HOST in your env file (-e) to specify the external
+          database server.
+      when: not _ext_db_host.found or _ext_db_host.value == ''
+
+- name: Set COMPOSE_PROFILES for database mode
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: COMPOSE_PROFILES
+    value: >-
+      {{ (_ext_db_check.found and _ext_db_check.value | lower == 'true')
+         | ternary('', 'internal-db') }}
+
 # Generate a placeholder MW_SECRET_KEY so docker compose variable substitution
 # doesn't warn about it being empty during the first 'docker compose up'.
 # install.php later replaces this with the key from LocalSettings.php,
