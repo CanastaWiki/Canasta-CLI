@@ -1,13 +1,44 @@
 ---
 # Pull latest images for an instance.
 # Input: instance_path, instance_orchestrator
+# Output: _pull_changed (bool) — whether the Canasta image ID changed.
+
+- name: Read CANASTA_IMAGE from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CANASTA_IMAGE
+  register: _pull_image_env
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Get image ID before pull
+  ansible.builtin.command:
+    cmd: "docker image inspect {{ _pull_image_env.value }} --format {% raw %}{{.Id}}{% endraw %}"
+  register: _pre_pull_id
+  changed_when: false
+  ignore_errors: true
+  when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Pull images (Compose)
   ansible.builtin.command:
     cmd: "docker compose pull --ignore-buildable --ignore-pull-failures"
     chdir: "{{ instance_path }}"
-  register: _pull_result
-  changed_when: "'Pull complete' in (_pull_result.stderr | default(''))"
+  changed_when: false
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Get image ID after pull
+  ansible.builtin.command:
+    cmd: "docker image inspect {{ _pull_image_env.value }} --format {% raw %}{{.Id}}{% endraw %}"
+  register: _post_pull_id
+  changed_when: false
+  ignore_errors: true
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Detect image changes
+  ansible.builtin.set_fact:
+    _pull_changed: >-
+      {{ (_pre_pull_id.stdout | default('')) !=
+         (_post_pull_id.stdout | default('')) }}
   when: instance_orchestrator | default('compose') == 'compose'
 
 # Kubernetes: image pulls happen automatically during helm upgrade.

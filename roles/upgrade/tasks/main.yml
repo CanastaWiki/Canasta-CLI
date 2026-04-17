@@ -156,7 +156,7 @@
 
 - name: Check if new images were pulled (Compose)
   ansible.builtin.set_fact:
-    _images_updated: "{{ _pull_result is defined and _pull_result is changed }}"
+    _images_updated: "{{ _pull_changed | default(false) | bool }}"
 
 - name: Restart containers
   when: _images_updated | bool
