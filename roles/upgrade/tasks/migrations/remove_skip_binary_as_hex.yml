@@ -4,7 +4,7 @@
 
 - name: Display a progress message
   ansible.builtin.debug:
-    msg: ...Remove skip-binary-as-hex from my.cnf
+    msg: "Checking my.cnf..."
 
 - name: Check if my.cnf exists
   ansible.builtin.stat:

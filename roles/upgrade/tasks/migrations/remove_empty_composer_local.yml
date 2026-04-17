@@ -3,7 +3,7 @@
 
 - name: Display a progress message
   ansible.builtin.debug:
-    msg: ...Update composer.local.json
+    msg: "Checking composer.local.json..."
 
 - name: Check if composer.local.json exists
   ansible.builtin.stat:

@@ -151,7 +151,7 @@
 # --- Step 5: Copy instance template files (no-clobber) ---
 - name: Report copying template files
   ansible.builtin.debug:
-    msg: "Copying instance template files (please wait)..."
+    msg: "Copying instance template files..."
 
 - name: Copy instance template
   ansible.builtin.copy:
@@ -162,7 +162,7 @@
 
 - name: Report directory creation
   ansible.builtin.debug:
-    msg: "Creating some directories..."
+    msg: "Creating instance directories..."
 
 - name: Ensure directories exist
   include_tasks: noisy_create_dir.yml

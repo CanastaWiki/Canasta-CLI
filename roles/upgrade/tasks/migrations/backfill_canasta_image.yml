@@ -3,7 +3,7 @@
 
 - name: Display a progress message
   ansible.builtin.debug:
-    msg: ...Ensure CANASTA_IMAGE is set in .env.
+    msg: "Checking CANASTA_IMAGE..."
 
 - name: Check if CANASTA_IMAGE is set
   canasta_env:

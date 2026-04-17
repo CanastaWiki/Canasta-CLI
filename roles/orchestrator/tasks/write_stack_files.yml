@@ -7,9 +7,9 @@
 - name: Write Compose stack files
   when: instance_orchestrator | default('compose') == 'compose'
   block:
-    - name: Report writing docker-compose.yml
+    - name: Report writing stack files
       ansible.builtin.debug:
-        msg: ...Writing docker-compose.yml
+        msg: "Writing Compose stack files..."
 
     - name: Copy docker-compose.yml
       ansible.builtin.copy:
@@ -18,10 +18,6 @@
         force: false
         mode: "0644"
 
-    - name: Report writing docker-compose.override.yml.example
-      ansible.builtin.debug:
-        msg: ...Writing docker-compose.override.yml.example
-
     - name: Copy docker-compose.override.yml.example
       ansible.builtin.copy:
         src: "{{ role_path }}/files/compose/docker-compose.override.yml.example"
@@ -29,20 +25,12 @@
         force: false
         mode: "0644"
 
-    - name: Report writing logstash pipeline configs
-      ansible.builtin.debug:
-        msg: ...Writing logstash pipeline configs
-
     - name: Copy logstash pipeline configs
       ansible.builtin.copy:
         src: "{{ role_path }}/files/compose/config/logstash/"
         dest: "{{ instance_path }}/config/logstash/"
         force: false
         mode: "0644"
-
-    - name: Report writing observable-init script
-      ansible.builtin.debug:
-        msg: ...Writing observable-init script
 
     - name: Copy observable-init script
       ansible.builtin.copy:
@@ -54,9 +42,9 @@
 - name: Write Kubernetes stack files
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:
-    - name: Report creating Kubernetes directories
+    - name: Report writing stack files
       ansible.builtin.debug:
-        msg: ...Creating Kubernetes instance directories
+        msg: "Writing Kubernetes stack files..."
 
     - name: Create instance directories for Kubernetes
       ansible.builtin.file:
@@ -66,10 +54,6 @@
       loop:
         - wikis
         - argocd
-
-    - name: Report scaffolding values.yaml
-      ansible.builtin.debug:
-        msg: ...Scaffolding Helm values.yaml
 
     - name: Scaffold values.yaml from chart defaults
       ansible.builtin.copy:
