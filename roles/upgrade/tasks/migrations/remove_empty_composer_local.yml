@@ -1,6 +1,10 @@
 ---
 # Migration: Remove config/composer.local.json if it has an empty include array.
 
+- name: Display a progress message
+  ansible.builtin.debug:
+    msg: ...Update composer.local.json
+
 - name: Check if composer.local.json exists
   ansible.builtin.stat:
     path: "{{ instance_path }}/config/composer.local.json"

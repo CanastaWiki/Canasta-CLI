@@ -3,6 +3,10 @@
 # config/<wikiid>/ -> config/settings/wikis/<wikiid>/
 # config/settings/*.php -> config/settings/global/*.php
 
+- name: Display a progress message
+  ansible.builtin.debug:
+    msg: ...Migrate directory structures
+
 - name: Check for old per-wiki config directories
   ansible.builtin.find:
     paths: "{{ instance_path }}/config"
