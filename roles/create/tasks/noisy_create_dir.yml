@@ -1,0 +1,9 @@
+---
+- name: Report creating {{ item.dir }}
+  ansible.builtin.debug:
+    msg: "...Creating {{ item.dir }}"
+- name: Create a directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ item.dir }}"
+    state: directory
+    mode: "{{ item.mode | default('0755') }}"
