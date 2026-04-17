@@ -35,6 +35,94 @@
       does not allow pushing. Only 'source' and 'both' roles can push.
   when: _push_role not in ['source', 'both']
 
+# --- Auto-migrate shared-category keys to _shared/vars.yaml ---
+# Keys matching backup/cloud credential prefixes belong in the shared
+# file so all hosts inherit them. Move them on first push after the
+# feature is available; subsequent pushes are no-ops.
+- name: Read host vars
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/{{ _push_hostname }}/vars.yaml"
+  register: _push_host_vars_raw
+
+- name: Check for _shared/vars.yaml
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/hosts/_shared/vars.yaml"
+  register: _push_shared_stat
+
+- name: Read existing shared vars
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/_shared/vars.yaml"
+  register: _push_shared_vars_raw
+  when: _push_shared_stat.stat.exists
+
+- name: Migrate shared-category keys
+  ansible.builtin.set_fact:
+    _push_host_vars: "{{ _push_host_vars_raw.content | b64decode | from_yaml }}"
+    _push_shared_vars: >-
+      {{ (_push_shared_stat.stat.exists
+          | ternary(_push_shared_vars_raw.content | b64decode | from_yaml, {})) }}
+    _push_shared_prefixes:
+      - "restic_"
+      - "aws_"
+      - "azure_"
+      - "b2_"
+      - "google_"
+      - "os_"
+      - "st_"
+      - "rclone_"
+
+- name: Identify keys to migrate
+  ansible.builtin.set_fact:
+    _push_keys_to_migrate: >-
+      {{ _push_host_vars | dict2items
+         | selectattr('key', 'match', '(' + _push_shared_prefixes | join('|') + ')')
+         | rejectattr('key', 'in', _push_shared_vars)
+         | list }}
+
+- name: Write migrated shared vars
+  when: _push_keys_to_migrate | length > 0
+  block:
+    - name: Create _shared directory
+      ansible.builtin.file:
+        path: "{{ instance_path }}/hosts/_shared"
+        state: directory
+        mode: "0755"
+
+    - name: Merge migrated keys into shared vars
+      ansible.builtin.copy:
+        content: >-
+          {{ _push_shared_vars
+             | combine(dict(_push_keys_to_migrate
+                            | map(attribute='key')
+                            | zip(_push_keys_to_migrate
+                                  | map(attribute='value'))
+                            | list))
+             | to_nice_yaml(indent=2) }}
+        dest: "{{ instance_path }}/hosts/_shared/vars.yaml"
+        mode: "0644"
+      no_log: true
+
+    - name: Remove migrated keys from host vars
+      ansible.builtin.copy:
+        content: >-
+          {{ _push_host_vars | dict2items
+             | rejectattr('key', 'match', '(' + _push_shared_prefixes | join('|') + ')')
+             | items2dict
+             | to_nice_yaml(indent=2) }}
+        dest: "{{ instance_path }}/hosts/{{ _push_hostname }}/vars.yaml"
+        mode: "0644"
+      no_log: true
+
+    - name: Stage migrated vars files
+      ansible.builtin.command:
+        cmd: "git add hosts/_shared/vars.yaml hosts/{{ _push_hostname }}/vars.yaml"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Report migration
+      ansible.builtin.debug:
+        msg: "Migrated {{ _push_keys_to_migrate | length }} shared credential key(s) to hosts/_shared/vars.yaml."
+
 # --- Commit and push ---
 # Note: no 'git add -A' here. Users stage changes explicitly via
 # 'canasta gitops add' (which runs git add -A). Push only commits
