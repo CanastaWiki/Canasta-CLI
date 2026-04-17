@@ -154,9 +154,56 @@
     tasks_from: pull.yml
   when: _upgrade_inst.instance.buildFrom | default('') == ''
 
-- name: Check if new images were pulled (Compose)
+- name: Check if new images were pulled
   ansible.builtin.set_fact:
     _images_updated: "{{ _pull_changed | default(false) | bool }}"
+
+# Also check if the running web container's image differs from what
+# .env configures. Catches the case where a prior upgrade pulled the
+# new image but failed to restart (e.g., due to the old detection bug).
+- name: Check running container image vs configured (Compose)
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - not (_images_updated | bool)
+  block:
+    - name: Get running web container image ID
+      ansible.builtin.shell:
+        cmd: >-
+          docker compose ps web --format {% raw %}'{{.Image}}'{% endraw %}
+        chdir: "{{ instance_path }}"
+      register: _running_image
+      changed_when: false
+      ignore_errors: true
+
+    - name: Read configured CANASTA_IMAGE
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CANASTA_IMAGE
+      register: _configured_image
+
+    - name: Get configured image ID
+      ansible.builtin.command:
+        cmd: "docker image inspect {{ _configured_image.value }} --format {% raw %}{{.Id}}{% endraw %}"
+      register: _configured_id
+      changed_when: false
+      ignore_errors: true
+
+    - name: Get running image ID
+      ansible.builtin.command:
+        cmd: "docker image inspect {{ _running_image.stdout | trim }} --format {% raw %}{{.Id}}{% endraw %}"
+      register: _running_id
+      changed_when: false
+      ignore_errors: true
+      when: _running_image is succeeded
+
+    - name: Flag restart if running image differs from configured
+      ansible.builtin.set_fact:
+        _images_updated: true
+      when:
+        - _configured_id is succeeded
+        - _running_id is succeeded
+        - (_configured_id.stdout | default('')) != (_running_id.stdout | default(''))
 
 - name: Restart containers
   when: _images_updated | bool
