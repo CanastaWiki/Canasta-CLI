@@ -300,6 +300,16 @@ to_abs_path() {
 # Relative paths are resolved to absolute form and the argument list
 # is rewritten in place so the container receives absolute paths
 # (Docker bind-mount destinations must be absolute).
+# Pre-scan for --host/-H to know if this is a remote operation.
+# When targeting a remote host, -p is a remote path that must NOT
+# be mounted locally (it may not exist on the local machine).
+_REMOTE_OP=false
+for _arg in "$@"; do
+    case "$_arg" in
+        -H|--host|-H=*|--host=*) _REMOTE_OP=true; break ;;
+    esac
+done
+
 ARGS=("$@")
 NEW_ARGS=()
 i=0
@@ -308,6 +318,13 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
     case "$arg" in
         --path|-p)
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                if [[ "$_REMOTE_OP" == "true" ]]; then
+                    # Remote operation: pass path through without
+                    # mounting (it's a path on the remote host).
+                    NEW_ARGS+=("$arg" "${ARGS[$((i+1))]}")
+                    i=$((i+2))
+                    continue
+                fi
                 CREATE_PATH_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
                 NEW_ARGS+=("$arg" "$CREATE_PATH_ABS")
                 CWD="$(pwd)"
