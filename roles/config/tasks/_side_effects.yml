@@ -318,3 +318,52 @@
              | to_nice_yaml(indent=2) }}
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
+
+# --- MW_SITE_SERVER domain change cascade ---
+# When the domain changes, update MW_SITE_FQDN, wikis.yaml URLs,
+# and (via the existing update_config.yml in set.yml) Caddyfile.
+- name: Cascade MW_SITE_SERVER domain change
+  when: _config_key == 'MW_SITE_SERVER'
+  block:
+    - name: Extract new FQDN from MW_SITE_SERVER
+      ansible.builtin.set_fact:
+        _new_fqdn: "{{ _config_value | regex_replace('^https?://', '') }}"
+
+    - name: Read current MW_SITE_FQDN
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MW_SITE_FQDN
+      register: _se_old_fqdn
+
+    - name: Update MW_SITE_FQDN
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: MW_SITE_FQDN
+        value: "{{ _new_fqdn }}"
+
+    - name: Read wikis.yaml for domain update
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _se_domain_wikis
+
+    - name: Update wikis.yaml URLs with new domain
+      ansible.builtin.shell:
+        cmd: |
+          python3 -c "
+          import yaml
+          with open('{{ instance_path }}/config/wikis.yaml') as f:
+              data = yaml.safe_load(f)
+          old = '{{ _se_old_fqdn.value | default('') }}'
+          new = '{{ _new_fqdn }}'
+          if old and data and 'wikis' in data:
+              for wiki in data['wikis']:
+                  if 'url' in wiki:
+                      wiki['url'] = wiki['url'].replace(old, new)
+          with open('{{ instance_path }}/config/wikis.yaml', 'w') as f:
+              yaml.dump(data, f, default_flow_style=False)
+          "
+      changed_when: true
+      when: _se_old_fqdn.found and _se_old_fqdn.value != _new_fqdn

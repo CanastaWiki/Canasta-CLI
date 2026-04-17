@@ -7,8 +7,8 @@
 
 - name: Validate extension script path
   ansible.builtin.fail:
-    msg: "Invalid script path '{{ script_args }}'. Must match pattern: alphanumeric, slashes, dots, hyphens."
-  when: script_args | regex_search('[^a-zA-Z0-9/_. -]') is not none
+    msg: "Invalid script path '{{ script_args }}'. Must match pattern: alphanumeric, slashes, dots, hyphens, colons."
+  when: script_args | regex_search('[^a-zA-Z0-9/_. :-]') is not none
 
 - name: Build extension script command
   ansible.builtin.set_fact:
