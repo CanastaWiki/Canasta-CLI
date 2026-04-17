@@ -15,14 +15,29 @@
     exec_command: "mariadb -u root -p'{{ import_db_password }}' -e 'CREATE DATABASE IF NOT EXISTS `{{ import_wiki_id }}`'"
     exec_no_log: true
 
+# Transfer the dump file from the controller to the target host if remote.
+# For localhost this is a no-op (same filesystem). For remote hosts, ansible
+# copies the file via SCP so the path doesn't need to exist on the remote.
+- name: Transfer database dump to target host
+  ansible.builtin.copy:
+    src: "{{ import_database_path }}"
+    dest: "/tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
+    mode: "0644"
+  register: _import_transferred
+
 - name: Copy database dump to container (Compose)
   ansible.builtin.command:
     cmd: >-
-      docker compose cp {{ import_database_path | quote }}
+      docker compose cp /tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}
       {{ ('db:' + _import_container_file) | quote }}
     chdir: "{{ instance_path }}"
   changed_when: true
   when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Clean up transferred dump from target host
+  ansible.builtin.file:
+    path: "/tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
+    state: absent
 
 - name: Copy database dump to container (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
@@ -35,7 +50,7 @@
 
     - name: Copy dump via kubectl cp
       ansible.builtin.command:
-        cmd: "kubectl cp {{ import_database_path }} canasta-{{ instance_id }}/{{ _k8s_pod_name }}:{{ _import_container_file }}"
+        cmd: "kubectl cp /tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }} canasta-{{ instance_id }}/{{ _k8s_pod_name }}:{{ _import_container_file }}"
       changed_when: true
 
 - name: Import gzipped database
