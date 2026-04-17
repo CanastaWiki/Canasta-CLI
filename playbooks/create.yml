@@ -20,8 +20,8 @@
   ansible.builtin.fail:
     msg: >-
       Instance '{{ id }}' already exists in the registry
-      (path: {{ _existing.instance.path }},
-      host: {{ _existing.instance.host | default('localhost') }}).
+      (path: {{ _pre_check.instance.path }},
+      host: {{ _pre_check.instance.host | default('localhost') }}).
       Run 'canasta delete --id {{ id }} --yes' to remove it first.
   when: _pre_check is succeeded
 
