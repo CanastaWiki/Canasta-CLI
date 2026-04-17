@@ -9,39 +9,23 @@
   ansible.builtin.set_fact:
     _repo_dir: "{{ playbook_dir }}"
 
-- name: Check for baked-in Docker build marker
+- name: Check if playbook directory is a git repo
   ansible.builtin.stat:
-    path: "{{ _repo_dir }}/BUILD_COMMIT"
+    path: "{{ _repo_dir }}/.git"
   delegate_to: localhost
   vars:
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
-  register: _docker_build
+  register: _is_git_repo_early
 
 - name: Report Docker image already updated
   ansible.builtin.debug:
     msg: "Canasta CLI updated to the latest Docker image."
-  when: _docker_build.stat.exists
+  when: not (_is_git_repo_early.stat.exists | default(false))
 
 - name: Self-update from git checkout
-  when: not _docker_build.stat.exists
+  when: _is_git_repo_early.stat.exists | default(false)
   block:
-    - name: Check if playbook directory is a git repo
-      ansible.builtin.stat:
-        path: "{{ _repo_dir }}/.git"
-      delegate_to: localhost
-      vars:
-        ansible_connection: local
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
-      register: _is_git_repo
-
-    - name: Fail if not a git repository
-      ansible.builtin.fail:
-        msg: >-
-          Canasta-Ansible is not installed from a git repository ({{ _repo_dir }}).
-          Clone the repo first: git clone https://github.com/CanastaWiki/Canasta-Ansible.git
-      when: not _is_git_repo.stat.exists
-
     - name: Get current version
       ansible.builtin.slurp:
         src: "{{ _repo_dir }}/VERSION"
