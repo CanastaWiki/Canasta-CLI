@@ -1,0 +1,45 @@
+---
+# Install git-crypt on the target host.
+# Idempotent — skips if git-crypt is already installed.
+
+- name: Check if git-crypt is already installed
+  ansible.builtin.command:
+    cmd: git-crypt --version
+  register: _gitcrypt_installed
+  changed_when: false
+  ignore_errors: true
+
+- name: Skip if git-crypt already available
+  ansible.builtin.debug:
+    msg: "git-crypt is already installed."
+  when: _gitcrypt_installed.rc == 0
+
+- name: Install git-crypt
+  when: _gitcrypt_installed.rc != 0
+  become: true
+  block:
+    - name: Report installing git-crypt
+      ansible.builtin.debug:
+        msg: "Installing git-crypt..."
+
+    - name: Gather OS facts
+      ansible.builtin.setup:
+        gather_subset:
+          - distribution
+
+    - name: Install git-crypt (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: git-crypt
+        state: present
+        update_cache: true
+      when: ansible_os_family == 'Debian'
+
+    - name: Install git-crypt (RHEL/CentOS/Fedora)
+      ansible.builtin.dnf:
+        name: git-crypt
+        state: present
+      when: ansible_os_family == 'RedHat'
+
+    - name: Report git-crypt installed
+      ansible.builtin.debug:
+        msg: "git-crypt installed."

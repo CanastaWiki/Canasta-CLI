@@ -1,0 +1,136 @@
+---
+# Install Docker Engine and Docker Compose plugin.
+# Supports Debian/Ubuntu (apt) and RHEL/CentOS/Fedora (dnf).
+# Idempotent — skips if Docker is already installed and running.
+
+- name: Capture real username before become
+  ansible.builtin.set_fact:
+    _install_user: "{{ ansible_user | default(lookup('env', 'USER')) }}"
+
+- name: Warn on unsupported platforms
+  ansible.builtin.fail:
+    msg: >-
+      'canasta install docker' is for Linux servers only. On macOS or
+      Windows, install Docker Desktop from https://www.docker.com/products/docker-desktop/
+  when: ansible_system | default(lookup('pipe', 'uname -s')) not in ['Linux']
+
+- name: Check if Docker is already installed
+  ansible.builtin.command:
+    cmd: docker compose version
+  register: _docker_installed
+  changed_when: false
+  ignore_errors: true
+
+- name: Skip if Docker already available
+  ansible.builtin.debug:
+    msg: "Docker is already installed."
+  when: _docker_installed.rc == 0
+
+- name: Install Docker
+  when: _docker_installed.rc != 0
+  become: true
+  block:
+    - name: Report installing Docker
+      ansible.builtin.debug:
+        msg: "Installing Docker (this may take a few minutes)..."
+
+    - name: Gather OS and hardware facts
+      ansible.builtin.setup:
+        gather_subset:
+          - distribution
+          - hardware
+
+    - name: Install Docker (Debian/Ubuntu)
+      when: ansible_os_family == 'Debian'
+      block:
+        - name: Install prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - curl
+              - gnupg
+            state: present
+            update_cache: true
+
+        - name: Create keyrings directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: "0755"
+
+        - name: Download Docker GPG key
+          ansible.builtin.get_url:
+            url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+            dest: /etc/apt/keyrings/docker.asc
+            mode: "0644"
+
+        - name: Add Docker repository
+          ansible.builtin.apt_repository:
+            repo: >-
+              deb [arch={{ ansible_architecture | regex_replace('x86_64', 'amd64')
+                          | regex_replace('aarch64', 'arm64') }}
+                   signed-by=/etc/apt/keyrings/docker.asc]
+              https://download.docker.com/linux/{{ ansible_distribution | lower }}
+              {{ ansible_distribution_release }} stable
+            state: present
+            filename: docker
+
+        - name: Install Docker packages
+          ansible.builtin.apt:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-compose-plugin
+            state: present
+            update_cache: true
+
+    - name: Install Docker (RHEL/CentOS/Fedora)
+      when: ansible_os_family == 'RedHat'
+      block:
+        - name: Install prerequisites
+          ansible.builtin.dnf:
+            name:
+              - dnf-plugins-core
+            state: present
+
+        - name: Add Docker repository
+          ansible.builtin.command:
+            cmd: >-
+              dnf config-manager --add-repo
+              https://download.docker.com/linux/centos/docker-ce.repo
+          changed_when: true
+
+        - name: Install Docker packages
+          ansible.builtin.dnf:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-compose-plugin
+            state: present
+
+    - name: Enable and start Docker
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add current user to docker group
+      ansible.builtin.user:
+        name: "{{ _install_user }}"
+        groups: docker
+        append: true
+      ignore_errors: true
+
+    - name: Verify Docker is accessible
+      ansible.builtin.command:
+        cmd: docker info
+      changed_when: false
+      become: true
+
+    - name: Report Docker installed
+      ansible.builtin.debug:
+        msg: >-
+          Docker installed successfully. Log out and back in for
+          docker group membership to take effect.
