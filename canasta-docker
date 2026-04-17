@@ -191,7 +191,7 @@ MOUNTS+=(-v "$CANASTA_PASSWD:/etc/passwd:ro")
 if [[ -n "$DOCKER_SOCK_GID" ]]; then
     MOUNTS+=(--group-add "$DOCKER_SOCK_GID")
 fi
-# www-data is GID 33 on Debian-based images (which canasta-ansible uses).
+# www-data is GID 33 in the canasta-docker container image (Debian-based).
 MOUNTS+=(--group-add 33)
 
 # Parse args to find instance path from --id/-i (look up in conf.json)
