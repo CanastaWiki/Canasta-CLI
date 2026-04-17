@@ -355,41 +355,38 @@
     mode: "0755"
   loop: "{{ _created_wikis.wiki_ids }}"
 
+- when: wiki_settings is defined and wiki_settings != ''
+  ansible.builtin.debug:
+    msg: "Copying per-wiki Settings.php"
+
 - name: Copy per-wiki Settings.php if provided
   when: wiki_settings is defined and wiki_settings != ''
-  block:
-    - name: Print it out
-      ansible.builtin.debug:
-        msg: "Copying per-wiki Settings.php"
-    - name: do it
-      ansible.builtin.copy:
-        src: "{{ wiki_settings }}"
-        dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php"
-        mode: "0644"
+  ansible.builtin.copy:
+    src: "{{ wiki_settings }}"
+    dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php"
+    mode: "0644"
+
+- when: global_settings is defined and global_settings != ''
+  ansible.builtin.debug:
+    msg: "Copying global settings"
 
 - name: Copy global settings if provided
   when: global_settings is defined and global_settings != ''
-  block:
-    - name: Print it out
-      ansible.builtin.debug:
-        msg: "Copying global settings"
-    - name: do it
-      ansible.builtin.copy:
-        src: "{{ global_settings }}"
-        dest: "{{ instance_path }}/config/settings/global/{{ global_settings | basename }}"
-        mode: "0644"
+  ansible.builtin.copy:
+    src: "{{ global_settings }}"
+    dest: "{{ instance_path }}/config/settings/global/{{ global_settings | basename }}"
+    mode: "0644"
+
+- when: composer is defined and composer != ''
+  ansible.builtin.debug:
+    msg: "Copying composer.local.json"
 
 - name: Copy composer.local.json if provided
   when: composer is defined and composer != ''
-  block:
-    - name: Print it out
-      ansible.builtin.debug:
-        msg: "Copying composer.local.json"
-    - name: do it
-      ansible.builtin.copy:
-        src: "{{ composer }}"
-        dest: "{{ instance_path }}/config/composer.local.json"
-        mode: "0644"
+  ansible.builtin.copy:
+    src: "{{ composer }}"
+    dest: "{{ instance_path }}/config/composer.local.json"
+    mode: "0644"
 
 # --- Step 9b: Disable auto-HTTPS when requested or when on K8s ---
 # K8s always disables Caddy auto-HTTPS because TLS is handled by the
