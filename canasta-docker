@@ -296,6 +296,15 @@ to_abs_path() {
     python3 -c "import os, sys; print(os.path.abspath(sys.argv[1]))" "$1"
 }
 
+# Validate that a path exists before attempting to mount it.
+require_path_exists() {
+    local path="$1" flag="$2"
+    if [[ ! -e "$path" ]]; then
+        echo "Error: $flag path does not exist: $path" >&2
+        exit 1
+    fi
+}
+
 # Parse -p/--path and -d/--database from args to mount directories.
 # Relative paths are resolved to absolute form and the argument list
 # is rewritten in place so the container receives absolute paths
@@ -324,6 +333,7 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
         --database|-d)
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
                 DB_FILE_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
+                require_path_exists "$DB_FILE_ABS" "--database"
                 NEW_ARGS+=("$arg" "$DB_FILE_ABS")
                 CWD="$(pwd)"
                 case "$DB_FILE_ABS" in
@@ -342,6 +352,7 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
         --build-from)
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
                 BUILD_FROM_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
+                require_path_exists "$BUILD_FROM_ABS" "--build-from"
                 NEW_ARGS+=("$arg" "$BUILD_FROM_ABS")
                 CWD="$(pwd)"
                 case "$BUILD_FROM_ABS" in
@@ -357,6 +368,7 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
         --envfile|-e)
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
                 ENVFILE_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
+                require_path_exists "$ENVFILE_ABS" "--envfile"
                 NEW_ARGS+=("$arg" "$ENVFILE_ABS")
                 CWD="$(pwd)"
                 case "$ENVFILE_ABS" in
