@@ -320,12 +320,14 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
                 DB_FILE_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
                 NEW_ARGS+=("$arg" "$DB_FILE_ABS")
-                DB_DIR="$(dirname -- "$DB_FILE_ABS")"
                 CWD="$(pwd)"
-                case "$DB_DIR" in
-                    "$CWD"/*|"$CWD") ;; # Already covered
+                case "$DB_FILE_ABS" in
+                    "$CWD"/*|"$HOME"/*) ;; # Already covered by cwd or $HOME mount
                     *)
-                        MOUNTS+=(-v "$DB_DIR":"$DB_DIR":ro)
+                        # Mount the individual file, not its parent directory,
+                        # to avoid clobbering system dirs like /tmp with a
+                        # read-only bind mount (which blocks Ansible temp dirs).
+                        MOUNTS+=(-v "$DB_FILE_ABS":"$DB_FILE_ABS":ro)
                         ;;
                 esac
                 i=$((i+2))
@@ -351,12 +353,14 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
                 ENVFILE_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
                 NEW_ARGS+=("$arg" "$ENVFILE_ABS")
-                ENVFILE_DIR="$(dirname -- "$ENVFILE_ABS")"
                 CWD="$(pwd)"
-                case "$ENVFILE_DIR" in
-                    "$CWD"/*|"$CWD") ;; # Already covered
+                case "$ENVFILE_ABS" in
+                    "$CWD"/*|"$HOME"/*) ;; # Already covered by cwd or $HOME mount
                     *)
-                        MOUNTS+=(-v "$ENVFILE_DIR":"$ENVFILE_DIR":ro)
+                        # Mount the individual file, not its parent directory,
+                        # to avoid clobbering system dirs like /tmp with a
+                        # read-only bind mount (which blocks Ansible temp dirs).
+                        MOUNTS+=(-v "$ENVFILE_ABS":"$ENVFILE_ABS":ro)
                         ;;
                 esac
                 i=$((i+2))
