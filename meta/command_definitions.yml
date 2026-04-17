@@ -269,6 +269,26 @@ commands:
     playbook: doctor.yml
     parameters: []
 
+  - name: install
+    description: "Install dependencies on the target host"
+    long_description: |
+      Install one or more dependencies on the target host. Supported
+      packages: docker, k3s, git-crypt. Multiple packages can be
+      specified in a single command.
+    examples:
+      - "canasta install docker"
+      - "canasta install k3s"
+      - "canasta install docker git-crypt"
+      - "canasta --host prod1.example.com install docker"
+    playbook: install.yml
+    parameters:
+      - name: packages
+        type: string
+        positional: true
+        multi: true
+        required: true
+        description: "Dependencies to install (docker, k3s, git-crypt)"
+
   - name: upgrade
     description: "Upgrade Canasta instances"
     long_description: |

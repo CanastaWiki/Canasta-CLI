@@ -1,0 +1,32 @@
+---
+# canasta install - Install dependencies on the target host.
+# Accepts one or more package names: docker, k3s, git-crypt.
+
+- name: Validate packages
+  ansible.builtin.fail:
+    msg: >-
+      Unknown package '{{ item }}'. Supported: docker, k3s, git-crypt.
+  when: item not in ['docker', 'k3s', 'git-crypt']
+  loop: "{{ packages.split() }}"
+
+- name: Install Docker
+  ansible.builtin.include_role:
+    name: install
+    tasks_from: docker.yml
+  when: "'docker' in packages.split()"
+
+- name: Install k3s
+  ansible.builtin.include_role:
+    name: install
+    tasks_from: k3s.yml
+  when: "'k3s' in packages.split()"
+
+- name: Install git-crypt
+  ansible.builtin.include_role:
+    name: install
+    tasks_from: git_crypt.yml
+  when: "'git-crypt' in packages.split()"
+
+- name: Report installed
+  ansible.builtin.debug:
+    msg: "Installed: {{ packages }}"

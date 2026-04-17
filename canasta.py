@@ -519,7 +519,7 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
 
     # Only pass target_host for commands that need it.
     # Other commands resolve the host from the instance registry.
-    HOST_COMMANDS = {"create", "list", "doctor"}
+    HOST_COMMANDS = {"create", "list", "doctor", "install"}
     if args.host and command_name in HOST_COMMANDS:
         extra_vars["target_host"] = args.host
     elif args.host and command_name not in HOST_COMMANDS:

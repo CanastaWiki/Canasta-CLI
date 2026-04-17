@@ -893,3 +893,37 @@ class TestSubcommandGroupHelp:
         out = capsys.readouterr().out
         assert "schedule" in out
         assert "subcommand group" in out
+
+
+class TestInstallCommand:
+    """Test the 'canasta install' command parsing."""
+
+    def test_install_single_package(self, parser):
+        args = parser.parse_args(["install", "docker"])
+        assert args.command == "install"
+        assert args.packages == ["docker"]
+
+    def test_install_multiple_packages(self, parser):
+        args = parser.parse_args(["install", "docker", "k3s", "git-crypt"])
+        assert args.command == "install"
+        assert args.packages == ["docker", "k3s", "git-crypt"]
+
+    def test_install_with_host(self, data):
+        from argparse import Namespace
+        args = Namespace(
+            command="install", host="prod1", verbose=False,
+            packages=["docker"],
+        )
+        result = canasta_cli.build_ansible_args("ap", "install", args, data)
+        # install is in HOST_COMMANDS, so target_host should be set
+        import json
+        for i, arg in enumerate(result):
+            if arg == "-e" and i + 1 < len(result) and result[i + 1].startswith("@"):
+                with open(result[i + 1][1:]) as f:
+                    extra = json.load(f)
+                break
+        assert extra["target_host"] == "prod1"
+
+    def test_install_resolves_to_correct_command(self, parser):
+        args = parser.parse_args(["install", "docker"])
+        assert canasta_cli.resolve_command_name(args) == "install"
