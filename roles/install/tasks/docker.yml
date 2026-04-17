@@ -23,10 +23,11 @@
   when: _docker_installed.rc != 0
   become: true
   block:
-    - name: Gather OS facts
+    - name: Gather OS and hardware facts
       ansible.builtin.setup:
         gather_subset:
           - distribution
+          - hardware
 
     - name: Install Docker (Debian/Ubuntu)
       when: ansible_os_family == 'Debian'
