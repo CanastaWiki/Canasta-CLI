@@ -107,8 +107,14 @@
         append: true
       ignore_errors: true
 
+    - name: Verify Docker is accessible
+      ansible.builtin.command:
+        cmd: docker info
+      changed_when: false
+      become: true
+
     - name: Report Docker installed
       ansible.builtin.debug:
         msg: >-
-          Docker installed. You may need to log out and back in
-          for docker group membership to take effect.
+          Docker installed successfully. Run 'newgrp docker' to use
+          Docker in your current shell session, or log out and back in.
