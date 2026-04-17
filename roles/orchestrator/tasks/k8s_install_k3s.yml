@@ -16,6 +16,11 @@
   changed_when: false
   ignore_errors: true  # OK if k3s not installed yet
 
+- name: Skip if k3s already running
+  ansible.builtin.debug:
+    msg: "k3s is already installed."
+  when: _k3s_running.rc == 0
+
 - name: Install k3s
   when: _k3s_running.rc != 0
   block:
