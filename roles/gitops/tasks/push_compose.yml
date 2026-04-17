@@ -21,12 +21,20 @@
     _push_hostname: "{{ _push_host_raw.content | b64decode | trim }}"
     _push_hosts: "{{ _push_hosts_raw.content | b64decode | from_yaml }}"
 
-- name: Find current host role
+- name: Find current host config
   ansible.builtin.set_fact:
+    _push_host_entry: >-
+      {{ _push_hosts.hosts | default([])
+          | selectattr('name', 'equalto', _push_hostname)
+          | first | default({}) }}
     _push_role: >-
       {{ (_push_hosts.hosts | default([])
           | selectattr('name', 'equalto', _push_hostname)
           | first | default({})).get('role', 'both') }}
+    _push_pr_mode: >-
+      {{ (_push_hosts.hosts | default([])
+          | selectattr('name', 'equalto', _push_hostname)
+          | first | default({})).get('pull_requests', false) | bool }}
 
 - name: Fail if role does not allow push
   ansible.builtin.fail:
@@ -123,6 +131,25 @@
       ansible.builtin.debug:
         msg: "Migrated {{ _push_keys_to_migrate | length }} shared credential key(s) to hosts/_shared/vars.yaml."
 
+# --- PR mode prereq check ---
+- name: Check gh CLI is installed (PR mode)
+  ansible.builtin.command:
+    cmd: "gh --version"
+  register: _gh_check
+  changed_when: false
+  ignore_errors: true
+  when: _push_pr_mode | bool
+
+- name: Fail if gh not installed (PR mode)
+  ansible.builtin.fail:
+    msg: >-
+      pull_requests is enabled but the GitHub CLI (gh) is not installed.
+      Install it: brew install gh / sudo apt install gh
+      See https://cli.github.com/
+  when:
+    - _push_pr_mode | bool
+    - _gh_check.rc | default(0) != 0
+
 # --- Commit and push ---
 # Note: no 'git add -A' here. Users stage changes explicitly via
 # 'canasta gitops add' (which runs git add -A). Push only commits
@@ -136,32 +163,80 @@
   changed_when: false
   ignore_errors: true  # rc=1 means there are changes
 
-- name: Commit staged changes
-  ansible.builtin.command:
-    cmd: >-
-      git commit -m "{{ message | default('Configuration update') }}"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  when: _push_staged.rc != 0
-
-- name: Check for unpushed commits
-  ansible.builtin.command:
-    cmd: "git log origin/main..HEAD --oneline"
-    chdir: "{{ instance_path }}"
-  register: _push_unpushed
-  changed_when: false
-  ignore_errors: true  # OK if no upstream configured yet
-
-- name: Push to remote
-  ansible.builtin.command:
-    cmd: "git push"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  when: _push_unpushed.stdout | default('') | trim | length > 0
-
-- name: Report result
+- name: Report no changes
   ansible.builtin.debug:
-    msg: >-
-      {{ (_push_staged.rc != 0 or
-          (_push_unpushed.stdout | default('') | trim | length > 0))
-         | ternary('Configuration pushed.', 'No changes to push.') }}
+    msg: "No changes to push."
+  when: _push_staged.rc == 0
+
+- name: End play if nothing staged
+  ansible.builtin.meta: end_play
+  when: _push_staged.rc == 0
+
+# --- Direct push (default) ---
+- name: Direct push to main
+  when: not (_push_pr_mode | bool)
+  block:
+    - name: Commit staged changes
+      ansible.builtin.command:
+        cmd: >-
+          git commit -m "{{ message | default('Configuration update') }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Push to main
+      ansible.builtin.command:
+        cmd: "git push origin main"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Report pushed
+      ansible.builtin.debug:
+        msg: "Configuration pushed."
+
+# --- Pull request mode ---
+- name: Push via pull request
+  when: _push_pr_mode | bool
+  block:
+    - name: Generate branch name
+      ansible.builtin.set_fact:
+        _push_branch: "gitops-{{ _push_hostname }}-{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
+
+    - name: Create feature branch
+      ansible.builtin.command:
+        cmd: "git checkout -b {{ _push_branch }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Commit staged changes
+      ansible.builtin.command:
+        cmd: >-
+          git commit -m "{{ message | default('Configuration update') }}"
+        chdir: "{{ instance_path }}"
+      register: _pr_commit
+      changed_when: true
+
+    - name: Push feature branch
+      ansible.builtin.command:
+        cmd: "git push origin {{ _push_branch }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Create pull request
+      ansible.builtin.command:
+        cmd: >-
+          gh pr create
+          --title "{{ message | default('Configuration update') }}"
+          --body "Gitops push from host {{ _push_hostname }}."
+        chdir: "{{ instance_path }}"
+      register: _pr_result
+      changed_when: true
+
+    - name: Switch back to main
+      ansible.builtin.command:
+        cmd: "git checkout main"
+        chdir: "{{ instance_path }}"
+      changed_when: false
+
+    - name: Report pull request created
+      ansible.builtin.debug:
+        msg: "Pull request created: {{ _pr_result.stdout | trim }}"
