@@ -1,0 +1,45 @@
+---
+# Update the gitops vars.yaml for a single KEY=VALUE setting.
+# Input: _config_setting (str), _config_placeholder_map (dict),
+#        _config_host_raw, instance_path
+
+- name: Parse key and value
+  ansible.builtin.set_fact:
+    _ugv_key: "{{ _config_setting.split('=', 1)[0] }}"
+    _ugv_value: "{{ _config_setting.split('=', 1)[1] | default('') }}"
+
+- name: Look up placeholder name
+  ansible.builtin.set_fact:
+    _ugv_placeholder: "{{ _config_placeholder_map[_ugv_key] | default('') }}"
+
+- name: Update vars.yaml if key has a gitops placeholder
+  when: _ugv_placeholder != ''
+  block:
+    - name: Determine vars file path
+      ansible.builtin.set_fact:
+        _ugv_vars_file: >-
+          {{ instance_path }}/hosts/{{ _config_host_raw.content | b64decode | trim }}/vars.yaml
+
+    - name: Read current vars
+      ansible.builtin.slurp:
+        src: "{{ _ugv_vars_file }}"
+      register: _ugv_vars_raw
+
+    - name: Update var value
+      ansible.builtin.set_fact:
+        _ugv_updated_vars: >-
+          {{ (_ugv_vars_raw.content | b64decode | from_yaml)
+             | combine({_ugv_placeholder: _ugv_value}) }}
+
+    - name: Write updated vars.yaml
+      ansible.builtin.copy:
+        content: "{{ _ugv_updated_vars | to_nice_yaml(indent=2) }}"
+        dest: "{{ _ugv_vars_file }}"
+        mode: "0644"
+      no_log: true
+
+    - name: Stage updated vars.yaml
+      ansible.builtin.command:
+        cmd: "git add {{ _ugv_vars_file }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true

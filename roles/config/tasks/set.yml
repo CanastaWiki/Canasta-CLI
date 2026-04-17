@@ -12,6 +12,44 @@
     loop_var: _setting
     label: "{{ _setting.split('=', 1)[0] }}"
 
+# If the instance is gitops-managed, update vars.yaml so the change
+# survives the next gitops pull (which re-renders .env from template).
+- name: Check for gitops instance
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _config_gitops_stat
+
+- name: Update gitops vars for changed keys
+  when:
+    - _config_gitops_stat.stat.exists | default(false)
+    - instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Read .gitops-host
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/.gitops-host"
+      register: _config_host_raw
+
+    - name: Read env.template
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/env.template"
+      register: _config_env_template
+
+    - name: Build key-to-placeholder map from env.template
+      ansible.builtin.set_fact:
+        _config_placeholder_map: >-
+          {{ dict((_config_env_template.content | b64decode).split('\n')
+             | select('match', '^[A-Z].*=\\{\\{')
+             | map('regex_replace', '^([^=]+)=\\{\\{([^}]+)\\}\\}.*', '\\1,\\2')
+             | map('split', ',')
+             | list) }}
+
+    - name: Update vars.yaml for each changed key
+      ansible.builtin.include_tasks: _update_gitops_var.yml
+      loop: "{{ settings.split() }}"
+      loop_control:
+        loop_var: _config_setting
+        label: "{{ _config_setting.split('=', 1)[0] }}"
+
 - name: Regenerate Caddyfile after config change
   ansible.builtin.include_role:
     name: orchestrator
