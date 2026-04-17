@@ -273,7 +273,21 @@
     dest: "{{ instance_path }}/.gitops-host"
     mode: "0644"
 
-# --- Step 9: Update submodules ---
+# --- Step 9: Render .env and wikis.yaml from templates + vars ---
+# Join builds host vars from the fresh create's .env, but doesn't
+# re-render .env from the template. Without this, shared vars from
+# hosts/_shared/vars.yaml (backup creds, etc.) never flow into .env.
+- name: Render .env and wikis.yaml from templates
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: render_compose.yml
+
+- name: Regenerate orchestrator config (Caddyfile)
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
+# --- Step 10: Update submodules ---
 - name: Update submodules
   ansible.builtin.command:
     cmd: "git submodule update --init --recursive"
@@ -281,7 +295,7 @@
   changed_when: true
   ignore_errors: true  # OK if no submodules configured
 
-# --- Step 10: Commit and push ---
+# --- Step 11: Commit and push ---
 - name: Stage all changes
   ansible.builtin.command:
     cmd: "git add -A"
