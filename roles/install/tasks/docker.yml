@@ -7,6 +7,13 @@
   ansible.builtin.set_fact:
     _install_user: "{{ ansible_user | default(lookup('env', 'USER')) }}"
 
+- name: Warn on unsupported platforms
+  ansible.builtin.fail:
+    msg: >-
+      'canasta install docker' is for Linux servers only. On macOS or
+      Windows, install Docker Desktop from https://www.docker.com/products/docker-desktop/
+  when: ansible_system | default(lookup('pipe', 'uname -s')) not in ['Linux']
+
 - name: Check if Docker is already installed
   ansible.builtin.command:
     cmd: docker compose version
