@@ -29,19 +29,26 @@
         src: "{{ instance_path }}/.gitops-host"
       register: _config_host_raw
 
-    - name: Read env.template
-      ansible.builtin.slurp:
-        src: "{{ instance_path }}/env.template"
-      register: _config_env_template
-
     - name: Build key-to-placeholder map from env.template
+      ansible.builtin.shell:
+        cmd: |
+          python3 -c "
+          import json, re
+          with open('{{ instance_path }}/env.template') as f:
+              lines = f.readlines()
+          m = {}
+          for line in lines:
+              match = re.match(r'^([A-Z][^=]*)=\{\{([^}]+)\}\}', line.strip())
+              if match:
+                  m[match.group(1)] = match.group(2)
+          print(json.dumps(m))
+          "
+      register: _config_map_raw
+      changed_when: false
+
+    - name: Parse placeholder map
       ansible.builtin.set_fact:
-        _config_placeholder_map: >-
-          {{ dict((_config_env_template.content | b64decode).split('\n')
-             | select('match', '^[A-Z].*=\\{\\{')
-             | map('regex_replace', '^([^=]+)=\\{\\{([^}]+)\\}\\}.*', '\\1,\\2')
-             | map('split', ',')
-             | list) }}
+        _config_placeholder_map: "{{ _config_map_raw.stdout | from_json }}"
 
     - name: Update vars.yaml for each changed key
       ansible.builtin.include_tasks: _update_gitops_var.yml
