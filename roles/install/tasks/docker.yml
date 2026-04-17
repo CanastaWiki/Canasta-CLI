@@ -116,5 +116,5 @@
     - name: Report Docker installed
       ansible.builtin.debug:
         msg: >-
-          Docker installed successfully. Run 'newgrp docker' to use
-          Docker in your current shell session, or log out and back in.
+          Docker installed successfully. Log out and back in for
+          docker group membership to take effect.
