@@ -14,7 +14,7 @@
   block:
     - name: Look up instance by path
       canasta_registry:
-        path: "{{ lookup('env', 'PWD') }}"
+        path: "{{ lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true) }}"
         state: query_by_path
       delegate_to: localhost
       vars:
@@ -28,7 +28,9 @@
         msg: >-
           No Canasta instance found for the current directory.
           Provide --id explicitly or run from inside an instance directory.
-      when: _delete_pwd_query is failed
+      when: >-
+        _delete_pwd_query is failed
+        or (_delete_pwd_query.instance.id | default('')) == ''
 
     - name: Use resolved ID
       ansible.builtin.set_fact:

@@ -73,7 +73,7 @@
   block:
     - name: Look up by PWD
       canasta_registry:
-        path: "{{ lookup('env', 'PWD') }}"
+        path: "{{ lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true) }}"
         state: query_by_path
       register: _pwd_lookup
 
