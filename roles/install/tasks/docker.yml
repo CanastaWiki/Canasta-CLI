@@ -30,6 +30,10 @@
   when: _docker_installed.rc != 0
   become: true
   block:
+    - name: Report installing Docker
+      ansible.builtin.debug:
+        msg: "Installing Docker (this may take a few minutes)..."
+
     - name: Gather OS and hardware facts
       ansible.builtin.setup:
         gather_subset:

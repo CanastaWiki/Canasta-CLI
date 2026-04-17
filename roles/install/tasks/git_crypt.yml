@@ -18,6 +18,10 @@
   when: _gitcrypt_installed.rc != 0
   become: true
   block:
+    - name: Report installing git-crypt
+      ansible.builtin.debug:
+        msg: "Installing git-crypt..."
+
     - name: Gather OS facts
       ansible.builtin.setup:
         gather_subset:
