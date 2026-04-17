@@ -1241,6 +1241,183 @@ def test_maintenance(inst):
     )
 
 
+def test_config_set_gitops(inst):
+    """Verify config set propagates changes to gitops vars.yaml (#205)."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    print("Setting MW_SITE_SERVER via config set...")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "MW_SITE_SERVER=https://new.example.com", "--no-restart",
+    )
+
+    print("Checking vars.yaml was updated...")
+    vars_file = os.path.join(
+        inst.instance_path(), "hosts", "testhost", "vars.yaml",
+    )
+    assert os.path.isfile(vars_file), "vars.yaml not found"
+    with open(vars_file) as f:
+        import yaml
+        vars_data = yaml.safe_load(f)
+    assert vars_data.get("mw_site_server") == "https://new.example.com", (
+        "mw_site_server not updated in vars.yaml: %s" % vars_data
+    )
+
+
+def test_gitops_push_shared_vars(inst):
+    """Verify gitops push auto-migrates shared credential keys (#206)."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    print("Adding shared-category keys to host vars...")
+    vars_file = os.path.join(
+        inst.instance_path(), "hosts", "testhost", "vars.yaml",
+    )
+    import yaml
+    with open(vars_file) as f:
+        vars_data = yaml.safe_load(f) or {}
+    vars_data["restic_repository"] = "s3:s3.example.com/test-backup"
+    vars_data["restic_password"] = "test-password"
+    vars_data["aws_access_key_id"] = "AKIATEST"
+    with open(vars_file, "w") as f:
+        yaml.dump(vars_data, f)
+
+    print("Staging and pushing...")
+    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok("gitops", "push", "-i", inst.id)
+
+    print("Checking _shared/vars.yaml was created with migrated keys...")
+    shared_file = os.path.join(
+        inst.instance_path(), "hosts", "_shared", "vars.yaml",
+    )
+    assert os.path.isfile(shared_file), (
+        "_shared/vars.yaml not created after push"
+    )
+    with open(shared_file) as f:
+        shared_data = yaml.safe_load(f) or {}
+    assert shared_data.get("restic_repository") == "s3:s3.example.com/test-backup", (
+        "restic_repository not in shared vars: %s" % shared_data
+    )
+    assert shared_data.get("aws_access_key_id") == "AKIATEST", (
+        "aws_access_key_id not in shared vars: %s" % shared_data
+    )
+
+    print("Checking keys were removed from host vars...")
+    with open(vars_file) as f:
+        host_data = yaml.safe_load(f) or {}
+    assert "restic_repository" not in host_data, (
+        "restic_repository should have been removed from host vars: %s"
+        % host_data
+    )
+
+
+def test_gitops_push_reporting(inst):
+    """Verify gitops push reports correctly (#202)."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    print("Push with no changes — should report 'No changes'...")
+    output = inst.run_ok("gitops", "push", "-i", inst.id)
+    assert "No changes to push" in output, (
+        "Expected 'No changes to push' with nothing staged:\n%s" % output
+    )
+
+    print("Making a change, staging, pushing — should report 'pushed'...")
+    settings_dir = os.path.join(
+        inst.instance_path(), "config", "settings", "global",
+    )
+    os.makedirs(settings_dir, exist_ok=True)
+    with open(os.path.join(settings_dir, "PushTest.php"), "w") as f:
+        f.write("<?php\n$wgPushTest = true;\n")
+    inst.run_ok("gitops", "add", "-i", inst.id)
+    output = inst.run_ok("gitops", "push", "-i", inst.id)
+    assert "Configuration pushed" in output, (
+        "Expected 'Configuration pushed' after staging+push:\n%s" % output
+    )
+
+    print("Push again with no changes — should report 'No changes'...")
+    output = inst.run_ok("gitops", "push", "-i", inst.id)
+    assert "No changes to push" in output, (
+        "Expected 'No changes to push' on second push:\n%s" % output
+    )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -1260,6 +1437,9 @@ ALL_TESTS = {
     "host-management": test_host_management,
     "sitemap": test_sitemap,
     "maintenance": test_maintenance,
+    "config-set-gitops": test_config_set_gitops,
+    "gitops-push-shared": test_gitops_push_shared_vars,
+    "gitops-push-reporting": test_gitops_push_reporting,
 }
 
 

@@ -151,7 +151,7 @@ jobs:
       - name: Run gitops tests
         run: >-
           sg www-data -c '.venv/bin/python tests/integration/run_tests.py
-          gitops gitops-pull-diff'
+          gitops gitops-pull-diff config-set-gitops gitops-push-shared gitops-push-reporting'
         timeout-minutes: 15
 
   integration-k8s:
