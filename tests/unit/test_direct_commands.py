@@ -382,6 +382,160 @@ class TestCleanup:
 # End-to-end cmd_list tests
 # ---------------------------------------------------------------------------
 
+class TestGatherInstanceInfo:
+    def test_local_instance(self, registry, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_check_running",
+            lambda *a, **kw: True,
+        )
+        _, data = registry
+        detail = direct_commands._gather_instance_info(
+            "siteA", data["Instances"]["siteA"],
+        )
+        assert detail["id"] == "siteA"
+        assert detail["status"] == "RUNNING"
+        assert len(detail["wikis"]) == 2
+
+    def test_local_missing_dir(self, tmp_path):
+        inst = {"path": str(tmp_path / "gone"), "orchestrator": "compose"}
+        detail = direct_commands._gather_instance_info("x", inst)
+        assert detail["status"] == "NOT FOUND"
+        assert detail["wikis"] == []
+
+    def test_remote_batched_ssh_running(self, monkeypatch):
+        wikis_yaml = "wikis:\n  - id: main\n    url: example.com\n"
+        ssh_output = (
+            "DIR_OK\n"
+            + direct_commands._SENTINEL + "\n"
+            + wikis_yaml
+            + direct_commands._SENTINEL + "\n"
+            + "abc123\n"
+        )
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (0, ssh_output),
+        )
+        inst = {
+            "path": "/srv/site",
+            "orchestrator": "compose",
+            "host": "admin@remote.example.com",
+        }
+        detail = direct_commands._gather_instance_info("site", inst)
+        assert detail["status"] == "RUNNING"
+        assert detail["host"] == "admin@remote.example.com"
+        assert len(detail["wikis"]) == 1
+        assert detail["wikis"][0]["id"] == "main"
+
+    def test_remote_batched_ssh_stopped(self, monkeypatch):
+        ssh_output = (
+            "DIR_OK\n"
+            + direct_commands._SENTINEL + "\n"
+            + "WIKIS_MISSING\n"
+            + direct_commands._SENTINEL + "\n"
+            + "\n"
+        )
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (0, ssh_output),
+        )
+        inst = {
+            "path": "/srv/site",
+            "orchestrator": "compose",
+            "host": "remote",
+        }
+        detail = direct_commands._gather_instance_info("site", inst)
+        assert detail["status"] == "STOPPED"
+        assert detail["wikis"] == []
+
+    def test_remote_dir_missing(self, monkeypatch):
+        ssh_output = (
+            "DIR_MISSING\n"
+            + direct_commands._SENTINEL + "\n"
+            + "WIKIS_MISSING\n"
+            + direct_commands._SENTINEL + "\n"
+            + "\n"
+        )
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (0, ssh_output),
+        )
+        inst = {
+            "path": "/srv/gone",
+            "orchestrator": "compose",
+            "host": "remote",
+        }
+        detail = direct_commands._gather_instance_info("x", inst)
+        assert detail["status"] == "NOT FOUND"
+
+    def test_remote_ssh_failure(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (255, ""),
+        )
+        inst = {
+            "path": "/srv/site",
+            "orchestrator": "compose",
+            "host": "unreachable",
+        }
+        detail = direct_commands._gather_instance_info("x", inst)
+        assert detail["status"] == "NOT FOUND"
+
+
+class TestGatherAllInstances:
+    def test_parallel_execution(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_gather_instance_info",
+            lambda iid, inst: direct_commands._make_detail(
+                iid, "localhost", inst["path"], "compose", "STOPPED", [],
+            ),
+        )
+        instances = {
+            "a": {"path": "/a", "orchestrator": "compose"},
+            "b": {"path": "/b", "orchestrator": "compose"},
+        }
+        results = direct_commands._gather_all_instances(instances)
+        assert len(results) == 2
+        assert results[0]["id"] == "a"
+        assert results[1]["id"] == "b"
+
+    def test_preserves_order(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_gather_instance_info",
+            lambda iid, inst: direct_commands._make_detail(
+                iid, "localhost", "/p", "compose", "STOPPED", [],
+            ),
+        )
+        instances = {
+            "z": {"path": "/z", "orchestrator": "compose"},
+            "a": {"path": "/a", "orchestrator": "compose"},
+            "m": {"path": "/m", "orchestrator": "compose"},
+        }
+        results = direct_commands._gather_all_instances(instances)
+        assert [r["id"] for r in results] == ["z", "a", "m"]
+
+    def test_handles_exception(self, monkeypatch):
+        def flaky(iid, inst):
+            if iid == "bad":
+                raise RuntimeError("boom")
+            return direct_commands._make_detail(
+                iid, "localhost", "/p", "compose", "STOPPED", [],
+            )
+
+        monkeypatch.setattr(
+            direct_commands, "_gather_instance_info", flaky,
+        )
+        instances = {
+            "good": {"path": "/good", "orchestrator": "compose"},
+            "bad": {"path": "/bad", "orchestrator": "compose"},
+        }
+        results = direct_commands._gather_all_instances(instances)
+        assert results[0]["status"] == "STOPPED"
+        assert results[1]["status"] == "ERROR"
+
+    def test_empty(self):
+        assert direct_commands._gather_all_instances({}) == []
+
+
 class TestCmdList:
     def test_empty_registry(self, tmp_path, monkeypatch, capsys):
         conf = tmp_path / "conf.json"
@@ -428,16 +582,15 @@ class TestCmdList:
 
     def test_host_filter(self, registry_with_remote, monkeypatch, capsys):
         monkeypatch.setattr(
-            direct_commands, "_check_running",
-            lambda *a, **kw: False,
-        )
-        monkeypatch.setattr(
-            direct_commands, "_check_dir_exists",
-            lambda *a, **kw: True,
-        )
-        monkeypatch.setattr(
-            direct_commands, "_read_wikis",
-            lambda *a, **kw: [],
+            direct_commands, "_gather_instance_info",
+            lambda iid, inst: direct_commands._make_detail(
+                iid,
+                inst.get("host") or "localhost",
+                inst.get("path", ""),
+                inst.get("orchestrator", "compose"),
+                "STOPPED",
+                [],
+            ),
         )
         args = type("Args", (), {
             "cleanup": False,

@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yaml
 
@@ -173,6 +174,100 @@ def _check_running_k8s(instance_id):
         return False
 
 
+_SENTINEL = "---CANASTA_DELIM---"
+
+
+def _gather_instance_info(inst_id, inst):
+    """Gather dir existence, wikis, and running status in one operation.
+
+    For remote hosts this batches all checks into a single SSH call.
+    Returns a details dict ready for _print_table.
+    """
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    orchestrator = inst.get("orchestrator", "compose")
+    qpath = _shell_quote(path)
+
+    if _is_localhost(host):
+        return _gather_local(inst_id, path, orchestrator, host)
+
+    if orchestrator in ("kubernetes", "k8s"):
+        return _gather_k8s(inst_id, path, host)
+
+    script = (
+        "test -d %(p)s && echo DIR_OK || echo DIR_MISSING; "
+        "echo '%(d)s'; "
+        "cat %(p)s/config/wikis.yaml 2>/dev/null || echo WIKIS_MISSING; "
+        "echo '%(d)s'; "
+        "cd %(p)s && docker compose ps -q web 2>/dev/null || true"
+    ) % {"p": qpath, "d": _SENTINEL}
+
+    rc, stdout = _ssh_run(host, script)
+    if rc != 0 and not stdout.strip():
+        return _make_detail(inst_id, host, path, orchestrator, "NOT FOUND", [])
+
+    parts = stdout.split(_SENTINEL + "\n")
+    dir_ok = parts[0].strip() == "DIR_OK" if len(parts) > 0 else False
+    wikis_raw = parts[1] if len(parts) > 1 else ""
+    running_raw = parts[2].strip() if len(parts) > 2 else ""
+
+    wikis = []
+    if dir_ok and wikis_raw.strip() != "WIKIS_MISSING":
+        try:
+            parsed = yaml.safe_load(wikis_raw)
+            wikis = parsed.get("wikis", []) if parsed else []
+        except yaml.YAMLError:
+            pass
+
+    if not dir_ok:
+        status = "NOT FOUND"
+    elif running_raw:
+        status = "RUNNING"
+    else:
+        status = "STOPPED"
+
+    return _make_detail(inst_id, host, path, orchestrator, status, wikis)
+
+
+def _gather_local(inst_id, path, orchestrator, host):
+    dir_exists = os.path.isdir(path)
+    wikis = _read_wikis(path, host) if dir_exists else []
+
+    if not dir_exists:
+        status = "NOT FOUND"
+    elif _check_running(inst_id, path, orchestrator, host):
+        status = "RUNNING"
+    else:
+        status = "STOPPED"
+
+    return _make_detail(inst_id, host, path, orchestrator, status, wikis)
+
+
+def _gather_k8s(inst_id, path, host):
+    dir_exists = _check_dir_exists(path, host)
+    wikis = _read_wikis(path, host) if dir_exists else []
+
+    if not dir_exists:
+        status = "NOT FOUND"
+    elif _check_running_k8s(inst_id):
+        status = "RUNNING"
+    else:
+        status = "STOPPED"
+
+    return _make_detail(inst_id, host, path, "kubernetes", status, wikis)
+
+
+def _make_detail(inst_id, host, path, orchestrator, status, wikis):
+    return {
+        "id": inst_id,
+        "host": host,
+        "path": path,
+        "orchestrator": orchestrator.upper(),
+        "status": status,
+        "wikis": wikis,
+    }
+
+
 def _print_table(details):
     host_lengths = [len(d["host"]) for d in details] + [16]
     hw = max(host_lengths) + 2
@@ -203,6 +298,37 @@ def _print_table(details):
 # canasta list
 # ---------------------------------------------------------------------------
 
+def _gather_all_instances(instances):
+    """Gather info for all instances in parallel."""
+    if not instances:
+        return []
+
+    ordered_ids = list(instances.keys())
+    results = {}
+
+    with ThreadPoolExecutor(max_workers=len(instances)) as pool:
+        futures = {
+            pool.submit(_gather_instance_info, iid, inst): iid
+            for iid, inst in instances.items()
+        }
+        for future in as_completed(futures):
+            iid = futures[future]
+            try:
+                results[iid] = future.result()
+            except Exception:
+                inst = instances[iid]
+                results[iid] = _make_detail(
+                    iid,
+                    inst.get("host") or "localhost",
+                    inst.get("path", ""),
+                    inst.get("orchestrator", "compose"),
+                    "ERROR",
+                    [],
+                )
+
+    return [results[iid] for iid in ordered_ids]
+
+
 @register("list")
 def cmd_list(args):
     config_dir = _get_config_dir()
@@ -228,30 +354,7 @@ def cmd_list(args):
         print("No Canasta instances.")
         return 0
 
-    details = []
-    for inst_id, inst in instances.items():
-        host = inst.get("host") or "localhost"
-        path = inst.get("path", "")
-        orchestrator = inst.get("orchestrator", "compose")
-
-        dir_exists = _check_dir_exists(path, host)
-        wikis = _read_wikis(path, host) if dir_exists else []
-
-        if not dir_exists:
-            status = "NOT FOUND"
-        elif _check_running(inst_id, path, orchestrator, host):
-            status = "RUNNING"
-        else:
-            status = "STOPPED"
-
-        details.append({
-            "id": inst_id,
-            "host": host,
-            "path": path,
-            "orchestrator": orchestrator.upper(),
-            "status": status,
-            "wikis": wikis,
-        })
+    details = _gather_all_instances(instances)
 
     _print_table(details)
     return 0
