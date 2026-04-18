@@ -550,3 +550,96 @@ def cmd_restart(args):
     if rc != 0:
         return rc
     return _run_compose(inst_id, inst, ["up", "-d"])
+
+
+# ---------------------------------------------------------------------------
+# canasta host list / add / remove
+# ---------------------------------------------------------------------------
+
+def _hosts_yml_path():
+    return os.path.join(_get_config_dir(), "hosts.yml")
+
+
+def _read_hosts_yml():
+    path = _hosts_yml_path()
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        return data if data else None
+    except (OSError, yaml.YAMLError):
+        return None
+
+
+def _write_hosts_yml(data):
+    path = _hosts_yml_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False, indent=2)
+
+
+@register("host_list")
+def cmd_host_list(args):
+    data = _read_hosts_yml()
+    if data is None:
+        print("No hosts configured (no file at %s)." % _hosts_yml_path())
+        return 0
+
+    hosts = data.get("all", {}).get("hosts", {})
+    if not hosts:
+        print("No hosts configured.")
+        return 0
+
+    for name, entry in hosts.items():
+        print(name)
+        for key, value in entry.items():
+            print("  %s: %s" % (key, value))
+    return 0
+
+
+@register("host_add")
+def cmd_host_add(args):
+    ssh_dest = getattr(args, "ssh", "")
+    host_name = getattr(args, "host_name", "")
+    python_path = getattr(args, "python", None)
+
+    if "@" in ssh_dest:
+        ssh_user, ssh_host = ssh_dest.split("@", 1)
+    else:
+        ssh_user, ssh_host = "", ssh_dest
+
+    data = _read_hosts_yml()
+    if data is None:
+        data = {"all": {"hosts": {}}}
+
+    entry = {"ansible_host": ssh_host}
+    if ssh_user:
+        entry["ansible_user"] = ssh_user
+    if python_path:
+        entry["ansible_python_interpreter"] = python_path
+
+    data.setdefault("all", {}).setdefault("hosts", {})[host_name] = entry
+    _write_hosts_yml(data)
+    print("Host '%s' saved to %s" % (host_name, _hosts_yml_path()))
+    return 0
+
+
+@register("host_remove")
+def cmd_host_remove(args):
+    host_name = getattr(args, "host_name", "")
+    data = _read_hosts_yml()
+
+    if data is None:
+        print("No hosts.yml found at %s" % _hosts_yml_path(), file=sys.stderr)
+        return 1
+
+    hosts = data.get("all", {}).get("hosts", {})
+    if host_name not in hosts:
+        print("Host '%s' not found in %s" % (host_name, _hosts_yml_path()), file=sys.stderr)
+        return 1
+
+    del hosts[host_name]
+    _write_hosts_yml(data)
+    print("Host '%s' removed from %s" % (host_name, _hosts_yml_path()))
+    return 0
