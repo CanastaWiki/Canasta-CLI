@@ -62,6 +62,13 @@ services:
       - CANASTA_ENABLE_WIKI_DIRECTORY=${CANASTA_ENABLE_WIKI_DIRECTORY:-false}
       - CANASTA_ENABLE_VERY_SHORT_URLS=${CANASTA_ENABLE_VERY_SHORT_URLS:-false}
       - MW_SITEMAP_PAUSE_DAYS=${MW_SITEMAP_PAUSE_DAYS:-1}
+      # AWS: map standard SDK names to the short names the MW AWS
+      # extension reads. Users only need to set the standard pair
+      # (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) in .env.
+      - AWS_ACCESS_KEY=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-}
+      - AWS_BUCKET_NAME=${AWS_BUCKET_NAME:-}
     volumes:
       - ./extensions:/var/www/mediawiki/w/user-extensions
       - ./skins:/var/www/mediawiki/w/user-skins
