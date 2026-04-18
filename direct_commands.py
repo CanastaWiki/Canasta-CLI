@@ -244,8 +244,14 @@ def _ssh_run(host, cmd):
         result = subprocess.run(
             full_cmd, capture_output=True, text=True, timeout=30,
         )
+        if result.returncode != 0 and result.stderr.strip():
+            print(result.stderr.strip(), file=sys.stderr)
         return result.returncode, result.stdout
-    except (subprocess.TimeoutExpired, OSError):
+    except subprocess.TimeoutExpired:
+        print("Error: SSH connection to %s timed out" % host, file=sys.stderr)
+        return 1, ""
+    except OSError as e:
+        print("Error: %s" % e, file=sys.stderr)
         return 1, ""
 
 
@@ -1035,8 +1041,10 @@ def cmd_backup_list(args):
     local_repo = env_vars.get("RESTIC_REPOSITORY", "")
     local_mount = ""
     if local_repo.startswith("/"):
-        local_mount = "-v %s:%s" % (local_repo, local_repo)
+        qrepo = _shell_quote(local_repo)
+        local_mount = "-v %s:%s" % (qrepo, qrepo)
 
+    qpath = _shell_quote(path)
     cmd = (
         "docker volume create %(vol)s >/dev/null 2>&1; "
         "docker run --rm -i "
@@ -1046,7 +1054,7 @@ def cmd_backup_list(args):
         "restic/restic "
         "--cache-dir /tmp/restic-cache "
         "snapshots"
-    ) % {"vol": bvol, "path": path, "local_mount": local_mount}
+    ) % {"vol": _shell_quote(bvol), "path": qpath, "local_mount": local_mount}
 
     if _is_localhost(host):
         try:
