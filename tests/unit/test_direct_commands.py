@@ -1129,3 +1129,101 @@ class TestHostRemove:
         args = type("Args", (), {"host_name": "prod1"})()
         rc = direct_commands.cmd_host_remove(args)
         assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# Gitops status tests
+# ---------------------------------------------------------------------------
+
+class TestParseGitopsStatus:
+    def _make_output(self, hostname="myhost", hosts_yaml="MISSING",
+                     commit="abc1234", applied="abc1234",
+                     staged="", unstaged="", revcount="0\t0"):
+        d = direct_commands._SENTINEL
+        return (
+            hostname + "\n" + d + "\n"
+            + hosts_yaml + "\n" + d + "\n"
+            + commit + "\n" + d + "\n"
+            + applied + "\n" + d + "\n"
+            + staged + "\n" + d + "\n"
+            + unstaged + "\n" + d + "\n"
+            + revcount + "\n"
+        )
+
+    def test_basic_status(self):
+        out = self._make_output()
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Host:           myhost" in result
+        assert "Canasta ID:     mysite" in result
+        assert "Current commit: abc1234" in result
+        assert "No changes." in result
+        assert "Up to date with remote." in result
+
+    def test_with_staged_files(self):
+        out = self._make_output(staged="config/.env\nconfig/wikis.yaml")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Staged for push (2 files):" in result
+        assert "config/.env" in result
+        assert "config/wikis.yaml" in result
+
+    def test_with_unstaged_files(self):
+        out = self._make_output(unstaged="docker-compose.override.yml")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Unstaged changes (1 files):" in result
+
+    def test_ahead_of_remote(self):
+        out = self._make_output(revcount="3\t0")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Ahead of remote by 3 commit(s)." in result
+
+    def test_behind_remote(self):
+        out = self._make_output(revcount="0\t2")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Behind remote by 2 commit(s)." in result
+
+    def test_with_hosts_yaml(self):
+        hosts_yaml = "hosts:\n  - role: production\n    pull_requests: true"
+        out = self._make_output(hosts_yaml=hosts_yaml)
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Role:           production" in result
+        assert "Pull requests:  True" in result
+
+    def test_missing_host_file(self):
+        out = self._make_output(hostname="MISSING")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Host:           unknown" in result
+
+
+class TestCmdGitopsStatus:
+    def test_registered(self):
+        assert direct_commands.is_direct_command("gitops_status")
+
+    def test_remote_uses_ssh(self, monkeypatch, capsys):
+        d = direct_commands._SENTINEL
+        ssh_output = (
+            "myhost\n" + d + "\n"
+            + "MISSING\n" + d + "\n"
+            + "abc1234\n" + d + "\n"
+            + "abc1234\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "0\t0\n"
+        )
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("mysite", {
+                "path": "/srv/mysite",
+                "orchestrator": "compose",
+                "host": "admin@remote",
+            }),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (0, ssh_output),
+        )
+        args = type("Args", (), {"id": "mysite"})()
+        rc = direct_commands.cmd_gitops_status(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Canasta ID:     mysite" in out
+        assert "Up to date with remote." in out
