@@ -1014,3 +1014,182 @@ def cmd_gitops_diff(args):
 
     print(_parse_gitops_diff(stdout))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# canasta backup list
+# ---------------------------------------------------------------------------
+
+@register("backup_list")
+def cmd_backup_list(args):
+    inst_id, inst = _resolve_instance(args)
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    orchestrator = inst.get("orchestrator", "compose")
+
+    if orchestrator in ("kubernetes", "k8s"):
+        return FALLBACK
+
+    bvol = "canasta-backup-%s" % os.path.basename(path)
+    env_vars = _read_env_file(path, host)
+    local_repo = env_vars.get("RESTIC_REPOSITORY", "")
+    local_mount = ""
+    if local_repo.startswith("/"):
+        local_mount = "-v %s:%s" % (local_repo, local_repo)
+
+    cmd = (
+        "docker volume create %(vol)s >/dev/null 2>&1; "
+        "docker run --rm -i "
+        "--env-file %(path)s/.env "
+        "-v %(vol)s:/currentsnapshot "
+        "%(local_mount)s "
+        "restic/restic "
+        "--cache-dir /tmp/restic-cache "
+        "snapshots"
+    ) % {"vol": bvol, "path": path, "local_mount": local_mount}
+
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                ["bash", "-c", cmd],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.stdout.strip():
+                print(result.stdout.strip())
+            return result.returncode
+        except (subprocess.TimeoutExpired, OSError) as e:
+            print("Error: %s" % e, file=sys.stderr)
+            return 1
+
+    rc, stdout = _ssh_run(host, cmd)
+    if stdout.strip():
+        print(stdout.strip())
+    return rc
+
+
+# ---------------------------------------------------------------------------
+# canasta doctor
+# ---------------------------------------------------------------------------
+
+_DOCTOR_SCRIPT = r"""
+D='%(delim)s'
+python3 --version 2>&1 || echo MISSING; echo "$D"
+docker --version 2>&1 || echo MISSING; echo "$D"
+docker compose version 2>&1 || echo MISSING; echo "$D"
+docker info >/dev/null 2>&1 && echo OK || echo NOT_RUNNING; echo "$D"
+id -nG 2>/dev/null || echo ""; echo "$D"
+kubectl version --client --output=yaml 2>/dev/null && echo OK || echo MISSING; echo "$D"
+helm version --short 2>/dev/null || echo MISSING; echo "$D"
+k3s --version 2>/dev/null || echo MISSING; echo "$D"
+kubectl cluster-info 2>/dev/null && echo REACHABLE || echo UNREACHABLE; echo "$D"
+kubectl get deployment argocd-server -n argocd 2>/dev/null && echo INSTALLED || echo MISSING; echo "$D"
+git --version 2>/dev/null || echo MISSING; echo "$D"
+git-crypt --version 2>/dev/null && echo OK || echo MISSING; echo "$D"
+python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
+df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown
+"""
+
+
+def _parse_doctor(stdout, hostname):
+    d = _SENTINEL
+    parts = stdout.split(d + "\n")
+
+    def p(i):
+        return parts[i].strip() if i < len(parts) else "unknown"
+
+    python = p(0)
+    docker = p(1)
+    compose = p(2)
+    daemon = p(3)
+    groups = p(4)
+    kubectl = p(5)
+    helm = p(6)
+    k3s = p(7)
+    cluster = p(8)
+    argocd = p(9)
+    git = p(10)
+    gitcrypt = p(11)
+    memory = p(12)
+    disk = p(13) if len(parts) > 13 else "unknown"
+
+    lines = [
+        "Canasta Dependency Check (%s)" % hostname,
+        "=" * 52,
+        "",
+        "Core (required):",
+    ]
+    lines.append("  Python 3:        %s" % (
+        "OK (%s)" % python if "Python" in python else "MISSING"))
+    lines.append("  Docker:          %s" % (
+        "OK (%s)" % docker if "Docker" in docker else "MISSING"))
+    lines.append("  Docker Compose:  %s" % (
+        "OK (%s)" % compose if "Docker Compose" in compose else "MISSING"))
+    lines.append("  Docker daemon:   %s" % (
+        "OK (running)" if daemon == "OK" else "NOT RUNNING"))
+
+    lines.append("")
+    lines.append("Kubernetes (optional):")
+    kubectl_ok = "OK" in kubectl and "MISSING" not in kubectl
+    lines.append("  kubectl:         %s" % ("OK" if kubectl_ok else "not installed"))
+    lines.append("  Helm:            %s" % (
+        "OK (%s)" % helm if helm != "MISSING" else "not installed"))
+    lines.append("  k3s:             %s" % (
+        "OK" if k3s != "MISSING" else "not installed"))
+    lines.append("  Cluster:         %s" % (
+        "reachable" if "REACHABLE" in cluster else "not reachable"))
+    lines.append("  Argo CD:         %s" % (
+        "installed" if "INSTALLED" in argocd else "not found"))
+
+    lines.append("")
+    lines.append("GitOps (optional):")
+    lines.append("  git:             %s" % (
+        "OK (%s)" % git if "git version" in git else "not installed"))
+    lines.append("  git-crypt:       %s" % (
+        "OK" if gitcrypt == "OK" else "not installed"))
+
+    lines.append("")
+    lines.append("System:")
+    lines.append("  Memory:          %s" % memory)
+    lines.append("  Disk (/ avail):  %s" % disk)
+    www_member = "www-data" in groups.split()
+    lines.append("  www-data group:  %s" % (
+        "OK (member)" if www_member else "NOT A MEMBER"))
+
+    return "\n".join(lines)
+
+
+@register("doctor")
+def cmd_doctor(args):
+    host = getattr(args, "host", None)
+    script = _DOCTOR_SCRIPT % {"delim": _SENTINEL}
+
+    if not host or host == "localhost":
+        hostname = "localhost"
+        try:
+            result = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True, text=True, timeout=30,
+            )
+            stdout = result.stdout
+        except (subprocess.TimeoutExpired, OSError) as e:
+            print("Error: %s" % e, file=sys.stderr)
+            return 1
+    else:
+        hostname = host
+        rc, stdout = _ssh_run(host, script)
+        if rc != 0 and not stdout.strip():
+            print("Error: failed to connect to %s" % host, file=sys.stderr)
+            return 1
+
+    print(_parse_doctor(stdout, hostname))
+
+    parts = stdout.split(_SENTINEL + "\n")
+    docker = parts[1].strip() if len(parts) > 1 else "MISSING"
+    compose = parts[2].strip() if len(parts) > 2 else "MISSING"
+    daemon = parts[3].strip() if len(parts) > 3 else "NOT_RUNNING"
+    if "Docker" not in docker or "Docker Compose" not in compose or daemon != "OK":
+        print("\nMissing core dependencies. Install Docker and ensure the daemon is running.",
+              file=sys.stderr)
+        return 1
+
+    return 0

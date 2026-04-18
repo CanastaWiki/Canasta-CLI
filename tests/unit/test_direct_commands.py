@@ -1425,3 +1425,95 @@ class TestCmdGitopsDiff:
         out = capsys.readouterr().out
         assert "Uncommitted changes: 1 file(s)" in out
         assert "config/.env" in out
+
+
+# ---------------------------------------------------------------------------
+# Backup list tests
+# ---------------------------------------------------------------------------
+
+class TestBackupList:
+    def test_registered(self):
+        assert direct_commands.is_direct_command("backup_list")
+
+    def test_k8s_falls_back(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("k8s", {"path": "/p", "orchestrator": "kubernetes"}),
+        )
+        args = type("Args", (), {"id": "k8s"})()
+        assert direct_commands.cmd_backup_list(args) is direct_commands.FALLBACK
+
+    def test_compose_runs_restic(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+            }),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_read_env_file",
+            lambda *a: {"RESTIC_REPOSITORY": "s3:s3.amazonaws.com/bucket"},
+        )
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0,
+                "stdout": "ID        Time                 Host\nabc123    2026-04-18 12:00:00  test\n",
+            })(),
+        )
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_backup_list(args)
+        assert rc == 0
+        assert "abc123" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Doctor tests
+# ---------------------------------------------------------------------------
+
+class TestDoctor:
+    def test_registered(self):
+        assert direct_commands.is_direct_command("doctor")
+
+    def test_parse_doctor_all_ok(self):
+        d = direct_commands._SENTINEL
+        parts = [
+            "Python 3.12.0",
+            "Docker version 27.0.0",
+            "Docker Compose version v2.30.0",
+            "OK",
+            "user docker www-data",
+            "clientVersion:\n  gitVersion: v1.30.0\nOK",
+            "v3.15.0",
+            "k3s version v1.30.0",
+            "Kubernetes control plane is running\nREACHABLE",
+            "NAME\nargocd-server\nINSTALLED",
+            "git version 2.45.0",
+            "OK",
+            "16 GB",
+            "50G",
+        ]
+        stdout = ("\n" + d + "\n").join(parts) + "\n"
+        result = direct_commands._parse_doctor(stdout, "myhost")
+        assert "Canasta Dependency Check (myhost)" in result
+        assert "Python 3:        OK" in result
+        assert "Docker:          OK" in result
+        assert "Docker daemon:   OK (running)" in result
+        assert "kubectl:         OK" in result
+        assert "www-data group:  OK (member)" in result
+
+    def test_parse_doctor_missing_deps(self):
+        d = direct_commands._SENTINEL
+        parts = [
+            "MISSING", "MISSING", "MISSING", "NOT_RUNNING",
+            "user", "MISSING", "MISSING", "MISSING",
+            "UNREACHABLE", "MISSING", "MISSING", "MISSING",
+            "unknown", "unknown",
+        ]
+        stdout = ("\n" + d + "\n").join(parts) + "\n"
+        result = direct_commands._parse_doctor(stdout, "myhost")
+        assert "Python 3:        MISSING" in result
+        assert "Docker:          MISSING" in result
+        assert "Docker daemon:   NOT RUNNING" in result
+        assert "www-data group:  NOT A MEMBER" in result
