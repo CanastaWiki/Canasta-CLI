@@ -67,7 +67,15 @@ spec:
                 optional: true
           env:
             - name: MYSQL_HOST
-              value: db
+              value: {{ if .Values.db.enabled }}"db"{{ else }}"{{ .Values.externalDatabase.host }}"{{ end }}
+            - name: MYSQL_PORT
+              value: {{ if .Values.db.enabled }}"3306"{{ else }}"{{ .Values.externalDatabase.port }}"{{ end }}
+            - name: MYSQL_USER
+              value: {{ if .Values.db.enabled }}"root"{{ else }}"{{ .Values.externalDatabase.user }}"{{ end }}
+            - name: MYSQL_SSL
+              value: {{ if .Values.db.enabled }}"false"{{ else }}"{{ .Values.externalDatabase.ssl }}"{{ end }}
+            - name: USE_EXTERNAL_DB
+              value: "{{ not .Values.db.enabled }}"
             - name: MYSQL_PASSWORD
               valueFrom:
                 secretKeyRef:

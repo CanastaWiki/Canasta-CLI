@@ -50,7 +50,9 @@ varnish:
       memory: 256Mi
 
 # Database (MariaDB)
+# Set db.enabled=false and externalDatabase settings to use an external DB.
 db:
+  enabled: true
   image: mariadb:11.4
   storage: 10Gi
   storageClass: ""
@@ -61,6 +63,13 @@ db:
     limits:
       cpu: 500m
       memory: 512Mi
+
+# External database (when db.enabled=false)
+externalDatabase:
+  host: ""
+  port: "3306"
+  user: "root"
+  ssl: "false"
 
 # Elasticsearch (optional)
 elasticsearch:
