@@ -801,9 +801,10 @@ def main():
             pass
 
     # Direct command bypass: run simple commands without Ansible overhead.
-    import direct_commands
-    if direct_commands.is_direct_command(command_name):
-        sys.exit(direct_commands.run_direct_command(command_name, args))
+    if not os.environ.get("CANASTA_FORCE_ANSIBLE"):
+        import direct_commands
+        if direct_commands.is_direct_command(command_name):
+            sys.exit(direct_commands.run_direct_command(command_name, args))
 
     # Interactive confirmation for destructive commands.
     # If the command defines a "yes" parameter and the user did not pass it,

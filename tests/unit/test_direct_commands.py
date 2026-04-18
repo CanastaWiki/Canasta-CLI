@@ -622,3 +622,65 @@ class TestCmdList:
         out = capsys.readouterr().out
         assert "NOT FOUND" in out
         assert "(no wikis)" in out
+
+
+# ---------------------------------------------------------------------------
+# Version command tests
+# ---------------------------------------------------------------------------
+
+class TestCmdVersion:
+    def test_registered(self):
+        assert direct_commands.is_direct_command("version")
+
+    def test_native_checkout(self, tmp_path, monkeypatch, capsys):
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0,
+                "stdout": "abc1234\n" if "rev-parse" in a[0] else "2026-04-18 12:00:00\n",
+            })(),
+        )
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "v4.0.0" in out
+        assert "native" in out
+        assert "abc1234" in out
+
+    def test_docker_mode(self, tmp_path, monkeypatch, capsys):
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        (tmp_path / "BUILD_COMMIT").write_text("def5678\n")
+        (tmp_path / "BUILD_DATE").write_text("2026-04-18 10:00:00\n")
+        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "v4.0.0" in out
+        assert "docker" in out
+        assert "def5678" in out
+
+    def test_missing_version_file(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {"returncode": 1, "stdout": ""})(),
+        )
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "unknown" in out
+
+    def test_not_a_git_repo(self, tmp_path, monkeypatch, capsys):
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {"returncode": 128, "stdout": ""})(),
+        )
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "v4.0.0" in out
+        assert "unknown" in out
