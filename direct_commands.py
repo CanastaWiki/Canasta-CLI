@@ -42,6 +42,11 @@ def _get_config_dir():
     return get_config_dir()
 
 
+def _get_script_dir():
+    from canasta import SCRIPT_DIR
+    return SCRIPT_DIR
+
+
 def _read_registry(conf_path):
     if not os.path.isfile(conf_path):
         return {}
@@ -357,4 +362,53 @@ def cmd_list(args):
     details = _gather_all_instances(instances)
 
     _print_table(details)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# canasta version
+# ---------------------------------------------------------------------------
+
+@register("version")
+def cmd_version(args):
+    script_dir = _get_script_dir()
+
+    version_file = os.path.join(script_dir, "VERSION")
+    try:
+        with open(version_file) as f:
+            version = f.read().strip()
+    except OSError:
+        version = "unknown"
+
+    build_commit_file = os.path.join(script_dir, "BUILD_COMMIT")
+    if os.path.isfile(build_commit_file):
+        mode = "docker"
+        try:
+            with open(build_commit_file) as f:
+                commit = f.read().strip()
+            with open(os.path.join(script_dir, "BUILD_DATE")) as f:
+                date = f.read().strip()
+        except OSError:
+            commit = "unknown"
+            date = "unknown"
+    else:
+        mode = "native"
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=script_dir, capture_output=True, text=True, timeout=5,
+            )
+            commit = result.stdout.strip() if result.returncode == 0 else "unknown"
+        except (subprocess.TimeoutExpired, OSError):
+            commit = "unknown"
+        try:
+            result = subprocess.run(
+                ["git", "log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M:%S"],
+                cwd=script_dir, capture_output=True, text=True, timeout=5,
+            )
+            date = result.stdout.strip() if result.returncode == 0 else "unknown"
+        except (subprocess.TimeoutExpired, OSError):
+            date = "unknown"
+
+    print("Canasta CLI v%s (%s, commit %s, built %s)" % (version, mode, commit, date))
     return 0
