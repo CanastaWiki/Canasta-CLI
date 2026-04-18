@@ -948,3 +948,140 @@ class TestLifecycleCommands:
         assert len(ssh_cmds) == 1
         assert "up -d" in ssh_cmds[0][1]
         assert ssh_cmds[0][0] == "admin@remote"
+
+
+# ---------------------------------------------------------------------------
+# Host command tests
+# ---------------------------------------------------------------------------
+
+class TestHostList:
+    def test_registered(self):
+        assert direct_commands.is_direct_command("host_list")
+
+    def test_no_file(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        rc = direct_commands.cmd_host_list(None)
+        assert rc == 0
+        assert "No hosts configured" in capsys.readouterr().out
+
+    def test_lists_hosts(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        hosts_file = tmp_path / "hosts.yml"
+        hosts_file.write_text(
+            "all:\n"
+            "  hosts:\n"
+            "    prod1:\n"
+            "      ansible_host: prod1.example.com\n"
+            "      ansible_user: ubuntu\n"
+            "    prod2:\n"
+            "      ansible_host: 10.0.0.5\n"
+        )
+        rc = direct_commands.cmd_host_list(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "prod1" in out
+        assert "prod1.example.com" in out
+        assert "ubuntu" in out
+        assert "prod2" in out
+
+    def test_empty_hosts(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        hosts_file = tmp_path / "hosts.yml"
+        hosts_file.write_text("all:\n  hosts: {}\n")
+        rc = direct_commands.cmd_host_list(None)
+        assert rc == 0
+        assert "No hosts configured" in capsys.readouterr().out
+
+
+class TestHostAdd:
+    def test_registered(self):
+        assert direct_commands.is_direct_command("host_add")
+
+    def test_add_new_host(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        args = type("Args", (), {
+            "host_name": "prod1",
+            "ssh": "ubuntu@prod1.example.com",
+            "python": None,
+        })()
+        rc = direct_commands.cmd_host_add(args)
+        assert rc == 0
+        assert "saved" in capsys.readouterr().out
+
+        import yaml as _yaml
+        with open(tmp_path / "hosts.yml") as f:
+            data = _yaml.safe_load(f)
+        assert data["all"]["hosts"]["prod1"]["ansible_host"] == "prod1.example.com"
+        assert data["all"]["hosts"]["prod1"]["ansible_user"] == "ubuntu"
+
+    def test_add_with_python(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        args = type("Args", (), {
+            "host_name": "prod1",
+            "ssh": "10.0.0.5",
+            "python": "/usr/bin/python3",
+        })()
+        rc = direct_commands.cmd_host_add(args)
+        assert rc == 0
+
+        import yaml as _yaml
+        with open(tmp_path / "hosts.yml") as f:
+            data = _yaml.safe_load(f)
+        assert data["all"]["hosts"]["prod1"]["ansible_python_interpreter"] == "/usr/bin/python3"
+        assert "ansible_user" not in data["all"]["hosts"]["prod1"]
+
+    def test_update_existing(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        hosts_file = tmp_path / "hosts.yml"
+        hosts_file.write_text(
+            "all:\n  hosts:\n    prod1:\n      ansible_host: old.com\n"
+        )
+        args = type("Args", (), {
+            "host_name": "prod1",
+            "ssh": "admin@new.com",
+            "python": None,
+        })()
+        rc = direct_commands.cmd_host_add(args)
+        assert rc == 0
+
+        import yaml as _yaml
+        with open(tmp_path / "hosts.yml") as f:
+            data = _yaml.safe_load(f)
+        assert data["all"]["hosts"]["prod1"]["ansible_host"] == "new.com"
+
+
+class TestHostRemove:
+    def test_registered(self):
+        assert direct_commands.is_direct_command("host_remove")
+
+    def test_remove_existing(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        hosts_file = tmp_path / "hosts.yml"
+        hosts_file.write_text(
+            "all:\n  hosts:\n    prod1:\n      ansible_host: prod1.com\n"
+            "    prod2:\n      ansible_host: prod2.com\n"
+        )
+        args = type("Args", (), {"host_name": "prod1"})()
+        rc = direct_commands.cmd_host_remove(args)
+        assert rc == 0
+        assert "removed" in capsys.readouterr().out
+
+        import yaml as _yaml
+        with open(tmp_path / "hosts.yml") as f:
+            data = _yaml.safe_load(f)
+        assert "prod1" not in data["all"]["hosts"]
+        assert "prod2" in data["all"]["hosts"]
+
+    def test_remove_nonexistent(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        hosts_file = tmp_path / "hosts.yml"
+        hosts_file.write_text("all:\n  hosts:\n    prod1:\n      ansible_host: x\n")
+        args = type("Args", (), {"host_name": "nope"})()
+        rc = direct_commands.cmd_host_remove(args)
+        assert rc == 1
+
+    def test_remove_no_file(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        args = type("Args", (), {"host_name": "prod1"})()
+        rc = direct_commands.cmd_host_remove(args)
+        assert rc == 1
