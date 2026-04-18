@@ -684,3 +684,95 @@ class TestCmdVersion:
         out = capsys.readouterr().out
         assert "v4.0.0" in out
         assert "unknown" in out
+
+
+# ---------------------------------------------------------------------------
+# .env parsing tests
+# ---------------------------------------------------------------------------
+
+class TestReadEnvFile:
+    def test_reads_env(self, tmp_path):
+        env = tmp_path / ".env"
+        env.write_text(
+            "# comment\n"
+            "MW_SITE_SERVER=https://example.com\n"
+            'MW_SITE_NAME="My Wiki"\n'
+            "EMPTY=\n"
+        )
+        result = direct_commands._read_env_file(str(tmp_path), "localhost")
+        assert result["MW_SITE_SERVER"] == "https://example.com"
+        assert result["MW_SITE_NAME"] == "My Wiki"
+        assert result["EMPTY"] == ""
+
+    def test_handles_equals_in_value(self, tmp_path):
+        env = tmp_path / ".env"
+        env.write_text("KEY=a=b=c\n")
+        result = direct_commands._read_env_file(str(tmp_path), "localhost")
+        assert result["KEY"] == "a=b=c"
+
+    def test_missing_file(self, tmp_path):
+        result = direct_commands._read_env_file(str(tmp_path), "localhost")
+        assert result == {}
+
+    def test_single_quoted_value(self, tmp_path):
+        env = tmp_path / ".env"
+        env.write_text("KEY='hello world'\n")
+        result = direct_commands._read_env_file(str(tmp_path), "localhost")
+        assert result["KEY"] == "hello world"
+
+
+# ---------------------------------------------------------------------------
+# config get tests
+# ---------------------------------------------------------------------------
+
+class TestCmdConfigGet:
+    def test_registered(self):
+        assert direct_commands.is_direct_command("config_get")
+
+    def test_get_single_key(self, tmp_path, monkeypatch, capsys):
+        env = tmp_path / ".env"
+        env.write_text("MW_SITE_SERVER=https://example.com\nOTHER=value\n")
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
+        )
+        args = type("Args", (), {"id": "test", "key": "MW_SITE_SERVER", "force": False})()
+        rc = direct_commands.cmd_config_get(args)
+        assert rc == 0
+        assert capsys.readouterr().out.strip() == "https://example.com"
+
+    def test_get_missing_key(self, tmp_path, monkeypatch, capsys):
+        env = tmp_path / ".env"
+        env.write_text("MW_SITE_SERVER=https://example.com\n")
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
+        )
+        args = type("Args", (), {"id": "test", "key": "NOPE", "force": False})()
+        rc = direct_commands.cmd_config_get(args)
+        assert rc == 0
+        assert "not found" in capsys.readouterr().out.lower()
+
+    def test_get_all_sorted(self, tmp_path, monkeypatch, capsys):
+        env = tmp_path / ".env"
+        env.write_text("ZEBRA=z\nAPPLE=a\nMIDDLE=m\n")
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
+        )
+        args = type("Args", (), {"id": "test", "key": None, "force": False})()
+        rc = direct_commands.cmd_config_get(args)
+        assert rc == 0
+        lines = capsys.readouterr().out.strip().split("\n")
+        assert lines[0] == "APPLE=a"
+        assert lines[1] == "MIDDLE=m"
+        assert lines[2] == "ZEBRA=z"
+
+    def test_no_env_file(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
+        )
+        args = type("Args", (), {"id": "test", "key": None, "force": False})()
+        rc = direct_commands.cmd_config_get(args)
+        assert rc == 1

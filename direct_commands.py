@@ -47,6 +47,45 @@ def _get_script_dir():
     return SCRIPT_DIR
 
 
+def _resolve_instance(args):
+    """Resolve instance from --id flag or cwd. Returns (id, inst_dict) or exits."""
+    from canasta import resolve_instance
+    instance_id = getattr(args, "id", None)
+    inst = resolve_instance(instance_id)
+    return inst["id"], inst
+
+
+def _read_env_file(path, host):
+    """Read and parse a .env file, returning a dict of key=value pairs."""
+    env_path = os.path.join(path, ".env")
+    try:
+        if _is_localhost(host):
+            with open(env_path) as f:
+                content = f.read()
+        else:
+            rc, content = _ssh_run(host, "cat %s" % _shell_quote(env_path))
+            if rc != 0:
+                return {}
+    except OSError:
+        return {}
+
+    result = {}
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split("=", 1)
+        if len(parts) == 2:
+            key = parts[0].strip()
+            value = parts[1].strip()
+            if len(value) >= 2:
+                if (value.startswith('"') and value.endswith('"')) or \
+                   (value.startswith("'") and value.endswith("'")):
+                    value = value[1:-1]
+            result[key] = value
+    return result
+
+
 def _read_registry(conf_path):
     if not os.path.isfile(conf_path):
         return {}
@@ -411,4 +450,32 @@ def cmd_version(args):
             date = "unknown"
 
     print("Canasta CLI v%s (%s, commit %s, built %s)" % (version, mode, commit, date))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# canasta config get
+# ---------------------------------------------------------------------------
+
+@register("config_get")
+def cmd_config_get(args):
+    inst_id, inst = _resolve_instance(args)
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+
+    env_vars = _read_env_file(path, host)
+    if not env_vars:
+        print("No configuration found.", file=sys.stderr)
+        return 1
+
+    key = getattr(args, "key", None)
+    if key:
+        if key in env_vars:
+            print(env_vars[key])
+        else:
+            print("Key '%s' not found." % key)
+        return 0
+
+    for k in sorted(env_vars.keys()):
+        print("%s=%s" % (k, env_vars[k]))
     return 0
