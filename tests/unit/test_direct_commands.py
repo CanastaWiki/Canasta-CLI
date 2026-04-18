@@ -817,6 +817,50 @@ class TestLifecycleCommands:
     def test_restart_registered(self):
         assert direct_commands.is_direct_command("restart")
 
+    def test_k8s_start_falls_back(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("k8s-site", {
+                "path": "/srv/k8s-site",
+                "orchestrator": "kubernetes",
+            }),
+        )
+        args = type("Args", (), {"id": "k8s-site"})()
+        assert direct_commands.cmd_start(args) is direct_commands.FALLBACK
+
+    def test_k8s_restart_falls_back(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("k8s-site", {
+                "path": "/srv/k8s-site",
+                "orchestrator": "kubernetes",
+            }),
+        )
+        args = type("Args", (), {"id": "k8s-site"})()
+        assert direct_commands.cmd_restart(args) is direct_commands.FALLBACK
+
+    def test_k8s_stop_runs_kubectl(self, monkeypatch):
+        kubectl_cmds = []
+
+        def mock_run(cmd, **kw):
+            kubectl_cmds.append(cmd)
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("k8s-site", {
+                "path": "/srv/k8s-site",
+                "orchestrator": "kubernetes",
+            }),
+        )
+        args = type("Args", (), {"id": "k8s-site"})()
+        rc = direct_commands.cmd_stop(args)
+        assert rc == 0
+        cmds_str = str(kubectl_cmds)
+        assert "scale" in cmds_str
+        assert "replicas=0" in cmds_str
+
     def test_start_runs_up(self, monkeypatch):
         captured_cmds = []
 
