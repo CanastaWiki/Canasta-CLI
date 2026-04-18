@@ -24,6 +24,9 @@ def register(command_name):
     return decorator
 
 
+FALLBACK = object()
+
+
 def is_direct_command(command_name):
     return command_name in DIRECT_COMMANDS
 
@@ -531,21 +534,71 @@ def cmd_config_get(args):
 # canasta start / stop / restart
 # ---------------------------------------------------------------------------
 
+def _k8s_namespace(instance_id):
+    return "canasta-%s" % instance_id
+
+
+def _run_kubectl(kubectl_args, timeout=30):
+    """Run a kubectl command. Returns exit code."""
+    cmd = ["kubectl"] + kubectl_args
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.stdout.strip():
+            print(result.stdout.strip())
+        if result.returncode != 0 and result.stderr.strip():
+            print(result.stderr.strip(), file=sys.stderr)
+        return result.returncode
+    except (subprocess.TimeoutExpired, OSError) as e:
+        print("Error: %s" % e, file=sys.stderr)
+        return 1
+
+
+def _k8s_stop(instance_id):
+    """Stop a K8s instance: suspend Argo CD sync, scale everything to 0."""
+    ns = _k8s_namespace(instance_id)
+
+    result = subprocess.run(
+        ["kubectl", "get", "application", "canasta-%s" % instance_id,
+         "-n", "argocd", "-o", "jsonpath={.metadata.name}"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode == 0:
+        _run_kubectl([
+            "patch", "application", "canasta-%s" % instance_id,
+            "-n", "argocd", "--type", "merge",
+            "-p", '{"spec":{"syncPolicy":null}}',
+        ])
+
+    _run_kubectl(["scale", "deployment", "--all", "--replicas=0", "-n", ns])
+    _run_kubectl(["scale", "statefulset", "--all", "--replicas=0", "-n", ns])
+    return 0
+
+
 @register("start")
 def cmd_start(args):
     inst_id, inst = _resolve_instance(args)
+    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+        # K8s start requires chart copy + helm deploy + config sync;
+        # these are multi-step controller-to-remote operations that
+        # need Ansible.
+        return FALLBACK
     return _run_compose(inst_id, inst, ["up", "-d"])
 
 
 @register("stop")
 def cmd_stop(args):
     inst_id, inst = _resolve_instance(args)
+    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+        return _k8s_stop(inst_id)
     return _run_compose(inst_id, inst, ["down"])
 
 
 @register("restart")
 def cmd_restart(args):
     inst_id, inst = _resolve_instance(args)
+    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+        # K8s restart needs Ansible for the start half (helm deploy).
+        return FALLBACK
     rc = _run_compose(inst_id, inst, ["down"])
     if rc != 0:
         return rc
