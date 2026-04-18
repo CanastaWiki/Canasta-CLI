@@ -86,6 +86,52 @@ def _read_env_file(path, host):
     return result
 
 
+def _compose_file_args(path, host, devmode=False):
+    """Build docker compose -f flags based on available files."""
+    files = ["docker-compose.yml"]
+    override = os.path.join(path, "docker-compose.override.yml")
+    if _is_localhost(host):
+        if os.path.isfile(override):
+            files.append("docker-compose.override.yml")
+    else:
+        rc, _ = _ssh_run(host, "test -f %s" % _shell_quote(override))
+        if rc == 0:
+            files.append("docker-compose.override.yml")
+    if devmode:
+        files.append("docker-compose.dev.yml")
+    result = []
+    for f in files:
+        result.extend(["-f", f])
+    return result
+
+
+def _run_compose(inst_id, inst, action_args):
+    """Run a docker compose command for an instance. Returns exit code."""
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    devmode = inst.get("devMode", False)
+    file_args = _compose_file_args(path, host, devmode)
+
+    if _is_localhost(host):
+        cmd = ["docker", "compose"] + file_args + action_args
+        try:
+            result = subprocess.run(cmd, cwd=path, timeout=120)
+            return result.returncode
+        except (subprocess.TimeoutExpired, OSError) as e:
+            print("Error: %s" % e, file=sys.stderr)
+            return 1
+    else:
+        file_str = " ".join(file_args)
+        action_str = " ".join(action_args)
+        rc, stdout = _ssh_run(
+            host,
+            "cd %s && docker compose %s %s" % (
+                _shell_quote(path), file_str, action_str,
+            ),
+        )
+        if stdout.strip():
+            print(stdout.strip())
+        return rc
 def _read_registry(conf_path):
     if not os.path.isfile(conf_path):
         return {}
@@ -479,3 +525,28 @@ def cmd_config_get(args):
     for k in sorted(env_vars.keys()):
         print("%s=%s" % (k, env_vars[k]))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# canasta start / stop / restart
+# ---------------------------------------------------------------------------
+
+@register("start")
+def cmd_start(args):
+    inst_id, inst = _resolve_instance(args)
+    return _run_compose(inst_id, inst, ["up", "-d"])
+
+
+@register("stop")
+def cmd_stop(args):
+    inst_id, inst = _resolve_instance(args)
+    return _run_compose(inst_id, inst, ["down"])
+
+
+@register("restart")
+def cmd_restart(args):
+    inst_id, inst = _resolve_instance(args)
+    rc = _run_compose(inst_id, inst, ["down"])
+    if rc != 0:
+        return rc
+    return _run_compose(inst_id, inst, ["up", "-d"])
