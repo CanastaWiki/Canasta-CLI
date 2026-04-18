@@ -643,3 +643,130 @@ def cmd_host_remove(args):
     _write_hosts_yml(data)
     print("Host '%s' removed from %s" % (host_name, _hosts_yml_path()))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# canasta gitops status
+# ---------------------------------------------------------------------------
+
+def _gitops_status_script(path):
+    """Build a batched shell script that gathers all gitops status info."""
+    d = _SENTINEL
+    qp = _shell_quote(path)
+    return (
+        "cd %(p)s; "
+        "cat .gitops-host 2>/dev/null || echo MISSING; "
+        "echo '%(d)s'; "
+        "cat hosts/hosts.yaml 2>/dev/null || echo MISSING; "
+        "echo '%(d)s'; "
+        "git rev-parse --short HEAD 2>/dev/null || echo none; "
+        "echo '%(d)s'; "
+        "cat .gitops-applied 2>/dev/null || echo none; "
+        "echo '%(d)s'; "
+        "git diff --cached --name-only 2>/dev/null; "
+        "echo '%(d)s'; "
+        "git diff --name-only 2>/dev/null; "
+        "echo '%(d)s'; "
+        "git fetch 2>/dev/null; "
+        "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'"
+    ) % {"p": qp, "d": d}
+
+
+def _parse_gitops_status(stdout, instance_id):
+    """Parse the batched gitops status output into a formatted string."""
+    parts = stdout.split(_SENTINEL + "\n")
+
+    hostname = parts[0].strip() if len(parts) > 0 else "unknown"
+    if hostname == "MISSING":
+        hostname = "unknown"
+
+    hosts_yaml_raw = parts[1].strip() if len(parts) > 1 else ""
+    role = "unknown"
+    pull_requests = False
+    if hosts_yaml_raw and hosts_yaml_raw != "MISSING":
+        try:
+            parsed = yaml.safe_load(hosts_yaml_raw)
+            if parsed and "hosts" in parsed and parsed["hosts"]:
+                role = parsed["hosts"][0].get("role", "unknown")
+                pull_requests = parsed["hosts"][0].get("pull_requests", False)
+        except yaml.YAMLError:
+            pass
+
+    commit = parts[2].strip() if len(parts) > 2 else "none"
+    applied = parts[3].strip() if len(parts) > 3 else "none"
+    staged_raw = parts[4].strip() if len(parts) > 4 else ""
+    unstaged_raw = parts[5].strip() if len(parts) > 5 else ""
+    revcount_raw = parts[6].strip() if len(parts) > 6 else "0\t0"
+
+    staged = staged_raw.split("\n") if staged_raw else []
+    unstaged = unstaged_raw.split("\n") if unstaged_raw else []
+
+    try:
+        revcount_parts = revcount_raw.split("\t")
+        ahead = int(revcount_parts[0])
+        behind = int(revcount_parts[1]) if len(revcount_parts) > 1 else 0
+    except (ValueError, IndexError):
+        ahead, behind = 0, 0
+
+    lines = [
+        "Host:           %s" % hostname,
+        "Role:           %s" % role,
+        "Canasta ID:     %s" % instance_id,
+        "Pull requests:  %s" % str(pull_requests),
+        "Current commit: %s" % commit,
+        "Last applied:   %s" % (applied if applied != "none" else ""),
+        "",
+    ]
+
+    if staged:
+        lines.append("Staged for push (%d files):" % len(staged))
+        for f in staged:
+            lines.append("  %s" % f)
+        lines.append("")
+
+    if unstaged:
+        lines.append("Unstaged changes (%d files):" % len(unstaged))
+        for f in unstaged:
+            lines.append("  %s" % f)
+        lines.append("")
+
+    if not staged and not unstaged:
+        lines.append("No changes.")
+        lines.append("")
+
+    if ahead > 0:
+        lines.append("Ahead of remote by %d commit(s)." % ahead)
+    elif behind > 0:
+        lines.append("Behind remote by %d commit(s)." % behind)
+    else:
+        lines.append("Up to date with remote.")
+
+    return "\n".join(lines)
+
+
+@register("gitops_status")
+def cmd_gitops_status(args):
+    inst_id, inst = _resolve_instance(args)
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+
+    script = _gitops_status_script(path)
+
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True, text=True, timeout=30,
+            )
+            stdout = result.stdout
+        except (subprocess.TimeoutExpired, OSError) as e:
+            print("Error: %s" % e, file=sys.stderr)
+            return 1
+    else:
+        rc, stdout = _ssh_run(host, script)
+        if rc != 0 and not stdout.strip():
+            print("Error: failed to connect to %s" % host, file=sys.stderr)
+            return 1
+
+    print(_parse_gitops_status(stdout, inst_id))
+    return 0
