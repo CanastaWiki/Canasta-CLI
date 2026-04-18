@@ -43,6 +43,9 @@ COPY . .
 # Make wrapper executable
 RUN chmod +x canasta-native
 
+# Create symlink for mitogen strategy plugins (dynamic path resolution)
+RUN ln -s $(python -c "import site; print(site.getsitepackages()[0])")/ansible_mitogen/plugins/strategy /opt/canasta-ansible/.mitogen-strategy-plugins
+
 # Build metadata (injected by CI)
 ARG BUILD_COMMIT=unknown
 ARG BUILD_DATE=unknown
