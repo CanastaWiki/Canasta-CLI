@@ -1418,6 +1418,250 @@ def test_gitops_push_reporting(inst):
     )
 
 
+def test_backup_restore_excludes_safety(inst):
+    """Verify --snapshot latest skips safety-before-restore snapshots (#147)."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)
+
+    print("Configuring backup repository...")
+    backup_dir = tempfile.mkdtemp(prefix="canasta-int-backup-")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_REPOSITORY=%s" % backup_dir,
+        "--no-restart",
+    )
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_PASSWORD=testpass",
+        "--no-restart",
+    )
+
+    print("Initializing backup repository...")
+    inst.run_ok("backup", "init", "-i", inst.id)
+
+    print("Creating real backup snapshot...")
+    inst.run_ok("backup", "create", "-i", inst.id, "-t", "real-backup")
+
+    print("Listing snapshots to get the real snapshot ID...")
+    output = inst.run_quiet("backup", "list", "-i", inst.id)
+    assert "real-backup" in output, (
+        "real-backup not found in list output"
+    )
+    real_id = None
+    for line in output.splitlines():
+        if "real-backup" in line:
+            match = re.search(r'\b([0-9a-f]{8,})\b', line)
+            if match:
+                real_id = match.group(1)
+                break
+    assert real_id, "Could not extract real snapshot ID"
+
+    print("Creating a fake safety-before-restore snapshot...")
+    inst_path = inst.instance_path()
+    bvol = "canasta-backup-%s" % os.path.basename(inst_path)
+    env_path = os.path.join(inst_path, ".env")
+    subprocess.run(
+        ["bash", "-c",
+         "docker run --rm -i "
+         "--env-file %s "
+         "-v %s:/currentsnapshot "
+         "%s "
+         "restic/restic "
+         "--cache-dir /tmp/restic-cache "
+         "backup /currentsnapshot --tag safety-before-restore"
+         % (env_path, bvol,
+            "-v %s:%s" % (backup_dir, backup_dir) if backup_dir.startswith("/") else "")],
+        capture_output=True, check=True,
+    )
+
+    print("Verifying both snapshots exist...")
+    output = inst.run_quiet("backup", "list", "-i", inst.id)
+    assert "real-backup" in output, "real-backup missing"
+    assert "safety-before-restore" in output, "safety snapshot missing"
+
+    print("Restoring with --snapshot latest...")
+    inst.run_ok(
+        "backup", "restore", "-i", inst.id,
+        "-s", "latest", "--skip-safety-backup",
+    )
+
+    print("Restarting after restore...")
+    inst.run_ok("restart", "-i", inst.id)
+
+    print("Verifying wiki accessible after restore from real snapshot...")
+    wait_for_wiki(inst.http_port, timeout=300)
+
+    shutil.rmtree(backup_dir, ignore_errors=True)
+
+
+def test_gitops_status_fetch(inst):
+    """Verify gitops status detects remote commits after fetch (#152)."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    print("Pushing initial state...")
+    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok("gitops", "push", "-i", inst.id)
+
+    print("Verifying status is up to date...")
+    output = inst.run_ok("gitops", "status", "-i", inst.id)
+    assert "Up to date with remote" in output, (
+        "Expected 'Up to date with remote' initially:\n%s" % output
+    )
+
+    print("Cloning bare repo and pushing a commit from the clone...")
+    clone_dir = os.path.join(inst.work_dir, "gitops-clone")
+    subprocess.run(
+        ["git", "clone", "-b", "main", bare_repo, clone_dir],
+        capture_output=True, check=True,
+    )
+    settings_dir = os.path.join(
+        clone_dir, "config", "settings", "global",
+    )
+    os.makedirs(settings_dir, exist_ok=True)
+    with open(os.path.join(settings_dir, "FetchTest.php"), "w") as f:
+        f.write("<?php\n$wgFetchTest = true;\n")
+    subprocess.run(
+        ["git", "add", "."],
+        cwd=clone_dir, capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "Remote commit for fetch test"],
+        cwd=clone_dir, capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "push", "origin", "main"],
+        cwd=clone_dir, capture_output=True, check=True,
+    )
+
+    print("Running gitops status (should detect remote commit)...")
+    output = inst.run_ok("gitops", "status", "-i", inst.id)
+    assert "Behind remote by 1 commit" in output, (
+        "Expected 'Behind remote by 1 commit(s)' after remote push:\n%s"
+        % output
+    )
+
+
+def test_gitops_fix_submodules_orphan(inst):
+    """Verify fix-submodules recovers orphan gitlinks (#144)."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    inst_path = inst.instance_path()
+
+    print("Creating a fake extension with a git repo...")
+    ext_dir = os.path.join(inst_path, "extensions", "OrphanExt")
+    os.makedirs(ext_dir, exist_ok=True)
+    subprocess.run(
+        ["git", "init"], cwd=ext_dir, capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "init"],
+        cwd=ext_dir, capture_output=True, check=True,
+    )
+    ext_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ext_dir, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    print("Injecting orphan gitlink into the index...")
+    subprocess.run(
+        ["git", "update-index", "--add", "--cacheinfo",
+         "160000", ext_sha, "extensions/OrphanExt"],
+        cwd=inst_path, capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "Add orphan gitlink"],
+        cwd=inst_path, capture_output=True, check=True,
+    )
+
+    print("Verifying OrphanExt is NOT in .gitmodules...")
+    gitmodules_path = os.path.join(inst_path, ".gitmodules")
+    if os.path.isfile(gitmodules_path):
+        with open(gitmodules_path) as f:
+            content = f.read()
+        assert "OrphanExt" not in content, (
+            "OrphanExt should not be in .gitmodules before fix"
+        )
+
+    print("Running gitops fix-submodules...")
+    inst.run_ok("gitops", "fix-submodules", "-i", inst.id)
+
+    print("Verifying OrphanExt IS now in .gitmodules...")
+    assert os.path.isfile(gitmodules_path), (
+        ".gitmodules not found after fix-submodules"
+    )
+    with open(gitmodules_path) as f:
+        content = f.read()
+    assert "OrphanExt" in content, (
+        "OrphanExt should be in .gitmodules after fix:\n%s" % content
+    )
+
+    print("Verifying git submodule update succeeds...")
+    result = subprocess.run(
+        ["git", "submodule", "update", "--init", "--recursive"],
+        cwd=inst_path, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "git submodule update failed after fix:\n%s" % result.stderr
+    )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -1440,6 +1684,9 @@ ALL_TESTS = {
     "config-set-gitops": test_config_set_gitops,
     "gitops-push-shared": test_gitops_push_shared_vars,
     "gitops-push-reporting": test_gitops_push_reporting,
+    "backup-restore-safety": test_backup_restore_excludes_safety,
+    "gitops-status-fetch": test_gitops_status_fetch,
+    "gitops-fix-submodules": test_gitops_fix_submodules_orphan,
 }
 
 
