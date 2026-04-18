@@ -86,6 +86,7 @@ echo "=== Starting mock remote host ==="
 
 # Tell SSH and Ansible to use our test SSH config
 export ANSIBLE_SSH_ARGS="-F ${SSH_CONFIG}"
+export ANSIBLE_HOST_KEY_CHECKING=False
 
 echo ""
 echo "=== Running remote integration tests ==="
