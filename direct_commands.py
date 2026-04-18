@@ -912,3 +912,105 @@ def cmd_extension_list(args):
 @register("skin_list")
 def cmd_skin_list(args):
     return _list_items(args, "skins", "skins")
+
+
+# ---------------------------------------------------------------------------
+# canasta gitops diff
+# ---------------------------------------------------------------------------
+
+def _gitops_diff_script(path):
+    d = _SENTINEL
+    qp = _shell_quote(path)
+    return (
+        "cd %(p)s; "
+        "git diff --name-only 2>/dev/null; "
+        "echo '%(d)s'; "
+        "git diff --name-only HEAD @{upstream} 2>/dev/null; "
+        "echo '%(d)s'; "
+        "git diff --name-only @{upstream} HEAD 2>/dev/null; "
+        "echo '%(d)s'; "
+        "git submodule status 2>/dev/null"
+    ) % {"p": qp, "d": d}
+
+
+def _parse_gitops_diff(stdout):
+    import re
+    parts = stdout.split(_SENTINEL + "\n")
+
+    uncommitted = parts[0].strip() if len(parts) > 0 else ""
+    local = parts[1].strip() if len(parts) > 1 else ""
+    remote = parts[2].strip() if len(parts) > 2 else ""
+    submodules_raw = parts[3].strip() if len(parts) > 3 else ""
+
+    uc_files = sorted(uncommitted.split("\n")) if uncommitted else []
+    lc_files = sorted(local.split("\n")) if local else []
+    rc_files = sorted(remote.split("\n")) if remote else []
+
+    lines = ["Uncommitted changes: %d file(s)" % len(uc_files)]
+    for f in uc_files:
+        lines.append("  %s" % f)
+    lines.append("")
+
+    lines.append("Local changes (not yet pushed): %d file(s)" % len(lc_files))
+    for f in lc_files:
+        lines.append("  %s" % f)
+    lines.append("")
+
+    lines.append("Remote changes (would be applied on pull): %d file(s)" % len(rc_files))
+    for f in rc_files:
+        lines.append("  %s" % f)
+    lines.append("")
+
+    subs = [
+        s.split()[1] for s in submodules_raw.split("\n")
+        if s.startswith("+") and len(s.split()) > 1
+    ]
+    if subs:
+        lines.append("Submodules that would be updated:")
+        for s in subs:
+            lines.append("  %s" % s)
+        lines.append("")
+
+    all_changed = lc_files + rc_files
+    needs_restart = any(
+        re.search(r'\.(env|yml|yaml)$', f) for f in all_changed
+    )
+    needs_update = any(f.endswith(".php") for f in all_changed)
+    if needs_restart:
+        lines.append("A restart would be needed after pulling.")
+    if needs_update:
+        lines.append("A maintenance update may be needed after pulling.")
+
+    return "\n".join(lines)
+
+
+@register("gitops_diff")
+def cmd_gitops_diff(args):
+    inst_id, inst = _resolve_instance(args)
+    orchestrator = inst.get("orchestrator", "compose")
+
+    if orchestrator in ("kubernetes", "k8s"):
+        return FALLBACK
+
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    script = _gitops_diff_script(path)
+
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True, text=True, timeout=30,
+            )
+            stdout = result.stdout
+        except (subprocess.TimeoutExpired, OSError) as e:
+            print("Error: %s" % e, file=sys.stderr)
+            return 1
+    else:
+        rc, stdout = _ssh_run(host, script)
+        if rc != 0 and not stdout.strip():
+            print("Error: failed to connect to %s" % host, file=sys.stderr)
+            return 1
+
+    print(_parse_gitops_diff(stdout))
+    return 0
