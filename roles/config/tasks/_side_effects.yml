@@ -343,27 +343,9 @@
         key: MW_SITE_FQDN
         value: "{{ _new_fqdn }}"
 
-    - name: Read wikis.yaml for domain update
-      canasta_wikis_yaml:
-        instance_path: "{{ instance_path }}"
-        state: read
-      register: _se_domain_wikis
-
     - name: Update wikis.yaml URLs with new domain
-      ansible.builtin.shell:
-        cmd: |
-          python3 -c "
-          import yaml
-          with open('{{ instance_path }}/config/wikis.yaml') as f:
-              data = yaml.safe_load(f)
-          old = '{{ _se_old_fqdn.value | default('') }}'
-          new = '{{ _new_fqdn }}'
-          if old and data and 'wikis' in data:
-              for wiki in data['wikis']:
-                  if 'url' in wiki:
-                      wiki['url'] = wiki['url'].replace(old, new)
-          with open('{{ instance_path }}/config/wikis.yaml', 'w') as f:
-              yaml.dump(data, f, default_flow_style=False)
-          "
-      changed_when: true
+      ansible.builtin.replace:
+        path: "{{ instance_path }}/config/wikis.yaml"
+        regexp: "{{ _se_old_fqdn.value | regex_escape() }}"
+        replace: "{{ _new_fqdn }}"
       when: _se_old_fqdn.found and _se_old_fqdn.value != _new_fqdn
