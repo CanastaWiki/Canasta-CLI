@@ -135,6 +135,65 @@ def _run_compose(inst_id, inst, action_args):
         if stdout.strip():
             print(stdout.strip())
         return rc
+
+
+def _k8s_get_pod(namespace, component="web"):
+    """Get the name of a running pod by component label."""
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "pods", "-n", namespace,
+             "-l", "app.kubernetes.io/component=%s" % component,
+             "--field-selector=status.phase=Running",
+             "-o", "jsonpath={.items[0].metadata.name}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        pod = result.stdout.strip()
+        return pod if result.returncode == 0 and pod else None
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def _exec_in_container(inst_id, inst, command, service="web"):
+    """Execute a command inside a container/pod. Returns (rc, stdout)."""
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    orchestrator = inst.get("orchestrator", "compose")
+
+    if orchestrator in ("kubernetes", "k8s"):
+        ns = _k8s_namespace(inst_id)
+        pod = _k8s_get_pod(ns, service)
+        if not pod:
+            return 1, ""
+        try:
+            result = subprocess.run(
+                ["kubectl", "exec", pod, "-n", ns, "--",
+                 "/bin/bash", "-c", command],
+                capture_output=True, text=True, timeout=30,
+            )
+            return result.returncode, result.stdout
+        except (subprocess.TimeoutExpired, OSError):
+            return 1, ""
+
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                ["docker", "compose", "exec", "-T", service,
+                 "/bin/bash", "-c", command],
+                cwd=path, capture_output=True, text=True, timeout=30,
+            )
+            return result.returncode, result.stdout
+        except (subprocess.TimeoutExpired, OSError):
+            return 1, ""
+
+    rc, stdout = _ssh_run(
+        host,
+        "cd %s && docker compose exec -T %s /bin/bash -c %s" % (
+            _shell_quote(path), service, _shell_quote(command),
+        ),
+    )
+    return rc, stdout
+
+
 def _read_registry(conf_path):
     if not os.path.isfile(conf_path):
         return {}
@@ -823,3 +882,33 @@ def cmd_gitops_status(args):
 
     print(_parse_gitops_status(stdout, inst_id))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# canasta extension list / skin list
+# ---------------------------------------------------------------------------
+
+def _list_items(args, item_type, item_dir):
+    inst_id, inst = _resolve_instance(args)
+    command = (
+        "cd /var/www/mediawiki/w/%s "
+        "&& find -L * -maxdepth 0 -type d 2>/dev/null "
+        "|| true" % item_dir
+    )
+    rc, stdout = _exec_in_container(inst_id, inst, command)
+    if rc != 0:
+        print("Error: could not list %s." % item_type, file=sys.stderr)
+        return 1
+    print("Available Canasta %s:" % item_type)
+    print(stdout.strip())
+    return 0
+
+
+@register("extension_list")
+def cmd_extension_list(args):
+    return _list_items(args, "extensions", "extensions")
+
+
+@register("skin_list")
+def cmd_skin_list(args):
+    return _list_items(args, "skins", "skins")

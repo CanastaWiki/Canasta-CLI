@@ -1227,3 +1227,108 @@ class TestCmdGitopsStatus:
         out = capsys.readouterr().out
         assert "Canasta ID:     mysite" in out
         assert "Up to date with remote." in out
+
+
+# ---------------------------------------------------------------------------
+# Extension/skin list tests
+# ---------------------------------------------------------------------------
+
+class TestExecInContainer:
+    def test_compose_local(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": "Cite\nVisualEditor\n",
+            })(),
+        )
+        rc, out = direct_commands._exec_in_container(
+            "test",
+            {"path": "/srv/test", "orchestrator": "compose"},
+            "find extensions",
+        )
+        assert rc == 0
+        assert "Cite" in out
+
+    def test_k8s(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_k8s_get_pod",
+            lambda ns, svc: "canasta-test-web-abc123",
+        )
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": "Cite\n",
+            })(),
+        )
+        rc, out = direct_commands._exec_in_container(
+            "test",
+            {"path": "/srv/test", "orchestrator": "kubernetes"},
+            "find extensions",
+        )
+        assert rc == 0
+
+    def test_k8s_no_pod(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_k8s_get_pod",
+            lambda ns, svc: None,
+        )
+        rc, out = direct_commands._exec_in_container(
+            "test",
+            {"path": "/srv/test", "orchestrator": "kubernetes"},
+            "find extensions",
+        )
+        assert rc == 1
+
+
+class TestExtensionSkinList:
+    def test_extension_list_registered(self):
+        assert direct_commands.is_direct_command("extension_list")
+
+    def test_skin_list_registered(self):
+        assert direct_commands.is_direct_command("skin_list")
+
+    def test_extension_list_output(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_exec_in_container",
+            lambda *a, **kw: (0, "Cite\nVisualEditor\nParserFunctions\n"),
+        )
+        args = type("Args", (), {"id": "test", "wiki": None})()
+        rc = direct_commands.cmd_extension_list(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Available Canasta extensions:" in out
+        assert "Cite" in out
+        assert "VisualEditor" in out
+
+    def test_skin_list_output(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_exec_in_container",
+            lambda *a, **kw: (0, "Vector\nTimeless\n"),
+        )
+        args = type("Args", (), {"id": "test", "wiki": None})()
+        rc = direct_commands.cmd_skin_list(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Available Canasta skins:" in out
+        assert "Vector" in out
+
+    def test_list_error(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_exec_in_container",
+            lambda *a, **kw: (1, ""),
+        )
+        args = type("Args", (), {"id": "test", "wiki": None})()
+        rc = direct_commands.cmd_extension_list(args)
+        assert rc == 1
