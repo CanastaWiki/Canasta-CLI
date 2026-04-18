@@ -1332,3 +1332,96 @@ class TestExtensionSkinList:
         args = type("Args", (), {"id": "test", "wiki": None})()
         rc = direct_commands.cmd_extension_list(args)
         assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# Gitops diff tests
+# ---------------------------------------------------------------------------
+
+class TestParseGitopsDiff:
+    def _make_output(self, uncommitted="", local="", remote="", submodules=""):
+        d = direct_commands._SENTINEL
+        return (
+            uncommitted + "\n" + d + "\n"
+            + local + "\n" + d + "\n"
+            + remote + "\n" + d + "\n"
+            + submodules + "\n"
+        )
+
+    def test_no_changes(self):
+        out = self._make_output()
+        result = direct_commands._parse_gitops_diff(out)
+        assert "Uncommitted changes: 0 file(s)" in result
+        assert "Local changes (not yet pushed): 0 file(s)" in result
+        assert "Remote changes (would be applied on pull): 0 file(s)" in result
+
+    def test_uncommitted_files(self):
+        out = self._make_output(uncommitted="config/.env\nconfig/wikis.yaml")
+        result = direct_commands._parse_gitops_diff(out)
+        assert "Uncommitted changes: 2 file(s)" in result
+        assert "config/.env" in result
+
+    def test_local_and_remote(self):
+        out = self._make_output(local="config/.env", remote="config/settings.php")
+        result = direct_commands._parse_gitops_diff(out)
+        assert "Local changes (not yet pushed): 1 file(s)" in result
+        assert "Remote changes (would be applied on pull): 1 file(s)" in result
+
+    def test_restart_hint(self):
+        out = self._make_output(local="config/.env")
+        result = direct_commands._parse_gitops_diff(out)
+        assert "restart would be needed" in result
+
+    def test_update_hint(self):
+        out = self._make_output(remote="config/settings/global/Custom.php")
+        result = direct_commands._parse_gitops_diff(out)
+        assert "maintenance update may be needed" in result
+
+    def test_submodule_changes(self):
+        out = self._make_output(
+            submodules="+abc123 user-extensions/MyExt (heads/main)\n def456 user-skins/MySkin"
+        )
+        result = direct_commands._parse_gitops_diff(out)
+        assert "Submodules that would be updated:" in result
+        assert "user-extensions/MyExt" in result
+        assert "user-skins/MySkin" not in result
+
+
+class TestCmdGitopsDiff:
+    def test_registered(self):
+        assert direct_commands.is_direct_command("gitops_diff")
+
+    def test_k8s_falls_back(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("k8s", {"path": "/p", "orchestrator": "kubernetes"}),
+        )
+        args = type("Args", (), {"id": "k8s"})()
+        assert direct_commands.cmd_gitops_diff(args) is direct_commands.FALLBACK
+
+    def test_compose_remote(self, monkeypatch, capsys):
+        d = direct_commands._SENTINEL
+        ssh_output = (
+            "config/.env\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "\n"
+        )
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("mysite", {
+                "path": "/srv/mysite",
+                "orchestrator": "compose",
+                "host": "admin@remote",
+            }),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (0, ssh_output),
+        )
+        args = type("Args", (), {"id": "mysite"})()
+        rc = direct_commands.cmd_gitops_diff(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Uncommitted changes: 1 file(s)" in out
+        assert "config/.env" in out
