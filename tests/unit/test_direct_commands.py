@@ -776,3 +776,175 @@ class TestCmdConfigGet:
         args = type("Args", (), {"id": "test", "key": None, "force": False})()
         rc = direct_commands.cmd_config_get(args)
         assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# Compose file args tests
+# ---------------------------------------------------------------------------
+
+class TestComposeFileArgs:
+    def test_base_only(self, tmp_path):
+        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        assert args == ["-f", "docker-compose.yml"]
+
+    def test_with_override(self, tmp_path):
+        (tmp_path / "docker-compose.override.yml").write_text("")
+        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        assert args == [
+            "-f", "docker-compose.yml",
+            "-f", "docker-compose.override.yml",
+        ]
+
+    def test_with_devmode(self, tmp_path):
+        args = direct_commands._compose_file_args(
+            str(tmp_path), "localhost", devmode=True,
+        )
+        assert "-f" in args
+        assert "docker-compose.dev.yml" in args
+
+
+# ---------------------------------------------------------------------------
+# Start / stop / restart tests
+# ---------------------------------------------------------------------------
+
+class TestLifecycleCommands:
+    def test_start_registered(self):
+        assert direct_commands.is_direct_command("start")
+
+    def test_stop_registered(self):
+        assert direct_commands.is_direct_command("stop")
+
+    def test_restart_registered(self):
+        assert direct_commands.is_direct_command("restart")
+
+    def test_start_runs_up(self, monkeypatch):
+        captured_cmds = []
+
+        def mock_run(cmd, **kw):
+            captured_cmds.append(cmd)
+            return type("R", (), {"returncode": 0})()
+
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+            }),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_compose_file_args",
+            lambda *a, **kw: ["-f", "docker-compose.yml"],
+        )
+
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_start(args)
+        assert rc == 0
+        assert captured_cmds[0] == [
+            "docker", "compose", "-f", "docker-compose.yml", "up", "-d",
+        ]
+
+    def test_stop_runs_down(self, monkeypatch):
+        captured_cmds = []
+
+        def mock_run(cmd, **kw):
+            captured_cmds.append(cmd)
+            return type("R", (), {"returncode": 0})()
+
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+            }),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_compose_file_args",
+            lambda *a, **kw: ["-f", "docker-compose.yml"],
+        )
+
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_stop(args)
+        assert rc == 0
+        assert "down" in captured_cmds[0]
+
+    def test_restart_runs_down_then_up(self, monkeypatch):
+        captured_cmds = []
+
+        def mock_run(cmd, **kw):
+            captured_cmds.append(cmd)
+            return type("R", (), {"returncode": 0})()
+
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+            }),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_compose_file_args",
+            lambda *a, **kw: ["-f", "docker-compose.yml"],
+        )
+
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_restart(args)
+        assert rc == 0
+        assert len(captured_cmds) == 2
+        assert "down" in captured_cmds[0]
+        assert "up" in captured_cmds[1]
+
+    def test_restart_stops_on_down_failure(self, monkeypatch):
+        call_count = [0]
+
+        def mock_run(cmd, **kw):
+            call_count[0] += 1
+            return type("R", (), {"returncode": 1})()
+
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+            }),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_compose_file_args",
+            lambda *a, **kw: ["-f", "docker-compose.yml"],
+        )
+
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_restart(args)
+        assert rc == 1
+        assert call_count[0] == 1
+
+    def test_remote_start_uses_ssh(self, monkeypatch):
+        ssh_cmds = []
+
+        def mock_ssh(host, cmd):
+            ssh_cmds.append((host, cmd))
+            return 0, ""
+
+        monkeypatch.setattr(direct_commands, "_ssh_run", mock_ssh)
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+                "host": "admin@remote",
+            }),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_compose_file_args",
+            lambda *a, **kw: ["-f", "docker-compose.yml"],
+        )
+
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_start(args)
+        assert rc == 0
+        assert len(ssh_cmds) == 1
+        assert "up -d" in ssh_cmds[0][1]
+        assert ssh_cmds[0][0] == "admin@remote"
