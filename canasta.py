@@ -785,6 +785,11 @@ def main():
             # to Ansible for the service-listing case.
             pass
 
+    # Direct command bypass: run simple commands without Ansible overhead.
+    import direct_commands
+    if direct_commands.is_direct_command(command_name):
+        sys.exit(direct_commands.run_direct_command(command_name, args))
+
     # Interactive confirmation for destructive commands.
     # If the command defines a "yes" parameter and the user did not pass it,
     # prompt interactively rather than making them re-run with --yes.
