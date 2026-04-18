@@ -601,12 +601,11 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         # Update target_host in the vars file to use just the hostname,
         # not the user@host form (the hosts.yml or inline inventory
         # entry is keyed on hostname alone).
-        import json as _json
         with open(vars_file.name, "r") as f:
-            _v = _json.load(f)
+            _v = json.load(f)
         _v["target_host"] = host_spec
         with open(vars_file.name, "w") as f:
-            _json.dump(_v, f)
+            json.dump(_v, f)
 
         # Inline inventory fallback — used if the host isn't in any
         # user-defined inventory file. Goes first so that hosts.yml
