@@ -70,6 +70,21 @@ def load_definitions():
         sys.exit(1)
 
 
+def _enable_mitogen_if_available():
+    """Enable mitogen strategy if the plugin is installed."""
+    try:
+        import ansible_mitogen
+        strategy_dir = os.path.join(
+            os.path.dirname(ansible_mitogen.__file__),
+            "plugins", "strategy",
+        )
+        if os.path.isdir(strategy_dir):
+            os.environ["ANSIBLE_STRATEGY_PLUGINS"] = strategy_dir
+            os.environ["ANSIBLE_STRATEGY"] = "mitogen_linear"
+    except ImportError:
+        pass
+
+
 def find_ansible_playbook():
     """Find the ansible-playbook executable."""
     venv_path = os.path.join(SCRIPT_DIR, ".venv", "bin", "ansible-playbook")
@@ -812,6 +827,8 @@ def main():
             sys.exit(0)
         # Tell the playbook to skip its own confirmation check
         args.yes = True
+
+    _enable_mitogen_if_available()
 
     ansible_playbook = find_ansible_playbook()
     ansible_args = build_ansible_args(
