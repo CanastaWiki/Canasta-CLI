@@ -1,0 +1,52 @@
+---
+# Uninstall k3s, kubectl, helm, and clean up iptables rules.
+# Idempotent — skips if k3s is not installed.
+
+- name: Check if k3s is installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s-uninstall.sh
+  register: _k3s_uninstall_script
+
+- name: Report k3s not installed
+  ansible.builtin.debug:
+    msg: "k3s is not installed."
+  when: not _k3s_uninstall_script.stat.exists
+
+- name: Uninstall k3s
+  when: _k3s_uninstall_script.stat.exists
+  become: true
+  block:
+    - name: Report uninstalling
+      ansible.builtin.debug:
+        msg: "Uninstalling Kubernetes (k3s, kubectl, helm)..."
+
+    - name: Run k3s uninstall script
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-uninstall.sh
+      changed_when: true
+
+    - name: Remove kubectl symlink
+      ansible.builtin.file:
+        path: /usr/local/bin/kubectl
+        state: absent
+
+    - name: Remove helm
+      ansible.builtin.file:
+        path: /usr/local/bin/helm
+        state: absent
+
+    - name: Clean up stale KUBE-SERVICES iptables rules
+      ansible.builtin.shell:
+        cmd: |
+          iptables -t nat -D PREROUTING -m comment --comment "kubernetes service portals" -j KUBE-SERVICES 2>/dev/null || true
+          iptables -t nat -D OUTPUT -m comment --comment "kubernetes service portals" -j KUBE-SERVICES 2>/dev/null || true
+      changed_when: true
+
+    - name: Remove kubeconfig
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME | default('/root') }}/.kube/config"
+        state: absent
+
+    - name: Report uninstalled
+      ansible.builtin.debug:
+        msg: "Kubernetes (k3s, kubectl, helm) uninstalled."

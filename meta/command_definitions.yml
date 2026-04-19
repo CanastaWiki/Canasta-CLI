@@ -284,6 +284,27 @@ commands:
         required: true
         description: "Dependencies to install (docker, k8s, git-crypt)"
 
+  - name: uninstall
+    description: "Uninstall dependencies from the target host"
+    long_description: |
+      Uninstall dependencies from the target host. Supported packages:
+      k8s (removes k3s, kubectl, helm, and cleans up iptables rules).
+    examples:
+      - "canasta uninstall k8s"
+    playbook: uninstall.yml
+    parameters:
+      - name: packages
+        type: string
+        positional: true
+        multi: true
+        required: true
+        description: "Dependencies to uninstall (k8s)"
+      - name: "yes"
+        short: "y"
+        type: bool
+        default: false
+        description: "Skip confirmation prompt"
+
   - name: upgrade
     description: "Upgrade Canasta instances"
     long_description: |
