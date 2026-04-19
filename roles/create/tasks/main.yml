@@ -12,6 +12,7 @@
 - name: Report connecting to host
   ansible.builtin.debug:
     msg: "Connecting to {{ ansible_host | default(inventory_hostname) }}..."
+  when: ansible_host | default(inventory_hostname) != 'localhost'
 
 - name: Check Docker is available
   ansible.builtin.command:
