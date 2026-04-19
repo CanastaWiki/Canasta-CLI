@@ -6,7 +6,7 @@
   ansible.builtin.set_fact:
     _install_packages: >-
       {{ packages.split()
-         | map('regex_replace', '^k8s$', 'k3s')
+         | map('regex_replace', '^(k8s|kubernetes)$', 'k3s')
          | list }}
 
 - name: Validate packages
