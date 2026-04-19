@@ -3,8 +3,19 @@
 # Mirrors Go mediawiki.WaitForDB().
 # Input: instance_path
 
+- name: Read DB connection from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _wait_db_env
+
+- name: Set DB host and port
+  ansible.builtin.set_fact:
+    _db_host: "{{ _wait_db_env.variables.MYSQL_HOST | default('db') }}"
+    _db_port: "{{ _wait_db_env.variables.MYSQL_PORT | default('3306') }}"
+
 - name: Wait for database to accept connections
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
-    exec_command: "/wait-for-it.sh -t {{ canasta_db_wait_timeout | default(10) }} db:3306"
+    exec_command: "/wait-for-it.sh -t {{ canasta_db_wait_timeout | default(10) }} {{ _db_host }}:{{ _db_port }}"
