@@ -1145,8 +1145,12 @@ commands:
 
   - name: gitops_rm
     description: "Remove configuration from git tracking"
-    long_description: "Remove configuration files from git tracking."
+    long_description: |
+      Remove configuration files from git tracking. If a file path is
+      given, delete that file and stage the deletion. Without a path,
+      stage all pending deletions (files already deleted from disk).
     examples:
+      - "canasta gitops rm -i mysite public_assets/main/.htaccess"
       - "canasta gitops rm -i mysite"
     playbook: gitops_rm.yml
     parameters:
@@ -1154,6 +1158,10 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: path
+        type: string
+        positional: true
+        description: "File path to remove (relative to instance root)"
 
   - name: gitops_push
     description: "Push configuration changes"
