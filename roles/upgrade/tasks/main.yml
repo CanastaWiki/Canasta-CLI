@@ -38,6 +38,7 @@
     - remove_legacy_git_dir.yml
     - remove_skip_binary_as_hex.yml
     - backfill_canasta_image.yml
+    - backfill_compose_profiles.yml
   loop_control:
     loop_var: _migration
 

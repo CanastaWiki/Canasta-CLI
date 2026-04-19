@@ -14,6 +14,8 @@ x-logging: &default-logging
 
 services:
   db:
+    profiles:
+      - internal-db
     image: docker.io/library/mariadb:11.4
     command: >
       bash -c "
@@ -50,11 +52,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+        required: false
     environment:
       # Sourced from .env
       - MW_SITE_SERVER=${MW_SITE_SERVER:-https://localhost}
       - MW_SECRET_KEY=${MW_SECRET_KEY}
+      - MYSQL_HOST=${MYSQL_HOST:-db}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
+      - MYSQL_USER=${MYSQL_USER:-root}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_SSL=${MYSQL_SSL:-false}
+      - USE_EXTERNAL_DB=${USE_EXTERNAL_DB:-false}
       - PHP_UPLOAD_MAX_FILESIZE=${PHP_UPLOAD_MAX_FILESIZE:-10M}
       - PHP_POST_MAX_SIZE=${PHP_UPLOAD_MAX_FILESIZE:-10M}
       - PHP_MAX_INPUT_VARS=${PHP_MAX_INPUT_VARS:-1000}

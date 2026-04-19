@@ -12,6 +12,17 @@
     _install_domain: >-
       {{ _wiki.url | regex_replace('/.*$', '') }}
 
+- name: Read DB connection from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _install_env
+
+- name: Set DB server for install
+  ansible.builtin.set_fact:
+    _install_dbserver: >-
+      {{ _install_env.variables.MYSQL_HOST | default('db') }}:{{ _install_env.variables.MYSQL_PORT | default('3306') }}
+
 - name: "Run install.php for wiki '{{ _wiki.id }}'"
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
@@ -20,7 +31,7 @@
     exec_command: >-
       env -u MW_SECRET_KEY php maintenance/install.php
       --skins='Vector'
-      --dbserver=db
+      --dbserver={{ _install_dbserver }}
       --dbname={{ _wiki.id }}
       --confpath=/tmp/canasta-install/
       --scriptpath=/w

@@ -2,6 +2,16 @@
 # Validate a config key against the known keys list.
 # Input: _config_key (str), force (bool)
 
+# Database infrastructure keys are set at create time and cannot be
+# changed afterward — all wikis in the instance share the same DB
+# connection, and changing it would orphan existing data.
+- name: Block immutable database keys
+  ansible.builtin.fail:
+    msg: >-
+      '{{ _config_key }}' cannot be changed after instance creation.
+      Delete the instance and recreate with the new database configuration.
+  when: _config_key in ['USE_EXTERNAL_DB', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_SSL']
+
 - name: Check if key is recognized
   ansible.builtin.fail:
     msg: >-

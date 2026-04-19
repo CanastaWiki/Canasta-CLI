@@ -36,7 +36,7 @@
     exec_service: web
     exec_no_log: true
     exec_command: >-
-      mariadb-dump -h db -u root
+      mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
       -p{{ _backup_dbpass.value | quote }}
       --single-transaction
       --databases {{ item | quote }}
