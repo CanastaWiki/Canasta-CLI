@@ -2,8 +2,23 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Remove deleted files from tracking
+- name: Remove specific file
+  when: path is defined and path != ''
+  block:
+    - name: Delete file from disk
+      ansible.builtin.file:
+        path: "{{ instance_path }}/{{ path }}"
+        state: absent
+
+    - name: Stage file deletion
+      ansible.builtin.command:
+        cmd: "git rm --cached --ignore-unmatch {{ path }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+- name: Stage all pending deletions
   ansible.builtin.command:
     cmd: "git add -u"
-    chdir: "{{ instance_path }}/config"
+    chdir: "{{ instance_path }}"
   changed_when: true
+  when: path is not defined or path == ''
