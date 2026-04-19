@@ -256,6 +256,33 @@
         value: "{{ item.split('=', 1)[1] }}"
       loop: "{{ (_custom_env.content | b64decode).split('\n') | select('match', '^[A-Z].*=') | list }}"
 
+# For external DB, use the password from the env file instead of the
+# generated one. The env file was merged above and may contain
+# MYSQL_PASSWORD from the user's -e file.
+- name: Check if using external DB
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: USE_EXTERNAL_DB
+  register: _ext_db_early_check
+
+- name: Use external DB password from env file
+  when: _ext_db_early_check.found and _ext_db_early_check.value | lower == 'true'
+  block:
+    - name: Read MYSQL_PASSWORD from env file
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MYSQL_PASSWORD
+      register: _ext_db_password
+
+    - name: Override root DB password with external DB password
+      ansible.builtin.set_fact:
+        _rootdbpass: "{{ _ext_db_password.value }}"
+        _wikidbpass: "{{ _ext_db_password.value }}"
+      when: _ext_db_password.found
+      no_log: true
+
 - name: Read HTTPS_PORT and CADDY_AUTO_HTTPS from .env
   canasta_env:
     path: "{{ instance_path }}/.env"
