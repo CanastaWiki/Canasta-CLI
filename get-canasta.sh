@@ -296,10 +296,17 @@ post_install_summary() {
     info "  Install dir:    ${install_dir}"
     info "  canasta:        ${BIN_DIR}/canasta"
 
+    local _optional=""
     if ! command -v git-crypt >/dev/null 2>&1; then
+        _optional="${_optional}\n  canasta install git-crypt    (needed for gitops)"
+    fi
+    if ! command -v kubectl >/dev/null 2>&1; then
+        _optional="${_optional}\n  canasta install k8s          (needed for Kubernetes)"
+    fi
+    if [[ -n "$_optional" ]]; then
         info ""
-        info "Optional: install git-crypt (needed for gitops):"
-        info "  canasta install git-crypt"
+        info "Optional:"
+        printf '%b\n' "$_optional"
     fi
 
     if [[ "$platform" == "linux" ]]; then

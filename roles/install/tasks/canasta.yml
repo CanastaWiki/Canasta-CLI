@@ -78,8 +78,8 @@
       changed_when: true
 
     - name: Generate build info
-      ansible.builtin.command:
-        cmd: "make build-info"
+      ansible.builtin.shell:
+        cmd: "git rev-parse --short HEAD > BUILD_COMMIT && git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' > BUILD_DATE"
         chdir: "/opt/canasta-ansible"
       changed_when: true
 
