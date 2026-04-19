@@ -65,15 +65,9 @@
     - orchestrator | default('compose') == 'compose'
     - _mem_check.rc | default(0) != 0
 
-- name: Kubernetes setup (install + validate)
+- name: Kubernetes setup (validate + Argo CD)
   when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
   block:
-    - name: Install k3s if requested
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_install_k3s.yml
-      when: install_k3s | default(false) | bool
-
     - name: Validate Kubernetes prerequisites
       ansible.builtin.include_role:
         name: orchestrator

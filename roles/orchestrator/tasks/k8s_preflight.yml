@@ -6,67 +6,46 @@
     cmd: kubectl version --client --output=json
   register: _kubectl_check
   changed_when: false
-  ignore_errors: true  # OK if kubectl not installed
-  when: not (install_k3s | default(false) | bool)
+  ignore_errors: true
 
 - name: Fail if kubectl not available
   ansible.builtin.fail:
     msg: >-
-      kubectl is not installed. Install kubectl to manage Kubernetes instances.
-      See https://kubernetes.io/docs/tasks/tools/
-  when:
-    - not (install_k3s | default(false) | bool)
-    - _kubectl_check.rc | default(0) != 0
+      kubectl is not installed. Run 'canasta install k8s' to install
+      kubectl, helm, and k3s.
+  when: _kubectl_check.rc | default(0) != 0
 
-# Skip the cluster-reachability check when --install-k3s is set —
-# the cluster doesn't exist yet and will be created after preflight.
 - name: Check cluster is reachable
   ansible.builtin.command:
     cmd: kubectl cluster-info
   register: _cluster_check
   changed_when: false
-  ignore_errors: true  # OK if no cluster yet
-  when: not (install_k3s | default(false) | bool)
+  ignore_errors: true
 
 - name: Fail if cluster not reachable
   ansible.builtin.fail:
     msg: >-
-      Cannot reach Kubernetes cluster. Ensure kubectl is configured with a
-      valid kubeconfig. Use --install-k3s to install a local cluster.
-  when:
-    - not (install_k3s | default(false) | bool)
-    - _cluster_check.rc | default(0) != 0
+      Cannot reach Kubernetes cluster. Run 'canasta install k8s' to
+      install a local k3s cluster, or configure kubectl with a valid
+      kubeconfig for an existing cluster.
+  when: _cluster_check.rc | default(0) != 0
 
 - name: Check helm is available
   ansible.builtin.command:
     cmd: helm version --short
   register: _helm_check
   changed_when: false
-  ignore_errors: true  # OK if Helm not installed
-  when: not (install_k3s | default(false) | bool)
+  ignore_errors: true
 
 - name: Fail if helm not available
   ansible.builtin.fail:
     msg: >-
-      Helm is not installed. Install Helm 3.10+ to manage Kubernetes instances.
-      See https://helm.sh/docs/intro/install/
-  when:
-    - not (install_k3s | default(false) | bool)
-    - _helm_check.rc | default(0) != 0
+      helm is not installed. Run 'canasta install k8s' to install
+      kubectl, helm, and k3s.
+  when: _helm_check.rc | default(0) != 0
 
-# Skip the node resource check when --install-k3s is set — there are
-# no nodes yet. The check will effectively run on the first start
-# after k3s is installed.
 - name: Get node capacity resources
-  when: not (install_k3s | default(false) | bool)
   vars:
-    # Read .status.capacity (the total capacity reported by the kernel,
-    # ≈ MemTotal) rather than .status.allocatable (capacity minus
-    # kube-reserved minus system-reserved minus eviction-threshold).
-    # Allocatable on a 4 GiB node is ~3.5 GiB, so a 4 GiB threshold
-    # against allocatable would reject the smallest instance we want
-    # to support. Capacity is the right field for matching against
-    # the user's intuitive "this is a 4 GiB instance" understanding.
     _jp: >-
       {range .items[*]}{.metadata.name}{"\t"}
       {.status.capacity.cpu}{"\t"}
@@ -80,28 +59,7 @@
   changed_when: false
 
 - name: Check node resources are sufficient
-  when: not (install_k3s | default(false) | bool)
   vars:
-    # Minimum requirements for a Canasta instance, expressed against
-    # node capacity (not allocatable; not the sum of pod requests).
-    # Memory: 3500 MiB. This matches the Compose-side check in
-    # roles/create/tasks/main.yml. The threshold is intentionally
-    # below a round 4096 MiB because cloud instances marketed as
-    # "4 GiB" actually expose ~3700-3900 MiB to the kernel after
-    # BIOS/UEFI/hypervisor reserves. AWS c7i-flex.large (4 GiB
-    # advertised) reports ~3826 MiB capacity, for example. 3500 MiB
-    # is comfortably above what 2 GiB instances report (~1700-1900)
-    # and below what real 4 GiB cloud instances report.
-    # With Elasticsearch enabled or under heavy traffic, 8 GiB+ is
-    # recommended; users opting in to those should size up.
-    # CPU: 600m, the sum of resource requests across the chart's
-    # default components. This is the minimum that schedules; it's
-    # not a memory-style hard floor because Canasta is mostly memory
-    # bound, not CPU bound.
-    # Storage: 15 GiB ephemeral, enough for the Canasta image and
-    # k3s images plus working space. Real wikis with non-trivial
-    # content should use a larger storage class for the content
-    # PVCs; this minimum is only about ephemeral / image space.
     _min_cpu_milli: 600
     _min_memory_mi: 3500
     _min_storage_gi: 15
@@ -118,7 +76,7 @@
         MIN_STORAGE_GI: "{{ _min_storage_gi }}"
       register: _resource_check
       changed_when: false
-      ignore_errors: true  # OK if nodes lack resources
+      ignore_errors: true
 
     - name: Fail if no node has sufficient resources
       ansible.builtin.fail:
@@ -131,4 +89,3 @@
           ephemeral storage. Node details:
           {{ _resource_check.stdout | default('(check script failed)') }}
       when: _resource_check.rc != 0
-

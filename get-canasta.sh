@@ -300,13 +300,16 @@ install_native_macos() {
 
 post_install_check() {
     info ""
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        info "Installing Docker..."
+        canasta install docker
+    fi
+
+    info ""
     info "Running canasta doctor..."
     if ! canasta doctor 2>/dev/null; then
         info ""
         info "Next steps — install missing dependencies:"
-        if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-            info "  canasta install docker"
-        fi
         if ! command -v git-crypt >/dev/null 2>&1; then
             info "  canasta install git-crypt    (needed for gitops)"
         fi

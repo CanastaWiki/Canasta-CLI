@@ -2,36 +2,43 @@
 # canasta install - Install dependencies on the target host.
 # Accepts one or more package names: docker, k3s, git-crypt, canasta.
 
+- name: Normalize package names
+  ansible.builtin.set_fact:
+    _install_packages: >-
+      {{ packages.split()
+         | map('regex_replace', '^k8s$', 'k3s')
+         | list }}
+
 - name: Validate packages
   ansible.builtin.fail:
     msg: >-
-      Unknown package '{{ item }}'. Supported: docker, k3s, git-crypt, canasta.
+      Unknown package '{{ item }}'. Supported: docker, k8s, git-crypt, canasta.
   when: item not in ['docker', 'k3s', 'git-crypt', 'canasta']
-  loop: "{{ packages.split() }}"
+  loop: "{{ _install_packages }}"
 
 - name: Install Docker
   ansible.builtin.include_role:
     name: install
     tasks_from: docker.yml
-  when: "'docker' in packages.split()"
+  when: "'docker' in _install_packages"
 
-- name: Install k3s
+- name: Install Kubernetes (k3s, kubectl, helm)
   ansible.builtin.include_role:
     name: install
     tasks_from: k3s.yml
-  when: "'k3s' in packages.split()"
+  when: "'k3s' in _install_packages"
 
 - name: Install git-crypt
   ansible.builtin.include_role:
     name: install
     tasks_from: git_crypt.yml
-  when: "'git-crypt' in packages.split()"
+  when: "'git-crypt' in _install_packages"
 
 - name: Install canasta-native
   ansible.builtin.include_role:
     name: install
     tasks_from: canasta.yml
-  when: "'canasta' in packages.split()"
+  when: "'canasta' in _install_packages"
 
 - name: Report installed
   ansible.builtin.debug:
