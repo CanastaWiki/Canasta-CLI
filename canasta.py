@@ -554,7 +554,13 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
             # Ansible otherwise resolves relative paths against
             # playbook_dir, which is the canasta.py install directory
             # — not what users expect when they pass `-p .`.
-            extra_vars[name] = os.path.abspath(os.path.expanduser(str(value)))
+            # For remote hosts, absolute paths are already correct
+            # (they refer to the remote filesystem, not local).
+            expanded = os.path.expanduser(str(value))
+            if args.host and os.path.isabs(expanded):
+                extra_vars[name] = expanded
+            else:
+                extra_vars[name] = os.path.abspath(expanded)
         else:
             extra_vars[name] = str(value)
 
