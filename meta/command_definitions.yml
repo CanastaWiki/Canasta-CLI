@@ -138,11 +138,6 @@ commands:
         default: "localhost:5000"
         orchestrator_only: kubernetes
         description: "Container registry for pushing locally built images"
-      - name: install_k3s
-        type: bool
-        default: false
-        orchestrator_only: kubernetes
-        description: "Install k3s on the target host"
       - name: skip_argocd_install
         type: bool
         default: false
@@ -273,11 +268,11 @@ commands:
     description: "Install dependencies on the target host"
     long_description: |
       Install one or more dependencies on the target host. Supported
-      packages: docker, k3s, git-crypt. Multiple packages can be
-      specified in a single command.
+      packages: docker, k8s, git-crypt. k8s installs kubectl, helm,
+      and k3s. Multiple packages can be specified in a single command.
     examples:
       - "canasta install docker"
-      - "canasta install k3s"
+      - "canasta install k8s"
       - "canasta install docker git-crypt"
       - "canasta --host prod1.example.com install docker"
     playbook: install.yml
@@ -287,7 +282,7 @@ commands:
         positional: true
         multi: true
         required: true
-        description: "Dependencies to install (docker, k3s, git-crypt)"
+        description: "Dependencies to install (docker, k8s, git-crypt)"
 
   - name: upgrade
     description: "Upgrade Canasta instances"

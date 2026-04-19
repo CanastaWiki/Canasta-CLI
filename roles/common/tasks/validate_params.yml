@@ -9,7 +9,10 @@
 
 - name: Check required parameters
   ansible.builtin.fail:
-    msg: "Required parameter '--{{ item.name | replace('_', '-') }}' is missing"
+    msg: >-
+      {{ 'Required argument ' ~ item.name | upper ~ ' is missing'
+         if item.positional | default(false)
+         else "Required parameter '--" ~ (item.name | replace('_', '-')) ~ "' is missing" }}
   when:
     - (item.required | default(false)) or (item.required_unless is defined)
     - lookup('vars', item.name, default='') == ''

@@ -1086,11 +1086,11 @@ docker --version 2>&1 || echo MISSING; echo "$D"
 docker compose version 2>&1 || echo MISSING; echo "$D"
 docker info >/dev/null 2>&1 && echo OK || echo NOT_RUNNING; echo "$D"
 id -nG 2>/dev/null || echo ""; echo "$D"
-kubectl version --client --output=yaml 2>/dev/null && echo OK || echo MISSING; echo "$D"
+kubectl version --client --output=yaml >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 helm version --short 2>/dev/null || echo MISSING; echo "$D"
 k3s --version 2>/dev/null || echo MISSING; echo "$D"
-kubectl cluster-info 2>/dev/null && echo REACHABLE || echo UNREACHABLE; echo "$D"
-kubectl get deployment argocd-server -n argocd 2>/dev/null && echo INSTALLED || echo MISSING; echo "$D"
+kubectl cluster-info >/dev/null 2>&1 && echo REACHABLE || echo UNREACHABLE; echo "$D"
+kubectl get deployment argocd-server -n argocd >/dev/null 2>&1 && echo INSTALLED || echo MISSING; echo "$D"
 git --version 2>/dev/null || echo MISSING; echo "$D"
 git-crypt --version 2>/dev/null && echo OK || echo MISSING; echo "$D"
 python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
@@ -1137,16 +1137,15 @@ def _parse_doctor(stdout, hostname):
 
     lines.append("")
     lines.append("Kubernetes (optional):")
-    kubectl_ok = "OK" in kubectl and "MISSING" not in kubectl
-    lines.append("  kubectl:         %s" % ("OK" if kubectl_ok else "not installed"))
+    lines.append("  kubectl:         %s" % ("OK" if kubectl.strip() == "OK" else "not installed"))
     lines.append("  Helm:            %s" % (
         "OK (%s)" % helm if helm != "MISSING" else "not installed"))
     lines.append("  k3s:             %s" % (
         "OK" if k3s != "MISSING" else "not installed"))
     lines.append("  Cluster:         %s" % (
-        "reachable" if "REACHABLE" in cluster else "not reachable"))
+        "reachable" if cluster.strip() == "REACHABLE" else "not reachable"))
     lines.append("  Argo CD:         %s" % (
-        "installed" if "INSTALLED" in argocd else "not found"))
+        "installed" if argocd.strip() == "INSTALLED" else "not found"))
 
     lines.append("")
     lines.append("GitOps (optional):")

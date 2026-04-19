@@ -12,6 +12,7 @@
 - name: Report connecting to host
   ansible.builtin.debug:
     msg: "Connecting to {{ ansible_host | default(inventory_hostname) }}..."
+  when: ansible_host | default(inventory_hostname) != 'localhost'
 
 - name: Check Docker is available
   ansible.builtin.command:
@@ -63,6 +64,20 @@
   when:
     - orchestrator | default('compose') == 'compose'
     - _mem_check.rc | default(0) != 0
+
+- name: Kubernetes setup (validate + Argo CD)
+  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+  block:
+    - name: Validate Kubernetes prerequisites
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_preflight.yml
+
+    - name: Install Argo CD if not skipped
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_argocd_bootstrap.yml
+      when: not (skip_argocd_install | default(false) | bool)
 
 # --- Step 1: Validate inputs ---
 - name: Report validating inputs
@@ -139,11 +154,7 @@
     mode: "0755"
 
 # --- Step 4: Write stack files ---
-- name: Report writing Docker Compose files
-  ansible.builtin.debug:
-    msg: "Writing Docker Compose configuration..."
-
-- name: Write Docker Compose stack files
+- name: Write stack files
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: write_stack_files.yml
@@ -414,27 +425,10 @@
     mode: "0644"
   when: override is defined and override != ''
 
-# --- Step 10b: Kubernetes cluster and Argo CD setup ---
-- name: Kubernetes pre-create setup
+# --- Step 10b: Kubernetes instance setup ---
+- name: Kubernetes instance setup
   when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
   block:
-    - name: Validate Kubernetes prerequisites
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_preflight.yml
-
-    - name: Install k3s if requested
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_install_k3s.yml
-      when: install_k3s | default(false) | bool
-
-    - name: Install Argo CD if not skipped
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_argocd_bootstrap.yml
-      when: not (skip_argocd_install | default(false) | bool)
-
     - name: Install cert-manager and Let's Encrypt issuer
       ansible.builtin.include_role:
         name: orchestrator
@@ -474,6 +468,7 @@
         name: orchestrator
         tasks_from: k8s_apply_secrets.yml
       vars:
+        _k8s_namespace: "canasta-{{ id }}"
         _mw_secret_key: "{{ lookup('password', '/dev/null length=64 chars=hexdigits') }}"
 
     - name: Push image to registry (if built from source)

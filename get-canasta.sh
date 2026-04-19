@@ -230,18 +230,15 @@ install_native_linux() {
     $SUDO ln -sf "${install_dir}/canasta-docker" "${BIN_DIR}/canasta-docker"
     $SUDO ln -sf "${BIN_DIR}/canasta-native" "${BIN_DIR}/canasta"
 
-    info ""
-    info "Canasta installed (native mode)."
-    info "  Install dir:    ${install_dir}"
-    info "  canasta-native: ${BIN_DIR}/canasta-native"
-    info "  canasta-docker: ${BIN_DIR}/canasta-docker"
-    info "  canasta:        ${BIN_DIR}/canasta -> canasta-native"
-    info ""
-    info "Add yourself to the canasta group:"
-    info "  sudo usermod -aG canasta \$USER"
-    info "Then log out and back in (or: newgrp canasta)"
-    info ""
-    info "Verify: canasta version"
+    # Install Docker if missing
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        canasta install docker
+    fi
+
+    # Add current user to required groups
+    local _user="${SUDO_USER:-$(whoami)}"
+    info "Adding ${_user} to canasta, docker, and www-data groups..."
+    $SUDO usermod -aG canasta,docker,www-data "$_user" 2>/dev/null || true
 }
 
 # --- Native mode install (macOS) --------------------------------------------
@@ -285,32 +282,40 @@ install_native_macos() {
     $SUDO ln -sf "${install_dir}/canasta-native" "${BIN_DIR}/canasta-native"
     $SUDO ln -sf "${install_dir}/canasta-docker" "${BIN_DIR}/canasta-docker"
     $SUDO ln -sf "${BIN_DIR}/canasta-native" "${BIN_DIR}/canasta"
-
-    info ""
-    info "Canasta installed (native mode)."
-    info "  Install dir:    ${install_dir}"
-    info "  canasta-native: ${BIN_DIR}/canasta-native"
-    info "  canasta-docker: ${BIN_DIR}/canasta-docker"
-    info "  canasta:        ${BIN_DIR}/canasta -> canasta-native"
-    info ""
-    info "Verify: canasta version"
 }
 
 # --- Post-install check ------------------------------------------------------
 
-post_install_check() {
+post_install_summary() {
+    local install_dir="$1"
+    local platform="$2"
+
     info ""
-    info "Running canasta doctor..."
-    if ! canasta doctor 2>/dev/null; then
-        info ""
-        info "Next steps — install missing dependencies:"
-        if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-            info "  canasta install docker"
-        fi
-        if ! command -v git-crypt >/dev/null 2>&1; then
-            info "  canasta install git-crypt    (needed for gitops)"
-        fi
+    info "========================================"
+    info "Canasta installed."
+    info "  Install dir:    ${install_dir}"
+    info "  canasta:        ${BIN_DIR}/canasta"
+
+    local _optional=""
+    if ! command -v git-crypt >/dev/null 2>&1; then
+        _optional="${_optional}\n  canasta install git-crypt    (needed for gitops)"
     fi
+    if ! command -v kubectl >/dev/null 2>&1; then
+        _optional="${_optional}\n  canasta install k8s          (needed for Kubernetes)"
+    fi
+    if [[ -n "$_optional" ]]; then
+        info ""
+        info "Optional:"
+        printf '%b\n' "$_optional"
+    fi
+
+    if [[ "$platform" == "linux" ]]; then
+        info ""
+        info "Log out and back in for group membership to take effect,"
+        info "then run 'canasta doctor' to verify your setup."
+    fi
+
+    info "========================================"
 }
 
 # --- Main --------------------------------------------------------------------
@@ -325,13 +330,17 @@ main() {
             ;;
         native)
             case "$PLATFORM" in
-                linux) install_native_linux ;;
-                macos) install_native_macos ;;
+                linux)
+                    install_native_linux
+                    post_install_summary "/opt/canasta-ansible" "linux"
+                    ;;
+                macos)
+                    install_native_macos
+                    post_install_summary "${PREFIX:-${HOME}/canasta-ansible}" "macos"
+                    ;;
             esac
             ;;
     esac
-
-    post_install_check
 }
 
 main "$@"
