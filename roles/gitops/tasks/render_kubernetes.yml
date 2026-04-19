@@ -1,0 +1,83 @@
+---
+# Render per-environment values.yaml from template + host vars.
+# Reads values.template.yaml as base, overlays per-host vars.
+# Output: hosts/{hostname}/rendered-values.yaml
+#
+# Requires: instance_path, instance_id (set by dispatcher)
+
+- name: Read .gitops-host
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _render_host_file
+
+- name: Set hostname
+  ansible.builtin.set_fact:
+    _render_hostname: "{{ _render_host_file.content | b64decode | trim }}"
+
+- name: Read values.template.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.template.yaml"
+  register: _render_template_raw
+
+- name: Parse template values
+  ansible.builtin.set_fact:
+    _render_template: "{{ _render_template_raw.content | b64decode | from_yaml }}"
+
+- name: Read host vars
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/{{ _render_hostname }}/vars.yaml"
+  register: _render_vars_raw
+
+- name: Parse host vars
+  ansible.builtin.set_fact:
+    _render_vars: "{{ _render_vars_raw.content | b64decode | from_yaml }}"
+
+- name: Read shared vars if present
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/_shared/vars.yaml"
+  register: _render_shared_raw
+  ignore_errors: true
+
+- name: Parse shared vars
+  ansible.builtin.set_fact:
+    _render_shared: >-
+      {{ (_render_shared_raw.content | b64decode | from_yaml)
+         if _render_shared_raw is succeeded
+         else {} }}
+
+- name: Merge shared + host vars (host wins)
+  ansible.builtin.set_fact:
+    _render_merged_vars: "{{ _render_shared | combine(_render_vars, recursive=True) }}"
+
+- name: Apply per-host overrides to template
+  ansible.builtin.set_fact:
+    _rendered_values: >-
+      {{ _render_template
+         | combine({
+             'domains': _render_merged_vars.domains | default(_render_template.domains),
+             'instance': _render_template.instance | default({})
+               | combine({'id': _render_merged_vars.instance_id | default(instance_id)}),
+             'image': _render_template.image | default({})
+               | combine({'tag': _render_merged_vars.image_tag | default('')}
+                         if _render_merged_vars.image_tag | default('') != ''
+                         else {}),
+             'secrets': {
+               'dbSecretName': _render_merged_vars.db_secret_name | default(''),
+               'mwSecretName': _render_merged_vars.mw_secret_name | default(''),
+             },
+             'ingress': _render_template.ingress | default({})
+               | combine({
+                   'className': _render_merged_vars.ingress_class | default(''),
+                   'tls': _render_merged_vars.ingress_tls | default(true) | bool,
+                 }),
+             'web': _render_template.web | default({})
+               | combine({
+                   'replicaCount': _render_merged_vars.web_replica_count | default(1) | int,
+                 }),
+           }, recursive=True) }}
+
+- name: Write rendered-values.yaml
+  ansible.builtin.copy:
+    content: "{{ _rendered_values | to_nice_yaml(indent=2) }}"
+    dest: "{{ instance_path }}/hosts/{{ _render_hostname }}/rendered-values.yaml"
+    mode: "0644"
