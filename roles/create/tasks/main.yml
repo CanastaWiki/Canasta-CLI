@@ -64,6 +64,12 @@
     - orchestrator | default('compose') == 'compose'
     - _mem_check.rc | default(0) != 0
 
+- name: Validate Kubernetes prerequisites early
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: k8s_preflight.yml
+  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+
 # --- Step 1: Validate inputs ---
 - name: Report validating inputs
   ansible.builtin.debug:
@@ -139,11 +145,7 @@
     mode: "0755"
 
 # --- Step 4: Write stack files ---
-- name: Report writing Docker Compose files
-  ansible.builtin.debug:
-    msg: "Writing Docker Compose configuration..."
-
-- name: Write Docker Compose stack files
+- name: Write stack files
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: write_stack_files.yml
@@ -415,14 +417,9 @@
   when: override is defined and override != ''
 
 # --- Step 10b: Kubernetes cluster and Argo CD setup ---
-- name: Kubernetes pre-create setup
+- name: Kubernetes cluster setup
   when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
   block:
-    - name: Validate Kubernetes prerequisites
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_preflight.yml
-
     - name: Install k3s if requested
       ansible.builtin.include_role:
         name: orchestrator
