@@ -24,6 +24,10 @@
 - name: Install k3s
   when: _k3s_running.rc != 0
   block:
+    - name: Report installing Kubernetes
+      ansible.builtin.debug:
+        msg: "Installing Kubernetes (k3s)..."
+
     - name: Download and install k3s
       ansible.builtin.shell:
         cmd: "curl -sfL https://get.k3s.io | sh -"

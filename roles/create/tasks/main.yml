@@ -471,6 +471,7 @@
         name: orchestrator
         tasks_from: k8s_apply_secrets.yml
       vars:
+        _k8s_namespace: "canasta-{{ id }}"
         _mw_secret_key: "{{ lookup('password', '/dev/null length=64 chars=hexdigits') }}"
 
     - name: Push image to registry (if built from source)
