@@ -139,10 +139,11 @@ commands:
         orchestrator_only: kubernetes
         description: "Container registry for pushing locally built images"
       - name: install_k3s
+        long: install-k8s
         type: bool
         default: false
         orchestrator_only: kubernetes
-        description: "Install k3s on the target host"
+        description: "Install Kubernetes (kubectl, helm, k3s) on the target host"
       - name: skip_argocd_install
         type: bool
         default: false
