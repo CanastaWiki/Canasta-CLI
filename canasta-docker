@@ -349,6 +349,11 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
             ;;
         --database|-d)
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                if [[ "$_REMOTE_OP" == "true" ]]; then
+                    NEW_ARGS+=("$arg" "${ARGS[$((i+1))]}")
+                    i=$((i+2))
+                    continue
+                fi
                 DB_FILE_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
                 require_path_exists "$DB_FILE_ABS" "--database"
                 NEW_ARGS+=("$arg" "$DB_FILE_ABS")
@@ -356,9 +361,6 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
                 case "$DB_FILE_ABS" in
                     "$CWD"/*|"$HOME"/*) ;; # Already covered by cwd or $HOME mount
                     *)
-                        # Mount the individual file, not its parent directory,
-                        # to avoid clobbering system dirs like /tmp with a
-                        # read-only bind mount (which blocks Ansible temp dirs).
                         MOUNTS+=(-v "$DB_FILE_ABS":"$DB_FILE_ABS":ro)
                         ;;
                 esac
@@ -368,6 +370,11 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
             ;;
         --build-from)
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                if [[ "$_REMOTE_OP" == "true" ]]; then
+                    NEW_ARGS+=("$arg" "${ARGS[$((i+1))]}")
+                    i=$((i+2))
+                    continue
+                fi
                 BUILD_FROM_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
                 require_path_exists "$BUILD_FROM_ABS" "--build-from"
                 NEW_ARGS+=("$arg" "$BUILD_FROM_ABS")
@@ -384,6 +391,11 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
             ;;
         --envfile|-e)
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                if [[ "$_REMOTE_OP" == "true" ]]; then
+                    NEW_ARGS+=("$arg" "${ARGS[$((i+1))]}")
+                    i=$((i+2))
+                    continue
+                fi
                 ENVFILE_ABS="$(to_abs_path "${ARGS[$((i+1))]}")"
                 require_path_exists "$ENVFILE_ABS" "--envfile"
                 NEW_ARGS+=("$arg" "$ENVFILE_ABS")
