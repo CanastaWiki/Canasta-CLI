@@ -1,0 +1,22 @@
+---
+# canasta uninstall - Uninstall dependencies from the target host.
+
+- name: Normalize package names
+  ansible.builtin.set_fact:
+    _uninstall_packages: >-
+      {{ packages.split()
+         | map('regex_replace', '^(k8s|kubernetes)$', 'k3s')
+         | list }}
+
+- name: Validate packages
+  ansible.builtin.fail:
+    msg: >-
+      Unknown package '{{ item }}'. Supported: k8s.
+  when: item not in ['k3s']
+  loop: "{{ _uninstall_packages }}"
+
+- name: Uninstall Kubernetes (k3s, kubectl, helm)
+  ansible.builtin.include_role:
+    name: install
+    tasks_from: uninstall_k3s.yml
+  when: "'k3s' in _uninstall_packages"
