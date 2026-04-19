@@ -1,7 +1,8 @@
 ---
 # GitOps pull (Kubernetes).
-# Pulls values repo changes. Argo CD applies them automatically.
-# Requires: instance_path (set by dispatcher)
+# Pulls repo changes and re-renders per-host values locally.
+# Use 'gitops push' to commit and push any rendered changes.
+# Requires: instance_path, instance_id (set by dispatcher)
 
 - name: Pull values repo
   ansible.builtin.command:
@@ -10,10 +11,21 @@
   register: _git_pull
   changed_when: "'Already up to date' not in _git_pull.stdout"
 
+- name: Check for multi-env structure
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/values.template.yaml"
+  register: _pull_template_check
+
+- name: Render per-host values
+  ansible.builtin.include_tasks: render_kubernetes.yml
+  when:
+    - _pull_template_check.stat.exists
+    - _git_pull.changed
+
 - name: Display result
   ansible.builtin.debug:
     msg: >-
       {{ _git_pull.stdout }}
       {{ (_git_pull.changed) | ternary(
-         'Argo CD will apply any changes automatically.',
+         'Run "canasta gitops push" to commit rendered values.',
          '') }}
