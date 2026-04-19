@@ -132,6 +132,3 @@
           {{ _resource_check.stdout | default('(check script failed)') }}
       when: _resource_check.rc != 0
 
-- name: Set kubernetes namespace
-  ansible.builtin.set_fact:
-    _k8s_namespace: "canasta-{{ instance_id }}"
