@@ -1,9 +1,12 @@
 ---
-# GitOps init (Kubernetes) — simpler than Compose.
-# No git-crypt (secrets live in K8s Secrets, not in the repo).
-# No env.template/vars.yaml/hosts.yaml structure.
-# The git repo tracks values.yaml and config files.
-# Argo CD Application is registered to start continuous reconciliation.
+# GitOps init (Kubernetes) — multi-environment aware.
+# Uses git-crypt for secrets in per-host vars.yaml.
+# Repo structure:
+#   values.template.yaml    ← shared, with {{placeholder}} syntax
+#   hosts/hosts.yaml        ← host registry
+#   hosts/{name}/vars.yaml  ← per-host values (encrypted)
+#   hosts/{name}/rendered-values.yaml  ← rendered for Argo CD
+#   Chart.yaml, templates/  ← shared Helm chart
 # Input: host_name, role, repo, key, force, pull_requests
 # Requires: instance_path, instance_id (set by dispatcher)
 
@@ -12,6 +15,47 @@
   ansible.builtin.command:
     cmd: git --version
   changed_when: false
+
+- name: Set git user.name on target host
+  ansible.builtin.command:
+    cmd: "git config --global user.name '{{ git_user_name }}'"
+  changed_when: true
+  when: git_user_name is defined and git_user_name != ''
+
+- name: Set git user.email on target host
+  ansible.builtin.command:
+    cmd: "git config --global user.email '{{ git_user_email }}'"
+  changed_when: true
+  when: git_user_email is defined and git_user_email != ''
+
+- name: Check git identity is configured
+  ansible.builtin.command:
+    cmd: "git config user.name"
+  register: _git_identity
+  changed_when: false
+  ignore_errors: true
+
+- name: Fail if git identity not configured
+  ansible.builtin.fail:
+    msg: >-
+      Git user identity is not configured. Either pass
+      --git-user-name and --git-user-email, or run:
+      git config --global user.name "Your Name"
+      git config --global user.email "you@example.com"
+  when: _git_identity.rc != 0
+
+- name: Check git-crypt is installed
+  ansible.builtin.command:
+    cmd: "git-crypt --version"
+  register: _gitcrypt_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Fail if git-crypt not installed
+  ansible.builtin.fail:
+    msg: >-
+      git-crypt is not installed. Run 'canasta install git-crypt' first.
+  when: _gitcrypt_check.rc != 0
 
 - name: Check for existing .git directory
   ansible.builtin.stat:
@@ -26,21 +70,20 @@
   when: _gitops_existing.stat.exists
 
 # --- SSH deploy key ---
-# On K8s, --key is the path where the SSH deploy key lives (or will
-# be generated). Analogous to the Compose path's git-crypt key
-# export: the credential is saved at --key for future operations
-# (gitops push, gitops join on another host).
-#
-# If the file already exists and contains a PEM key, we reuse it
-# (re-init or user-supplied key). Otherwise we generate a new one.
+# Saved to {{ key }}.ssh ({{ key }} is reserved for the git-crypt key,
+# consistent with the Compose gitops model).
+- name: Set SSH key path
+  ansible.builtin.set_fact:
+    _ssh_key_path: "{{ key }}.ssh"
+
 - name: Check if SSH deploy key already exists
   ansible.builtin.stat:
-    path: "{{ key }}"
+    path: "{{ _ssh_key_path }}"
   register: _gitops_key_exists
 
 - name: Read existing SSH deploy key
   ansible.builtin.slurp:
-    src: "{{ key }}"
+    src: "{{ _ssh_key_path }}"
   register: _gitops_ssh_key_existing
   when: _gitops_key_exists.stat.exists
   no_log: true
@@ -56,20 +99,20 @@
   ansible.builtin.command:
     cmd: >-
       ssh-keygen -t ed25519
-      -f {{ key }}
+      -f {{ _ssh_key_path }}
       -N ''
       -C 'canasta-{{ instance_id }}'
   when: not (_existing_is_ssh_key | bool)
 
 - name: Read the SSH deploy key (generated or existing)
   ansible.builtin.slurp:
-    src: "{{ key }}"
+    src: "{{ _ssh_key_path }}"
   register: _gitops_ssh_key
   no_log: true
 
 - name: Read the public key for display
   ansible.builtin.slurp:
-    src: "{{ key }}.pub"
+    src: "{{ _ssh_key_path }}.pub"
   register: _gitops_ssh_pubkey
 
 - name: Display public key for deploy key setup
@@ -89,10 +132,10 @@
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ key }} -o StrictHostKeyChecking=no"
+    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_path }} -o StrictHostKeyChecking=no"
   register: _gitops_remote
   changed_when: false
-  ignore_errors: true  # OK if remote unreachable
+  ignore_errors: true
 
 - name: Fail if remote is not empty
   ansible.builtin.fail:
@@ -104,36 +147,110 @@
     - not (force | default(false) | bool)
 
 # --- Copy Helm chart into instance directory ---
-# Argo CD needs the chart in the git repo to render templates.
 - name: Copy Chart.yaml into instance directory
   ansible.builtin.copy:
     src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/Chart.yaml"
     dest: "{{ instance_path }}/Chart.yaml"
     mode: preserve
 
-# Trailing / on src is critical: without it, Ansible's copy module
-# copies the directory AS 'templates' under the dest, creating
-# templates/templates/. With the trailing /, it copies the CONTENTS.
 - name: Copy Helm templates into instance directory
   ansible.builtin.copy:
     src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/templates/"
     dest: "{{ instance_path }}/templates/"
     mode: preserve
 
-# lookup('file') runs on the controller — use slurp for remote files.
 - name: Read instance values.yaml from remote
   ansible.builtin.slurp:
     src: "{{ instance_path }}/values.yaml"
   register: _gitops_instance_values
 
 - name: Merge chart defaults with instance values
-  ansible.builtin.copy:
-    content: |
+  ansible.builtin.set_fact:
+    _merged_values: >-
       {{ lookup('file', canasta_root ~ '/roles/orchestrator/files/helm/canasta/values.yaml')
          | from_yaml
-         | combine(_gitops_instance_values.content | b64decode | from_yaml, recursive=True)
-         | to_nice_yaml(indent=2) }}
+         | combine(_gitops_instance_values.content | b64decode | from_yaml, recursive=True) }}
+
+- name: Write merged values.yaml
+  ansible.builtin.copy:
+    content: "{{ _merged_values | to_nice_yaml(indent=2) }}"
     dest: "{{ instance_path }}/values.yaml"
+    mode: "0644"
+
+# --- Sync config files into values.yaml ---
+- name: Set K8s namespace for config sync
+  ansible.builtin.set_fact:
+    _k8s_namespace: "canasta-{{ instance_id }}"
+
+- name: Sync config files
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
+
+- name: Read values.yaml after config sync
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _gitops_values_synced
+
+- name: Read values-configdata.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values-configdata.yaml"
+  register: _gitops_configdata
+
+- name: Merge configData into values
+  ansible.builtin.set_fact:
+    _final_values: >-
+      {{ _gitops_values_synced.content | b64decode | from_yaml
+         | combine(_gitops_configdata.content | b64decode | from_yaml, recursive=True) }}
+
+# --- Extract per-environment values into template + vars ---
+- name: Define K8s placeholder keys
+  ansible.builtin.set_fact:
+    _k8s_placeholder_keys:
+      - domains
+      - instance.id
+      - image.tag
+      - secrets.dbSecretName
+      - secrets.mwSecretName
+      - ingress.className
+      - ingress.tls
+      - web.replicaCount
+
+- name: Generate values.template.yaml
+  ansible.builtin.copy:
+    content: |
+      {{ _final_values | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/values.template.yaml"
+    mode: "0644"
+
+- name: Create hosts directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/hosts/{{ host_name }}"
+    state: directory
+    mode: "0755"
+    recurse: true
+
+- name: Extract per-host vars from values
+  ansible.builtin.copy:
+    content: |
+      # Per-environment values for {{ host_name }}
+      domains:
+      {% for d in _final_values.domains | default(['localhost']) %}
+        - "{{ d }}"
+      {% endfor %}
+      instance_id: "{{ instance_id }}"
+      image_tag: "{{ _final_values.image.tag | default('') }}"
+      db_secret_name: "{{ _final_values.secrets.dbSecretName | default('') }}"
+      mw_secret_name: "{{ _final_values.secrets.mwSecretName | default('') }}"
+      ingress_class: "{{ _final_values.ingress.className | default('') }}"
+      ingress_tls: {{ _final_values.ingress.tls | default(true) | lower }}
+      web_replica_count: {{ _final_values.web.replicaCount | default(1) }}
+    dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
+    mode: "0644"
+  no_log: true
+
+- name: Write rendered-values.yaml (initial render = current values)
+  ansible.builtin.copy:
+    content: "{{ _final_values | to_nice_yaml(indent=2) }}"
+    dest: "{{ instance_path }}/hosts/{{ host_name }}/rendered-values.yaml"
     mode: "0644"
 
 # --- Initialize git repository ---
@@ -146,32 +263,73 @@
 - name: Write .gitignore
   ansible.builtin.copy:
     content: |
-      # Secrets live in K8s Secrets, not in this repo
       .env
-
-      # Generated at runtime by Ansible
       .gitops-host
       .gitops-applied
-
-      # Instance template files not needed in gitops
       _initdb/
       docker-compose*.yml
       my.cnf
       scripts/
-
-      # Admin passwords
       admin-password_*
-
-      # Transient config sync file
       values-configdata.yaml
-
-      # Runtime data directories (backed by PVCs on K8s, not by git)
       images/
       extensions/
       skins/
       public_assets/
       wikis/
     dest: "{{ instance_path }}/.gitignore"
+    mode: "0644"
+
+- name: Write .gitattributes for git-crypt
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/gitattributes.default"
+    dest: "{{ instance_path }}/.gitattributes"
+    mode: "0644"
+
+# --- Initialize git-crypt ---
+- name: Initialize git-crypt
+  ansible.builtin.command:
+    cmd: "git-crypt init"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Export git-crypt key on remote host
+  ansible.builtin.command:
+    cmd: "git-crypt export-key /tmp/canasta-gitcrypt-key"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Read git-crypt key from remote host
+  ansible.builtin.slurp:
+    src: /tmp/canasta-gitcrypt-key
+  register: _gitcrypt_key_data
+  no_log: true
+
+- name: Remove temporary key from remote
+  ansible.builtin.file:
+    path: /tmp/canasta-gitcrypt-key
+    state: absent
+
+- name: Write git-crypt key to controller
+  ansible.builtin.copy:
+    content: "{{ _gitcrypt_key_data.content | b64decode }}"
+    dest: "{{ key }}"
+    mode: "0600"
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  no_log: true
+
+# --- Create hosts metadata ---
+- name: Create hosts.yaml
+  ansible.builtin.copy:
+    content: |
+      hosts:
+        - name: {{ host_name }}
+          role: {{ role | default('both') }}
+          pull_requests: {{ pull_requests | default(false) | bool | lower }}
+    dest: "{{ instance_path }}/hosts/hosts.yaml"
     mode: "0644"
 
 # --- Create Argo CD application manifest ---
@@ -197,7 +355,7 @@
           path: .
           helm:
             valueFiles:
-              - values.yaml
+              - hosts/{{ host_name }}/rendered-values.yaml
         destination:
           server: https://kubernetes.default.svc
           namespace: canasta-{{ instance_id }}
@@ -215,36 +373,6 @@
   ansible.builtin.copy:
     content: "{{ host_name }}"
     dest: "{{ instance_path }}/.gitops-host"
-    mode: "0644"
-
-# Key file is either the user's existing key or the one we just
-# generated. No placeholder needed — we always have a real key now.
-
-# --- Sync config files into values.yaml ---
-- name: Set K8s namespace for config sync
-  ansible.builtin.set_fact:
-    _k8s_namespace: "canasta-{{ instance_id }}"
-
-- name: Sync config files
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
-
-- name: Read values.yaml from remote for configData merge
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/values.yaml"
-  register: _gitops_values_for_merge
-
-- name: Read values-configdata.yaml from remote
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/values-configdata.yaml"
-  register: _gitops_configdata_for_merge
-
-- name: Merge configData into values.yaml for git
-  ansible.builtin.copy:
-    content: >-
-      {{ _gitops_values_for_merge.content | b64decode | from_yaml
-         | combine(_gitops_configdata_for_merge.content | b64decode | from_yaml, recursive=True)
-         | to_nice_yaml(indent=2) }}
-    dest: "{{ instance_path }}/values.yaml"
     mode: "0644"
 
 # --- Initial commit and push ---
@@ -271,13 +399,10 @@
     cmd: "git push -u origin main {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ key }} -o StrictHostKeyChecking=no"
+    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_path }} -o StrictHostKeyChecking=no"
   changed_when: true
 
 # --- Create Argo CD repo credential Secret ---
-# The SSH deploy key (generated or user-supplied) is stored as a K8s
-# Secret that Argo CD discovers via the repository label. This is what
-# lets Argo CD pull from the git repo without manual kubectl steps.
 - name: Create or update Argo CD repo credential Secret
   kubernetes.core.k8s:
     state: present
@@ -307,8 +432,8 @@
 - name: Report gitops initialized
   ansible.builtin.debug:
     msg: >-
-      GitOps initialized for '{{ instance_id }}'.
-      SSH deploy key saved to: {{ key }}.
-      Argo CD repo credential Secret created.
-      Store the key securely — it is needed to push config changes
-      and to set up additional hosts.
+      GitOps initialized for '{{ instance_id }}' (environment: {{ host_name }}).
+      Git-crypt key: {{ key }}
+      SSH deploy key: {{ _ssh_key_path }}
+      Argo CD Application points to hosts/{{ host_name }}/rendered-values.yaml.
+      Store both keys securely — they are needed for additional environments.

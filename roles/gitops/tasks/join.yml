@@ -10,13 +10,12 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Not applicable for Kubernetes
-  ansible.builtin.fail:
-    msg: >-
-      'canasta gitops join' is not yet implemented for the kubernetes
-      orchestrator. Multi-environment K8s gitops requires a different
-      repo structure (per-environment branches or directories) that
-      is not yet supported.
+- name: Dispatch to K8s join
+  ansible.builtin.include_tasks: join_kubernetes.yml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+- name: Skip Compose join for K8s
+  ansible.builtin.meta: end_play
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
 # --- Step 1: Validate prerequisites ---
