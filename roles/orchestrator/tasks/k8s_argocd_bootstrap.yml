@@ -13,6 +13,10 @@
 - name: Install Argo CD
   when: _argocd_check.rc != 0
   block:
+    - name: Report installing Argo CD
+      ansible.builtin.debug:
+        msg: "Installing Argo CD..."
+
     - name: Add Argo CD Helm repository
       kubernetes.core.helm_repository:
         name: argo
