@@ -3,10 +3,6 @@
 # Reuses the existing k3s install logic from the orchestrator role.
 # Idempotent — skips if k3s is already running.
 
-- name: Report installing k3s
-  ansible.builtin.debug:
-    msg: "Installing k3s (this may take a few minutes)..."
-
 - name: Install k3s
   ansible.builtin.include_role:
     name: orchestrator
