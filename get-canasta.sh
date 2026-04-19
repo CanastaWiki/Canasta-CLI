@@ -291,16 +291,10 @@ post_install_summary() {
     local platform="$2"
 
     info ""
-    info "Running canasta doctor..."
-    canasta doctor 2>/dev/null || true
-
-    info ""
     info "========================================"
-    info "Canasta installed (native mode)."
+    info "Canasta installed."
     info "  Install dir:    ${install_dir}"
-    info "  canasta-native: ${BIN_DIR}/canasta-native"
-    info "  canasta-docker: ${BIN_DIR}/canasta-docker"
-    info "  canasta:        ${BIN_DIR}/canasta -> canasta-native"
+    info "  canasta:        ${BIN_DIR}/canasta"
 
     if ! command -v git-crypt >/dev/null 2>&1; then
         info ""
@@ -310,7 +304,8 @@ post_install_summary() {
 
     if [[ "$platform" == "linux" ]]; then
         info ""
-        info "Log out and back in for group membership to take effect."
+        info "Log out and back in for group membership to take effect,"
+        info "then run 'canasta doctor' to verify your setup."
     fi
 
     info "========================================"
