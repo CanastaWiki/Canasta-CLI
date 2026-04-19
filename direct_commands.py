@@ -1144,9 +1144,9 @@ def _parse_doctor(stdout, hostname):
     lines.append("  k3s:             %s" % (
         "OK" if k3s != "MISSING" else "not installed"))
     lines.append("  Cluster:         %s" % (
-        "reachable" if "REACHABLE" in cluster else "not reachable"))
+        "reachable" if cluster.strip() == "REACHABLE" else "not reachable"))
     lines.append("  Argo CD:         %s" % (
-        "installed" if "INSTALLED" in argocd else "not found"))
+        "installed" if "INSTALLED" in argocd.split("\n")[-1] else "not found"))
 
     lines.append("")
     lines.append("GitOps (optional):")
