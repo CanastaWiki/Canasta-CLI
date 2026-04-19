@@ -260,6 +260,12 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+- name: Configure git pull strategy
+  ansible.builtin.command:
+    cmd: "git config pull.rebase false"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
 - name: Write .gitignore
   ansible.builtin.copy:
     content: |
