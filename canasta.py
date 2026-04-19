@@ -71,7 +71,18 @@ def load_definitions():
 
 
 def _enable_mitogen_if_available():
-    """Enable mitogen strategy if the plugin is installed."""
+    """Enable mitogen strategy if explicitly requested.
+
+    Mitogen 0.3.46 has a known incompatibility with ansible-core 2.20's
+    module respawn logic (AttributeError: _module_fqn), which breaks
+    become operations like 'canasta install docker'. Disabled by default
+    until upstream fixes the issue. Set CANASTA_ENABLE_MITOGEN=1 to
+    opt in.
+    """
+    if not os.environ.get("CANASTA_ENABLE_MITOGEN"):
+        return
+    if os.environ.get("ANSIBLE_STRATEGY"):
+        return
     try:
         import ansible_mitogen
         strategy_dir = os.path.join(
