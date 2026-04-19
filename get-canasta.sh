@@ -234,6 +234,11 @@ install_native_linux() {
     if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
         canasta install docker
     fi
+
+    # Add current user to required groups
+    local _user="${SUDO_USER:-$(whoami)}"
+    info "Adding ${_user} to canasta, docker, and www-data groups..."
+    $SUDO usermod -aG canasta,docker,www-data "$_user" 2>/dev/null || true
 }
 
 # --- Native mode install (macOS) --------------------------------------------
@@ -305,9 +310,7 @@ post_install_summary() {
 
     if [[ "$platform" == "linux" ]]; then
         info ""
-        info "Add yourself to the required groups:"
-        info "  sudo usermod -aG canasta,docker,www-data \$USER"
-        info "Then log out and back in (or: newgrp canasta)"
+        info "Log out and back in for group membership to take effect."
     fi
 
     info "========================================"
