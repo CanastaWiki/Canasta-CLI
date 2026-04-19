@@ -230,6 +230,11 @@ install_native_linux() {
     $SUDO ln -sf "${install_dir}/canasta-docker" "${BIN_DIR}/canasta-docker"
     $SUDO ln -sf "${BIN_DIR}/canasta-native" "${BIN_DIR}/canasta"
 
+    # Install Docker if missing
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        canasta install docker
+    fi
+
     info ""
     info "Canasta installed (native mode)."
     info "  Install dir:    ${install_dir}"
@@ -299,12 +304,6 @@ install_native_macos() {
 # --- Post-install check ------------------------------------------------------
 
 post_install_check() {
-    info ""
-    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-        info "Installing Docker..."
-        canasta install docker
-    fi
-
     info ""
     info "Running canasta doctor..."
     if ! canasta doctor 2>/dev/null; then
