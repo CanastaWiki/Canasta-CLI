@@ -17,11 +17,15 @@
       changed_when: false
       ignore_errors: true  # OK if no crontab exists
 
+    # Ansible's cron module writes two lines to the crontab: a
+    # '#Ansible: <name>' comment and the actual cron entry. Match the
+    # command line (which contains 'canasta backup create -i <id>'),
+    # not the comment (which contains 'canasta-backup-<id>').
     - name: Filter backup schedule
       ansible.builtin.set_fact:
         _schedule_lines: >-
           {{ _cron_list.stdout_lines | default([])
-             | select('search', 'canasta-backup-' + instance_id)
+             | select('search', 'canasta backup create -i ' + instance_id + '\\b')
              | list }}
 
     - name: No schedule found
