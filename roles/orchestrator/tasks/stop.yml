@@ -57,7 +57,18 @@
         cmd: "kubectl scale deployment --all --replicas=0 -n {{ _k8s_namespace }}"
       changed_when: true
 
+    # When the instance uses an external DB (db.enabled: false) and
+    # Elasticsearch is disabled, the namespace has zero StatefulSets
+    # and 'kubectl scale --all' errors with "no objects passed to
+    # scale". Check first and skip the scale step in that case.
+    - name: Check for statefulsets before scaling
+      ansible.builtin.command:
+        cmd: "kubectl get statefulset -n {{ _k8s_namespace }} -o name"
+      register: _stop_sts_list
+      changed_when: false
+
     - name: Scale down all statefulsets
       ansible.builtin.command:
         cmd: "kubectl scale statefulset --all --replicas=0 -n {{ _k8s_namespace }}"
       changed_when: true
+      when: _stop_sts_list.stdout_lines | length > 0
