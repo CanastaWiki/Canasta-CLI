@@ -171,6 +171,10 @@ commands:
         type: bool
         default: false
         description: "Skip automatic Let's Encrypt TLS setup"
+      - name: staging_certs
+        type: bool
+        default: false
+        description: "Use Let's Encrypt staging CA (untrusted by browsers, but avoids rate limits while testing)"
 
   - name: delete
     description: "Delete a Canasta instance"

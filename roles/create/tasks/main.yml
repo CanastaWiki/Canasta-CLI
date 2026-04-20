@@ -477,6 +477,16 @@
     (orchestrator | default('compose')) in ['kubernetes', 'k8s']
     or (skip_tls | default(false) | bool)
 
+# Persist --staging-certs as CANASTA_STAGING_CERTS so all TLS-
+# provisioning paths (Caddy ACME CA for Compose, cert-manager issuer
+# for K8s, config-set cascade) can honor it consistently.
+- name: Set CANASTA_STAGING_CERTS
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: CANASTA_STAGING_CERTS
+    value: "{{ (staging_certs | default(false) | bool) | string | lower }}"
+
 # --- Step 10: Initialize orchestrator config ---
 - name: Initialize orchestrator configuration
   ansible.builtin.include_role:
@@ -540,6 +550,8 @@
         _external_db_port: "{{ _k8s_env_for_values.variables.MYSQL_PORT | default('3306') }}"
         _external_db_user: "{{ _k8s_env_for_values.variables.MYSQL_USER | default('root') }}"
         _external_db_ssl: "{{ _k8s_env_for_values.variables.MYSQL_SSL | default('false') }}"
+        _staging_certs: >-
+          {{ (_k8s_env_for_values.variables.CANASTA_STAGING_CERTS | default('false') | lower) == 'true' }}
 
     - name: Generate instance values.yaml
       ansible.builtin.template:

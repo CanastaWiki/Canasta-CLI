@@ -2,6 +2,15 @@
 # To add custom Caddy directives, edit Caddyfile.site instead.
 # For global Caddy options or additional site blocks, edit Caddyfile.global instead.
 
+{% if _staging_certs | default(false) %}
+# Use the Let's Encrypt staging CA (untrusted by browsers, but
+# avoids production rate limits while testing). Toggled by
+# CANASTA_STAGING_CERTS in .env.
+{
+    acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{% endif %}
 import /etc/caddy/Caddyfile.global
 
 {{ _site_address }} {

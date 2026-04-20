@@ -285,9 +285,10 @@
 # never see it.
 #
 # Mapping table:
-#   MW_SITE_FQDN         → domains: [<value>]
+#   MW_SITE_FQDN           → domains: [<value>]
 #   CANASTA_ENABLE_VARNISH → varnish.enabled: <bool>
 #   CANASTA_ENABLE_ELASTICSEARCH → elasticsearch.enabled: <bool>
+#   CANASTA_STAGING_CERTS  → ingress.certManager.issuer: letsencrypt-{staging,prod}
 #
 # External DB keys (USE_EXTERNAL_DB, MYSQL_*) are intentionally NOT
 # propagated here — _validate_key.yml blocks them as immutable after
@@ -296,7 +297,8 @@
 - name: Propagate config key to K8s values.yaml
   when:
     - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-    - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH', 'CANASTA_ENABLE_ELASTICSEARCH']
+    - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH',
+                      'CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_STAGING_CERTS']
   block:
     - name: Read current values.yaml
       ansible.builtin.slurp:
@@ -321,6 +323,14 @@
       ansible.builtin.set_fact:
         _k8s_override: "{{ {'elasticsearch': {'enabled': _config_value | lower == 'true'}} }}"
       when: _config_key == 'CANASTA_ENABLE_ELASTICSEARCH'
+
+    - name: Build values.yaml override for CANASTA_STAGING_CERTS
+      ansible.builtin.set_fact:
+        _k8s_override:
+          ingress:
+            certManager:
+              issuer: "{{ (_config_value | lower == 'true') | ternary('letsencrypt-staging', 'letsencrypt-prod') }}"
+      when: _config_key == 'CANASTA_STAGING_CERTS'
 
     - name: Write updated values.yaml
       ansible.builtin.copy:
@@ -377,9 +387,16 @@
         - _new_fqdn != 'localhost'
         - _new_scheme == 'https'
       block:
-        - name: Install cert-manager and Let's Encrypt issuer (idempotent)
+        - name: Install cert-manager and Let's Encrypt issuers (idempotent)
           ansible.builtin.include_tasks: >-
             {{ canasta_root }}/roles/orchestrator/tasks/k8s_certmanager.yml
+
+        - name: Read CANASTA_STAGING_CERTS from .env
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: read
+            key: CANASTA_STAGING_CERTS
+          register: _se_tls_staging
 
         - name: Read values.yaml for TLS cascade
           ansible.builtin.slurp:
@@ -397,7 +414,9 @@
                 tls: true
                 certManager:
                   enabled: true
-                  issuer: letsencrypt-prod
+                  issuer: >-
+                    {{ (_se_tls_staging.value | default('false') | lower == 'true')
+                       | ternary('letsencrypt-staging', 'letsencrypt-prod') }}
 
         - name: Write updated values.yaml with TLS enabled
           ansible.builtin.copy:

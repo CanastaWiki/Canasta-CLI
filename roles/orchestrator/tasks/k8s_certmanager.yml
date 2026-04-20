@@ -40,15 +40,11 @@
       ansible.builtin.pause:
         seconds: 10
 
-- name: Check if ClusterIssuer exists
-  kubernetes.core.k8s_info:
-    api_version: cert-manager.io/v1
-    kind: ClusterIssuer
-    name: letsencrypt-prod
-  register: _issuer_check
-  ignore_errors: true  # OK if CRD not registered yet
-
-- name: Create Let's Encrypt ClusterIssuer
+# Always create BOTH the production and staging ClusterIssuers
+# (idempotent). That way switching CANASTA_STAGING_CERTS later is
+# just a values.yaml + Ingress annotation change — no need to
+# re-run cert-manager install.
+- name: Create Let's Encrypt production ClusterIssuer
   kubernetes.core.k8s:
     state: present
     definition:
@@ -65,4 +61,21 @@
           solvers:
             - http01:
                 ingress: {}
-  when: _issuer_check.resources | default([]) | length == 0
+
+- name: Create Let's Encrypt staging ClusterIssuer
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: letsencrypt-staging
+      spec:
+        acme:
+          server: https://acme-staging-v02.api.letsencrypt.org/directory
+          email: "{{ tls_email | default('') }}"
+          privateKeySecretRef:
+            name: letsencrypt-staging
+          solvers:
+            - http01:
+                ingress: {}
