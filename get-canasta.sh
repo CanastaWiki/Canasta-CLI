@@ -195,12 +195,8 @@ install_native_linux() {
         $SUDO git clone "$REPO_URL" "$install_dir"
     fi
 
-    # Set group ownership
-    info "Setting group ownership to 'canasta'..."
-    $SUDO chgrp -R canasta "$install_dir"
-    $SUDO chmod -R g+w "$install_dir"
-
-    # Mark as safe directory for git
+    # Mark as safe directory for git (so non-root users can run git
+    # commands against the root-owned repo during e.g. 'canasta upgrade')
     $SUDO git config --system --add safe.directory "$install_dir" 2>/dev/null || true
 
     # Create venv and install deps
@@ -208,21 +204,25 @@ install_native_linux() {
     $SUDO python3 -m venv "${install_dir}/.venv"
     $SUDO "${install_dir}/.venv/bin/pip" install --quiet -r "${install_dir}/requirements.txt"
 
-    # Set group ownership on venv too
-    $SUDO chgrp -R canasta "${install_dir}/.venv"
-    $SUDO chmod -R g+w "${install_dir}/.venv"
-
-    # Build metadata
+    # Build metadata (written as root, group-fixed in the final pass below)
     info "Writing build metadata..."
     $SUDO bash -c "cd '${install_dir}' && git rev-parse --short HEAD > BUILD_COMMIT && git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' > BUILD_DATE"
 
-    # Install Ansible collections
+    # Install Ansible collections (system path, not root's home)
     if [[ -f "${install_dir}/requirements.yml" ]]; then
         info "Installing Ansible collections..."
         $SUDO "${install_dir}/.venv/bin/ansible-galaxy" collection install \
             -r "${install_dir}/requirements.yml" \
             -p /usr/share/ansible/collections 2>/dev/null || true
     fi
+
+    # Set group ownership AFTER all file writes so BUILD_COMMIT,
+    # BUILD_DATE, and venv files are group-writable. Running before
+    # these writes leaves the new files root:root, which blocks
+    # non-root upgrades.
+    info "Setting group ownership to 'canasta'..."
+    $SUDO chgrp -R canasta "$install_dir"
+    $SUDO chmod -R g+w "$install_dir"
 
     # Create symlinks
     info "Creating symlinks in ${BIN_DIR}..."
