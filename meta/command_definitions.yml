@@ -1149,8 +1149,12 @@ commands:
 
   - name: gitops_add
     description: "Add configuration changes to git"
-    long_description: "Stage configuration changes for the next gitops push."
+    long_description: |
+      Stage configuration changes for the next gitops push. If a file
+      path is given, stage just that path. Without a path, stage all
+      changes under the config directory (existing behavior).
     examples:
+      - "canasta gitops add -i mysite extensions/WikiWorks/LocalSettings.php"
       - "canasta gitops add -i mysite"
     playbook: gitops_add.yml
     parameters:
@@ -1158,6 +1162,10 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: path
+        type: string
+        positional: true
+        description: "File path to stage (relative to instance root)"
 
   - name: gitops_rm
     description: "Remove configuration from git tracking"

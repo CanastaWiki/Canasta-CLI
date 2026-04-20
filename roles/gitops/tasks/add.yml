@@ -2,9 +2,18 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Stage changes
+- name: Stage specific file
+  ansible.builtin.command:
+    cmd: "git add {{ path }}"
+    chdir: "{{ instance_path }}"
+  register: _git_add_path
+  changed_when: _git_add_path.rc == 0
+  when: path is defined and path != ''
+
+- name: Stage all changes under config/
   ansible.builtin.command:
     cmd: "git add -A"
     chdir: "{{ instance_path }}/config"
   register: _git_add
   changed_when: _git_add.rc == 0
+  when: path is not defined or path == ''
