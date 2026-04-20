@@ -72,18 +72,51 @@ run and whenever `canasta upgrade` is invoked.
 
 ### Option 2: Native install
 
+Run the installer:
+
 ```bash
+curl -fsSL https://get.canasta.wiki | bash -s -- --native
+```
+
+Log out and back in for group membership to take effect.
+
+<details>
+<summary>What the installer does (for manual installs)</summary>
+
+```bash
+# System prerequisites
+sudo apt-get install -y git python3 python3-venv
+
+# Create a 'canasta' group so non-root users can write to the install dir
+sudo groupadd --system canasta
+sudo usermod -aG canasta "$USER"
+
+# Clone and set group-writable permissions
 sudo git clone https://github.com/CanastaWiki/Canasta-Ansible.git /opt/canasta-ansible
-cd /opt/canasta-ansible
-sudo python3 -m venv .venv
-sudo .venv/bin/pip install -r requirements.txt
-sudo .venv/bin/ansible-galaxy collection install -r requirements.yml
-sudo make build-info   # capture version metadata — the sudo clone
-                       # leaves .git root-owned, so runtime 'git
-                       # rev-parse' refuses under the non-root user
+sudo chgrp -R canasta /opt/canasta-ansible
+sudo chmod -R g+w /opt/canasta-ansible
+
+# Mark as safe for git (needed because git refuses operations on
+# directories owned by a different user)
+sudo git config --system --add safe.directory /opt/canasta-ansible
+
+# Python venv and Ansible collections (collections go to a
+# system-wide path so all users can see them)
+sudo python3 -m venv /opt/canasta-ansible/.venv
+sudo /opt/canasta-ansible/.venv/bin/pip install -r /opt/canasta-ansible/requirements.txt
+sudo /opt/canasta-ansible/.venv/bin/ansible-galaxy collection install \
+  -r /opt/canasta-ansible/requirements.yml \
+  -p /usr/share/ansible/collections
+sudo chgrp -R canasta /opt/canasta-ansible/.venv
+sudo chmod -R g+w /opt/canasta-ansible/.venv
+
+# Build metadata and symlinks
+sudo make -C /opt/canasta-ansible build-info
 sudo ln -sf /opt/canasta-ansible/canasta-native /usr/local/bin/canasta-native
 sudo ln -sf /usr/local/bin/canasta-native /usr/local/bin/canasta
 ```
+
+</details>
 
 ### Both wrappers available
 

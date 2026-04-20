@@ -56,11 +56,35 @@
         state: present
       when: ansible_os_family | default('') == 'RedHat'
 
+    - name: Ensure 'canasta' system group exists
+      ansible.builtin.group:
+        name: canasta
+        system: true
+        state: present
+
     - name: Clone Canasta-Ansible repository
       ansible.builtin.git:
         repo: "https://github.com/CanastaWiki/Canasta-Ansible.git"
         dest: /opt/canasta-ansible
         version: main
+
+    # Install dir needs to be writable by non-root users so that
+    # 'canasta upgrade' (which runs git pull) and 'canasta install'
+    # (which writes build metadata) don't fail under the regular user.
+    - name: Set group ownership and group-writable permissions
+      ansible.builtin.file:
+        path: /opt/canasta-ansible
+        group: canasta
+        mode: g+w
+        recurse: true
+
+    # Git refuses operations on repositories owned by a different
+    # user (the 'dubious ownership' check). Mark as safe system-wide
+    # so non-root users can run git commands against the install dir.
+    - name: Mark install dir as a git safe.directory
+      ansible.builtin.command:
+        cmd: "git config --system --add safe.directory /opt/canasta-ansible"
+      changed_when: true
 
     - name: Create Python virtual environment
       ansible.builtin.command:
@@ -72,9 +96,14 @@
         cmd: "/opt/canasta-ansible/.venv/bin/pip install -r /opt/canasta-ansible/requirements.txt"
       changed_when: true
 
+    # Install to a system-wide path so the collections are visible to
+    # all users, not just root (default is root's ~/.ansible/collections).
     - name: Install Ansible collections
       ansible.builtin.command:
-        cmd: "/opt/canasta-ansible/.venv/bin/ansible-galaxy collection install -r /opt/canasta-ansible/requirements.yml"
+        cmd: >-
+          /opt/canasta-ansible/.venv/bin/ansible-galaxy collection install
+          -r /opt/canasta-ansible/requirements.yml
+          -p /usr/share/ansible/collections
       changed_when: true
 
     - name: Generate build info
@@ -82,6 +111,13 @@
         cmd: "git rev-parse --short HEAD > BUILD_COMMIT && git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' > BUILD_DATE"
         chdir: "/opt/canasta-ansible"
       changed_when: true
+
+    - name: Re-apply group ownership after venv/build-info writes
+      ansible.builtin.file:
+        path: /opt/canasta-ansible
+        group: canasta
+        mode: g+w
+        recurse: true
 
     - name: Create canasta-native symlink
       ansible.builtin.file:
@@ -97,4 +133,7 @@
 
     - name: Report canasta installed
       ansible.builtin.debug:
-        msg: "canasta-native installed at /opt/canasta-ansible."
+        msg: >-
+          canasta-native installed at /opt/canasta-ansible.
+          Add users to the 'canasta' group to let them run
+          'canasta upgrade' and 'canasta install' without sudo.
