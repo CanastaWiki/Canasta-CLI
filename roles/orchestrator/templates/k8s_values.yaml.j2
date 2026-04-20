@@ -21,7 +21,7 @@ ingress:
   tls: true
   certManager:
     enabled: true
-    issuer: letsencrypt-prod
+    issuer: {{ (_staging_certs | default(false)) | ternary('letsencrypt-staging', 'letsencrypt-prod') }}
 {% endif %}
 {% endif %}
 

@@ -20,6 +20,7 @@
     _http_only: "{{ _env_caddy.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off' }}"
     _observable: "{{ _env_caddy.variables.CANASTA_ENABLE_OBSERVABILITY | default('false') | lower == 'true' }}"
     _varnish_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true' }}"
+    _staging_certs: "{{ _env_caddy.variables.CANASTA_STAGING_CERTS | default('false') | lower == 'true' }}"
     _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
     _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') }}"
 

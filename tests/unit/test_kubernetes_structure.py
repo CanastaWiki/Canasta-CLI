@@ -269,6 +269,76 @@ class TestExternalDatabase:
         )
 
 
+class TestStagingCerts:
+    """CANASTA_STAGING_CERTS plumbing across create, both
+    orchestrators' templates, and post-create config set."""
+
+    def test_staging_certs_is_a_known_config_key(self):
+        path = os.path.join(
+            REPO_ROOT, "roles", "config", "defaults", "main.yml",
+        )
+        with open(path) as f:
+            defaults = yaml.safe_load(f)
+        assert "CANASTA_STAGING_CERTS" in defaults["canasta_known_keys"], (
+            "CANASTA_STAGING_CERTS must be in canasta_known_keys so "
+            "'canasta config set CANASTA_STAGING_CERTS=...' doesn't "
+            "require --force"
+        )
+
+    def test_certmanager_creates_both_issuers(self):
+        """k8s_certmanager.yml must create both production and
+        staging ClusterIssuers so toggling between them post-create
+        is a values.yaml change, not a cert-manager reinstall."""
+        path = os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_certmanager.yml",
+        )
+        with open(path) as f:
+            content = f.read()
+        assert "name: letsencrypt-prod" in content
+        assert "name: letsencrypt-staging" in content
+        assert "acme-staging-v02.api.letsencrypt.org" in content
+
+    def test_k8s_values_template_honors_staging_certs(self):
+        path = os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "templates",
+            "k8s_values.yaml.j2",
+        )
+        with open(path) as f:
+            content = f.read()
+        assert "_staging_certs" in content
+        assert "letsencrypt-staging" in content
+        assert "letsencrypt-prod" in content
+
+    def test_caddyfile_template_emits_acme_ca_for_staging(self):
+        """Compose path: Caddyfile.j2 must emit acme_ca pointing at
+        the staging directory when _staging_certs is true."""
+        path = os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "templates", "Caddyfile.j2",
+        )
+        with open(path) as f:
+            content = f.read()
+        assert "_staging_certs" in content
+        assert "acme_ca" in content
+        assert "acme-staging-v02.api.letsencrypt.org" in content
+
+    def test_side_effects_propagates_staging_certs(self):
+        """Changing CANASTA_STAGING_CERTS via config set on a K8s
+        instance must patch the Ingress issuer in values.yaml."""
+        path = os.path.join(
+            REPO_ROOT, "roles", "config", "tasks", "_side_effects.yml",
+        )
+        with open(path) as f:
+            content = f.read()
+        assert "'CANASTA_STAGING_CERTS'" in content, (
+            "_side_effects.yml must list CANASTA_STAGING_CERTS in the "
+            "K8s values.yaml propagation list"
+        )
+        # The TLS cascade must consult CANASTA_STAGING_CERTS too.
+        assert "_se_tls_staging" in content, (
+            "localhost→domain TLS cascade must honor CANASTA_STAGING_CERTS"
+        )
+
+
 class TestGitopsDispatchers:
     """Verify that each dispatched gitops command has both variants."""
 
