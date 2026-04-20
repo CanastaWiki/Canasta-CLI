@@ -337,9 +337,10 @@
 - name: Cascade MW_SITE_SERVER domain change
   when: _config_key == 'MW_SITE_SERVER'
   block:
-    - name: Extract new FQDN from MW_SITE_SERVER
+    - name: Extract new FQDN and scheme from MW_SITE_SERVER
       ansible.builtin.set_fact:
-        _new_fqdn: "{{ _config_value | regex_replace('^https?://', '') }}"
+        _new_fqdn: "{{ _config_value | regex_replace('^https?://', '') | regex_replace('/.*$', '') }}"
+        _new_scheme: "{{ _config_value | regex_replace('^(https?)://.*$', '\\1') }}"
 
     - name: Read current MW_SITE_FQDN
       canasta_env:
@@ -361,3 +362,48 @@
         regexp: "{{ _se_old_fqdn.value | regex_escape() }}"
         replace: "{{ _new_fqdn }}"
       when: _se_old_fqdn.found and _se_old_fqdn.value != _new_fqdn
+
+    # Localhost → real-domain TLS cascade (K8s only).
+    # Instances created with `-n localhost` don't install cert-manager
+    # or enable ingress TLS. When the user later changes the domain
+    # to a real FQDN with an https:// scheme, install cert-manager
+    # (idempotent) and patch values.yaml so the Ingress gets a proper
+    # Let's Encrypt cert on the next restart. Without this, the user
+    # would either serve Traefik's default self-signed cert or have
+    # to delete and recreate the instance.
+    - name: Enable TLS for K8s instance on localhost→domain change
+      when:
+        - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+        - _new_fqdn != 'localhost'
+        - _new_scheme == 'https'
+      block:
+        - name: Install cert-manager and Let's Encrypt issuer (idempotent)
+          ansible.builtin.include_tasks: >-
+            {{ canasta_root }}/roles/orchestrator/tasks/k8s_certmanager.yml
+
+        - name: Read values.yaml for TLS cascade
+          ansible.builtin.slurp:
+            src: "{{ instance_path }}/values.yaml"
+          register: _se_tls_values_raw
+
+        - name: Parse values.yaml
+          ansible.builtin.set_fact:
+            _se_tls_values: "{{ _se_tls_values_raw.content | b64decode | from_yaml }}"
+
+        - name: Build TLS ingress override
+          ansible.builtin.set_fact:
+            _se_tls_override:
+              ingress:
+                tls: true
+                certManager:
+                  enabled: true
+                  issuer: letsencrypt-prod
+
+        - name: Write updated values.yaml with TLS enabled
+          ansible.builtin.copy:
+            content: >-
+              {{ _se_tls_values
+                 | combine(_se_tls_override, recursive=True)
+                 | to_nice_yaml(indent=2) }}
+            dest: "{{ instance_path }}/values.yaml"
+            mode: "0644"
