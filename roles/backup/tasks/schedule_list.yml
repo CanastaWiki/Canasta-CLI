@@ -42,9 +42,9 @@
         - name: Check for purge flag
           ansible.builtin.set_fact:
             _sched_purge: >-
-              {{ _sched_cmd
+              {{ (_sched_cmd
                  | regex_search('keep-within\s+(\S+)', '\1')
-                 | default([]) | first | default('') }}
+                 | default([], true)) | first | default('') }}
 
         - name: Display schedule
           ansible.builtin.debug:
