@@ -25,6 +25,7 @@ spec:
   selector:
     {{- include "canasta.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: caddy
+{{- if .Values.db.enabled }}
 ---
 apiVersion: v1
 kind: Service
@@ -44,6 +45,7 @@ spec:
   selector:
     {{- include "canasta.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: db
+{{- end }}
 ---
 apiVersion: v1
 kind: Service

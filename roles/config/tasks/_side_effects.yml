@@ -288,6 +288,11 @@
 #   MW_SITE_FQDN         → domains: [<value>]
 #   CANASTA_ENABLE_VARNISH → varnish.enabled: <bool>
 #   CANASTA_ENABLE_ELASTICSEARCH → elasticsearch.enabled: <bool>
+#
+# External DB keys (USE_EXTERNAL_DB, MYSQL_*) are intentionally NOT
+# propagated here — _validate_key.yml blocks them as immutable after
+# create. The values.yaml mapping is populated at create time only
+# (see roles/create/tasks/main.yml and templates/k8s_values.yaml.j2).
 - name: Propagate config key to K8s values.yaml
   when:
     - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']

@@ -31,6 +31,21 @@ secrets:
 
 argocd:
   namespace: {{ argocd_namespace | default('argocd') }}
+
+{% if _use_external_db | default(false) %}
+# External database: Canasta points at a DB server the user operates
+# (managed service like RDS/Aurora/CloudSQL, or a self-hosted cluster
+# such as Galera/MaxScale/Percona XtraDB). The bundled db StatefulSet
+# is not deployed when db.enabled is false.
+db:
+  enabled: false
+
+externalDatabase:
+  host: "{{ _external_db_host | default('') }}"
+  port: "{{ _external_db_port | default('3306') }}"
+  user: "{{ _external_db_user | default('root') }}"
+  ssl: "{{ _external_db_ssl | default('false') }}"
+{% endif %}
 {% if (storage_class is defined and storage_class != '') or (access_mode is defined and access_mode != '') %}
 
 persistence:
