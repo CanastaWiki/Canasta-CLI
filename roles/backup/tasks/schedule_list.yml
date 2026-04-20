@@ -52,6 +52,8 @@
               Instance '{{ instance_id }}' is scheduled for backup at: {{ _sched_cron }}
               {% if _sched_purge %}
               Auto-purge: snapshots older than {{ _sched_purge }}
+              {% else %}
+              Auto-purge: not configured (snapshots will accumulate)
               {% endif %}
 
 # --- Kubernetes: CronJob ---
