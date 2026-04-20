@@ -261,6 +261,13 @@
         key: MW_SITE_SERVER
         value: "{{ _server_scheme }}{{ _config_value }}"
 
+- name: Sync COMPOSE_PROFILES when feature flags change
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH', 'CANASTA_ENABLE_OBSERVABILITY']
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
+
 - name: Apply CANASTA_ENABLE_OBSERVABILITY side effects
   when: _config_key == 'CANASTA_ENABLE_OBSERVABILITY' and _config_value | lower == 'true'
   ansible.builtin.include_role:
