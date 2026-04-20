@@ -21,7 +21,7 @@
 
 - name: Determine wikis for sitemap generation
   ansible.builtin.set_fact:
-    _sitemap_targets: "{{ ((wiki | default('')) != '') | ternary([wiki], _sitemap_wikis.wiki_ids) }}"
+    _sitemap_targets: "{{ [wiki] if (wiki | default('') != '') else _sitemap_wikis.wiki_ids }}"
 
 - name: Create sitemap directories and generate for each wiki
   ansible.builtin.include_tasks: _generate_single.yml
