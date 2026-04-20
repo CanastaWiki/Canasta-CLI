@@ -293,7 +293,44 @@ class TestExternalDatabase:
 
 class TestStagingCerts:
     """CANASTA_STAGING_CERTS plumbing across create, both
-    orchestrators' templates, and post-create config set."""
+    orchestrators' templates, and post-create config set.
+
+    Covers both Compose and Kubernetes. (File name is historical —
+    these tests aren't K8s-only.)"""
+
+    # --- Create time: the flag must land in .env ---
+
+    def test_create_writes_canasta_staging_certs_env(self):
+        """roles/create/tasks/main.yml must persist the
+        --staging-certs flag as CANASTA_STAGING_CERTS in .env so
+        both orchestrators' template logic can read it."""
+        path = os.path.join(REPO_ROOT, "roles", "create", "tasks", "main.yml")
+        with open(path) as f:
+            content = f.read()
+        assert "key: CANASTA_STAGING_CERTS" in content, (
+            "create/main.yml must write CANASTA_STAGING_CERTS to .env"
+        )
+        assert "staging_certs | default(false)" in content, (
+            "The .env value must be derived from the staging_certs flag"
+        )
+
+    # --- Compose: rewrite_caddy.yml must read the .env key ---
+
+    def test_rewrite_caddy_reads_staging_certs_env(self):
+        """Compose path: rewrite_caddy.yml must read
+        CANASTA_STAGING_CERTS from .env and expose it as
+        _staging_certs for Caddyfile.j2 rendering."""
+        path = os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks", "rewrite_caddy.yml",
+        )
+        with open(path) as f:
+            content = f.read()
+        assert "CANASTA_STAGING_CERTS" in content, (
+            "rewrite_caddy.yml must read CANASTA_STAGING_CERTS from .env"
+        )
+        assert "_staging_certs" in content, (
+            "rewrite_caddy.yml must expose _staging_certs to the template"
+        )
 
     def test_staging_certs_is_a_known_config_key(self):
         path = os.path.join(
