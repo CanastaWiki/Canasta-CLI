@@ -223,6 +223,32 @@ class TestExternalDatabase:
                 "%s must gate MYSQL_HOST on .Values.db.enabled" % template_name
             )
 
+    def test_tls_cascade_on_localhost_to_domain_change(self):
+        """When a user changes MW_SITE_SERVER from localhost to a
+        real https:// domain on a K8s instance, _side_effects.yml
+        should install cert-manager and patch values.yaml to enable
+        ingress.tls — not force the user to delete and recreate."""
+        path = os.path.join(
+            REPO_ROOT, "roles", "config", "tasks", "_side_effects.yml",
+        )
+        with open(path) as f:
+            content = f.read()
+        # Gates the cascade on K8s + non-localhost + https scheme
+        assert "_new_scheme" in content, (
+            "_side_effects.yml must capture the scheme from MW_SITE_SERVER"
+        )
+        assert "_new_fqdn != 'localhost'" in content, (
+            "_side_effects.yml must not re-enable TLS on localhost changes"
+        )
+        # Installs cert-manager idempotently
+        assert "k8s_certmanager.yml" in content, (
+            "_side_effects.yml must install cert-manager on domain change"
+        )
+        # Patches values.yaml to enable ingress TLS
+        assert "letsencrypt-prod" in content, (
+            "_side_effects.yml must set the Let's Encrypt issuer"
+        )
+
     def test_values_template_emits_external_db_when_flagged(self):
         """The Ansible k8s_values.yaml.j2 template must emit db.enabled
         and externalDatabase when _use_external_db is true."""
