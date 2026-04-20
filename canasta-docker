@@ -541,6 +541,10 @@ if [[ -t 0 ]]; then
     DOCKER_RUN_FLAGS+=(-t)
 fi
 
+# Tell canasta.py it's running under the docker wrapper, so
+# 'canasta version' reports the correct run mode.
+DOCKER_RUN_FLAGS+=(-e CANASTA_RUN_MODE=docker)
+
 # Dry-run mode for tests: print the assembled docker run command, one
 # argument per line, and exit. Does not invoke docker.
 if [[ -n "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
