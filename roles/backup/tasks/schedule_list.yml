@@ -15,13 +15,25 @@
         cmd: "crontab -l"
       register: _cron_list
       changed_when: false
-      ignore_errors: true  # OK if no crontab exists
+      failed_when: false  # rc=1 when crontab is empty; we handle missing binary below
 
+    - name: Fail if crontab command is missing
+      ansible.builtin.fail:
+        msg: >-
+          The 'crontab' command is not available on this host. Install
+          the cron package (e.g. 'apt install cron') to use backup
+          schedules.
+      when: _cron_list.rc is not defined
+
+    # Ansible's cron module writes two lines to the crontab: a
+    # '#Ansible: <name>' comment and the actual cron entry. Match the
+    # command line (which contains 'canasta backup create -i <id>'),
+    # not the comment (which contains 'canasta-backup-<id>').
     - name: Filter backup schedule
       ansible.builtin.set_fact:
         _schedule_lines: >-
           {{ _cron_list.stdout_lines | default([])
-             | select('search', 'canasta-backup-' + instance_id)
+             | select('search', 'canasta backup create -i ' + instance_id + '\\b')
              | list }}
 
     - name: No schedule found
