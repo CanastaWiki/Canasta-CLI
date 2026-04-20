@@ -63,12 +63,22 @@
               {{ (lookup('file', instance_path ~ '/values.yaml')
                   | from_yaml).get('web', {}).get('replicaCount', 1) }}
 
+        # External-DB instances with Elasticsearch disabled have no
+        # StatefulSets; 'kubectl scale --all' errors with "no objects
+        # passed to scale". Check first and skip if none exist.
+        - name: Check for statefulsets before scaling
+          ansible.builtin.command:
+            cmd: "kubectl get statefulset -n {{ _k8s_namespace }} -o name"
+          register: _start_sts_list
+          changed_when: false
+
         - name: Scale up statefulsets
           ansible.builtin.command:
             cmd: >-
               kubectl scale statefulset --all --replicas=1
               -n {{ _k8s_namespace }}
           changed_when: true
+          when: _start_sts_list.stdout_lines | length > 0
 
         - name: Scale up web deployment
           ansible.builtin.command:
