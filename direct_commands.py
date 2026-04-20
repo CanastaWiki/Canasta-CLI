@@ -533,9 +533,14 @@ def cmd_version(args):
     except OSError:
         version = "unknown"
 
+    # Run mode is set by the canasta-docker wrapper. Presence of
+    # BUILD_COMMIT isn't a reliable signal — native installs also
+    # write it (via 'make build-info') so 'canasta version' works
+    # outside a git checkout.
+    mode = "docker" if os.environ.get("CANASTA_RUN_MODE") == "docker" else "native"
+
     build_commit_file = os.path.join(script_dir, "BUILD_COMMIT")
     if os.path.isfile(build_commit_file):
-        mode = "docker"
         try:
             with open(build_commit_file) as f:
                 commit = f.read().strip()
@@ -545,7 +550,6 @@ def cmd_version(args):
             commit = "unknown"
             date = "unknown"
     else:
-        mode = "native"
         try:
             result = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],

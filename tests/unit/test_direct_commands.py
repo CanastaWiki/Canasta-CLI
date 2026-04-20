@@ -634,6 +634,7 @@ class TestCmdVersion:
 
     def test_native_checkout(self, tmp_path, monkeypatch, capsys):
         (tmp_path / "VERSION").write_text("4.0.0\n")
+        monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
         monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
         monkeypatch.setattr(
             subprocess, "run",
@@ -653,6 +654,7 @@ class TestCmdVersion:
         (tmp_path / "VERSION").write_text("4.0.0\n")
         (tmp_path / "BUILD_COMMIT").write_text("def5678\n")
         (tmp_path / "BUILD_DATE").write_text("2026-04-18 10:00:00\n")
+        monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
         monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
         rc = direct_commands.cmd_version(None)
         assert rc == 0
@@ -660,6 +662,22 @@ class TestCmdVersion:
         assert "v4.0.0" in out
         assert "docker" in out
         assert "def5678" in out
+
+    def test_native_with_build_files(self, tmp_path, monkeypatch, capsys):
+        """Native installs also write BUILD_COMMIT/BUILD_DATE (via
+        get-canasta.sh or make build-info). The presence of those
+        files must not cause mode to be misreported as docker."""
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        (tmp_path / "BUILD_COMMIT").write_text("abc1234\n")
+        (tmp_path / "BUILD_DATE").write_text("2026-04-20 14:00:00\n")
+        monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
+        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "v4.0.0" in out
+        assert "native" in out
+        assert "abc1234" in out
 
     def test_missing_version_file(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
