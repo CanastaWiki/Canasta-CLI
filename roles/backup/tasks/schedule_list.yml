@@ -27,13 +27,14 @@
 
     # Ansible's cron module writes two lines to the crontab: a
     # '#Ansible: <name>' comment and the actual cron entry. Match the
-    # command line (which contains 'canasta backup create -i <id>'),
-    # not the comment (which contains 'canasta-backup-<id>').
+    # command line (which contains 'canasta backup create -i <id> '),
+    # not the comment (which contains 'canasta-backup-<id>'). The
+    # trailing space anchors the match so 'foo' doesn't match 'foo2'.
     - name: Filter backup schedule
       ansible.builtin.set_fact:
         _schedule_lines: >-
           {{ _cron_list.stdout_lines | default([])
-             | select('search', 'canasta backup create -i ' + instance_id + '\\b')
+             | select('search', 'canasta backup create -i ' + instance_id + ' ')
              | list }}
 
     - name: No schedule found
