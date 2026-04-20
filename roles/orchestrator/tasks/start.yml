@@ -100,12 +100,22 @@
           changed_when: true
           ignore_errors: true  # OK if some deployments don't exist
 
+    # Skip the DB readiness wait when the instance uses an external
+    # database (db.enabled: false). In that case there's no bundled
+    # -db StatefulSet and the rollout-status call errors with NotFound.
+    - name: Read db.enabled from values.yaml
+      ansible.builtin.set_fact:
+        _db_enabled: >-
+          {{ (lookup('file', instance_path ~ '/values.yaml')
+              | from_yaml).get('db', {}).get('enabled', true) }}
+
     - name: Wait for DB readiness
       ansible.builtin.command:
         cmd: >-
           kubectl rollout status statefulset/canasta-{{ instance_id }}-db
           -n {{ _k8s_namespace }} --timeout=300s
       changed_when: false
+      when: _db_enabled | bool
 
     - name: Wait for web readiness
       ansible.builtin.command:
