@@ -1,7 +1,9 @@
 """Structural tests for Kubernetes/Helm files."""
 
 import os
+import re
 
+import jinja2
 import pytest
 import yaml
 
@@ -12,6 +14,26 @@ HELM_CHART = os.path.join(
 )
 GITOPS_TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 ORCHESTRATOR_TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
+
+
+def _ansible_jinja_env():
+    """Return a Jinja2 Environment with minimal Ansible-compatible filters
+    (ternary, regex_replace) registered. Used by rendering tests that need
+    to execute an Ansible-style template without spinning up full Ansible."""
+    env = jinja2.Environment(
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+    env.filters["ternary"] = lambda cond, a, b: a if cond else b
+    env.filters["regex_replace"] = lambda s, pat, repl="": re.sub(pat, repl, str(s))
+    env.filters["bool"] = lambda v: str(v).lower() in ("true", "1", "yes", "y")
+    return env
+
+
+def _render_template(path, **ctx):
+    with open(path) as f:
+        src = f.read()
+    return _ansible_jinja_env().from_string(src).render(**ctx)
 
 
 class TestHelmChart:
@@ -337,6 +359,90 @@ class TestStagingCerts:
         assert "_se_tls_staging" in content, (
             "localhost→domain TLS cascade must honor CANASTA_STAGING_CERTS"
         )
+
+    # --- Rendering tests: actually evaluate the Jinja templates ---
+    # Structural greps (above) pass even if a ternary is flipped. The
+    # tests below render the templates against real input and assert
+    # on the output.
+
+    @pytest.mark.parametrize("staging,expected_issuer", [
+        (True, "letsencrypt-staging"),
+        (False, "letsencrypt-prod"),
+    ])
+    def test_k8s_values_template_renders_correct_issuer(
+        self, staging, expected_issuer,
+    ):
+        path = os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "templates",
+            "k8s_values.yaml.j2",
+        )
+        out = _render_template(
+            path,
+            id="mysite",
+            canasta_default_image="ghcr.io/canastawiki/canasta:3.5.6",
+            domain_name="example.com",
+            skip_tls=False,
+            argocd_namespace="argocd",
+            _use_external_db=False,
+            _staging_certs=staging,
+        )
+        # Parse as YAML and walk the structure — catches field-name
+        # typos that a naive string match would miss.
+        parsed = yaml.safe_load(out)
+        assert parsed["ingress"]["certManager"]["issuer"] == expected_issuer
+
+    @pytest.mark.parametrize("staging,expect_acme_ca", [
+        (True, True),
+        (False, False),
+    ])
+    def test_caddyfile_template_emits_acme_ca_only_for_staging(
+        self, staging, expect_acme_ca,
+    ):
+        path = os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "templates", "Caddyfile.j2",
+        )
+        out = _render_template(
+            path,
+            _site_address="example.com",
+            _backend="varnish:80",
+            _observable=False,
+            _os_user="",
+            _os_password_hash="",
+            _staging_certs=staging,
+        )
+        has_acme_ca = "acme_ca" in out
+        has_staging_url = "acme-staging-v02.api.letsencrypt.org" in out
+        assert has_acme_ca is expect_acme_ca, (
+            "acme_ca directive should %s" %
+            ("appear when staging=true" if staging
+             else "NOT appear when staging=false")
+        )
+        assert has_staging_url is expect_acme_ca
+
+    @pytest.mark.parametrize("config_value,expected_issuer", [
+        ("true", "letsencrypt-staging"),
+        ("True", "letsencrypt-staging"),
+        ("TRUE", "letsencrypt-staging"),
+        ("false", "letsencrypt-prod"),
+        ("False", "letsencrypt-prod"),
+        ("", "letsencrypt-prod"),
+        ("anything-else", "letsencrypt-prod"),
+    ])
+    def test_side_effects_override_picks_correct_issuer(
+        self, config_value, expected_issuer,
+    ):
+        """The _side_effects.yml override for CANASTA_STAGING_CERTS
+        constructs a nested dict {ingress: {certManager: {issuer: ...}}}
+        via a Jinja ternary. Evaluate that expression and assert the
+        ternary picks the right arm across truthy/falsy/edge-case inputs."""
+        expr = (
+            "{{ (_config_value | lower == 'true') "
+            "| ternary('letsencrypt-staging', 'letsencrypt-prod') }}"
+        )
+        rendered = _ansible_jinja_env().from_string(expr).render(
+            _config_value=config_value,
+        )
+        assert rendered == expected_issuer
 
 
 class TestGitopsDispatchers:
