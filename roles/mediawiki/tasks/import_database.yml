@@ -15,15 +15,28 @@
     exec_command: "mariadb -u root -p'{{ import_db_password }}' -e 'CREATE DATABASE IF NOT EXISTS `{{ import_wiki_id }}`'"
     exec_no_log: true
 
-# Transfer the dump file from the controller to the target host if remote.
-# For localhost this is a no-op (same filesystem). For remote hosts, ansible
-# copies the file via SCP so the path doesn't need to exist on the remote.
-- name: Transfer database dump to target host
+# Transfer the dump file to the target host. If the file exists on the
+# remote (uploaded by the migration script), use remote_src. Otherwise
+# copy from the controller.
+- name: Check if dump exists on remote
+  ansible.builtin.stat:
+    path: "{{ import_database_path }}"
+  register: _import_remote_check
+
+- name: Transfer database dump (from remote path)
+  ansible.builtin.copy:
+    src: "{{ import_database_path }}"
+    dest: "/tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
+    remote_src: true
+    mode: "0644"
+  when: _import_remote_check.stat.exists
+
+- name: Transfer database dump (from controller)
   ansible.builtin.copy:
     src: "{{ import_database_path }}"
     dest: "/tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
     mode: "0644"
-  register: _import_transferred
+  when: not _import_remote_check.stat.exists
 
 - name: Copy database dump to container (Compose)
   ansible.builtin.command:
