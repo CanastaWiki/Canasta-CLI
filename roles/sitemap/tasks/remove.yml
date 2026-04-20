@@ -14,7 +14,7 @@
 
 - name: Determine wikis for sitemap removal
   ansible.builtin.set_fact:
-    _sitemap_targets: "{{ ((wiki | default('')) != '') | ternary([wiki], _sitemap_wikis.wiki_ids) }}"
+    _sitemap_targets: "{{ [wiki] if (wiki | default('') != '') else _sitemap_wikis.wiki_ids }}"
 
 - name: Remove sitemaps for each wiki
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
