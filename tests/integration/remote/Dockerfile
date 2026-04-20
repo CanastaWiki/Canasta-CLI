@@ -2,12 +2,14 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install SSH server, Python 3, sudo, and prerequisites for Docker CLI
+# Install SSH server, Python 3, sudo, cron (for backup schedule tests),
+# and prerequisites for Docker CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
         openssh-server \
         python3 \
         python3-yaml \
         sudo \
+        cron \
         ca-certificates \
         curl \
         gnupg \

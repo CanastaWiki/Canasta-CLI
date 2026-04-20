@@ -42,9 +42,9 @@
         - name: Check for purge flag
           ansible.builtin.set_fact:
             _sched_purge: >-
-              {{ _sched_cmd
+              {{ (_sched_cmd
                  | regex_search('keep-within\s+(\S+)', '\1')
-                 | default([]) | first | default('') }}
+                 | default([], true)) | first | default('') }}
 
         - name: Display schedule
           ansible.builtin.debug:
@@ -52,6 +52,8 @@
               Instance '{{ instance_id }}' is scheduled for backup at: {{ _sched_cron }}
               {% if _sched_purge %}
               Auto-purge: snapshots older than {{ _sched_purge }}
+              {% else %}
+              Auto-purge: not configured (snapshots will accumulate)
               {% endif %}
 
 # --- Kubernetes: CronJob ---
@@ -71,9 +73,29 @@
         msg: "No backup schedule found for instance '{{ instance_id }}'."
       when: _k8s_cronjob.resources | length == 0
 
-    - name: Display schedule
-      ansible.builtin.debug:
-        msg: >-
-          Instance '{{ instance_id }}' is scheduled for backup at:
-          {{ _k8s_cronjob.resources[0].spec.schedule }}
+    - name: Parse and display schedule
       when: _k8s_cronjob.resources | length > 0
+      block:
+        - name: Extract restic command
+          ansible.builtin.set_fact:
+            _k8s_restic_cmd: >-
+              {{ ((_k8s_cronjob.resources[0].spec.jobTemplate.spec.template.spec.containers
+                  | selectattr('name', 'equalto', 'restic') | list | first
+                  | default({})).command | default([])) | last | default('') }}
+
+        - name: Check for purge flag
+          ansible.builtin.set_fact:
+            _k8s_sched_purge: >-
+              {{ (_k8s_restic_cmd
+                 | regex_search('keep-within\s+(\S+)', '\1')
+                 | default([], true)) | first | default('') }}
+
+        - name: Display schedule
+          ansible.builtin.debug:
+            msg: |-
+              Instance '{{ instance_id }}' is scheduled for backup at: {{ _k8s_cronjob.resources[0].spec.schedule }}
+              {% if _k8s_sched_purge %}
+              Auto-purge: snapshots older than {{ _k8s_sched_purge }}
+              {% else %}
+              Auto-purge: not configured (snapshots will accumulate)
+              {% endif %}

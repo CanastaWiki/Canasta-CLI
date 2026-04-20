@@ -124,8 +124,38 @@ else
 fi
 echo ""
 
-# --- Test 4: Delete without -H (resolved from registry) ---
-echo "Test 4: canasta delete without -H"
+# --- Test 4: Backup schedule set/list without --purge ---
+echo "Test 4: backup schedule list (no --purge)"
+if ! canasta backup schedule set -i "${INSTANCE_ID}" "0 3 * * *" 2>&1; then
+    fail "schedule set without --purge"
+else
+    SCHED_OUTPUT=$(canasta backup schedule list -i "${INSTANCE_ID}" 2>&1) || true
+    if echo "${SCHED_OUTPUT}" | grep -q "0 3 \* \* \*" \
+       && echo "${SCHED_OUTPUT}" | grep -qi "not configured"; then
+        pass "schedule list shows 'not configured' when --purge absent"
+    else
+        fail "schedule list (no --purge) unexpected output: ${SCHED_OUTPUT}"
+    fi
+fi
+echo ""
+
+# --- Test 5: Backup schedule set/list with --purge ---
+echo "Test 5: backup schedule list (with --purge)"
+if ! canasta backup schedule set -i "${INSTANCE_ID}" "0 4 * * *" --purge-older-than 30d 2>&1; then
+    fail "schedule set with --purge-older-than"
+else
+    SCHED_OUTPUT=$(canasta backup schedule list -i "${INSTANCE_ID}" 2>&1) || true
+    if echo "${SCHED_OUTPUT}" | grep -q "0 4 \* \* \*" \
+       && echo "${SCHED_OUTPUT}" | grep -q "snapshots older than 30d"; then
+        pass "schedule list shows purge duration when --purge set"
+    else
+        fail "schedule list (with --purge) unexpected output: ${SCHED_OUTPUT}"
+    fi
+fi
+echo ""
+
+# --- Test 6: Delete without -H (resolved from registry) ---
+echo "Test 6: canasta delete without -H"
 if canasta delete -i "${INSTANCE_ID}" -y 2>&1; then
     pass "delete without -H"
 else
@@ -133,8 +163,8 @@ else
 fi
 echo ""
 
-# --- Test 5: List (verify empty) ---
-echo "Test 5: canasta list (should be empty)"
+# --- Test 7: List (verify empty) ---
+echo "Test 7: canasta list (should be empty)"
 LIST_OUTPUT=$(canasta list 2>&1) || true
 if echo "${LIST_OUTPUT}" | grep -q "${INSTANCE_ID}"; then
     fail "list still shows deleted instance (output: ${LIST_OUTPUT})"
