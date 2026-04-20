@@ -12,7 +12,7 @@
 
 - name: Build extension script command
   ansible.builtin.set_fact:
-    _ext_cmd: "php extensions/{{ script_args }}{{ ((wiki | default('')) != '') | ternary(' --wiki=' + (wiki | quote), '') }}"
+    _ext_cmd: "php extensions/{{ script_args }}{{ ((wiki | default('')) != '') | ternary(' --wiki=' + (wiki | default('')), '') }}"
 
 - name: Run extension maintenance script
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
