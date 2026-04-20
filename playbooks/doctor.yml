@@ -93,6 +93,14 @@
   changed_when: false
   ignore_errors: true  # Checking if installed
 
+# --- Required for scheduled backups ---
+- name: Check crontab
+  ansible.builtin.shell:
+    cmd: command -v crontab
+  register: _doc_crontab
+  changed_when: false
+  ignore_errors: true  # Checking if installed
+
 # --- System resources ---
 - name: Check system memory
   ansible.builtin.command:
@@ -135,6 +143,9 @@
       GitOps (optional):
         git:             {{ (_doc_git.rc == 0) | ternary('OK (' + _doc_git.stdout | trim + ')', 'not installed') }}
         git-crypt:       {{ (_doc_gitcrypt.rc == 0) | ternary('OK', 'not installed') }}
+
+      Scheduled backups (optional):
+        crontab:         {{ (_doc_crontab.rc == 0) | ternary('OK', 'not installed (install cron to use canasta backup schedule)') }}
 
       System:
         Memory:          {{ _doc_memory.stdout | default('unknown') | trim }}
