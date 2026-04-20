@@ -167,6 +167,82 @@ class TestHelmChart:
         )
 
 
+class TestExternalDatabase:
+    """External DB support on the K8s path: chart gates db.enabled,
+    surfaces externalDatabase, and the service alias for the internal
+    db is only rendered when db.enabled=true."""
+
+    def test_chart_values_has_external_database_defaults(self):
+        with open(os.path.join(HELM_CHART, "values.yaml")) as f:
+            values = yaml.safe_load(f)
+        assert "externalDatabase" in values, (
+            "values.yaml must expose externalDatabase for the external DB path"
+        )
+        assert values["db"]["enabled"] is True, (
+            "Default db.enabled must be true (internal DB is the default)"
+        )
+
+    def test_statefulset_db_is_gated_on_db_enabled(self):
+        path = os.path.join(HELM_CHART, "templates", "statefulset-db.yaml")
+        with open(path) as f:
+            content = f.read()
+        assert "{{- if .Values.db.enabled }}" in content, (
+            "statefulset-db.yaml must be gated on .Values.db.enabled"
+        )
+
+    def test_service_alias_db_is_gated_on_db_enabled(self):
+        """The 'db' Service alias in service-aliases.yaml must only
+        render when db.enabled=true. Otherwise we leave a dangling
+        Service with no endpoints on external-DB deployments."""
+        path = os.path.join(HELM_CHART, "templates", "service-aliases.yaml")
+        with open(path) as f:
+            content = f.read()
+        # Find the section declaring the 'db' alias Service and verify
+        # it sits inside a .Values.db.enabled guard.
+        assert "name: db" in content, "service-aliases.yaml should declare a 'db' Service"
+        db_idx = content.index("name: db")
+        preceding = content[:db_idx]
+        assert "{{- if .Values.db.enabled }}" in preceding.splitlines()[-10:][0:10].__str__() \
+            or "{{- if .Values.db.enabled }}" in "\n".join(preceding.splitlines()[-5:]), (
+            "The 'db' Service in service-aliases.yaml must be wrapped in "
+            "a {{- if .Values.db.enabled }} guard"
+        )
+
+    def test_web_and_jobrunner_switch_mysql_host_on_db_enabled(self):
+        """Both deployment templates must pick MYSQL_HOST from
+        externalDatabase.host when db.enabled is false."""
+        templates = os.path.join(HELM_CHART, "templates")
+        for template_name in ("deployment-web.yaml", "deployment-jobrunner.yaml"):
+            with open(os.path.join(templates, template_name)) as f:
+                content = f.read()
+            assert ".Values.externalDatabase.host" in content, (
+                "%s must reference .Values.externalDatabase.host for "
+                "external DB support" % template_name
+            )
+            assert ".Values.db.enabled" in content, (
+                "%s must gate MYSQL_HOST on .Values.db.enabled" % template_name
+            )
+
+    def test_values_template_emits_external_db_when_flagged(self):
+        """The Ansible k8s_values.yaml.j2 template must emit db.enabled
+        and externalDatabase when _use_external_db is true."""
+        template_path = os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "templates",
+            "k8s_values.yaml.j2",
+        )
+        with open(template_path) as f:
+            content = f.read()
+        assert "_use_external_db" in content, (
+            "k8s_values.yaml.j2 must consult the _use_external_db fact"
+        )
+        assert "externalDatabase:" in content, (
+            "k8s_values.yaml.j2 must render an externalDatabase section"
+        )
+        assert "enabled: false" in content, (
+            "k8s_values.yaml.j2 must flip db.enabled to false when external"
+        )
+
+
 class TestGitopsDispatchers:
     """Verify that each dispatched gitops command has both variants."""
 

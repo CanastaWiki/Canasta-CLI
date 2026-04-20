@@ -522,6 +522,25 @@
         - _default_sc.value is not none
         - _default_sc.value | length > 0
 
+    # Read external-DB configuration from .env so the values.yaml
+    # template can switch db.enabled and populate externalDatabase.
+    # When USE_EXTERNAL_DB=true, the user's envfile has supplied
+    # MYSQL_HOST/PORT/USER/SSL; we surface those as Ansible vars.
+    - name: Read external DB config from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _k8s_env_for_values
+
+    - name: Set external DB facts for values.yaml template
+      ansible.builtin.set_fact:
+        _use_external_db: >-
+          {{ (_k8s_env_for_values.variables.USE_EXTERNAL_DB | default('false') | lower) == 'true' }}
+        _external_db_host: "{{ _k8s_env_for_values.variables.MYSQL_HOST | default('') }}"
+        _external_db_port: "{{ _k8s_env_for_values.variables.MYSQL_PORT | default('3306') }}"
+        _external_db_user: "{{ _k8s_env_for_values.variables.MYSQL_USER | default('root') }}"
+        _external_db_ssl: "{{ _k8s_env_for_values.variables.MYSQL_SSL | default('false') }}"
+
     - name: Generate instance values.yaml
       ansible.builtin.template:
         src: "{{ canasta_root }}/roles/orchestrator/templates/k8s_values.yaml.j2"
