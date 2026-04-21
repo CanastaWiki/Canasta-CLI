@@ -264,7 +264,8 @@
 - name: Sync COMPOSE_PROFILES when feature flags change
   when:
     - instance_orchestrator | default('compose') == 'compose'
-    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH', 'CANASTA_ENABLE_OBSERVABILITY']
+    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH',
+                      'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CRON']
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
 

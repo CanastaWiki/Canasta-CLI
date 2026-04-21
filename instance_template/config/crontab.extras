@@ -1,0 +1,16 @@
+# Customer-defined cron jobs for this Canasta instance.
+# Entries in this file are merged into the rendered crontab
+# consumed by the canasta-cron service (gated on
+# CANASTA_ENABLE_CRON=true in .env, enabled via the 'cron'
+# Compose profile).
+#
+# Syntax: standard 5-field cron (minute hour day-of-month month
+# day-of-week), plus a command. The cron container has docker-cli
+# and a read-only docker socket — commands can use
+# `docker exec <container> <cmd>` or `docker run --rm ...`.
+#
+# Example (purge an mwlib cache daily at 3:50am):
+#   50 3 * * * docker exec <instance>-mwlib-1 mw-serve-ctl --cache-dir=/var/cache/mwlib/ --purge-cache=2160
+#
+# Changes take effect on the next `canasta restart`, which
+# regenerates config/crontab from this file.

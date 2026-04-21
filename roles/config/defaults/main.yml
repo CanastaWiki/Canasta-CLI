@@ -39,6 +39,10 @@ canasta_known_keys:
     description: Days between sitemap refreshes
     default: "1"
 
+  - name: CANASTA_ENABLE_CRON
+    group: Features
+    description: Enable canasta-cron for customer-defined scheduled jobs
+    default: "false"
   - name: CANASTA_ENABLE_ELASTICSEARCH
     group: Features
     description: Enable Elasticsearch

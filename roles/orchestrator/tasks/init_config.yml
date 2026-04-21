@@ -29,6 +29,9 @@
     - name: Sync compose profiles
       ansible.builtin.include_tasks: sync_compose_profiles.yml
 
+    - name: Render crontab (for any customer-defined jobs in config/crontab.extras)
+      ansible.builtin.include_tasks: rewrite_cron.yml
+
 - name: Kubernetes-specific init
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   ansible.builtin.debug:

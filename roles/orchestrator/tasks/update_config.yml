@@ -5,5 +5,9 @@
 - name: Regenerate Caddyfile
   ansible.builtin.include_tasks: rewrite_caddy.yml
 
+- name: Regenerate crontab (Compose only)
+  when: instance_orchestrator | default('compose') == 'compose'
+  ansible.builtin.include_tasks: rewrite_cron.yml
+
 # Kubernetes: configuration changes go into values.yaml and are applied
 # via helm upgrade on next start/restart.

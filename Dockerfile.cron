@@ -1,0 +1,40 @@
+# canasta-cron — a minimal container cron service for Canasta instances.
+#
+# Built and published as ghcr.io/canastawiki/canasta-cron alongside the
+# canasta-ansible image. Deployed into Compose stacks under the 'cron'
+# Docker Compose profile when CANASTA_ENABLE_CRON=true (auto-enabled by
+# 'canasta backup schedule set' and by customer-defined jobs in
+# config/crontab.extras).
+#
+# Uses aptible/supercronic — a Docker-native cron runner that reads a
+# standard crontab file, inherits container environment cleanly, logs
+# structured output, and supports inotify reload.
+#
+# Kubernetes does not use this image; K8s backup scheduling uses native
+# CronJob resources.
+
+FROM alpine:3.20
+
+ARG TARGETARCH
+ARG SUPERCRONIC_VERSION=v0.2.44
+ARG SUPERCRONIC_AMD64_SHA256=6feff7d5eba16a89cf229b7eb644cfae2f03a32c62ca320f17654659315275b6
+ARG SUPERCRONIC_ARM64_SHA256=ec29b3129ab20100971d21d391150d50398e5caaa33b8652eab919e2c5143057
+
+RUN apk add --no-cache bash ca-certificates curl docker-cli tzdata
+
+RUN case "${TARGETARCH}" in \
+      amd64) SHA=${SUPERCRONIC_AMD64_SHA256}; ARCH=amd64 ;; \
+      arm64) SHA=${SUPERCRONIC_ARM64_SHA256}; ARCH=arm64 ;; \
+      *) echo "Unsupported arch: ${TARGETARCH}" >&2 && exit 1 ;; \
+    esac \
+ && URL="https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-${ARCH}" \
+ && curl -fsSL --retry 3 -o /usr/local/bin/supercronic "${URL}" \
+ && echo "${SHA}  /usr/local/bin/supercronic" | sha256sum -c - \
+ && chmod +x /usr/local/bin/supercronic
+
+RUN mkdir -p /etc/supercronic /var/log/cron
+
+# -inotify: auto-reload the crontab when the instance's rewrite_cron
+# task regenerates it on the host. No restart needed to pick up
+# schedule changes.
+CMD ["/usr/local/bin/supercronic", "-inotify", "/etc/supercronic/crontab"]

@@ -19,10 +19,11 @@
   ansible.builtin.set_fact:
     _desired_profiles: >-
       {{
-        (_current_profiles | reject('in', ['observable', 'elasticsearch', 'varnish']) | list) +
+        (_current_profiles | reject('in', ['observable', 'elasticsearch', 'varnish', 'cron']) | list) +
         ((_env_profiles.variables.CANASTA_ENABLE_OBSERVABILITY | default('false') | lower == 'true') | ternary(['observable'], [])) +
         ((_env_profiles.variables.CANASTA_ENABLE_ELASTICSEARCH | default('false') | lower == 'true') | ternary(['elasticsearch'], [])) +
-        ((_env_profiles.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true') | ternary(['varnish'], []))
+        ((_env_profiles.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true') | ternary(['varnish'], [])) +
+        ((_env_profiles.variables.CANASTA_ENABLE_CRON | default('false') | lower == 'true') | ternary(['cron'], []))
       }}
 
 - name: Update COMPOSE_PROFILES in .env

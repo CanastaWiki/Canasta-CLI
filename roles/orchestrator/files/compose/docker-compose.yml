@@ -203,6 +203,28 @@ services:
       - ./scripts/observable-init.sh:/observable-init.sh:ro
     entrypoint: /bin/sh /observable-init.sh
 
+  # Container cron service. Runs Canasta-managed jobs (backup schedule)
+  # and customer-defined jobs from config/crontab.extras. Gated on the
+  # 'cron' Compose profile, enabled by CANASTA_ENABLE_CRON=true (set
+  # automatically when 'canasta backup schedule set' runs or when the
+  # operator creates config/crontab.extras).
+  #
+  # Kubernetes uses native CronJob resources and does not deploy this.
+  cron:
+    image: ghcr.io/canastawiki/canasta-cron:${CANASTA_CRON_IMAGE_TAG:-latest}
+    profiles:
+      - cron
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      - TZ=${TZ:-UTC}
+    volumes:
+      # Read-only docker socket so supercronic can 'docker run' backup
+      # commands (restic container, canasta backup flows).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config/crontab:/etc/supercronic/crontab:ro
+      - ./_logs/cron:/var/log/cron
+
 volumes:
   mysql-data-volume:
   elasticsearch:

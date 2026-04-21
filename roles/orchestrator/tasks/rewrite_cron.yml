@@ -1,0 +1,39 @@
+---
+# Regenerate the rendered crontab consumed by the canasta-cron service
+# from config/crontab.extras (customer-defined jobs).
+#
+# Input: instance_path
+# Scope: Compose only — Kubernetes backup scheduling uses native
+# CronJob resources.
+#
+# Future work (issue #254): extend this to also emit Canasta-managed
+# backup jobs from .env (BACKUP_CRON_SCHEDULE, BACKUP_PURGE_OLDER_THAN)
+# so 'canasta backup schedule set' stops writing host crontab.
+
+- name: Check for customer crontab extras
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/crontab.extras"
+  register: _crontab_extras_stat
+
+- name: Read customer crontab extras
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/crontab.extras"
+  register: _crontab_extras_raw
+  when: _crontab_extras_stat.stat.exists
+
+- name: Decode crontab extras
+  ansible.builtin.set_fact:
+    _crontab_extras_content: >-
+      {{ (_crontab_extras_raw.content | b64decode) if _crontab_extras_stat.stat.exists else '' }}
+
+- name: Write rendered crontab
+  ansible.builtin.template:
+    src: "{{ canasta_root }}/roles/orchestrator/templates/crontab.j2"
+    dest: "{{ instance_path }}/config/crontab"
+    mode: "0644"
+    # Same unsafe_writes rationale as rewrite_caddy.yml: the canasta
+    # container rsyncs origin files over the mounted instance_path
+    # with chown to www-data, which leaves the host's config/ dir not
+    # writable by the host runner. The file itself is owned by the
+    # runner so direct overwrite works.
+    unsafe_writes: true

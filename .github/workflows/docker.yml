@@ -1,5 +1,9 @@
 ---
-# Build and push canasta-ansible Docker image.
+# Build and push Canasta-Ansible's Docker images.
+#
+# Publishes:
+#   - ghcr.io/canastawiki/canasta-ansible  (canasta-docker wrapper image)
+#   - ghcr.io/canastawiki/canasta-cron     (Compose cron service image)
 #
 # Triggers:
 #   - push to main: builds image, tags it 'main' + 'latest'. If the
@@ -64,6 +68,15 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        include:
+          - image: canasta-ansible
+            dockerfile: Dockerfile
+            build_args: true   # canasta-ansible wants BUILD_COMMIT / BUILD_DATE
+          - image: canasta-cron
+            dockerfile: Dockerfile.cron
+            build_args: false
     steps:
       - uses: actions/checkout@v6
 
@@ -78,7 +91,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/canastawiki/canasta-ansible
+          images: ghcr.io/canastawiki/${{ matrix.image }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -95,14 +108,17 @@ jobs:
 
       - name: Get build metadata
         id: buildmeta
+        if: matrix.build_args
         run: |
           echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "date=$(git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S')" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push
+      - name: Build and push (with build args)
+        if: matrix.build_args
         uses: docker/build-push-action@v7
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
@@ -110,6 +126,17 @@ jobs:
           build-args: |
             BUILD_COMMIT=${{ steps.buildmeta.outputs.commit }}
             BUILD_DATE=${{ steps.buildmeta.outputs.date }}
+
+      - name: Build and push (no build args)
+        if: '!matrix.build_args'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
   tag:
     runs-on: ubuntu-latest
