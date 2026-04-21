@@ -69,21 +69,12 @@
     _push_shared_vars: >-
       {{ (_push_shared_stat.stat.exists
           | ternary(_push_shared_vars_raw.content | b64decode | from_yaml, {})) }}
-    _push_shared_prefixes:
-      - "restic_"
-      - "aws_"
-      - "azure_"
-      - "b2_"
-      - "google_"
-      - "os_"
-      - "st_"
-      - "rclone_"
 
 - name: Identify keys to migrate
   ansible.builtin.set_fact:
     _push_keys_to_migrate: >-
       {{ _push_host_vars | dict2items
-         | selectattr('key', 'match', '(' + _push_shared_prefixes | join('|') + ')')
+         | selectattr('key', 'match', '(' + gitops_shared_credential_prefixes | join('|') + ')')
          | rejectattr('key', 'in', _push_shared_vars)
          | list }}
 
@@ -114,7 +105,7 @@
       ansible.builtin.copy:
         content: >-
           {{ _push_host_vars | dict2items
-             | rejectattr('key', 'match', '(' + _push_shared_prefixes | join('|') + ')')
+             | rejectattr('key', 'match', '(' + gitops_shared_credential_prefixes | join('|') + ')')
              | items2dict
              | to_nice_yaml(indent=2) }}
         dest: "{{ instance_path }}/hosts/{{ _push_hostname }}/vars.yaml"

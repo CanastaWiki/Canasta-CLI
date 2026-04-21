@@ -24,10 +24,25 @@
     - _config_gitops_stat.stat.exists | default(false)
     - instance_orchestrator | default('compose') == 'compose'
   block:
+    - name: Load gitops placeholder definitions
+      ansible.builtin.include_vars:
+        file: "{{ canasta_root }}/roles/gitops/vars/main.yml"
+
     - name: Read .gitops-host
       ansible.builtin.slurp:
         src: "{{ instance_path }}/.gitops-host"
       register: _config_host_raw
+
+    # If config set introduces a new credential key (SMTP_PASSWORD,
+    # AWS_*, etc.) that wasn't in .env at gitops init time, env.template
+    # won't have a placeholder for it. Add one so the map-building step
+    # below picks it up and the propagation to vars.yaml fires.
+    - name: Ensure env.template has placeholders for new credential keys
+      ansible.builtin.include_tasks: _ensure_env_template_placeholder.yml
+      loop: "{{ settings.split() }}"
+      loop_control:
+        loop_var: _ep_setting
+        label: "{{ _ep_setting.split('=', 1)[0] }}"
 
     - name: Build key-to-placeholder map from env.template
       ansible.builtin.shell:

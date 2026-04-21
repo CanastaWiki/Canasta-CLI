@@ -1,0 +1,23 @@
+---
+# Ensure env.template has a placeholder line for a single credential key.
+# Input: _ep_setting (str: "KEY=VALUE" or "KEY=...")
+# Requires: instance_path, gitops_placeholder_keys,
+#           gitops_secret_prefix_pattern
+
+- name: Parse key
+  ansible.builtin.set_fact:
+    _ep_key: "{{ _ep_setting.split('=', 1)[0] }}"
+
+- name: Decide whether key should be a placeholder
+  ansible.builtin.set_fact:
+    _ep_needs_placeholder: >-
+      {{ _ep_key in gitops_placeholder_keys
+         or (_ep_key | regex_search(gitops_secret_prefix_pattern)) is not none }}
+
+- name: Add placeholder line to env.template
+  ansible.builtin.lineinfile:
+    path: "{{ instance_path }}/env.template"
+    regexp: "^{{ _ep_key }}="
+    line: "{{ _ep_key }}={{ '{{' }}{{ _ep_key | lower }}{{ '}}' }}"
+    state: present
+  when: _ep_needs_placeholder
