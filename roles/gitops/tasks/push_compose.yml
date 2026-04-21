@@ -44,9 +44,12 @@
   when: _push_role not in ['source', 'both']
 
 # --- Auto-migrate shared-category keys to _shared/vars.yaml ---
-# Keys matching backup/cloud credential prefixes belong in the shared
-# file so all hosts inherit them. Move them on first push after the
-# feature is available; subsequent pushes are no-ops.
+# Keys matching backup/cloud/mail credential prefixes belong in the
+# shared file so all hosts inherit them. On every push, any such key
+# present in host vars.yaml is moved to _shared/vars.yaml (host's
+# value wins on merge) and removed from host vars.yaml. This also
+# keeps _shared in sync when 'canasta config set' updates a key
+# that already lived there.
 - name: Read host vars
   ansible.builtin.slurp:
     src: "{{ instance_path }}/hosts/{{ _push_hostname }}/vars.yaml"
@@ -75,7 +78,6 @@
     _push_keys_to_migrate: >-
       {{ _push_host_vars | dict2items
          | selectattr('key', 'match', '(' + gitops_shared_credential_prefixes | join('|') + ')')
-         | rejectattr('key', 'in', _push_shared_vars)
          | list }}
 
 - name: Write migrated shared vars
