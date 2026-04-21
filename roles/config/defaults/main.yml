@@ -21,7 +21,7 @@ canasta_known_keys:
   - RESTIC_REPOSITORY
   - RESTIC_PASSWORD
 
-# Key prefixes that are always accepted (restic backend credentials)
+# Key prefixes that are always accepted (backup and mail credentials)
 canasta_known_prefixes:
   - "AWS_"
   - "AZURE_"
@@ -30,3 +30,4 @@ canasta_known_prefixes:
   - "OS_"
   - "ST_"
   - "RCLONE_"
+  - "SMTP_"
