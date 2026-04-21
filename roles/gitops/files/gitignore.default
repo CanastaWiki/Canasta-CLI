@@ -19,6 +19,9 @@ config/backup/
 # Uploaded files (use canasta backup)
 images/
 
+# Runtime state (e.g. Semantic MediaWiki rebuild status)
+config/persistent/
+
 # Gitops state (host-specific, not shared)
 .gitops-applied
 .gitops-host
