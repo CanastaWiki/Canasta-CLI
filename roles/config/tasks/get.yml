@@ -1,34 +1,20 @@
 ---
 # canasta config get - Show configuration settings.
-# Matches Go: single key prints value; all keys sorted.
-# Input: id (optional), key (optional), force (bool)
+# Input: id (optional), keys (str: space-separated keys), force (bool)
 
 - name: Resolve instance
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
-- name: Get single key
-  when: key is defined and key != ''
-  block:
-    - name: Read specific key
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read
-        key: "{{ key }}"
-      register: _config_val
-
-    - name: Display value
-      ansible.builtin.debug:
-        msg: "{{ _config_val.value }}"
-      when: _config_val.found
-
-    - name: Key not found
-      ansible.builtin.debug:
-        msg: "Key '{{ key }}' not found."
-      when: not _config_val.found
+- name: Get specified keys
+  when: keys is defined and keys | length > 0
+  ansible.builtin.include_tasks: _get_single.yml
+  loop: "{{ keys.split() }}"
+  loop_control:
+    loop_var: _config_get_key
 
 - name: Get all settings
-  when: key is not defined or key == ''
+  when: keys is not defined or keys | length == 0
   block:
     - name: Read all settings
       canasta_env:

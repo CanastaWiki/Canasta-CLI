@@ -1,0 +1,20 @@
+---
+# Read and display a single config key.
+# Input: _config_get_key (str), instance_path
+
+- name: Read specific key
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: "{{ _config_get_key }}"
+  register: _config_val
+
+- name: Display value
+  ansible.builtin.debug:
+    msg: "{{ _config_get_key }}={{ _config_val.value }}"
+  when: _config_val.found
+
+- name: Key not found
+  ansible.builtin.debug:
+    msg: "Key '{{ _config_get_key }}' not found."
+  when: not _config_val.found

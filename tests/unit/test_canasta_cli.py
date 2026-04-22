@@ -81,21 +81,21 @@ class TestBuildParser:
                 "-o", "invalid"
             ])
 
-    def test_config_get_key_flag(self, parser):
+    def test_config_get_single_positional_key(self, parser):
         args = parser.parse_args(
-            ["config", "get", "-i", "mysite", "--key", "KEY"],
+            ["config", "get", "-i", "mysite", "KEY"],
         )
-        assert args.key == "KEY"
+        assert args.keys == ["KEY"]
 
-    def test_config_get_key_short_flag(self, parser):
+    def test_config_get_multiple_positional_keys(self, parser):
         args = parser.parse_args(
-            ["config", "get", "-i", "mysite", "-k", "KEY"],
+            ["config", "get", "-i", "mysite", "KEY1", "KEY2"],
         )
-        assert args.key == "KEY"
+        assert args.keys == ["KEY1", "KEY2"]
 
-    def test_config_get_key_optional(self, parser):
+    def test_config_get_keys_optional(self, parser):
         args = parser.parse_args(["config", "get", "-i", "mysite"])
-        assert args.key is None
+        assert args.keys == []
 
     def test_config_regenerate_subcommand(self, parser):
         args = parser.parse_args(
@@ -471,6 +471,73 @@ class TestRemainderArgs:
             "maintenance", "exec", "-i", "mysite"
         ])
         assert args.exec_args == []
+
+
+class TestRemainderFlagHoisting:
+    """Canasta flags trapped inside script_args/exec_args by REMAINDER
+    should be lifted back out (#279)."""
+
+    def _parse_and_hoist(self, parser, argv):
+        args = parser.parse_args(argv)
+        canasta_cli.hoist_flags_from_remainder(args)
+        return args
+
+    def test_wiki_flag_after_script_name(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "script", "-i", "mysite",
+            "showJobs.php", "-w", "main"
+        ])
+        assert args.wiki == "main"
+        assert args.script_args == ["showJobs.php"]
+
+    def test_long_wiki_flag_after_script_name(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "script", "-i", "mysite",
+            "showJobs.php", "--wiki", "main"
+        ])
+        assert args.wiki == "main"
+        assert args.script_args == ["showJobs.php"]
+
+    def test_wiki_flag_before_script_name_unchanged(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "script", "-i", "mysite",
+            "-w", "main", "showJobs.php"
+        ])
+        assert args.wiki == "main"
+        assert args.script_args == ["showJobs.php"]
+
+    def test_duplicate_wiki_flag_preserves_second_in_passthrough(self, parser):
+        # -w main is for canasta; -w other stays in script_args
+        # so it can be passed through to the inner script.
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "script", "-i", "mysite",
+            "-w", "main", "myScript.php", "-w", "other"
+        ])
+        assert args.wiki == "main"
+        assert args.script_args == ["myScript.php", "-w", "other"]
+
+    def test_id_flag_after_positional(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "exec", "php", "-v", "-i", "mysite"
+        ])
+        assert args.id == "mysite"
+        assert args.exec_args == ["php", "-v"]
+
+    def test_exec_args_with_no_canasta_flags(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "exec", "-i", "mysite", "ls", "-la", "/var/www"
+        ])
+        assert args.id == "mysite"
+        assert args.exec_args == ["ls", "-la", "/var/www"]
+
+    def test_hoist_noop_on_non_remainder_commands(self, parser):
+        # config set uses a non-REMAINDER positional; hoist should leave it
+        # alone.
+        args = self._parse_and_hoist(parser, [
+            "config", "set", "-i", "mysite", "KEY=value"
+        ])
+        assert args.id == "mysite"
+        assert args.settings == ["KEY=value"]
 
 
 class TestPassthrough:
