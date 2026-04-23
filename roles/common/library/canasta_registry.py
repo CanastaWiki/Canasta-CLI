@@ -22,7 +22,7 @@ options:
   state:
     description: Desired state of the instance in the registry.
     type: str
-    choices: [present, absent, query, query_all, query_by_path, cleanup]
+    choices: [present, absent, query, query_all, query_by_path]
     default: query
   id:
     description: Canasta instance ID.
@@ -173,7 +173,7 @@ def run_module():
     module_args = dict(
         state=dict(type="str", default="query",
                    choices=["present", "absent", "query", "query_all",
-                            "query_by_path", "cleanup",
+                            "query_by_path",
                             "set_setting", "get_setting"]),
         setting_key=dict(type="str", required=False),
         setting_value=dict(type="str", required=False),
@@ -295,32 +295,6 @@ def run_module():
                 data["Instances"] = instances
                 write_config(config_dir, data)
         result["changed"] = changed
-
-    elif state == "cleanup":
-        # Only auto-cleanup localhost entries. Remote entries can't be
-        # verified from the controller (the path belongs to a different
-        # filesystem) — the calling playbook is responsible for probing
-        # remote hosts over SSH and, when appropriate, calling this
-        # module with state=absent for each confirmed-missing entry.
-        to_remove = []
-        skipped_remote = []
-        for iid, inst in instances.items():
-            host = inst.get("host", "localhost")
-            if host != "localhost":
-                skipped_remote.append(iid)
-                continue
-            if not os.path.isdir(inst.get("path", "")):
-                to_remove.append(iid)
-        if to_remove:
-            changed = True
-            if not module.check_mode:
-                for iid in to_remove:
-                    del instances[iid]
-                data["Instances"] = instances
-                write_config(config_dir, data)
-        result["changed"] = changed
-        result["removed"] = to_remove
-        result["skipped_remote"] = skipped_remote
 
     elif state == "get_setting":
         setting_key = module.params.get("setting_key")
