@@ -1,7 +1,0 @@
----
-# canasta stop - Stop a Canasta instance.
-
-- name: Stop instance
-  ansible.builtin.include_role:
-    name: instance_lifecycle
-    tasks_from: stop.yml

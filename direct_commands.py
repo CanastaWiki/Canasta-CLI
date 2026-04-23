@@ -806,7 +806,16 @@ def _k8s_stop(instance_id):
         ])
 
     _run_kubectl(["scale", "deployment", "--all", "--replicas=0", "-n", ns])
-    _run_kubectl(["scale", "statefulset", "--all", "--replicas=0", "-n", ns])
+
+    # External-DB instances with Elasticsearch disabled have no
+    # StatefulSets; 'kubectl scale --all' errors with "no objects
+    # passed to scale". Check first and skip if none exist.
+    sts_check = subprocess.run(
+        ["kubectl", "get", "statefulset", "-n", ns, "-o", "name"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if sts_check.returncode == 0 and sts_check.stdout.strip():
+        _run_kubectl(["scale", "statefulset", "--all", "--replicas=0", "-n", ns])
     return 0
 
 
