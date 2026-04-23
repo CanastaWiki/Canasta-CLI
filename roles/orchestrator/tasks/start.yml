@@ -29,7 +29,24 @@
       ansible.builtin.command:
         cmd: "docker compose {{ _compose_files | join(' ') }} up -d"
         chdir: "{{ instance_path }}"
+      register: _start_result
       changed_when: true
+      failed_when: false
+
+    # Temporary: Ansible's default callback swallows stderr/stdout for
+    # failed command modules under the new compact "[ERROR]: Task
+    # failed: ..." rendering. Surface the full output explicitly so
+    # post-merge integration test failures are diagnosable in the CI
+    # log. Remove once the 3.5.7 regression is diagnosed.
+    - name: Fail with full output if docker compose up failed
+      ansible.builtin.fail:
+        msg: |-
+          docker compose up exited with rc={{ _start_result.rc }}
+          --- STDOUT ---
+          {{ _start_result.stdout | default('(empty)') }}
+          --- STDERR ---
+          {{ _start_result.stderr | default('(empty)') }}
+      when: _start_result.rc != 0
 
 - name: Start (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
