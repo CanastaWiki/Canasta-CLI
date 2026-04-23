@@ -1260,7 +1260,7 @@ commands:
     long_description: "Show the git status of the configuration directory."
     examples:
       - "canasta gitops status -i mysite"
-    playbook: gitops_status.yml
+    direct_only: true
     parameters:
       - name: id
         short: i

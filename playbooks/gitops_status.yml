@@ -1,7 +1,0 @@
----
-# canasta gitops status
-
-- name: Gitops Status
-  ansible.builtin.include_role:
-    name: gitops
-    tasks_from: status.yml

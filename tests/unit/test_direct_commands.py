@@ -1389,6 +1389,160 @@ class TestCmdGitopsStatus:
         assert "Up to date with remote." in out
 
 
+class TestGitopsArgocdStatus:
+    def test_kubectl_missing_returns_not_registered(self, monkeypatch):
+        def fake_run(*a, **kw):
+            raise OSError("kubectl not found")
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        result = direct_commands._gitops_argocd_status("mysite")
+        assert result == ("Not registered", "N/A", "never", "unknown")
+
+    def test_no_application_returns_not_registered(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 1, "stdout": "",
+                "stderr": "not found",
+            })(),
+        )
+        result = direct_commands._gitops_argocd_status("mysite")
+        assert result == ("Not registered", "N/A", "never", "unknown")
+
+    def test_parses_synced_application(self, monkeypatch):
+        app = {
+            "status": {
+                "sync": {"status": "Synced", "revision": "abcdef1234567890"},
+                "health": {"status": "Healthy"},
+                "operationState": {"finishedAt": "2026-04-23T10:00:00Z"},
+            }
+        }
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": json.dumps(app),
+            })(),
+        )
+        sync, health, last, rev = direct_commands._gitops_argocd_status("mysite")
+        assert sync == "Synced"
+        assert health == "Healthy"
+        assert last == "2026-04-23T10:00:00Z"
+        assert rev == "abcdef1"  # truncated to 7 chars
+
+    def test_malformed_json_returns_unknown(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": "not json",
+            })(),
+        )
+        result = direct_commands._gitops_argocd_status("mysite")
+        assert result == ("Unknown", "Unknown", "never", "unknown")
+
+
+class TestParseGitopsStatusK8s:
+    def _make_output(self, hostname="myhost", commit="abc1234", revcount="0\t0"):
+        d = direct_commands._SENTINEL
+        # K8s parser only reads hostname (0), commit (2), revcount (6).
+        # Fill the unread slots with empty strings for the split to align.
+        return (
+            hostname + "\n" + d + "\n"
+            + "\n" + d + "\n"
+            + commit + "\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "\n" + d + "\n"
+            + revcount + "\n"
+        )
+
+    def test_synced_healthy(self):
+        out = self._make_output()
+        argocd = ("Synced", "Healthy", "2026-04-23T10:00:00Z", "abcdef1")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Host:             myhost" in result
+        assert "Canasta ID:       mysite" in result
+        assert "Current commit:   abc1234" in result
+        assert "Ahead of remote:  0" in result
+        assert "Sync status:    Synced" in result
+        assert "Health status:  Healthy" in result
+        assert "Applied rev:    abcdef1" in result
+        assert "OutOfSync" not in result  # no remediation note
+
+    def test_out_of_sync_adds_note(self):
+        out = self._make_output()
+        argocd = ("OutOfSync", "Healthy", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Sync status:    OutOfSync" in result
+        assert "canasta gitops sync" in result
+
+    def test_missing_host_file_shows_unknown(self):
+        out = self._make_output(hostname="MISSING")
+        argocd = ("Not registered", "N/A", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Host:             unknown" in result
+        assert "Sync status:    Not registered" in result
+
+    def test_ahead_behind_parsed(self):
+        out = self._make_output(revcount="3\t2")
+        argocd = ("Synced", "Healthy", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Ahead of remote:  3" in result
+        assert "Behind remote:    2" in result
+
+
+class TestCmdGitopsStatusK8s:
+    """cmd_gitops_status must branch on orchestrator. For K8s instances,
+    it should combine git state (via SSH) with Argo CD state (via kubectl)."""
+
+    def test_k8s_instance_queries_argocd(self, monkeypatch, capsys):
+        d = direct_commands._SENTINEL
+        ssh_output = (
+            "k8shost\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "def5678\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "0\t0\n"
+        )
+        app = {
+            "status": {
+                "sync": {"status": "Synced", "revision": "def5678aaaaaaaaaa"},
+                "health": {"status": "Healthy"},
+                "operationState": {"finishedAt": "2026-04-23T12:00:00Z"},
+            }
+        }
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("mysite", {
+                "path": "/srv/mysite",
+                "orchestrator": "kubernetes",
+                "host": "admin@k8s-control",
+            }),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (0, ssh_output),
+        )
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": json.dumps(app),
+            })(),
+        )
+        args = type("Args", (), {"id": "mysite"})()
+        rc = direct_commands.cmd_gitops_status(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Host:             k8shost" in out
+        assert "Current commit:   def5678" in out
+        assert "Sync status:    Synced" in out
+        assert "Health status:  Healthy" in out
+        # K8s output must NOT include the compose-only lines
+        assert "Role:" not in out
+        assert "Pull requests:" not in out
+        assert "No changes." not in out
+
+
 # ---------------------------------------------------------------------------
 # Extension/skin list tests
 # ---------------------------------------------------------------------------
