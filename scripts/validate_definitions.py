@@ -18,7 +18,10 @@ import yaml
 
 
 VALID_TYPES = {"string", "path", "bool", "choice", "integer"}
-REQUIRED_CMD_FIELDS = {"name", "description", "playbook", "parameters"}
+# A command must have either a playbook or direct_only: true — not both,
+# not neither. 'playbook' is conditional, so it's not in the unconditional
+# required-fields set; its presence is enforced separately below.
+REQUIRED_CMD_FIELDS = {"name", "description", "parameters"}
 REQUIRED_PARAM_FIELDS = {"name", "type", "description"}
 
 
@@ -47,6 +50,21 @@ def main():
 
         name = cmd.get("name", "")
         playbook = cmd.get("playbook", "")
+        direct_only = cmd.get("direct_only", False)
+
+        # A command must have exactly one of: a playbook file, or
+        # direct_only: true. Catches both the "forgot the playbook"
+        # and "kept the playbook around after going direct_only" cases.
+        if direct_only and playbook:
+            errors.append(
+                "%s: has both 'direct_only: true' and 'playbook: %s' — pick one"
+                % (prefix, playbook)
+            )
+        if not direct_only and not playbook:
+            errors.append(
+                "%s: must have either a 'playbook' field or 'direct_only: true'"
+                % prefix
+            )
 
         if playbook:
             defined_playbooks.add(playbook)

@@ -39,10 +39,25 @@
       ansible.builtin.include_tasks: roles/common/tasks/validate_params.yml
 
   tasks:
-    - name: Look up command playbook
+    - name: Look up command definition
       ansible.builtin.set_fact:
-        _playbook: >-
-          {{ (canasta_commands.commands | selectattr('name', 'equalto', command) | first).playbook }}
+        _cmd_def: >-
+          {{ canasta_commands.commands
+             | selectattr('name', 'equalto', command) | first }}
+
+    # direct_only commands are implemented entirely in direct_commands.py
+    # and have no Ansible playbook. If we're dispatching from canasta.yml,
+    # the CLI's direct-path bypass didn't fire (likely CANASTA_FORCE_ANSIBLE
+    # is set, or the direct handler returned FALLBACK for a case it can't
+    # handle). Fail clearly rather than trying to include a nonexistent
+    # playbook.
+    - name: Fail if command has no Ansible playbook
+      ansible.builtin.fail:
+        msg: >-
+          Command '{{ command }}' has direct_only: true and no Ansible
+          playbook. If CANASTA_FORCE_ANSIBLE is set, unset it; this
+          command is implemented in direct_commands.py only.
+      when: _cmd_def.direct_only | default(false) | bool
 
     - name: Dispatch to command playbook
-      ansible.builtin.include_tasks: "playbooks/{{ _playbook }}"
+      ansible.builtin.include_tasks: "playbooks/{{ _cmd_def.playbook }}"

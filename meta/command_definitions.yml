@@ -277,7 +277,7 @@ commands:
       - "canasta version"
       - "canasta version -i mysite"
       - "canasta version --all"
-    playbook: version.yml
+    direct_only: true
     parameters:
       - name: id
         short: i
