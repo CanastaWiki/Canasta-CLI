@@ -494,7 +494,7 @@ commands:
       - "canasta config get -i mysite"
       - "canasta config get -i mysite MW_SITE_SERVER"
       - "canasta config get -i mysite MW_SITE_SERVER HTTPS_PORT"
-    playbook: config_get.yml
+    direct_only: true
     parameters:
       - name: id
         short: i
