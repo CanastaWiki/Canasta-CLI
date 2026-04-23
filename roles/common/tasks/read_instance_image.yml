@@ -1,0 +1,38 @@
+---
+# Read configured image + actual running Canasta version for a single
+# registry entry and print both.
+# Input: _version_inst (dict2items entry with key=id, value=instance record)
+
+- name: Slurp instance .env
+  ansible.builtin.slurp:
+    src: "{{ _version_inst.value.path }}/.env"
+  register: _vi_env
+  ignore_errors: true
+
+- name: Parse CANASTA_IMAGE from .env
+  ansible.builtin.set_fact:
+    _vi_image: >-
+      {{ ((_vi_env.content | default('') | b64decode).split('\n')
+         | select('match', '^CANASTA_IMAGE=')
+         | map('regex_replace', '^CANASTA_IMAGE=', '')
+         | first
+         | default('(unset)', true)).strip() }}
+  when: _vi_env is succeeded
+
+- name: Read running Canasta version from web container
+  ansible.builtin.shell:
+    cmd: >-
+      docker compose exec -T web sh -c
+      "cat /tmp/canasta-version 2>/dev/null | sed -n '2p'"
+    chdir: "{{ _version_inst.value.path }}"
+  register: _vi_running
+  changed_when: false
+  ignore_errors: true  # OK if container isn't running
+
+- name: Display instance info
+  ansible.builtin.debug:
+    msg: >-
+      Instance '{{ _version_inst.key }}':
+      {{ _vi_image | default('(unable to read .env)') }}
+      (running: {{ (_vi_running.stdout | default('') | trim)
+                   | default('(not running)', true) }})
