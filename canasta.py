@@ -96,6 +96,48 @@ def display_name(internal):
     return internal.replace("_", "-")
 
 
+_REMAINDER_HOIST_FLAGS = {
+    "-w": "wiki", "--wiki": "wiki",
+    "-i": "id", "--id": "id",
+}
+
+
+def hoist_flags_from_remainder(args):
+    """Lift canasta subcommand flags out of a REMAINDER positional.
+
+    Example: ``canasta maintenance script showJobs.php -w main`` — argparse
+    sees ``showJobs.php`` as the first positional of ``script_args``
+    (nargs=REMAINDER), so ``-w main`` gets eaten into the list instead of
+    being recognized as the ``--wiki`` flag. Walk the list and lift any
+    recognized flag (``-w``/``--wiki``, ``-i``/``--id``) plus its value out,
+    setting the corresponding attribute on ``args`` if unset.
+
+    Only applies to REMAINDER positionals (list values). Passthrough args
+    supplied after ``--`` arrive as a pre-joined string and are not
+    rewritten here — users who need a literal ``-w`` passed through to the
+    inner script can use ``--`` explicitly.
+    """
+    for pos_name in ("script_args", "exec_args"):
+        val = getattr(args, pos_name, None)
+        if not isinstance(val, list):
+            continue
+        new_args = []
+        i = 0
+        while i < len(val):
+            tok = val[i]
+            dest = _REMAINDER_HOIST_FLAGS.get(tok)
+            # Hoist only when the canasta flag isn't already set. If the user
+            # typed the flag twice, preserve the second occurrence in the
+            # positional list so it can be passed through to the inner script.
+            if dest and i + 1 < len(val) and not getattr(args, dest, None):
+                setattr(args, dest, val[i + 1])
+                i += 2
+                continue
+            new_args.append(tok)
+            i += 1
+        setattr(args, pos_name, new_args)
+
+
 def add_params_to_parser(parser, params):
     """Add command parameters to an argparse parser based on definitions."""
     for param in params:
@@ -733,6 +775,8 @@ def main():
                       if p.get("positional")]
         if pos_params:
             setattr(args, pos_params[0], passthrough)
+
+    hoist_flags_from_remainder(args)
 
     if not args.command:
         parser.print_help()

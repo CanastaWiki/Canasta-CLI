@@ -455,21 +455,23 @@ commands:
     description: "Show configuration settings"
     long_description: |
       Show configuration settings from the instance .env file.
-      With no --key, prints all settings. With --key, prints
-      just that value.
+      With no keys, prints all settings. With one or more keys,
+      prints just those values.
     examples:
       - "canasta config get -i mysite"
-      - "canasta config get -i mysite --key MW_SITE_SERVER"
+      - "canasta config get -i mysite MW_SITE_SERVER"
+      - "canasta config get -i mysite MW_SITE_SERVER HTTPS_PORT"
     playbook: config_get.yml
     parameters:
       - name: id
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: key
-        short: k
+      - name: keys
         type: string
-        description: "Configuration key to query"
+        positional: true
+        multi: true
+        description: "Configuration key(s) to query"
       - name: force
         short: f
         type: bool

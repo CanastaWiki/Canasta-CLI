@@ -603,7 +603,7 @@ def test_config_side_effects(inst):
 
     print("Reading the value back with config get...")
     output = inst.run_quiet(
-        "config", "get", "-i", inst.id, "--key", "HTTP_PORT",
+        "config", "get", "-i", inst.id, "HTTP_PORT",
     )
     assert new_http_port in output, (
         "config get HTTP_PORT did not return %s:\n%s"
