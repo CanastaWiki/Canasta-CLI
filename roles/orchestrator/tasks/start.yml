@@ -33,11 +33,10 @@
       changed_when: true
       failed_when: false
 
-    # Temporary: Ansible's default callback swallows stderr/stdout for
-    # failed command modules under the new compact "[ERROR]: Task
-    # failed: ..." rendering. Surface the full output explicitly so
-    # post-merge integration test failures are diagnosable in the CI
-    # log. Remove once the 3.5.7 regression is diagnosed.
+    # Ansible's default callback swallows stderr/stdout for failed
+    # command modules under the compact "[ERROR]: Task failed: ..."
+    # rendering. Register with failed_when: false and fail explicitly
+    # so the full output is visible in CI/operator logs.
     - name: Fail with full output if docker compose up failed
       ansible.builtin.fail:
         msg: |-
