@@ -1185,6 +1185,7 @@ class TestLifecycleCommands:
 
         def mock_ssh(host, cmd):
             ssh_cmds.append((host, cmd))
+            # Return empty .env for the sync-profiles read
             return 0, ""
 
         monkeypatch.setattr(direct_commands, "_ssh_run", mock_ssh)
@@ -1204,9 +1205,169 @@ class TestLifecycleCommands:
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_start(args)
         assert rc == 0
-        assert len(ssh_cmds) == 1
-        assert "up -d" in ssh_cmds[0][1]
-        assert ssh_cmds[0][0] == "admin@remote"
+        # The sync-profiles read + the up -d: 2 SSH calls total.
+        # Empty .env returned above → no write.
+        up_calls = [c for _, c in ssh_cmds if "up -d" in c]
+        assert len(up_calls) == 1
+        assert all(h == "admin@remote" for h, _ in ssh_cmds)
+
+
+class TestEnvFileWriter:
+    """_parse_env_entries + _set_env_entry + _entries_to_content round trip."""
+
+    def test_round_trip_preserves_comments_and_blanks(self):
+        content = "# header comment\n\nKEY=value\n# inline\nOTHER=x\n"
+        entries = direct_commands._parse_env_entries(content)
+        out = direct_commands._entries_to_content(entries)
+        assert out == content.rstrip("\n") or out == content
+        # Specifically: comment + blank + entry + comment + entry
+        assert entries[0] == (None, "# header comment", True)
+        assert entries[1] == (None, "", True)
+        assert entries[2] == ("KEY", "value", False)
+        assert entries[3] == (None, "# inline", True)
+        assert entries[4] == ("OTHER", "x", False)
+
+    def test_parse_strips_matching_quotes(self):
+        entries = direct_commands._parse_env_entries(
+            'A="quoted"\nB=\'single\'\nC=bare\n'
+        )
+        vals = {k: v for k, v, c in entries if not c}
+        assert vals == {"A": "quoted", "B": "single", "C": "bare"}
+
+    def test_set_updates_first_occurrence_and_dedupes(self):
+        entries = direct_commands._parse_env_entries("K=old\nK=dup\nX=y\n")
+        new = direct_commands._set_env_entry(entries, "K", "new")
+        out = direct_commands._entries_to_content(new)
+        # First occurrence updated, duplicate dropped, other untouched
+        assert out.split("\n") == ["K=new", "X=y", ""]
+
+    def test_set_appends_when_absent(self):
+        entries = direct_commands._parse_env_entries("A=1\n")
+        new = direct_commands._set_env_entry(entries, "B", "2")
+        out = direct_commands._entries_to_content(new)
+        assert out == "A=1\n\nB=2" or out.endswith("B=2")
+        assert "B=2" in out
+
+    def test_write_env_content_local(self, tmp_path):
+        p = str(tmp_path)
+        ok = direct_commands._write_env_content(p, "localhost", "K=v\n")
+        assert ok is True
+        with open(tmp_path / ".env") as f:
+            assert f.read() == "K=v\n"
+
+
+class TestSyncComposeProfiles:
+    def _inst(self, tmp_path):
+        return {"path": str(tmp_path), "host": "localhost"}
+
+    def test_adds_elasticsearch_when_flag_true(self, tmp_path):
+        # User toggled CANASTA_ENABLE_ELASTICSEARCH=true by hand-editing
+        # .env. COMPOSE_PROFILES hasn't been updated. _sync should fix it.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_ELASTICSEARCH=true\nCOMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "COMPOSE_PROFILES=elasticsearch" in content
+
+    def test_adds_varnish_by_default(self, tmp_path):
+        # CANASTA_ENABLE_VARNISH defaults to true even when unset.
+        (tmp_path / ".env").write_text("COMPOSE_PROFILES=\n")
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "COMPOSE_PROFILES=varnish" in content
+
+    def test_removes_stale_managed_profile(self, tmp_path):
+        # COMPOSE_PROFILES has 'elasticsearch' but the flag is false.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "CANASTA_ENABLE_OBSERVABILITY=false\n"
+            "COMPOSE_PROFILES=elasticsearch,varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        # Every managed profile is dropped because all flags are false
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert line == "COMPOSE_PROFILES="
+                break
+
+    def test_preserves_unmanaged_profiles(self, tmp_path):
+        # User has a custom profile 'mytest' not in the managed set.
+        # It must survive the sync.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+            "CANASTA_ENABLE_OBSERVABILITY=false\n"
+            "COMPOSE_PROFILES=mytest,varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert "mytest" in line
+                assert "varnish" not in line
+                break
+
+    def test_no_write_when_already_in_sync(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_text(
+            "CANASTA_ENABLE_VARNISH=true\nCOMPOSE_PROFILES=varnish\n"
+        )
+        original_mtime = env_path.stat().st_mtime_ns
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        # If _sync wrote the file, mtime would update. The guard in
+        # _sync (sorted(desired) == sorted(current)) must prevent that.
+        assert env_path.stat().st_mtime_ns == original_mtime
+
+    def test_no_env_file_is_a_noop(self, tmp_path):
+        # Nothing to sync; must not create a file or raise.
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        assert not (tmp_path / ".env").exists()
+
+    def test_preserves_comments_on_write(self, tmp_path):
+        (tmp_path / ".env").write_text(
+            "# Canasta config\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "# profiles below\n"
+            "COMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "# Canasta config" in content
+        assert "# profiles below" in content
+
+
+class TestDumpComposeFailure:
+    def test_prints_ps_and_logs_to_stderr(self, monkeypatch, capsys):
+        # Return deterministic output for both ps and logs commands.
+        def fake_run(cmd, **kw):
+            if "ps" in cmd:
+                return type("R", (), {
+                    "returncode": 0,
+                    "stdout": "NAME STATUS\nweb-1 Restarting",
+                    "stderr": "",
+                })()
+            return type("R", (), {
+                "returncode": 0,
+                "stdout": "web-1 | exec format error",
+                "stderr": "",
+            })()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(
+            direct_commands, "_compose_file_args",
+            lambda *a, **kw: ["-f", "docker-compose.yml"],
+        )
+        direct_commands._dump_compose_failure({
+            "path": "/srv/test", "host": "localhost",
+        })
+        err = capsys.readouterr().err
+        assert "docker compose ps -a" in err
+        assert "docker compose logs" in err
+        assert "Restarting" in err
+        assert "exec format error" in err
 
 
 # ---------------------------------------------------------------------------
