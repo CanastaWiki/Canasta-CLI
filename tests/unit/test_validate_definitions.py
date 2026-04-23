@@ -23,6 +23,69 @@ class TestValidateMain:
             )
 
 
+class TestDirectOnlyInvariants:
+    """Invariants that have to hold for 'direct_only: true' commands.
+
+    These catch two failure modes that validate_definitions.py can't
+    see on its own:
+
+    1. A command is declared 'direct_only: true' in
+       command_definitions.yml but has no matching handler registered
+       in direct_commands.py. At runtime the command would have no
+       code path at all — no handler, no playbook.
+    2. A command has 'direct_only: true' AND a 'playbook:' field (the
+       XOR already caught by validate_definitions, re-asserted here
+       at the data layer so it's discoverable in this test file too).
+    """
+
+    def _real_commands(self):
+        script_dir = os.path.dirname(
+            os.path.abspath(validate_definitions.__file__)
+        )
+        defn_path = os.path.join(
+            os.path.dirname(script_dir),
+            "meta", "command_definitions.yml",
+        )
+        with open(defn_path) as f:
+            return yaml.safe_load(f).get("commands", [])
+
+    def _direct_commands_module(self):
+        # direct_commands imports yaml at module scope; add repo root
+        # to sys.path so the import resolves in CI environments that
+        # don't ship the repo as a package.
+        script_dir = os.path.dirname(
+            os.path.abspath(validate_definitions.__file__)
+        )
+        repo_root = os.path.dirname(script_dir)
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        import direct_commands
+        return direct_commands
+
+    def test_every_direct_only_command_has_a_handler(self):
+        dc = self._direct_commands_module()
+        missing = []
+        for cmd in self._real_commands():
+            if cmd.get("direct_only"):
+                name = cmd.get("name", "?")
+                if not dc.is_direct_command(name):
+                    missing.append(name)
+        assert not missing, (
+            "direct_only commands with no direct_commands.py handler: %s"
+            % ", ".join(missing)
+        )
+
+    def test_no_command_declares_both_direct_only_and_playbook(self):
+        conflicts = []
+        for cmd in self._real_commands():
+            if cmd.get("direct_only") and cmd.get("playbook"):
+                conflicts.append(cmd.get("name", "?"))
+        assert not conflicts, (
+            "Commands with both direct_only AND playbook: %s"
+            % ", ".join(conflicts)
+        )
+
+
 class TestValidateStructure:
     def _make_defs(self, tmpdir, commands, playbooks=None):
         defn = {"commands": commands}
