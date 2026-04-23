@@ -1033,7 +1033,6 @@ def _parse_gitops_status(stdout, instance_id):
     return "\n".join(lines)
 
 
-@register("gitops_status")
 def _gitops_argocd_status(instance_id):
     """Query Argo CD Application for this instance; return parsed status.
 
@@ -1105,6 +1104,7 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     return "\n".join(lines)
 
 
+@register("gitops_status")
 def cmd_gitops_status(args):
     inst_id, inst = _resolve_instance(args)
     host = inst.get("host") or "localhost"

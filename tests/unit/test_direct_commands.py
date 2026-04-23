@@ -1358,6 +1358,36 @@ class TestCmdGitopsStatus:
     def test_registered(self):
         assert direct_commands.is_direct_command("gitops_status")
 
+    def test_registered_to_correct_function(self):
+        # Catches a class of bug where the @register decorator drifts
+        # onto an adjacent helper function. (See the gitops_status
+        # regression: the @register decorator attached to the Argo CD
+        # helper instead of cmd_gitops_status, so 'canasta gitops
+        # status' returned the helper's tuple and sys.exit(tuple)
+        # printed the tuple repr with rc=1.)
+        assert direct_commands.DIRECT_COMMANDS["gitops_status"] is (
+            direct_commands.cmd_gitops_status
+        )
+
+
+class TestDirectCommandRegistry:
+    """Module-wide invariants on the direct-command registry."""
+
+    def test_all_handlers_are_cmd_functions(self):
+        # Every @register-decorated handler must be a top-level cmd_*
+        # function, not a private helper. Guards against decorator
+        # drift: when you edit near a @register line it can silently
+        # end up above the wrong def.
+        wrong = []
+        for name, fn in direct_commands.DIRECT_COMMANDS.items():
+            fname = getattr(fn, "__name__", "")
+            if not fname.startswith("cmd_"):
+                wrong.append("%s -> %s" % (name, fname))
+        assert not wrong, (
+            "direct-command handlers must be cmd_* functions: %s"
+            % ", ".join(wrong)
+        )
+
     def test_remote_uses_ssh(self, monkeypatch, capsys):
         d = direct_commands._SENTINEL
         ssh_output = (
