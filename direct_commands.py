@@ -487,6 +487,34 @@ def _gather_all_instances(instances):
     return [results[iid] for iid in ordered_ids]
 
 
+def _classify_for_cleanup(inst_id, inst):
+    """Classify an instance for cleanup purposes.
+
+    Returns one of:
+      'exists'      — the instance directory is present on its host
+      'missing'     — the host is reachable and confirmed the path is gone
+      'unreachable' — SSH transport failure (DNS, connection refused,
+                      timeout, auth, host key) — no information about
+                      whether the instance actually still exists
+    """
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+
+    if _is_localhost(host):
+        return "exists" if os.path.isdir(path) else "missing"
+
+    # OpenSSH returns rc=255 specifically for transport-layer failures.
+    # Any other non-zero rc means the remote command ran and failed on
+    # its own terms — for 'test -d' that means the directory really is
+    # missing on the remote host.
+    rc, _ = _ssh_run(host, "test -d %s" % _shell_quote(path))
+    if rc == 0:
+        return "exists"
+    if rc == 255:
+        return "unreachable"
+    return "missing"
+
+
 @register("list")
 def cmd_list(args):
     config_dir = _get_config_dir()
@@ -494,15 +522,56 @@ def cmd_list(args):
 
     if getattr(args, "cleanup", False):
         instances = _read_registry(conf_path)
-        to_remove = [
-            iid for iid, inst in instances.items()
-            if not os.path.isdir(inst.get("path", ""))
-        ]
-        if to_remove:
-            for iid in to_remove:
-                del instances[iid]
-            _write_registry(conf_path, instances)
-            print("Removed stale entries: %s" % ", ".join(to_remove))
+        force = getattr(args, "force", False)
+        dry_run = getattr(args, "dry_run", False)
+
+        # Probe all instances in parallel — remote classify can SSH.
+        classifications = {}
+        if instances:
+            with ThreadPoolExecutor(max_workers=len(instances)) as pool:
+                futures = {
+                    pool.submit(_classify_for_cleanup, iid, inst): iid
+                    for iid, inst in instances.items()
+                }
+                for future in as_completed(futures):
+                    iid = futures[future]
+                    try:
+                        classifications[iid] = future.result()
+                    except Exception:
+                        # On unexpected error treat as unreachable so we
+                        # don't drop the entry by surprise.
+                        classifications[iid] = "unreachable"
+
+        missing = sorted(
+            iid for iid, c in classifications.items() if c == "missing"
+        )
+        unreachable = sorted(
+            iid for iid, c in classifications.items() if c == "unreachable"
+        )
+
+        if dry_run:
+            print("Dry run — no changes made.")
+            print("Would remove (confirmed missing): %s"
+                  % (", ".join(missing) if missing else "(none)"))
+            if force:
+                print("Would remove (unreachable, --force): %s"
+                      % (", ".join(unreachable) if unreachable else "(none)"))
+            else:
+                print("Skipped (unreachable; pass --force to remove): %s"
+                      % (", ".join(unreachable) if unreachable else "(none)"))
+        else:
+            to_remove = list(missing) + (list(unreachable) if force else [])
+            if to_remove:
+                for iid in to_remove:
+                    del instances[iid]
+                _write_registry(conf_path, instances)
+                print("Removed stale entries: %s" % ", ".join(to_remove))
+            if unreachable and not force:
+                plural = "y" if len(unreachable) == 1 else "ies"
+                print(
+                    "Kept %d unreachable entr%s (pass --force to remove): %s"
+                    % (len(unreachable), plural, ", ".join(unreachable))
+                )
 
     instances = _read_registry(conf_path)
     host_filter = getattr(args, "host", None)
@@ -522,6 +591,44 @@ def cmd_list(args):
 # canasta version
 # ---------------------------------------------------------------------------
 
+def _read_instance_image(inst_id, inst):
+    """Return 'CANASTA_IMAGE (running: X)' for a single instance entry.
+
+    'running' comes from /tmp/canasta-version inside the web container;
+    absent when the container isn't up or the command fails for any
+    reason. Never raises.
+    """
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    env_vars = _read_env_file(path, host)
+    image = env_vars.get("CANASTA_IMAGE", "(unset)")
+
+    # Running Canasta version — line 2 of /tmp/canasta-version inside
+    # the web container. Best effort; fall back silently.
+    running = "(not running)"
+    compose_cmd = (
+        "cd %s && docker compose exec -T web sh -c "
+        "\"cat /tmp/canasta-version 2>/dev/null | sed -n '2p'\" 2>/dev/null"
+        % _shell_quote(path)
+    )
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                ["sh", "-c", compose_cmd],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                running = result.stdout.strip()
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+    else:
+        rc, stdout = _ssh_run(host, compose_cmd)
+        if rc == 0 and stdout.strip():
+            running = stdout.strip()
+
+    return image, running
+
+
 @register("version")
 def cmd_version(args):
     script_dir = _get_script_dir()
@@ -532,6 +639,17 @@ def cmd_version(args):
             version = f.read().strip()
     except OSError:
         version = "unknown"
+
+    # Target Canasta version — what this CLI was built to deploy.
+    # Always shown, even when no instances are registered. This is the
+    # CANASTA_VERSION file bundled with Canasta-Ansible, distinct from
+    # any particular instance's pinned CANASTA_IMAGE tag.
+    target_version_file = os.path.join(script_dir, "CANASTA_VERSION")
+    try:
+        with open(target_version_file) as f:
+            target_canasta_version = f.read().strip()
+    except OSError:
+        target_canasta_version = "unknown"
 
     # Run mode is set by the canasta-docker wrapper. Presence of
     # BUILD_COMMIT isn't a reliable signal — native installs also
@@ -568,6 +686,51 @@ def cmd_version(args):
             date = "unknown"
 
     print("Canasta CLI v%s (%s, commit %s, built %s)" % (version, mode, commit, date))
+    print("Target Canasta version: %s" % target_canasta_version)
+
+    # Per-instance image reports (on demand)
+    inst_id = getattr(args, "id", None)
+    want_all = getattr(args, "all", False)
+
+    if want_all:
+        # Report every instance on the current host.
+        config_dir = _get_config_dir()
+        conf_path = os.path.join(config_dir, "conf.json")
+        instances = _read_registry(conf_path)
+        host_filter = getattr(args, "host", None)
+        instances = _filter_by_host(instances, host_filter)
+        if not instances:
+            print("No instances registered.")
+            return 0
+        for iid in sorted(instances.keys()):
+            image, running = _read_instance_image(iid, instances[iid])
+            print("Instance '%s': %s (running: %s)" % (iid, image, running))
+        return 0
+
+    if inst_id:
+        # Explicit -i: resolve and report.
+        inst_id, inst = _resolve_instance(args)
+        image, running = _read_instance_image(inst_id, inst)
+        print("Instance '%s': %s (running: %s)" % (inst_id, image, running))
+        return 0
+
+    # No -i / --all: try to auto-resolve from PWD, report if we find
+    # a match. Outside any instance directory is the common case and
+    # not an error — just stop at the two-line CLI/target report.
+    config_dir = _get_config_dir()
+    conf_path = os.path.join(config_dir, "conf.json")
+    instances = _read_registry(conf_path)
+    cwd = os.path.abspath(os.getcwd())
+    while True:
+        for iid, inst in instances.items():
+            if os.path.abspath(inst.get("path", "")) == cwd:
+                image, running = _read_instance_image(iid, inst)
+                print("Instance '%s': %s (running: %s)" % (iid, image, running))
+                return 0
+        parent = os.path.dirname(cwd)
+        if parent == cwd:
+            break
+        cwd = parent
     return 0
 
 
@@ -586,12 +749,16 @@ def cmd_config_get(args):
         print("No configuration found.", file=sys.stderr)
         return 1
 
-    key = getattr(args, "key", None)
-    if key:
-        if key in env_vars:
-            print(env_vars[key])
-        else:
-            print("Key '%s' not found." % key)
+    # Positional 'keys' comes from argparse as a list when run through
+    # canasta.py. For each explicitly requested key, print KEY=value or
+    # a not-found message. With no keys, dump every setting, sorted.
+    keys = getattr(args, "keys", None) or []
+    if keys:
+        for k in keys:
+            if k in env_vars:
+                print("%s=%s" % (k, env_vars[k]))
+            else:
+                print("Key '%s' not found." % k)
         return 0
 
     for k in sorted(env_vars.keys()):
