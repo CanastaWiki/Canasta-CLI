@@ -33,6 +33,30 @@
       changed_when: true
       failed_when: false
 
+    # When docker compose up fails (typically an unhealthy container),
+    # capture per-service logs and state before we bail out. The caller
+    # usually rolls back (docker compose down) on failure, which wipes
+    # the containers — so any post-hoc dump from the controller sees
+    # nothing. Capturing here, before propagating the error, is the
+    # only reliable way to see WHY a container was unhealthy.
+    - name: Capture compose state on failure
+      ansible.builtin.command:
+        cmd: "docker compose {{ _compose_files | join(' ') }} ps -a"
+        chdir: "{{ instance_path }}"
+      register: _start_ps
+      changed_when: false
+      failed_when: false
+      when: _start_result.rc != 0
+
+    - name: Capture compose logs on failure
+      ansible.builtin.command:
+        cmd: "docker compose {{ _compose_files | join(' ') }} logs --tail=200 --no-color"
+        chdir: "{{ instance_path }}"
+      register: _start_logs
+      changed_when: false
+      failed_when: false
+      when: _start_result.rc != 0
+
     # Ansible's default callback swallows stderr/stdout for failed
     # command modules under the compact "[ERROR]: Task failed: ..."
     # rendering. Register with failed_when: false and fail explicitly
@@ -45,6 +69,10 @@
           {{ _start_result.stdout | default('(empty)') }}
           --- STDERR ---
           {{ _start_result.stderr | default('(empty)') }}
+          --- docker compose ps -a ---
+          {{ _start_ps.stdout | default('(not captured)') }}
+          --- docker compose logs (last 200) ---
+          {{ _start_logs.stdout | default('(not captured)') }}
       when: _start_result.rc != 0
 
 - name: Start (Kubernetes)
