@@ -106,37 +106,59 @@
 
 # --- Optional per-instance image report ---
 
+# --- Optional PWD-based auto-resolution ---
+# If the user didn't pass -i/--id and isn't asking for --all, try to
+# resolve the current working directory to a registered instance.
+# Failure to resolve (user is outside any instance dir) is not an
+# error — it just means we fall back to the CLI-only report above.
+
+- name: Try to auto-resolve instance from current directory
+  canasta_registry:
+    path: "{{ lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true) }}"
+    state: query_by_path
+  register: _version_pwd_lookup
+  ignore_errors: true
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  when:
+    - (id is not defined or id == '')
+    - not (all | default(false) | bool)
+    - target_host | default('localhost') == 'localhost'
+
+- name: Compute effective instance id for reporting
+  ansible.builtin.set_fact:
+    _version_effective_id: >-
+      {{ id
+         if (id is defined and id != '')
+         else (_version_pwd_lookup.instance.id
+               if (_version_pwd_lookup is defined
+                   and _version_pwd_lookup is succeeded
+                   and _version_pwd_lookup.instance is defined)
+               else '') }}
+
 - name: Report single instance
   when:
-    - id is defined and id != ''
+    - _version_effective_id != ''
     - not (all | default(false) | bool)
   block:
     - name: Resolve instance
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
-
-    - name: Read CANASTA_IMAGE from .env
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read
-        key: CANASTA_IMAGE
-      register: _version_inst_image
-
-    - name: Read running Canasta version from container
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: exec.yml
       vars:
-        exec_command: "cat /tmp/canasta-version 2>/dev/null | sed -n '2p' || true"
-        exec_service: web
-      ignore_errors: true
+        id: "{{ _version_effective_id }}"
 
-    - name: Display instance info
-      ansible.builtin.debug:
-        msg: |-
-          Instance '{{ instance_id }}':
-            Configured image: {{ _version_inst_image.value | default('(unset)') }}
-            Running Canasta:  {{ (exec_result.stdout | default('') | trim) | default('(unable to read)', true) }}
+    - name: Build version_inst shape for the shared helper
+      ansible.builtin.set_fact:
+        _version_inst:
+          key: "{{ instance_id }}"
+          value:
+            path: "{{ instance_path }}"
+
+    - name: Read configured image and running Canasta version
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/common/tasks/read_instance_image.yml
 
 - name: Report all instances on current host
   when: all | default(false) | bool
