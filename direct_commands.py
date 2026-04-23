@@ -58,35 +58,117 @@ def _resolve_instance(args):
     return inst["id"], inst
 
 
-def _read_env_file(path, host):
-    """Read and parse a .env file, returning a dict of key=value pairs."""
+def _read_env_content(path, host):
+    """Read raw .env file content. Returns '' if missing or unreadable."""
     env_path = os.path.join(path, ".env")
-    try:
-        if _is_localhost(host):
+    if _is_localhost(host):
+        try:
             with open(env_path) as f:
-                content = f.read()
-        else:
-            rc, content = _ssh_run(host, "cat %s" % _shell_quote(env_path))
-            if rc != 0:
-                return {}
-    except OSError:
-        return {}
+                return f.read()
+        except OSError:
+            return ""
+    rc, content = _ssh_run(host, "cat %s 2>/dev/null" % _shell_quote(env_path))
+    return content if rc == 0 else ""
 
-    result = {}
+
+def _parse_env_entries(content):
+    """Parse .env content into ordered (key, value, is_comment) tuples.
+
+    Preserves comments and blank lines so a round-trip through
+    _entries_to_content leaves untouched lines intact. Mirrors
+    canasta_env.parse_env_file() in the Ansible module.
+    """
+    entries = []
     for line in content.split("\n"):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
+            entries.append((None, line, True))
             continue
         parts = stripped.split("=", 1)
         if len(parts) == 2:
             key = parts[0].strip()
             value = parts[1].strip()
-            if len(value) >= 2:
-                if (value.startswith('"') and value.endswith('"')) or \
-                   (value.startswith("'") and value.endswith("'")):
-                    value = value[1:-1]
-            result[key] = value
-    return result
+            if len(value) >= 2 and (
+                (value.startswith('"') and value.endswith('"'))
+                or (value.startswith("'") and value.endswith("'"))
+            ):
+                value = value[1:-1]
+            entries.append((key, value, False))
+        else:
+            entries.append((None, line, True))
+    return entries
+
+
+def _entries_to_content(entries):
+    lines = []
+    for key, value, is_comment in entries:
+        if is_comment:
+            lines.append(value)
+        else:
+            lines.append("%s=%s" % (key, value))
+    return "\n".join(lines)
+
+
+def _set_env_entry(entries, key, value):
+    """Update first occurrence, drop duplicate lines for the same key,
+    append if absent. Matches canasta_env.set_variable() in Ansible."""
+    found = False
+    new_entries = []
+    for k, v, c in entries:
+        if not c and k == key:
+            if not found:
+                new_entries.append((key, value, False))
+                found = True
+            # Drop subsequent duplicates
+        else:
+            new_entries.append((k, v, c))
+    if not found:
+        new_entries.append((key, value, False))
+    return new_entries
+
+
+def _write_env_content(path, host, content):
+    """Write content to .env. Returns True on success.
+
+    Remote writes pipe stdin through 'cat > file' over SSH — avoids
+    escaping the entire file content into a command line.
+    """
+    env_path = os.path.join(path, ".env")
+    if _is_localhost(host):
+        try:
+            with open(env_path, "w") as f:
+                f.write(content)
+            return True
+        except OSError as e:
+            print("Error writing %s: %s" % (env_path, e), file=sys.stderr)
+            return False
+
+    ssh_cmd = (
+        ["ssh"] + _ssh_args()
+        + [host, "cat > %s" % _shell_quote(env_path)]
+    )
+    try:
+        result = subprocess.run(
+            ssh_cmd, input=content, text=True,
+            capture_output=True, timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        print("Error writing remote %s: %s" % (env_path, e), file=sys.stderr)
+        return False
+    if result.returncode != 0:
+        print(
+            "Error writing remote %s: %s"
+            % (env_path, (result.stderr or "").strip()),
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _read_env_file(path, host):
+    """Read and parse a .env file, returning a dict of key=value pairs."""
+    content = _read_env_content(path, host)
+    return {k: v for k, v, c in _parse_env_entries(content) if not c and k}
 
 
 def _compose_file_args(path, host, devmode=False):
@@ -135,6 +217,93 @@ def _run_compose(inst_id, inst, action_args):
         if stdout.strip():
             print(stdout.strip())
         return rc
+
+
+# Profiles that Canasta derives from CANASTA_ENABLE_* feature flags.
+# (profile_name, flag_name, default_when_flag_unset)
+# Matches roles/orchestrator/tasks/sync_compose_profiles.yml.
+_MANAGED_PROFILES = [
+    ("observable", "CANASTA_ENABLE_OBSERVABILITY", "false"),
+    ("elasticsearch", "CANASTA_ENABLE_ELASTICSEARCH", "false"),
+    ("varnish", "CANASTA_ENABLE_VARNISH", "true"),
+]
+
+
+def _sync_compose_profiles(inst):
+    """Align COMPOSE_PROFILES in .env with the CANASTA_ENABLE_* feature flags.
+
+    Called before 'docker compose up' so hand-edited .env files, gitops
+    pulls, or any other drift between the managed flags and
+    COMPOSE_PROFILES gets reconciled before compose is invoked. Mirrors
+    roles/orchestrator/tasks/sync_compose_profiles.yml — canasta config
+    set has its own copy that fires on the relevant keys.
+    """
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    content = _read_env_content(path, host)
+    if not content:
+        return  # No .env to sync
+
+    entries = _parse_env_entries(content)
+    env = {k: v for k, v, c in entries if not c and k}
+    managed_names = {p for p, _flag, _default in _MANAGED_PROFILES}
+
+    current_raw = env.get("COMPOSE_PROFILES", "")
+    current = [p.strip() for p in current_raw.split(",") if p.strip()]
+
+    desired = [p for p in current if p not in managed_names]
+    for profile, flag, default in _MANAGED_PROFILES:
+        if env.get(flag, default).strip().lower() == "true":
+            desired.append(profile)
+
+    if sorted(desired) == sorted(current):
+        return  # No change needed
+
+    new_entries = _set_env_entry(
+        entries, "COMPOSE_PROFILES", ",".join(desired),
+    )
+    _write_env_content(path, host, _entries_to_content(new_entries))
+
+
+def _dump_compose_failure(inst):
+    """Print docker compose ps + logs to stderr after a failed 'up'.
+
+    Matches the diagnostic block in roles/orchestrator/tasks/start.yml:
+    the caller usually rolls back (docker compose down) on failure,
+    which wipes the containers — so capturing ps/logs here, right
+    after the failed 'up' and before the rollback, is the only
+    reliable way to see why a container was unhealthy.
+    """
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    devmode = inst.get("devMode", False)
+    file_args = _compose_file_args(path, host, devmode)
+
+    steps = [
+        (["ps", "-a"], "docker compose ps -a"),
+        (["logs", "--tail=200", "--no-color"], "docker compose logs (last 200)"),
+    ]
+    for action, label in steps:
+        if _is_localhost(host):
+            try:
+                result = subprocess.run(
+                    ["docker", "compose"] + file_args + action,
+                    cwd=path, capture_output=True, text=True, timeout=30,
+                )
+                output = result.stdout or result.stderr
+            except (subprocess.TimeoutExpired, OSError) as e:
+                output = "(failed to capture: %s)" % e
+        else:
+            action_str = " ".join(action)
+            file_str = " ".join(file_args)
+            _rc, output = _ssh_run(
+                host,
+                "cd %s && docker compose %s %s" % (
+                    _shell_quote(path), file_str, action_str,
+                ),
+            )
+        print("--- %s ---" % label, file=sys.stderr)
+        print(output.strip() if output else "(empty)", file=sys.stderr)
 
 
 def _k8s_get_pod(namespace, component="web"):
@@ -827,7 +996,11 @@ def cmd_start(args):
         # these are multi-step controller-to-remote operations that
         # need Ansible.
         return FALLBACK
-    return _run_compose(inst_id, inst, ["up", "-d"])
+    _sync_compose_profiles(inst)
+    rc = _run_compose(inst_id, inst, ["up", "-d"])
+    if rc != 0:
+        _dump_compose_failure(inst)
+    return rc
 
 
 @register("stop")
@@ -847,7 +1020,11 @@ def cmd_restart(args):
     rc = _run_compose(inst_id, inst, ["down"])
     if rc != 0:
         return rc
-    return _run_compose(inst_id, inst, ["up", "-d"])
+    _sync_compose_profiles(inst)
+    rc = _run_compose(inst_id, inst, ["up", "-d"])
+    if rc != 0:
+        _dump_compose_failure(inst)
+    return rc
 
 
 # ---------------------------------------------------------------------------
