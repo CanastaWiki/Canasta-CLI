@@ -68,9 +68,32 @@ fail() {
     echo "  FAIL: $1"
 }
 
+dump_failure_diagnostics() {
+    # Only runs when a test has already failed. Dumps container state
+    # and logs for every container whose name starts with the instance
+    # ID, so CI failures are diagnosable without a second round-trip.
+    echo ""
+    echo "=== Failure diagnostics ==="
+    echo "--- docker ps -a ---"
+    docker ps -a || true
+    for c in $(docker ps -aq --filter "name=${INSTANCE_ID}"); do
+        name=$(docker inspect --format='{{.Name}}' "$c" 2>/dev/null | sed 's:^/::')
+        echo "--- ${name} health ---"
+        docker inspect --format='{{json .State.Health}}' "$c" 2>/dev/null || true
+        echo ""
+        echo "--- ${name} logs (last 200) ---"
+        docker logs --tail 200 "$c" 2>&1 || true
+        echo ""
+    done
+}
+
 cleanup() {
     echo ""
     echo "=== Cleaning up ==="
+    # Surface container state/logs on failure before we tear anything down.
+    if [ "${FAIL:-0}" -gt 0 ]; then
+        dump_failure_diagnostics
+    fi
     # Best-effort delete of instance if it still exists
     canasta delete -i "${INSTANCE_ID}" -y 2>/dev/null || true
     # Teardown the mock remote host
