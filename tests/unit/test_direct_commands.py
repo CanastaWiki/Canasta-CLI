@@ -377,6 +377,97 @@ class TestCleanup:
         out = capsys.readouterr().out
         assert "Removed stale entries" in out
 
+    def test_cleanup_keeps_unreachable_remote_by_default(
+        self, registry_with_remote, monkeypatch, capsys
+    ):
+        """Remote entry whose SSH probe fails (rc=255) must not be
+        auto-removed — it's 'unreachable', not 'missing'."""
+        tmp_path, _ = registry_with_remote
+        # Simulate SSH transport failure for the remote host
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run", lambda host, cmd: (255, ""),
+        )
+
+        args = type("Args", (), {
+            "cleanup": True, "host": None, "force": False, "dry_run": False,
+        })()
+        direct_commands.cmd_list(args)
+
+        instances = direct_commands._read_registry(
+            str(tmp_path / "conf.json")
+        )
+        assert "remote" in instances  # kept despite being unreachable
+        assert "local" in instances
+        out = capsys.readouterr().out
+        assert "Kept" in out
+        assert "unreachable" in out
+
+    def test_cleanup_removes_unreachable_with_force(
+        self, registry_with_remote, monkeypatch, capsys
+    ):
+        tmp_path, _ = registry_with_remote
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run", lambda host, cmd: (255, ""),
+        )
+
+        args = type("Args", (), {
+            "cleanup": True, "host": None, "force": True, "dry_run": False,
+        })()
+        direct_commands.cmd_list(args)
+
+        instances = direct_commands._read_registry(
+            str(tmp_path / "conf.json")
+        )
+        assert "remote" not in instances  # removed by --force
+        assert "local" in instances
+
+    def test_cleanup_removes_confirmed_missing_remote(
+        self, registry_with_remote, monkeypatch, capsys
+    ):
+        """SSH succeeds but 'test -d' returns non-zero (dir really is
+        gone on the remote host) — safe to remove without --force."""
+        tmp_path, _ = registry_with_remote
+        # rc=1 means test -d failed; SSH itself was fine
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run", lambda host, cmd: (1, ""),
+        )
+
+        args = type("Args", (), {
+            "cleanup": True, "host": None, "force": False, "dry_run": False,
+        })()
+        direct_commands.cmd_list(args)
+
+        instances = direct_commands._read_registry(
+            str(tmp_path / "conf.json")
+        )
+        assert "remote" not in instances
+        assert "local" in instances
+        out = capsys.readouterr().out
+        assert "Removed stale entries" in out
+
+    def test_cleanup_dry_run_does_not_modify(
+        self, registry_with_remote, monkeypatch, capsys
+    ):
+        tmp_path, _ = registry_with_remote
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run", lambda host, cmd: (1, ""),
+        )
+
+        args = type("Args", (), {
+            "cleanup": True, "host": None, "force": False, "dry_run": True,
+        })()
+        direct_commands.cmd_list(args)
+
+        # Registry unchanged
+        instances = direct_commands._read_registry(
+            str(tmp_path / "conf.json")
+        )
+        assert "remote" in instances
+        assert "local" in instances
+        out = capsys.readouterr().out
+        assert "Dry run" in out
+        assert "Would remove" in out
+
 
 # ---------------------------------------------------------------------------
 # End-to-end cmd_list tests
@@ -663,6 +754,38 @@ class TestCmdVersion:
         assert "docker" in out
         assert "def5678" in out
 
+    def test_target_canasta_version_line(self, tmp_path, monkeypatch, capsys):
+        """When CANASTA_VERSION file is present, the target version line
+        is always printed, even without -i/--all."""
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        (tmp_path / "CANASTA_VERSION").write_text("3.5.7\n")
+        (tmp_path / "BUILD_COMMIT").write_text("abc1234\n")
+        (tmp_path / "BUILD_DATE").write_text("2026-04-23 00:00:00\n")
+        monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        # No instances registered — PWD auto-resolve should be a no-op.
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        args = type("Args", (), {"id": None, "all": False, "host": None})()
+        rc = direct_commands.cmd_version(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Target Canasta version: 3.5.7" in out
+
+    def test_missing_canasta_version_file(self, tmp_path, monkeypatch, capsys):
+        """If CANASTA_VERSION file is absent, target shown as 'unknown'
+        (doesn't crash)."""
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        (tmp_path / "BUILD_COMMIT").write_text("abc1234\n")
+        (tmp_path / "BUILD_DATE").write_text("2026-04-23 00:00:00\n")
+        monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        args = type("Args", (), {"id": None, "all": False, "host": None})()
+        rc = direct_commands.cmd_version(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Target Canasta version: unknown" in out
+
     def test_native_with_build_files(self, tmp_path, monkeypatch, capsys):
         """Native installs also write BUILD_COMMIT/BUILD_DATE (via
         get-canasta.sh or make build-info). The presence of those
@@ -754,10 +877,27 @@ class TestCmdConfigGet:
             direct_commands, "_resolve_instance",
             lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
         )
-        args = type("Args", (), {"id": "test", "key": "MW_SITE_SERVER", "force": False})()
+        args = type("Args", (), {
+            "id": "test", "keys": ["MW_SITE_SERVER"], "force": False,
+        })()
         rc = direct_commands.cmd_config_get(args)
         assert rc == 0
-        assert capsys.readouterr().out.strip() == "https://example.com"
+        assert capsys.readouterr().out.strip() == "MW_SITE_SERVER=https://example.com"
+
+    def test_get_multiple_keys(self, tmp_path, monkeypatch, capsys):
+        env = tmp_path / ".env"
+        env.write_text("A=1\nB=2\nC=3\n")
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
+        )
+        args = type("Args", (), {
+            "id": "test", "keys": ["A", "C"], "force": False,
+        })()
+        rc = direct_commands.cmd_config_get(args)
+        assert rc == 0
+        out = capsys.readouterr().out.strip().splitlines()
+        assert out == ["A=1", "C=3"]
 
     def test_get_missing_key(self, tmp_path, monkeypatch, capsys):
         env = tmp_path / ".env"
@@ -766,7 +906,9 @@ class TestCmdConfigGet:
             direct_commands, "_resolve_instance",
             lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
         )
-        args = type("Args", (), {"id": "test", "key": "NOPE", "force": False})()
+        args = type("Args", (), {
+            "id": "test", "keys": ["NOPE"], "force": False,
+        })()
         rc = direct_commands.cmd_config_get(args)
         assert rc == 0
         assert "not found" in capsys.readouterr().out.lower()
