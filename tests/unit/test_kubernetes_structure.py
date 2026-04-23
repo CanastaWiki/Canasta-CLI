@@ -272,7 +272,7 @@ class TestExternalDatabase:
 class TestGitopsDispatchers:
     """Verify that each dispatched gitops command has both variants."""
 
-    DISPATCHED = ["init", "push", "pull", "status", "diff"]
+    DISPATCHED = ["init", "push", "pull", "diff"]
 
     def test_dispatcher_files_exist(self):
         for cmd in self.DISPATCHED:

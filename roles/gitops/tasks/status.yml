@@ -1,8 +1,0 @@
----
-# GitOps status — dispatches to Compose or Kubernetes variant.
-
-- name: Resolve instance
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
-
-- name: Dispatch gitops status
-  ansible.builtin.include_tasks: "status_{{ instance_orchestrator | default('compose') }}.yml"
