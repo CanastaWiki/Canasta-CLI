@@ -1,7 +1,0 @@
----
-# canasta config get - Show configuration settings.
-
-- name: Config get
-  ansible.builtin.include_role:
-    name: config
-    tasks_from: get.yml
