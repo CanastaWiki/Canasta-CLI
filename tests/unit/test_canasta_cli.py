@@ -54,6 +54,24 @@ class TestBuildParser:
         assert args.id is None
         assert args.all is True
 
+    def test_list_cleanup_flags(self, parser):
+        args = parser.parse_args(["list", "--cleanup"])
+        assert args.cleanup is True
+        assert args.force is False
+        assert args.dry_run is False
+
+    def test_list_cleanup_with_force(self, parser):
+        args = parser.parse_args(["list", "--cleanup", "--force"])
+        assert args.cleanup is True
+        assert args.force is True
+        assert args.dry_run is False
+
+    def test_list_cleanup_with_dry_run(self, parser):
+        args = parser.parse_args(["list", "--cleanup", "--dry-run"])
+        assert args.cleanup is True
+        assert args.force is False
+        assert args.dry_run is True
+
     def test_subcommand_group(self, parser):
         args = parser.parse_args(["config", "get", "-i", "mysite"])
         assert args.command == "config"

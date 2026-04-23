@@ -61,12 +61,137 @@
       changed_when: false
       ignore_errors: true  # OK if host unreachable or dir gone
 
-    - name: Build directory existence map
+    - name: Build directory existence + unreachable maps
+      # OpenSSH uses rc=255 exclusively for transport-layer failures
+      # (DNS lookup failure, connection refused/timeout, auth rejection,
+      # host key mismatch, etc). The remote command only ever returns
+      # its own exit code when the SSH transport succeeds. So rc==255
+      # is a reliable "unreachable" signal for remote hosts; any other
+      # non-zero rc means the command ran and failed on its own terms
+      # (for our 'test -d' probe, that means the directory is missing).
       ansible.builtin.set_fact:
-        _dir_exists: "{{ _dir_exists | default({}) | combine({item.item.key: (item.rc == 0)}) }}"
+        _dir_exists: >-
+          {{ _dir_exists | default({})
+             | combine({item.item.key: (item.rc == 0)}) }}
+        _dir_unreachable: >-
+          {{ _dir_unreachable | default({})
+             | combine({item.item.key:
+                 (item.item.value.host | default('localhost') != 'localhost')
+                 and item.rc == 255
+               }) }}
       loop: "{{ _list_dir_checks.results }}"
       loop_control:
         label: "{{ item.item.key | default('?') }}"
+
+    # --- Remote-host cleanup (post-probe) ---
+    # The canasta_registry state=cleanup call at the top only handles
+    # localhost entries (it can't verify remote paths via os.path.isdir).
+    # Here we classify the remote entries based on the SSH probe above
+    # and either remove them, remove them under --force, or (with
+    # --dry-run) just print the plan.
+    - name: Classify remote cleanup candidates
+      when: cleanup | default(false) | bool
+      vars:
+        _remote_ids: >-
+          {{ _all_instances.instances | dict2items
+             | rejectattr('value.host', 'eq', 'localhost')
+             | map(attribute='key') | list }}
+        _missing_ids: >-
+          {{ _dir_exists | default({}) | dict2items
+             | rejectattr('value')
+             | map(attribute='key') | list }}
+        _unreachable_ids: >-
+          {{ _dir_unreachable | default({}) | dict2items
+             | selectattr('value')
+             | map(attribute='key') | list }}
+      ansible.builtin.set_fact:
+        _remote_unreachable: >-
+          {{ _remote_ids | intersect(_unreachable_ids) }}
+        _remote_missing: >-
+          {{ _remote_ids | intersect(_missing_ids)
+             | difference(_unreachable_ids) }}
+
+    - name: Report dry-run plan and stop cleanup if --dry-run
+      when:
+        - cleanup | default(false) | bool
+        - dry_run | default(false) | bool
+      ansible.builtin.debug:
+        msg: |-
+          Dry run — no changes made.
+          Would remove (confirmed missing): {{
+            _remote_missing | default([]) | join(', ') or '(none)' }}
+          {% if force | default(false) | bool %}
+          Would remove (unreachable, --force): {{
+            _remote_unreachable | default([]) | join(', ') or '(none)' }}
+          {% else %}
+          Skipped (unreachable; pass --force to remove): {{
+            _remote_unreachable | default([]) | join(', ') or '(none)' }}
+          {% endif %}
+
+    - name: Remove confirmed-missing remote entries
+      when:
+        - cleanup | default(false) | bool
+        - not (dry_run | default(false) | bool)
+        - _remote_missing | default([]) | length > 0
+      canasta_registry:
+        state: absent
+        id: "{{ item }}"
+      loop: "{{ _remote_missing }}"
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Remove unreachable remote entries (--force)
+      when:
+        - cleanup | default(false) | bool
+        - force | default(false) | bool
+        - not (dry_run | default(false) | bool)
+        - _remote_unreachable | default([]) | length > 0
+      canasta_registry:
+        state: absent
+        id: "{{ item }}"
+      loop: "{{ _remote_unreachable }}"
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Report remote cleanup summary
+      when:
+        - cleanup | default(false) | bool
+        - not (dry_run | default(false) | bool)
+      ansible.builtin.debug:
+        msg: |-
+          {% set removed = _remote_missing | default([]) %}
+          {% if force | default(false) | bool %}
+          {% set removed = removed + (_remote_unreachable | default([])) %}
+          {% endif %}
+          {% if removed | length > 0 %}
+          Removed stale remote entries: {{ removed | join(', ') }}
+          {% endif %}
+          {% if not (force | default(false) | bool) and (_remote_unreachable | default([]) | length > 0) %}
+          Kept {{ _remote_unreachable | length }} unreachable entr{{
+            'y' if _remote_unreachable | length == 1 else 'ies'
+          }} (pass --force to remove): {{
+            _remote_unreachable | join(', ') }}
+          {% endif %}
+
+    - name: Filter display to exclude just-removed instances
+      when:
+        - cleanup | default(false) | bool
+        - not (dry_run | default(false) | bool)
+      ansible.builtin.set_fact:
+        _all_instances: >-
+          {{ _all_instances | combine({
+            'instances':
+              _all_instances.instances | dict2items
+              | rejectattr('key', 'in',
+                  (_remote_missing | default([]))
+                  + ((_remote_unreachable | default([]))
+                     if (force | default(false) | bool) else []))
+              | items2dict
+          }) }}
 
     - name: Read wikis for each instance
       ansible.builtin.command:

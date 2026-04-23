@@ -297,8 +297,18 @@ def run_module():
         result["changed"] = changed
 
     elif state == "cleanup":
+        # Only auto-cleanup localhost entries. Remote entries can't be
+        # verified from the controller (the path belongs to a different
+        # filesystem) — the calling playbook is responsible for probing
+        # remote hosts over SSH and, when appropriate, calling this
+        # module with state=absent for each confirmed-missing entry.
         to_remove = []
+        skipped_remote = []
         for iid, inst in instances.items():
+            host = inst.get("host", "localhost")
+            if host != "localhost":
+                skipped_remote.append(iid)
+                continue
             if not os.path.isdir(inst.get("path", "")):
                 to_remove.append(iid)
         if to_remove:
@@ -310,6 +320,7 @@ def run_module():
                 write_config(config_dir, data)
         result["changed"] = changed
         result["removed"] = to_remove
+        result["skipped_remote"] = skipped_remote
 
     elif state == "get_setting":
         setting_key = module.params.get("setting_key")

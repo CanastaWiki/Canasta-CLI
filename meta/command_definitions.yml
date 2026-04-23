@@ -236,16 +236,35 @@ commands:
 
   - name: list
     description: "List all registered Canasta instances"
-    long_description: "Display all Canasta instances in the local registry."
+    long_description: |
+      Display all Canasta instances in the local registry.
+
+      With --cleanup, remove registry entries for instances whose
+      directories are confirmed missing. Entries for hosts that are
+      unreachable (DNS failure, SSH refused, etc.) are left alone —
+      a transient network problem shouldn't cause entries to be
+      silently dropped. Pass --force to remove unreachable entries
+      too, or --dry-run to preview without removing anything.
     examples:
       - "canasta list"
       - "canasta list --cleanup"
+      - "canasta list --cleanup --dry-run"
+      - "canasta list --cleanup --force"
     playbook: list.yml
     parameters:
       - name: cleanup
         type: bool
         default: false
-        description: "Remove stale entries whose directories no longer exist"
+        description: "Remove stale entries whose directories are confirmed missing"
+      - name: force
+        short: f
+        type: bool
+        default: false
+        description: "With --cleanup, also remove entries for unreachable hosts"
+      - name: dry_run
+        type: bool
+        default: false
+        description: "With --cleanup, print what would be removed without removing"
 
   - name: version
     description: "Display version information"
