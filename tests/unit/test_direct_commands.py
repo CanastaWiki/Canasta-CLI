@@ -1004,6 +1004,13 @@ class TestLifecycleCommands:
 
         def mock_run(cmd, **kw):
             kubectl_cmds.append(cmd)
+            # Return a STS when queried so the scale-sts step runs
+            if "statefulset" in cmd and "-o" in cmd and "name" in cmd:
+                return type("R", (), {
+                    "returncode": 0,
+                    "stdout": "statefulset.apps/foo-db\n",
+                    "stderr": "",
+                })()
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
         monkeypatch.setattr(subprocess, "run", mock_run)
@@ -1020,6 +1027,54 @@ class TestLifecycleCommands:
         cmds_str = str(kubectl_cmds)
         assert "scale" in cmds_str
         assert "replicas=0" in cmds_str
+
+    def test_k8s_stop_skips_sts_scale_when_none_exist(self, monkeypatch):
+        # External-DB instances with Elasticsearch disabled have zero
+        # StatefulSets. 'kubectl scale statefulset --all' errors with
+        # "no objects passed to scale" in that case — we must check
+        # first and skip the scale step.
+        kubectl_cmds = []
+
+        def mock_run(cmd, **kw):
+            kubectl_cmds.append(cmd)
+            # "No Argo CD application" + "no statefulsets" scenario
+            if "application" in cmd:
+                return type("R", (), {
+                    "returncode": 1, "stdout": "", "stderr": "not found",
+                })()
+            if "statefulset" in cmd and "-o" in cmd and "name" in cmd:
+                return type("R", (), {
+                    "returncode": 0, "stdout": "", "stderr": "",
+                })()
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("extdb-site", {
+                "path": "/srv/extdb-site",
+                "orchestrator": "kubernetes",
+            }),
+        )
+        args = type("Args", (), {"id": "extdb-site"})()
+        rc = direct_commands.cmd_stop(args)
+        assert rc == 0
+        # Deployment scale must have happened...
+        deployment_scale = [
+            c for c in kubectl_cmds
+            if "scale" in c and "deployment" in c
+        ]
+        assert deployment_scale, "deployment scale should still run"
+        # ... but STS scale must NOT, since 'kubectl get statefulset'
+        # returned no objects.
+        sts_scale = [
+            c for c in kubectl_cmds
+            if "scale" in c and "statefulset" in c
+        ]
+        assert not sts_scale, (
+            "statefulset scale must be skipped when no STS exist "
+            "(would error 'no objects passed to scale')"
+        )
 
     def test_start_runs_up(self, monkeypatch):
         captured_cmds = []

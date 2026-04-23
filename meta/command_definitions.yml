@@ -215,7 +215,7 @@ commands:
     long_description: "Stop Docker containers for a Canasta instance."
     examples:
       - "canasta stop -i mysite"
-    playbook: stop.yml
+    direct_only: true
     parameters:
       - name: id
         short: i
