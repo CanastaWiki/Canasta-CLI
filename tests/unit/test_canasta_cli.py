@@ -39,6 +39,21 @@ class TestBuildParser:
         args = parser.parse_args(["version"])
         assert args.command == "version"
 
+    def test_version_bare(self, parser):
+        args = parser.parse_args(["version"])
+        assert args.id is None
+        assert args.all is False
+
+    def test_version_with_id(self, parser):
+        args = parser.parse_args(["version", "-i", "mysite"])
+        assert args.id == "mysite"
+        assert args.all is False
+
+    def test_version_with_all_flag(self, parser):
+        args = parser.parse_args(["version", "--all"])
+        assert args.id is None
+        assert args.all is True
+
     def test_subcommand_group(self, parser):
         args = parser.parse_args(["config", "get", "-i", "mysite"])
         assert args.command == "config"

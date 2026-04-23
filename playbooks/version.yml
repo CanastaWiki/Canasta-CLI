@@ -4,11 +4,22 @@
 #
 # Commit and build date come from git when running a native checkout,
 # or from BUILD_COMMIT/BUILD_DATE files baked in at Docker image build time.
+#
+# Always reports the target Canasta version (from CANASTA_VERSION) that
+# this CLI was built against. With --id or --all, additionally reports
+# the configured image tag and the actual running Canasta version for
+# those instance(s).
 
 - name: Read version file
   ansible.builtin.slurp:
     src: "{{ playbook_dir }}/VERSION"
   register: _version_file
+
+- name: Read target CANASTA_VERSION file
+  ansible.builtin.slurp:
+    src: "{{ playbook_dir }}/CANASTA_VERSION"
+  register: _canasta_version_file
+  ignore_errors: true
 
 - name: Check for baked-in BUILD_COMMIT (Docker image)
   ansible.builtin.stat:
@@ -65,7 +76,7 @@
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-- name: Resolve commit and date
+- name: Resolve commit, date, and target Canasta version
   ansible.builtin.set_fact:
     _version_commit: >-
       {{ (_build_commit_content.content | default('')
@@ -77,12 +88,80 @@
           | b64decode | trim)
          if _build_commit_file.stat.exists
          else (_git_date.stdout | default('', true) | trim | default('unknown', true)) }}
+    _target_canasta_version: >-
+      {{ (_canasta_version_file.content | default('') | b64decode | trim)
+         if (_canasta_version_file is succeeded and _canasta_version_file.content is defined)
+         else 'unknown' }}
 
-- name: Display version
+- name: Display CLI and target Canasta versions
   ansible.builtin.debug:
-    msg: >-
-      Canasta CLI
-      v{{ _version_file.content | b64decode | trim }}
-      ({{ 'docker' if _build_commit_file.stat.exists else 'native' }},
-      commit {{ _version_commit | default('unknown') }},
-      built {{ _version_date | default('unknown') }})
+    msg:
+      - >-
+        Canasta CLI
+        v{{ _version_file.content | b64decode | trim }}
+        ({{ 'docker' if _build_commit_file.stat.exists else 'native' }},
+        commit {{ _version_commit | default('unknown') }},
+        built {{ _version_date | default('unknown') }})
+      - "Target Canasta version: {{ _target_canasta_version }}"
+
+# --- Optional per-instance image report ---
+
+- name: Report single instance
+  when:
+    - id is defined and id != ''
+    - not (all | default(false) | bool)
+  block:
+    - name: Resolve instance
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+    - name: Read CANASTA_IMAGE from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CANASTA_IMAGE
+      register: _version_inst_image
+
+    - name: Read running Canasta version from container
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: exec.yml
+      vars:
+        exec_command: "cat /tmp/canasta-version 2>/dev/null | sed -n '2p' || true"
+        exec_service: web
+      ignore_errors: true
+
+    - name: Display instance info
+      ansible.builtin.debug:
+        msg: |-
+          Instance '{{ instance_id }}':
+            Configured image: {{ _version_inst_image.value | default('(unset)') }}
+            Running Canasta:  {{ (exec_result.stdout | default('') | trim) | default('(unable to read)', true) }}
+
+- name: Report all instances on current host
+  when: all | default(false) | bool
+  block:
+    - name: Query registry for instances on this host
+      canasta_registry:
+        state: query_all
+        filter_host: "{{ target_host | default('localhost') }}"
+      register: _version_all
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Read CANASTA_IMAGE for each instance
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/common/tasks/read_instance_image.yml
+      loop: "{{ _version_all.instances | default({}) | dict2items }}"
+      loop_control:
+        loop_var: _version_inst
+        label: "{{ _version_inst.key }}"
+
+    - name: Show "no instances" message if registry is empty for this host
+      ansible.builtin.debug:
+        msg: >-
+          No instances registered on
+          {{ target_host | default('localhost') }}.
+      when: (_version_all.instances | default({})) | length == 0

@@ -249,11 +249,25 @@ commands:
 
   - name: version
     description: "Display version information"
-    long_description: "Show Canasta-Ansible version."
+    long_description: |
+      Show Canasta-Ansible CLI version. With --id, also report the
+      image version (CANASTA_IMAGE tag and runtime Canasta version)
+      for the named instance. With --all, report image versions for
+      every registered instance.
     examples:
       - "canasta version"
+      - "canasta version -i mysite"
+      - "canasta version --all"
     playbook: version.yml
-    parameters: []
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Report image version for this instance"
+      - name: all
+        type: bool
+        default: false
+        description: "Report image version for every registered instance"
 
   - name: doctor
     description: "Check target host dependencies"
