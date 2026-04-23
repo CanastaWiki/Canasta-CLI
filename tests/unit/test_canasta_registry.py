@@ -357,6 +357,44 @@ class TestRunModuleCleanup:
         assert result["changed"]
         assert "stale" in result["removed"]
 
+    def test_cleanup_skips_remote_entries(self, tmp_dir):
+        """Remote entries can't be verified from the controller's local
+        filesystem, so the module must skip them and let the caller
+        handle SSH-based probing."""
+        data = {"Instances": {
+            "local_good": {"id": "local_good",
+                           "path": os.path.join(tmp_dir, "local_good"),
+                           "orchestrator": "compose", "host": "localhost"},
+            "local_stale": {"id": "local_stale", "path": "/nonexistent/local",
+                            "orchestrator": "compose", "host": "localhost"},
+            "remote_alive": {"id": "remote_alive", "path": "/srv/canasta/alive",
+                             "orchestrator": "compose",
+                             "host": "wikiworks@prod.example.com"},
+            "remote_unreachable": {"id": "remote_unreachable",
+                                   "path": "/srv/canasta/u",
+                                   "orchestrator": "compose",
+                                   "host": "wikiworks@offline.example.com"},
+        }}
+        os.makedirs(os.path.join(tmp_dir, "local_good"))
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump(data, f)
+        result, failed, _ = run_module_with_params(canasta_registry, {
+            "state": "cleanup", "id": None, "path": None,
+            "orchestrator": "compose", "dev_mode": False,
+            "managed_cluster": False, "registry": None,
+            "kind_cluster": None, "build_from": None,
+            "host": None, "filter_host": None,
+            "config_dir": tmp_dir,
+        })
+        assert not failed
+        # Only the local missing one should be removed
+        assert result["removed"] == ["local_stale"]
+        # Both remote entries should be reported as skipped (to be
+        # handled by the playbook's SSH-aware cleanup)
+        assert sorted(result["skipped_remote"]) == [
+            "remote_alive", "remote_unreachable",
+        ]
+
 
 class TestRunModuleQueryByPath:
     def test_query_by_path(self, sample_config):
