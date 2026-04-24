@@ -337,3 +337,50 @@ class TestUsageLineSkipsWhenNoParams:
         assert "canasta start [flags]" in page
         # Two syntaxhighlight blocks: one for usage, one for examples.
         assert page.count('<syntaxhighlight lang="bash"') == 2
+
+
+class TestBacktickToCode:
+    """MediaWiki doesn't interpret single-backtick inline code (unlike
+    markdown). The publisher translates backticks to <code> tags so
+    readers see inline code on the rendered page, not literal
+    backticks."""
+
+    def test_simple(self):
+        assert wp._backticks_to_code("Use `canasta start`.") == (
+            "Use <code>canasta start</code>."
+        )
+
+    def test_multiple_spans(self):
+        assert wp._backticks_to_code("`a` and `b`") == (
+            "<code>a</code> and <code>b</code>"
+        )
+
+    def test_empty_and_none(self):
+        assert wp._backticks_to_code("") == ""
+        assert wp._backticks_to_code(None) is None
+
+    def test_unpaired_backtick_preserved(self):
+        # Shouldn't swallow an orphan backtick — leave text as-is.
+        assert wp._backticks_to_code("just ` a stray") == "just ` a stray"
+
+    def test_no_span_across_newlines(self):
+        # Rare in practice, but guard the regex: a backtick that opens
+        # on one line shouldn't close on the next.
+        assert wp._backticks_to_code("line one `\nline two`") == (
+            "line one `\nline two`"
+        )
+
+    def test_renders_in_command_page(self):
+        """End-to-end check: long_description with backticks lands in
+        the generated page as <code> tags, not as literal backticks."""
+        page = wp.gen_wikitext({
+            "name": "start",
+            "description": "Start",
+            "long_description": "Use `canasta start` to boot the stack.",
+            "parameters": [{"name": "id", "short": "i",
+                            "type": "string",
+                            "description": "Canasta instance ID"}],
+        })
+        assert "<code>canasta start</code>" in page
+        # And the literal backtick-wrapped form should not appear.
+        assert "`canasta start`" not in page
