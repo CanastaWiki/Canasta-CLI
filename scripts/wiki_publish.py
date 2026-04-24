@@ -115,8 +115,13 @@ def cmd_page_title(internal_name):
     return PAGE_PREFIX + "canasta " + cmd_display_name(internal_name)
 
 
-def gen_wikitext(cmd):
-    """Generate wikitext for a single command page."""
+def gen_wikitext(cmd, global_flags=None):
+    """Generate wikitext for a single command page.
+
+    If global_flags is provided, a 'Global Flags' section is emitted
+    after the command's own flag table, listing flags inherited by
+    every command (e.g. --help, --verbose).
+    """
     name = cmd["name"]
     display = "canasta " + cmd_display_name(name)
     lines = []
@@ -235,6 +240,35 @@ def gen_wikitext(cmd):
             )
         lines.append("")
 
+    if global_flags:
+        lines.append("=== Global Flags ===")
+        lines.append("")
+        lines.append('{| class="wikitable"')
+        lines.append(
+            "! Flag !! Shorthand !! Description "
+            "!! Default !! style=\"text-align:center\" | Required"
+        )
+        for p in sorted(global_flags, key=lambda x: x["name"]):
+            flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
+            short = ""
+            if p.get("short"):
+                short = "<code>-%s</code>" % p["short"]
+            desc = p.get("description", "")
+            default = ""
+            if p.get("default") not in (None, "", False, 0):
+                default = "<code>%s</code>" % p["default"]
+            required = ""
+            if p.get("required"):
+                required = "✓"
+            lines.append("|-")
+            lines.append(
+                "| %s || %s || %s || %s "
+                '|| style="text-align:center" | %s'
+                % (flag, short, desc, default, required)
+            )
+        lines.append("|}")
+        lines.append("")
+
     lines.append("{{Reference Manual}}")
     return "\n".join(lines)
 
@@ -291,9 +325,13 @@ def generate_all_pages(data):
     # Per-command pages — parent_path arg retained for back-compat,
     # but gen_wikitext now derives the breadcrumb chain itself via
     # _ancestors() so nested subcommands render correctly.
+    global_flags = data.get("global_flags", [])
     for cmd in data["commands"]:
         name = cmd["name"]
-        pages.append((cmd_page_title(name), gen_wikitext(cmd)))
+        pages.append((
+            cmd_page_title(name),
+            gen_wikitext(cmd, global_flags=global_flags),
+        ))
 
     # Menu page
     menu_lines = ["* # | Canasta CLI Reference"]

@@ -17,6 +17,14 @@
 #   positional        - Accepted as positional argument(s), not a flag
 
 global_flags:
+  # --help/-h is provided automatically by argparse on every parser;
+  # listed here so wiki_publish.py renders it in the Global Flags
+  # section of every command page. No argparse wiring reads this entry.
+  - name: help
+    short: h
+    type: bool
+    default: false
+    description: "Show help message and exit"
   - name: verbose
     short: v
     type: bool
