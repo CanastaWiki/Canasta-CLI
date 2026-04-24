@@ -204,7 +204,8 @@ def gen_wikitext(cmd, global_flags=None):
         lines.append('{| class="wikitable"')
         lines.append(
             "! Flag !! Shorthand !! Description "
-            "!! Default !! style=\"text-align:center\" | Required"
+            "!! style=\"text-align:center\" | Default "
+            "!! style=\"text-align:center\" | Required"
         )
         # Non-required -i flags that simply select an instance get an
         # asterisk in the Default column pointing to a footnote about
@@ -227,7 +228,8 @@ def gen_wikitext(cmd, global_flags=None):
                 show_cwd_note = True
             lines.append("|-")
             lines.append(
-                "| %s || %s || %s || %s "
+                "| %s || %s || %s "
+                '|| style="text-align:center" | %s '
                 '|| style="text-align:center" | %s'
                 % (flag, short, desc, default, required)
             )
@@ -246,7 +248,8 @@ def gen_wikitext(cmd, global_flags=None):
         lines.append('{| class="wikitable"')
         lines.append(
             "! Flag !! Shorthand !! Description "
-            "!! Default !! style=\"text-align:center\" | Required"
+            "!! style=\"text-align:center\" | Default "
+            "!! style=\"text-align:center\" | Required"
         )
         for p in sorted(global_flags, key=lambda x: x["name"]):
             flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
@@ -262,7 +265,8 @@ def gen_wikitext(cmd, global_flags=None):
                 required = "✓"
             lines.append("|-")
             lines.append(
-                "| %s || %s || %s || %s "
+                "| %s || %s || %s "
+                '|| style="text-align:center" | %s '
                 '|| style="text-align:center" | %s'
                 % (flag, short, desc, default, required)
             )
