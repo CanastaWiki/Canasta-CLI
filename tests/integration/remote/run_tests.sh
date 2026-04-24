@@ -117,7 +117,7 @@ echo ""
 
 # --- Test 1: Create with -H ---
 echo "Test 1: canasta create with -H"
-if canasta -H "${REMOTE_HOST}" create -i "${INSTANCE_ID}" -w main -n localhost -p "${CANASTA_TEST_DATA}" 2>&1; then
+if canasta create -H "${REMOTE_HOST}" -i "${INSTANCE_ID}" -w main -n localhost -p "${CANASTA_TEST_DATA}" 2>&1; then
     pass "create with -H"
 else
     fail "create with -H"

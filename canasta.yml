@@ -5,7 +5,7 @@
 #   ansible-playbook canasta.yml -e "command=create id=mysite wiki=mywiki"
 #   ansible-playbook canasta.yml -e "command=start id=mysite target_host=prod1.example.com" --limit prod1.example.com
 #   ./canasta create --id mysite --wiki mywiki
-#   ./canasta --host prod1.example.com start --id mysite
+#   ./canasta create --host prod1.example.com --id mysite --wiki mywiki
 #
 - name: Canasta
   hosts: "{{ target_host | default('localhost') }}"
