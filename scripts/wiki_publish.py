@@ -47,23 +47,14 @@ def load_definitions():
 # --- Wikitext generation ---
 
 # Subcommand hierarchy for menu and page structure
-SUBCOMMAND_GROUPS = {
-    "config": ["get", "set", "unset"],
-    "extension": ["list", "enable", "disable"],
-    "skin": ["list", "enable", "disable"],
-    "maintenance": ["update", "script", "extension", "exec"],
-    "devmode": ["enable", "disable"],
-    "sitemap": ["generate", "remove"],
-    "backup": [
-        "init", "list", "create", "restore", "delete",
-        "unlock", "files", "check", "diff", "purge",
-        "schedule_set", "schedule_list", "schedule_remove",
-    ],
-    "gitops": [
-        "init", "join", "add", "rm", "push", "pull",
-        "status", "diff", "fix_submodules",
-    ],
-}
+# Import the live group definitions from canasta.py so this stays in
+# lockstep with the CLI itself — drifted local copies are how the
+# 'gitops fix-submodules' page-name bug crept in.
+sys.path.insert(0, REPO_ROOT)
+import canasta as _canasta  # noqa: E402
+
+SUBCOMMAND_GROUPS = _canasta.SUBCOMMAND_GROUPS
+NESTED_SUBCOMMAND_GROUPS = _canasta.NESTED_SUBCOMMAND_GROUPS
 
 CMD_GROUPS = [
     ("Instance Management", [
@@ -76,36 +67,82 @@ CMD_GROUPS = [
     ("Maintenance", ["maintenance", "sitemap"]),
     ("Data Protection", ["backup", "gitops"]),
     ("Development", ["devmode"]),
+    ("Multi-host", ["host"]),
+    ("Storage", ["storage"]),
+    ("System", ["install", "uninstall"]),
 ]
 
 
+def _build_display_name_map():
+    """Build internal_name -> display_name map preserving hyphenated subcommands.
+
+    The CLI uses hyphenated subcommand names like 'fix-submodules', but
+    command_definitions.yml stores them with underscores ('gitops_fix_submodules')
+    because YAML keys can't contain hyphens cleanly. The display name
+    in the wiki must match what the user types: 'gitops fix-submodules',
+    not 'gitops fix submodules'.
+    """
+    display_map = {}
+    for group, subs in SUBCOMMAND_GROUPS.items():
+        for sub in subs:
+            internal = "%s_%s" % (group, sub.replace("-", "_"))
+            display_map[internal] = "%s %s" % (group, sub)
+    for group, subgroups in NESTED_SUBCOMMAND_GROUPS.items():
+        for subgroup, subs in subgroups.items():
+            for sub in subs:
+                internal = "%s_%s_%s" % (
+                    group, subgroup, sub.replace("-", "_"),
+                )
+                display_map[internal] = "%s %s %s" % (group, subgroup, sub)
+    return display_map
+
+
+_DISPLAY_NAMES = _build_display_name_map()
+
+
 def cmd_display_name(internal_name):
-    """Convert internal name to display: config_get -> config get."""
+    """Convert internal name to display name (preserves hyphenated subcommands)."""
+    if internal_name in _DISPLAY_NAMES:
+        return _DISPLAY_NAMES[internal_name]
     return internal_name.replace("_", " ")
 
 
 def cmd_page_title(internal_name):
-    """Convert to wiki page title: config_get -> canasta_config_get."""
-    return PAGE_PREFIX + "canasta_" + internal_name
+    """Convert to wiki page title: 'config_get' -> 'CLI:canasta config get'.
+
+    Uses display_name semantics so hyphenated subcommands like
+    'fix-submodules' produce 'CLI:canasta gitops fix-submodules', not
+    'CLI:canasta gitops fix submodules' (which would be a different
+    MediaWiki page).
+    """
+    return PAGE_PREFIX + "canasta " + cmd_display_name(internal_name)
 
 
-def gen_wikitext(cmd, parent_path=None):
+def gen_wikitext(cmd):
     """Generate wikitext for a single command page."""
     name = cmd["name"]
     display = "canasta " + cmd_display_name(name)
     lines = []
 
-    # Breadcrumb
-    if parent_path:
-        parent_link = "[[%s|%s]]" % (
-            cmd_page_title(parent_path),
-            "canasta " + cmd_display_name(parent_path),
+    # Breadcrumb. The link chain walks ancestors from the root
+    # 'canasta' page down to the direct parent; the terminal segment
+    # is the leaf name (with parent prefix stripped, so e.g.
+    # 'fix-submodules' instead of 'gitops fix-submodules' on the
+    # gitops_fix_submodules page). Always shown except on the root.
+    crumbs = ["[[%s|canasta]]" % (PAGE_PREFIX + "canasta")]
+    ancestors = _ancestors(name)
+    for anc in ancestors:
+        crumbs.append(
+            "[[%s|%s]]" % (cmd_page_title(anc), cmd_display_name(anc))
         )
-        lines.append(
-            "[[%s|canasta]] > %s > %s"
-            % (PAGE_PREFIX + "canasta", parent_link, name.split("_")[-1])
-        )
-        lines.append("")
+    leaf = display[len("canasta "):]
+    if ancestors:
+        parent_disp = cmd_display_name(ancestors[-1])
+        if leaf.startswith(parent_disp + " "):
+            leaf = leaf[len(parent_disp) + 1:]
+    crumbs.append(leaf)
+    lines.append(" > ".join(crumbs))
+    lines.append("")
 
     lines.append("== %s ==" % display)
     lines.append("")
@@ -119,18 +156,14 @@ def gen_wikitext(cmd, parent_path=None):
         lines.append(long_desc.strip())
         lines.append("")
 
-    # Usage line
-    usage_parts = [display]
-    for p in cmd.get("parameters", []):
-        flag = "--" + p["name"].replace("_", "-")
-        if p.get("positional"):
-            usage_parts.append("[%s]" % p["name"].upper())
-        elif p.get("required"):
-            usage_parts.append("%s <%s>" % (flag, p["name"].upper()))
-        else:
-            usage_parts.append("[%s <%s>]" % (flag, p["name"].upper()))
+    # Usage line — match the live wiki's compact form ('canasta create
+    # [flags]') instead of an inline listing of every option. The
+    # detailed flag table below is the authoritative reference.
     lines.append("<syntaxhighlight lang=\"bash\">")
-    lines.append(" ".join(usage_parts))
+    if cmd.get("parameters"):
+        lines.append("%s [flags]" % display)
+    else:
+        lines.append(display)
     lines.append("</syntaxhighlight>")
     lines.append("")
 
@@ -139,26 +172,29 @@ def gen_wikitext(cmd, parent_path=None):
         lines.append("=== Subcommands ===")
         lines.append("")
         for sub in SUBCOMMAND_GROUPS[name]:
-            internal = "%s_%s" % (name, sub)
-            sub_display = sub.replace("_", " ")
+            # 'sub' is the user-facing name (may contain hyphens like
+            # 'fix-submodules'); convert to underscore form to find the
+            # internal command_definitions.yml entry.
+            internal = "%s_%s" % (name, sub.replace("-", "_"))
             link = cmd_page_title(internal)
-            lines.append(
-                "* [[%s|%s]] — see page" % (link, sub_display)
-            )
+            lines.append("* [[%s|%s]] — see page" % (link, sub))
         lines.append("")
 
-    # Examples
+    # Examples — copy=1 enables the per-block copy-to-clipboard button
+    # the live wiki uses on its example blocks.
     examples = cmd.get("examples", [])
     if examples:
         lines.append("=== Examples ===")
         lines.append("")
-        lines.append("<syntaxhighlight lang=\"bash\">")
+        lines.append("<syntaxhighlight lang=\"bash\" copy=1>")
         for ex in examples:
             lines.append(ex)
         lines.append("</syntaxhighlight>")
         lines.append("")
 
-    # Flags table
+    # Flags table — alphabetized by flag name so readers can scan
+    # quickly. Definition order in command_definitions.yml is convenient
+    # for authors but unhelpful when there are 30+ flags.
     params = cmd.get("parameters", [])
     if params:
         lines.append("=== Flags ===")
@@ -168,7 +204,7 @@ def gen_wikitext(cmd, parent_path=None):
             "! Flag !! Shorthand !! Description "
             "!! Default !! style=\"text-align:center\" | Required"
         )
-        for p in params:
+        for p in sorted(params, key=lambda x: x["name"]):
             flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
             short = ""
             if p.get("short"):
@@ -191,6 +227,28 @@ def gen_wikitext(cmd, parent_path=None):
 
     lines.append("{{Reference Manual}}")
     return "\n".join(lines)
+
+
+def _ancestors(internal_name):
+    """Return list of ancestor internal names (outermost to direct parent).
+
+    Examples:
+      'create'                 -> []
+      'config_get'             -> ['config']
+      'gitops_fix_submodules'  -> ['gitops']
+      'backup_schedule_set'    -> ['backup', 'backup_schedule']
+      'storage_setup_nfs'      -> ['storage', 'storage_setup']
+    """
+    parts = internal_name.split("_")
+    if len(parts) < 2:
+        return []
+    if parts[0] in NESTED_SUBCOMMAND_GROUPS:
+        nested = NESTED_SUBCOMMAND_GROUPS[parts[0]]
+        if len(parts) >= 3 and parts[1] in nested:
+            return [parts[0], "%s_%s" % (parts[0], parts[1])]
+    if parts[0] in SUBCOMMAND_GROUPS:
+        return [parts[0]]
+    return []
 
 
 def generate_all_pages(data):
@@ -220,34 +278,42 @@ def generate_all_pages(data):
     root_lines.append("{{Reference Manual}}")
     pages.append((PAGE_PREFIX + "canasta", "\n".join(root_lines)))
 
-    # Per-command pages
+    # Per-command pages — parent_path arg retained for back-compat,
+    # but gen_wikitext now derives the breadcrumb chain itself via
+    # _ancestors() so nested subcommands render correctly.
     for cmd in data["commands"]:
         name = cmd["name"]
-        # Determine parent for breadcrumb
-        parent = None
-        if "_" in name:
-            parts = name.split("_")
-            if parts[0] in SUBCOMMAND_GROUPS:
-                parent = parts[0]
-        pages.append((cmd_page_title(name), gen_wikitext(cmd, parent)))
+        pages.append((cmd_page_title(name), gen_wikitext(cmd)))
 
     # Menu page
-    menu_lines = ["* # | Canasta-Ansible Reference"]
+    menu_lines = ["* # | Canasta CLI Reference"]
     for heading, names in CMD_GROUPS:
         menu_lines.append("** # | %s" % heading)
         for name in names:
-            if name not in cmd_index:
+            # CMD_GROUPS entries can be either leaf commands (in
+            # cmd_index) or subcommand-group keys (in SUBCOMMAND_GROUPS,
+            # but not standalone in command_definitions.yml). Render
+            # both: leaf commands as a single line, group keys as a
+            # parent header (linking the hand-curated CLI:canasta <group>
+            # page) followed by per-subcommand links.
+            if name in cmd_index:
+                link = cmd_page_title(name)
+                menu_lines.append("*** %s | canasta %s" % (link, name))
+            elif name in SUBCOMMAND_GROUPS:
+                # Synthetic group page (hand-curated, not auto-generated).
+                menu_lines.append(
+                    "*** %s | canasta %s"
+                    % (PAGE_PREFIX + "canasta " + name, name)
+                )
+            else:
                 continue
-            link = cmd_page_title(name)
-            menu_lines.append("*** %s | canasta %s" % (link, name))
             if name in SUBCOMMAND_GROUPS:
                 for sub in SUBCOMMAND_GROUPS[name]:
-                    internal = "%s_%s" % (name, sub)
-                    sub_display = sub.replace("_", " ")
+                    internal = "%s_%s" % (name, sub.replace("-", "_"))
                     sub_link = cmd_page_title(internal)
                     menu_lines.append(
                         "**** %s | canasta %s %s"
-                        % (sub_link, name, sub_display)
+                        % (sub_link, name, sub)
                     )
     pages.append((
         "MediaWiki:Menu-cli-reference",
