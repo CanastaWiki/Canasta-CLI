@@ -201,16 +201,16 @@ accepted on first connection.
 
 ```bash
 # Add a host (stored in $CANASTA_CONFIG_DIR/hosts.yml)
-canasta host add prod1 --ssh ubuntu@prod1.example.com
+canasta host add --name prod1 --ssh ubuntu@prod1.example.com
 
 # With a custom Python interpreter
-canasta host add prod2 --ssh canasta@10.0.0.5 --python /usr/bin/python3
+canasta host add --name prod2 --ssh canasta@10.0.0.5 --python /usr/bin/python3
 
 # List saved hosts
 canasta host list
 
 # Remove a host
-canasta host remove prod1
+canasta host remove --name prod1
 ```
 
 After adding, use the short name:
@@ -398,9 +398,9 @@ and known limitations.
 
 | Command | Description |
 |---------|-------------|
-| `canasta host add NAME --ssh user@host` | Save a host definition for `--host NAME` |
+| `canasta host add --name NAME --ssh user@host` | Save a host definition for `--host NAME` |
 | `canasta host list` | List saved hosts |
-| `canasta host remove NAME` | Remove a saved host |
+| `canasta host remove --name NAME` | Remove a saved host |
 
 ### Development
 
