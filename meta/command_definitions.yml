@@ -37,8 +37,8 @@ commands:
       Create a new Canasta MediaWiki instance. Generates configuration files,
       starts the containers, and runs the MediaWiki installer.
     examples:
-      - "canasta create -i mysite -w main -n example.com"
-      - "canasta create -i mysite -w main -d /path/to/dump.sql"
+      - "canasta create -w main -n example.com"
+      - "canasta create -w main -d /path/to/dump.sql"
     playbook: create.yml
     parameters:
       - name: path
@@ -184,7 +184,7 @@ commands:
       the instance is resolved by matching the current directory against the
       registry.
     examples:
-      - "canasta delete -i mysite -y"
+      - "canasta delete -y"
       - "cd /path/to/instance && canasta delete -y"
     playbook: delete.yml
     parameters:
@@ -202,7 +202,7 @@ commands:
     description: "Start a Canasta instance"
     long_description: "Start Docker containers for a Canasta instance."
     examples:
-      - "canasta start -i mysite"
+      - "canasta start"
     playbook: start.yml
     parameters:
       - name: id
@@ -214,7 +214,7 @@ commands:
     description: "Stop a Canasta instance"
     long_description: "Stop Docker containers for a Canasta instance."
     examples:
-      - "canasta stop -i mysite"
+      - "canasta stop"
     direct_only: true
     parameters:
       - name: id
@@ -226,7 +226,7 @@ commands:
     description: "Restart a Canasta instance"
     long_description: "Restart Docker containers for a Canasta instance."
     examples:
-      - "canasta restart -i mysite"
+      - "canasta restart"
     playbook: restart.yml
     parameters:
       - name: id
@@ -275,7 +275,7 @@ commands:
       every registered instance.
     examples:
       - "canasta version"
-      - "canasta version -i mysite"
+      - "canasta version"
       - "canasta version --all"
     direct_only: true
     parameters:
@@ -366,7 +366,7 @@ commands:
     long_description: |
       Add a new wiki to an existing Canasta instance (wiki farm).
     examples:
-      - "canasta add -i mysite -w docs -u localhost/docs"
+      - "canasta add -w docs -u localhost/docs"
     playbook: add.yml
     parameters:
       - name: id
@@ -414,7 +414,7 @@ commands:
       Remove a wiki from a Canasta instance. Drops the wiki database
       and removes per-wiki configuration.
     examples:
-      - "canasta remove -i mysite -w docs -y"
+      - "canasta remove -w docs -y"
     playbook: remove.yml
     parameters:
       - name: id
@@ -437,7 +437,7 @@ commands:
     long_description: |
       Import a SQL dump into an existing wiki's database.
     examples:
-      - "canasta import -i mysite -w main -d dump.sql"
+      - "canasta import -w main -d dump.sql"
     playbook: import.yml
     parameters:
       - name: id
@@ -464,8 +464,8 @@ commands:
     long_description: |
       Export a wiki's database as a SQL dump file.
     examples:
-      - "canasta export -i mysite -w main"
-      - "canasta export -i mysite -w main -f backup.sql.gz"
+      - "canasta export -w main"
+      - "canasta export -w main -f backup.sql.gz"
     playbook: export.yml
     parameters:
       - name: id
@@ -492,9 +492,9 @@ commands:
       With no keys, prints all settings. With one or more keys,
       prints just those values.
     examples:
-      - "canasta config get -i mysite"
-      - "canasta config get -i mysite MW_SITE_SERVER"
-      - "canasta config get -i mysite MW_SITE_SERVER HTTPS_PORT"
+      - "canasta config get"
+      - "canasta config get MW_SITE_SERVER"
+      - "canasta config get MW_SITE_SERVER HTTPS_PORT"
     direct_only: true
     parameters:
       - name: id
@@ -519,7 +519,7 @@ commands:
       Handles side effects automatically (e.g. updating wikis.yaml when
       changing HTTPS_PORT).
     examples:
-      - "canasta config set -i mysite MW_SITE_SERVER=https://example.com"
+      - "canasta config set MW_SITE_SERVER=https://example.com"
     playbook: config_set.yml
     parameters:
       - name: id
@@ -550,7 +550,7 @@ commands:
       after any manual edit that left rendered state drifted from the
       canonical sources.
     examples:
-      - "canasta config regenerate -i mysite"
+      - "canasta config regenerate"
     playbook: config_regenerate.yml
     parameters:
       - name: id
@@ -563,7 +563,7 @@ commands:
     long_description: |
       Remove one or more configuration keys from the instance .env file.
     examples:
-      - "canasta config unset -i mysite MW_SITE_SERVER"
+      - "canasta config unset MW_SITE_SERVER"
     playbook: config_unset.yml
     parameters:
       - name: id
@@ -592,7 +592,7 @@ commands:
     description: "List installed extensions"
     long_description: "List all extensions available in the Canasta instance."
     examples:
-      - "canasta extension list -i mysite"
+      - "canasta extension list"
     playbook: extension_list.yml
     parameters:
       - name: id
@@ -609,7 +609,7 @@ commands:
     long_description: |
       Enable one or more MediaWiki extensions. Runs update.php by default.
     examples:
-      - "canasta extension enable -i mysite VisualEditor,Cite"
+      - "canasta extension enable VisualEditor,Cite"
     playbook: extension_enable.yml
     parameters:
       - name: id
@@ -634,7 +634,7 @@ commands:
     description: "Disable extensions"
     long_description: "Disable one or more MediaWiki extensions."
     examples:
-      - "canasta extension disable -i mysite VisualEditor"
+      - "canasta extension disable VisualEditor"
     playbook: extension_disable.yml
     parameters:
       - name: id
@@ -658,7 +658,7 @@ commands:
     description: "List installed skins"
     long_description: "List all skins available in the Canasta instance."
     examples:
-      - "canasta skin list -i mysite"
+      - "canasta skin list"
     playbook: skin_list.yml
     parameters:
       - name: id
@@ -675,7 +675,7 @@ commands:
     long_description: |
       Enable one or more MediaWiki skins. Runs update.php by default.
     examples:
-      - "canasta skin enable -i mysite Timeless"
+      - "canasta skin enable Timeless"
     playbook: skin_enable.yml
     parameters:
       - name: id
@@ -700,7 +700,7 @@ commands:
     description: "Disable skins"
     long_description: "Disable one or more MediaWiki skins."
     examples:
-      - "canasta skin disable -i mysite Timeless"
+      - "canasta skin disable Timeless"
     playbook: skin_disable.yml
     parameters:
       - name: id
@@ -726,8 +726,8 @@ commands:
       Run standard MediaWiki maintenance: update.php, runJobs.php,
       and Semantic MediaWiki rebuildData.php.
     examples:
-      - "canasta maintenance update -i mysite"
-      - "canasta maintenance update -i mysite -w mywiki --skip-jobs"
+      - "canasta maintenance update"
+      - "canasta maintenance update -w mywiki --skip-jobs"
     playbook: maintenance_update.yml
     parameters:
       - name: id
@@ -751,7 +751,7 @@ commands:
     description: "Run a MediaWiki maintenance script"
     long_description: "Run an arbitrary MediaWiki core maintenance script."
     examples:
-      - "canasta maintenance script -i mysite -- rebuildall.php"
+      - "canasta maintenance script -- rebuildall.php"
     playbook: maintenance_script.yml
     parameters:
       - name: id
@@ -771,7 +771,7 @@ commands:
     description: "Run extension maintenance scripts"
     long_description: "Run extension-specific maintenance scripts."
     examples:
-      - "canasta maintenance extension -i mysite"
+      - "canasta maintenance extension"
     playbook: maintenance_extension.yml
     parameters:
       - name: id
@@ -795,8 +795,8 @@ commands:
       With no arguments and no --service flag, lists the running services.
       The default service is "web" (the MediaWiki container).
     examples:
-      - "canasta maintenance exec -i mysite -- ls /var/www/mediawiki"
-      - "canasta maintenance exec -i mysite -s db -- mariadb-admin ping -h localhost"
+      - "canasta maintenance exec -- ls /var/www/mediawiki"
+      - "canasta maintenance exec -s db -- mariadb-admin ping -h localhost"
     playbook: maintenance_exec.yml
     parameters:
       - name: id
@@ -825,7 +825,7 @@ commands:
       Enable development mode on a Canasta instance. Extracts MediaWiki code
       for live editing and builds an Xdebug-enabled image. Docker Compose only.
     examples:
-      - "canasta devmode enable -i mysite"
+      - "canasta devmode enable"
     playbook: devmode_enable.yml
     parameters:
       - name: id
@@ -839,7 +839,7 @@ commands:
       Disable development mode. Restores extensions and skins as real
       directories and removes Xdebug.
     examples:
-      - "canasta devmode disable -i mysite"
+      - "canasta devmode disable"
     playbook: devmode_disable.yml
     parameters:
       - name: id
@@ -854,8 +854,8 @@ commands:
     description: "Generate XML sitemaps"
     long_description: "Generate XML sitemaps for one or all wikis."
     examples:
-      - "canasta sitemap generate -i mysite"
-      - "canasta sitemap generate -i mysite -w mywiki"
+      - "canasta sitemap generate"
+      - "canasta sitemap generate -w mywiki"
     playbook: sitemap_generate.yml
     parameters:
       - name: id
@@ -871,7 +871,7 @@ commands:
     description: "Remove XML sitemaps"
     long_description: "Remove XML sitemaps for one or all wikis."
     examples:
-      - "canasta sitemap remove -i mysite"
+      - "canasta sitemap remove"
     playbook: sitemap_remove.yml
     parameters:
       - name: id
@@ -890,7 +890,7 @@ commands:
     description: "Initialize a backup repository"
     long_description: "Initialize a new Restic backup repository for a Canasta instance."
     examples:
-      - "canasta backup init -i mysite"
+      - "canasta backup init"
     playbook: backup_init.yml
     parameters:
       - name: id
@@ -902,7 +902,7 @@ commands:
     description: "List backup snapshots"
     long_description: "List all snapshots in the backup repository."
     examples:
-      - "canasta backup list -i mysite"
+      - "canasta backup list"
     playbook: backup_list.yml
     parameters:
       - name: id
@@ -916,7 +916,7 @@ commands:
       Create a backup snapshot. Dumps all wiki databases, stages
       config/extensions/images/skins, and uploads to the repository.
     examples:
-      - "canasta backup create -i mysite -t before-upgrade"
+      - "canasta backup create -t before-upgrade"
     playbook: backup_create.yml
     parameters:
       - name: id
@@ -933,7 +933,7 @@ commands:
     description: "Restore from a backup"
     long_description: "Restore a Canasta instance from a backup snapshot."
     examples:
-      - "canasta backup restore -i mysite -s abc123"
+      - "canasta backup restore -s abc123"
     playbook: backup_restore.yml
     parameters:
       - name: id
@@ -958,7 +958,7 @@ commands:
     description: "Delete a backup snapshot"
     long_description: "Delete a specific snapshot from the backup repository."
     examples:
-      - "canasta backup delete -i mysite -s abc123"
+      - "canasta backup delete -s abc123"
     playbook: backup_delete.yml
     parameters:
       - name: id
@@ -975,7 +975,7 @@ commands:
     description: "Unlock the backup repository"
     long_description: "Unlock a backup repository (needed if a previous backup was interrupted)."
     examples:
-      - "canasta backup unlock -i mysite"
+      - "canasta backup unlock"
     playbook: backup_unlock.yml
     parameters:
       - name: id
@@ -987,7 +987,7 @@ commands:
     description: "List files in a backup snapshot"
     long_description: "List all files contained in a specific backup snapshot."
     examples:
-      - "canasta backup files -i mysite -s abc123"
+      - "canasta backup files -s abc123"
     playbook: backup_files.yml
     parameters:
       - name: id
@@ -1004,7 +1004,7 @@ commands:
     description: "Verify backup repository integrity"
     long_description: "Verify the integrity of the backup repository."
     examples:
-      - "canasta backup check -i mysite"
+      - "canasta backup check"
     playbook: backup_check.yml
     parameters:
       - name: id
@@ -1016,7 +1016,7 @@ commands:
     description: "Compare two backup snapshots"
     long_description: "Show the differences between two backup snapshots."
     examples:
-      - "canasta backup diff -i mysite -s snap1 --snapshot2 snap2"
+      - "canasta backup diff -s snap1 --snapshot2 snap2"
     playbook: backup_diff.yml
     parameters:
       - name: id
@@ -1037,8 +1037,8 @@ commands:
     description: "Purge old backups"
     long_description: "Remove old backups based on retention policies."
     examples:
-      - "canasta backup purge -i mysite --keep-last 5"
-      - "canasta backup purge -i mysite --older-than 30d"
+      - "canasta backup purge --keep-last 5"
+      - "canasta backup purge --older-than 30d"
     playbook: backup_purge.yml
     parameters:
       - name: id
@@ -1065,7 +1065,7 @@ commands:
     description: "Set a backup schedule"
     long_description: "Set a recurring backup schedule using a cron expression."
     examples:
-      - "canasta backup schedule set -i mysite '0 2 * * *'"
+      - "canasta backup schedule set '0 2 * * *'"
     playbook: backup_schedule_set.yml
     parameters:
       - name: id
@@ -1085,7 +1085,7 @@ commands:
     description: "Show the backup schedule"
     long_description: "Show the current backup schedule for a Canasta instance."
     examples:
-      - "canasta backup schedule list -i mysite"
+      - "canasta backup schedule list"
     playbook: backup_schedule_list.yml
     parameters:
       - name: id
@@ -1097,7 +1097,7 @@ commands:
     description: "Remove the backup schedule"
     long_description: "Remove the scheduled backup for a Canasta instance."
     examples:
-      - "canasta backup schedule remove -i mysite"
+      - "canasta backup schedule remove"
     playbook: backup_schedule_remove.yml
     parameters:
       - name: id
@@ -1114,7 +1114,7 @@ commands:
       Bootstrap git-based configuration management. Converts extensions
       and skins to submodules and pushes to a remote repository.
     examples:
-      - "canasta gitops init -i mysite -n prod --repo git@github.com:org/config.git --key /tmp/gc.key"
+      - "canasta gitops init -n prod --repo git@github.com:org/config.git --key /tmp/gc.key"
     playbook: gitops_init.yml
     parameters:
       - name: id
@@ -1159,7 +1159,7 @@ commands:
     description: "Join an existing gitops repository"
     long_description: "Join an existing git-based configuration repository."
     examples:
-      - "canasta gitops join -i mysite -n staging --repo git@github.com:org/config.git --key /tmp/gc.key"
+      - "canasta gitops join -n staging --repo git@github.com:org/config.git --key /tmp/gc.key"
     playbook: gitops_join.yml
     parameters:
       - name: id
@@ -1194,8 +1194,8 @@ commands:
       path is given, stage just that path. Without a path, stage all
       changes under the config directory (existing behavior).
     examples:
-      - "canasta gitops add -i mysite extensions/WikiWorks/LocalSettings.php"
-      - "canasta gitops add -i mysite"
+      - "canasta gitops add extensions/WikiWorks/LocalSettings.php"
+      - "canasta gitops add"
     playbook: gitops_add.yml
     parameters:
       - name: id
@@ -1214,8 +1214,8 @@ commands:
       given, delete that file and stage the deletion. Without a path,
       stage all pending deletions (files already deleted from disk).
     examples:
-      - "canasta gitops rm -i mysite public_assets/main/.htaccess"
-      - "canasta gitops rm -i mysite"
+      - "canasta gitops rm public_assets/main/.htaccess"
+      - "canasta gitops rm"
     playbook: gitops_rm.yml
     parameters:
       - name: id
@@ -1231,8 +1231,8 @@ commands:
     description: "Push configuration changes"
     long_description: "Push configuration changes to the remote gitops repository."
     examples:
-      - "canasta gitops push -i mysite"
-      - "canasta gitops push -i mysite -m 'Add docs wiki'"
+      - "canasta gitops push"
+      - "canasta gitops push -m 'Add docs wiki'"
     playbook: gitops_push.yml
     parameters:
       - name: id
@@ -1248,7 +1248,7 @@ commands:
     description: "Pull configuration changes"
     long_description: "Pull configuration changes from the remote gitops repository."
     examples:
-      - "canasta gitops pull -i mysite"
+      - "canasta gitops pull"
     playbook: gitops_pull.yml
     parameters:
       - name: id
@@ -1260,7 +1260,7 @@ commands:
     description: "Show gitops status"
     long_description: "Show the git status of the configuration directory."
     examples:
-      - "canasta gitops status -i mysite"
+      - "canasta gitops status"
     direct_only: true
     parameters:
       - name: id
@@ -1272,7 +1272,7 @@ commands:
     description: "Show gitops diff"
     long_description: "Show differences in the configuration directory."
     examples:
-      - "canasta gitops diff -i mysite"
+      - "canasta gitops diff"
     playbook: gitops_diff.yml
     parameters:
       - name: id
@@ -1284,7 +1284,7 @@ commands:
     description: "Fix gitops submodules"
     long_description: "Fix submodule registration after adding extensions."
     examples:
-      - "canasta gitops fix-submodules -i mysite"
+      - "canasta gitops fix-submodules"
     playbook: gitops_fix_submodules.yml
     parameters:
       - name: id
@@ -1299,7 +1299,7 @@ commands:
       repository, rather than waiting for the next automatic sync interval.
       On Docker Compose instances this command has no effect.
     examples:
-      - "canasta gitops sync -i mysite"
+      - "canasta gitops sync"
     playbook: gitops_sync.yml
     parameters:
       - name: id
