@@ -187,3 +187,55 @@ class TestCwdResolutionFootnote:
         # footnote via some bug unrelated to the -i param.
         page = self._page_for("doctor")
         assert "matching the current directory" not in page
+
+
+class TestGlobalFlagsSection:
+    """Every command page should carry a 'Global Flags' section listing
+    flags inherited by all commands (currently --help and --verbose).
+    The section is rendered from data['global_flags'] in the YAML so
+    there's a single source of truth for what readers see."""
+
+    def _pages(self):
+        data = wp.load_definitions()
+        return dict(wp.generate_all_pages(data))
+
+    def test_every_command_page_has_global_flags_section(self):
+        pages = self._pages()
+        missing = []
+        for title, content in pages.items():
+            if not title.startswith(wp.PAGE_PREFIX + "canasta"):
+                continue
+            if title == wp.PAGE_PREFIX + "canasta":
+                continue  # root page has no flag table
+            if "=== Global Flags ===" not in content:
+                missing.append(title)
+        assert not missing, (
+            "pages missing Global Flags section:\n  "
+            + "\n  ".join(missing)
+        )
+
+    def test_global_flags_section_lists_help_and_verbose(self):
+        """The two globals today are --help (inherited from argparse)
+        and --verbose. If either is missing from the rendered section
+        the reader loses documentation of a real flag."""
+        page = wp.gen_wikitext(
+            {"name": "start", "description": "Start",
+             "parameters": [{"name": "id", "short": "i",
+                             "type": "string",
+                             "description": "Canasta instance ID"}]},
+            global_flags=wp.load_definitions()["global_flags"],
+        )
+        assert "=== Global Flags ===" in page
+        assert "--help" in page
+        assert "--verbose" in page
+
+    def test_global_flags_omitted_when_not_supplied(self):
+        """gen_wikitext called without global_flags (e.g. from tests)
+        emits the page without the Global Flags section — back-compat."""
+        page = wp.gen_wikitext(
+            {"name": "start", "description": "Start",
+             "parameters": [{"name": "id", "short": "i",
+                             "type": "string",
+                             "description": "Canasta instance ID"}]}
+        )
+        assert "=== Global Flags ===" not in page
