@@ -239,3 +239,65 @@ class TestGlobalFlagsSection:
                              "description": "Canasta instance ID"}]}
         )
         assert "=== Global Flags ===" not in page
+
+
+class TestOrchestratorColumn:
+    """Flag tables carry an 'Orchestrator' column so readers can see at
+    a glance which orchestrator each flag applies to. Values come from
+    the YAML's optional `orchestrator_only` field: unset → 'Both',
+    'kubernetes' or 'k8s' → 'Kubernetes', 'compose' → 'Compose'."""
+
+    def _create_page(self):
+        data = wp.load_definitions()
+        cmd = next(c for c in data["commands"] if c["name"] == "create")
+        return wp.gen_wikitext(cmd, global_flags=data["global_flags"])
+
+    def test_column_header_present(self):
+        page = self._create_page()
+        assert "Orchestrator" in page
+
+    def test_kubernetes_only_param_labelled_kubernetes(self):
+        page = self._create_page()
+        # --storage-class has orchestrator_only: kubernetes. Its row
+        # must include the 'Kubernetes' label.
+        for line in page.splitlines():
+            if "<code>--storage-class</code>" in line:
+                assert "Kubernetes" in line
+                return
+        raise AssertionError("--storage-class row not found")
+
+    def test_compose_only_param_labelled_compose(self):
+        page = self._create_page()
+        for line in page.splitlines():
+            if "<code>--override</code>" in line:
+                assert "Compose" in line
+                return
+        raise AssertionError("--override row not found")
+
+    def test_orchestrator_neutral_param_labelled_both(self):
+        page = self._create_page()
+        # --id is the plain per-instance flag, applies to both.
+        for line in page.splitlines():
+            if "<code>--id</code>" in line:
+                assert "Both" in line
+                return
+        raise AssertionError("--id row not found")
+
+    def test_global_flags_section_also_has_column(self):
+        """Global flags apply to every command regardless of
+        orchestrator, so they show 'Both' in the column."""
+        page = self._create_page()
+        # The Global Flags section is the tail of the page after
+        # '=== Global Flags ==='.
+        gf = page.split("=== Global Flags ===", 1)[1]
+        assert "Orchestrator" in gf
+        for line in gf.splitlines():
+            if "<code>--help</code>" in line or "<code>--verbose</code>" in line:
+                assert "Both" in line
+
+    def test_label_helper_maps_values(self):
+        assert wp._orchestrator_label(None) == "Both"
+        assert wp._orchestrator_label("") == "Both"
+        assert wp._orchestrator_label("kubernetes") == "Kubernetes"
+        assert wp._orchestrator_label("k8s") == "Kubernetes"
+        assert wp._orchestrator_label("compose") == "Compose"
