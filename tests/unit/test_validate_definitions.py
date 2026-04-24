@@ -139,3 +139,66 @@ class TestValidateStructure:
         pb_dir = os.path.join(tmp_dir, "playbooks")
         files = [f for f in os.listdir(pb_dir) if f.endswith(".yml") and not f.startswith("_")]
         assert "_helper.yml" not in files
+
+
+class TestDescriptionLint:
+    """Guard against redundant parentheticals in parameter descriptions
+    that duplicate what the wiki flag table already conveys:
+
+    - '(optional)' is redundant with an unchecked Required column.
+    - '(required)' is redundant with a checked Required column.
+    - '(default: X)' is redundant when the parameter has a literal
+      `default: X` field (the wiki table's Default column shows it).
+    """
+
+    REPO_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..")
+    )
+    DEFS_PATH = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
+
+    def _all_params(self):
+        with open(self.DEFS_PATH) as f:
+            data = yaml.safe_load(f)
+        params = [("<global>", p) for p in data.get("global_flags", [])]
+        for c in data.get("commands", []):
+            for p in c.get("parameters", []) or []:
+                params.append((c["name"], p))
+        return params
+
+    def test_no_optional_markers(self):
+        offenders = []
+        for cmd, p in self._all_params():
+            if "(optional)" in p.get("description", "").lower():
+                offenders.append("%s.%s" % (cmd, p["name"]))
+        assert not offenders, (
+            "descriptions contain redundant '(optional)' — remove it "
+            "(the Required column already conveys this):\n  "
+            + "\n  ".join(offenders)
+        )
+
+    def test_no_required_markers(self):
+        offenders = []
+        for cmd, p in self._all_params():
+            if "(required)" in p.get("description", "").lower():
+                offenders.append("%s.%s" % (cmd, p["name"]))
+        assert not offenders, (
+            "descriptions contain redundant '(required)' — remove it "
+            "(the Required column already conveys this):\n  "
+            + "\n  ".join(offenders)
+        )
+
+    def test_no_redundant_default_markers(self):
+        import re
+        pat = re.compile(r"\(default:\s*[^)]+\)", re.IGNORECASE)
+        offenders = []
+        for cmd, p in self._all_params():
+            # Only flag when the YAML also has a literal default — a
+            # parenthetical 'default: localhost' describing runtime
+            # behavior on a param with no YAML default is meaningful.
+            if "default" in p and pat.search(p.get("description", "")):
+                offenders.append("%s.%s" % (cmd, p["name"]))
+        assert not offenders, (
+            "descriptions contain '(default: ...)' that duplicates "
+            "the YAML `default:` field — remove from the description:\n  "
+            + "\n  ".join(offenders)
+        )
