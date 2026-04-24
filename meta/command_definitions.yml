@@ -166,7 +166,7 @@ commands:
       - name: tls_email
         type: string
         orchestrator_only: kubernetes
-        description: "Email for Let's Encrypt certificate notifications (optional)"
+        description: "Email for Let's Encrypt certificate notifications"
       - name: skip_tls
         type: bool
         default: false
