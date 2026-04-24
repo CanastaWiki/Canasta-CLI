@@ -112,3 +112,42 @@ class TestEveryCommandHasMatchingDisplayName:
         assert not missing, (
             "nested subcommand display-name drift:\n  " + "\n  ".join(missing)
         )
+
+
+class TestMenuCoverage:
+    """The MediaWiki:Menu-cli-reference page must link to every command,
+    including 3-level nested leaves. The earlier bug was that the menu
+    generator stopped at 2-level subcommands, so entries like
+    'backup schedule set' and 'storage setup nfs' never appeared."""
+
+    def _menu_content(self):
+        data = wp.load_definitions()
+        pages = wp.generate_all_pages(data)
+        for title, content in pages:
+            if title == "MediaWiki:Menu-cli-reference":
+                return content
+        raise AssertionError("menu page not emitted")
+
+    def test_menu_includes_nested_leaves(self):
+        menu = self._menu_content()
+        expected = []
+        for group, subgroups in wp.NESTED_SUBCOMMAND_GROUPS.items():
+            for subgroup, subs in subgroups.items():
+                for sub in subs:
+                    expected.append("canasta %s %s %s" % (group, subgroup, sub))
+        missing = [e for e in expected if e not in menu]
+        assert not missing, (
+            "menu missing nested leaves:\n  " + "\n  ".join(missing)
+        )
+
+    def test_menu_uses_five_asterisks_for_nested_leaves(self):
+        menu = self._menu_content()
+        # A 3-level leaf like 'backup schedule set' lives under the
+        # 4-asterisk 'backup schedule' entry, so its depth marker must
+        # be five asterisks — four loses the hierarchy, six orphans it.
+        assert "***** " in menu
+        for line in menu.splitlines():
+            if line.startswith("***** "):
+                assert " | canasta " in line, (
+                    "malformed nested leaf line: %r" % line
+                )
