@@ -101,7 +101,8 @@ commands:
       - name: override
         short: r
         type: path
-        description: "File to copy to docker-compose.override.yml (Compose only)"
+        orchestrator_only: compose
+        description: "File to copy to docker-compose.override.yml"
       - name: rootdbpass
         type: string
         sensitive: true
