@@ -301,3 +301,39 @@ class TestOrchestratorColumn:
         assert wp._orchestrator_label("kubernetes") == "Kubernetes"
         assert wp._orchestrator_label("k8s") == "Kubernetes"
         assert wp._orchestrator_label("compose") == "Compose"
+
+
+class TestUsageLineSkipsWhenNoParams:
+    """A command with no parameters has no flags to document in the
+    usage line. Emitting 'canasta host list' as a synoptic block
+    duplicates the bare-command example below. Skip the block entirely
+    in that case."""
+
+    def test_command_with_no_params_omits_usage_block(self):
+        page = wp.gen_wikitext({
+            "name": "host_list",
+            "description": "List hosts",
+            "long_description": "List every saved host definition.",
+            "examples": ["canasta host list"],
+        })
+        # The '[flags]' placeholder must not appear at all when there
+        # are no flags.
+        assert "[flags]" not in page
+        # There should be exactly one occurrence of a syntaxhighlight
+        # block (the Examples block), not two.
+        assert page.count('<syntaxhighlight lang="bash"') == 1
+
+    def test_command_with_params_keeps_usage_block(self):
+        page = wp.gen_wikitext({
+            "name": "start",
+            "description": "Start",
+            "long_description": "Start the instance.",
+            "examples": ["canasta start"],
+            "parameters": [{"name": "id", "short": "i",
+                            "type": "string",
+                            "description": "Canasta instance ID"}],
+        })
+        # With parameters, '[flags]' must appear in the usage block.
+        assert "canasta start [flags]" in page
+        # Two syntaxhighlight blocks: one for usage, one for examples.
+        assert page.count('<syntaxhighlight lang="bash"') == 2

@@ -180,13 +180,14 @@ def gen_wikitext(cmd, global_flags=None):
     # Usage line — match the live wiki's compact form ('canasta create
     # [flags]') instead of an inline listing of every option. The
     # detailed flag table below is the authoritative reference.
-    lines.append("<syntaxhighlight lang=\"bash\">")
+    # Skip entirely when the command has no parameters: the line would
+    # read just 'canasta host list' and duplicate the bare-command
+    # example below.
     if cmd.get("parameters"):
+        lines.append("<syntaxhighlight lang=\"bash\">")
         lines.append("%s [flags]" % display)
-    else:
-        lines.append(display)
-    lines.append("</syntaxhighlight>")
-    lines.append("")
+        lines.append("</syntaxhighlight>")
+        lines.append("")
 
     # Subcommands
     if name in SUBCOMMAND_GROUPS:
