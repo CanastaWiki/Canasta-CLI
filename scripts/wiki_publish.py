@@ -201,6 +201,10 @@ def gen_wikitext(cmd):
             "! Flag !! Shorthand !! Description "
             "!! Default !! style=\"text-align:center\" | Required"
         )
+        # Non-required -i flags that simply select an instance get an
+        # asterisk in the Default column pointing to a footnote about
+        # cwd resolution.
+        show_cwd_note = False
         for p in sorted(params, key=lambda x: x["name"]):
             flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
             short = ""
@@ -213,6 +217,9 @@ def gen_wikitext(cmd):
             required = ""
             if p.get("required"):
                 required = "\u2713"
+            if p.get("short") == "i" and not p.get("required"):
+                default = (default + "*") if default else "*"
+                show_cwd_note = True
             lines.append("|-")
             lines.append(
                 "| %s || %s || %s || %s "
@@ -220,6 +227,12 @@ def gen_wikitext(cmd):
                 % (flag, short, desc, default, required)
             )
         lines.append("|}")
+        if show_cwd_note:
+            lines.append("")
+            lines.append(
+                "<small>* Defaults to the Canasta instance matching "
+                "the current directory, if any.</small>"
+            )
         lines.append("")
 
     lines.append("{{Reference Manual}}")
