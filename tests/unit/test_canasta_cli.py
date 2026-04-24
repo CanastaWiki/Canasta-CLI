@@ -29,8 +29,11 @@ class TestLoadDefinitions:
     def test_loads_global_flags(self, data):
         assert "global_flags" in data
         names = [f["name"] for f in data["global_flags"]]
-        assert "host" in names
         assert "verbose" in names
+        # --host was demoted to a per-command flag in #325; it lives
+        # on create/list/version/doctor/install/uninstall now, not
+        # in global_flags.
+        assert "host" not in names
 
 
 class TestBuildParser:
@@ -217,12 +220,11 @@ class TestResolveCommandName:
 
 class TestGlobalFlags:
     def test_verbose_before_command(self):
-        """Global flags before command should work via two-pass parse."""
+        """--verbose before command should be parsed by the global parser."""
         from argparse import ArgumentParser
         global_parser = ArgumentParser(add_help=False)
         global_parser.add_argument("--verbose", "-v",
                                     action="store_true", default=False)
-        global_parser.add_argument("--host", "-H", default=None)
 
         global_args, remaining = global_parser.parse_known_args(
             ["-v", "version"]
@@ -235,26 +237,12 @@ class TestGlobalFlags:
         global_parser = ArgumentParser(add_help=False)
         global_parser.add_argument("--verbose", "-v",
                                     action="store_true", default=False)
-        global_parser.add_argument("--host", "-H", default=None)
 
         global_args, remaining = global_parser.parse_known_args(
             ["version", "-v"]
         )
         assert global_args.verbose is True
         assert remaining == ["version"]
-
-    def test_host_with_value(self):
-        from argparse import ArgumentParser
-        global_parser = ArgumentParser(add_help=False)
-        global_parser.add_argument("--verbose", "-v",
-                                    action="store_true", default=False)
-        global_parser.add_argument("--host", "-H", default=None)
-
-        global_args, remaining = global_parser.parse_known_args(
-            ["--host", "prod1", "start", "-i", "mysite"]
-        )
-        assert global_args.host == "prod1"
-        assert remaining == ["start", "-i", "mysite"]
 
 
 class TestBuildAnsibleArgs:
@@ -295,18 +283,6 @@ class TestBuildAnsibleArgs:
         assert extra["target_host"] == "prod1"
         assert "--limit" in result
         assert "prod1" in result
-
-    def test_host_flag_ignored_for_non_host_commands(self, data):
-        from argparse import Namespace
-        args = Namespace(
-            command="start", host="prod1", verbose=False, id="mysite",
-        )
-        result = canasta_cli.build_ansible_args(
-            "ap", "start", args, data
-        )
-        extra = self._get_vars(result)
-        assert "target_host" not in extra
-        assert "--limit" not in result
 
     def test_verbose_flag(self, data):
         from argparse import Namespace
@@ -361,7 +337,8 @@ class TestBuildAnsibleArgs:
 
 
 class TestHostCommandsBehavior:
-    """Test that -H is passed through for HOST_COMMANDS and ignored for others."""
+    """Test that --host is passed through for commands that declare it
+    and is rejected by argparse on commands that don't."""
 
     def _get_vars(self, result):
         import json
@@ -372,7 +349,7 @@ class TestHostCommandsBehavior:
         return {}
 
     def test_host_flag_on_list(self, data):
-        """-H should be passed through for the 'list' command."""
+        """--host should be passed through for the 'list' command."""
         from argparse import Namespace
         args = Namespace(
             command="list", host="prod1", verbose=False,
@@ -385,71 +362,19 @@ class TestHostCommandsBehavior:
         assert "--limit" in result
         assert "prod1" in result
 
-    def test_host_flag_ignored_for_add(self, data, capsys):
-        """-H should be ignored for 'add' command (not in HOST_COMMANDS)."""
-        from argparse import Namespace
-        args = Namespace(
-            command="add", host="prod1", verbose=False,
-            id="mysite", wiki="newwiki", domain_name=None,
-            site_name=None, database=None,
-        )
-        result = canasta_cli.build_ansible_args(
-            "ap", "add", args, data
-        )
-        extra = self._get_vars(result)
-        assert "target_host" not in extra
-        assert "--limit" not in result
-        captured = capsys.readouterr()
-        assert "ignored" in captured.err.lower() or "Warning" in captured.err
-
-    def test_host_flag_ignored_for_delete(self, data, capsys):
-        """-H should be ignored for 'delete' command."""
-        from argparse import Namespace
-        args = Namespace(
-            command="delete", host="prod1", verbose=False,
-            id="mysite", yes=False,
-        )
-        result = canasta_cli.build_ansible_args(
-            "ap", "delete", args, data
-        )
-        extra = self._get_vars(result)
-        assert "target_host" not in extra
-        assert "--limit" not in result
-        captured = capsys.readouterr()
-        assert "ignored" in captured.err.lower() or "Warning" in captured.err
-
-    def test_host_flag_ignored_for_restart(self, data, capsys):
-        """-H should be ignored for 'restart' command."""
-        from argparse import Namespace
-        args = Namespace(
-            command="restart", host="prod1", verbose=False,
-            id="mysite",
-        )
-        result = canasta_cli.build_ansible_args(
-            "ap", "restart", args, data
-        )
-        extra = self._get_vars(result)
-        assert "target_host" not in extra
-        assert "--limit" not in result
-        captured = capsys.readouterr()
-        assert "ignored" in captured.err.lower() or "Warning" in captured.err
-
-    def test_host_flag_ignored_for_maintenance_update(self, data, capsys):
-        """-H should be ignored for 'maintenance_update' command."""
-        from argparse import Namespace
-        args = Namespace(
-            command="maintenance", subcommand="update",
-            host="prod1", verbose=False,
-            id="mysite", wiki=None,
-        )
-        result = canasta_cli.build_ansible_args(
-            "ap", "maintenance_update", args, data
-        )
-        extra = self._get_vars(result)
-        assert "target_host" not in extra
-        assert "--limit" not in result
-        captured = capsys.readouterr()
-        assert "ignored" in captured.err.lower() or "Warning" in captured.err
+    @pytest.mark.parametrize("cmd", ["start", "stop", "restart", "add", "delete"])
+    def test_host_flag_rejected_by_argparse(self, parser, cmd):
+        """Commands that don't declare --host should have argparse
+        reject the flag outright — there's no silent 'ignored' fallback
+        anymore."""
+        argv = [cmd, "--host", "prod1"]
+        # Most of these need an -i to parse at all; tack it on.
+        if cmd in ("start", "stop", "restart", "delete"):
+            argv.extend(["-i", "mysite"])
+        elif cmd == "add":
+            argv.extend(["-i", "mysite", "-w", "w", "-u", "u"])
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv)
 
     def test_host_flag_on_doctor(self, data):
         """-H should be passed through for 'doctor' so users can check a
@@ -602,28 +527,26 @@ class TestPassthrough:
 
 
 class TestGlobalFlagIsolation:
-    """Test that global flags only consume from before the command."""
+    """Test that the global --verbose flag only consumes from before
+    the command, so a post-command -v (e.g. 'php -v' in passthrough
+    args) isn't hijacked."""
 
     def _split_args(self, raw_args, data):
-        """Helper: replicate canasta.py pre/post command split."""
+        """Helper: replicate canasta.py pre/post command split.
+
+        After #325, --host is per-command (not global), so this
+        helper only needs to know which tokens are subcommand names.
+        """
         cmd_names = {c["name"].split("_")[0]
                      for c in data["commands"]}
         cmd_names |= {canasta_cli.display_name(n)
                       for n in cmd_names}
-        global_value_flags = {"--host", "-H"}
         pre_cmd = []
         post_cmd = []
         found_cmd = False
-        skip_next = False
         for arg in raw_args:
             if found_cmd:
                 post_cmd.append(arg)
-            elif skip_next:
-                pre_cmd.append(arg)
-                skip_next = False
-            elif arg in global_value_flags:
-                pre_cmd.append(arg)
-                skip_next = True
             elif not arg.startswith("-") and arg in cmd_names:
                 found_cmd = True
                 post_cmd.append(arg)
@@ -641,7 +564,6 @@ class TestGlobalFlagIsolation:
         gp = ArgumentParser(add_help=False)
         gp.add_argument("--verbose", "-v", action="store_true",
                          default=False)
-        gp.add_argument("--host", "-H", default=None)
         global_args, _ = gp.parse_known_args(pre)
 
         assert global_args.verbose is False
@@ -656,7 +578,6 @@ class TestGlobalFlagIsolation:
         gp = ArgumentParser(add_help=False)
         gp.add_argument("--verbose", "-v", action="store_true",
                          default=False)
-        gp.add_argument("--host", "-H", default=None)
         global_args, _ = gp.parse_known_args(pre)
 
         assert global_args.verbose is True
@@ -673,127 +594,6 @@ class TestGlobalFlagIsolation:
         assert "maintenance" in post
         # pre should be empty (no global flags)
         assert pre == []
-
-    def test_host_value_like_command(self, data):
-        """--host value matching a command name should NOT split
-        (e.g., --host backup start -i x)."""
-        pre, post = self._split_args(
-            ["-H", "backup", "start", "-i", "mysite"], data,
-        )
-        # "backup" is the --host value, "start" is the command
-        assert "-H" in pre
-        assert "backup" in pre
-        assert post[0] == "start"
-
-
-class TestPostCommandHost:
-    """Test that --host/-H works when placed after the subcommand,
-    matching the Go CLI's cobra persistent flag behavior."""
-
-    def _extract_post_host(self, pre_cmd, post_cmd):
-        """Replicate the post-command --host extraction from canasta.py main()."""
-        global_value_flags = {"--host", "-H"}
-        pre_cmd = list(pre_cmd)
-        post_filtered = []
-        i = 0
-        while i < len(post_cmd):
-            arg = post_cmd[i]
-            if arg == "--":
-                post_filtered.extend(post_cmd[i:])
-                break
-            if arg.startswith("--host=") or arg.startswith("-H="):
-                pre_cmd.append(arg)
-                i += 1
-                continue
-            if arg in global_value_flags:
-                if i + 1 < len(post_cmd) and not post_cmd[i + 1].startswith("-"):
-                    pre_cmd.append(arg)
-                    pre_cmd.append(post_cmd[i + 1])
-                    i += 2
-                    continue
-            post_filtered.append(arg)
-            i += 1
-        return pre_cmd, post_filtered
-
-    def test_host_after_command(self):
-        """canasta create --host prod1 --id mysite."""
-        pre, post = self._extract_post_host(
-            [], ["create", "--host", "prod1", "--id", "mysite"]
-        )
-        assert "--host" in pre
-        assert "prod1" in pre
-        assert "--host" not in post
-        assert "prod1" not in post
-        assert post == ["create", "--id", "mysite"]
-
-    def test_short_host_after_command(self):
-        """canasta create -H prod1 --id mysite."""
-        pre, post = self._extract_post_host(
-            [], ["create", "-H", "prod1", "--id", "mysite"]
-        )
-        assert "-H" in pre
-        assert "prod1" in pre
-        assert "-H" not in post
-
-    def test_host_equals_form(self):
-        """canasta create --host=prod1 --id mysite."""
-        pre, post = self._extract_post_host(
-            [], ["create", "--host=prod1", "--id", "mysite"]
-        )
-        assert "--host=prod1" in pre
-        assert "--host=prod1" not in post
-
-    def test_host_short_equals_form(self):
-        """canasta create -H=prod1 --id mysite."""
-        pre, post = self._extract_post_host(
-            [], ["create", "-H=prod1", "--id", "mysite"]
-        )
-        assert "-H=prod1" in pre
-
-    def test_host_in_passthrough_ignored(self):
-        """--host after -- should be left in passthrough."""
-        pre, post = self._extract_post_host(
-            [], ["maintenance", "exec", "-i", "x", "--", "echo", "--host", "y"]
-        )
-        assert "--host" not in pre
-        assert "--" in post
-        assert "--host" in post
-        assert "y" in post
-
-    def test_host_followed_by_flag_not_consumed(self):
-        """--host without a valid value should not consume the next flag."""
-        pre, post = self._extract_post_host(
-            [], ["create", "--host", "--id", "mysite"]
-        )
-        # --host has no value (next is a flag), so it stays in post
-        # for argparse to error on
-        assert "--host" in post
-        assert "--host" not in pre
-
-    def test_host_already_before_command(self):
-        """--host before command should still work unchanged."""
-        pre, post = self._extract_post_host(
-            ["--host", "prod1"], ["create", "--id", "mysite"]
-        )
-        assert pre == ["--host", "prod1"]
-        assert post == ["create", "--id", "mysite"]
-
-    def test_no_host_no_change(self):
-        """Command without --host should pass through unchanged."""
-        pre, post = self._extract_post_host(
-            [], ["create", "--id", "mysite", "--wiki", "main"]
-        )
-        assert pre == []
-        assert post == ["create", "--id", "mysite", "--wiki", "main"]
-
-    def test_host_at_end(self):
-        """canasta start --id mysite --host prod1."""
-        pre, post = self._extract_post_host(
-            [], ["start", "--id", "mysite", "--host", "prod1"]
-        )
-        assert "--host" in pre
-        assert "prod1" in pre
-        assert post == ["start", "--id", "mysite"]
 
 
 class TestBuildAnsibleArgsQuoting:
@@ -1020,7 +820,8 @@ class TestInstallCommand:
             packages=["docker"],
         )
         result = canasta_cli.build_ansible_args("ap", "install", args, data)
-        # install is in HOST_COMMANDS, so target_host should be set
+        # install declares --host as a per-command param, so target_host
+        # should be set when args.host is provided.
         import json
         for i, arg in enumerate(result):
             if arg == "-e" and i + 1 < len(result) and result[i + 1].startswith("@"):

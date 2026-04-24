@@ -17,10 +17,6 @@
 #   positional        - Accepted as positional argument(s), not a flag
 
 global_flags:
-  - name: host
-    short: H
-    type: string
-    description: "Target host (default: localhost)"
   - name: verbose
     short: v
     type: bool
@@ -41,6 +37,10 @@ commands:
       - "canasta create -i mysite -w main -d /path/to/dump.sql"
     playbook: create.yml
     parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host for the new instance (default: localhost)"
       - name: path
         short: p
         type: path
@@ -252,6 +252,10 @@ commands:
       - "canasta list --cleanup --force"
     direct_only: true
     parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Filter output by host (default: all hosts)"
       - name: cleanup
         type: bool
         default: false
@@ -291,6 +295,10 @@ commands:
       - "canasta version --cli-only"
     direct_only: true
     parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Filter list-all output by host (default: all hosts)"
       - name: id
         short: i
         type: string
@@ -311,9 +319,13 @@ commands:
       resources (memory, disk space).
     examples:
       - "canasta doctor"
-      - "canasta --host prod1.example.com doctor"
+      - "canasta doctor --host prod1.example.com"
     playbook: doctor.yml
-    parameters: []
+    parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"
 
   - name: install
     description: "Install dependencies on the target host"
@@ -325,9 +337,13 @@ commands:
       - "canasta install docker"
       - "canasta install k8s"
       - "canasta install docker git-crypt"
-      - "canasta --host prod1.example.com install docker"
+      - "canasta install docker --host prod1.example.com"
     playbook: install.yml
     parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"
       - name: packages
         type: string
         positional: true
@@ -344,6 +360,10 @@ commands:
       - "canasta uninstall k8s"
     playbook: uninstall.yml
     parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"
       - name: packages
         type: string
         positional: true
