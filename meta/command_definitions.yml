@@ -37,8 +37,8 @@ commands:
       Create a new Canasta MediaWiki instance. Generates configuration files,
       starts the containers, and runs the MediaWiki installer.
     examples:
-      - "canasta create -w main -n example.com"
-      - "canasta create -w main -d /path/to/dump.sql"
+      - "canasta create -i mysite -w main -n example.com"
+      - "canasta create -i mysite -w main -d /path/to/dump.sql"
     playbook: create.yml
     parameters:
       - name: path
