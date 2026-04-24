@@ -203,10 +203,7 @@ def gen_wikitext(cmd):
         )
         # Non-required -i flags that simply select an instance get an
         # asterisk in the Default column pointing to a footnote about
-        # cwd resolution. 'version' is excluded: its -i flag activates
-        # a different output mode rather than selecting a target, so
-        # the footnote would mislead readers into thinking plain
-        # 'canasta version' reports on the cwd instance.
+        # cwd resolution.
         show_cwd_note = False
         for p in sorted(params, key=lambda x: x["name"]):
             flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
@@ -220,11 +217,7 @@ def gen_wikitext(cmd):
             required = ""
             if p.get("required"):
                 required = "\u2713"
-            if (
-                p.get("short") == "i"
-                and not p.get("required")
-                and cmd["name"] != "version"
-            ):
+            if p.get("short") == "i" and not p.get("required"):
                 default = (default + "*") if default else "*"
                 show_cwd_note = True
             lines.append("|-")

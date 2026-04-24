@@ -155,9 +155,8 @@ class TestMenuCoverage:
 
 class TestCwdResolutionFootnote:
     """Non-required -i flags get a cwd-resolution footnote in the
-    flags table. Required -i (create) and semantics-changing -i
-    (version) must not, because the footnote would be wrong or
-    misleading for those."""
+    flags table. Required -i (create) does not, because there's no
+    cwd resolution path when -i is required."""
 
     def _page_for(self, name):
         data = wp.load_definitions()
@@ -176,12 +175,12 @@ class TestCwdResolutionFootnote:
         page = self._page_for("create")
         assert "matching the current directory" not in page
 
-    def test_version_has_no_footnote(self):
-        # version's -i activates image-version mode; the footnote
-        # would wrongly imply plain 'canasta version' reports on the
-        # cwd instance.
+    def test_version_has_footnote(self):
+        # After the version redesign (#324), 'canasta version'
+        # cwd-resolves an instance just like every other per-instance
+        # command, so the footnote is accurate for it too.
         page = self._page_for("version")
-        assert "matching the current directory" not in page
+        assert "matching the current directory" in page
 
     def test_command_without_id_param_has_no_footnote(self):
         # doctor has no -i at all; don't accidentally emit the
