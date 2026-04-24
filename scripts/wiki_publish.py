@@ -308,13 +308,34 @@ def generate_all_pages(data):
             else:
                 continue
             if name in SUBCOMMAND_GROUPS:
-                for sub in SUBCOMMAND_GROUPS[name]:
-                    internal = "%s_%s" % (name, sub.replace("-", "_"))
+                nested = NESTED_SUBCOMMAND_GROUPS.get(name, {})
+                # Walk direct subcommands plus any nested-group parent
+                # that isn't already in SUBCOMMAND_GROUPS — e.g.
+                # 'backup schedule' lives only in NESTED_SUBCOMMAND_GROUPS,
+                # so iterating SUBCOMMAND_GROUPS alone skips it and
+                # its leaves ('backup schedule set', etc.).
+                direct = list(SUBCOMMAND_GROUPS[name])
+                for extra in nested:
+                    if extra not in direct:
+                        direct.append(extra)
+                for sub in direct:
+                    sub_us = sub.replace("-", "_")
+                    internal = "%s_%s" % (name, sub_us)
                     sub_link = cmd_page_title(internal)
                     menu_lines.append(
                         "**** %s | canasta %s %s"
                         % (sub_link, name, sub)
                     )
+                    if sub in nested:
+                        for leaf in nested[sub]:
+                            leaf_internal = "%s_%s_%s" % (
+                                name, sub_us, leaf.replace("-", "_"),
+                            )
+                            leaf_link = cmd_page_title(leaf_internal)
+                            menu_lines.append(
+                                "***** %s | canasta %s %s %s"
+                                % (leaf_link, name, sub, leaf)
+                            )
     pages.append((
         "MediaWiki:Menu-cli-reference",
         "\n".join(menu_lines),
