@@ -189,7 +189,7 @@ canasta list
 The simplest way to target a remote host is the `user@host` shorthand:
 
 ```bash
-canasta --host ubuntu@prod1.example.com create --id wiki-prod --wiki main
+canasta create --host ubuntu@prod1.example.com --id wiki-prod --wiki main
 ```
 
 This works without any inventory setup. SSH keys must be in place for
@@ -216,7 +216,7 @@ canasta host remove prod1
 After adding, use the short name:
 
 ```bash
-canasta --host prod1 create --id wiki-prod --wiki main
+canasta create --host prod1 --id wiki-prod --wiki main
 ```
 
 You can also edit `$CANASTA_CONFIG_DIR/hosts.yml` directly for
@@ -237,10 +237,10 @@ Manage instances across hosts:
 
 ```bash
 # Create on a remote host
-./canasta --host prod1.example.com create --id wiki-prod --wiki main
+./canasta create --host prod1.example.com --id wiki-prod --wiki main
 
 # Create on another host
-./canasta --host staging.example.com create --id wiki-staging --wiki main
+./canasta create --host staging.example.com --id wiki-staging --wiki main
 
 # List all instances across all hosts
 ./canasta list

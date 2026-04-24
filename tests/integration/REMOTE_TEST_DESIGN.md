@@ -70,7 +70,7 @@ The entrypoint starts both `dockerd` (background) and `sshd` (foreground).
 ### 1. Create with -H
 
 ```bash
-./canasta -H canasta@127.0.0.1:2222 create -i remotesite -w main
+./canasta create -H canasta@127.0.0.1:2222 -i remotesite -w main
 ```
 
 Verify:
@@ -81,7 +81,7 @@ Verify:
 ### 2. List with -H
 
 ```bash
-./canasta -H 127.0.0.1:2222 list
+./canasta list -H 127.0.0.1:2222
 ```
 
 Verify:
