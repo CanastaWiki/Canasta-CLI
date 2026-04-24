@@ -756,7 +756,7 @@ class TestCmdVersion:
 
     def test_target_canasta_version_line(self, tmp_path, monkeypatch, capsys):
         """When CANASTA_VERSION file is present, the target version line
-        is always printed, even without -i/--all."""
+        is always printed, even without -i."""
         (tmp_path / "VERSION").write_text("4.0.0\n")
         (tmp_path / "CANASTA_VERSION").write_text("3.5.7\n")
         (tmp_path / "BUILD_COMMIT").write_text("abc1234\n")
@@ -765,7 +765,7 @@ class TestCmdVersion:
         monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
         # No instances registered — PWD auto-resolve should be a no-op.
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
-        args = type("Args", (), {"id": None, "all": False, "host": None})()
+        args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
         rc = direct_commands.cmd_version(args)
         assert rc == 0
         out = capsys.readouterr().out
@@ -780,7 +780,7 @@ class TestCmdVersion:
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
         monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
-        args = type("Args", (), {"id": None, "all": False, "host": None})()
+        args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
         rc = direct_commands.cmd_version(args)
         assert rc == 0
         out = capsys.readouterr().out
@@ -825,6 +825,120 @@ class TestCmdVersion:
         out = capsys.readouterr().out
         assert "v4.0.0" in out
         assert "unknown" in out
+
+
+class TestCmdVersionInstanceModes:
+    """Behavioral coverage for the three instance-reporting modes added
+    in the version redesign: --cli-only, cwd-resolve-inside, and
+    list-all-outside. Uses a fake script_dir + registry so the header
+    and instance lookups can be exercised end-to-end without real
+    Canasta installs."""
+
+    def _setup(self, tmp_path, monkeypatch, instances):
+        """Build a script_dir + registry under tmp_path and wire
+        direct_commands at it. Returns (script_dir, config_dir)."""
+        script_dir = tmp_path / "script"
+        script_dir.mkdir()
+        (script_dir / "VERSION").write_text("4.0.0\n")
+        (script_dir / "CANASTA_VERSION").write_text("3.6.3\n")
+        (script_dir / "BUILD_COMMIT").write_text("abc1234\n")
+        (script_dir / "BUILD_DATE").write_text("2026-04-23 00:00:00\n")
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "conf.json").write_text(json.dumps({"Instances": instances}))
+        monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(script_dir))
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(config_dir))
+        return script_dir, config_dir
+
+    def test_cli_only_skips_instance_reads(self, tmp_path, monkeypatch, capsys):
+        """--cli-only short-circuits after the two header lines, even
+        when instances are registered and cwd would match one."""
+        site = tmp_path / "site"
+        site.mkdir()
+        (site / ".env").write_text("CANASTA_IMAGE=canasta:3.6.3\n")
+        self._setup(tmp_path, monkeypatch, {
+            "site": {"path": str(site), "host": "localhost"},
+        })
+        monkeypatch.chdir(site)  # inside the instance dir
+        args = type("Args", (), {"id": None, "cli_only": True, "host": None})()
+        rc = direct_commands.cmd_version(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Canasta CLI v4.0.0" in out
+        assert "Target Canasta version: 3.6.3" in out
+        # No instance line — cli_only must short-circuit.
+        assert "Instance '" not in out
+
+    def test_outside_instance_lists_all_without_running_query(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Outside any instance directory, the default lists every
+        registered instance's pinned CANASTA_IMAGE tag but skips the
+        docker-compose-exec runtime query (keeps the default fast)."""
+        s1 = tmp_path / "site1"
+        s1.mkdir()
+        (s1 / ".env").write_text("CANASTA_IMAGE=canasta:3.6.0\n")
+        s2 = tmp_path / "site2"
+        s2.mkdir()
+        (s2 / ".env").write_text("CANASTA_IMAGE=canasta:3.6.3\n")
+        self._setup(tmp_path, monkeypatch, {
+            "site1": {"path": str(s1), "host": "localhost"},
+            "site2": {"path": str(s2), "host": "localhost"},
+        })
+        # Sit somewhere that is not inside either instance dir.
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        monkeypatch.chdir(outside)
+        args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
+        rc = direct_commands.cmd_version(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Instance 'site1': canasta:3.6.0" in out
+        assert "Instance 'site2': canasta:3.6.3" in out
+        # List-all must NOT include '(running: ...)' — that suffix
+        # comes from _read_instance_image's runtime query, which
+        # is intentionally skipped for the fast default.
+        assert "running:" not in out
+
+    def test_inside_instance_dir_shows_current_full(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Inside an instance directory with no -i, should print the
+        full (image + running) line for that instance only."""
+        site = tmp_path / "site"
+        site.mkdir()
+        (site / ".env").write_text("CANASTA_IMAGE=canasta:3.6.3\n")
+        self._setup(tmp_path, monkeypatch, {
+            "site": {"path": str(site), "host": "localhost"},
+            "other": {"path": str(tmp_path / "other"), "host": "localhost"},
+        })
+        monkeypatch.chdir(site)
+        # Stub the runtime-version query to return a known string so
+        # the test doesn't depend on docker being available.
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": "3.6.3-running\n",
+            })(),
+        )
+        args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
+        rc = direct_commands.cmd_version(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Instance 'site': canasta:3.6.3 (running: 3.6.3-running)" in out
+        # The sibling instance must not appear — cwd resolution wins
+        # and suppresses the list-all fallback.
+        assert "'other'" not in out
+
+    def test_all_flag_rejected(self, tmp_path, monkeypatch, capsys):
+        """--all was removed; argparse should reject it so anyone who
+        still uses it gets a loud error instead of silently falling
+        through to the default."""
+        import canasta
+        parser = canasta.build_parser(canasta.load_definitions())
+        with pytest.raises(SystemExit):
+            parser.parse_args(["version", "--all"])
 
 
 # ---------------------------------------------------------------------------

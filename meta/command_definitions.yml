@@ -269,24 +269,37 @@ commands:
   - name: version
     description: "Display version information"
     long_description: |
-      Show Canasta-Ansible CLI version. With --id, also report the
-      image version (CANASTA_IMAGE tag and runtime Canasta version)
-      for the named instance. With --all, report image versions for
-      every registered instance.
+      Always prints the Canasta-Ansible CLI version and the target
+      Canasta version (the image tag this CLI release is built to
+      deploy).
+
+      Additional output depends on context:
+
+      - Inside an instance directory: also reports that instance's
+        pinned CANASTA_IMAGE tag and running runtime version.
+      - Outside any instance directory: lists every registered
+        instance with its pinned CANASTA_IMAGE tag (no runtime query;
+        fast).
+      - With --id: reports full image + running version for the
+        named instance (same as inside that instance's directory).
+      - With --cli-only: prints only the CLI header; skips all
+        instance reads. Intended for scripts that just want the CLI
+        version deterministically.
     examples:
       - "canasta version"
       - "canasta version -i mysite"
-      - "canasta version --all"
+      - "canasta version --cli-only"
     direct_only: true
     parameters:
       - name: id
         short: i
         type: string
         description: "Report image version for this instance"
-      - name: all
+      - name: cli_only
+        short: c
         type: bool
         default: false
-        description: "Report image version for every registered instance"
+        description: "Print only the CLI version; skip instance queries"
 
   - name: doctor
     description: "Check target host dependencies"
