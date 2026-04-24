@@ -57,9 +57,9 @@ SUBCOMMAND_GROUPS = _canasta.SUBCOMMAND_GROUPS
 NESTED_SUBCOMMAND_GROUPS = _canasta.NESTED_SUBCOMMAND_GROUPS
 
 CMD_GROUPS = [
+    ("System", ["install", "doctor", "host", "storage", "uninstall"]),
     ("Instance Management", [
-        "create", "delete", "list", "upgrade", "version",
-        "doctor", "config",
+        "create", "delete", "list", "upgrade", "version", "config",
     ]),
     ("Wiki Management", ["add", "remove", "import", "export"]),
     ("Container Lifecycle", ["start", "stop", "restart"]),
@@ -67,9 +67,6 @@ CMD_GROUPS = [
     ("Maintenance", ["maintenance", "sitemap"]),
     ("Data Protection", ["backup", "gitops"]),
     ("Development", ["devmode"]),
-    ("Multi-host", ["host"]),
-    ("Storage", ["storage"]),
-    ("System", ["install", "uninstall"]),
 ]
 
 
