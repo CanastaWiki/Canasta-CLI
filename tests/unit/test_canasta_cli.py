@@ -42,17 +42,22 @@ class TestBuildParser:
     def test_version_bare(self, parser):
         args = parser.parse_args(["version"])
         assert args.id is None
-        assert args.all is False
+        assert args.cli_only is False
 
     def test_version_with_id(self, parser):
         args = parser.parse_args(["version", "-i", "mysite"])
         assert args.id == "mysite"
-        assert args.all is False
+        assert args.cli_only is False
 
-    def test_version_with_all_flag(self, parser):
-        args = parser.parse_args(["version", "--all"])
+    def test_version_with_cli_only_flag(self, parser):
+        args = parser.parse_args(["version", "--cli-only"])
         assert args.id is None
-        assert args.all is True
+        assert args.cli_only is True
+
+    def test_version_with_cli_only_short_flag(self, parser):
+        args = parser.parse_args(["version", "-c"])
+        assert args.id is None
+        assert args.cli_only is True
 
     def test_list_cleanup_flags(self, parser):
         args = parser.parse_args(["list", "--cleanup"])

@@ -857,35 +857,21 @@ def cmd_version(args):
     print("Canasta CLI v%s (%s, commit %s, built %s)" % (version, mode, commit, date))
     print("Target Canasta version: %s" % target_canasta_version)
 
-    # Per-instance image reports (on demand)
-    inst_id = getattr(args, "id", None)
-    want_all = getattr(args, "all", False)
-
-    if want_all:
-        # Report every instance on the current host.
-        config_dir = _get_config_dir()
-        conf_path = os.path.join(config_dir, "conf.json")
-        instances = _read_registry(conf_path)
-        host_filter = getattr(args, "host", None)
-        instances = _filter_by_host(instances, host_filter)
-        if not instances:
-            print("No instances registered.")
-            return 0
-        for iid in sorted(instances.keys()):
-            image, running = _read_instance_image(iid, instances[iid])
-            print("Instance '%s': %s (running: %s)" % (iid, image, running))
+    # --cli-only: stop after the two-line header; no instance reads.
+    if getattr(args, "cli_only", False):
         return 0
 
+    inst_id = getattr(args, "id", None)
+
     if inst_id:
-        # Explicit -i: resolve and report.
+        # Explicit -i: full-fidelity report (image tag + running runtime).
         inst_id, inst = _resolve_instance(args)
         image, running = _read_instance_image(inst_id, inst)
         print("Instance '%s': %s (running: %s)" % (inst_id, image, running))
         return 0
 
-    # No -i / --all: try to auto-resolve from PWD, report if we find
-    # a match. Outside any instance directory is the common case and
-    # not an error — just stop at the two-line CLI/target report.
+    # No -i: try cwd resolution. If inside an instance directory,
+    # give the same full-fidelity report as -i.
     config_dir = _get_config_dir()
     conf_path = os.path.join(config_dir, "conf.json")
     instances = _read_registry(conf_path)
@@ -900,6 +886,22 @@ def cmd_version(args):
         if parent == cwd:
             break
         cwd = parent
+
+    # Outside any instance directory: list every registered instance
+    # with its pinned CANASTA_IMAGE tag only (no docker-compose-exec
+    # query for the running version). Keeps the default fast even with
+    # many registered instances across remote hosts.
+    host_filter = getattr(args, "host", None)
+    instances = _filter_by_host(instances, host_filter)
+    if not instances:
+        print("No instances registered.")
+        return 0
+    for iid in sorted(instances.keys()):
+        host = instances[iid].get("host") or "localhost"
+        path = instances[iid].get("path", "")
+        env_vars = _read_env_file(path, host)
+        image = env_vars.get("CANASTA_IMAGE", "(unset)")
+        print("Instance '%s': %s" % (iid, image))
     return 0
 
 
