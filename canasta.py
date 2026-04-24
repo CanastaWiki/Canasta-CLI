@@ -385,11 +385,6 @@ def build_parser(data):
 
     # Global flags
     parser.add_argument(
-        "--host", "-H",
-        default=None,
-        help="Target host for create/list (default: localhost)",
-    )
-    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         default=False,
@@ -559,17 +554,12 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # Build extra vars as a dict, written to a JSON file
     extra_vars = {"command": command_name}
 
-    # Only pass target_host for commands that need it.
-    # Other commands resolve the host from the instance registry.
-    HOST_COMMANDS = {"create", "list", "doctor", "install", "uninstall"}
-    if args.host and command_name in HOST_COMMANDS:
-        extra_vars["target_host"] = args.host
-    elif args.host and command_name not in HOST_COMMANDS:
-        print(
-            "Warning: -H is ignored for '%s' — host is resolved "
-            "from the instance registry." % command_name,
-            file=sys.stderr,
-        )
+    # Pass target_host when the command declares --host. Commands
+    # without a --host parameter resolve the target from the instance
+    # registry via -i; argparse already rejects --host on those.
+    host_value = getattr(args, "host", None)
+    if host_value:
+        extra_vars["target_host"] = host_value
 
     if args.verbose:
         extra_vars["verbose"] = "true"
@@ -599,7 +589,7 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
             # For remote hosts, absolute paths are already correct
             # (they refer to the remote filesystem, not local).
             expanded = os.path.expanduser(str(value))
-            if args.host and os.path.isabs(expanded):
+            if host_value and os.path.isabs(expanded):
                 extra_vars[name] = expanded
             else:
                 extra_vars[name] = os.path.abspath(expanded)
@@ -624,9 +614,9 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         "-e", "@%s" % vars_file.name,
     ]
 
-    if args.host and command_name in HOST_COMMANDS:
+    if host_value:
         # Parse user@host shorthand.
-        host_spec = args.host
+        host_spec = host_value
         ssh_user = None
         if "@" in host_spec:
             ssh_user, host_spec = host_spec.split("@", 1)
@@ -677,63 +667,37 @@ def main():
     data = load_definitions()
     parser = build_parser(data)
 
-    # Extract global flags (--verbose/-v, --host/-H) only from args
-    # BEFORE the subcommand. This prevents "-v" in
-    # "maintenance exec -i x php -v" from being consumed as --verbose.
+    # Extract --verbose from args BEFORE the subcommand only. Prevents
+    # "-v" in "maintenance exec -i x php -v" from being consumed as
+    # --verbose; a pre-command --verbose goes into a global parser, a
+    # post-command --verbose (long form) is also hoisted, and -v after
+    # a subcommand is left alone so passthrough scripts keep their -v.
     raw_args = sys.argv[1:]
     pre_cmd = []
     post_cmd = []
     found_cmd = False
-    skip_next = False
-    # Known top-level commands
     cmd_names = {c["name"].split("_")[0] for c in data["commands"]}
     cmd_names |= {display_name(n) for n in cmd_names}
-    # Global flags that consume the next token as a value
-    global_value_flags = {"--host", "-H"}
     for arg in raw_args:
         if found_cmd:
             post_cmd.append(arg)
-        elif skip_next:
-            # This token is the value for --host/-H, not a command
-            pre_cmd.append(arg)
-            skip_next = False
-        elif arg in global_value_flags:
-            pre_cmd.append(arg)
-            skip_next = True
         elif not arg.startswith("-") and arg in cmd_names:
             found_cmd = True
             post_cmd.append(arg)
         else:
             pre_cmd.append(arg)
 
-    # Also accept global flags after the command (matching cobra's persistent
-    # flag behavior in the Go CLI). Walk post_cmd, stopping at "--" so we
-    # never touch passthrough args. Only consume the next token as a value
-    # if it doesn't itself look like a flag.
-    # Note: we only extract --verbose (long form) here, not -v, because
-    # -v after 'maintenance exec' is ambiguous (could be 'php -v').
+    # Hoist post-command --verbose into pre_cmd so the global parser
+    # catches it. Stop at "--" so passthrough args are untouched. Only
+    # the long form — "-v" after a subcommand is ambiguous (could be
+    # "php -v") and stays where it is.
     post_filtered = []
     i = 0
     while i < len(post_cmd):
         arg = post_cmd[i]
         if arg == "--":
-            # Everything from here on is passthrough — leave it alone
             post_filtered.extend(post_cmd[i:])
             break
-        # --host=value / -H=value form
-        if arg.startswith("--host=") or arg.startswith("-H="):
-            pre_cmd.append(arg)
-            i += 1
-            continue
-        # --host value / -H value form
-        if arg in global_value_flags:
-            if i + 1 < len(post_cmd) and not post_cmd[i + 1].startswith("-"):
-                pre_cmd.append(arg)
-                pre_cmd.append(post_cmd[i + 1])
-                i += 2
-                continue
-            # No valid value follows — leave it for argparse to error on
-        # --verbose (long form only — -v is ambiguous after 'maintenance exec')
         if arg == "--verbose":
             pre_cmd.append(arg)
             i += 1
@@ -743,7 +707,6 @@ def main():
     post_cmd = post_filtered
 
     global_parser = argparse.ArgumentParser(add_help=False)
-    global_parser.add_argument("--host", "-H", default=None)
     global_parser.add_argument("--verbose", "-v", action="store_true",
                                default=False)
     global_args, pre_remaining = global_parser.parse_known_args(pre_cmd)
@@ -761,8 +724,7 @@ def main():
     # Parse with the full parser (subcommands + flags)
     args = parser.parse_args(remaining)
 
-    # Merge global flags into args
-    args.host = global_args.host or args.host
+    # Merge global verbose into args
     args.verbose = global_args.verbose or args.verbose
 
     # Inject passthrough args (after --) into the positional parameter
