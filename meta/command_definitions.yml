@@ -275,7 +275,7 @@ commands:
       every registered instance.
     examples:
       - "canasta version"
-      - "canasta version"
+      - "canasta version -i mysite"
       - "canasta version --all"
     direct_only: true
     parameters:
