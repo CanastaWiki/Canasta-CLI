@@ -151,3 +151,40 @@ class TestMenuCoverage:
                 assert " | canasta " in line, (
                     "malformed nested leaf line: %r" % line
                 )
+
+
+class TestCwdResolutionFootnote:
+    """Non-required -i flags get a cwd-resolution footnote in the
+    flags table. Required -i (create) and semantics-changing -i
+    (version) must not, because the footnote would be wrong or
+    misleading for those."""
+
+    def _page_for(self, name):
+        data = wp.load_definitions()
+        cmd = next(c for c in data["commands"] if c["name"] == name)
+        return wp.gen_wikitext(cmd)
+
+    def test_cwd_resolvable_command_has_footnote(self):
+        page = self._page_for("start")
+        assert "matching the current directory" in page
+        # Asterisk appears in the Default column for the -i row.
+        assert "| * " in page or "|*" in page or " * |" in page
+
+    def test_required_id_command_has_no_footnote(self):
+        # create requires -i — there's no cwd resolution path, so no
+        # footnote should be emitted.
+        page = self._page_for("create")
+        assert "matching the current directory" not in page
+
+    def test_version_has_no_footnote(self):
+        # version's -i activates image-version mode; the footnote
+        # would wrongly imply plain 'canasta version' reports on the
+        # cwd instance.
+        page = self._page_for("version")
+        assert "matching the current directory" not in page
+
+    def test_command_without_id_param_has_no_footnote(self):
+        # doctor has no -i at all; don't accidentally emit the
+        # footnote via some bug unrelated to the -i param.
+        page = self._page_for("doctor")
+        assert "matching the current directory" not in page
