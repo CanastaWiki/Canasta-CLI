@@ -23,6 +23,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -134,6 +135,20 @@ def _orchestrator_label(value):
     return _ORCHESTRATOR_LABELS.get(value, value)
 
 
+# Match single-backtick inline code spans — the same convention used in
+# markdown and in the `docs/commands/*.md` renderings of long_description.
+# MediaWiki doesn't interpret backticks, so translate them to <code> on the
+# way out so readers of the wiki reference pages see them as inline code
+# rather than literal backtick characters.
+_BACKTICK_RE = re.compile(r"`([^`\n]+)`")
+
+
+def _backticks_to_code(text):
+    if not text:
+        return text
+    return _BACKTICK_RE.sub(r"<code>\1</code>", text)
+
+
 def gen_wikitext(cmd, global_flags=None):
     """Generate wikitext for a single command page.
 
@@ -167,14 +182,14 @@ def gen_wikitext(cmd, global_flags=None):
 
     lines.append("== %s ==" % display)
     lines.append("")
-    lines.append(cmd.get("description", ""))
+    lines.append(_backticks_to_code(cmd.get("description", "")))
     lines.append("")
 
     long_desc = cmd.get("long_description", "")
     if long_desc:
         lines.append("=== Synopsis ===")
         lines.append("")
-        lines.append(long_desc.strip())
+        lines.append(_backticks_to_code(long_desc.strip()))
         lines.append("")
 
     # Usage line — match the live wiki's compact form ('canasta create
@@ -237,7 +252,7 @@ def gen_wikitext(cmd, global_flags=None):
             short = ""
             if p.get("short"):
                 short = "<code>-%s</code>" % p["short"]
-            desc = p.get("description", "")
+            desc = _backticks_to_code(p.get("description", ""))
             default = ""
             if p.get("default") not in (None, "", False, 0):
                 default = "<code>%s</code>" % p["default"]
@@ -280,7 +295,7 @@ def gen_wikitext(cmd, global_flags=None):
             short = ""
             if p.get("short"):
                 short = "<code>-%s</code>" % p["short"]
-            desc = p.get("description", "")
+            desc = _backticks_to_code(p.get("description", ""))
             default = ""
             if p.get("default") not in (None, "", False, 0):
                 default = "<code>%s</code>" % p["default"]

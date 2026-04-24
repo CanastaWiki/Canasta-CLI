@@ -209,7 +209,21 @@ commands:
 
   - name: start
     description: "Start a Canasta instance"
-    long_description: "Start Docker containers for a Canasta instance."
+    long_description: |
+      Start the Docker containers for a Canasta instance. Before
+      bringing the stack up, `COMPOSE_PROFILES` in `.env` is
+      reconciled from the instance's feature flags so optional
+      components start or stay down based on their current setting:
+
+      - `CANASTA_ENABLE_VARNISH` (default `true`) — Varnish cache
+      - `CANASTA_ENABLE_OBSERVABILITY` (default `false`) — Prometheus
+        and Grafana stack
+      - `CANASTA_ENABLE_ELASTICSEARCH` (default `false`) — Elasticsearch
+
+      If the instance has development mode enabled, Xdebug starts
+      automatically. Use `canasta devmode enable` or `canasta devmode
+      disable` to toggle development mode; use `canasta config set
+      <FLAG>=true|false` to adjust the optional components.
     examples:
       - "canasta start"
     playbook: start.yml
@@ -221,7 +235,10 @@ commands:
 
   - name: stop
     description: "Stop a Canasta instance"
-    long_description: "Stop Docker containers for a Canasta instance."
+    long_description: |
+      Stop all Docker containers for a Canasta instance. The
+      containers are stopped gracefully, preserving all data in
+      Docker volumes.
     examples:
       - "canasta stop"
     direct_only: true
@@ -233,7 +250,12 @@ commands:
 
   - name: restart
     description: "Restart a Canasta instance"
-    long_description: "Restart Docker containers for a Canasta instance."
+    long_description: |
+      Restart a Canasta instance by stopping and then starting all
+      Docker containers. Any pending configuration migrations are
+      applied during the restart. Use `canasta devmode enable` or
+      `canasta devmode disable` to change the development mode
+      setting.
     examples:
       - "canasta restart"
     playbook: restart.yml
@@ -404,9 +426,13 @@ commands:
   # Wiki management
   # ---------------------------------------------------------------------------
   - name: add
-    description: "Add a wiki to an existing Canasta instance"
+    description: "Add a new wiki to a Canasta instance"
     long_description: |
-      Add a new wiki to an existing Canasta instance (wiki farm).
+      Add a new wiki to an existing Canasta instance, creating a
+      wiki farm. The new wiki is registered in `wikis.yaml`, the
+      Caddyfile is regenerated, and the MediaWiki installer runs
+      for the new wiki. You can also import an existing database
+      dump instead of running the installer.
     examples:
       - "canasta add -w docs -u localhost/docs"
     playbook: add.yml
@@ -475,9 +501,14 @@ commands:
         description: "Skip confirmation prompt"
 
   - name: import
-    description: "Import a database into a wiki"
+    description: "Import a database into an existing wiki"
     long_description: |
-      Import a SQL dump into an existing wiki's database.
+      Import a database dump into an existing wiki, replacing its
+      current database. The instance must be running. Supported
+      formats are .sql and .sql.gz files.
+
+      To create a new wiki from a database dump, use the `--database`
+      flag with `canasta create` or `canasta add` instead.
     examples:
       - "canasta import -w main -d dump.sql"
     playbook: import.yml
@@ -502,9 +533,12 @@ commands:
         description: "Path to per-wiki Settings.php to replace"
 
   - name: export
-    description: "Export a wiki's database"
+    description: "Export the database of a wiki in a Canasta instance"
     long_description: |
-      Export a wiki's database as a SQL dump file.
+      Export a wiki's database as a SQL dump file. The instance must
+      be running. By default the dump is saved to `<wikiID>.sql` in
+      the current directory. Use a `.gz` extension on the output
+      path to get a gzip-compressed dump.
     examples:
       - "canasta export -w main"
       - "canasta export -w main -f backup.sql.gz"
@@ -601,9 +635,18 @@ commands:
         description: "Canasta instance ID"
 
   - name: config_unset
-    description: "Remove configuration keys"
+    description: "Remove a configuration setting"
     long_description: |
-      Remove one or more configuration keys from the instance .env file.
+      Remove one or more configuration keys from the `.env` file of
+      a Canasta instance.
+
+      Each argument is a key name to remove. Multiple keys can be
+      removed in a single invocation and only one restart is
+      performed.
+
+      If a key has side effects (e.g., `HTTPS_PORT`), they are
+      reverted before the key is removed. The instance is then
+      restarted unless `--no-restart` is specified.
     examples:
       - "canasta config unset MW_SITE_SERVER"
     playbook: config_unset.yml
@@ -631,8 +674,10 @@ commands:
   # Extensions
   # ---------------------------------------------------------------------------
   - name: extension_list
-    description: "List installed extensions"
-    long_description: "List all extensions available in the Canasta instance."
+    description: "Lists all the installed Canasta extensions"
+    long_description: |
+      List all Canasta extensions available in the instance. Each
+      extension is shown with its enabled/disabled status.
     examples:
       - "canasta extension list"
     playbook: extension_list.yml
@@ -647,9 +692,16 @@ commands:
         description: "Wiki ID within the farm"
 
   - name: extension_enable
-    description: "Enable extensions"
+    description: "Enable a Canasta extension"
     long_description: |
-      Enable one or more MediaWiki extensions. Runs update.php by default.
+      Enable one or more Canasta extensions by name. Multiple
+      extensions can be specified as a comma-separated list. Use
+      the `--wiki` flag to enable an extension for a specific wiki
+      only.
+
+      After enabling, `update.php` is automatically run to apply any
+      required database changes. Use `--skip-update` to skip this
+      step.
     examples:
       - "canasta extension enable VisualEditor,Cite"
     playbook: extension_enable.yml
@@ -673,8 +725,12 @@ commands:
         description: "Skip running update.php after enabling"
 
   - name: extension_disable
-    description: "Disable extensions"
-    long_description: "Disable one or more MediaWiki extensions."
+    description: "Disable a Canasta extension"
+    long_description: |
+      Disable one or more Canasta extensions by name. Multiple
+      extensions can be specified as a comma-separated list. Use
+      the `--wiki` flag to disable an extension for a specific wiki
+      only.
     examples:
       - "canasta extension disable VisualEditor"
     playbook: extension_disable.yml
@@ -697,8 +753,10 @@ commands:
   # Skins
   # ---------------------------------------------------------------------------
   - name: skin_list
-    description: "List installed skins"
-    long_description: "List all skins available in the Canasta instance."
+    description: "Lists all the installed Canasta skins"
+    long_description: |
+      List all Canasta skins available in the instance. Each skin is
+      shown with its enabled/disabled status.
     examples:
       - "canasta skin list"
     playbook: skin_list.yml
@@ -713,9 +771,15 @@ commands:
         description: "Wiki ID within the farm"
 
   - name: skin_enable
-    description: "Enable skins"
+    description: "Enable a Canasta skin"
     long_description: |
-      Enable one or more MediaWiki skins. Runs update.php by default.
+      Enable one or more Canasta skins by name. Multiple skins can
+      be specified as a comma-separated list. Use the `--wiki` flag
+      to enable a skin for a specific wiki only.
+
+      After enabling, `update.php` is automatically run to apply any
+      required database changes. Use `--skip-update` to skip this
+      step.
     examples:
       - "canasta skin enable Timeless"
     playbook: skin_enable.yml
@@ -739,8 +803,11 @@ commands:
         description: "Skip running update.php after enabling"
 
   - name: skin_disable
-    description: "Disable skins"
-    long_description: "Disable one or more MediaWiki skins."
+    description: "Disable a Canasta skin"
+    long_description: |
+      Disable one or more Canasta skins by name. Multiple skins can
+      be specified as a comma-separated list. Use the `--wiki` flag
+      to disable a skin for a specific wiki only.
     examples:
       - "canasta skin disable Timeless"
     playbook: skin_disable.yml
@@ -790,8 +857,21 @@ commands:
         description: "Skip running Semantic MediaWiki rebuildData.php"
 
   - name: maintenance_script
-    description: "Run a MediaWiki maintenance script"
-    long_description: "Run an arbitrary MediaWiki core maintenance script."
+    description: "Run maintenance scripts"
+    long_description: |
+      Run a MediaWiki core maintenance script inside the web
+      container.
+
+      With no arguments, lists all available maintenance scripts.
+      With one or more arguments, runs the specified script. The
+      script name is relative to the `maintenance/` directory.
+
+      Flags (`-i`, `--wiki`) must come before the script name.
+      Everything after the script name is treated as script
+      arguments — no quotes needed.
+
+      In a wiki farm, runs on all wikis by default. Use `--wiki` to
+      target a specific wiki.
     examples:
       - "canasta maintenance script -- rebuildall.php"
     playbook: maintenance_script.yml
@@ -811,7 +891,24 @@ commands:
 
   - name: maintenance_extension
     description: "Run extension maintenance scripts"
-    long_description: "Run extension-specific maintenance scripts."
+    long_description: |
+      Run maintenance scripts provided by loaded MediaWiki
+      extensions.
+
+      With no arguments, lists all loaded extensions that have a
+      `maintenance/` directory. With one argument (extension name),
+      lists available maintenance scripts for that extension. With
+      two or more arguments (extension name, script name, and
+      optional script arguments), runs the specified script.
+
+      Flags (`-i`, `--wiki`) must come before the extension name.
+      Everything after the extension name is treated as the script
+      and its arguments — no quotes needed.
+
+      Only extensions that are currently loaded (enabled) for the
+      target wiki are shown and allowed to run. In a wiki farm, runs
+      on all wikis by default. Use `--wiki` to target a specific
+      wiki.
     examples:
       - "canasta maintenance extension"
     playbook: maintenance_extension.yml
@@ -893,8 +990,13 @@ commands:
   # Sitemap
   # ---------------------------------------------------------------------------
   - name: sitemap_generate
-    description: "Generate XML sitemaps"
-    long_description: "Generate XML sitemaps for one or all wikis."
+    description: "Generate sitemaps for one or all wikis"
+    long_description: |
+      Generate XML sitemaps for wikis in a Canasta instance. If
+      `--wiki` is specified, generates a sitemap for that wiki only.
+      Otherwise, generates sitemaps for all wikis in the instance.
+      Once generated, the background generator will automatically
+      refresh them.
     examples:
       - "canasta sitemap generate"
       - "canasta sitemap generate -w mywiki"
@@ -910,8 +1012,12 @@ commands:
         description: "Wiki ID (omit to generate for all wikis)"
 
   - name: sitemap_remove
-    description: "Remove XML sitemaps"
-    long_description: "Remove XML sitemaps for one or all wikis."
+    description: "Remove sitemaps for one or all wikis"
+    long_description: |
+      Remove XML sitemap files for wikis in a Canasta instance. If
+      `--wiki` is specified, removes the sitemap for that wiki only.
+      Otherwise, removes sitemaps for all wikis. Once removed, the
+      background generator will skip those wikis.
     examples:
       - "canasta sitemap remove"
     playbook: sitemap_remove.yml
@@ -930,7 +1036,11 @@ commands:
   # ---------------------------------------------------------------------------
   - name: backup_init
     description: "Initialize a backup repository"
-    long_description: "Initialize a new Restic backup repository for a Canasta instance."
+    long_description: |
+      Initialize a new backup repository. This must be run once
+      before creating any backups. The repository location is read
+      from the `RESTIC_REPOSITORY` variable (or AWS S3 settings) in
+      the instance's `.env` file.
     examples:
       - "canasta backup init"
     playbook: backup_init.yml
@@ -941,8 +1051,10 @@ commands:
         description: "Canasta instance ID"
 
   - name: backup_list
-    description: "List backup snapshots"
-    long_description: "List all snapshots in the backup repository."
+    description: "List backups"
+    long_description: |
+      List all snapshots stored in the backup repository. Displays
+      each snapshot's ID, timestamp, hostname, and tags.
     examples:
       - "canasta backup list"
     playbook: backup_list.yml
@@ -972,8 +1084,18 @@ commands:
         description: "Backup tag"
 
   - name: backup_restore
-    description: "Restore from a backup"
-    long_description: "Restore a Canasta instance from a backup snapshot."
+    description: "Restore a backup"
+    long_description: |
+      Restore a Canasta instance from a backup snapshot. By default,
+      a safety snapshot is taken before restoring. The restore
+      replaces configuration files, extensions, images, skins,
+      public_assets, `.env`, `docker-compose.override.yml`, `my.cnf`,
+      and all wiki databases with the contents of the specified
+      snapshot.
+
+      Use `-w`/`--wiki` to restore only a single wiki's database,
+      per-wiki settings, images, and public assets from the backup,
+      leaving shared files untouched.
     examples:
       - "canasta backup restore -s abc123"
     playbook: backup_restore.yml
@@ -997,8 +1119,11 @@ commands:
         description: "Restore only this wiki's database and per-wiki files"
 
   - name: backup_delete
-    description: "Delete a backup snapshot"
-    long_description: "Delete a specific snapshot from the backup repository."
+    description: "Delete a backup"
+    long_description: |
+      Remove a snapshot from the backup repository by its ID. The
+      snapshot data may still exist until a prune is run on the
+      repository.
     examples:
       - "canasta backup delete -s abc123"
     playbook: backup_delete.yml
@@ -1014,8 +1139,11 @@ commands:
         description: "Snapshot ID to delete"
 
   - name: backup_unlock
-    description: "Unlock the backup repository"
-    long_description: "Unlock a backup repository (needed if a previous backup was interrupted)."
+    description: "Remove locks other processes created"
+    long_description: |
+      Remove stale lock files from the backup repository. Use this
+      if a previous backup operation was interrupted and left the
+      repository in a locked state.
     examples:
       - "canasta backup unlock"
     playbook: backup_unlock.yml
@@ -1026,8 +1154,11 @@ commands:
         description: "Canasta instance ID"
 
   - name: backup_files
-    description: "List files in a backup snapshot"
-    long_description: "List all files contained in a specific backup snapshot."
+    description: "List files in a backup"
+    long_description: |
+      List all files contained in a specific backup snapshot. This
+      is useful for inspecting what was backed up before performing
+      a restore.
     examples:
       - "canasta backup files -s abc123"
     playbook: backup_files.yml
@@ -1043,8 +1174,11 @@ commands:
         description: "Snapshot ID"
 
   - name: backup_check
-    description: "Verify backup repository integrity"
-    long_description: "Verify the integrity of the backup repository."
+    description: "Check backup repository integrity"
+    long_description: |
+      Verify the integrity of the backup repository and its data.
+      This checks for errors in the repository structure and
+      snapshot data.
     examples:
       - "canasta backup check"
     playbook: backup_check.yml
@@ -1055,8 +1189,11 @@ commands:
         description: "Canasta instance ID"
 
   - name: backup_diff
-    description: "Compare two backup snapshots"
-    long_description: "Show the differences between two backup snapshots."
+    description: "Show difference between two backups"
+    long_description: |
+      Show the differences between two backup snapshots. This
+      compares the file contents and metadata of both snapshots,
+      displaying added, removed, and modified files.
     examples:
       - "canasta backup diff -s snap1 --snapshot2 snap2"
     playbook: backup_diff.yml
@@ -1076,8 +1213,11 @@ commands:
         description: "Second snapshot ID"
 
   - name: backup_purge
-    description: "Purge old backups"
-    long_description: "Remove old backups based on retention policies."
+    description: "Remove old backups based on retention policy"
+    long_description: |
+      Remove backup snapshots that exceed the specified retention
+      policy and reclaim disk space. At least one retention flag
+      (`--older-than` or `--keep-last`) is required.
     examples:
       - "canasta backup purge --keep-last 5"
       - "canasta backup purge --older-than 30d"
@@ -1104,8 +1244,15 @@ commands:
         description: "Purge backups older than this (e.g. 30d, 6m)"
 
   - name: backup_schedule_set
-    description: "Set a backup schedule"
-    long_description: "Set a recurring backup schedule using a cron expression."
+    description: "Set a recurring backup schedule"
+    long_description: |
+      Schedule recurring backups using a cron expression. This adds
+      or updates a crontab entry that runs `canasta backup create`
+      on the specified schedule. Backup output is logged to
+      `backup.log` in the instance directory.
+
+      Use `--purge-older-than` to automatically purge old backups
+      after each scheduled backup.
     examples:
       - "canasta backup schedule set '0 2 * * *'"
     playbook: backup_schedule_set.yml
@@ -1125,7 +1272,9 @@ commands:
 
   - name: backup_schedule_list
     description: "Show the backup schedule"
-    long_description: "Show the current backup schedule for a Canasta instance."
+    long_description: |
+      Show the current backup schedule for this instance, if one
+      exists.
     examples:
       - "canasta backup schedule list"
     playbook: backup_schedule_list.yml
@@ -1136,8 +1285,10 @@ commands:
         description: "Canasta instance ID"
 
   - name: backup_schedule_remove
-    description: "Remove the backup schedule"
-    long_description: "Remove the scheduled backup for a Canasta instance."
+    description: "Remove a scheduled backup"
+    long_description: |
+      Remove the crontab entry for recurring backups of this
+      instance.
     examples:
       - "canasta backup schedule remove"
     playbook: backup_schedule_remove.yml
@@ -1199,7 +1350,17 @@ commands:
 
   - name: gitops_join
     description: "Join an existing gitops repository"
-    long_description: "Join an existing git-based configuration repository."
+    long_description: |
+      Join an existing gitops repository for a Canasta instance.
+
+      Clones the repo, unlocks git-crypt with the provided key,
+      adds this host to the host inventory, extracts host-specific
+      values into `vars.yaml`, and pushes the new host entry back
+      to the repo.
+
+      The instance must already exist and have a working `.env`
+      file. Use `canasta gitops init` to bootstrap a new gitops
+      repository instead.
     examples:
       - "canasta gitops join -n staging --repo git@github.com:org/config.git --key /tmp/gc.key"
     playbook: gitops_join.yml
@@ -1270,8 +1431,12 @@ commands:
         description: "File path to remove (relative to instance root)"
 
   - name: gitops_push
-    description: "Push configuration changes"
-    long_description: "Push configuration changes to the remote gitops repository."
+    description: "Push configuration changes to the git repository"
+    long_description: |
+      Commit staged changes and push to the remote repository. Files
+      must be staged first using `canasta gitops add`. When
+      `pull_requests` is enabled in `hosts.yaml`, creates a branch
+      and opens a pull request instead of pushing directly to main.
     examples:
       - "canasta gitops push"
       - "canasta gitops push -m 'Add docs wiki'"
@@ -1287,8 +1452,12 @@ commands:
         description: "Commit message (defaults to 'Configuration update')"
 
   - name: gitops_pull
-    description: "Pull configuration changes"
-    long_description: "Pull configuration changes from the remote gitops repository."
+    description: "Pull latest configuration from the git repository"
+    long_description: |
+      Pull the latest configuration from the remote repository,
+      update submodules, render `.env` and admin password files from
+      the template and host vars, and report what changed and
+      whether a restart is needed.
     examples:
       - "canasta gitops pull"
     playbook: gitops_pull.yml
@@ -1299,8 +1468,10 @@ commands:
         description: "Canasta instance ID"
 
   - name: gitops_status
-    description: "Show gitops status"
-    long_description: "Show the git status of the configuration directory."
+    description: "Show gitops status for the instance"
+    long_description: |
+      Show the current host, role, uncommitted changes, and
+      ahead/behind status relative to the remote.
     examples:
       - "canasta gitops status"
     direct_only: true
@@ -1311,8 +1482,12 @@ commands:
         description: "Canasta instance ID"
 
   - name: gitops_diff
-    description: "Show gitops diff"
-    long_description: "Show differences in the configuration directory."
+    description: "Show local and remote changes since the branches diverged"
+    long_description: |
+      Show uncommitted working tree changes, then fetch the latest
+      from the remote and show what files have changed locally, what
+      files have changed on the remote, and which files have changed
+      in both (potential merge conflicts).
     examples:
       - "canasta gitops diff"
     playbook: gitops_diff.yml
@@ -1323,8 +1498,19 @@ commands:
         description: "Canasta instance ID"
 
   - name: gitops_fix_submodules
-    description: "Fix gitops submodules"
-    long_description: "Fix submodule registration after adding extensions."
+    description: "Convert extensions and skins to proper git submodules"
+    long_description: |
+      Fix submodule registration in an existing gitops repository.
+
+      This handles two cases:
+
+      1. Extensions or skins that were added after gitops init and
+         need to be converted from standalone git repositories to
+         submodules.
+      2. Submodules listed in .gitmodules that were accidentally
+         committed as regular directories instead of gitlinks.
+
+      After fixing, run `canasta gitops push` to push the changes.
     examples:
       - "canasta gitops fix-submodules"
     playbook: gitops_fix_submodules.yml
@@ -1408,6 +1594,14 @@ commands:
 
   - name: host_remove
     description: "Remove a host entry from the persistent hosts.yml"
+    long_description: |
+      Remove a saved host definition from
+      `$CANASTA_CONFIG_DIR/hosts.yml`. After removal, the short name
+      can no longer be used with `--host`.
+
+      Removing a host from `hosts.yml` does not affect instances
+      already registered on that host; they remain in the registry
+      and continue to be targeted by their original SSH details.
     examples:
       - "canasta host remove --name prod1"
     direct_only: true
@@ -1421,6 +1615,14 @@ commands:
 
   - name: host_list
     description: "List all host entries from the persistent hosts.yml"
+    long_description: |
+      List every saved host definition from
+      `$CANASTA_CONFIG_DIR/hosts.yml`. For each host, displays the
+      short name (the value passed to `--host`), the SSH destination
+      (`user@host`), and the Python interpreter path if one was set.
+
+      Use `canasta host add` to add entries and `canasta host remove`
+      to remove them.
     examples:
       - "canasta host list"
     direct_only: true
