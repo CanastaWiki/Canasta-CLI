@@ -75,5 +75,6 @@ The publisher writes pages under the `CLI:` namespace plus `MediaWiki:Menu-cli-r
 
 Longer-form design docs live in `docs/`:
 
-- [`docs/multi-node.md`](docs/multi-node.md) — multi-node Kubernetes deployment walkthrough.
 - [`docs/k8s-multi-env-gitops-design.md`](docs/k8s-multi-env-gitops-design.md) — Argo CD / dev → staging → prod GitOps design notes.
+
+User-facing guides live on canasta.wiki — e.g. [Help:Multi-node Kubernetes](https://canasta.wiki/wiki/Help:Multi-node_Kubernetes) for multi-node K8s deployments.
