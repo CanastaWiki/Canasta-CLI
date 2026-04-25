@@ -145,10 +145,10 @@ announce_upgrade() {
     fi
     info ""
     info "========================================"
-    info "Upgrading from Canasta-Go to Canasta CLI (Ansible)"
+    info "Upgrading the legacy (Go-based) Canasta CLI"
     info "========================================"
-    info "Detected existing Canasta-Go binary at ${BIN_DIR}/canasta."
-    info "This installer replaces it with the new Ansible-based Canasta CLI."
+    info "Detected an existing Canasta CLI 3.x binary at ${BIN_DIR}/canasta."
+    info "This installer replaces it with the new Ansible-based Canasta CLI 4.x."
     info ""
     info "Your registered instances in conf.json continue to work without"
     info "modification — the Canasta CLI reads the same registry format."

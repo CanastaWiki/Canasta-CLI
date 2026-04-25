@@ -2,7 +2,7 @@
 
 Canasta CLI: command-line tool for managing [Canasta](https://canasta.wiki) MediaWiki installations. Supports Docker Compose and Kubernetes orchestrators with single-host and multi-host management.
 
-> **Note:** This is the Python/Ansible implementation of the Canasta CLI (version 4.0.0+). It supersedes the legacy Go implementation, which is archived at [CanastaWiki/Canasta-Go](https://github.com/CanastaWiki/Canasta-Go) (end-of-life as of v3.7.0). See the [Upgrading guide](https://canasta.wiki/wiki/Help:Upgrading) for the migration path.
+> **Note:** This repository is the python/Ansible implementation of the Canasta CLI (version 4.0.0+). It supersedes the legacy Go implementation, which is archived at [CanastaWiki/Canasta-Go](https://github.com/CanastaWiki/Canasta-Go) (end-of-life as of v3.7.0). See the [Upgrading guide](https://canasta.wiki/wiki/Help:Upgrading) for the migration path.
 
 ## Documentation
 

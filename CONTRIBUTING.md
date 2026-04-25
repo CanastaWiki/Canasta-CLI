@@ -1,6 +1,6 @@
 # Contributing to Canasta CLI
 
-This document covers the local development workflow for the Canasta CLI repository (the Python/Ansible implementation; the legacy Go implementation is archived at [Canasta-Go](https://github.com/CanastaWiki/Canasta-Go)). For ecosystem-wide contributing guidance (CanastaBase, the Canasta image, building a custom Canasta-like distribution), see the [Contributing guide on canasta.wiki](https://canasta.wiki/wiki/Help:Contributing).
+This document covers the local development workflow for the Canasta CLI repository. For ecosystem-wide contributing guidance (CanastaBase, the Canasta image, building a custom Canasta-like distribution), see the [Contributing guide on canasta.wiki](https://canasta.wiki/wiki/Help:Contributing).
 
 ## Setting up a development environment
 
