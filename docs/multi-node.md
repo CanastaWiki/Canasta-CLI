@@ -36,9 +36,8 @@ SQL, Galera) and either put an external load balancer in front with
   cannot spread across nodes.
 - `helm` 3.10+ on the controller (the host that will run `canasta`).
 - A domain name with DNS control.
-- Canasta-Ansible CLI installed on the controller.
-  ([Canasta-Ansible README](https://github.com/CanastaWiki/Canasta-Ansible)
-  covers install.)
+- Canasta CLI installed on the controller. See
+  [Help:Installation](https://canasta.wiki/wiki/Help:Installation).
 
 ## Step 1 — Provision the cluster
 
@@ -77,14 +76,27 @@ public IP), `NODE1_PRIVATE` (control plane private IP).
 ```bash
 ssh ubuntu@<NODE1_IP>
 curl -sfL https://get.k3s.io | sudo sh -s - --tls-san <NODE1_IP>
+sudo chmod 644 /etc/rancher/k3s/k3s.yaml   # so the controller can read it
 sudo cat /var/lib/rancher/k3s/server/node-token   # save as <TOKEN>
 exit
 ```
 
 `--tls-san <NODE1_IP>` adds the public IP to the K8s API server's TLS
-certificate so `kubectl` from the controller works.
+certificate so `kubectl` from the controller works. `chmod 644` makes
+the kubeconfig readable by the SSH user so we can copy it back to the
+controller in a later step.
+
+`canasta install k8s` is *not* used here. It does install k3s, helm,
+kubectl, and a 0644 kubeconfig — but it does not pass `--tls-san`,
+so the API server's TLS cert won't include the public IP, and a
+remote controller won't be able to talk to it. `canasta install k8s`
+is fine for single-node deployments where the controller is itself
+the cluster node.
 
 **Join node 2 as a worker:**
+
+There is no Canasta command for joining workers — run the upstream
+installer with the join env vars on each worker:
 
 ```bash
 ssh ubuntu@<NODE2_IP>
@@ -95,12 +107,6 @@ exit
 ```
 
 Repeat this block on any additional worker nodes later.
-
-> **Why not `canasta create --install-k3s`?** That flag installs k3s
-> as part of a single-node create. For multi-node with shared storage
-> the order has to be: k3s up → NFS StorageClass → create. Installing
-> k3s manually here is the simplest way to get that order right. See
-> "Known gaps" at the end for a proposed standalone install command.
 
 **Configure `kubectl` on the controller:**
 
@@ -356,10 +362,11 @@ for:
   sees it as mode `0777` and `ssh` refuses to use it. Copy the key
   into `~/.ssh/` inside WSL and `chmod 600` it.
 - **`dig` isn't preinstalled** — `sudo apt install dnsutils`.
-- **Python + pip** for the canasta CLI — `sudo apt install python3-pip`,
-  then follow the repo README. Alternatively use `canasta-docker`
-  (requires Docker Desktop with WSL2 integration); some host-mount
-  quirks seen on macOS may surface on Windows too.
+- **Installing the Canasta CLI** — follow
+  [Help:Installation](https://canasta.wiki/wiki/Help:Installation).
+  Native mode (Python + Ansible) and Docker mode both work under
+  WSL2; some host-mount quirks seen with `canasta-docker` on macOS
+  may surface on Windows too.
 - **Argo CD port-forward.** WSL2 auto-forwards localhost to the
   Windows host, so `https://localhost:8443` works from the Windows
   browser without extra setup.
@@ -397,10 +404,15 @@ workaround in Step 9 to force placement.
 
 ## Known gaps
 
-- **No standalone `canasta install k3s` command.** `--install-k3s` is
-  coupled to `canasta create`, but multi-node with shared storage
-  needs k3s up *before* create (so NFS can be provisioned first).
-  Manual k3s install on node 1 is the current workaround.
+- **`canasta install k8s` doesn't pass `--tls-san`.** Fine for
+  single-node deployments where the controller is the cluster node;
+  for multi-node with a remote controller, the API server's cert
+  won't include the public IP and `kubectl get nodes` from the
+  controller fails TLS verification. Manual `curl … --tls-san …`
+  is required on the control-plane node for now.
+- **No `canasta` command for joining worker nodes.** Workers must
+  be brought up with the upstream installer plus `K3S_URL` /
+  `K3S_TOKEN` env vars on each new worker.
 - **No `canasta scale` command.** Changing `web.replicaCount` means
   editing `values.yaml` and running `canasta restart`.
 
