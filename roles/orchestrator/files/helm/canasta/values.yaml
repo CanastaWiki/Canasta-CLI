@@ -111,7 +111,8 @@ ingress:
 # ReadWriteMany provisioner (e.g. nfs, efs) AND set accessMode to
 # ReadWriteMany. The default ReadWriteOnce is correct for single-node
 # clusters and for multi-replica deployments where all pods can be
-# scheduled to the same node. See docs/multi-node.md and
+# scheduled to the same node. See
+# https://canasta.wiki/wiki/Help:Multi-node_Kubernetes and
 # 'canasta storage setup' for help configuring shared storage.
 persistence:
   images:
