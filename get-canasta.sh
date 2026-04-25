@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# get-canasta.sh — Install Canasta-Ansible from scratch.
+# get-canasta.sh — Install or upgrade to the Ansible-based Canasta CLI.
 #
 # Usage:
 #   curl -fsSL https://get.canasta.wiki | bash
@@ -17,6 +17,12 @@
 #   sudo usermod -aG canasta $USER
 #
 # macOS native installs use a user-owned path (no group needed).
+#
+# Upgrading from Canasta-CLI (Go) — the installer detects an existing
+# Go binary at /usr/local/bin/canasta and replaces it with a symlink to
+# the new wrapper. The registered-instance registry (conf.json) and
+# instance directories are unchanged; the Ansible CLI reads the same
+# format.
 
 set -euo pipefail
 
@@ -94,6 +100,59 @@ need_sudo() {
     else
         SUDO=""
     fi
+}
+
+# --- Existing-install detection ---------------------------------------------
+
+# Classify whatever's at /usr/local/bin/canasta so the installer can
+# announce an upgrade path when the legacy Go-based Canasta-CLI is
+# replaced. The classifier is deliberately narrow — the installer's
+# behavior doesn't change based on the result. Only the user-facing
+# message does.
+#
+# Results:
+#   none             — nothing installed yet
+#   ansible          — already using the Ansible-based CLI (symlink to
+#                      canasta-native or canasta-docker)
+#   go-cli           — a regular file at /usr/local/bin/canasta,
+#                      presumed to be the legacy Go binary (Canasta-CLI
+#                      Go installs via 'make install' which copies a
+#                      plain binary into place)
+#   symlink-other    — a symlink pointing somewhere unexpected
+detect_existing_install() {
+    local canasta_path="${BIN_DIR}/canasta"
+    EXISTING_INSTALL="none"
+
+    if [[ ! -e "$canasta_path" && ! -L "$canasta_path" ]]; then
+        return
+    fi
+
+    if [[ -L "$canasta_path" ]]; then
+        local target
+        target="$(readlink "$canasta_path")"
+        case "$target" in
+            *canasta-native|*canasta-docker) EXISTING_INSTALL="ansible" ;;
+            *)                               EXISTING_INSTALL="symlink-other" ;;
+        esac
+    elif [[ -f "$canasta_path" ]]; then
+        EXISTING_INSTALL="go-cli"
+    fi
+}
+
+announce_upgrade() {
+    if [[ "$EXISTING_INSTALL" != "go-cli" ]]; then
+        return
+    fi
+    info ""
+    info "========================================"
+    info "Upgrading from Canasta-CLI (Go)"
+    info "========================================"
+    info "Detected existing Canasta-CLI binary at ${BIN_DIR}/canasta."
+    info "This installer replaces it with the new Ansible-based Canasta CLI."
+    info ""
+    info "Your registered instances in conf.json continue to work without"
+    info "modification — the Canasta CLI reads the same registry format."
+    info ""
 }
 
 # --- Platform detection ------------------------------------------------------
@@ -323,6 +382,8 @@ post_install_summary() {
 main() {
     parse_args "$@"
     detect_platform
+    detect_existing_install
+    announce_upgrade
 
     case "$MODE" in
         docker)
