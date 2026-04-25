@@ -17,7 +17,10 @@
 
 set -euo pipefail
 
-IMAGE="${CANASTA_ANSIBLE_IMAGE:-ghcr.io/canastawiki/canasta-ansible:latest}"
+# CANASTA_CLI_IMAGE is the post-rename name; CANASTA_ANSIBLE_IMAGE
+# remains a backwards-compatible fallback for users who already
+# set the old name in their environment.
+IMAGE="${CANASTA_CLI_IMAGE:-${CANASTA_ANSIBLE_IMAGE:-ghcr.io/canastawiki/canasta-ansible:latest}}"
 
 # Determine config directory (same logic as canasta_registry.py)
 if [[ -n "${CANASTA_CONFIG_DIR:-}" ]]; then

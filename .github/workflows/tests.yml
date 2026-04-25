@@ -225,11 +225,11 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Build Docker image
-        run: docker build -t canasta-ansible:test .
+        run: docker build -t canasta-cli:test .
 
       - name: Test version command
         run: |
-          OUTPUT=$(docker run --rm canasta-ansible:test version)
+          OUTPUT=$(docker run --rm canasta-cli:test version)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "Canasta CLI v"
 
@@ -237,7 +237,7 @@ jobs:
         run: |
           OUTPUT=$(docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            canasta-ansible:test list)
+            canasta-cli:test list)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "No Canasta instances"
 
@@ -245,13 +245,13 @@ jobs:
         run: |
           OUTPUT=$(docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            canasta-ansible:test doctor)
+            canasta-cli:test doctor)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "Docker"
 
       - name: Test help output
         run: |
-          OUTPUT=$(docker run --rm canasta-ansible:test --help)
+          OUTPUT=$(docker run --rm canasta-cli:test --help)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "create"
           echo "$OUTPUT" | grep -q "backup"
