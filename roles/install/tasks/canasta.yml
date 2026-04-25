@@ -62,9 +62,9 @@
         system: true
         state: present
 
-    - name: Clone Canasta-Ansible repository
+    - name: Clone Canasta CLI repository
       ansible.builtin.git:
-        repo: "https://github.com/CanastaWiki/Canasta-Ansible.git"
+        repo: "https://github.com/CanastaWiki/Canasta-CLI.git"
         dest: /opt/canasta-ansible
         version: main
 

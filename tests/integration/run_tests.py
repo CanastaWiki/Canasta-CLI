@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for Canasta-Ansible.
+"""Integration tests for the Canasta CLI.
 
 Mirrors the Go CLI integration tests by calling ./canasta commands as
 subprocesses. Each test creates an isolated instance with unique ports
@@ -12,7 +12,7 @@ Usage:
 
 Requirements:
     - Docker running
-    - Canasta-Ansible installed (.venv with ansible)
+    - Canasta CLI installed (.venv with ansible)
     - Run from repo root or set CANASTA_ROOT
 """
 

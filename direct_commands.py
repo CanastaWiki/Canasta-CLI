@@ -811,7 +811,7 @@ def cmd_version(args):
 
     # Target Canasta version — what this CLI was built to deploy.
     # Always shown, even when no instances are registered. This is the
-    # CANASTA_VERSION file bundled with Canasta-Ansible, distinct from
+    # CANASTA_VERSION file bundled with the Canasta CLI, distinct from
     # any particular instance's pinned CANASTA_IMAGE tag.
     target_version_file = os.path.join(script_dir, "CANASTA_VERSION")
     try:

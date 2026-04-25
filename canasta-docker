@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# canasta-docker - Run Canasta-Ansible from a Docker container.
+# canasta-docker - Run the Canasta CLI from a Docker container.
 #
 # Only Docker is required on the host. No Python, no Ansible.
 #
 # Install:
 #   sudo curl -o /usr/local/bin/canasta-docker \
-#     https://raw.githubusercontent.com/CanastaWiki/Canasta-Ansible/main/canasta-docker
+#     https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/canasta-docker
 #   sudo chmod +x /usr/local/bin/canasta-docker
 #   sudo ln -sf /usr/local/bin/canasta-docker /usr/local/bin/canasta
 #
@@ -459,7 +459,7 @@ fi
 # this wrapper script from the main branch, matching the Go CLI's
 # self-update behavior.
 WRAPPER_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
-WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-Ansible/main/canasta-docker"
+WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/canasta-docker"
 for arg in "$@"; do
     case "$arg" in
         -*) continue ;;

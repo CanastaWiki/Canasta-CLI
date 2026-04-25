@@ -1,5 +1,5 @@
 ---
-# canasta self-update - Update Canasta-Ansible playbooks to latest version.
+# canasta self-update - Update Canasta CLI playbooks to latest version.
 # Runs on the controller node (where playbooks are installed).
 #
 # Skipped when running from a Docker image — the image pull in the
@@ -70,7 +70,7 @@
     - name: Report no updates
       ansible.builtin.debug:
         msg: >-
-          Canasta-Ansible is already up to date
+          Canasta CLI is already up to date
           (version {{ _current_version.content | b64decode | trim }},
           commit {{ _current_commit.stdout | trim }}).
       when: _pending_updates.stdout | trim | length == 0
@@ -133,7 +133,7 @@
         - name: Report update
           ansible.builtin.debug:
             msg: >-
-              Updated Canasta-Ansible from
+              Updated Canasta CLI from
               {{ _current_version.content | b64decode | trim }}
               ({{ _current_commit.stdout | trim }}) to
               {{ _new_version.content | b64decode | trim }}

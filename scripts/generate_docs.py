@@ -148,7 +148,7 @@ def command_to_text(cmd, global_flags=None):
 def generate_index(commands):
     """Generate a Markdown index page for all commands."""
     lines = []
-    lines.append("# Canasta-Ansible Command Reference")
+    lines.append("# Canasta CLI Command Reference")
     lines.append("")
     lines.append("| Command | Description |")
     lines.append("|---------|-------------|")

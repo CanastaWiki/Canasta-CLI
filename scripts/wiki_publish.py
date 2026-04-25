@@ -499,7 +499,7 @@ class MediaWikiClient:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate and publish Canasta-Ansible wiki reference"
+        description="Generate and publish Canasta CLI wiki reference"
     )
     parser.add_argument("--api", help="MediaWiki API URL")
     parser.add_argument("--user", help="Bot username")
@@ -546,7 +546,7 @@ def main():
             time.sleep(EDIT_DELAY)
         try:
             client.edit_page(
-                title, content, "Update Canasta-Ansible reference"
+                title, content, "Update Canasta CLI reference"
             )
             print("Published %s" % title)
         except Exception as e:

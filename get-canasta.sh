@@ -18,16 +18,16 @@
 #
 # macOS native installs use a user-owned path (no group needed).
 #
-# Upgrading from Canasta-CLI (Go) — the installer detects an existing
-# Go binary at /usr/local/bin/canasta and replaces it with a symlink to
-# the new wrapper. The registered-instance registry (conf.json) and
-# instance directories are unchanged; the Ansible CLI reads the same
-# format.
+# Upgrading from Canasta-Go (legacy Go CLI) — the installer detects an
+# existing Go binary at /usr/local/bin/canasta and replaces it with a
+# symlink to the new wrapper. The registered-instance registry
+# (conf.json) and instance directories are unchanged; the new Canasta
+# CLI reads the same format.
 
 set -euo pipefail
 
-REPO_URL="https://github.com/CanastaWiki/Canasta-Ansible.git"
-DOCKER_WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-Ansible/main/canasta-docker"
+REPO_URL="https://github.com/CanastaWiki/Canasta-CLI.git"
+DOCKER_WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/canasta-docker"
 BIN_DIR="/usr/local/bin"
 MODE=""
 PREFIX=""
@@ -105,7 +105,7 @@ need_sudo() {
 # --- Existing-install detection ---------------------------------------------
 
 # Classify whatever's at /usr/local/bin/canasta so the installer can
-# announce an upgrade path when the legacy Go-based Canasta-CLI is
+# announce an upgrade path when the legacy Canasta-Go binary is
 # replaced. The classifier is deliberately narrow — the installer's
 # behavior doesn't change based on the result. Only the user-facing
 # message does.
@@ -115,9 +115,9 @@ need_sudo() {
 #   ansible          — already using the Ansible-based CLI (symlink to
 #                      canasta-native or canasta-docker)
 #   go-cli           — a regular file at /usr/local/bin/canasta,
-#                      presumed to be the legacy Go binary (Canasta-CLI
-#                      Go installs via 'make install' which copies a
-#                      plain binary into place)
+#                      presumed to be the legacy Go binary (Canasta-Go
+#                      installs via 'make install' which copies a plain
+#                      binary into place)
 #   symlink-other    — a symlink pointing somewhere unexpected
 detect_existing_install() {
     local canasta_path="${BIN_DIR}/canasta"
@@ -145,9 +145,9 @@ announce_upgrade() {
     fi
     info ""
     info "========================================"
-    info "Upgrading from Canasta-CLI (Go)"
+    info "Upgrading from Canasta-Go to Canasta CLI (Ansible)"
     info "========================================"
-    info "Detected existing Canasta-CLI binary at ${BIN_DIR}/canasta."
+    info "Detected existing Canasta-Go binary at ${BIN_DIR}/canasta."
     info "This installer replaces it with the new Ansible-based Canasta CLI."
     info ""
     info "Your registered instances in conf.json continue to work without"
@@ -250,7 +250,7 @@ install_native_linux() {
         info "Updating existing installation at ${install_dir}..."
         $SUDO git -C "$install_dir" pull --ff-only
     else
-        info "Cloning Canasta-Ansible to ${install_dir}..."
+        info "Cloning Canasta CLI to ${install_dir}..."
         $SUDO git clone "$REPO_URL" "$install_dir"
     fi
 
@@ -315,7 +315,7 @@ install_native_macos() {
         info "Updating existing installation at ${install_dir}..."
         git -C "$install_dir" pull --ff-only
     else
-        info "Cloning Canasta-Ansible to ${install_dir}..."
+        info "Cloning Canasta CLI to ${install_dir}..."
         git clone "$REPO_URL" "$install_dir"
     fi
 
