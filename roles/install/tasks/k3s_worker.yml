@@ -126,4 +126,3 @@
   vars:
     server: "{{ _k3s_server_url }}"
     token: "{{ _k3s_join_token }}"
-    cp_host_name: "{{ cp_host }}"

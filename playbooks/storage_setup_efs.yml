@@ -52,5 +52,3 @@
     msg: >-
       EFS storage configured. StorageClass
       '{{ storage_class_name | default('efs') }}' is ready.
-      To run a multi-replica web pod across nodes, also pass
-      --access-mode ReadWriteMany when creating the instance.
