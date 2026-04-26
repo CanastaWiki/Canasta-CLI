@@ -4,6 +4,13 @@
 # control-plane (k3s-uninstall.sh) and worker (k3s-agent-uninstall.sh)
 # install forms; the k3s installer creates a different script
 # depending on whether it set up a server or an agent.
+#
+# On a worker uninstall, if cp_host is provided, also SSH to the
+# control plane afterward and 'kubectl delete node <hostname>' so the
+# Node entry is removed from the cluster's view. Without that, the
+# Node lingers in 'kubectl get nodes' and a worker rejoining with the
+# same hostname reclaims it (preserving its AGE) — which masks the
+# uninstall.
 
 - name: Check for k3s server uninstall script
   ansible.builtin.stat:
@@ -32,6 +39,35 @@
   ansible.builtin.debug:
     msg: "k3s is not installed."
   when: not _k3s_uninstall_script
+
+# Worker uninstalls leave a Node entry on the control plane unless we
+# delete it. To keep cluster state coherent, require --cp-host so we
+# know where to send the delete. Control-plane uninstalls don't need
+# it; control plane is itself the registry, and tearing it down
+# discards the Node list along with everything else.
+- name: Require --cp-host for worker uninstalls
+  ansible.builtin.fail:
+    msg: >-
+      Uninstalling a k3s worker requires --cp-host <name>, where
+      <name> is the registered control-plane host. Canasta SSHs there
+      after stopping the agent and deletes this worker's Node entry
+      from the cluster. Without it, the Node lingers in 'kubectl get
+      nodes' and a worker rejoining with the same hostname reclaims
+      it.
+  when:
+    - _k3s_role_label == 'worker'
+    - not (cp_host is defined and (cp_host | length > 0))
+
+# Capture the worker's hostname *before* the uninstall script runs.
+# k8s Node names default to the OS hostname (the k3s installer doesn't
+# pass --node-name in this codebase), so this is what we'll ask cp to
+# delete from its Node registry below.
+- name: Capture worker hostname for Node cleanup
+  ansible.builtin.command:
+    cmd: hostname
+  register: _worker_hostname_raw
+  changed_when: false
+  when: _k3s_role_label == 'worker'
 
 - name: Uninstall k3s
   when: _k3s_uninstall_script | length > 0
@@ -73,3 +109,33 @@
     - name: Report uninstalled
       ansible.builtin.debug:
         msg: "Kubernetes ({{ _k3s_role_label }}) uninstalled."
+
+# --- Worker only: clean up the Node entry on the control plane ---
+
+- name: Delete worker Node from control plane
+  when: _k3s_role_label == 'worker'
+  block:
+    - name: Resolve cp-host SSH target from hosts.yml
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_cp_host_ssh.yml"
+
+    - name: Delete Node from control plane
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -o
+          - StrictHostKeyChecking=accept-new
+          - "{{ _cp_ssh_target }}"
+          - >-
+            sudo k3s kubectl delete node
+            {{ (_worker_hostname_raw.stdout | trim) | quote }}
+            --ignore-not-found
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+      register: _node_delete
+      changed_when: "'deleted' in (_node_delete.stdout | default(''))"
+
+    - name: Report Node cleanup
+      ansible.builtin.debug:
+        msg: "Removed Node '{{ _worker_hostname_raw.stdout | trim }}' from control plane."
+      when: "'deleted' in (_node_delete.stdout | default(''))"
