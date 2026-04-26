@@ -9,6 +9,7 @@ the bash wrapper script with Cobra-equivalent argument handling.
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -52,6 +53,29 @@ NESTED_SUBCOMMAND_GROUPS = {
     "storage": {
         "setup": ["nfs", "efs"],
     },
+}
+
+# Named regex validators for parameters tagged with `validator: <name>`
+# in meta/command_definitions.yml. Each entry is (compiled_regex,
+# error_template). The error template is appended after the offending
+# value, e.g. "Error: --domain-name 'foo' is not a valid hostname …".
+#
+# Validation runs after argparse but before any Ansible invocation, so
+# bad values fail in milliseconds instead of after Argo CD/helm/image
+# pull steps have already done work.
+_VALIDATORS = {
+    # RFC 1123 subdomain. Same regex k8s uses to validate
+    # Ingress.spec.rules[].host. Lowercase letters/digits, '-' and '.'
+    # only; each label starts and ends with an alphanumeric character.
+    "hostname": (
+        re.compile(
+            r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?"
+            r"(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+        ),
+        "is not a valid hostname. Expected lowercase letters, digits, "
+        "'-' and '.' only, with each label starting and ending with an "
+        "alphanumeric character (e.g. 'example.com').",
+    ),
 }
 
 
@@ -860,6 +884,40 @@ def main():
                     file=sys.stderr,
                 )
                 sys.exit(1)
+
+    # Validate parameters tagged with `validator: <name>` against a
+    # named regex. Catches typos (e.g. comma-vs-period in domain names)
+    # before any Ansible work is done — much cheaper than the same
+    # check failing at the end of the create pipeline.
+    for param in cmd_def.get("parameters", []):
+        validator_name = param.get("validator")
+        if not validator_name:
+            continue
+        value = getattr(args, param["name"], None)
+        if value is None or value == "":
+            continue
+        validator = _VALIDATORS.get(validator_name)
+        if validator is None:
+            # Unknown validator name in command_definitions.yml is a
+            # bug in the YAML, not a user error — surface loudly.
+            print(
+                "Internal error: parameter '%s' references unknown "
+                "validator '%s'" % (param["name"], validator_name),
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        regex, error_template = validator
+        if not regex.match(str(value)):
+            print(
+                "Error: --%s %r %s"
+                % (
+                    param["name"].replace("_", "-"),
+                    str(value),
+                    error_template,
+                ),
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     # Interactive exec: bypass Ansible for TTY support.
     if command_name == "maintenance_exec":
