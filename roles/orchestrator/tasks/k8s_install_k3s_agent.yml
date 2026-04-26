@@ -55,6 +55,8 @@
 - name: Report status
   ansible.builtin.debug:
     msg: >-
-      k3s agent is running and joined to {{ server }}. Verify from
-      the controller with 'kubectl get nodes' — this host should
-      appear within ~30 seconds.
+      k3s agent is running and joined to {{ server }}. To verify, SSH
+      to the cp host and run 'sudo k3s kubectl get nodes'{{
+        " (e.g. 'ssh " ~ cp_host_name ~ "')" if cp_host_name | default('')
+        else ""
+      }} — this host should appear within ~30 seconds.
