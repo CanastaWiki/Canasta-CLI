@@ -209,6 +209,66 @@ class TestCheckDirExists:
         assert not direct_commands._check_dir_exists(str(tmp_path / "nope"), "localhost")
 
 
+class TestCheckRunningK8s:
+    """canasta list's K8s status check must SSH to the instance's host
+    (where the kubeconfig pointing at the cluster lives) instead of
+    running kubectl locally against whatever the laptop's kubeconfig
+    happens to be (Docker Desktop in the worst case)."""
+
+    def test_local_running(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": "1"})(),
+        )
+        assert direct_commands._check_running_k8s("mywiki", "localhost")
+
+    def test_local_zero_replicas_is_not_running(self, monkeypatch):
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": "0"})(),
+        )
+        assert not direct_commands._check_running_k8s("mywiki", "localhost")
+
+    def test_remote_uses_ssh(self, monkeypatch):
+        """Remote hosts must dispatch via _ssh_run, not subprocess.run.
+        Guards against the original bug where a remote K8s instance
+        was reported STOPPED because the local kubectl had no idea
+        about the remote cluster."""
+        called = {}
+
+        def fake_ssh(host, cmd):
+            called["host"] = host
+            called["cmd"] = cmd
+            return 0, "1\n"
+
+        def fail_subprocess(*args, **kwargs):
+            raise AssertionError(
+                "remote check must not invoke subprocess.run directly"
+            )
+
+        monkeypatch.setattr(direct_commands, "_ssh_run", fake_ssh)
+        monkeypatch.setattr(subprocess, "run", fail_subprocess)
+        assert direct_commands._check_running_k8s("mywiki", "node1")
+        assert called["host"] == "node1"
+        assert "kubectl" in called["cmd"]
+        assert "canasta-mywiki-web" in called["cmd"]
+        assert "canasta-mywiki" in called["cmd"]  # namespace
+
+    def test_remote_not_running(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (0, ""),
+        )
+        assert not direct_commands._check_running_k8s("mywiki", "node1")
+
+    def test_remote_ssh_failure_treated_as_stopped(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (255, ""),  # SSH could not connect
+        )
+        assert not direct_commands._check_running_k8s("mywiki", "node1")
+
+
 class TestCheckRunningCompose:
     def test_running(self, monkeypatch, tmp_path):
         monkeypatch.setattr(
