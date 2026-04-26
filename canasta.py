@@ -586,7 +586,22 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         value = getattr(args, name, None)
         if value is None:
             continue
-        # REMAINDER args come as a list, join into string
+        # Non-positional multi-valued flags (e.g. --public-ip) come
+        # from argparse as a list and must reach Ansible as a list,
+        # so playbook filters like `| join(', ')` operate over
+        # elements rather than iterating a joined string char-by-char.
+        if (
+            isinstance(value, list)
+            and param.get("multi")
+            and not param.get("positional")
+        ):
+            if not value:
+                continue
+            extra_vars[name] = value
+            continue
+        # Positional multi (packages) and REMAINDER args (exec_args/
+        # script_args) are consumed Ansible-side via .split(), so
+        # collapse them to a space-joined string.
         if isinstance(value, list):
             value = " ".join(value)
             if not value:
@@ -838,11 +853,18 @@ def main():
     )
     if has_yes_param and not getattr(args, "yes", False):
         description = cmd_def.get("description", command_name)
-        instance_id = getattr(args, "id", None) or "unknown"
+        instance_id = getattr(args, "id", None)
+        host = getattr(args, "host", None)
+        if instance_id:
+            target = " '%s'" % instance_id
+        elif host:
+            target = " '%s'" % host
+        else:
+            target = ""
         try:
             answer = input(
-                "%s '%s'. Continue? [y/N] "
-                % (description, instance_id)
+                "%s%s. Continue? [y/N] "
+                % (description, target)
             )
         except (EOFError, KeyboardInterrupt):
             print("\nOperation cancelled.")
