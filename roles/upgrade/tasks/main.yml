@@ -39,6 +39,7 @@
     - remove_skip_binary_as_hex.yml
     - backfill_canasta_image.yml
     - backfill_compose_profiles.yml
+    - backfill_hosts_yaml.yml
   loop_control:
     loop_var: _migration
 
