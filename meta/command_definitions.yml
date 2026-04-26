@@ -78,6 +78,7 @@ commands:
         short: n
         type: string
         default: localhost
+        validator: hostname
         description: "Domain name"
       - name: admin
         short: a
