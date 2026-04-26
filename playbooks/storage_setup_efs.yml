@@ -54,5 +54,3 @@
       '{{ storage_class_name | default('efs') }}' is ready.
       To run a multi-replica web pod across nodes, also pass
       --access-mode ReadWriteMany when creating the instance.
-      See https://canasta.wiki/wiki/Help:Multi-node_Kubernetes for
-      the full walkthrough.
