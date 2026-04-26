@@ -380,6 +380,60 @@ class TestSubcommandGroupPages:
         assert "phantom" in page
 
 
+class TestConfigKeysTable:
+    """The 'Settings safe to change' table on the canasta config
+    landing page is generated from roles/config/defaults/main.yml so
+    it can't drift from the runtime allow-list `canasta config set`
+    enforces."""
+
+    def _pages(self):
+        data = wp.load_definitions()
+        return dict(wp.generate_all_pages(data))
+
+    def test_table_contains_every_known_key(self):
+        """Every entry in canasta_known_keys must appear in the
+        generated table — drift between docs and runtime is the bug
+        this whole machinery exists to prevent."""
+        import yaml as _yaml
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "roles", "config", "defaults", "main.yml",
+        )
+        with open(path) as f:
+            keys = _yaml.safe_load(f)["canasta_known_keys"]
+        rendered = wp._render_config_keys_table()
+        for entry in keys:
+            assert entry["name"] in rendered, (
+                "config keys table is missing %r" % entry["name"]
+            )
+
+    def test_table_is_grouped(self):
+        """Group headings appear and order keys under them."""
+        rendered = wp._render_config_keys_table()
+        # Each non-Other group from the YAML should be present.
+        for heading in ("Network", "PHP", "Features", "Backup (Restic)"):
+            assert heading in rendered
+
+    def test_placeholder_substituted_in_config_page(self):
+        pages = self._pages()
+        config = pages[wp.PAGE_PREFIX + "canasta config"]
+        # The placeholder must not survive into the rendered page.
+        assert "{{CONFIG_KEYS_TABLE}}" not in config
+        # And the table content must be there in its place.
+        assert "HTTP_PORT" in config
+        assert "CANASTA_STAGING_CERTS" in config
+
+    def test_includes_keys_previously_missing_from_live_table(self):
+        """The live wiki table predating this change had drifted,
+        omitting CANASTA_STAGING_CERTS and CANASTA_ENABLE_VERY_SHORT_URLS
+        even though the validator accepts them. The new generated
+        table must include both."""
+        pages = self._pages()
+        config = pages[wp.PAGE_PREFIX + "canasta config"]
+        assert "CANASTA_STAGING_CERTS" in config
+        assert "CANASTA_ENABLE_VERY_SHORT_URLS" in config
+
+
 class TestUsageLineSkipsWhenNoParams:
     """A command with no parameters has no flags to document in the
     usage line. Emitting 'canasta host list' as a synoptic block

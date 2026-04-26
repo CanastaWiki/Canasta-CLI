@@ -177,6 +177,62 @@ def _backticks_to_code(text):
     return _BACKTICK_RE.sub(r"<code>\1</code>", text)
 
 
+def _render_config_keys_table():
+    """Render the 'Settings safe to change' table for the canasta
+    config landing page.
+
+    Source of truth is roles/config/defaults/main.yml — the same file
+    `canasta config set`'s validator reads. Keeping wiki_publish.py
+    pointed at it means new settable keys appear in the docs as soon
+    as they're added to the runtime allow-list.
+
+    Output is a wiki <pre> block grouped by the key's `group:` field,
+    with descriptions and defaults aligned in fixed-width columns.
+    """
+    defaults_path = os.path.join(
+        REPO_ROOT, "roles", "config", "defaults", "main.yml",
+    )
+    with open(defaults_path) as f:
+        data = yaml.safe_load(f)
+    keys = data.get("canasta_known_keys", [])
+
+    # Group entries by their 'group' field, preserving first-seen order.
+    by_group = {}
+    for entry in keys:
+        if not isinstance(entry, dict):
+            # Tolerate the legacy bare-string form so a half-completed
+            # migration doesn't blow up the build; render those keys
+            # under an "Other" heading without descriptions.
+            by_group.setdefault("Other", []).append({"name": entry})
+            continue
+        by_group.setdefault(entry.get("group", "Other"), []).append(entry)
+
+    # Width of the key column — pad to longest name + 4 spaces so the
+    # description column lines up cleanly across all groups.
+    name_width = max(
+        (len(e["name"]) for e in keys if isinstance(e, dict)),
+        default=24,
+    ) + 4
+
+    out = ["<pre>"]
+    first = True
+    for group, entries in by_group.items():
+        if not first:
+            out.append("")
+        first = False
+        out.append("  " + group)
+        for e in entries:
+            line = "    " + e["name"].ljust(name_width)
+            desc = e.get("description", "")
+            default = e.get("default")
+            if default is not None and default != "":
+                desc = "%s (default: %s)" % (desc, default) if desc else \
+                       "default: %s" % default
+            out.append(line + desc)
+    out.append("</pre>")
+    return "\n".join(out)
+
+
 def _global_flags_section(global_flags):
     """Render the standard '=== Global Flags ===' table.
 
@@ -411,6 +467,15 @@ def gen_group_wikitext(group_name, group_def, cmd_index, global_flags=None):
 
     long_desc = group_def.get("long_description", "").strip()
     if long_desc:
+        # {{CONFIG_KEYS_TABLE}} expands to a generated reference table
+        # built from roles/config/defaults/main.yml — same source of
+        # truth `canasta config set`'s validator uses, so the docs and
+        # the runtime list can't drift.
+        if "{{CONFIG_KEYS_TABLE}}" in long_desc:
+            long_desc = long_desc.replace(
+                "{{CONFIG_KEYS_TABLE}}",
+                _render_config_keys_table(),
+            )
         lines.append("=== Synopsis ===")
         lines.append("")
         lines.append(_backticks_to_code(long_desc))
