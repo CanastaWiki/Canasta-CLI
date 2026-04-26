@@ -364,9 +364,18 @@ commands:
       Install one or more dependencies on the target host. Supported
       packages: docker, k8s, git-crypt. k8s installs kubectl, helm,
       and k3s. Multiple packages can be specified in a single command.
+
+      For multi-node Kubernetes clusters where the controller (the
+      machine running canasta) is a separate machine from the cluster
+      nodes, pass `--public-ip <addr>` on the k8s install. The address
+      is added to the k3s API server's TLS certificate, so the
+      controller's `kubectl` can verify the cert when talking to the
+      cluster over the public IP. Repeat `--public-ip` to add more
+      than one (e.g. an IP and a hostname).
     examples:
       - "canasta install docker"
       - "canasta install k8s"
+      - "canasta install k8s --public-ip 203.0.113.10"
       - "canasta install docker git-crypt"
       - "canasta install docker --host prod1.example.com"
     playbook: install.yml
@@ -381,6 +390,16 @@ commands:
         multi: true
         required: true
         description: "Dependencies to install (docker, k8s, git-crypt)"
+      - name: public_ip
+        type: string
+        multi: true
+        description: >-
+          Public IP or hostname of the cluster node, added to the k3s
+          API server's TLS cert (k8s only). Repeat to add multiple.
+          Required when the controller talks to k3s over a non-private
+          address — without it, kubectl from the controller fails TLS
+          verification because the cert defaults only cover the node's
+          internal IP and 127.0.0.1.
 
   - name: uninstall
     description: "Uninstall dependencies from the target host"

@@ -28,9 +28,27 @@
       ansible.builtin.debug:
         msg: "Installing Kubernetes (k3s)..."
 
+    # When --public-ip is provided, each address is appended to the
+    # k3s API server's cert via INSTALL_K3S_EXEC="--tls-san <addr>".
+    # Empty string when not provided (k3s uses its default cert SANs:
+    # 127.0.0.1, the node's internal IP, kubernetes.default.*).
+    - name: Build k3s install exec args
+      ansible.builtin.set_fact:
+        _k3s_install_exec: >-
+          {{ (public_ip | default([]))
+             | map('regex_replace', '^(.*)$', '--tls-san \1')
+             | join(' ') }}
+
+    - name: Report public IPs being added to API server cert
+      ansible.builtin.debug:
+        msg: "Adding to k3s API server TLS cert: {{ public_ip | join(', ') }}"
+      when: (public_ip | default([])) | length > 0
+
     - name: Download and install k3s
       ansible.builtin.shell:
-        cmd: "curl -sfL https://get.k3s.io | sh -"
+        cmd: >-
+          curl -sfL https://get.k3s.io |
+          INSTALL_K3S_EXEC={{ _k3s_install_exec | quote }} sh -
       changed_when: true
 
     - name: Make k3s kubeconfig readable (before verification)
