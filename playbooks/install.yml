@@ -1,21 +1,43 @@
 ---
 # canasta install - Install dependencies on the target host.
-# Accepts one or more package names: docker, k3s, git-crypt, canasta.
+# Accepts one or more package names: docker, k8s-cp, k8s-worker,
+# git-crypt, canasta.
 
 - name: Normalize package names
   ansible.builtin.set_fact:
     _install_packages: >-
       {{ packages.split()
          | map('regex_replace', '^k8s-cp$', 'k3s')
+         | map('regex_replace', '^k8s-worker$', 'k3s-worker')
          | list }}
 
 - name: Validate packages
   ansible.builtin.fail:
     msg: >-
       Unknown package '{{ item }}'. Supported: docker, k8s-cp,
-      git-crypt, canasta.
-  when: item not in ['docker', 'k3s', 'git-crypt', 'canasta']
+      k8s-worker, git-crypt, canasta.
+  when: item not in ['docker', 'k3s', 'k3s-worker', 'git-crypt', 'canasta']
   loop: "{{ _install_packages }}"
+
+- name: Validate k8s-cp + k8s-worker not requested together
+  ansible.builtin.fail:
+    msg: >-
+      k8s-cp and k8s-worker are mutually exclusive on a single host.
+      A node is either the cluster's control plane or a worker, not
+      both.
+  when:
+    - "'k3s' in _install_packages"
+    - "'k3s-worker' in _install_packages"
+
+- name: Validate --cp-host is provided for k8s-worker
+  ansible.builtin.fail:
+    msg: >-
+      Joining a worker requires --cp-host <name>, where <name> is the
+      control plane host registered via 'canasta host add'. Canasta
+      SSHs to that host to fetch the join token and cluster API URL.
+  when:
+    - "'k3s-worker' in _install_packages"
+    - not (cp_host is defined and (cp_host | length > 0))
 
 - name: Install Docker
   ansible.builtin.include_role:
@@ -23,11 +45,17 @@
     tasks_from: docker.yml
   when: "'docker' in _install_packages"
 
-- name: Install Kubernetes (k3s, kubectl, helm)
+- name: Install Kubernetes control plane (k3s server, kubectl, helm)
   ansible.builtin.include_role:
     name: install
     tasks_from: k3s.yml
   when: "'k3s' in _install_packages"
+
+- name: Install Kubernetes worker (k3s agent joined to control plane)
+  ansible.builtin.include_role:
+    name: install
+    tasks_from: k3s_worker.yml
+  when: "'k3s-worker' in _install_packages"
 
 - name: Install git-crypt
   ansible.builtin.include_role:

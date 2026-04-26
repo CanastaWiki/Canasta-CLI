@@ -362,27 +362,37 @@ commands:
     description: "Install dependencies on the target host"
     long_description: |
       Install one or more dependencies on the target host. Supported
-      packages: docker, k8s-cp, git-crypt.
+      packages: docker, k8s-cp, k8s-worker, git-crypt.
 
       `k8s-cp` installs k3s as a control-plane node — the cluster's
       API server, scheduler, etc., plus kubectl + helm on the same
       machine. The right install for single-node K8s deployments and
       for the first node of a multi-node cluster.
 
-      Pass `--public-ip <addr>` whenever the canasta CLI runs on a
-      different machine than the control plane — i.e. for any
-      multi-node cluster, and for single-node setups where canasta is
-      installed on a separate host (laptop / VPS / etc.). The address
-      is added to the k3s API server's TLS certificate so kubectl can
-      verify the cert when reaching the cluster over that address.
-      Repeat `--public-ip` to add more than one (e.g. an IP and a
-      hostname).
+      `k8s-worker` joins the target host to an existing k3s cluster as
+      a worker (agent) node — runs only the kubelet + container
+      runtime, no kubectl/helm. Use `--cp-host <name>` to point at a
+      registered host where the control plane lives; canasta will SSH
+      to the control plane to fetch the join token and the cluster's
+      internal API URL automatically.
+
+      Pass `--public-ip <addr>` (k8s-cp only) whenever the canasta CLI
+      runs on a different machine than the control plane — i.e. for
+      any multi-node cluster, and for single-node setups where canasta
+      is installed on a separate host (laptop / VPS / etc.). The
+      address is added to the k3s API server's TLS certificate so
+      kubectl can verify the cert when reaching the cluster over that
+      address. Repeat to add more than one (e.g. an IP and a hostname).
+
+      Multiple packages can be combined in a single command, except
+      that `k8s-cp` and `k8s-worker` are mutually exclusive on a given
+      host.
     examples:
       - "canasta install docker"
       - "canasta install k8s-cp"
       - "canasta install k8s-cp --public-ip 203.0.113.10"
+      - "canasta install --host node2 k8s-worker --cp-host node1"
       - "canasta install docker git-crypt"
-      - "canasta install docker --host prod1.example.com"
     playbook: install.yml
     parameters:
       - name: host
@@ -394,7 +404,9 @@ commands:
         positional: true
         multi: true
         required: true
-        description: "Dependencies to install (docker, k8s-cp, git-crypt)"
+        description: >-
+          Dependencies to install (docker, k8s-cp, k8s-worker,
+          git-crypt)
       - name: public_ip
         type: string
         multi: true
@@ -405,6 +417,13 @@ commands:
           multi-node cluster, plus single-node setups where canasta is
           on a separate host. Repeat the flag to add multiple
           addresses.
+      - name: cp_host
+        type: string
+        description: >-
+          Name of the registered control-plane host (k8s-worker only).
+          Canasta SSHs to this host to fetch the join token and the
+          cluster's internal API URL. The host must already be
+          registered via 'canasta host add'.
 
   - name: uninstall
     description: "Uninstall dependencies from the target host"
