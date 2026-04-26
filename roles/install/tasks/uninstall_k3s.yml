@@ -1,30 +1,53 @@
 ---
 # Uninstall k3s, kubectl, helm, and clean up iptables rules.
-# Idempotent — skips if k3s is not installed.
+# Idempotent — skips if k3s is not installed. Handles both the
+# control-plane (k3s-uninstall.sh) and worker (k3s-agent-uninstall.sh)
+# install forms; the k3s installer creates a different script
+# depending on whether it set up a server or an agent.
 
-- name: Check if k3s is installed
+- name: Check for k3s server uninstall script
   ansible.builtin.stat:
     path: /usr/local/bin/k3s-uninstall.sh
-  register: _k3s_uninstall_script
+  register: _k3s_server_uninstall
+
+- name: Check for k3s agent uninstall script
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s-agent-uninstall.sh
+  register: _k3s_agent_uninstall
+
+- name: Determine k3s role and uninstall script
+  ansible.builtin.set_fact:
+    _k3s_uninstall_script: >-
+      {{ '/usr/local/bin/k3s-uninstall.sh'
+         if _k3s_server_uninstall.stat.exists
+         else ('/usr/local/bin/k3s-agent-uninstall.sh'
+               if _k3s_agent_uninstall.stat.exists else '') }}
+    _k3s_role_label: >-
+      {{ 'control plane'
+         if _k3s_server_uninstall.stat.exists
+         else ('worker'
+               if _k3s_agent_uninstall.stat.exists else '') }}
 
 - name: Report k3s not installed
   ansible.builtin.debug:
     msg: "k3s is not installed."
-  when: not _k3s_uninstall_script.stat.exists
+  when: not _k3s_uninstall_script
 
 - name: Uninstall k3s
-  when: _k3s_uninstall_script.stat.exists
+  when: _k3s_uninstall_script | length > 0
   become: true
   block:
     - name: Report uninstalling
       ansible.builtin.debug:
-        msg: "Uninstalling Kubernetes (k3s, kubectl, helm)..."
+        msg: "Uninstalling Kubernetes ({{ _k3s_role_label }})..."
 
     - name: Run k3s uninstall script
       ansible.builtin.command:
-        cmd: /usr/local/bin/k3s-uninstall.sh
+        cmd: "{{ _k3s_uninstall_script }}"
       changed_when: true
 
+    # kubectl/helm/kubeconfig only exist on a control-plane install,
+    # but `state: absent` is a no-op on workers, so leave unconditional.
     - name: Remove kubectl symlink
       ansible.builtin.file:
         path: /usr/local/bin/kubectl
@@ -49,4 +72,4 @@
 
     - name: Report uninstalled
       ansible.builtin.debug:
-        msg: "Kubernetes (k3s, kubectl, helm) uninstalled."
+        msg: "Kubernetes ({{ _k3s_role_label }}) uninstalled."
