@@ -17,9 +17,9 @@
     msg: >-
       Unrecognized key '{{ _config_key }}'.
       Use --force to set unrecognized keys.
-      Known keys: {{ canasta_known_keys | join(', ') }}
+      Known keys: {{ canasta_known_keys | map(attribute='name') | join(', ') }}
       (Also accepted: keys starting with {{ canasta_known_prefixes | join(', ') }})
   when:
     - not (force | default(false) | bool)
-    - _config_key not in canasta_known_keys
+    - _config_key not in (canasta_known_keys | map(attribute='name') | list)
     - not (_config_key | regex_search('^(' + canasta_known_prefixes | join('|') + ')'))

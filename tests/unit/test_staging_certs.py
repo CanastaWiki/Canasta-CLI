@@ -89,7 +89,10 @@ class TestStagingCerts:
         )
         with open(path) as f:
             defaults = yaml.safe_load(f)
-        assert "CANASTA_STAGING_CERTS" in defaults["canasta_known_keys"], (
+        # canasta_known_keys is a list of dicts ({name, group,
+        # description, default}); project names to check membership.
+        names = [e["name"] for e in defaults["canasta_known_keys"]]
+        assert "CANASTA_STAGING_CERTS" in names, (
             "CANASTA_STAGING_CERTS must be in canasta_known_keys so "
             "'canasta config set CANASTA_STAGING_CERTS=...' doesn't "
             "require --force"

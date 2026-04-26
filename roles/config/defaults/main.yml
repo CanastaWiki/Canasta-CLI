@@ -1,25 +1,90 @@
 ---
-# Recognized configuration keys (matching Go knownKeys map).
-# Keys not in this list require --force to set/unset.
+# Recognized configuration keys. Keys not in this list (and not
+# matching a prefix below) require --force to set/unset.
+#
+# Each entry is a dict so wiki_publish.py can render a documentation
+# table from the same data the validator uses, instead of the table
+# living separately in the wiki and drifting from the code.
+#
+# Fields:
+#   name        - environment variable name (the only required field)
+#   group       - heading the key falls under in the docs table
+#   description - one-line description for the docs
+#   default     - default value as a string (omit if there isn't one)
 canasta_known_keys:
-  - HTTP_PORT
-  - HTTPS_PORT
-  - PHP_UPLOAD_MAX_FILESIZE
-  - PHP_POST_MAX_SIZE
-  - PHP_MAX_INPUT_VARS
-  - MW_SITEMAP_PAUSE_DAYS
-  - CANASTA_ENABLE_ELASTICSEARCH
-  - CANASTA_ENABLE_OBSERVABILITY
-  - CANASTA_ENABLE_VARNISH
-  - CANASTA_ENABLE_WIKI_DIRECTORY
-  - CANASTA_ENABLE_VERY_SHORT_URLS
-  - MW_SITE_SERVER
-  - MW_SITE_FQDN
-  - CADDY_AUTO_HTTPS
-  - CANASTA_STAGING_CERTS
-  - CANASTA_IMAGE
-  - RESTIC_REPOSITORY
-  - RESTIC_PASSWORD
+  - name: HTTP_PORT
+    group: Network
+    description: HTTP port
+    default: "80"
+  - name: HTTPS_PORT
+    group: Network
+    description: HTTPS port
+    default: "443"
+
+  - name: PHP_UPLOAD_MAX_FILESIZE
+    group: PHP
+    description: Upload file size limit
+    default: 10M
+  - name: PHP_POST_MAX_SIZE
+    group: PHP
+    description: POST data size limit
+    default: 10M
+  - name: PHP_MAX_INPUT_VARS
+    group: PHP
+    description: Max input variables
+    default: "1000"
+
+  - name: MW_SITEMAP_PAUSE_DAYS
+    group: Sitemaps
+    description: Days between sitemap refreshes
+    default: "1"
+
+  - name: CANASTA_ENABLE_ELASTICSEARCH
+    group: Features
+    description: Enable Elasticsearch
+    default: "false"
+  - name: CANASTA_ENABLE_OBSERVABILITY
+    group: Features
+    description: Enable observability stack
+    default: "false"
+  - name: CANASTA_ENABLE_VARNISH
+    group: Features
+    description: Enable Varnish caching
+    default: "true"
+  - name: CANASTA_ENABLE_WIKI_DIRECTORY
+    group: Features
+    description: Show wiki directory on 404 pages
+    default: "false"
+  - name: CANASTA_ENABLE_VERY_SHORT_URLS
+    group: Features
+    description: Use /wiki/Page (no /w/) URLs
+    default: "false"
+
+  - name: MW_SITE_SERVER
+    group: MediaWiki site
+    description: Site URL (e.g., https://example.com)
+  - name: MW_SITE_FQDN
+    group: MediaWiki site
+    description: Domain name (e.g., example.com)
+
+  - name: CADDY_AUTO_HTTPS
+    group: Caddy / TLS
+    description: Set to "off" behind a reverse proxy
+  - name: CANASTA_STAGING_CERTS
+    group: Caddy / TLS
+    description: Use Let's Encrypt staging CA (untrusted, but avoids rate limits)
+    default: "false"
+
+  - name: CANASTA_IMAGE
+    group: Docker Image
+    description: Override the default Canasta image
+
+  - name: RESTIC_REPOSITORY
+    group: Backup (Restic)
+    description: Restic repo URL or local path
+  - name: RESTIC_PASSWORD
+    group: Backup (Restic)
+    description: Restic repo password
 
 # Key prefixes that are always accepted (backup and mail credentials)
 canasta_known_prefixes:
