@@ -39,9 +39,36 @@
           -n cert-manager --timeout=180s
       changed_when: false
 
-    - name: Wait for webhook to register
-      ansible.builtin.pause:
-        seconds: 10
+    # Even after the webhook Deployment is Available, there's a brief
+    # window where the cert-manager admission webhook hasn't fully
+    # registered with the API server. ClusterIssuers created during
+    # that window get rejected with `failed calling webhook
+    # "webhook.cert-manager.io"`. Probe with a server-side dry-run
+    # of a benign SelfSigned ClusterIssuer — that traverses the
+    # admission webhook but doesn't persist anything — and retry
+    # until it succeeds. Replaces the prior fixed 10-second sleep,
+    # which both took longer than necessary in the common case and
+    # wasn't long enough on slower clusters.
+    - name: Wait for cert-manager admission webhook to register
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - apply
+          - --dry-run=server
+          - -f
+          - "-"
+        stdin: |
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: canasta-webhook-probe
+          spec:
+            selfSigned: {}
+      register: _webhook_probe
+      until: _webhook_probe.rc == 0
+      retries: 30
+      delay: 2
+      changed_when: false
 
 # Always create BOTH the production and staging ClusterIssuers
 # (idempotent). That way switching CANASTA_STAGING_CERTS later is
