@@ -57,6 +57,34 @@ import canasta as _canasta  # noqa: E402
 SUBCOMMAND_GROUPS = _canasta.SUBCOMMAND_GROUPS
 NESTED_SUBCOMMAND_GROUPS = _canasta.NESTED_SUBCOMMAND_GROUPS
 
+
+def _all_group_names():
+    """Return every subcommand-group internal name, including nested.
+
+    SUBCOMMAND_GROUPS keys are the top-level groups ('host', 'gitops',
+    'storage'). NESTED_SUBCOMMAND_GROUPS adds another layer ('storage'
+    contains 'setup', 'backup' contains 'schedule'). The internal name
+    for nested groups joins parent and child with an underscore, matching
+    the leaf-command convention ('storage_setup', 'backup_schedule').
+    """
+    out = list(SUBCOMMAND_GROUPS.keys())
+    for parent, nested in NESTED_SUBCOMMAND_GROUPS.items():
+        for sub in nested:
+            out.append("%s_%s" % (parent, sub))
+    return out
+
+
+def _group_subcommands(group_name):
+    """Return the list of direct subcommand display names for a group."""
+    if group_name in SUBCOMMAND_GROUPS:
+        return list(SUBCOMMAND_GROUPS[group_name])
+    parts = group_name.split("_", 1)
+    if len(parts) == 2 and parts[0] in NESTED_SUBCOMMAND_GROUPS:
+        nested = NESTED_SUBCOMMAND_GROUPS[parts[0]]
+        if parts[1] in nested:
+            return list(nested[parts[1]])
+    return []
+
 CMD_GROUPS = [
     ("System", ["install", "doctor", "host", "storage", "uninstall"]),
     ("Instance Management", [
@@ -149,7 +177,51 @@ def _backticks_to_code(text):
     return _BACKTICK_RE.sub(r"<code>\1</code>", text)
 
 
-def gen_wikitext(cmd, global_flags=None):
+def _global_flags_section(global_flags):
+    """Render the standard '=== Global Flags ===' table.
+
+    Used by both leaf-command and subcommand-group pages so the
+    inherited-flags listing stays identical across the whole CLI:
+    namespace. Returns a list of wikitext lines (possibly empty if
+    global_flags is None / empty).
+    """
+    if not global_flags:
+        return []
+    lines = ["=== Global Flags ===", ""]
+    lines.append('{| class="wikitable"')
+    lines.append(
+        "! Flag !! Shorthand !! Description "
+        "!! style=\"text-align:center\" | Default "
+        "!! style=\"text-align:center\" | Required "
+        "!! style=\"text-align:center\" | Orchestrator"
+    )
+    for p in sorted(global_flags, key=lambda x: x["name"]):
+        flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
+        short = ""
+        if p.get("short"):
+            short = "<code>-%s</code>" % p["short"]
+        desc = _backticks_to_code(p.get("description", ""))
+        default = ""
+        if p.get("default") not in (None, "", False, 0):
+            default = "<code>%s</code>" % p["default"]
+        required = ""
+        if p.get("required"):
+            required = "✓"
+        orch = _orchestrator_label(p.get("orchestrator_only"))
+        lines.append("|-")
+        lines.append(
+            "| %s || %s || %s "
+            '|| style="text-align:center" | %s '
+            '|| style="text-align:center" | %s '
+            '|| style="text-align:center" | %s'
+            % (flag, short, desc, default, required, orch)
+        )
+    lines.append("|}")
+    lines.append("")
+    return lines
+
+
+def gen_wikitext(cmd, global_flags=None, cmd_index=None):
     """Generate wikitext for a single command page.
 
     If global_flags is provided, a 'Global Flags' section is emitted
@@ -208,13 +280,19 @@ def gen_wikitext(cmd, global_flags=None):
     if name in SUBCOMMAND_GROUPS:
         lines.append("=== Subcommands ===")
         lines.append("")
-        for sub in SUBCOMMAND_GROUPS[name]:
+        # cmd_index is the leaf-command map; some callers don't pass it
+        # (back-compat with older signatures), so fall back to "see page".
+        for sub in sorted(SUBCOMMAND_GROUPS[name]):
             # 'sub' is the user-facing name (may contain hyphens like
             # 'fix-submodules'); convert to underscore form to find the
             # internal command_definitions.yml entry.
             internal = "%s_%s" % (name, sub.replace("-", "_"))
             link = cmd_page_title(internal)
-            lines.append("* [[%s|%s]] — see page" % (link, sub))
+            sub_desc = ""
+            if cmd_index is not None:
+                sub_desc = cmd_index.get(internal, {}).get("description", "")
+            sep = " — " + _backticks_to_code(sub_desc) if sub_desc else ""
+            lines.append("* [[%s|%s]]%s" % (link, sub, sep))
         lines.append("")
 
     # Examples — copy=1 enables the per-block copy-to-clipboard button
@@ -280,39 +358,83 @@ def gen_wikitext(cmd, global_flags=None):
             )
         lines.append("")
 
-    if global_flags:
-        lines.append("=== Global Flags ===")
-        lines.append("")
-        lines.append('{| class="wikitable"')
-        lines.append(
-            "! Flag !! Shorthand !! Description "
-            "!! style=\"text-align:center\" | Default "
-            "!! style=\"text-align:center\" | Required "
-            "!! style=\"text-align:center\" | Orchestrator"
+    lines.extend(_global_flags_section(global_flags))
+
+    lines.append("{{Reference Manual}}")
+    return "\n".join(lines)
+
+
+def gen_group_wikitext(group_name, group_def, cmd_index, global_flags=None):
+    """Generate wikitext for a CLI subcommand-group landing page.
+
+    These pages exist because invoking e.g. `canasta host` (with no
+    subcommand) prints help; the CLI: page documents that group-level
+    help. Subcommand list is derived from canasta.py's SUBCOMMAND_GROUPS
+    / NESTED_SUBCOMMAND_GROUPS so it can't drift from the actual command
+    set. Per-subcommand descriptions come from the leaf entries in
+    command_definitions.yml's `commands:` list.
+
+    group_name: internal name like 'host', 'storage_setup', 'backup_schedule'
+    group_def:  matching entry in command_definitions.yml's
+                `command_groups:` list (may be empty/missing — the page
+                still renders with default text)
+    cmd_index:  leaf-command index by internal name
+    """
+    display = "canasta " + cmd_display_name(group_name)
+    lines = []
+
+    # Breadcrumb — same shape as gen_wikitext for leaf pages.
+    crumbs = ["[[%s|canasta]]" % (PAGE_PREFIX + "canasta")]
+    ancestors = _ancestors(group_name)
+    for anc in ancestors:
+        crumbs.append(
+            "[[%s|%s]]" % (cmd_page_title(anc), cmd_display_name(anc))
         )
-        for p in sorted(global_flags, key=lambda x: x["name"]):
-            flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
-            short = ""
-            if p.get("short"):
-                short = "<code>-%s</code>" % p["short"]
-            desc = _backticks_to_code(p.get("description", ""))
-            default = ""
-            if p.get("default") not in (None, "", False, 0):
-                default = "<code>%s</code>" % p["default"]
-            required = ""
-            if p.get("required"):
-                required = "✓"
-            orch = _orchestrator_label(p.get("orchestrator_only"))
-            lines.append("|-")
-            lines.append(
-                "| %s || %s || %s "
-                '|| style="text-align:center" | %s '
-                '|| style="text-align:center" | %s '
-                '|| style="text-align:center" | %s'
-                % (flag, short, desc, default, required, orch)
-            )
-        lines.append("|}")
+    leaf = display[len("canasta "):]
+    if ancestors:
+        parent_disp = cmd_display_name(ancestors[-1])
+        if leaf.startswith(parent_disp + " "):
+            leaf = leaf[len(parent_disp) + 1:]
+    crumbs.append(leaf)
+    lines.append(" > ".join(crumbs))
+    lines.append("")
+
+    lines.append("== %s ==" % display)
+    lines.append("")
+
+    desc = group_def.get(
+        "description",
+        "Manage `canasta %s`" % cmd_display_name(group_name),
+    )
+    lines.append(_backticks_to_code(desc))
+    lines.append("")
+
+    long_desc = group_def.get("long_description", "").strip()
+    if long_desc:
+        lines.append("=== Synopsis ===")
         lines.append("")
+        lines.append(_backticks_to_code(long_desc))
+        lines.append("")
+
+    lines.append("=== Subcommands ===")
+    lines.append("")
+    lines.append("This command requires a subcommand:")
+    lines.append("")
+    for sub in sorted(_group_subcommands(group_name)):
+        sub_us = sub.replace("-", "_")
+        internal = "%s_%s" % (group_name, sub_us)
+        link = cmd_page_title(internal)
+        sub_cmd = cmd_index.get(internal, {})
+        sub_desc = sub_cmd.get("description", "")
+        sep = " — " + _backticks_to_code(sub_desc) if sub_desc else ""
+        lines.append("* [[%s|%s]]%s" % (link, sub, sep))
+    lines.append("")
+
+    # Group pages have no group-specific flags (only --help, --verbose
+    # from the global parser). Skip the per-command "=== Flags ==="
+    # table and emit just the standard Global Flags section — same
+    # one leaf pages render — for consistency.
+    lines.extend(_global_flags_section(global_flags))
 
     lines.append("{{Reference Manual}}")
     return "\n".join(lines)
@@ -375,7 +497,24 @@ def generate_all_pages(data):
         name = cmd["name"]
         pages.append((
             cmd_page_title(name),
-            gen_wikitext(cmd, global_flags=global_flags),
+            gen_wikitext(cmd, global_flags=global_flags, cmd_index=cmd_index),
+        ))
+
+    # Subcommand-group landing pages (canasta host, canasta gitops,
+    # canasta storage setup, etc.). These are derived from SUBCOMMAND_GROUPS
+    # / NESTED_SUBCOMMAND_GROUPS so they can't drift from the actual
+    # command set. Description and synopsis come from `command_groups:`
+    # in command_definitions.yml; missing entries fall back to a generic
+    # "Manage canasta <group>" stub.
+    group_index = {g["name"]: g for g in data.get("command_groups", [])}
+    for group_name in _all_group_names():
+        group_def = group_index.get(group_name, {})
+        pages.append((
+            cmd_page_title(group_name),
+            gen_group_wikitext(
+                group_name, group_def, cmd_index,
+                global_flags=global_flags,
+            ),
         ))
 
     # Menu page
