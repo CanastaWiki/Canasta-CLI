@@ -113,9 +113,9 @@
     - (_cp_internal_ip_raw.stdout | trim | length == 0)
       or (_cp_token_raw.stdout | trim | length == 0)
 
-- name: Report join target
-  ansible.builtin.debug:
-    msg: "Joining k3s cluster at {{ _k3s_server_url }} as a worker..."
+# The agent task itself prints "Joining k3s cluster at ..." inside
+# its install block (gated on a real install), so we don't duplicate
+# that message here.
 
 # --- Run the agent install with the resolved values ---
 
@@ -126,3 +126,4 @@
   vars:
     server: "{{ _k3s_server_url }}"
     token: "{{ _k3s_join_token }}"
+    cp_host_name: "{{ cp_host }}"
