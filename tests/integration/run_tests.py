@@ -316,6 +316,75 @@ def test_upgrade(inst):
     wait_for_wiki(inst.http_port)
 
 
+def test_upgrade_backfill_hosts_yaml(inst):
+    """Initialize gitops, simulate Go-CLI layout (no hosts.yaml),
+    run upgrade, verify the backfill_hosts_yaml migration recreates
+    hosts/hosts.yaml from the existing per-host directories."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Bootstrapping gitops to create the canonical layout...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    inst_path = inst.instance_path()
+    hosts_yaml = os.path.join(inst_path, "hosts", "hosts.yaml")
+    assert os.path.isfile(hosts_yaml), (
+        "hosts.yaml should have been created by gitops init"
+    )
+
+    print("Simulating Go-CLI gitops layout (delete hosts.yaml)...")
+    os.remove(hosts_yaml)
+    # Verify the directory structure that the migration keys off of
+    # is still present.
+    assert os.path.isdir(os.path.join(inst_path, "hosts", "testhost")), (
+        "per-host directory should still exist"
+    )
+    assert os.path.isfile(os.path.join(inst_path, ".gitops-host")), (
+        ".gitops-host marker should still exist"
+    )
+
+    print("Running upgrade...")
+    inst.run_ok("upgrade")
+
+    print("Verifying hosts.yaml was backfilled...")
+    assert os.path.isfile(hosts_yaml), (
+        "hosts.yaml not recreated by backfill_hosts_yaml migration"
+    )
+    with open(hosts_yaml) as f:
+        content = f.read()
+    assert "name: testhost" in content, (
+        "hosts.yaml missing entry for testhost: %s" % content
+    )
+    assert "role: both" in content, (
+        "hosts.yaml missing default role 'both': %s" % content
+    )
+    assert "pull_requests: false" in content, (
+        "hosts.yaml missing pull_requests default: %s" % content
+    )
+
+    print("Verifying wiki still accessible...")
+    wait_for_wiki(inst.http_port)
+
+
 def test_backup(inst):
     """Init repo, create snapshot, drop DB, restore, verify."""
     print("Creating instance...")
@@ -1669,6 +1738,7 @@ ALL_TESTS = {
     "lifecycle": test_lifecycle,
     "import": test_import_export,
     "upgrade": test_upgrade,
+    "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
     "gitops": test_gitops,

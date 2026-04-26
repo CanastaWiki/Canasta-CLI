@@ -402,6 +402,36 @@ main() {
             esac
             ;;
     esac
+
+    post_install_upgrade
+}
+
+# When upgrading from the legacy Go CLI, the registered Canasta
+# instances need their config-file migrations applied (e.g.
+# hosts/hosts.yaml backfill for gitops) and their container images
+# pulled to current. Both happen as part of `canasta upgrade`. Run
+# it automatically here so users coming from `curl ... | bash` end
+# up in a fully-migrated state without an extra manual step.
+#
+# Best-effort: if upgrade hits a transient issue (network, locked
+# instance, etc.) we report a warning but don't fail the install —
+# the CLI itself is in place and the user can re-run `canasta upgrade`
+# after addressing the underlying problem.
+post_install_upgrade() {
+    if [[ "$EXISTING_INSTALL" != "go-cli" ]]; then
+        return
+    fi
+    info ""
+    info "========================================"
+    info "Running 'canasta upgrade' to apply config migrations and"
+    info "pull current container images for registered instances..."
+    info "========================================"
+    if ! "${BIN_DIR}/canasta" upgrade; then
+        warn ""
+        warn "'canasta upgrade' reported issues; review the output above."
+        warn "The Canasta CLI itself is installed and ready. Re-run"
+        warn "'canasta upgrade' after addressing the errors."
+    fi
 }
 
 main "$@"
