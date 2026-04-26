@@ -460,7 +460,7 @@ def _read_wikis(path, host):
 
 def _check_running(instance_id, path, orchestrator, host):
     if orchestrator in ("kubernetes", "k8s"):
-        return _check_running_k8s(instance_id)
+        return _check_running_k8s(instance_id, host)
     return _check_running_compose(path, host)
 
 
@@ -482,23 +482,41 @@ def _check_running_compose(path, host):
         return rc == 0 and stdout.strip() != ""
 
 
-def _check_running_k8s(instance_id):
-    try:
-        result = subprocess.run(
-            [
-                "kubectl", "get",
-                "deployment/canasta-%s-web" % instance_id,
-                "-n", "canasta-%s" % instance_id,
-                "-o", "jsonpath={.status.readyReplicas}",
-            ],
-            capture_output=True, text=True, timeout=10,
-        )
-        return (
-            result.returncode == 0
-            and result.stdout.strip() not in ("", "0")
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return False
+def _check_running_k8s(instance_id, host):
+    """True if the instance's web deployment has ≥1 ready replica.
+
+    For remote hosts, SSH and run kubectl on the host — its kubeconfig
+    points at the cluster it's part of. Running kubectl on the laptop
+    (the previous behavior) only worked when the laptop happened to
+    have a kubeconfig for that cluster, otherwise the call hit
+    whatever the laptop's KUBECONFIG pointed at (Docker Desktop, an
+    unrelated cluster, ...) and reported STOPPED for instances that
+    were running fine.
+    """
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                [
+                    "kubectl", "get",
+                    "deployment/canasta-%s-web" % instance_id,
+                    "-n", "canasta-%s" % instance_id,
+                    "-o", "jsonpath={.status.readyReplicas}",
+                ],
+                capture_output=True, text=True, timeout=10,
+            )
+            return (
+                result.returncode == 0
+                and result.stdout.strip() not in ("", "0")
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+    cmd = (
+        "kubectl get deployment/canasta-%s-web "
+        "-n canasta-%s -o jsonpath='{.status.readyReplicas}'"
+        % (instance_id, instance_id)
+    )
+    rc, stdout = _ssh_run(host, cmd)
+    return rc == 0 and stdout.strip() not in ("", "0")
 
 
 _SENTINEL = "---CANASTA_DELIM---"
@@ -576,7 +594,7 @@ def _gather_k8s(inst_id, path, host):
 
     if not dir_exists:
         status = "NOT FOUND"
-    elif _check_running_k8s(inst_id):
+    elif _check_running_k8s(inst_id, host):
         status = "RUNNING"
     else:
         status = "STOPPED"
