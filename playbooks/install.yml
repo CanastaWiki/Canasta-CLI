@@ -40,4 +40,3 @@
     name: install
     tasks_from: canasta.yml
   when: "'canasta' in _install_packages"
-
