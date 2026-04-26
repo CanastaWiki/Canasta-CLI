@@ -775,6 +775,78 @@ class TestPathResolution:
         assert not extra["path"].startswith("~")
 
 
+class TestPathKindRemote:
+    """With --host, `create --path` is path_kind: remote — default '.'
+    becomes the canonical remote default '~/canasta', absolute paths
+    pass through, and relative paths are rejected up front instead of
+    being silently abspath'd against the laptop (#384)."""
+
+    def _get_vars(self, result):
+        import json
+        for i, arg in enumerate(result):
+            if arg == "-e" and i + 1 < len(result) and result[i + 1].startswith("@"):
+                with open(result[i + 1][1:]) as f:
+                    return json.load(f)
+        return {}
+
+    def test_path_dot_with_host_becomes_remote_canasta(self, data):
+        from argparse import Namespace
+        args = Namespace(
+            command="create", host="cp", verbose=False, id="mysite",
+            wiki="main", domain_name=None, site_name=None,
+            database=None, path=".", orchestrator=None,
+            admin_password=None, wiki_db_password=None,
+            root_db_password=None,
+        )
+        result = canasta_cli.build_ansible_args("ap", "create", args, data)
+        extra = self._get_vars(result)
+        assert extra["path"] == "~/canasta"
+
+    def test_path_absolute_with_host_passthrough(self, data):
+        from argparse import Namespace
+        args = Namespace(
+            command="create", host="cp", verbose=False, id="mysite",
+            wiki="main", domain_name=None, site_name=None,
+            database=None, path="/home/admin/canasta", orchestrator=None,
+            admin_password=None, wiki_db_password=None,
+            root_db_password=None,
+        )
+        result = canasta_cli.build_ansible_args("ap", "create", args, data)
+        extra = self._get_vars(result)
+        assert extra["path"] == "/home/admin/canasta"
+
+    def test_path_tilde_with_host_passthrough_unexpanded(self, data):
+        """Don't expanduser against the laptop when targeting a remote
+        host — Ansible expands ~ on the remote user's home."""
+        from argparse import Namespace
+        args = Namespace(
+            command="create", host="cp", verbose=False, id="mysite",
+            wiki="main", domain_name=None, site_name=None,
+            database=None, path="~/instances", orchestrator=None,
+            admin_password=None, wiki_db_password=None,
+            root_db_password=None,
+        )
+        result = canasta_cli.build_ansible_args("ap", "create", args, data)
+        extra = self._get_vars(result)
+        assert extra["path"] == "~/instances"
+
+    def test_path_relative_with_host_errors(self, data, capsys):
+        from argparse import Namespace
+        args = Namespace(
+            command="create", host="cp", verbose=False, id="mysite",
+            wiki="main", domain_name=None, site_name=None,
+            database=None, path="instances/site", orchestrator=None,
+            admin_password=None, wiki_db_password=None,
+            root_db_password=None,
+        )
+        with pytest.raises(SystemExit) as exc:
+            canasta_cli.build_ansible_args("ap", "create", args, data)
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "instances/site" in err
+        assert "absolute" in err.lower()
+
+
 class TestSubcommandGroupHelp:
     """Invoking a subcommand group with no subcommand should list
     subcommands, not error with 'Unknown command'."""

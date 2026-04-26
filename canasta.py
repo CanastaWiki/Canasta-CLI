@@ -611,17 +611,53 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
             if value:
                 extra_vars[name] = "true"
         elif ptype == "path":
-            # Resolve against the invoking shell's CWD (and expand ~).
-            # Ansible otherwise resolves relative paths against
-            # playbook_dir, which is the canasta.py install directory
-            # — not what users expect when they pass `-p .`.
-            # For remote hosts, absolute paths are already correct
-            # (they refer to the remote filesystem, not local).
-            expanded = os.path.expanduser(str(value))
-            if host_value and os.path.isabs(expanded):
-                extra_vars[name] = expanded
+            # path_kind: remote means the value is a path on the
+            # target host (e.g. `create --path` is the new instance
+            # dir on the remote). With --host set, we must NOT
+            # rewrite it against the laptop's filesystem — that's how
+            # `--path .` ended up as `/Users/<u>/...` on a Linux cp
+            # host (#384).
+            #
+            # path_kind: local (the default) is for paths that name a
+            # file on the laptop the user wants uploaded to the
+            # remote (--envfile, --database, --global-settings, etc.)
+            # or for the no-host case. Those still resolve against
+            # the laptop cwd as before.
+            path_kind = param.get("path_kind", "local")
+            if host_value and path_kind == "remote":
+                # Default "." (or empty) becomes the canonical
+                # remote default. Ansible expands ~ on the target.
+                if str(value) in (".", ""):
+                    extra_vars[name] = "~/canasta"
+                elif os.path.isabs(str(value)) or str(value).startswith("~"):
+                    extra_vars[name] = str(value)
+                else:
+                    print(
+                        "Error: --%s is relative ('%s') but --host is "
+                        "set. With --host, --%s must be an absolute "
+                        "path on the remote host (or a path starting "
+                        "with '~'). Omit --%s to use the default "
+                        "'~/canasta'."
+                        % (
+                            name.replace("_", "-"),
+                            value,
+                            name.replace("_", "-"),
+                            name.replace("_", "-"),
+                        ),
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
             else:
-                extra_vars[name] = os.path.abspath(expanded)
+                # Local resolution: expand ~ and resolve relatives
+                # against the laptop cwd. Ansible otherwise resolves
+                # relative paths against playbook_dir, which is the
+                # canasta.py install directory — not what users
+                # expect when they pass `-p .`.
+                expanded = os.path.expanduser(str(value))
+                if host_value and os.path.isabs(expanded):
+                    extra_vars[name] = expanded
+                else:
+                    extra_vars[name] = os.path.abspath(expanded)
         else:
             extra_vars[name] = str(value)
 
