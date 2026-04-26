@@ -22,18 +22,21 @@
           https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
       changed_when: true
 
-    - name: Wait for cert-manager to be ready
+    # Wait on the Deployments, not on their Pods. `kubectl wait
+    # --for=condition=Ready pod -l ...` runs the moment kubectl apply
+    # returns — but the Deployment controller hasn't created the Pods
+    # yet, so the label selector matches zero pods and kubectl wait
+    # exits non-zero with "error: no matching resources found".
+    # Deployments themselves are created synchronously by kubectl
+    # apply, so waiting on `condition=Available` for the Deployment
+    # tolerates the brief gap between apply and pod creation, then
+    # blocks until the rollout has minimum replicas Ready.
+    - name: Wait for cert-manager Deployments to become Available
       ansible.builtin.command:
         cmd: >-
-          kubectl wait --for=condition=Ready pod
-          -l app=cert-manager -n cert-manager --timeout=120s
-      changed_when: false
-
-    - name: Wait for cert-manager webhook to be ready
-      ansible.builtin.command:
-        cmd: >-
-          kubectl wait --for=condition=Ready pod
-          -l app=webhook -n cert-manager --timeout=120s
+          kubectl wait --for=condition=Available
+          deployment -l app.kubernetes.io/instance=cert-manager
+          -n cert-manager --timeout=180s
       changed_when: false
 
     - name: Wait for webhook to register
