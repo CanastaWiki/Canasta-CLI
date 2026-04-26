@@ -303,6 +303,83 @@ class TestOrchestratorColumn:
         assert wp._orchestrator_label("compose") == "Compose"
 
 
+class TestSubcommandGroupPages:
+    """Subcommand-group landing pages (CLI:canasta host, CLI:canasta
+    gitops, CLI:canasta storage setup, ...) are auto-generated from
+    SUBCOMMAND_GROUPS / NESTED_SUBCOMMAND_GROUPS so they can't drift
+    from the actual command set. Guards against regressing #396."""
+
+    def _pages(self):
+        data = wp.load_definitions()
+        return dict(wp.generate_all_pages(data))
+
+    def test_top_level_groups_have_landing_pages(self):
+        pages = self._pages()
+        for group in ("host", "storage", "gitops", "config", "backup"):
+            title = wp.PAGE_PREFIX + "canasta " + group
+            assert title in pages, "missing landing page for %r" % group
+
+    def test_nested_groups_have_landing_pages(self):
+        pages = self._pages()
+        # storage_setup and backup_schedule are NESTED_SUBCOMMAND_GROUPS
+        # entries — children of storage and backup respectively.
+        assert wp.PAGE_PREFIX + "canasta storage setup" in pages
+        assert wp.PAGE_PREFIX + "canasta backup schedule" in pages
+
+    def test_group_subcommand_list_matches_runtime(self):
+        """The Subcommands section should list exactly the children
+        SUBCOMMAND_GROUPS / NESTED_SUBCOMMAND_GROUPS declares. This is
+        the drift that hit CLI:canasta gitops when 'sync' was added."""
+        pages = self._pages()
+        gitops = pages[wp.PAGE_PREFIX + "canasta gitops"]
+        for sub in wp.SUBCOMMAND_GROUPS["gitops"]:
+            link = "[[%s|%s]]" % (
+                wp.cmd_page_title("gitops_" + sub.replace("-", "_")),
+                sub,
+            )
+            assert link in gitops, "gitops landing page missing %r" % sub
+
+    def test_group_breadcrumb_reflects_nesting(self):
+        pages = self._pages()
+        # Top-level group: parent is 'canasta', no intermediate.
+        host = pages[wp.PAGE_PREFIX + "canasta host"]
+        assert host.startswith("[[CLI:canasta|canasta]] > host\n")
+        # Nested group: parent chain includes the outer group.
+        ss = pages[wp.PAGE_PREFIX + "canasta storage setup"]
+        assert ss.startswith(
+            "[[CLI:canasta|canasta]] > "
+            "[[CLI:canasta storage|storage]] > setup\n"
+        )
+
+    def test_group_page_uses_global_flags_section(self):
+        """Group pages share the standard Global Flags table with leaf
+        pages (helper extracted in #396)."""
+        pages = self._pages()
+        for group in ("host", "gitops", "config"):
+            page = pages[wp.PAGE_PREFIX + "canasta " + group]
+            assert "=== Global Flags ===" in page
+            assert "<code>--help</code>" in page
+            assert "<code>--verbose</code>" in page
+
+    def test_group_subcommand_descriptions_appear(self):
+        """Subcommand list shows each leaf's description, not 'see page'."""
+        pages = self._pages()
+        host = pages[wp.PAGE_PREFIX + "canasta host"]
+        # host_add's description in command_definitions.yml.
+        assert "Add or update a host entry" in host
+
+    def test_group_falls_back_when_no_command_groups_entry(self):
+        """If a group has no entry in command_groups: yaml, the page
+        still renders with a generic 'Manage canasta <name>' description
+        (so adding a group to SUBCOMMAND_GROUPS without updating the
+        YAML doesn't break the build)."""
+        page = wp.gen_group_wikitext(
+            "phantom", {}, cmd_index={}, global_flags=[],
+        )
+        assert "Manage" in page
+        assert "phantom" in page
+
+
 class TestUsageLineSkipsWhenNoParams:
     """A command with no parameters has no flags to document in the
     usage line. Emitting 'canasta host list' as a synoptic block
