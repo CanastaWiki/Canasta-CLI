@@ -202,6 +202,20 @@ def add_params_to_parser(parser, params):
                 help=desc,
                 dest=name,
             )
+        elif param.get("multi"):
+            # Repeatable flag: --foo X --foo Y collects into a list.
+            # Use action='append' so each occurrence appends to the
+            # named dest, rather than the default which would store
+            # only the last value (and Ansible-side filters that
+            # expect a list would iterate over the string's chars).
+            parser.add_argument(
+                *flags,
+                action="append",
+                default=default if default is not None else [],
+                required=required,
+                help=desc,
+                dest=name,
+            )
         else:
             parser.add_argument(
                 *flags,
