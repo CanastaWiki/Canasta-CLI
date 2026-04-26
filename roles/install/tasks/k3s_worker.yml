@@ -53,12 +53,15 @@
 
 - name: Compose cp-host SSH target string
   ansible.builtin.set_fact:
+    # Bracket notation + default() handles entries written by
+    # `canasta host add --ssh host` (no user@ prefix), which omit
+    # ansible_user. Dot notation on a dict missing the key raises
+    # AttributeError before default() can apply.
     _cp_ssh_target: >-
-      {{ (_cp_host_entry.ansible_user | default('') | length > 0)
-         | ternary(
-             _cp_host_entry.ansible_user ~ '@' ~ _cp_host_entry.ansible_host,
-             _cp_host_entry.ansible_host
-           ) }}
+      {{ (_cp_host_entry['ansible_user'] | default('')
+          ~ '@' ~ _cp_host_entry['ansible_host'])
+         if (_cp_host_entry['ansible_user'] | default('') | length > 0)
+         else _cp_host_entry['ansible_host'] }}
 
 # --- SSH to cp-host, fetch token + cluster-internal IP ---
 
