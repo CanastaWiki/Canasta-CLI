@@ -1,12 +1,12 @@
-# Contributing to Canasta-Ansible
+# Contributing to Canasta CLI
 
-This document covers the local development workflow for the Canasta-Ansible repository. For ecosystem-wide contributing guidance (CanastaBase, the Canasta image, building a custom Canasta-like distribution), see the [Contributing guide on canasta.wiki](https://canasta.wiki/wiki/Help:Contributing).
+This document covers the local development workflow for the Canasta CLI repository. For ecosystem-wide contributing guidance (CanastaBase, the Canasta image, building a custom Canasta-like distribution), see the [Contributing guide on canasta.wiki](https://canasta.wiki/wiki/Help:Contributing).
 
 ## Setting up a development environment
 
 ```bash
-git clone https://github.com/CanastaWiki/Canasta-Ansible.git
-cd Canasta-Ansible
+git clone https://github.com/CanastaWiki/Canasta-CLI.git
+cd Canasta-CLI
 
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt

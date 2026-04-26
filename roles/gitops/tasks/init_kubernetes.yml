@@ -420,7 +420,7 @@
         namespace: "{{ argocd_namespace | default('argocd') }}"
         labels:
           argocd.argoproj.io/secret-type: repository
-          app.kubernetes.io/managed-by: canasta-ansible
+          app.kubernetes.io/managed-by: canasta-cli
           app.kubernetes.io/instance: "{{ instance_id }}"
       type: Opaque
       stringData:

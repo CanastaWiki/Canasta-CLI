@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Remote host integration tests for Canasta-Ansible.
+# Remote host integration tests for the Canasta CLI.
 #
 # These tests create a mock SSH host in a Docker container and run
 # canasta commands against it to verify remote instance management.

@@ -1,5 +1,5 @@
 ---
-# Canasta-Ansible main dispatcher playbook.
+# Canasta CLI main dispatcher playbook.
 #
 # Usage:
 #   ansible-playbook canasta.yml -e "command=create id=mysite wiki=mywiki"

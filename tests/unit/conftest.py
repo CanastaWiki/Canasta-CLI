@@ -1,4 +1,4 @@
-"""Shared fixtures for Canasta-Ansible unit tests."""
+"""Shared fixtures for Canasta CLI unit tests."""
 
 import json
 import os

@@ -1,4 +1,4 @@
-# Canasta-Ansible
+# Canasta CLI
 
 Canasta CLI: command-line tool for managing [Canasta](https://canasta.wiki) MediaWiki installations. Supports Docker Compose and Kubernetes orchestrators with single-host and multi-host management.
 
@@ -12,7 +12,7 @@ To install: `curl -fsSL https://get.canasta.wiki | bash` (Docker mode, recommend
 
 ## Issues
 
-Report bugs and request features at **[GitHub Issues](https://github.com/CanastaWiki/Canasta-Ansible/issues)**.
+Report bugs and request features at **[GitHub Issues](https://github.com/CanastaWiki/Canasta-CLI/issues)**.
 
 ## Contributing
 

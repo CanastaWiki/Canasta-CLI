@@ -2,7 +2,7 @@
 
 ## Overview
 
-Integration tests for verifying Canasta-Ansible's remote host management
+Integration tests for verifying the Canasta CLI's remote host management
 (`-H` / `--host`) using a Docker container as a simulated remote host.
 This avoids the need for real remote infrastructure during CI/CD.
 

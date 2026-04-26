@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-"""Minimal callback plugin for Canasta-Ansible.
+"""Minimal callback plugin for the Canasta CLI.
 
 Suppresses all Ansible framework output and only displays:
 - Messages from ansible.builtin.debug tasks (the command's actual output)

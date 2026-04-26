@@ -1,5 +1,5 @@
 ---
-# Command definitions for Canasta-Ansible.
+# Command definitions for the Canasta CLI.
 # Single source of truth for command dispatch, parameter validation, and documentation generation.
 #
 # Parameter types:
@@ -304,7 +304,7 @@ commands:
   - name: version
     description: "Display version information"
     long_description: |
-      Always prints the Canasta-Ansible CLI version and the target
+      Always prints the Canasta CLI version and the target
       Canasta version (the image tag this CLI release is built to
       deploy).
 
