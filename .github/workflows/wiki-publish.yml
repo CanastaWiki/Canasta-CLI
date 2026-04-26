@@ -1,28 +1,25 @@
 ---
 # Publish Canasta CLI Reference to wiki
 #
-# DISABLED by default -- uses workflow_dispatch (manual trigger only).
-# To enable automatic publishing on push to main, uncomment the push
-# trigger below.
+# Fires on every push to main and on manual dispatch. Publishes the
+# CLI: namespace and MediaWiki:Menu-cli-reference to the wiki at
+# WIKI_API_URL.
 #
-# Page names match the Go CLI format (CLI:canasta_create, etc.)
-# so this can serve as a drop-in replacement when ready.
-#
-# Default target: test-docs.canasta.wiki
-# Change WIKI_API_URL secret to https://canasta.wiki/w/api.php
-# when ready for production.
-#
-# Required secrets:
-#   WIKI_API_URL      - default: https://test-docs.canasta.wiki/w/api.php
-#   WIKI_BOT_USER     - e.g., User@BotName
+# Required secrets (set at the repo or org level):
+#   WIKI_API_URL      - e.g. https://canasta.wiki/w/api.php
+#   WIKI_BOT_USER     - e.g. User@BotName
 #   WIKI_BOT_PASSWORD
 
 name: Publish CLI Reference to Wiki
 
 on:
-  # push:
-  #   branches:
-  #     - main
+  push:
+    branches:
+      - main
+    paths:
+      - 'meta/command_definitions.yml'
+      - 'scripts/wiki_publish.py'
+      - '.github/workflows/wiki-publish.yml'
   workflow_dispatch:
 
 env:
