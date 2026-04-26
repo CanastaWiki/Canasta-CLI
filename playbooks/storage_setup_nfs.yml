@@ -47,9 +47,23 @@
         enabled: true
       become: true
 
+    # canasta.yml runs all plays with gather_facts: false, so we have
+    # to explicitly populate ansible_default_ipv4 here. Without it,
+    # the StorageClass would silently get the inventory hostname (the
+    # SSH alias) baked in as `server:`, and cluster nodes — which
+    # don't share the laptop's SSH config — couldn't resolve it.
+    - name: Gather network facts for NFS server IP
+      ansible.builtin.setup:
+        gather_subset: network
+        filter: ansible_default_ipv4
+
     - name: Set NFS server address to target host
       ansible.builtin.set_fact:
-        _nfs_server: "{{ ansible_default_ipv4.address | default(inventory_hostname) }}"
+        # No `default(inventory_hostname)` fallback: that's what
+        # produced the SSH-alias-as-StorageClass-server bug. If
+        # ansible_default_ipv4.address is missing after the setup
+        # task above, fail loudly.
+        _nfs_server: "{{ ansible_default_ipv4.address }}"
 
 - name: Set NFS server from parameter
   ansible.builtin.set_fact:
