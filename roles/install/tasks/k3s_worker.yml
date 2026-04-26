@@ -86,7 +86,8 @@
       - "{{ _cp_ssh_target }}"
       - >-
         k3s kubectl get nodes
-        -o jsonpath='{.items[?(@.metadata.labels.node-role\.kubernetes\.io/control-plane=="true")].status.addresses[?(@.type=="InternalIP")].address}'
+        -l node-role.kubernetes.io/control-plane=true
+        -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'
   delegate_to: localhost
   vars:
     ansible_connection: local
