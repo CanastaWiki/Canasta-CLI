@@ -12,6 +12,11 @@ on:
   # code. See #67.
   workflow_dispatch:
 
+# All jobs in this workflow only read the checkout to run tests and
+# linters; none push images, write back to the repo, or post comments.
+permissions:
+  contents: read
+
 jobs:
   unit:
     name: Unit Tests

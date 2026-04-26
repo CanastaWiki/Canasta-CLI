@@ -22,6 +22,11 @@ on:
       - '.github/workflows/wiki-publish.yml'
   workflow_dispatch:
 
+# Publishing happens against an external MediaWiki via API; the
+# workflow doesn't need to write to this repo.
+permissions:
+  contents: read
+
 env:
   WIKI_API_URL: >-
     ${{ secrets.WIKI_API_URL
