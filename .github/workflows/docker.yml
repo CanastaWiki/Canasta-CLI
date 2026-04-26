@@ -23,6 +23,12 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Default to read-only for the GITHUB_TOKEN; jobs that need to write
+# (build pushes images, tag pushes a git tag) declare their own
+# permissions blocks below.
+permissions:
+  contents: read
+
 jobs:
   version:
     runs-on: ubuntu-latest
