@@ -689,6 +689,14 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         "-o UserKnownHostsFile=~/.ssh/known_hosts",
     )
 
+    # Hand the platform-correct config dir to Ansible. get_config_dir()
+    # picks the macOS / Linux / root location; without exporting it,
+    # YAML-side env lookups (e.g. roles/install/tasks/k3s_worker.yml)
+    # fall through to a Linux-only fallback and miss hosts.yml on
+    # macOS. setdefault preserves any pre-set value (canasta-docker
+    # sets it explicitly, and tests use it for isolation).
+    os.environ.setdefault("CANASTA_CONFIG_DIR", get_config_dir())
+
     return ansible_args
 
 
