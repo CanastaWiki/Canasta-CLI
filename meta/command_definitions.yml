@@ -369,13 +369,14 @@ commands:
       machine. The right install for single-node K8s deployments and
       for the first node of a multi-node cluster.
 
-      For multi-node deployments where the controller (the machine
-      running canasta) is a separate machine from the cluster nodes,
-      pass `--public-ip <addr>` to add that address to the k3s API
-      server's TLS certificate. Without it, the controller's `kubectl`
-      fails TLS verification when talking to the cluster over the
-      public IP. Repeat `--public-ip` to add more than one (e.g. an IP
-      and a hostname).
+      Pass `--public-ip <addr>` whenever the canasta CLI runs on a
+      different machine than the control plane — i.e. for any
+      multi-node cluster, and for single-node setups where canasta is
+      installed on a separate host (laptop / VPS / etc.). The address
+      is added to the k3s API server's TLS certificate so kubectl can
+      verify the cert when reaching the cluster over that address.
+      Repeat `--public-ip` to add more than one (e.g. an IP and a
+      hostname).
     examples:
       - "canasta install docker"
       - "canasta install k8s-cp"
@@ -399,11 +400,11 @@ commands:
         multi: true
         description: >-
           Public IP or hostname of the cluster node, added to the k3s
-          API server's TLS cert (k8s-cp only). Repeat to add multiple.
-          Required when the controller talks to k3s over a non-private
-          address — without it, kubectl from the controller fails TLS
-          verification because the cert defaults only cover the node's
-          internal IP and 127.0.0.1.
+          API server's TLS cert (k8s-cp only). Required when canasta
+          runs on a different machine than the control plane — any
+          multi-node cluster, plus single-node setups where canasta is
+          on a separate host. Repeat the flag to add multiple
+          addresses.
 
   - name: uninstall
     description: "Uninstall dependencies from the target host"
