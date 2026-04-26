@@ -1587,11 +1587,23 @@ commands:
       Install the NFS CSI driver and create a StorageClass for shared storage
       on Kubernetes clusters. Optionally install an NFS server on the target host.
       After setup, set persistence.*.storageClass in values.yaml to use it.
+
+      When canasta runs on a different machine than the Kubernetes cluster
+      (e.g. a laptop driving an EC2 cluster), pass `--host <name>` to target
+      a registered host that already has kubectl/helm and a kubeconfig
+      pointing at the cluster — typically the control plane. `--install-server`
+      then installs NFS on that same host, and the StorageClass points back
+      at it.
     examples:
-      - "canasta storage setup nfs --server 192.168.1.10 --share /srv/nfs/canasta"
+      - "canasta storage setup nfs --host cp --install-server --share /srv/nfs/canasta"
+      - "canasta storage setup nfs --host cp --server 192.168.1.10 --share /srv/nfs/canasta"
       - "canasta storage setup nfs --install-server --share /srv/nfs/canasta"
     playbook: storage_setup_nfs.yml
     parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"
       - name: server
         type: string
         description: "NFS server IP or hostname"
@@ -1677,10 +1689,20 @@ commands:
       Install the EFS CSI driver and create a StorageClass for shared storage
       on AWS Kubernetes clusters. The EFS filesystem must be created separately
       via AWS console or CLI.
+
+      When canasta runs on a different machine than the Kubernetes cluster
+      (e.g. a laptop driving an EC2 cluster), pass `--host <name>` to target
+      a registered host that already has kubectl/helm and a kubeconfig
+      pointing at the cluster — typically the control plane.
     examples:
+      - "canasta storage setup efs --host cp --filesystem-id fs-0123456789abcdef0"
       - "canasta storage setup efs --filesystem-id fs-0123456789abcdef0"
     playbook: storage_setup_efs.yml
     parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"
       - name: filesystem_id
         type: string
         required: true
