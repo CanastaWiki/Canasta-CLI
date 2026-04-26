@@ -430,8 +430,15 @@ commands:
     long_description: |
       Uninstall dependencies from the target host. Supported packages:
       k8s (removes k3s, kubectl, helm, and cleans up iptables rules).
+
+      When uninstalling k8s from a worker, pass `--cp-host <name>` to
+      also delete the worker's Node entry from the control plane.
+      Without it, the Node lingers in `kubectl get nodes` until manually
+      removed (and a worker rejoining with the same hostname will
+      reclaim it, masking the uninstall).
     examples:
       - "canasta uninstall k8s"
+      - "canasta uninstall k8s --host worker1 --cp-host cp"
     playbook: uninstall.yml
     parameters:
       - name: host
@@ -444,6 +451,13 @@ commands:
         multi: true
         required: true
         description: "Dependencies to uninstall (k8s)"
+      - name: cp_host
+        type: string
+        description: >-
+          For k8s worker uninstalls, name of the registered control-plane
+          host. Canasta SSHs there after stopping the agent and runs
+          'kubectl delete node <hostname>' so the Node entry is cleaned
+          up. Ignored on control-plane uninstalls.
       - name: "yes"
         short: "y"
         type: bool

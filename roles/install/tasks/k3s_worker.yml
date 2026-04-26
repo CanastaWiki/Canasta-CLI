@@ -10,58 +10,10 @@
 # and finally invokes k8s_install_k3s_agent.yml on this host with
 # those values to actually do the join.
 
-# --- Read controller's hosts.yml to resolve cp-host SSH details ---
+# --- Resolve cp-host short name to SSH target ---
 
-# CANASTA_CONFIG_DIR drives where hosts.yml lives. Resolve from the
-# controller's environment, with the same precedence canasta.py uses
-# (env override → /etc/canasta if root → ~/.config/canasta otherwise).
-- name: Determine controller config dir
-  ansible.builtin.set_fact:
-    _canasta_config_dir: >-
-      {{ lookup('ansible.builtin.env', 'CANASTA_CONFIG_DIR')
-         or (
-             (lookup('ansible.builtin.env', 'USER') == 'root')
-             | ternary(
-                 '/etc/canasta',
-                 lookup('ansible.builtin.env', 'HOME') ~ '/.config/canasta'
-               )
-            ) }}
-  delegate_to: localhost
-  vars:
-    ansible_connection: local
-
-- name: Read controller's hosts.yml
-  ansible.builtin.slurp:
-    src: "{{ _canasta_config_dir }}/hosts.yml"
-  delegate_to: localhost
-  vars:
-    ansible_connection: local
-  register: _cp_hosts_yml_raw
-
-- name: Parse hosts.yml and resolve cp-host SSH target
-  ansible.builtin.set_fact:
-    _cp_host_entry: >-
-      {{ ((_cp_hosts_yml_raw.content | b64decode | from_yaml)
-          .all.hosts[cp_host]) | default({}) }}
-
-- name: Fail if cp-host is not registered
-  ansible.builtin.fail:
-    msg: >-
-      Host '{{ cp_host }}' is not registered. Run
-      'canasta host add --name {{ cp_host }} --ssh user@host' first.
-  when: not _cp_host_entry
-
-- name: Compose cp-host SSH target string
-  ansible.builtin.set_fact:
-    # Bracket notation + default() handles entries written by
-    # `canasta host add --ssh host` (no user@ prefix), which omit
-    # ansible_user. Dot notation on a dict missing the key raises
-    # AttributeError before default() can apply.
-    _cp_ssh_target: >-
-      {{ (_cp_host_entry['ansible_user'] | default('')
-          ~ '@' ~ _cp_host_entry['ansible_host'])
-         if (_cp_host_entry['ansible_user'] | default('') | length > 0)
-         else _cp_host_entry['ansible_host'] }}
+- name: Resolve cp-host SSH target from hosts.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_cp_host_ssh.yml"
 
 # --- SSH to cp-host, fetch token + cluster-internal IP ---
 

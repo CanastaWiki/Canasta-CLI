@@ -1,0 +1,59 @@
+---
+# Resolve a registered cp-host short name to an SSH target string by
+# reading the controller's hosts.yml.
+#
+# Input: cp_host (string, the short name registered via 'canasta host add')
+# Output: sets fact _cp_ssh_target = "user@host" or just "host"
+#
+# Used by:
+#   - roles/install/tasks/k3s_worker.yml (fetch join token from cp)
+#   - roles/install/tasks/uninstall_k3s.yml (delete Node from cp on
+#     worker uninstall)
+
+- name: Determine controller config dir
+  ansible.builtin.set_fact:
+    _canasta_config_dir: >-
+      {{ lookup('ansible.builtin.env', 'CANASTA_CONFIG_DIR')
+         or (
+             (lookup('ansible.builtin.env', 'USER') == 'root')
+             | ternary(
+                 '/etc/canasta',
+                 lookup('ansible.builtin.env', 'HOME') ~ '/.config/canasta'
+               )
+            ) }}
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+
+- name: Read controller's hosts.yml
+  ansible.builtin.slurp:
+    src: "{{ _canasta_config_dir }}/hosts.yml"
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+  register: _cp_hosts_yml_raw
+
+- name: Parse hosts.yml and resolve cp-host entry
+  ansible.builtin.set_fact:
+    _cp_host_entry: >-
+      {{ ((_cp_hosts_yml_raw.content | b64decode | from_yaml)
+          .all.hosts[cp_host]) | default({}) }}
+
+- name: Fail if cp-host is not registered
+  ansible.builtin.fail:
+    msg: >-
+      Host '{{ cp_host }}' is not registered. Run
+      'canasta host add --name {{ cp_host }} --ssh user@host' first.
+  when: not _cp_host_entry
+
+- name: Compose cp-host SSH target string
+  ansible.builtin.set_fact:
+    # Bracket notation + default() handles entries written by
+    # `canasta host add --ssh host` (no user@ prefix), which omit
+    # ansible_user. Dot notation on a dict missing the key raises
+    # AttributeError before default() can apply.
+    _cp_ssh_target: >-
+      {{ (_cp_host_entry['ansible_user'] | default('')
+          ~ '@' ~ _cp_host_entry['ansible_host'])
+         if (_cp_host_entry['ansible_user'] | default('') | length > 0)
+         else _cp_host_entry['ansible_host'] }}
