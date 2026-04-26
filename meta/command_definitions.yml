@@ -15,6 +15,10 @@
 #   sensitive         - Value is a secret (auto-generated if omitted, no_log in Ansible)
 #   mutual_exclusion  - Cannot be combined with the named parameter
 #   positional        - Accepted as positional argument(s), not a flag
+#   validator         - Name of a regex in canasta.py:_VALIDATORS (e.g. 'hostname')
+#   path_kind         - For type:path. 'remote' = remote target dir (default with
+#                       --host is '~/canasta'; relative paths rejected with --host).
+#                       Omit or 'local' = path on the laptop, resolved against cwd.
 
 global_flags:
   # --help/-h is provided automatically by argparse on every parser;
@@ -52,8 +56,14 @@ commands:
       - name: path
         short: p
         type: path
+        path_kind: remote
         default: "."
-        description: "Canasta installation directory"
+        description: >-
+          Canasta installation directory. Default is '.' for local
+          installs; with --host, default is '~/canasta' on the remote
+          and the value must be absolute (or '~'-prefixed) — relative
+          paths are rejected because they'd otherwise be resolved
+          against the laptop's filesystem.
       - name: orchestrator
         short: o
         type: choice
