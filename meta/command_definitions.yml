@@ -1881,3 +1881,22 @@ commands:
         short: H
         type: string
         description: "Target host (default: localhost)"
+
+- name: status
+    description: "Show pod/PVC/ingress/cert state for a single instance"
+    long_description: |
+      Show runtime state for a single Canasta instance: containers /
+      pods, volumes, ingress / domain, and (on Kubernetes) the TLS
+      certificate. Replaces the orchestrator-native incantations the
+      multi-node walkthrough currently spells out (`kubectl get pods,
+      pvc,ingress,certificate -n canasta-<id>` on K8s; `docker
+      compose ps` on Compose).
+    examples:
+      - "canasta status --id mysite"
+      - "cd /path/to/instance && canasta status"
+    direct_only: true
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
