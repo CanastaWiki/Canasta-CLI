@@ -1882,7 +1882,7 @@ commands:
         type: string
         description: "Target host (default: localhost)"
 
-- name: status
+  - name: status
     description: "Show pod/PVC/ingress/cert state for a single instance"
     long_description: |
       Show runtime state for a single Canasta instance: containers /
