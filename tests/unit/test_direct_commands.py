@@ -199,6 +199,62 @@ class TestShellQuote:
         assert direct_commands._shell_quote("hello world") == "'hello world'"
 
 
+class TestSshRunResolvesCanastaHostName:
+    """_ssh_run must translate canasta short names from hosts.yml into
+    their actual SSH targets before invoking ssh, so commands like
+    `canasta argocd password --host node1` don't hit `ssh: Could not
+    resolve hostname node1`."""
+
+    def test_short_name_resolved_via_hosts_yml(self, monkeypatch):
+        captured = {}
+
+        monkeypatch.setattr(
+            direct_commands, "_read_hosts_yml",
+            lambda: {"all": {"hosts": {"node1": {
+                "ansible_host": "cp.example.com",
+                "ansible_user": "admin",
+            }}}},
+        )
+
+        def fake_run(full_cmd, **kwargs):
+            captured["cmd"] = full_cmd
+            return type("R", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        rc, _ = direct_commands._ssh_run("node1", "echo hi")
+        assert rc == 0
+        # ssh target must be admin@cp.example.com, not the bare 'node1'.
+        ssh_target = captured["cmd"][-2]
+        assert ssh_target == "admin@cp.example.com"
+
+    def test_unregistered_host_passes_through(self, monkeypatch):
+        captured = {}
+
+        monkeypatch.setattr(direct_commands, "_read_hosts_yml", lambda: None)
+
+        def fake_run(full_cmd, **kwargs):
+            captured["cmd"] = full_cmd
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        direct_commands._ssh_run("cp.example.com", "echo hi")
+        assert captured["cmd"][-2] == "cp.example.com"
+
+    def test_user_at_host_passes_through(self, monkeypatch):
+        """When hosts.yml has no entry but the input is already a
+        user@host string, leave it alone."""
+        captured = {}
+        monkeypatch.setattr(direct_commands, "_read_hosts_yml", lambda: None)
+
+        def fake_run(full_cmd, **kwargs):
+            captured["cmd"] = full_cmd
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        direct_commands._ssh_run("admin@cp.example.com", "echo hi")
+        assert captured["cmd"][-2] == "admin@cp.example.com"
+
+
 class TestCheckDirExists:
     def test_local_exists(self, tmp_path):
         d = tmp_path / "exists"
