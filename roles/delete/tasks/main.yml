@@ -115,6 +115,42 @@
     - name: End play for unreachable host
       ansible.builtin.meta: end_play
 
+# For registered K8s instances, the host can be reachable via SSH but
+# the cluster API behind it can be gone (operator ran `canasta uninstall
+# k8s` while instances were still registered, or k3s crashed). Without
+# this probe, the play falls through to helm/kubectl cleanup tasks that
+# emit ugly `Connection refused` errors for every cluster-side step.
+# We probe up front and gate the K8s cleanup on the result.
+- name: Probe K8s API reachability
+  ansible.builtin.command:
+    cmd: kubectl version --request-timeout=5s
+  register: _k8s_reachable
+  changed_when: false
+  ignore_errors: true
+  when:
+    - _delete_query is succeeded
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+- name: Set K8s reachability fact
+  ansible.builtin.set_fact:
+    _k8s_api_reachable: >-
+      {{ (_k8s_reachable.rc | default(1)) == 0 }}
+  when:
+    - _delete_query is succeeded
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+- name: Warn when K8s API is unreachable
+  ansible.builtin.debug:
+    msg: >-
+      K8s API unreachable on host '{{ _instance_host }}' — the cluster
+      appears to be uninstalled or down. Deregistering
+      '{{ instance_id }}' from the registry; skipping cluster-side
+      cleanup (Argo CD Application, helm release, namespace).
+  when:
+    - _delete_query is succeeded
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - not _k8s_api_reachable
+
 - name: Discover unregistered instance
   when: _delete_query is failed
   block:
@@ -271,7 +307,9 @@
   ignore_errors: true  # OK if containers already removed
 
 - name: Clean up container-owned files (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - _k8s_api_reachable | default(true)
   block:
     - name: Check if K8s pods are running
       ansible.builtin.include_role:
@@ -302,13 +340,18 @@
     name: "canasta-{{ instance_id }}"
     namespace: "{{ argocd_namespace | default('argocd') }}"
   ignore_errors: true  # OK if Argo CD not installed
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - _k8s_api_reachable | default(true)
 
 - name: Destroy containers and volumes
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: destroy.yml
   ignore_errors: true  # OK if already destroyed
+  when: >-
+    instance_orchestrator | default('compose') == 'compose'
+    or _k8s_api_reachable | default(true)
 
 - name: Remove instance directory contents
   ansible.builtin.command:
