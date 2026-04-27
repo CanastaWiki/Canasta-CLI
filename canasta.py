@@ -414,9 +414,45 @@ def handle_interactive_exec(args):
                 sys.exit(1)
 
 
+class CanastaArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser that augments the standard 'invalid choice' error
+    with a 'Did you mean …?' suggestion when the user's input is close
+    to a valid option.
+
+    Argparse's stock error for an unknown subcommand is, e.g.:
+        argument subcommand: invalid choice: 'up'
+        (choose from ui, password, apps)
+    Helpful but easy to miss. With this subclass:
+        argument subcommand: invalid choice: 'up'
+        (choose from ui, password, apps). Did you mean 'ui'?
+    """
+
+    # Match argparse's "invalid choice" message. The argument name
+    # may be empty (e.g. when a parser uses metavar=""), so accept
+    # zero-or-more chars before the colon. Capture the bad value and
+    # the choices list.
+    _INVALID_CHOICE_RE = re.compile(
+        r"argument [^:]*: invalid choice: '([^']*)' \(choose from ([^)]+)\)"
+    )
+
+    def error(self, message):
+        m = self._INVALID_CHOICE_RE.search(message)
+        if m:
+            import difflib
+            bad = m.group(1)
+            # Argparse emits the choice list comma-separated; some
+            # Python versions quote individual choices, others don't.
+            # Strip quotes after the split so both forms work.
+            choices = [c.strip().strip("'\"") for c in m.group(2).split(",")]
+            close = difflib.get_close_matches(bad, choices, n=1, cutoff=0.5)
+            if close:
+                message = message + " Did you mean '%s'?" % close[0]
+        super().error(message)
+
+
 def build_parser(data):
     """Build the full argparse parser from command definitions."""
-    parser = argparse.ArgumentParser(
+    parser = CanastaArgumentParser(
         prog="canasta",
         description="Canasta MediaWiki management tool (Ansible edition).",
         epilog="Config file: %s" % get_config_file_path(),
@@ -434,6 +470,7 @@ def build_parser(data):
         dest="command",
         title="Commands",
         metavar="",
+        parser_class=CanastaArgumentParser,
     )
 
     # Index commands by internal name for lookup
@@ -468,6 +505,7 @@ def build_parser(data):
         group_subs = group_parser.add_subparsers(
             dest="subcommand",
             help="%s subcommand" % group,
+            parser_class=CanastaArgumentParser,
         )
 
         for sub in subcmds:
@@ -494,6 +532,7 @@ def build_parser(data):
             nested_subs = nested_parser.add_subparsers(
                 dest="nested_subcommand",
                 help="%s %s subcommand" % (group, nested_group),
+                parser_class=CanastaArgumentParser,
             )
             for nsub in nested_subcmds:
                 internal = "%s_%s_%s" % (

@@ -847,6 +847,37 @@ class TestPathKindRemote:
         assert "absolute" in err.lower()
 
 
+class TestDidYouMean:
+    """canasta.py uses CanastaArgumentParser to augment argparse's
+    'invalid choice' error with a 'Did you mean …?' hint when the
+    user's typo is close to a valid option."""
+
+    def _run(self, parser, argv, capsys):
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv)
+        return capsys.readouterr().err
+
+    def test_typo_in_subcommand_group_suggests(self, parser, capsys):
+        err = self._run(parser, ["argocd", "up"], capsys)
+        assert "invalid choice: 'up'" in err
+        assert "Did you mean 'ui'?" in err
+
+    def test_typo_in_subcommand_group_misspelling_suggests(self, parser, capsys):
+        err = self._run(parser, ["argocd", "pasword"], capsys)
+        assert "Did you mean 'password'?" in err
+
+    def test_top_level_typo_suggests(self, parser, capsys):
+        err = self._run(parser, ["storrage"], capsys)
+        assert "Did you mean 'storage'?" in err
+
+    def test_far_off_typo_no_suggestion(self, parser, capsys):
+        """Suggestion suppressed when nothing is close enough — better
+        no hint than a misleading one."""
+        err = self._run(parser, ["argocd", "totallybogus"], capsys)
+        assert "Did you mean" not in err
+        assert "invalid choice: 'totallybogus'" in err
+
+
 class TestSubcommandGroupHelp:
     """Invoking a subcommand group with no subcommand should list
     subcommands, not error with 'Unknown command'."""
