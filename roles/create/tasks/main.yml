@@ -65,21 +65,12 @@
     - orchestrator | default('compose') == 'compose'
     - _mem_check.rc | default(0) != 0
 
-- name: Kubernetes setup (validate + Argo CD)
-  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
-  block:
-    - name: Validate Kubernetes prerequisites
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_preflight.yml
-
-    - name: Install Argo CD if not skipped
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_argocd_bootstrap.yml
-      when: not (skip_argocd_install | default(false) | bool)
-
 # --- Step 1: Validate inputs ---
+# Run input validation BEFORE the K8s preflight + Argo CD install
+# below. A bad --id, an instance ID that already exists, or any other
+# user-input error caught here saves a network round-trip to the
+# cluster (and on a fresh cluster, several minutes of Argo CD
+# install) that would otherwise happen before the input was checked.
 - name: Report validating inputs
   ansible.builtin.debug:
     msg: "Validating inputs..."
@@ -106,6 +97,20 @@
       host: {{ _existing.instance.host | default('localhost') }}).
       Run 'canasta delete --id {{ id }} --yes' to remove it first.
   when: _existing is succeeded
+
+- name: Kubernetes setup (validate + Argo CD)
+  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+  block:
+    - name: Validate Kubernetes prerequisites
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_preflight.yml
+
+    - name: Install Argo CD if not skipped
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_argocd_bootstrap.yml
+      when: not (skip_argocd_install | default(false) | bool)
 
 # --- Step 2: Determine base image ---
 - name: Report preparing image
