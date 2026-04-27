@@ -1843,12 +1843,9 @@ def cmd_argocd_password(args):
         return 1
     # The whole purpose of `canasta argocd password` is to print
     # the password to stdout so an operator can read it (or pipe
-    # it to pbcopy / xclip). The CodeQL clear-text-logging-of-
-    # sensitive-information rule fires here because we're printing
-    # a value that came from a Secret; that's the intended UX, the
-    # same way `kubectl get secret … | base64 -d` is the documented
-    # way to retrieve this password upstream.
-    print(pw)  # lgtm[py/clear-text-logging-sensitive-data]
+    # it to pbcopy / xclip). Same UX as Argo CD's documented
+    # `kubectl get secret … | base64 -d` retrieval.
+    print(pw)
     return 0
 
 
@@ -1904,10 +1901,8 @@ def cmd_argocd_ui(args):
     if pw:
         print("Argo CD admin user:     admin")
         # Same intent as cmd_argocd_password's print(pw): printing
-        # the password is the command's purpose, equivalent to the
-        # `kubectl get secret … | base64 -d` Argo CD upstream docs
-        # tell users to run.
-        print("Argo CD admin password: %s" % pw)  # lgtm[py/clear-text-logging-sensitive-data]
+        # the password is the command's purpose.
+        print("Argo CD admin password: %s" % pw)
     else:
         print(
             "Argo CD initial-admin secret not found on %s — "
