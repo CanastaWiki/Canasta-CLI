@@ -159,6 +159,22 @@ command_groups:
       enables Xdebug for step debugging. Only supported with Docker
       Compose.
 
+  - name: argocd
+    description: "Inspect Argo CD on a Canasta-managed cluster"
+    long_description: |
+      Convenience commands for the Argo CD instance that
+      `canasta install k8s-cp` deploys. The subcommands replace the
+      raw `ssh <cp> 'sudo k3s kubectl …'` reach the multi-node K8s
+      walkthrough on canasta.wiki currently leans on:
+
+      * `ui` opens an SSH tunnel + kubectl port-forward to Argo CD's
+        web UI and prints the localhost URL.
+      * `password` prints the initial admin password.
+      * `apps` lists Argo CD Applications (synced state, health).
+
+      All three accept `--host` to dispatch via SSH to the
+      controlling host. See [[Help:Multi-node Kubernetes]].
+
 commands:
   # ---------------------------------------------------------------------------
   # Instance lifecycle
@@ -1900,3 +1916,63 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+
+  - name: argocd_ui
+    description: "Open Argo CD's web UI via an SSH tunnel"
+    long_description: |
+      Open Argo CD's web UI by tunneling the cluster's
+      `argocd-server` Service to your laptop and printing the
+      localhost URL. Blocks until you press Ctrl-C — keep the
+      session alive while you use the dashboard.
+
+      Pairs naturally with `canasta argocd password` (run that in
+      a separate terminal first to grab the admin credentials).
+    examples:
+      - "canasta argocd ui --host node1"
+      - "canasta argocd ui --host node1 --port 9443"
+    direct_only: true
+    parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"
+      - name: port
+        type: integer
+        default: 8443
+        description: "Local port to forward to argocd-server:443"
+
+  - name: argocd_password
+    description: "Print Argo CD's initial admin password"
+    long_description: |
+      Print the auto-generated admin password from the
+      `argocd-initial-admin-secret` Secret in the `argocd`
+      namespace.
+
+      The secret only exists until the admin password is changed
+      through the Argo CD UI or CLI; after that, this command
+      reports the secret as missing.
+    examples:
+      - "canasta argocd password --host node1"
+    direct_only: true
+    parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"
+
+  - name: argocd_apps
+    description: "List Argo CD Applications and their sync/health state"
+    long_description: |
+      Run `kubectl get applications -n argocd` against the target
+      cluster. Each Application shown corresponds to a Canasta
+      instance that's been put under gitops management with
+      `canasta gitops init`. Until an instance is gitops-managed,
+      this list is empty even when Argo CD is itself running.
+    examples:
+      - "canasta argocd apps --host node1"
+    direct_only: true
+    parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"

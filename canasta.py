@@ -43,6 +43,7 @@ SUBCOMMAND_GROUPS = {
     ],
     "storage": ["setup", "list"],
     "host": ["add", "remove", "list"],
+    "argocd": ["ui", "password", "apps"],
 }
 
 # Nested subcommand groups (backup schedule set|list|remove)
