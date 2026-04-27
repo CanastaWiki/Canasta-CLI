@@ -1,0 +1,29 @@
+---
+# canasta storage list — Show StorageClasses on the target cluster
+# alongside the canasta-configured default (set by `canasta storage
+# setup` and stored in conf.json on the controller).
+
+- name: Read canasta-configured default StorageClass
+  canasta_registry:
+    state: get_setting
+    setting_key: defaultStorageClass
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  register: _default_sc
+
+- name: Get StorageClass list from cluster
+  ansible.builtin.command:
+    cmd: kubectl get storageclass
+  register: _sc_raw
+  changed_when: false
+
+- name: Display StorageClasses
+  ansible.builtin.debug:
+    msg: |-
+      Canasta default StorageClass: {{ _default_sc.value
+        if _default_sc.value | default('') | length > 0
+        else '(none — pass --storage-class on canasta create)' }}
+
+      {{ _sc_raw.stdout }}

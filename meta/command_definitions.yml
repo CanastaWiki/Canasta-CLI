@@ -1861,6 +1861,27 @@ commands:
         default: efs
         description: "Name for the Kubernetes StorageClass"
 
+  - name: storage_list
+    description: "List StorageClasses on the cluster"
+    long_description: |
+      List the StorageClasses installed on the target Kubernetes
+      cluster, alongside the StorageClass canasta will use by default
+      when `canasta create --storage-class` isn't passed (set by the
+      most recent `canasta storage setup`).
+
+      For a laptop driving a remote cluster, pass `--host <name>` to
+      target a registered host that has a kubeconfig pointing at the
+      cluster — typically the control plane.
+    examples:
+      - "canasta storage list --host cp"
+      - "canasta storage list"
+    playbook: storage_list.yml
+    parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"
+
   - name: status
     description: "Show pod/PVC/ingress/cert state for a single instance"
     long_description: |
