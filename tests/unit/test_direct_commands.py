@@ -2369,3 +2369,106 @@ class TestCanastaStatus:
         rc = direct_commands.cmd_status(self._args(id=None))
         assert rc == 0
         assert "Instance:     by-cwd" in capsys.readouterr().out
+
+
+class TestArgocdCommands:
+    """canasta argocd password / apps / ui — direct_only commands that
+    SSH to the target host (or run locally) and proxy through to Argo
+    CD's K8s resources. They replace ssh+sudo-k3s-kubectl reach in
+    docs."""
+
+    def _args(self, **kw):
+        from argparse import Namespace
+        defaults = {"host": None, "port": None, "verbose": False}
+        defaults.update(kw)
+        return Namespace(**defaults)
+
+    def test_password_remote_ssh(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (0, "secret123\n"),
+        )
+        rc = direct_commands.cmd_argocd_password(self._args(host="node1"))
+        assert rc == 0
+        assert capsys.readouterr().out.strip() == "secret123"
+
+    def test_password_secret_missing(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (1, ""),
+        )
+        rc = direct_commands.cmd_argocd_password(self._args(host="node1"))
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "initial-admin secret not found" in err
+
+    def test_apps_remote(self, monkeypatch, capsys):
+        sample = (
+            "NAME              SYNC STATUS   HEALTH STATUS\n"
+            "canasta-mysite    Synced        Healthy\n"
+        )
+        monkeypatch.setattr(
+            direct_commands, "_ssh_run",
+            lambda host, cmd: (0, sample),
+        )
+        rc = direct_commands.cmd_argocd_apps(self._args(host="node1"))
+        assert rc == 0
+        assert "canasta-mysite" in capsys.readouterr().out
+
+    def test_ui_remote_invokes_ssh_tunnel(self, monkeypatch):
+        """`canasta argocd ui --host node1` must run `ssh -L … kubectl
+        port-forward …`, not a local kubectl call."""
+        # Suppress the up-front password fetch.
+        monkeypatch.setattr(
+            direct_commands, "_argocd_admin_password",
+            lambda host: (0, "shh"),
+        )
+        # Stub host resolution to a fixed user@host string.
+        monkeypatch.setattr(
+            direct_commands, "_resolve_ssh_target",
+            lambda host: "admin@node1.example",
+        )
+        captured = {}
+
+        def fake_call(cmd):
+            captured["cmd"] = cmd
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", fake_call)
+        rc = direct_commands.cmd_argocd_ui(
+            self._args(host="node1", port=9443)
+        )
+        assert rc == 0
+        cmd = captured["cmd"]
+        assert cmd[0] == "ssh"
+        assert "-L" in cmd
+        # Tunnel: <port>:localhost:<port>
+        assert "9443:localhost:9443" in cmd
+        # Target host is the resolved SSH target, not the canasta name.
+        assert "admin@node1.example" in cmd
+        # The remote command runs kubectl port-forward.
+        joined = " ".join(cmd)
+        assert "kubectl port-forward" in joined
+        assert "argocd-server" in joined
+        assert "9443:443" in joined
+
+    def test_ui_local_uses_kubectl_directly(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_argocd_admin_password",
+            lambda host: (0, ""),  # secret missing — should still proceed
+        )
+        captured = {}
+
+        def fake_call(cmd):
+            captured["cmd"] = cmd
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", fake_call)
+        rc = direct_commands.cmd_argocd_ui(self._args(host=None, port=8443))
+        assert rc == 0
+        cmd = captured["cmd"]
+        # Local mode: no ssh, just sh -c "kubectl port-forward ..."
+        assert cmd[0] != "ssh"
+        joined = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+        assert "kubectl port-forward" in joined
+        assert "8443:443" in joined
