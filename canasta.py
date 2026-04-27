@@ -41,7 +41,7 @@ SUBCOMMAND_GROUPS = {
         "init", "join", "add", "rm", "push", "pull",
         "status", "diff", "fix-submodules", "sync",
     ],
-    "storage": ["setup"],
+    "storage": ["setup", "list"],
     "host": ["add", "remove", "list"],
 }
 
