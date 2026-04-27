@@ -43,6 +43,22 @@ def short_tmp():
         shutil.rmtree(d, ignore_errors=True)
 
 
+# Module-level register of temp dirs run_dry() created during a test
+# run, paired with the autouse fixture below that empties it after
+# each test. Without this, every run_dry() call leaked a /tmp/cd-XXX
+# directory permanently — a months-old test run on a developer
+# laptop accumulated thousands of them under /tmp.
+_run_dry_tmpdirs = []
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_run_dry_tmpdirs():
+    yield
+    while _run_dry_tmpdirs:
+        d = _run_dry_tmpdirs.pop()
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def run_dry(args, env=None, cwd=None):
     """Invoke canasta-docker in dry-run mode and return (argv_lines, stderr)."""
     base_env = os.environ.copy()
@@ -51,9 +67,9 @@ def run_dry(args, env=None, cwd=None):
     if "CANASTA_CONFIG_DIR" not in base_env or not base_env.get(
         "CANASTA_CONFIG_DIR", ""
     ).startswith("/tmp/cd-"):
-        base_env["CANASTA_CONFIG_DIR"] = tempfile.mkdtemp(
-            prefix="cd-", dir="/tmp",
-        )
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        base_env["CANASTA_CONFIG_DIR"] = config_dir
     if env:
         base_env.update(env)
     result = subprocess.run(
