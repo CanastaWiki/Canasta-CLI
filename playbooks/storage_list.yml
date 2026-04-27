@@ -13,6 +13,19 @@
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _default_sc
 
+# Surface the kubectl context up front. Without --host, this command
+# runs against whatever kubeconfig the controller has, which on a
+# laptop is often Docker Desktop — making the StorageClass listing
+# silently misleading when the operator meant their EC2 cluster. The
+# context line gives them an immediate "wait, that's the wrong
+# cluster" cue.
+- name: Get current kubectl context
+  ansible.builtin.command:
+    cmd: kubectl config current-context
+  register: _kubectl_ctx
+  changed_when: false
+  ignore_errors: true
+
 - name: Get StorageClass list from cluster
   ansible.builtin.command:
     cmd: kubectl get storageclass
@@ -22,6 +35,9 @@
 - name: Display StorageClasses
   ansible.builtin.debug:
     msg: |-
+      Cluster (kubectl context): {{ (_kubectl_ctx.stdout | trim)
+        if (_kubectl_ctx is succeeded) and (_kubectl_ctx.stdout | trim | length > 0)
+        else '(unknown)' }}
       Canasta default StorageClass: {{ _default_sc.value
         if _default_sc.value | default('') | length > 0
         else '(none — pass --storage-class on canasta create)' }}
