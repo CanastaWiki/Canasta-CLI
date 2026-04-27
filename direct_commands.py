@@ -408,7 +408,16 @@ def _ssh_args():
 
 
 def _ssh_run(host, cmd):
-    full_cmd = ["ssh"] + _ssh_args() + [host, cmd]
+    # `host` may be a canasta short name registered via `canasta host
+    # add` rather than something ~/.ssh/config or DNS knows about.
+    # _resolve_ssh_target maps short names to their actual SSH target
+    # (user@hostname) via hosts.yml; if there's no match it returns
+    # `host` unchanged, so real hostnames/IPs/user@host strings keep
+    # working. Without this, `canasta argocd password --host node1`
+    # ends up running `ssh node1 …` which fails with "Could not
+    # resolve hostname node1" even though canasta knows the mapping.
+    target = _resolve_ssh_target(host)
+    full_cmd = ["ssh"] + _ssh_args() + [target, cmd]
     try:
         result = subprocess.run(
             full_cmd, capture_output=True, text=True, timeout=30,
