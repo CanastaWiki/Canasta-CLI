@@ -2251,3 +2251,121 @@ class TestDoctor:
         assert "Docker:          MISSING" in result
         assert "Docker daemon:   NOT RUNNING" in result
         assert "www-data group:  NOT A MEMBER" in result
+
+
+class TestCanastaStatus:
+    """canasta status --id X — direct_only command that gathers
+    pods/PVCs/ingress/certs (K8s) or `docker compose ps` (Compose)
+    for a single instance."""
+
+    def _args(self, **kw):
+        from argparse import Namespace
+        defaults = {"id": None, "verbose": False}
+        defaults.update(kw)
+        return Namespace(**defaults)
+
+    def test_unknown_id_errors(self, monkeypatch, capsys):
+        monkeypatch.setattr(direct_commands, "_read_registry", lambda p: {})
+        rc = direct_commands.cmd_status(self._args(id="ghost"))
+        assert rc == 1
+        assert "not found in the registry" in capsys.readouterr().err
+
+    def test_k8s_routes_through_ssh(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_read_registry",
+            lambda p: {
+                "mysite": {
+                    "id": "mysite", "orchestrator": "kubernetes",
+                    "host": "node1", "path": "/home/admin/canasta-instances/mysite",
+                },
+            },
+        )
+        monkeypatch.setattr(
+            direct_commands, "_check_running_k8s",
+            lambda inst, host: True,
+        )
+        ssh_calls = []
+
+        def fake_ssh(host, cmd):
+            ssh_calls.append((host, cmd))
+            return 0, "stub-output"
+
+        monkeypatch.setattr(direct_commands, "_ssh_run", fake_ssh)
+        # Make sure no local subprocess is called for K8s sections.
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **k: (_ for _ in ()).throw(
+                AssertionError("K8s sections must dispatch via SSH")
+            ),
+        )
+
+        rc = direct_commands.cmd_status(self._args(id="mysite"))
+        assert rc == 0
+        # Header sanity
+        out = capsys.readouterr().out
+        assert "Instance:     mysite" in out
+        assert "Host:         node1" in out
+        assert "KUBERNETES" in out
+        assert "RUNNING" in out
+        # Sections requested
+        cmds = [c for _, c in ssh_calls]
+        joined = " | ".join(cmds)
+        for piece in [
+            "kubectl get pods -o wide -n canasta-mysite",
+            "kubectl get pvc -n canasta-mysite",
+            "kubectl get ingress -n canasta-mysite",
+            "kubectl get certificate -n canasta-mysite",
+        ]:
+            assert piece in joined
+
+    def test_compose_uses_docker_compose_ps_locally(self, monkeypatch, capsys, tmp_path):
+        path = str(tmp_path)
+        monkeypatch.setattr(
+            direct_commands, "_read_registry",
+            lambda p: {
+                "mysite": {
+                    "id": "mysite", "orchestrator": "compose",
+                    "host": "localhost", "path": path,
+                },
+            },
+        )
+        monkeypatch.setattr(
+            direct_commands, "_check_running_compose",
+            lambda p, h: False,
+        )
+        captured = {}
+
+        def fake_run(cmd, cwd=None, **kw):
+            captured["cmd"] = cmd
+            captured["cwd"] = cwd
+            return type("R", (), {"returncode": 0, "stdout": "NAME STATUS\nweb_1 Up\n"})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        rc = direct_commands.cmd_status(self._args(id="mysite"))
+        assert rc == 0
+        assert captured["cmd"][:3] == ["docker", "compose", "ps"]
+        assert captured["cwd"] == path
+        out = capsys.readouterr().out
+        assert "STOPPED" in out
+        assert "web_1 Up" in out
+
+    def test_resolves_by_cwd_when_no_id(self, monkeypatch, tmp_path, capsys):
+        path = str(tmp_path)
+        monkeypatch.setattr(
+            direct_commands, "_read_registry",
+            lambda p: {
+                "by-cwd": {
+                    "id": "by-cwd", "orchestrator": "compose",
+                    "host": "localhost", "path": path,
+                },
+            },
+        )
+        monkeypatch.setattr(direct_commands, "_check_running_compose", lambda p, h: True)
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **k: type("R", (), {"returncode": 0, "stdout": ""})(),
+        )
+        monkeypatch.chdir(path)
+        rc = direct_commands.cmd_status(self._args(id=None))
+        assert rc == 0
+        assert "Instance:     by-cwd" in capsys.readouterr().out

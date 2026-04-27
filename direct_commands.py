@@ -1653,3 +1653,127 @@ def cmd_doctor(args):
         return 1
 
     return 0
+
+
+# ---------------------------------------------------------------------------
+# canasta status
+# ---------------------------------------------------------------------------
+
+def _resolve_status_instance(args):
+    """Pick the instance the user wants status for.
+
+    Same dispatch as `canasta delete`: --id wins; if absent, look up
+    by current working directory against the registry's `path` field.
+    Returns (id, instance_dict) or (None, None) on no match.
+    """
+    inst_id = getattr(args, "id", None)
+    conf_path = os.path.join(_get_config_dir(), "conf.json")
+    instances = _read_registry(conf_path)
+    if inst_id:
+        return (inst_id, instances.get(inst_id))
+    cwd = os.environ.get("CANASTA_HOST_PWD") or os.getcwd()
+    for k, v in instances.items():
+        if v.get("path") == cwd:
+            return (k, v)
+    return (None, None)
+
+
+def _kubectl_section(host, ns, cmd_args, label):
+    """Run a kubectl get (locally or via SSH) and return formatted output.
+
+    Always runs against namespace `ns`. Returns a (label, body) tuple
+    suitable for printing.
+    """
+    cmd = "kubectl get %s -n %s" % (cmd_args, ns)
+    if _is_localhost(host):
+        try:
+            r = subprocess.run(
+                cmd.split(), capture_output=True, text=True, timeout=15,
+            )
+            rc, out = r.returncode, r.stdout
+        except (subprocess.TimeoutExpired, OSError):
+            return (label, "(query failed)")
+    else:
+        rc, out = _ssh_run(host, cmd)
+    if rc != 0:
+        if "not found" in out.lower() or "no resources found" in out.lower():
+            return (label, "(none)")
+        return (label, "(query failed)")
+    if not out.strip():
+        return (label, "(none)")
+    return (label, out.rstrip())
+
+
+@register("status")
+def cmd_status(args):
+    inst_id, inst = _resolve_status_instance(args)
+    if not inst:
+        if getattr(args, "id", None):
+            print(
+                "Error: instance '%s' not found in the registry."
+                % args.id, file=sys.stderr,
+            )
+        else:
+            print(
+                "Error: no instance found for the current directory; "
+                "pass --id explicitly.", file=sys.stderr,
+            )
+        return 1
+
+    orchestrator = inst.get("orchestrator", "compose")
+    host = inst.get("host", "localhost")
+    path = inst.get("path", "")
+
+    # Header
+    print("Instance:     %s" % inst_id)
+    print("Host:         %s" % host)
+    print("Orchestrator: %s" % orchestrator.upper())
+
+    if orchestrator in ("kubernetes", "k8s"):
+        running = _check_running_k8s(inst_id, host)
+        print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
+        ns = "canasta-%s" % inst_id
+        sections = [
+            ("Pods", "pods -o wide"),
+            ("Volumes", "pvc"),
+            ("Services", "svc"),
+            ("Ingress", "ingress"),
+            ("Certificate", "certificate"),
+        ]
+        for label, cmd_args in sections:
+            tag, body = _kubectl_section(host, ns, cmd_args, label)
+            print()
+            print("%s:" % tag)
+            for line in body.splitlines():
+                print("  %s" % line)
+        return 0
+
+    # Compose
+    running = _check_running_compose(path, host)
+    print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
+    if not path:
+        print("\n(no path on file — cannot inspect containers)")
+        return 0
+
+    ps_cmd = "docker compose ps"
+    if _is_localhost(host):
+        try:
+            r = subprocess.run(
+                ps_cmd.split(),
+                cwd=path, capture_output=True, text=True, timeout=15,
+            )
+            rc, out = r.returncode, r.stdout
+        except (subprocess.TimeoutExpired, OSError):
+            rc, out = 1, ""
+    else:
+        rc, out = _ssh_run(
+            host, "cd %s && %s" % (_shell_quote(path), ps_cmd),
+        )
+    print()
+    print("Containers:")
+    if rc != 0 or not out.strip():
+        print("  (query failed or no containers)")
+    else:
+        for line in out.rstrip().splitlines():
+            print("  %s" % line)
+    return 0
