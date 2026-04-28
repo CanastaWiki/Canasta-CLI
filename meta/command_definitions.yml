@@ -186,7 +186,7 @@ commands:
       starts the containers, and runs the MediaWiki installer.
     examples:
       - "canasta create -i mysite -w main -n example.com"
-      - "canasta create -i mysite -w main -d /path/to/dump.sql"
+      - "canasta create -i mysite -w main -n example.com -d /path/to/dump.sql"
     playbook: create.yml
     parameters:
       - name: host
@@ -227,7 +227,7 @@ commands:
       - name: domain_name
         short: n
         type: string
-        default: localhost
+        required: true
         validator: hostname
         description: "Domain name"
       - name: admin
