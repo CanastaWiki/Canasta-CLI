@@ -187,7 +187,7 @@ commands:
     examples:
       - "canasta create -i mysite -w main -n example.com"
       - "canasta create -i mysite -w main -n example.com -d /path/to/dump.sql"
-      - "canasta create -i mysite -w main -n localhost --skip-tls"
+      - "canasta create -i mysite -w main -n localhost"
     playbook: create.yml
     parameters:
       - name: host

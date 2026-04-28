@@ -166,10 +166,13 @@ class TestBuildParser:
         assert args.keep_config is True
 
     def test_domain_name_localhost_accepted(self, parser):
-        """Local-dev case: -n localhost is a valid value (no implicit default)."""
+        """Local-dev case: -n localhost is a valid value (no implicit default).
+
+        Caddy handles localhost via its internal CA (no ACME), so no extra
+        flags are needed.
+        """
         args = parser.parse_args([
-            "create", "-i", "mysite", "-w", "main",
-            "-n", "localhost", "--skip-tls"
+            "create", "-i", "mysite", "-w", "main", "-n", "localhost"
         ])
         assert args.domain_name == "localhost"
 
