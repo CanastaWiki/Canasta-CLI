@@ -165,6 +165,14 @@ class TestBuildParser:
         assert args.domain_name == "example.com"
         assert args.keep_config is True
 
+    def test_domain_name_localhost_accepted(self, parser):
+        """Local-dev case: -n localhost is a valid value (no implicit default)."""
+        args = parser.parse_args([
+            "create", "-i", "mysite", "-w", "main",
+            "-n", "localhost", "--skip-tls"
+        ])
+        assert args.domain_name == "localhost"
+
     def test_gitops_fix_submodules(self, parser):
         args = parser.parse_args([
             "gitops", "fix-submodules", "-i", "mysite"
