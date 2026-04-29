@@ -51,10 +51,8 @@
 - name: Fail if git identity not configured
   ansible.builtin.fail:
     msg: >-
-      Git user identity is not configured on the target host. Either
-      pass --git-user-name and --git-user-email to this command, or
-      run 'git config --global user.name "Your Name"' and
-      'git config --global user.email "you@example.com"' on the host.
+      Git user identity is not configured for this canasta gitops setup.
+      Pass --git-user-name and --git-user-email to this command.
   when: _git_identity.rc != 0
 
 - name: Check for existing .git directory
