@@ -1876,8 +1876,9 @@ def cmd_argocd_apps(args):
         err = ""
     if rc != 0:
         # `applications` CRD won't exist if Argo CD isn't installed.
-        if "the server doesn't have a resource type" in (out + err).lower() or \
-           "applications" in (out + err).lower() and "not found" in (out + err).lower():
+        combined = (out + err).lower()
+        if ("the server doesn't have a resource type" in combined
+                or ("applications" in combined and "not found" in combined)):
             print(
                 "Argo CD doesn't appear to be installed on %s. "
                 "Run `canasta install k8s-cp` first." % host,
