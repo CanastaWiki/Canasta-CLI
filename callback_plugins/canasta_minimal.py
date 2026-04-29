@@ -21,8 +21,6 @@ DOCUMENTATION = """
         - Only shows debug messages and errors.
 """
 
-import sys
-
 from ansible.plugins.callback import CallbackBase
 
 

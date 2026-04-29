@@ -24,10 +24,10 @@
     msg: >-
       canasta is already installed on this host.
       Run 'canasta upgrade' on the target to update.
-  when: _canasta_installed.rc == 0
+  when: _canasta_installed.rc | default(1) == 0
 
 - name: Install canasta-native
-  when: _canasta_installed.rc != 0
+  when: _canasta_installed.rc | default(1) != 0
   become: true
   block:
     - name: Report installing canasta
