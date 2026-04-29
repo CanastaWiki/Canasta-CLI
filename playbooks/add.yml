@@ -151,7 +151,7 @@
           --confpath=/tmp/canasta-install/
           --scriptpath=/w
           --server=https://{{ _add_domain }}
-          --installdbuser={{ _add_dbuser.value | default('root') | quote }}
+          --installdbuser={{ _add_dbuser.value | default('root', true) | quote }}
           --installdbpass={{ _add_dbpass.value | quote }}
           --dbuser={{ wikidbuser | default('root') | quote }}
           --dbpass={{ _add_dbpass.value | quote }}
