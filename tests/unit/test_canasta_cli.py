@@ -104,13 +104,15 @@ class TestBuildParser:
         assert args.yes is False
 
     def test_string_flag_with_value(self, parser):
-        args = parser.parse_args(["create", "-i", "mysite", "-w", "main"])
+        args = parser.parse_args([
+            "create", "-i", "mysite", "-w", "main", "-n", "example.com"
+        ])
         assert args.id == "mysite"
         assert args.wiki == "main"
 
     def test_choice_flag(self, parser):
         args = parser.parse_args([
-            "create", "-i", "mysite", "-w", "main",
+            "create", "-i", "mysite", "-w", "main", "-n", "example.com",
             "-o", "kubernetes"
         ])
         assert args.orchestrator == "kubernetes"
@@ -162,6 +164,17 @@ class TestBuildParser:
         ])
         assert args.domain_name == "example.com"
         assert args.keep_config is True
+
+    def test_domain_name_localhost_accepted(self, parser):
+        """Local-dev case: -n localhost is a valid value (no implicit default).
+
+        Caddy handles localhost via its internal CA (no ACME), so no extra
+        flags are needed.
+        """
+        args = parser.parse_args([
+            "create", "-i", "mysite", "-w", "main", "-n", "localhost"
+        ])
+        assert args.domain_name == "localhost"
 
     def test_gitops_fix_submodules(self, parser):
         args = parser.parse_args([
@@ -643,13 +656,14 @@ class TestCreateFlags:
 
     def test_skip_tls_accepted_with_compose(self, parser):
         args = parser.parse_args([
-            "create", "-i", "mysite", "-w", "main", "--skip-tls"
+            "create", "-i", "mysite", "-w", "main", "-n", "example.com",
+            "--skip-tls"
         ])
         assert args.skip_tls is True
 
     def test_skip_tls_accepted_with_kubernetes(self, parser):
         args = parser.parse_args([
-            "create", "-i", "mysite", "-w", "main",
+            "create", "-i", "mysite", "-w", "main", "-n", "example.com",
             "-o", "kubernetes", "--skip-tls"
         ])
         assert args.skip_tls is True
@@ -657,14 +671,14 @@ class TestCreateFlags:
 
     def test_storage_class_accepted_with_kubernetes(self, parser):
         args = parser.parse_args([
-            "create", "-i", "mysite", "-w", "main",
+            "create", "-i", "mysite", "-w", "main", "-n", "example.com",
             "-o", "kubernetes", "--storage-class", "nfs"
         ])
         assert args.storage_class == "nfs"
 
     def test_tls_email_accepted_with_kubernetes(self, parser):
         args = parser.parse_args([
-            "create", "-i", "mysite", "-w", "main",
+            "create", "-i", "mysite", "-w", "main", "-n", "example.com",
             "-o", "kubernetes", "--tls-email", "test@example.com"
         ])
         assert args.tls_email == "test@example.com"
