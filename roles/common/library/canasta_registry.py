@@ -17,12 +17,20 @@ module: canasta_registry
 short_description: Manage the Canasta instance registry
 description:
   - Read, add, update, and remove Canasta instances from the local registry (conf.json).
+  - Also manages registry-level settings (key/value) via set_setting / get_setting states.
   - Compatible with the Go CLI's registry format.
 options:
   state:
     description: Desired state of the instance in the registry.
     type: str
-    choices: [present, absent, query, query_all, query_by_path]
+    choices:
+      - present
+      - absent
+      - query
+      - query_all
+      - query_by_path
+      - set_setting
+      - get_setting
     default: query
   id:
     description: Canasta instance ID.
@@ -50,6 +58,20 @@ options:
     type: str
   build_from:
     description: Local source directory for image builds.
+    type: str
+  host:
+    description: SSH host (user@host or host) for instances on a remote machine.
+    type: str
+  filter_host:
+    description: With state=query_all, return only instances whose host matches this value.
+    type: str
+  setting_key:
+    description: Settings key to read or write (with state=get_setting or state=set_setting).
+    type: str
+  setting_value:
+    description: >-
+      Value to write for setting_key (with state=set_setting). Omit or pass null
+      to delete the setting.
     type: str
   config_dir:
     description: Override the config directory (instead of auto-detection).
