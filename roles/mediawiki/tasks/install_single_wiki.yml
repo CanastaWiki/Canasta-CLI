@@ -36,7 +36,7 @@
       --confpath=/tmp/canasta-install/
       --scriptpath=/w
       --server=https://{{ _install_domain }}
-      --installdbuser='root'
+      --installdbuser={{ _install_env.variables.MYSQL_USER | default('root') | quote }}
       --installdbpass={{ install_root_db_password | quote }}
       --dbuser={{ install_wiki_db_username | quote }}
       --dbpass={{ install_wiki_db_password | quote }}
