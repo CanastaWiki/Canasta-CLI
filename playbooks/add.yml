@@ -63,6 +63,13 @@
   register: _add_dbpass
   no_log: true
 
+- name: Read .env for DB user (for install.php --installdbuser)
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MYSQL_USER
+  register: _add_dbuser
+
 - name: Generate admin password if not provided
   when: password is not defined or password == ''
   block:
@@ -144,7 +151,7 @@
           --confpath=/tmp/canasta-install/
           --scriptpath=/w
           --server=https://{{ _add_domain }}
-          --installdbuser='root'
+          --installdbuser={{ _add_dbuser.value | default('root') | quote }}
           --installdbpass={{ _add_dbpass.value | quote }}
           --dbuser={{ wikidbuser | default('root') | quote }}
           --dbpass={{ _add_dbpass.value | quote }}
