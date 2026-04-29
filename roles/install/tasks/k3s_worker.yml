@@ -78,3 +78,32 @@
   vars:
     server: "{{ _k3s_server_url }}"
     token: "{{ _k3s_join_token }}"
+
+# --- Final visibility: show cluster nodes from cp ---
+# After the agent installs, the new worker may take a few seconds to
+# appear in the cp's view (kubelet registration). Retry briefly so the
+# printed table reflects the new node when possible; surface whatever
+# state the cp sees if it hasn't shown up by the timeout.
+- name: Wait briefly for the new worker to register on cp
+  ansible.builtin.command:
+    argv:
+      - ssh
+      - -o
+      - StrictHostKeyChecking=accept-new
+      - "{{ _cp_ssh_target }}"
+      - sudo k3s kubectl get nodes -o wide
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+  register: _cp_post_join_nodes
+  changed_when: false
+  retries: 6
+  delay: 5
+  until: >-
+    (_cp_post_join_nodes.stdout | regex_findall('Ready') | length)
+    >= ((_cp_post_join_nodes.stdout_lines | length) - 1)
+  failed_when: false  # Show whatever state we got, even if not all Ready
+
+- name: Show cluster nodes from cp
+  ansible.builtin.debug:
+    msg: "{{ _cp_post_join_nodes.stdout_lines }}"
