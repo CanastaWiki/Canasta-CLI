@@ -33,6 +33,12 @@ options:
   domain:
     description: Domain name for the wiki URL.
     type: str
+  old_domain:
+    description: >-
+      With state=update_domain, only update wikis whose current host matches
+      this value. Required for update_domain — prevents clobbering wikis that
+      live on other domains in multi-domain instances.
+    type: str
   wiki_path:
     description: URL path suffix (e.g. 'docs' for example.com/docs).
     type: str
@@ -142,6 +148,15 @@ def update_url_port(url, new_port, default_port="443"):
     return domain + path
 
 
+def url_host(url):
+    """Extract the bare host from a wiki URL, stripping port and path."""
+    server, _ = parse_url(url)
+    colon_idx = server.rfind(":")
+    if colon_idx != -1:
+        return server[:colon_idx]
+    return server
+
+
 def update_url_domain(url, new_domain):
     """Replace the domain in a wiki URL, preserving port and path."""
     old_domain = url
@@ -191,6 +206,7 @@ def run_module():
                             "update_port", "update_domain"]),
         wiki_id=dict(type="str", required=False),
         domain=dict(type="str", required=False),
+        old_domain=dict(type="str", required=False),
         wiki_path=dict(type="str", required=False),
         site_name=dict(type="str", required=False),
         port=dict(type="str", required=False),
@@ -310,15 +326,31 @@ def run_module():
         if not domain:
             module.fail_json(msg="domain is required for update_domain")
             return
+        old_domain = module.params.get("old_domain")
+        if not old_domain:
+            module.fail_json(
+                msg="old_domain is required for update_domain "
+                    "(filter prevents clobbering wikis on other domains)"
+            )
+            return
+        # Strip port from old_domain for host-only comparison.
+        old_colon = old_domain.rfind(":")
+        old_host = old_domain[:old_colon] if old_colon != -1 else old_domain
         wikis = read_wikis(instance_path)
         updated = []
+        changed = False
         for w in wikis:
             w = dict(w)
-            w["url"] = update_url_domain(w.get("url", ""), domain)
+            url = w.get("url", "")
+            if url_host(url) == old_host:
+                new_url = update_url_domain(url, domain)
+                if new_url != url:
+                    w["url"] = new_url
+                    changed = True
             updated.append(w)
-        if not module.check_mode:
+        if changed and not module.check_mode:
             write_wikis(instance_path, updated)
-        result["changed"] = True
+        result["changed"] = changed
         result["wikis"] = updated
 
     module.exit_json(**result)

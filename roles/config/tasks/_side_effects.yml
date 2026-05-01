@@ -237,22 +237,37 @@
 - name: Apply MW_SITE_FQDN side effects
   when: _config_key == 'MW_SITE_FQDN'
   block:
-    - name: Update wikis.yaml URLs with new domain
-      canasta_wikis_yaml:
-        instance_path: "{{ instance_path }}"
-        state: update_domain
-        domain: "{{ _config_value }}"
-
-    - name: Read current MW_SITE_SERVER to preserve scheme
+    # MW_SITE_FQDN in .env has already been overwritten with the new value by
+    # the time this cascade fires, but MW_SITE_SERVER still holds the OLD
+    # domain (we only update it here, below). Read it to recover the old
+    # FQDN so update_domain can filter to wikis on that domain — without the
+    # filter, every wiki's URL gets clobbered to the new domain regardless
+    # of its original host (issue #445).
+    - name: Read current MW_SITE_SERVER to preserve scheme and old FQDN
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: read
         key: MW_SITE_SERVER
       register: _current_server
 
-    - name: Determine scheme from current MW_SITE_SERVER
+    - name: Extract old FQDN and scheme from current MW_SITE_SERVER
       ansible.builtin.set_fact:
+        _old_fqdn: >-
+          {{ _current_server.value | default('')
+             | regex_replace('^https?://', '')
+             | regex_replace('/.*$', '')
+             | regex_replace(':.*$', '') }}
         _server_scheme: "{{ (_current_server.value | default('https://') | regex_search('^https?://')) or 'https://' }}"
+
+    - name: Update wikis.yaml URLs (only for wikis on the old FQDN)
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: update_domain
+        old_domain: "{{ _old_fqdn }}"
+        domain: "{{ _config_value }}"
+      when:
+        - _old_fqdn != ''
+        - _old_fqdn != _config_value
 
     - name: Update MW_SITE_SERVER to match new FQDN
       canasta_env:
