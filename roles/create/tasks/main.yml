@@ -436,7 +436,8 @@
     mode: "0755"
   loop: "{{ _created_wikis.wiki_ids }}"
 
-- when: wiki_settings is defined and wiki_settings != ''
+- name: Report copying per-wiki Settings.php
+  when: wiki_settings is defined and wiki_settings != ''
   ansible.builtin.debug:
     msg: "Copying per-wiki Settings.php"
 
@@ -447,7 +448,8 @@
     dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php"
     mode: "0644"
 
-- when: global_settings is defined and global_settings != ''
+- name: Report copying global settings
+  when: global_settings is defined and global_settings != ''
   ansible.builtin.debug:
     msg: "Copying global settings"
 
@@ -458,7 +460,8 @@
     dest: "{{ instance_path }}/config/settings/global/{{ global_settings | basename }}"
     mode: "0644"
 
-- when: composer is defined and composer != ''
+- name: Report copying composer.local.json
+  when: composer is defined and composer != ''
   ansible.builtin.debug:
     msg: "Copying composer.local.json"
 

@@ -353,12 +353,18 @@
     instance_orchestrator | default('compose') == 'compose'
     or _k8s_api_reachable | default(true)
 
+# Require a non-trivial absolute path before running 'find -delete'.
+# 'length > 5' rejects '/', '/a', '/ab', '/abc' — values short enough to
+# be plausibly the result of a corrupted registry or unset variable, and
+# 'find / -mindepth 1 -delete' is unrecoverable.
 - name: Remove instance directory contents
   ansible.builtin.command:
     cmd: "find {{ instance_path | quote }} -mindepth 1 -delete"
     chdir: "/"
   changed_when: true
-  when: instance_path | default('') | length > 0
+  when:
+    - instance_path | default('') | length > 5
+    - instance_path | default('') is match('^/')
   ignore_errors: true  # OK if some files can't be removed
   register: _rmdir_contents
 
@@ -367,7 +373,9 @@
     cmd: "rmdir {{ instance_path | quote }}"
     chdir: "/"
   changed_when: true
-  when: instance_path | default('') | length > 0
+  when:
+    - instance_path | default('') | length > 5
+    - instance_path | default('') is match('^/')
   ignore_errors: true  # OK if dir is cwd or already gone
   register: _rmdir
 
