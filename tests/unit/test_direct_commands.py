@@ -2281,6 +2281,8 @@ class TestDoctor:
             "INSTALLED",
             "git version 2.45.0",
             "OK",
+            "OK",
+            "Linux",
             "16 GB",
             "50G",
         ]
@@ -2291,6 +2293,7 @@ class TestDoctor:
         assert "Docker:          OK" in result
         assert "Docker daemon:   OK (running)" in result
         assert "kubectl:         OK" in result
+        assert "crontab:         OK" in result
         assert "www-data group:  OK (member)" in result
 
     def test_parse_doctor_missing_deps(self):
@@ -2299,6 +2302,7 @@ class TestDoctor:
             "MISSING", "MISSING", "MISSING", "NOT_RUNNING",
             "user", "MISSING", "MISSING", "MISSING",
             "UNREACHABLE", "MISSING", "MISSING", "MISSING",
+            "MISSING", "Linux",
             "unknown", "unknown",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
@@ -2306,7 +2310,28 @@ class TestDoctor:
         assert "Python 3:        MISSING" in result
         assert "Docker:          MISSING" in result
         assert "Docker daemon:   NOT RUNNING" in result
+        assert "crontab:         not installed" in result
         assert "www-data group:  NOT A MEMBER" in result
+
+    def test_parse_doctor_macos_skips_www_data(self):
+        d = direct_commands._SENTINEL
+        parts = [
+            "Python 3.12.0",
+            "Docker version 27.0.0",
+            "Docker Compose version v2.30.0",
+            "OK",
+            "user staff",
+            "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED",
+            "git version 2.45.0", "OK",
+            "OK",
+            "Darwin",
+            "16 GB", "50G",
+        ]
+        stdout = ("\n" + d + "\n").join(parts) + "\n"
+        result = direct_commands._parse_doctor(stdout, "myhost")
+        assert "www-data group:  N/A (Docker Desktop handles UID mapping on Darwin)" in result
+        assert "NOT A MEMBER" not in result
 
 
 class TestCanastaStatus:

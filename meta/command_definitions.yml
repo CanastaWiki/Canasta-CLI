@@ -498,12 +498,12 @@ commands:
       Verify that the target host has the tools required for its
       orchestrator: Docker + Docker Compose for Compose installs,
       or kubectl + Helm for Kubernetes installs. Also reports
-      status of optional tools (git, git-crypt, rsync) and system
+      status of optional tools (git, git-crypt, crontab) and system
       resources (memory, disk space).
     examples:
       - "canasta doctor"
       - "canasta doctor --host prod1.example.com"
-    playbook: doctor.yml
+    direct_only: true
     parameters:
       - name: host
         short: H

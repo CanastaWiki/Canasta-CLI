@@ -1555,6 +1555,8 @@ kubectl cluster-info >/dev/null 2>&1 && echo REACHABLE || echo UNREACHABLE; echo
 kubectl get deployment argocd-server -n argocd >/dev/null 2>&1 && echo INSTALLED || echo MISSING; echo "$D"
 git --version 2>/dev/null || echo MISSING; echo "$D"
 git-crypt --version 2>/dev/null && echo OK || echo MISSING; echo "$D"
+command -v crontab >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
+uname -s 2>/dev/null || echo unknown; echo "$D"
 python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
 df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown
 """
@@ -1579,8 +1581,10 @@ def _parse_doctor(stdout, hostname):
     argocd = p(9)
     git = p(10)
     gitcrypt = p(11)
-    memory = p(12)
-    disk = p(13) if len(parts) > 13 else "unknown"
+    crontab = p(12)
+    host_os = p(13)
+    memory = p(14)
+    disk = p(15) if len(parts) > 15 else "unknown"
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -1617,12 +1621,36 @@ def _parse_doctor(stdout, hostname):
         "OK" if gitcrypt == "OK" else "not installed"))
 
     lines.append("")
+    lines.append("Scheduled backups (optional):")
+    lines.append("  crontab:         %s" % (
+        "OK" if crontab == "OK"
+        else "not installed (install cron to use canasta backup schedule)"))
+
+    lines.append("")
     lines.append("System:")
     lines.append("  Memory:          %s" % memory)
     lines.append("  Disk (/ avail):  %s" % disk)
-    www_member = "www-data" in groups.split()
-    lines.append("  www-data group:  %s" % (
-        "OK (member)" if www_member else "NOT A MEMBER"))
+    # On macOS, Docker Desktop handles UID remapping transparently — there
+    # is no www-data user/group on the host and membership is irrelevant.
+    # Only report membership on Linux, where host-side file permissions
+    # matter for volume mounts into the Canasta containers.
+    if host_os == "Linux":
+        www_member = "www-data" in groups.split()
+        if www_member:
+            lines.append("  www-data group:  OK (member)")
+        else:
+            lines.append(
+                "  www-data group:  NOT A MEMBER — Canasta containers write "
+                "files as www-data; add yourself with: "
+                "sudo usermod -aG www-data $USER (then log out and back in, "
+                "or start a new shell, for the change to take effect)"
+            )
+    else:
+        os_label = host_os if host_os and host_os != "unknown" else "this OS"
+        lines.append(
+            "  www-data group:  N/A (Docker Desktop handles UID mapping on %s)"
+            % os_label
+        )
 
     return "\n".join(lines)
 
