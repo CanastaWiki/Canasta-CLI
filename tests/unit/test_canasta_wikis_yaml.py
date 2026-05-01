@@ -348,6 +348,7 @@ class TestRunModuleUpdateDomain:
         result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
             "instance_path": tmp_dir, "state": "update_domain",
             "wiki_id": None, "domain": "new.example.com",
+            "old_domain": "old.example.com",
             "wiki_path": None, "site_name": None,
             "port": None,
         })
@@ -356,9 +357,11 @@ class TestRunModuleUpdateDomain:
         assert result["wikis"][0]["url"] == "new.example.com"
 
     def test_update_domain_multiple_wikis(self, sample_wikis_yaml):
+        # sample_wikis_yaml fixture: both wikis on example.com.
         result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
             "instance_path": sample_wikis_yaml, "state": "update_domain",
             "wiki_id": None, "domain": "newsite.com",
+            "old_domain": "example.com",
             "wiki_path": None, "site_name": None,
             "port": None,
         })
@@ -376,6 +379,7 @@ class TestRunModuleUpdateDomain:
         result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
             "instance_path": tmp_dir, "state": "update_domain",
             "wiki_id": None, "domain": "new.com",
+            "old_domain": "old.com",
             "wiki_path": None, "site_name": None,
             "port": None,
         })
@@ -387,8 +391,66 @@ class TestRunModuleUpdateDomain:
         result, failed, msg = run_module_with_params(canasta_wikis_yaml, {
             "instance_path": sample_wikis_yaml, "state": "update_domain",
             "wiki_id": None, "domain": None,
+            "old_domain": "example.com",
             "wiki_path": None, "site_name": None,
             "port": None,
         })
         assert failed
         assert "domain is required" in msg
+
+    def test_update_domain_requires_old_domain(self, sample_wikis_yaml):
+        # Without old_domain, the module must refuse — preventing the
+        # multi-domain clobber bug from #445.
+        result, failed, msg = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": sample_wikis_yaml, "state": "update_domain",
+            "wiki_id": None, "domain": "newsite.com",
+            "old_domain": None,
+            "wiki_path": None, "site_name": None,
+            "port": None,
+        })
+        assert failed
+        assert "old_domain is required" in msg
+
+    def test_update_domain_filters_other_domains(self, tmp_dir):
+        # Multi-domain instance: changing the FQDN of one wiki must not
+        # touch wikis on unrelated domains. Regression test for #445.
+        os.makedirs(os.path.join(tmp_dir, "config"), exist_ok=True)
+        canasta_wikis_yaml.write_wikis(tmp_dir, [
+            {"id": "main", "url": "a.example.com", "name": "Main"},
+            {"id": "docs", "url": "a.example.com/docs", "name": "Docs"},
+            {"id": "side", "url": "unrelated.org", "name": "Side"},
+            {"id": "other", "url": "b.example.com", "name": "Other"},
+        ])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "update_domain",
+            "wiki_id": None, "domain": "newhost.example.com",
+            "old_domain": "a.example.com",
+            "wiki_path": None, "site_name": None,
+            "port": None,
+        })
+        assert not failed
+        assert result["changed"]
+        urls = {w["id"]: w["url"] for w in result["wikis"]}
+        assert urls["main"] == "newhost.example.com"
+        assert urls["docs"] == "newhost.example.com/docs"
+        # Wikis on other domains untouched:
+        assert urls["side"] == "unrelated.org"
+        assert urls["other"] == "b.example.com"
+
+    def test_update_domain_no_match_is_noop(self, tmp_dir):
+        # If old_domain doesn't match any wiki, the module reports
+        # changed=False and the file is unchanged.
+        os.makedirs(os.path.join(tmp_dir, "config"), exist_ok=True)
+        canasta_wikis_yaml.write_wikis(tmp_dir, [
+            {"id": "main", "url": "a.example.com", "name": "Main"},
+        ])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "update_domain",
+            "wiki_id": None, "domain": "newhost.example.com",
+            "old_domain": "completely-different.com",
+            "wiki_path": None, "site_name": None,
+            "port": None,
+        })
+        assert not failed
+        assert not result["changed"]
+        assert result["wikis"][0]["url"] == "a.example.com"
