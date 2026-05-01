@@ -98,13 +98,82 @@
       Run 'canasta delete --id {{ id }} --yes' to remove it first.
   when: _existing is succeeded
 
-- name: Kubernetes setup (validate + Argo CD)
+# --- Stale-state check (issue #391) ---
+# Even when the registry has no entry for this instance, a prior
+# 'canasta create' that failed mid-flight may have left orchestrator
+# state behind (Docker volumes for Compose, a namespace + PVCs for K8s).
+# Re-running create would generate fresh DB passwords that do not match
+# the existing volume contents, producing an unrecoverable auth mismatch.
+# Refuse upfront with a clear recovery hint.
+- name: Check for stale Compose volumes from prior failed create
+  when: (orchestrator | default('compose')) == 'compose'
+  block:
+    - name: Probe for existing docker volumes
+      ansible.builtin.command:
+        argv:
+          - docker
+          - volume
+          - ls
+          - --filter
+          - "name={{ id }}_"
+          - "-q"
+      register: _stale_volumes
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if stale Compose volumes exist
+      ansible.builtin.fail:
+        msg: >-
+          Docker volumes for instance '{{ id }}' already exist
+          ({{ _stale_volumes.stdout_lines | join(', ') }}) but the
+          instance is not in the canasta registry. This usually means
+          a previous 'canasta create' failed mid-flight and left state
+          behind. Re-running would generate fresh DB passwords that
+          do not match the existing volumes, producing an unrecoverable
+          auth mismatch. To recover, list and remove the stale volumes
+          ('docker volume ls --filter name={{ id }}_' to list, then
+          'docker volume rm <name>' for each), then re-run.
+      when:
+        - _stale_volumes.stdout is defined
+        - _stale_volumes.stdout | trim | length > 0
+
+- name: Kubernetes setup (validate + stale-state check + Argo CD)
   when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
   block:
     - name: Validate Kubernetes prerequisites
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: k8s_preflight.yml
+
+    # Stale-state check must come AFTER preflight (which verifies
+    # kubectl is reachable) and BEFORE ArgoCD bootstrap (which is
+    # expensive). See block comment above for the full rationale.
+    - name: Probe for existing canasta-{{ id }} namespace
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - namespace
+          - "canasta-{{ id }}"
+          - "-o"
+          - name
+      register: _stale_ns
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if stale K8s namespace exists
+      ansible.builtin.fail:
+        msg: >-
+          Kubernetes namespace 'canasta-{{ id }}' already exists but
+          instance '{{ id }}' is not in the canasta registry. This
+          usually means a previous 'canasta create' failed mid-flight
+          and left state (PVCs, Secrets, helm release) behind.
+          Re-running would generate fresh DB passwords that do not
+          match the existing PVCs, producing an unrecoverable auth
+          mismatch. To recover, delete the stale namespace
+          ('kubectl delete namespace canasta-{{ id }}' — cascades
+          through the helm release, PVCs, and Secrets), then re-run.
+      when: _stale_ns.rc | default(1) == 0
 
     - name: Install Argo CD if not skipped
       ansible.builtin.include_role:
