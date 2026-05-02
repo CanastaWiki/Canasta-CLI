@@ -223,28 +223,38 @@
     - not (_inst_dir.stat.exists | default(false))
     - _instance_registered | default(false) | bool
   block:
-    - name: Switch to local for controller deregistration
+    # Save inbound connection state into one dict, switch + deregister
+    # inside a block so an `always:` restore fires even if the registry
+    # write fails. See resolve_instance.yml for the full rationale and
+    # commits 0d392a6 / b7d3ed2 for why delegate_to: localhost is not a
+    # safe substitute here.
+    - name: Save connection state before controller deregistration
       ansible.builtin.set_fact:
-        _saved_host: "{{ ansible_host | default('localhost') }}"
-        _saved_conn: "{{ ansible_connection | default('local') }}"
-        _saved_user: "{{ ansible_user | default('') }}"
-        _saved_python: "{{ ansible_python_interpreter | default('auto') }}"
-        ansible_host: "localhost"
-        ansible_connection: "local"
-        ansible_user: ""
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+        _del_saved:
+          host: "{{ ansible_host | default('localhost') }}"
+          conn: "{{ ansible_connection | default('local') }}"
+          user: "{{ ansible_user | default('') }}"
+          python: "{{ ansible_python_interpreter | default('auto') }}"
 
-    - name: Deregister already-removed instance from controller
-      canasta_registry:
-        id: "{{ instance_id }}"
-        state: absent
+    - block:
+        - name: Switch to local for controller deregistration
+          ansible.builtin.set_fact:
+            ansible_host: "localhost"
+            ansible_connection: "local"
+            ansible_user: ""
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-    - name: Restore connection for target deregistration
-      ansible.builtin.set_fact:
-        ansible_host: "{{ _saved_host }}"
-        ansible_connection: "{{ _saved_conn }}"
-        ansible_user: "{{ _saved_user }}"
-        ansible_python_interpreter: "{{ _saved_python }}"
+        - name: Deregister already-removed instance from controller
+          canasta_registry:
+            id: "{{ instance_id }}"
+            state: absent
+      always:
+        - name: Restore connection for target deregistration
+          ansible.builtin.set_fact:
+            ansible_host: "{{ _del_saved.host }}"
+            ansible_connection: "{{ _del_saved.conn }}"
+            ansible_user: "{{ _del_saved.user }}"
+            ansible_python_interpreter: "{{ _del_saved.python }}"
 
     - name: Deregister already-removed instance from target host
       canasta_registry:
@@ -263,28 +273,33 @@
 # if subsequent cleanup steps fail (e.g., directory already gone from
 # a previous partial delete). Better to have an orphaned directory
 # than an orphaned registry entry.
-- name: Temporarily switch to local for controller deregistration
+- name: Save connection state before controller deregistration
   ansible.builtin.set_fact:
-    _saved_ansible_host: "{{ ansible_host | default('localhost') }}"
-    _saved_ansible_connection: "{{ ansible_connection | default('local') }}"
-    _saved_ansible_user: "{{ ansible_user | default('') }}"
-    _saved_ansible_python: "{{ ansible_python_interpreter | default('auto') }}"
-    ansible_host: "localhost"
-    ansible_connection: "local"
-    ansible_user: ""
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    _del_saved:
+      host: "{{ ansible_host | default('localhost') }}"
+      conn: "{{ ansible_connection | default('local') }}"
+      user: "{{ ansible_user | default('') }}"
+      python: "{{ ansible_python_interpreter | default('auto') }}"
 
-- name: Deregister instance from controller
-  canasta_registry:
-    id: "{{ instance_id }}"
-    state: absent
+- block:
+    - name: Switch to local for controller deregistration
+      ansible.builtin.set_fact:
+        ansible_host: "localhost"
+        ansible_connection: "local"
+        ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-- name: Restore connection after controller deregistration
-  ansible.builtin.set_fact:
-    ansible_host: "{{ _saved_ansible_host }}"
-    ansible_connection: "{{ _saved_ansible_connection }}"
-    ansible_user: "{{ _saved_ansible_user }}"
-    ansible_python_interpreter: "{{ _saved_ansible_python }}"
+    - name: Deregister instance from controller
+      canasta_registry:
+        id: "{{ instance_id }}"
+        state: absent
+  always:
+    - name: Restore connection after controller deregistration
+      ansible.builtin.set_fact:
+        ansible_host: "{{ _del_saved.host }}"
+        ansible_connection: "{{ _del_saved.conn }}"
+        ansible_user: "{{ _del_saved.user }}"
+        ansible_python_interpreter: "{{ _del_saved.python }}"
 
 - name: Deregister instance from target host
   canasta_registry:
