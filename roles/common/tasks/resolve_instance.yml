@@ -17,120 +17,131 @@
 # Input: id (optional)
 # Output: instance_id, instance_path, instance_orchestrator,
 #   instance_devmode, instance_managed_cluster
+#
+# Implementation note: this file uses a save/switch/restore dance on
+# ansible_host/ansible_connection because the alternative
+# `delegate_to: localhost` + `vars: { ansible_connection: local }`
+# does NOT reliably override connection state previously set via
+# set_fact (e.g. when this file is included a second time after
+# switch_connection.yml has set ansible_connection=ssh on the play
+# host). See commits 0d392a6 and b7d3ed2 for the original incidents
+# this is guarding against. Save the inbound state into a single dict
+# (so a future field addition can't drift) and restore it inside an
+# `always:` (so a registry-task failure cannot leave the play stuck
+# in the switched state).
 
-# Save current connection state so we can restore after registry queries.
-# This is needed because resolve_instance may be called after
-# switch_connection.yml has set ansible_connection to ssh.
 - name: Save connection state before registry queries
   ansible.builtin.set_fact:
-    _ri_saved_host: "{{ ansible_host | default('localhost') }}"
-    _ri_saved_conn: "{{ ansible_connection | default('local') }}"
-    _ri_saved_user: "{{ ansible_user | default('') }}"
-    _ri_saved_python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
+    _ri_saved:
+      host: "{{ ansible_host | default('localhost') }}"
+      conn: "{{ ansible_connection | default('local') }}"
+      user: "{{ ansible_user | default('') }}"
+      python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
 
-- name: Switch to local for registry queries
-  ansible.builtin.set_fact:
-    ansible_host: "localhost"
-    ansible_connection: "local"
-    ansible_user: ""
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
-
-# Step 1: Determine which ID to look up
-- name: Use provided ID
-  ansible.builtin.set_fact:
-    _resolved_id: "{{ id }}"
-  when: id is defined and id != ''
-
-- name: Resolve ID from host (remote, no ID)
-  when:
-    - id is not defined or id == ''
-    - _ri_saved_host != 'localhost' or _ri_saved_conn == 'ssh'
-  block:
-    - name: Query instances on this host
-      canasta_registry:
-        state: query_all
-        filter_host: "{{ _ri_saved_host }}"
-      register: _host_instances
-
-    - name: Fail if no instances on this host
-      ansible.builtin.fail:
-        msg: >-
-          No Canasta instances registered on
-          '{{ _ri_saved_host }}'.
-      when: _host_instances.instances | length == 0
-
-    - name: Fail if multiple instances on this host
-      ansible.builtin.fail:
-        msg: >-
-          Multiple instances on '{{ _ri_saved_host }}'.
-          Specify --id:
-          {{ _host_instances.instances.keys()
-             | list | join(', ') }}
-      when: _host_instances.instances | length > 1
-
-    - name: Set auto-resolved ID
+- block:
+    - name: Switch to local for registry queries
       ansible.builtin.set_fact:
-        _resolved_id: "{{ (_host_instances.instances | dict2items | first).key }}"
-      when: _host_instances.instances | length == 1
+        ansible_host: "localhost"
+        ansible_connection: "local"
+        ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-- name: Resolve ID from working directory (localhost)
-  when:
-    - id is not defined or id == ''
-    - _ri_saved_host == 'localhost' and _ri_saved_conn != 'ssh'
-  block:
-    - name: Determine current working directory for lookup
+    # Step 1: Determine which ID to look up
+    - name: Use provided ID
       ansible.builtin.set_fact:
-        _ri_cwd: "{{ lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true) }}"
+        _resolved_id: "{{ id }}"
+      when: id is defined and id != ''
 
-    - name: Look up by current working directory
-      canasta_registry:
-        path: "{{ _ri_cwd }}"
-        state: query_by_path
-      register: _cwd_lookup
-      failed_when: false
-
-    - name: Check registry contents on cwd miss
-      canasta_registry:
-        state: query_all
-      register: _ri_all_instances
-      when: _cwd_lookup.failed | default(false) or _cwd_lookup.instance is not defined
-
-    - name: Fail with helpful message if no instances are registered
-      ansible.builtin.fail:
-        msg: |-
-          No Canasta instances are registered yet. Create one first with:
-            canasta create -i <id> -w <wiki>
+    - name: Resolve ID from host (remote, no ID)
       when:
-        - _cwd_lookup.failed | default(false) or _cwd_lookup.instance is not defined
-        - (_ri_all_instances.instances | default({})) | length == 0
+        - id is not defined or id == ''
+        - _ri_saved.host != 'localhost' or _ri_saved.conn == 'ssh'
+      block:
+        - name: Query instances on this host
+          canasta_registry:
+            state: query_all
+            filter_host: "{{ _ri_saved.host }}"
+          register: _host_instances
 
-    - name: Fail with helpful message if cwd does not match any instance
-      ansible.builtin.fail:
-        msg: |-
-          No Canasta instance is registered for this directory ({{ _ri_cwd }}).
-          Specify --id <id>, or cd into an instance directory.
-          Registered instances: {{ (_ri_all_instances.instances | default({})).keys() | list | join(', ') }}
+        - name: Fail if no instances on this host
+          ansible.builtin.fail:
+            msg: >-
+              No Canasta instances registered on
+              '{{ _ri_saved.host }}'.
+          when: _host_instances.instances | length == 0
+
+        - name: Fail if multiple instances on this host
+          ansible.builtin.fail:
+            msg: >-
+              Multiple instances on '{{ _ri_saved.host }}'.
+              Specify --id:
+              {{ _host_instances.instances.keys()
+                 | list | join(', ') }}
+          when: _host_instances.instances | length > 1
+
+        - name: Set auto-resolved ID
+          ansible.builtin.set_fact:
+            _resolved_id: "{{ (_host_instances.instances | dict2items | first).key }}"
+          when: _host_instances.instances | length == 1
+
+    - name: Resolve ID from working directory (localhost)
       when:
-        - _cwd_lookup.failed | default(false) or _cwd_lookup.instance is not defined
-        - (_ri_all_instances.instances | default({})) | length > 0
+        - id is not defined or id == ''
+        - _ri_saved.host == 'localhost' and _ri_saved.conn != 'ssh'
+      block:
+        - name: Determine current working directory for lookup
+          ansible.builtin.set_fact:
+            _ri_cwd: "{{ lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true) }}"
 
-    - name: Set cwd-resolved ID
+        - name: Look up by current working directory
+          canasta_registry:
+            path: "{{ _ri_cwd }}"
+            state: query_by_path
+          register: _cwd_lookup
+          failed_when: false
+
+        - name: Check registry contents on cwd miss
+          canasta_registry:
+            state: query_all
+          register: _ri_all_instances
+          when: _cwd_lookup.failed | default(false) or _cwd_lookup.instance is not defined
+
+        - name: Fail with helpful message if no instances are registered
+          ansible.builtin.fail:
+            msg: |-
+              No Canasta instances are registered yet. Create one first with:
+                canasta create -i <id> -w <wiki>
+          when:
+            - _cwd_lookup.failed | default(false) or _cwd_lookup.instance is not defined
+            - (_ri_all_instances.instances | default({})) | length == 0
+
+        - name: Fail with helpful message if cwd does not match any instance
+          ansible.builtin.fail:
+            msg: |-
+              No Canasta instance is registered for this directory ({{ _ri_cwd }}).
+              Specify --id <id>, or cd into an instance directory.
+              Registered instances: {{ (_ri_all_instances.instances | default({})).keys() | list | join(', ') }}
+          when:
+            - _cwd_lookup.failed | default(false) or _cwd_lookup.instance is not defined
+            - (_ri_all_instances.instances | default({})) | length > 0
+
+        - name: Set cwd-resolved ID
+          ansible.builtin.set_fact:
+            _resolved_id: "{{ _cwd_lookup.instance.id }}"
+
+    # Step 2: Single query with the resolved ID
+    - name: Look up resolved instance
+      canasta_registry:
+        id: "{{ _resolved_id }}"
+        state: query
+      register: _instance_result
+  always:
+    - name: Restore connection state after registry queries
       ansible.builtin.set_fact:
-        _resolved_id: "{{ _cwd_lookup.instance.id }}"
-
-# Step 2: Single query with the resolved ID
-- name: Look up resolved instance
-  canasta_registry:
-    id: "{{ _resolved_id }}"
-    state: query
-  register: _instance_result
-
-- name: Restore connection state after registry queries
-  ansible.builtin.set_fact:
-    ansible_host: "{{ _ri_saved_host }}"
-    ansible_connection: "{{ _ri_saved_conn }}"
-    ansible_user: "{{ _ri_saved_user }}"
-    ansible_python_interpreter: "{{ _ri_saved_python }}"
+        ansible_host: "{{ _ri_saved.host }}"
+        ansible_connection: "{{ _ri_saved.conn }}"
+        ansible_user: "{{ _ri_saved.user }}"
+        ansible_python_interpreter: "{{ _ri_saved.python }}"
 
 - name: Set instance facts
   ansible.builtin.set_fact:
