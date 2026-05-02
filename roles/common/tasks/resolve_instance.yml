@@ -71,11 +71,41 @@
     - id is not defined or id == ''
     - _ri_saved_host == 'localhost' and _ri_saved_conn != 'ssh'
   block:
+    - name: Determine PWD for lookup
+      ansible.builtin.set_fact:
+        _ri_pwd: "{{ lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true) }}"
+
     - name: Look up by PWD
       canasta_registry:
-        path: "{{ lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true) }}"
+        path: "{{ _ri_pwd }}"
         state: query_by_path
       register: _pwd_lookup
+      failed_when: false
+
+    - name: Check registry contents on PWD miss
+      canasta_registry:
+        state: query_all
+      register: _ri_all_instances
+      when: _pwd_lookup.failed | default(false) or _pwd_lookup.instance is not defined
+
+    - name: Fail with helpful message if no instances are registered
+      ansible.builtin.fail:
+        msg: |-
+          No Canasta instances are registered yet. Create one first with:
+            canasta create -i <id> -w <wiki>
+      when:
+        - _pwd_lookup.failed | default(false) or _pwd_lookup.instance is not defined
+        - (_ri_all_instances.instances | default({})) | length == 0
+
+    - name: Fail with helpful message if PWD does not match any instance
+      ansible.builtin.fail:
+        msg: |-
+          No Canasta instance is registered for this directory ({{ _ri_pwd }}).
+          Specify --id <id>, or cd into an instance directory.
+          Registered instances: {{ (_ri_all_instances.instances | default({})).keys() | list | join(', ') }}
+      when:
+        - _pwd_lookup.failed | default(false) or _pwd_lookup.instance is not defined
+        - (_ri_all_instances.instances | default({})) | length > 0
 
     - name: Set PWD-resolved ID
       ansible.builtin.set_fact:
