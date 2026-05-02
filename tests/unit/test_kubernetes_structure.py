@@ -444,3 +444,47 @@ class TestGitopsComposeGitEnv:
             if isinstance(mod, str):
                 return mod
         return ""
+
+
+class TestGitopsReinit:
+    """Every init/join entry point must include _reinit_cleanup.yml
+    gated on the reinit flag, and surface --reinit in the
+    "already initialized" failure message. Drift is silent: the user
+    gets stuck with a partial init and no way out, which is exactly
+    the failure mode #462 reported. Cheap to gate against."""
+
+    INIT_JOIN_FILES = [
+        "init_compose.yml",
+        "init_kubernetes.yml",
+        "join.yml",
+        "join_kubernetes.yml",
+    ]
+
+    @pytest.mark.parametrize("filename", INIT_JOIN_FILES)
+    def test_includes_reinit_cleanup(self, filename):
+        with open(os.path.join(GITOPS_TASKS, filename)) as f:
+            content = f.read()
+        assert "_reinit_cleanup.yml" in content, (
+            "%s should include _reinit_cleanup.yml so --reinit can "
+            "wipe partial gitops state" % filename
+        )
+        assert "reinit | default(false) | bool" in content, (
+            "%s should gate the cleanup on the reinit flag" % filename
+        )
+
+    @pytest.mark.parametrize("filename", INIT_JOIN_FILES)
+    def test_already_initialized_message_mentions_reinit(self, filename):
+        with open(os.path.join(GITOPS_TASKS, filename)) as f:
+            content = f.read()
+        assert "already initialized" in content
+        # The error has to point users at the recovery flag, otherwise
+        # the message is the same brick wall #462 was reported about.
+        assert "--reinit" in content, (
+            "%s's 'already initialized' message must mention --reinit "
+            "so users have a documented recovery path" % filename
+        )
+
+    def test_cleanup_file_exists(self):
+        assert os.path.isfile(
+            os.path.join(GITOPS_TASKS, "_reinit_cleanup.yml")
+        )
