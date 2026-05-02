@@ -1621,10 +1621,14 @@ def _parse_doctor(stdout, hostname):
         "OK" if gitcrypt == "OK" else "not installed"))
 
     lines.append("")
-    lines.append("Scheduled backups (optional):")
+    # Host crontab is only relevant for Compose `canasta backup schedule`.
+    # On Kubernetes, scheduled backups run as a CronJob in-cluster and
+    # don't depend on host crontab.
+    lines.append("Scheduled backups, Compose only (optional):")
     lines.append("  crontab:         %s" % (
         "OK" if crontab == "OK"
-        else "not installed (install cron to use canasta backup schedule)"))
+        else "not installed (install cron to use canasta backup schedule "
+             "on Compose; K8s uses an in-cluster CronJob instead)"))
 
     lines.append("")
     lines.append("System:")
