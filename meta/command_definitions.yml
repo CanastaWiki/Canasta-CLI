@@ -545,12 +545,21 @@ commands:
       - "canasta install k8s-cp --public-ip 203.0.113.10"
       - "canasta install --host node2 k8s-worker --cp-host node1"
       - "canasta install docker git-crypt"
+      - "canasta install -i mysite git-crypt"
     playbook: install.yml
     parameters:
       - name: host
         short: H
         type: string
         description: "Target host (default: localhost)"
+      - name: id
+        short: i
+        type: string
+        description: >-
+          Canasta instance ID — install on the host where this instance
+          is registered. Mutually exclusive with --host; --host wins
+          if both are given. Useful after `canasta create` to add
+          dependencies (e.g. git-crypt) to the instance's host.
       - name: packages
         type: string
         positional: true
