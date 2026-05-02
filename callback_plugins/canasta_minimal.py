@@ -85,6 +85,8 @@ class CallbackModule(CallbackBase):
         msg = result._result.get("msg", "")
         stderr = result._result.get("stderr", "")
         stdout = result._result.get("stdout", "")
+        cmd = result._result.get("cmd", "")
+        exc = result._result.get("exception", "")
         # Suppress the generic "One or more items failed" — the individual
         # item failures were already displayed via v2_runner_item_on_failed.
         if msg == "One or more items failed":
@@ -94,9 +96,44 @@ class CallbackModule(CallbackBase):
         if stdout and msg and "non-zero return code" in msg:
             self._display.display("Error: %s" % stdout.strip(), color="red", stderr=True)
         elif msg:
-            self._display.display("Error: %s" % msg, color="red", stderr=True)
+            # Surface the command line and the underlying exception for
+            # the OSError-on-spawn path (Ansible's command/shell module
+            # emits msg="Error executing command." with empty stdout/
+            # stderr when execve fails, e.g. binary not on PATH). Without
+            # this the user sees only the opaque generic message.
+            extra = self._format_cmd_diagnostics(cmd, exc)
+            if extra:
+                self._display.display(
+                    "Error: %s%s" % (msg, extra),
+                    color="red", stderr=True,
+                )
+            else:
+                self._display.display("Error: %s" % msg, color="red", stderr=True)
         if stderr:
             self._display.display(stderr, color="red", stderr=True)
+
+    @staticmethod
+    def _format_cmd_diagnostics(cmd, exc):
+        """Render the cmd + last-line-of-exception suffix for command
+        module failures. Returns an empty string when neither is useful."""
+        parts = []
+        if cmd:
+            cmd_str = cmd if isinstance(cmd, str) else " ".join(str(c) for c in cmd)
+            cmd_str = cmd_str.strip()
+            if cmd_str:
+                parts.append("cmd: %s" % cmd_str)
+        if exc:
+            # Tracebacks are multi-line; the most actionable line is the
+            # final non-empty one (e.g. "FileNotFoundError: [Errno 2] No
+            # such file or directory: 'git-crypt'").
+            for line in reversed(str(exc).splitlines()):
+                line = line.strip()
+                if line:
+                    parts.append(line)
+                    break
+        if not parts:
+            return ""
+        return " (%s)" % "; ".join(parts)
 
     def v2_runner_item_on_failed(self, result):
         # Display the specific item's failure message (e.g., missing
