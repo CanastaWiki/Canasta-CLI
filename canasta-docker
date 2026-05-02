@@ -92,13 +92,15 @@ MOUNTS=(
     --user "$(id -u):$(id -g)"
 )
 
-# Set Ansible temp directories to /tmp when running as a non-root user in
-# rootless Docker. On rootless Docker, the UID/GID mapping causes directory
-# ownership to appear as root:root to the container process even though
+# Set Ansible temp + home directories to /tmp when running as a non-root user
+# in rootless Docker. On rootless Docker, the UID/GID mapping causes directory
+# ownership to appear as nobody:nogroup to the container process even though
 # the directory is owned by the host user. This causes Ansible to fail when
-# trying to create $HOME/.ansible/tmp. Using /tmp avoids the issue.
+# trying to create $HOME/.ansible (collections cache, retry files) and
+# $HOME/.ansible/tmp (per-task scratch). Using /tmp avoids the issue.
 if [[ "$(id -u)" != "0" ]]; then
     MOUNTS+=(
+        -e "ANSIBLE_HOME=/tmp/ansible-home"
         -e "ANSIBLE_LOCAL_TEMP=/tmp/ansible-local"
         -e "ANSIBLE_REMOTE_TEMP=/tmp/ansible-remote"
     )
