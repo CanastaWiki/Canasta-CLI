@@ -95,7 +95,7 @@
       Instance '{{ id }}' already exists in the registry
       (path: {{ _existing.instance.path }},
       host: {{ _existing.instance.host | default('localhost') }}).
-      Run 'canasta delete --id {{ id }} --yes' to remove it first.
+      Run 'canasta delete --id {{ id }}' to remove it first.
   when: _existing is succeeded
 
 # --- Stale-state check (issue #391) ---
