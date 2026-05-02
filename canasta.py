@@ -177,6 +177,14 @@ def add_params_to_parser(parser, params):
         if param.get("sensitive") and "auto-generated" not in desc:
             desc += " (auto-generated if not provided)"
 
+        # Surface required_unless in --help output so the user sees the
+        # conditional requirement before they run the command. argparse
+        # has no native expression for "X is required unless Y is set",
+        # so we encode the constraint in the description.
+        ru = param.get("required_unless")
+        if ru and "(required unless" not in desc:
+            desc += " (required unless --%s is provided)" % ru.replace("_", "-")
+
         long_name = param.get("long", name)
         flag_name = "--" + long_name.replace("_", "-")
         flags = [flag_name]
@@ -903,6 +911,27 @@ def main():
     # Normalize orchestrator alias: k8s → kubernetes.
     if getattr(args, "orchestrator", None) == "k8s":
         args.orchestrator = "kubernetes"
+
+    # Validate required_unless parameters early, before spinning up
+    # Ansible. Mirrors the check in roles/common/tasks/validate_params.yml
+    # so the user sees the same message at parse time instead of waiting
+    # for the playbook to load.
+    for param in cmd_def.get("parameters", []):
+        ru = param.get("required_unless")
+        if not ru:
+            continue
+        own_value = getattr(args, param["name"], None)
+        other_value = getattr(args, ru, None)
+        if not own_value and not other_value:
+            print(
+                "Error: --%s is required unless --%s is provided"
+                % (
+                    param["name"].replace("_", "-"),
+                    ru.replace("_", "-"),
+                ),
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     # Validate orchestrator-specific parameters.
     # If a parameter has orchestrator_only set, reject it when the user

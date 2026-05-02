@@ -183,9 +183,10 @@ class TestCwdResolutionFootnote:
         assert "matching the current directory" in page
 
     def test_command_without_id_param_has_no_footnote(self):
-        # doctor has no -i at all; don't accidentally emit the
-        # footnote via some bug unrelated to the -i param.
-        page = self._page_for("doctor")
+        # `canasta list` has no -i at all; don't accidentally emit the
+        # footnote via some bug unrelated to the -i param. (Picked
+        # over `doctor` after #461 added an -i flag there.)
+        page = self._page_for("list")
         assert "matching the current directory" not in page
 
 

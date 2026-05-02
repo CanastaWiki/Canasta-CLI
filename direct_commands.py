@@ -1662,6 +1662,32 @@ def _parse_doctor(stdout, hostname):
 @register("doctor")
 def cmd_doctor(args):
     host = getattr(args, "host", None)
+    inst_id = getattr(args, "id", None)
+    # When the caller doesn't pin a host explicitly, derive it from the
+    # registry: --id wins, then cwd-match, then fall back to localhost.
+    # Matches the "instance-aware default" behavior of `canasta status`,
+    # `version`, and other direct commands so users in an instance
+    # directory get its host checked instead of theirs.
+    if not host:
+        conf_path = os.path.join(_get_config_dir(), "conf.json")
+        instances = _read_registry(conf_path)
+        if inst_id:
+            if inst_id not in instances:
+                print(
+                    "Error: Instance '%s' not found in registry" % inst_id,
+                    file=sys.stderr,
+                )
+                return 1
+            host = instances[inst_id].get("host") or "localhost"
+        else:
+            cwd = os.path.abspath(
+                os.environ.get("CANASTA_HOST_PWD") or os.getcwd()
+            )
+            for inst in instances.values():
+                p = inst.get("path", "")
+                if p and os.path.abspath(p) == cwd:
+                    host = inst.get("host") or "localhost"
+                    break
     script = _DOCTOR_SCRIPT % {"delim": _SENTINEL}
 
     if not host or host == "localhost":

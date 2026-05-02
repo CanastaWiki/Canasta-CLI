@@ -22,7 +22,7 @@
       Instance '{{ id }}' already exists in the registry
       (path: {{ _pre_check.instance.path }},
       host: {{ _pre_check.instance.host | default('localhost') }}).
-      Run 'canasta delete --id {{ id }} --yes' to remove it first.
+      Run 'canasta delete --id {{ id }}' to remove it first.
   when: _pre_check is succeeded
 
 - name: Create Canasta instance
