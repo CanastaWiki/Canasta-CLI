@@ -1241,12 +1241,15 @@ def cmd_maintenance_extension(args):
     script_args = _normalize_script_args(args)
 
     # No args → list extensions that have a maintenance/ subdirectory.
+    # Each entry under extensions/ in the Canasta image is a symlink
+    # into canasta-extensions/, so -L is required for find to descend
+    # past the symlink and see the maintenance/ dir on the other side.
     if not script_args:
         return _stream_in_container(
             inst_id, inst,
-            "find extensions -mindepth 2 -maxdepth 2 -type d -name maintenance "
-            "2>/dev/null | sed -e 's|^extensions/||' "
-            "-e 's|/maintenance$||' | sort",
+            "find -L extensions -mindepth 2 -maxdepth 2 -type d "
+            "-name maintenance 2>/dev/null "
+            "| sed -e 's|^extensions/||' -e 's|/maintenance$||' | sort",
         )
 
     if not _MAINT_PATH_RE.match(script_args):

@@ -2706,7 +2706,7 @@ class TestMaintenanceExtension:
         monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
         rc = direct_commands.cmd_maintenance_extension(self._args())
         assert rc == 0
-        assert "find extensions" in captured["command"]
+        assert "find -L extensions" in captured["command"]
         assert "-name maintenance" in captured["command"]
 
     def test_runs_named_extension_script(self, monkeypatch):
