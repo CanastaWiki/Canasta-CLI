@@ -180,6 +180,7 @@
       ansible.builtin.command:
         cmd: "git push origin main"
         chdir: "{{ instance_path }}"
+      environment: "{{ gitops_git_env }}"
       changed_when: true
 
     - name: Report pushed
@@ -212,6 +213,7 @@
       ansible.builtin.command:
         cmd: "git push origin {{ _push_branch }}"
         chdir: "{{ instance_path }}"
+      environment: "{{ gitops_git_env }}"
       changed_when: true
 
     - name: Create pull request

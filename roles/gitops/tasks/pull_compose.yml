@@ -46,6 +46,7 @@
   ansible.builtin.command:
     cmd: "git pull"
     chdir: "{{ instance_path }}"
+  environment: "{{ gitops_git_env }}"
   register: _pull_result
   changed_when: "'Already up to date' not in _pull_result.stdout"
 

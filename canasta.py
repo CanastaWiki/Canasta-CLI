@@ -791,10 +791,18 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # commands, not just -H commands — when the host is resolved from
     # the registry, the SSH connection still needs this. Known hosts
     # with changed keys are still rejected.
+    #
+    # ForwardAgent=yes lets `canasta gitops` (and any other command
+    # whose remote-side work shells out to ssh — e.g. `git push` to a
+    # private repo) reuse the operator's local ssh-agent on the
+    # target host. With no agent loaded the option is a no-op; with
+    # one loaded, the user's keys flow through to the remote without
+    # having to provision deploy keys on every gitops host.
     os.environ.setdefault(
         "ANSIBLE_SSH_ARGS",
         "-o StrictHostKeyChecking=accept-new "
-        "-o UserKnownHostsFile=~/.ssh/known_hosts",
+        "-o UserKnownHostsFile=~/.ssh/known_hosts "
+        "-o ForwardAgent=yes",
     )
 
     # Hand the platform-correct config dir to Ansible. get_config_dir()

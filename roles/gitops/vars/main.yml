@@ -29,3 +29,18 @@ gitops_shared_credential_prefixes:
   - st_
   - rclone_
   - smtp_
+
+# Environment applied to every git command in the Compose-side gitops
+# flows (init, push, pull, join). accept-new lets the first contact
+# with a forge (github.com etc.) silently add its host key instead of
+# failing with "Host key verification failed". Pair with
+# ForwardAgent=yes in ANSIBLE_SSH_ARGS (set by canasta.py) so the
+# operator's local ssh-agent reaches the target host and authenticates
+# against private repos without per-host deploy keys. The Kubernetes
+# gitops flows generate their own deploy key and override
+# GIT_SSH_COMMAND with `-i <key>`, so this default doesn't apply
+# there.
+gitops_git_env:
+  GIT_SSH_COMMAND: >-
+    ssh -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile=~/.ssh/known_hosts

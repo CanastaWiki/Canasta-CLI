@@ -84,6 +84,7 @@
 - name: Check remote is empty
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
+  environment: "{{ gitops_git_env }}"
   register: _remote_check
   changed_when: false
   ignore_errors: true  # OK if remote unreachable
@@ -371,6 +372,7 @@
   ansible.builtin.command:
     cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }} -u origin main"
     chdir: "{{ instance_path }}"
+  environment: "{{ gitops_git_env }}"
   changed_when: true
 
 - name: Report gitops initialized
