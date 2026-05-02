@@ -1,26 +1,48 @@
 ---
 # canasta maintenance extension - Run extension maintenance scripts.
-# Input: id (optional), wiki (optional), script_args (str)
+# Input: id (optional), wiki (optional), script_args (str, optional —
+#   when empty, lists extensions that have a maintenance/ directory).
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Validate extension script path
-  ansible.builtin.fail:
-    msg: "Invalid script path '{{ script_args }}'. Must match pattern: alphanumeric, slashes, dots, hyphens, colons."
-  when: script_args | regex_search('[^a-zA-Z0-9/_. :-]') is not none
+- name: List extensions with maintenance scripts when no args given
+  when: (script_args | default('') | trim) == ''
+  block:
+    - name: Probe extensions/*/maintenance directories
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: >-
+          find extensions -mindepth 2 -maxdepth 2 -type d -name maintenance
+          2>/dev/null
+          | sed -e 's|^extensions/||' -e 's|/maintenance$||'
+          | sort
 
-- name: Build extension script command
-  ansible.builtin.set_fact:
-    _ext_cmd: "php extensions/{{ script_args }}{{ ((wiki | default('')) != '') | ternary(' --wiki=' + (wiki | default('')), '') }}"
+    - name: Display extension list
+      ansible.builtin.debug:
+        msg: "{{ exec_result.stdout }}"
+      when: exec_result.stdout | default('') | length > 0
 
-- name: Run extension maintenance script
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-  vars:
-    exec_service: web
-    exec_command: "{{ _ext_cmd }}"
+- name: Run a named extension maintenance script
+  when: (script_args | default('') | trim) != ''
+  block:
+    - name: Validate extension script path
+      ansible.builtin.fail:
+        msg: "Invalid script path '{{ script_args }}'. Must match pattern: alphanumeric, slashes, dots, hyphens, colons."
+      when: script_args | regex_search('[^a-zA-Z0-9/_. :-]') is not none
 
-- name: Display output
-  ansible.builtin.debug:
-    msg: "{{ exec_result.stdout }}"
-  when: exec_result.stdout | default('') | length > 0
+    - name: Build extension script command
+      ansible.builtin.set_fact:
+        _ext_cmd: "php extensions/{{ script_args }}{{ ((wiki | default('')) != '') | ternary(' --wiki=' + (wiki | default('')), '') }}"
+
+    - name: Run extension maintenance script
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: "{{ _ext_cmd }}"
+
+    - name: Display output
+      ansible.builtin.debug:
+        msg: "{{ exec_result.stdout }}"
+      when: exec_result.stdout | default('') | length > 0
