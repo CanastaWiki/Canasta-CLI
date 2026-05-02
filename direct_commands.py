@@ -364,6 +364,100 @@ def _exec_in_container(inst_id, inst, command, service="web"):
     return rc, stdout
 
 
+def _stream_in_container(inst_id, inst, command, service="web"):
+    """Run a command inside a container/pod, streaming combined
+    stdout+stderr to the user's terminal as it arrives. Returns the
+    process return code.
+
+    Used by long-running maintenance commands (update.php, runJobs.php,
+    rebuildData.php, ad-hoc maintenance scripts) so the operator can
+    distinguish 'still working' from 'stuck' without having to drop
+    down to `docker compose exec` directly. See issue #433.
+
+    `stdbuf -oL` is prepended to force line-buffered stdout from any
+    coreutils-style child the script spawns; PHP CLI is line-buffered
+    by default but pipelines through grep/sed/awk are not, and a
+    single un-flushed pipe ruins the stream.
+    """
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    orchestrator = inst.get("orchestrator", "compose")
+    wrapped = "stdbuf -oL %s" % command
+
+    if orchestrator in ("kubernetes", "k8s"):
+        ns = _k8s_namespace(inst_id)
+        pod = _k8s_get_pod(ns, service)
+        if not pod:
+            print(
+                "Error: no running pod found for service '%s'" % service,
+                file=sys.stderr,
+            )
+            return 1
+        argv = [
+            "kubectl", "exec", pod, "-n", ns, "--",
+            "/bin/bash", "-c", wrapped,
+        ]
+        cwd = None
+    elif _is_localhost(host):
+        argv = [
+            "docker", "compose", "exec", "-T", service,
+            "/bin/bash", "-c", wrapped,
+        ]
+        cwd = path or None
+    else:
+        target = _resolve_ssh_target(host)
+        argv = ["ssh"] + _ssh_args() + [
+            target,
+            "cd %s && docker compose exec -T %s /bin/bash -c %s" % (
+                _shell_quote(path), service, _shell_quote(wrapped),
+            ),
+        ]
+        cwd = None
+
+    try:
+        proc = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+    except OSError as e:
+        print("Error: %s" % e, file=sys.stderr)
+        return 1
+
+    try:
+        for line in iter(proc.stdout.readline, ""):
+            sys.stdout.write(line)
+            sys.stdout.flush()
+    except KeyboardInterrupt:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return 130
+    return proc.wait()
+
+
+def _normalize_script_args(args):
+    """REMAINDER positionals come back as a list; collapse to a single
+    space-joined string. Empty list / None / blanks all map to ''."""
+    val = getattr(args, "script_args", None)
+    if val is None:
+        return ""
+    if isinstance(val, list):
+        return " ".join(val).strip()
+    return str(val).strip()
+
+
+# Maintenance script paths must look like a php file path: alnum,
+# slash, dot, underscore, hyphen, colon, space (for arguments after
+# the script name). Same character class the playbook used.
+_MAINT_PATH_RE = re.compile(r"^[a-zA-Z0-9/_. :-]+$")
+
+
 def _read_registry(conf_path):
     if not os.path.isfile(conf_path):
         return {}
@@ -1055,6 +1149,174 @@ def cmd_restart(args):
     if rc != 0:
         _dump_compose_failure(inst)
     return rc
+
+
+# ---------------------------------------------------------------------------
+# canasta maintenance script / extension / update
+#
+# Bypasses Ansible specifically so the long-running scripts (update.php,
+# rebuildData.php, ad-hoc per-extension maintenance) can stream output
+# to the user's terminal as it arrives — under the playbook
+# implementation, output was captured into a register and dumped at
+# task end, making minute-or-hour-long scripts indistinguishable from
+# hangs. See issue #433.
+# ---------------------------------------------------------------------------
+
+def _read_wiki_ids(inst):
+    """Return the wiki IDs declared in the instance's config/wikis.yaml.
+    Empty list if the file is missing or unparseable."""
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    if not path:
+        return []
+    yaml_path = os.path.join(path, "config", "wikis.yaml")
+    if _is_localhost(host):
+        try:
+            with open(yaml_path) as f:
+                content = f.read()
+        except OSError:
+            return []
+    else:
+        rc, content = _ssh_run(
+            host, "cat %s 2>/dev/null" % _shell_quote(yaml_path),
+        )
+        if rc != 0 or not content:
+            return []
+    try:
+        data = yaml.safe_load(content) or {}
+    except yaml.YAMLError:
+        return []
+    wikis = data.get("wikis", []) or []
+    return [w.get("id") for w in wikis if isinstance(w, dict) and w.get("id")]
+
+
+def _resolve_wiki_targets(args, inst):
+    """Pick which wikis a maintenance command should run against.
+    If --wiki was passed, that one. Otherwise every wiki in wikis.yaml."""
+    wiki = getattr(args, "wiki", None)
+    if wiki:
+        return [wiki]
+    ids = _read_wiki_ids(inst)
+    if not ids:
+        print(
+            "Error: no wikis found in config/wikis.yaml; "
+            "specify --wiki <id> or check the instance's config.",
+            file=sys.stderr,
+        )
+    return ids
+
+
+@register("maintenance_script")
+def cmd_maintenance_script(args):
+    inst_id, inst = _resolve_instance(args)
+    script_args = _normalize_script_args(args)
+
+    # No script name → list available scripts (closes #444).
+    if not script_args:
+        return _stream_in_container(
+            inst_id, inst,
+            "ls maintenance/*.php 2>/dev/null "
+            "| sed 's|^maintenance/||' | sort",
+        )
+
+    if not _MAINT_PATH_RE.match(script_args):
+        print(
+            "Error: Invalid script path '%s'. Must match pattern: "
+            "alphanumeric, slashes, dots, hyphens, colons." % script_args,
+            file=sys.stderr,
+        )
+        return 1
+
+    wiki = getattr(args, "wiki", "") or ""
+    cmd = "php maintenance/%s%s" % (
+        script_args,
+        " --wiki=%s" % _shell_quote(wiki) if wiki else "",
+    )
+    return _stream_in_container(inst_id, inst, cmd)
+
+
+@register("maintenance_extension")
+def cmd_maintenance_extension(args):
+    inst_id, inst = _resolve_instance(args)
+    script_args = _normalize_script_args(args)
+
+    # No args → list extensions that have a maintenance/ subdirectory.
+    if not script_args:
+        return _stream_in_container(
+            inst_id, inst,
+            "find extensions -mindepth 2 -maxdepth 2 -type d -name maintenance "
+            "2>/dev/null | sed -e 's|^extensions/||' "
+            "-e 's|/maintenance$||' | sort",
+        )
+
+    if not _MAINT_PATH_RE.match(script_args):
+        print(
+            "Error: Invalid script path '%s'. Must match pattern: "
+            "alphanumeric, slashes, dots, hyphens, colons." % script_args,
+            file=sys.stderr,
+        )
+        return 1
+
+    wiki = getattr(args, "wiki", "") or ""
+    cmd = "php extensions/%s%s" % (
+        script_args,
+        " --wiki=%s" % _shell_quote(wiki) if wiki else "",
+    )
+    return _stream_in_container(inst_id, inst, cmd)
+
+
+@register("maintenance_update")
+def cmd_maintenance_update(args):
+    inst_id, inst = _resolve_instance(args)
+    wikis = _resolve_wiki_targets(args, inst)
+    if not wikis:
+        return 1
+
+    skip_jobs = bool(getattr(args, "skip_jobs", False))
+    skip_smw = bool(getattr(args, "skip_smw", False))
+    overall_rc = 0
+
+    for w in wikis:
+        print("\n=== update.php (%s) ===" % w)
+        rc = _stream_in_container(
+            inst_id, inst,
+            "php maintenance/update.php --wiki=%s" % _shell_quote(w),
+        )
+        if rc != 0:
+            overall_rc = rc
+
+    if not skip_jobs:
+        for w in wikis:
+            print("\n=== runJobs.php (%s) ===" % w)
+            rc = _stream_in_container(
+                inst_id, inst,
+                "php maintenance/runJobs.php --wiki=%s" % _shell_quote(w),
+            )
+            if rc != 0:
+                overall_rc = rc
+
+    if not skip_smw:
+        # Probe for SemanticMediaWiki rebuildData.php; cheap one-shot,
+        # not worth streaming. If it's there, run rebuildData per wiki.
+        rc, out = _exec_in_container(
+            inst_id, inst,
+            "test -f extensions/SemanticMediaWiki/maintenance/rebuildData.php "
+            "&& echo yes || echo no",
+        )
+        if rc == 0 and out.strip() == "yes":
+            for w in wikis:
+                print("\n=== rebuildData.php (%s) ===" % w)
+                # Match the playbook: SMW rebuild failures don't
+                # poison the overall rc — the wiki may simply not have
+                # SMW data yet.
+                _stream_in_container(
+                    inst_id, inst,
+                    "php extensions/SemanticMediaWiki/maintenance/"
+                    "rebuildData.php --wiki=%s" % _shell_quote(w),
+                )
+
+    print("\nMaintenance update complete for: %s" % ", ".join(wikis))
+    return overall_rc
 
 
 # ---------------------------------------------------------------------------
