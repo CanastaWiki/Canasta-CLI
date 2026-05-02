@@ -177,8 +177,49 @@ else
 fi
 echo ""
 
-# --- Test 6: Delete without -H (resolved from registry) ---
-echo "Test 6: canasta delete without -H"
+# --- Test 6: config set with restart against remote (multi-resolve_instance) ---
+# Regression coverage for the "delegate_to: localhost after switch_connection
+# leaks the SSH connection" failure mode that 0d392a6 (resolve_instance) and
+# b7d3ed2 (delete deregistration) originally fixed by replacing delegate_to
+# with a save/switch/restore-connection dance. `canasta config set` without
+# --no-restart is the simplest remote command that calls resolve_instance.yml
+# twice in one play: once at the top of set.yml, then again from the restart
+# it triggers at the end. The second call inherits ansible_connection=ssh
+# from the first switch_connection.yml, and any future regression to bare
+# delegate_to would route the registry lookup to the remote host instead of
+# the controller. Symptoms: command exits non-zero, controller registry is
+# corrupted, or the remote .env never reflects the change. The three
+# assertions below catch each symptom independently.
+echo "Test 6: canasta config set with restart against remote"
+NEW_PHPVAR=2000
+if canasta config set -i "${INSTANCE_ID}" "PHP_MAX_INPUT_VARS=${NEW_PHPVAR}" 2>&1; then
+    pass "config set with restart succeeds"
+else
+    fail "config set with restart failed (regression in resolve_instance multi-call path)"
+fi
+
+LIST_OUTPUT=$(canasta list 2>&1) || true
+if echo "${LIST_OUTPUT}" | grep -q "${INSTANCE_ID}"; then
+    pass "registry still has instance after config set + restart"
+else
+    fail "registry lost instance after config set + restart (output: ${LIST_OUTPUT})"
+fi
+
+ENV_VALUE=$(ssh -F "${SSH_CONFIG}" "${REMOTE_HOST}" \
+    "grep '^PHP_MAX_INPUT_VARS=' '${CANASTA_TEST_DATA}/${INSTANCE_ID}/.env'" \
+    2>/dev/null | tail -n 1 | cut -d= -f2 | tr -d '\r\n ') || true
+if [ "${ENV_VALUE}" = "${NEW_PHPVAR}" ]; then
+    pass "remote .env reflects new PHP_MAX_INPUT_VARS"
+else
+    fail "remote .env PHP_MAX_INPUT_VARS is '${ENV_VALUE}' (expected ${NEW_PHPVAR})"
+fi
+echo ""
+
+# --- Test 7: Delete without -H (resolved from registry) ---
+# Also exercises the controller-deregistration path b7d3ed2 fixed.
+# If the registry write inside delete is routed to the remote (regression),
+# Test 8's `canasta list` will still show the instance.
+echo "Test 7: canasta delete without -H"
 if canasta delete -i "${INSTANCE_ID}" -y 2>&1; then
     pass "delete without -H"
 else
@@ -186,8 +227,8 @@ else
 fi
 echo ""
 
-# --- Test 7: List (verify empty) ---
-echo "Test 7: canasta list (should be empty)"
+# --- Test 8: List (verify empty) ---
+echo "Test 8: canasta list (should be empty)"
 LIST_OUTPUT=$(canasta list 2>&1) || true
 if echo "${LIST_OUTPUT}" | grep -q "${INSTANCE_ID}"; then
     fail "list still shows deleted instance (output: ${LIST_OUTPUT})"
