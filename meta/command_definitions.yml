@@ -503,12 +503,20 @@ commands:
     examples:
       - "canasta doctor"
       - "canasta doctor --host prod1.example.com"
+      - "canasta doctor -i mysite"
     direct_only: true
     parameters:
       - name: host
         short: H
         type: string
         description: "Target host (default: localhost)"
+      - name: id
+        short: i
+        type: string
+        description: >-
+          Canasta instance ID — check the host where this instance is
+          registered. Mutually exclusive with --host; --host wins if
+          both are given.
 
   - name: install
     description: "Install dependencies on the target host"
