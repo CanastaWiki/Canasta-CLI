@@ -1,7 +1,0 @@
----
-# canasta maintenance update - Run MediaWiki maintenance update.
-
-- name: Maintenance update
-  ansible.builtin.include_role:
-    name: maintenance
-    tasks_from: update.yml

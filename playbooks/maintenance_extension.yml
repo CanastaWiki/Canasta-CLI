@@ -1,7 +1,0 @@
----
-# canasta maintenance extension - Run extension maintenance scripts.
-
-- name: Maintenance extension
-  ansible.builtin.include_role:
-    name: maintenance
-    tasks_from: extension.yml

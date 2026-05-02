@@ -1063,7 +1063,7 @@ commands:
     examples:
       - "canasta maintenance update"
       - "canasta maintenance update -w mywiki --skip-jobs"
-    playbook: maintenance_update.yml
+    direct_only: true
     parameters:
       - name: id
         short: i
@@ -1100,7 +1100,7 @@ commands:
       target a specific wiki.
     examples:
       - "canasta maintenance script -- rebuildall.php"
-    playbook: maintenance_script.yml
+    direct_only: true
     parameters:
       - name: id
         short: i
@@ -1137,7 +1137,7 @@ commands:
       wiki.
     examples:
       - "canasta maintenance extension"
-    playbook: maintenance_extension.yml
+    direct_only: true
     parameters:
       - name: id
         short: i

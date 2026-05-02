@@ -2553,3 +2553,292 @@ class TestArgocdCommands:
         joined = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
         assert "kubectl port-forward" in joined
         assert "8443:443" in joined
+
+
+# ---------------------------------------------------------------------------
+# canasta maintenance script / extension / update
+# ---------------------------------------------------------------------------
+
+class TestNormalizeScriptArgs:
+    def test_none(self):
+        args = type("Args", (), {})()
+        assert direct_commands._normalize_script_args(args) == ""
+
+    def test_empty_string(self):
+        args = type("Args", (), {"script_args": ""})()
+        assert direct_commands._normalize_script_args(args) == ""
+
+    def test_string_with_whitespace(self):
+        args = type("Args", (), {"script_args": "  rebuildall.php  "})()
+        assert direct_commands._normalize_script_args(args) == "rebuildall.php"
+
+    def test_list_joined(self):
+        args = type("Args", (), {"script_args": ["foo.php", "--arg", "x"]})()
+        assert (
+            direct_commands._normalize_script_args(args)
+            == "foo.php --arg x"
+        )
+
+    def test_empty_list(self):
+        args = type("Args", (), {"script_args": []})()
+        assert direct_commands._normalize_script_args(args) == ""
+
+
+class TestMaintPathRegex:
+    def test_accepts_simple(self):
+        assert direct_commands._MAINT_PATH_RE.match("rebuildall.php")
+
+    def test_accepts_with_args(self):
+        assert direct_commands._MAINT_PATH_RE.match("rebuildall.php --quick")
+
+    def test_accepts_subdir(self):
+        assert direct_commands._MAINT_PATH_RE.match("Cite/maintenance/foo.php")
+
+    def test_rejects_shell_metachar(self):
+        assert not direct_commands._MAINT_PATH_RE.match("foo;rm -rf /")
+        assert not direct_commands._MAINT_PATH_RE.match("foo|cat")
+        assert not direct_commands._MAINT_PATH_RE.match("foo`bar`")
+        assert not direct_commands._MAINT_PATH_RE.match("$(whoami)")
+
+
+class TestMaintenanceScript:
+    def _args(self, **kw):
+        defaults = {"id": "test", "wiki": None, "script_args": None}
+        defaults.update(kw)
+        return type("Args", (), defaults)()
+
+    def _patch_resolve(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+                "host": "localhost",
+            }),
+        )
+
+    def test_registered(self):
+        assert direct_commands.is_direct_command("maintenance_script")
+
+    def test_no_args_lists_scripts(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        rc = direct_commands.cmd_maintenance_script(self._args())
+        assert rc == 0
+        assert "ls maintenance/*.php" in captured["command"]
+        assert "sort" in captured["command"]
+
+    def test_invalid_path_rejected(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch)
+        monkeypatch.setattr(
+            direct_commands, "_stream_in_container",
+            lambda *a, **kw: 0,
+        )
+        rc = direct_commands.cmd_maintenance_script(
+            self._args(script_args="foo;rm -rf /"),
+        )
+        assert rc == 1
+        assert "Invalid script path" in capsys.readouterr().err
+
+    def test_runs_named_script(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        rc = direct_commands.cmd_maintenance_script(
+            self._args(script_args="rebuildall.php"),
+        )
+        assert rc == 0
+        assert "php maintenance/rebuildall.php" in captured["command"]
+
+    def test_wiki_flag_appended(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        direct_commands.cmd_maintenance_script(
+            self._args(script_args="rebuildall.php", wiki="main"),
+        )
+        assert "--wiki='main'" in captured["command"]
+
+
+class TestMaintenanceExtension:
+    def _args(self, **kw):
+        defaults = {"id": "test", "wiki": None, "script_args": None}
+        defaults.update(kw)
+        return type("Args", (), defaults)()
+
+    def _patch_resolve(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+                "host": "localhost",
+            }),
+        )
+
+    def test_registered(self):
+        assert direct_commands.is_direct_command("maintenance_extension")
+
+    def test_no_args_lists_extensions(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        rc = direct_commands.cmd_maintenance_extension(self._args())
+        assert rc == 0
+        assert "find extensions" in captured["command"]
+        assert "-name maintenance" in captured["command"]
+
+    def test_runs_named_extension_script(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        direct_commands.cmd_maintenance_extension(
+            self._args(script_args="Cite/maintenance/foo.php"),
+        )
+        assert (
+            "php extensions/Cite/maintenance/foo.php" in captured["command"]
+        )
+
+
+class TestMaintenanceUpdate:
+    def _args(self, **kw):
+        defaults = {
+            "id": "test",
+            "wiki": None,
+            "skip_jobs": False,
+            "skip_smw": False,
+        }
+        defaults.update(kw)
+        return type("Args", (), defaults)()
+
+    def _patch_resolve(self, monkeypatch, wikis=None):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+                "host": "localhost",
+            }),
+        )
+        monkeypatch.setattr(
+            direct_commands, "_read_wiki_ids",
+            lambda inst: wikis if wikis is not None else ["main", "draft"],
+        )
+
+    def test_registered(self):
+        assert direct_commands.is_direct_command("maintenance_update")
+
+    def test_runs_update_runjobs_for_each_wiki(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        # No SMW present.
+        monkeypatch.setattr(
+            direct_commands, "_exec_in_container",
+            lambda *a, **kw: (0, "no\n"),
+        )
+        commands = []
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            commands.append(command)
+            return 0
+
+        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        rc = direct_commands.cmd_maintenance_update(self._args())
+        assert rc == 0
+        # update.php for both wikis, then runJobs for both wikis.
+        assert any(
+            "update.php --wiki='main'" in c for c in commands
+        )
+        assert any(
+            "update.php --wiki='draft'" in c for c in commands
+        )
+        assert any(
+            "runJobs.php --wiki='main'" in c for c in commands
+        )
+
+    def test_skip_jobs_skips_runjobs(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main"])
+        monkeypatch.setattr(
+            direct_commands, "_exec_in_container",
+            lambda *a, **kw: (0, "no\n"),
+        )
+        commands = []
+        monkeypatch.setattr(
+            direct_commands, "_stream_in_container",
+            lambda iid, i, c, service="web": commands.append(c) or 0,
+        )
+        direct_commands.cmd_maintenance_update(self._args(skip_jobs=True))
+        assert any("update.php" in c for c in commands)
+        assert not any("runJobs.php" in c for c in commands)
+
+    def test_smw_runs_when_present(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main"])
+        monkeypatch.setattr(
+            direct_commands, "_exec_in_container",
+            lambda *a, **kw: (0, "yes\n"),
+        )
+        commands = []
+        monkeypatch.setattr(
+            direct_commands, "_stream_in_container",
+            lambda iid, i, c, service="web": commands.append(c) or 0,
+        )
+        direct_commands.cmd_maintenance_update(self._args())
+        assert any("rebuildData.php" in c for c in commands)
+
+    def test_skip_smw_skips_rebuilddata(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main"])
+        # _exec_in_container shouldn't even be called when skip_smw is True;
+        # still stub it defensively.
+        monkeypatch.setattr(
+            direct_commands, "_exec_in_container",
+            lambda *a, **kw: (0, "yes\n"),
+        )
+        commands = []
+        monkeypatch.setattr(
+            direct_commands, "_stream_in_container",
+            lambda iid, i, c, service="web": commands.append(c) or 0,
+        )
+        direct_commands.cmd_maintenance_update(self._args(skip_smw=True))
+        assert not any("rebuildData.php" in c for c in commands)
+
+    def test_explicit_wiki_overrides_wikis_yaml(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft", "foo"])
+        monkeypatch.setattr(
+            direct_commands, "_exec_in_container",
+            lambda *a, **kw: (0, "no\n"),
+        )
+        commands = []
+        monkeypatch.setattr(
+            direct_commands, "_stream_in_container",
+            lambda iid, i, c, service="web": commands.append(c) or 0,
+        )
+        direct_commands.cmd_maintenance_update(self._args(wiki="draft"))
+        # Only the named wiki should appear in the commands.
+        assert any("--wiki='draft'" in c for c in commands)
+        assert not any("--wiki='main'" in c for c in commands)
+        assert not any("--wiki='foo'" in c for c in commands)
