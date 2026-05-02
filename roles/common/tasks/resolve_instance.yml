@@ -5,7 +5,14 @@
 # Resolution order:
 #   1. --id provided: look up by ID
 #   2. Remote host, no --id: auto-resolve if one instance on host
-#   3. Localhost, no --id: PWD-based resolution
+#   3. Localhost, no --id: match the current working directory against
+#      the registered `path` of each instance.
+#
+# "Current working directory" comes from CANASTA_HOST_PWD if set
+# (canasta-docker exports the host shell's $(pwd) under that name so
+# playbooks can resolve instances by host cwd, not the container cwd),
+# falling back to the standard POSIX $PWD env var. Despite the name,
+# CANASTA_HOST_PWD is a directory path, not a password.
 #
 # Input: id (optional)
 # Output: instance_id, instance_path, instance_orchestrator,
@@ -71,22 +78,22 @@
     - id is not defined or id == ''
     - _ri_saved_host == 'localhost' and _ri_saved_conn != 'ssh'
   block:
-    - name: Determine PWD for lookup
+    - name: Determine current working directory for lookup
       ansible.builtin.set_fact:
-        _ri_pwd: "{{ lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true) }}"
+        _ri_cwd: "{{ lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true) }}"
 
-    - name: Look up by PWD
+    - name: Look up by current working directory
       canasta_registry:
-        path: "{{ _ri_pwd }}"
+        path: "{{ _ri_cwd }}"
         state: query_by_path
-      register: _pwd_lookup
+      register: _cwd_lookup
       failed_when: false
 
-    - name: Check registry contents on PWD miss
+    - name: Check registry contents on cwd miss
       canasta_registry:
         state: query_all
       register: _ri_all_instances
-      when: _pwd_lookup.failed | default(false) or _pwd_lookup.instance is not defined
+      when: _cwd_lookup.failed | default(false) or _cwd_lookup.instance is not defined
 
     - name: Fail with helpful message if no instances are registered
       ansible.builtin.fail:
@@ -94,22 +101,22 @@
           No Canasta instances are registered yet. Create one first with:
             canasta create -i <id> -w <wiki>
       when:
-        - _pwd_lookup.failed | default(false) or _pwd_lookup.instance is not defined
+        - _cwd_lookup.failed | default(false) or _cwd_lookup.instance is not defined
         - (_ri_all_instances.instances | default({})) | length == 0
 
-    - name: Fail with helpful message if PWD does not match any instance
+    - name: Fail with helpful message if cwd does not match any instance
       ansible.builtin.fail:
         msg: |-
-          No Canasta instance is registered for this directory ({{ _ri_pwd }}).
+          No Canasta instance is registered for this directory ({{ _ri_cwd }}).
           Specify --id <id>, or cd into an instance directory.
           Registered instances: {{ (_ri_all_instances.instances | default({})).keys() | list | join(', ') }}
       when:
-        - _pwd_lookup.failed | default(false) or _pwd_lookup.instance is not defined
+        - _cwd_lookup.failed | default(false) or _cwd_lookup.instance is not defined
         - (_ri_all_instances.instances | default({})) | length > 0
 
-    - name: Set PWD-resolved ID
+    - name: Set cwd-resolved ID
       ansible.builtin.set_fact:
-        _resolved_id: "{{ _pwd_lookup.instance.id }}"
+        _resolved_id: "{{ _cwd_lookup.instance.id }}"
 
 # Step 2: Single query with the resolved ID
 - name: Look up resolved instance
