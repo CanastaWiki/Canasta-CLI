@@ -35,9 +35,14 @@ docker compose -f "${SCRIPT_DIR}/docker-compose.yml" -f "${OVERRIDE}" up -d --bu
 # Change testuser's home to the shared data path so sshd finds authorized_keys
 docker exec "${CONTAINER_NAME}" usermod -d "${CANASTA_TEST_DATA}" testuser
 
-# Create .ssh directory in the shared data path
+# Create .ssh directory in the shared data path. Also chown the parent
+# itself to testuser, otherwise sshd's StrictModes rejects the login
+# whenever the host-side user running these tests has a UID different
+# from testuser's container UID (1001) — the bind-mount preserves
+# numeric ownership, so e.g. host UID 1000 shows up inside the
+# container as a non-testuser owner of testuser's home directory.
 docker exec "${CONTAINER_NAME}" bash -c \
-    "mkdir -p ${CANASTA_TEST_DATA}/.ssh && chmod 700 ${CANASTA_TEST_DATA}/.ssh && chown testuser:testuser ${CANASTA_TEST_DATA}/.ssh"
+    "mkdir -p ${CANASTA_TEST_DATA}/.ssh && chmod 700 ${CANASTA_TEST_DATA}/.ssh && chown testuser:testuser ${CANASTA_TEST_DATA}/.ssh ${CANASTA_TEST_DATA}"
 
 # Create canasta config directory
 docker exec "${CONTAINER_NAME}" bash -c \
