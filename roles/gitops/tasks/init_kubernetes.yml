@@ -14,7 +14,18 @@
 - name: Check git is installed
   ansible.builtin.command:
     cmd: git --version
+  register: _git_check
   changed_when: false
+  ignore_errors: true
+
+- name: Fail if git is not installed
+  ansible.builtin.fail:
+    msg: >-
+      git is not installed on the gitops target host.
+      Install it with: canasta install -i {{ instance_id }} git-crypt
+      (or `canasta install -H <host> git-crypt`) — the git-crypt
+      package pulls in git as a dependency.
+  when: _git_check.rc | default(1) != 0
 
 - name: Set git user.name on target host
   ansible.builtin.command:
@@ -52,7 +63,9 @@
 - name: Fail if git-crypt not installed
   ansible.builtin.fail:
     msg: >-
-      git-crypt is not installed. Run 'canasta install git-crypt' first.
+      git-crypt is not installed on the gitops target host.
+      Install it with: canasta install -i {{ instance_id }} git-crypt
+      (or `canasta install -H <host> git-crypt`).
   when: _gitcrypt_check.rc != 0
 
 - name: Check for existing .git directory

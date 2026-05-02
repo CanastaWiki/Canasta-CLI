@@ -430,3 +430,53 @@ class TestHostPWDEnvVar:
         assert val and os.path.isabs(val), (
             "CANASTA_HOST_PWD should be an absolute path, got: %s" % val
         )
+
+
+class TestPodmanDetection:
+    """Verify canasta-docker injects --userns=keep-id when `docker` is a
+    podman wrapper (the rootless-podman UID-namespace fix)."""
+
+    def _shim_docker(self, tmpdir, version_output):
+        """Write a shell script named `docker` into tmpdir that reproduces
+        the podman or docker --version output, then prepend tmpdir to PATH."""
+        docker_path = os.path.join(tmpdir, "docker")
+        with open(docker_path, "w") as f:
+            f.write(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"$1\" == \"--version\" ]]; then\n"
+                "    echo %s\n"
+                "    exit 0\n"
+                "fi\n"
+                # No other docker subcommand should be invoked in dry-run
+                # mode; fail loudly if one is.
+                "echo 'unexpected docker invocation: '\"$@\" >&2\n"
+                "exit 99\n" % _shell_quote(version_output)
+            )
+        os.chmod(docker_path, 0o755)
+
+    def test_podman_wrapper_adds_userns_keep_id(self, short_tmp):
+        self._shim_docker(short_tmp, "podman version 4.9.3")
+        argv, _ = run_dry(
+            ["version"],
+            env={"PATH": "%s:%s" % (short_tmp, os.environ.get("PATH", ""))},
+        )
+        assert "--userns=keep-id" in argv, (
+            "expected --userns=keep-id when docker is a podman shim:\n%s"
+            % "\n".join(argv)
+        )
+
+    def test_real_docker_omits_userns_keep_id(self, short_tmp):
+        self._shim_docker(short_tmp, "Docker version 27.5.1, build abc123")
+        argv, _ = run_dry(
+            ["version"],
+            env={"PATH": "%s:%s" % (short_tmp, os.environ.get("PATH", ""))},
+        )
+        assert "--userns=keep-id" not in argv, (
+            "did not expect --userns=keep-id with real docker:\n%s"
+            % "\n".join(argv)
+        )
+
+
+def _shell_quote(s):
+    """Single-quote a string for safe embedding in a bash heredoc/echo."""
+    return "'" + s.replace("'", "'\\''") + "'"
