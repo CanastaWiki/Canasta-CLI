@@ -558,6 +558,13 @@ if [[ -n "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
     exit 0
 fi
 
-exec docker run --rm "${DOCKER_RUN_FLAGS[@]}" \
+# Detect if the command 'docker' is actually podman
+if docker --version 2>/dev/null | grep -qi 'podman'; then
+    ENGINE_OPTS="--userns=keep-id"
+else
+    ENGINE_OPTS=""
+fi
+
+exec docker run $ENGINE_OPTS --rm "${DOCKER_RUN_FLAGS[@]}" \
     "${MOUNTS[@]}" \
     "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
