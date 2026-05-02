@@ -92,13 +92,15 @@ MOUNTS=(
     --user "$(id -u):$(id -g)"
 )
 
-# Set Ansible temp directories to /tmp when running as a non-root user in
-# rootless Docker. On rootless Docker, the UID/GID mapping causes directory
-# ownership to appear as root:root to the container process even though
+# Set Ansible temp + home directories to /tmp when running as a non-root user
+# in rootless Docker. On rootless Docker, the UID/GID mapping causes directory
+# ownership to appear as nobody:nogroup to the container process even though
 # the directory is owned by the host user. This causes Ansible to fail when
-# trying to create $HOME/.ansible/tmp. Using /tmp avoids the issue.
+# trying to create $HOME/.ansible (collections cache, retry files) and
+# $HOME/.ansible/tmp (per-task scratch). Using /tmp avoids the issue.
 if [[ "$(id -u)" != "0" ]]; then
     MOUNTS+=(
+        -e "ANSIBLE_HOME=/tmp/ansible-home"
         -e "ANSIBLE_LOCAL_TEMP=/tmp/ansible-local"
         -e "ANSIBLE_REMOTE_TEMP=/tmp/ansible-remote"
     )
@@ -548,16 +550,31 @@ fi
 # 'canasta version' reports the correct run mode.
 DOCKER_RUN_FLAGS+=(-e CANASTA_RUN_MODE=docker)
 
+# Detect if `docker` is actually a podman shim (e.g. the podman-docker
+# package on Debian/Fedora installs /usr/bin/docker as a wrapper that
+# calls podman). Rootless podman remaps --user 1000:1000 in the
+# container to a host subuid (e.g. 100999), so writes to bind-mounted
+# host paths look like a foreign UID even though the host user owns
+# them. `--userns=keep-id` opts out of that remap and keeps in-
+# container UIDs equal to host UIDs. Podman-only flag — Docker rejects
+# it. Detection by `docker --version` output is intentional: shell
+# aliases aren't expanded in non-interactive scripts, but binary
+# wrappers (the common case) do report "podman" here.
+ENGINE_OPTS=()
+if docker --version 2>/dev/null | grep -qi 'podman'; then
+    ENGINE_OPTS+=(--userns=keep-id)
+fi
+
 # Dry-run mode for tests: print the assembled docker run command, one
 # argument per line, and exit. Does not invoke docker.
 if [[ -n "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
     printf 'docker\n'
-    for a in run --rm "${DOCKER_RUN_FLAGS[@]}" "${MOUNTS[@]}" "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}; do
+    for a in run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" "${MOUNTS[@]}" "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}; do
         printf '%s\n' "$a"
     done
     exit 0
 fi
 
-exec docker run --rm "${DOCKER_RUN_FLAGS[@]}" \
+exec docker run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" \
     "${MOUNTS[@]}" \
     "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}

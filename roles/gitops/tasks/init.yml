@@ -1,6 +1,26 @@
 ---
 # GitOps init — dispatches to Compose or Kubernetes variant.
 
+# `gitops init` operates on an *existing* Canasta instance: it converts
+# the instance's extensions/skins into git submodules and pushes the
+# resulting tree to a remote. Bail out early with a gitops-specific
+# message if no instance exists yet, instead of letting resolve_instance
+# emit its generic "no instance for this directory" error.
+- name: Check that at least one Canasta instance exists
+  canasta_registry:
+    state: query_all
+  register: _gitops_init_registry
+  delegate_to: localhost
+
+- name: Fail with gitops-specific guidance if no instances exist
+  ansible.builtin.fail:
+    msg: |-
+      'canasta gitops init' bootstraps gitops for an existing Canasta instance.
+      No Canasta instances are registered yet. Create one first with:
+        canasta create -i <id> -w <wiki>
+      Then run 'canasta gitops init -i <id> ...' to enable gitops on it.
+  when: _gitops_init_registry.instances | length == 0
+
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 

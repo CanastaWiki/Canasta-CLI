@@ -4,15 +4,39 @@
 # Requires: instance_path, instance_id (set by dispatcher)
 
 # --- Step 1: Validate prerequisites ---
+# git-crypt's package depends on git, so checking git-crypt covers both;
+# the `canasta install ... git-crypt` recovery path also pulls in git
+# transitively.
 - name: Check git is installed
   ansible.builtin.command:
     cmd: "git --version"
+  register: _git_check
   changed_when: false
+  ignore_errors: true
+
+- name: Fail if git is not installed
+  ansible.builtin.fail:
+    msg: >-
+      git is not installed on the gitops target host.
+      Install it with: canasta install -i {{ instance_id }} git-crypt
+      (or `canasta install -H <host> git-crypt`) — the git-crypt
+      package pulls in git as a dependency.
+  when: _git_check.rc | default(1) != 0
 
 - name: Check git-crypt is installed
   ansible.builtin.command:
     cmd: "git-crypt --version"
+  register: _gitcrypt_check
   changed_when: false
+  ignore_errors: true
+
+- name: Fail if git-crypt is not installed
+  ansible.builtin.fail:
+    msg: >-
+      git-crypt is not installed on the gitops target host.
+      Install it with: canasta install -i {{ instance_id }} git-crypt
+      (or `canasta install -H <host> git-crypt`).
+  when: _gitcrypt_check.rc | default(1) != 0
 
 # --- Step 1b: Configure git identity if provided ---
 - name: Set git user.name on target host
