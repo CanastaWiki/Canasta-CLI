@@ -495,9 +495,13 @@ def _filter_by_host(instances, host):
 
 
 def _ssh_args():
+    # ForwardAgent in the fallback matches the default canasta.py
+    # plants when running through Ansible — direct commands that SSH
+    # to a remote should expose the same agent so any forge auth
+    # (gitops one-shots, future scripts) works the same way.
     extra = os.environ.get(
         "ANSIBLE_SSH_ARGS",
-        "-o StrictHostKeyChecking=accept-new",
+        "-o StrictHostKeyChecking=accept-new -o ForwardAgent=yes",
     )
     return extra.split() if extra else []
 

@@ -348,3 +348,99 @@ class TestOrchestratorTasks:
         with open(os.path.join(ORCHESTRATOR_TASKS, "destroy.yml")) as f:
             content = f.read()
         assert "helm_uninstall" in content
+
+
+class TestGitopsComposeGitEnv:
+    """Every git command in the Compose-side gitops flows must run with
+    `environment: "{{ gitops_git_env }}"` so the operator gets:
+
+    - ssh-agent forwarding (via ANSIBLE_SSH_ARGS' ForwardAgent=yes,
+      tested separately) chained with this env's GIT_SSH_COMMAND, so
+      `git push` on the remote authenticates against private forges.
+    - StrictHostKeyChecking=accept-new + UserKnownHostsFile=… so a
+      first contact with github.com etc. doesn't kill the play.
+
+    Drift here is invisible at runtime until someone tries to
+    onboard a private repo, so the structural check is worth its
+    weight in cheap-and-mechanical lines.
+
+    The Kubernetes-side flows generate their own deploy key and
+    set GIT_SSH_COMMAND with `-i <key>`; they're allowed to use a
+    different env (or no env reference at all).
+    """
+
+    # Files on the Compose path that contain at least one git command.
+    COMPOSE_FILES = [
+        "init_compose.yml",
+        "pull_compose.yml",
+        "push_compose.yml",
+        "join.yml",  # Compose join (k8s join is in join_kubernetes.yml)
+    ]
+
+    GIT_VERBS = (
+        "git push",
+        "git pull",
+        "git clone",
+        "git fetch",
+        "git ls-remote",
+    )
+
+    @pytest.mark.parametrize("filename", COMPOSE_FILES)
+    def test_every_git_command_has_gitops_git_env(self, filename):
+        path = os.path.join(GITOPS_TASKS, filename)
+        with open(path) as f:
+            tasks = yaml.safe_load(f) or []
+        # Recursive walk: gitops_*_compose files nest tasks inside
+        # block: structures, so we descend into block/rescue/always
+        # rather than just iterating the top level.
+        offending = []
+        for entry in self._walk_tasks(tasks):
+            cmd = self._extract_cmd(entry)
+            if not cmd:
+                continue
+            if not any(verb in cmd for verb in self.GIT_VERBS):
+                continue
+            env = entry.get("environment")
+            ok = (
+                isinstance(env, str)
+                and "gitops_git_env" in env
+            ) or (
+                isinstance(env, dict)
+                and any(
+                    "GIT_SSH_COMMAND" in str(v) for v in env.values()
+                )
+                # The k8s-style override (-i <_ssh_key_path>) doesn't
+                # apply on the Compose side; require gitops_git_env.
+                and "gitops_git_env" in str(env)
+            )
+            if not ok:
+                offending.append(
+                    "%s: task '%s' ran '%s' without gitops_git_env"
+                    % (filename, entry.get("name", "<unnamed>"), cmd)
+                )
+        assert not offending, "\n".join(offending)
+
+    @classmethod
+    def _walk_tasks(cls, items):
+        """Yield every task dict regardless of nesting depth."""
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            yield item
+            for child_key in ("block", "rescue", "always"):
+                if child_key in item:
+                    yield from cls._walk_tasks(item[child_key])
+
+    @staticmethod
+    def _extract_cmd(task):
+        """Pull the cmd string out of an ansible.builtin.command task."""
+        for key in ("ansible.builtin.command", "command"):
+            mod = task.get(key)
+            if isinstance(mod, dict):
+                cmd = mod.get("cmd")
+                return cmd if isinstance(cmd, str) else ""
+            if isinstance(mod, str):
+                return mod
+        return ""

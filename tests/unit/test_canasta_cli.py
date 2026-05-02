@@ -348,6 +348,35 @@ class TestBuildAnsibleArgs:
         extra = self._get_vars(result)
         assert extra["host_name"] == "prod"
 
+    def test_default_ansible_ssh_args_carries_required_options(
+        self, data, monkeypatch,
+    ):
+        """build_ansible_args plants a default ANSIBLE_SSH_ARGS that has
+        to include three things at once for remote operations to work
+        without operator ceremony:
+
+        - StrictHostKeyChecking=accept-new so first contact with a new
+          host doesn't fail the play.
+        - UserKnownHostsFile=~/.ssh/known_hosts so the accepted key
+          actually persists for next time.
+        - ForwardAgent=yes so the operator's local ssh-agent reaches
+          the target host (gitops `git push` to a private repo on a
+          remote then authenticates against the forge with the
+          operator's keys; see #465).
+
+        Guard against any of those silently disappearing.
+        """
+        monkeypatch.delenv("ANSIBLE_SSH_ARGS", raising=False)
+        from argparse import Namespace
+        args = Namespace(command="version", host=None, verbose=False)
+        canasta_cli.build_ansible_args(
+            "/usr/bin/ansible-playbook", "version", args, data,
+        )
+        ssh_args = os.environ.get("ANSIBLE_SSH_ARGS", "")
+        assert "StrictHostKeyChecking=accept-new" in ssh_args
+        assert "UserKnownHostsFile=" in ssh_args
+        assert "ForwardAgent=yes" in ssh_args
+
 
 class TestHostCommandsBehavior:
     """Test that --host is passed through for commands that declare it

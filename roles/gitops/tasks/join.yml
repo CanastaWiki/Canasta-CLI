@@ -83,6 +83,7 @@
   ansible.builtin.command:
     cmd: "git clone {{ repo }} ."
     chdir: "{{ _join_tmpdir.path }}"
+  environment: "{{ gitops_git_env }}"
   changed_when: true
 
 # --- Step 3: Copy key to remote and unlock git-crypt ---
@@ -309,6 +310,7 @@
   ansible.builtin.command:
     cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
+  environment: "{{ gitops_git_env }}"
   changed_when: true
 
 # --- Step 11: Clean up temp dir ---
