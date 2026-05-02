@@ -4,138 +4,113 @@
 #
 # Skipped when running from a Docker image — the image pull in the
 # canasta-docker wrapper handles updates for that install method.
+#
+# Every task in this play targets the controller's local filesystem
+# (the playbook checkout). The outer block carries delegate_to and the
+# ansible_connection/python_interpreter overrides so each task doesn't
+# repeat them.
 
-- name: Get playbook repository directory
-  ansible.builtin.set_fact:
-    _repo_dir: "{{ playbook_dir }}"
-
-- name: Check if playbook directory is a git repo
-  ansible.builtin.stat:
-    path: "{{ _repo_dir }}/.git"
+- name: Self-update controller playbook directory
   delegate_to: localhost
   vars:
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
-  register: _is_git_repo_early
-
-- name: Report Docker image already updated
-  ansible.builtin.debug:
-    msg: "Canasta CLI updated to the latest Docker image."
-  when: not (_is_git_repo_early.stat.exists | default(false))
-
-- name: Self-update from git checkout
-  when: _is_git_repo_early.stat.exists | default(false)
   block:
-    - name: Get current version
-      ansible.builtin.slurp:
-        src: "{{ _repo_dir }}/VERSION"
-      delegate_to: localhost
-      vars:
-        ansible_connection: local
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
-      register: _current_version
+    - name: Get playbook repository directory
+      ansible.builtin.set_fact:
+        _repo_dir: "{{ playbook_dir }}"
 
-    - name: Get current commit hash
-      ansible.builtin.command:
-        cmd: "git rev-parse --short HEAD"
-        chdir: "{{ _repo_dir }}"
-      delegate_to: localhost
-      vars:
-        ansible_connection: local
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
-      register: _current_commit
-      changed_when: false
+    - name: Check if playbook directory is a git repo
+      ansible.builtin.stat:
+        path: "{{ _repo_dir }}/.git"
+      register: _is_git_repo_early
 
-    - name: Fetch latest from remote
-      ansible.builtin.command:
-        cmd: "git fetch origin"
-        chdir: "{{ _repo_dir }}"
-      delegate_to: localhost
-      vars:
-        ansible_connection: local
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
-      changed_when: false
-
-    - name: Check for updates
-      ansible.builtin.command:
-        cmd: "git log HEAD..origin/main --oneline"
-        chdir: "{{ _repo_dir }}"
-      delegate_to: localhost
-      vars:
-        ansible_connection: local
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
-      register: _pending_updates
-      changed_when: false
-
-    - name: Report no updates
+    - name: Report Docker image already updated
       ansible.builtin.debug:
-        msg: >-
-          Canasta CLI is already up to date
-          (version {{ _current_version.content | b64decode | trim }},
-          commit {{ _current_commit.stdout | trim }}).
-      when: _pending_updates.stdout | trim | length == 0
+        msg: "Canasta CLI updated to the latest Docker image."
+      when: not (_is_git_repo_early.stat.exists | default(false))
 
-    - name: Pull latest changes
-      when: _pending_updates.stdout | trim | length > 0
+    - name: Self-update from git checkout
+      when: _is_git_repo_early.stat.exists | default(false)
       block:
-        - name: Pull from remote (fast-forward only)
-          ansible.builtin.command:
-            cmd: "git pull --ff-only origin main"
-            chdir: "{{ _repo_dir }}"
-          delegate_to: localhost
-          vars:
-            ansible_connection: local
-            ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          changed_when: true
-          register: _pull_result
-          failed_when: false
-
-        - name: Warn if pull failed
-          ansible.builtin.debug:
-            msg: >-
-              Could not fast-forward to latest main
-              (local branch may have diverged).
-              Run 'git pull origin main' manually in {{ _repo_dir }}.
-          when: _pull_result.rc != 0
-
-        - name: Read new version
+        - name: Get current version
           ansible.builtin.slurp:
             src: "{{ _repo_dir }}/VERSION"
-          delegate_to: localhost
-          vars:
-            ansible_connection: local
-            ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          register: _new_version
+          register: _current_version
 
-        - name: Get new commit hash
+        - name: Get current commit hash
           ansible.builtin.command:
             cmd: "git rev-parse --short HEAD"
             chdir: "{{ _repo_dir }}"
-          delegate_to: localhost
-          vars:
-            ansible_connection: local
-            ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          register: _new_commit
+          register: _current_commit
           changed_when: false
 
-        - name: Update BUILD_COMMIT and BUILD_DATE after pull
-          ansible.builtin.shell:
-            cmd: >-
-              git rev-parse --short HEAD > BUILD_COMMIT &&
-              git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' > BUILD_DATE
+        - name: Fetch latest from remote
+          ansible.builtin.command:
+            cmd: "git fetch origin"
             chdir: "{{ _repo_dir }}"
-          delegate_to: localhost
-          vars:
-            ansible_connection: local
-            ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          changed_when: true
+          changed_when: false
 
-        - name: Report update
+        - name: Check for updates
+          ansible.builtin.command:
+            cmd: "git log HEAD..origin/main --oneline"
+            chdir: "{{ _repo_dir }}"
+          register: _pending_updates
+          changed_when: false
+
+        - name: Report no updates
           ansible.builtin.debug:
             msg: >-
-              Updated Canasta CLI from
-              {{ _current_version.content | b64decode | trim }}
-              ({{ _current_commit.stdout | trim }}) to
-              {{ _new_version.content | b64decode | trim }}
-              ({{ _new_commit.stdout | trim }}).
-          when: _pull_result.rc == 0
+              Canasta CLI is already up to date
+              (version {{ _current_version.content | b64decode | trim }},
+              commit {{ _current_commit.stdout | trim }}).
+          when: _pending_updates.stdout | trim | length == 0
+
+        - name: Pull latest changes
+          when: _pending_updates.stdout | trim | length > 0
+          block:
+            - name: Pull from remote (fast-forward only)
+              ansible.builtin.command:
+                cmd: "git pull --ff-only origin main"
+                chdir: "{{ _repo_dir }}"
+              changed_when: true
+              register: _pull_result
+              failed_when: false
+
+            - name: Warn if pull failed
+              ansible.builtin.debug:
+                msg: >-
+                  Could not fast-forward to latest main
+                  (local branch may have diverged).
+                  Run 'git pull origin main' manually in {{ _repo_dir }}.
+              when: _pull_result.rc != 0
+
+            - name: Read new version
+              ansible.builtin.slurp:
+                src: "{{ _repo_dir }}/VERSION"
+              register: _new_version
+
+            - name: Get new commit hash
+              ansible.builtin.command:
+                cmd: "git rev-parse --short HEAD"
+                chdir: "{{ _repo_dir }}"
+              register: _new_commit
+              changed_when: false
+
+            - name: Update BUILD_COMMIT and BUILD_DATE after pull
+              ansible.builtin.shell:
+                cmd: >-
+                  git rev-parse --short HEAD > BUILD_COMMIT &&
+                  git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' > BUILD_DATE
+                chdir: "{{ _repo_dir }}"
+              changed_when: true
+
+            - name: Report update
+              ansible.builtin.debug:
+                msg: >-
+                  Updated Canasta CLI from
+                  {{ _current_version.content | b64decode | trim }}
+                  ({{ _current_commit.stdout | trim }}) to
+                  {{ _new_version.content | b64decode | trim }}
+                  ({{ _new_commit.stdout | trim }}).
+              when: _pull_result.rc == 0

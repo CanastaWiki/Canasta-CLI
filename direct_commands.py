@@ -6,6 +6,7 @@ overhead of ansible-playbook startup for simple operations.
 
 import json
 import os
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1402,7 +1403,6 @@ def _gitops_diff_script(path):
 
 
 def _parse_gitops_diff(stdout):
-    import re
     parts = stdout.split(_SENTINEL + "\n")
 
     uncommitted = parts[0].strip() if len(parts) > 0 else ""
