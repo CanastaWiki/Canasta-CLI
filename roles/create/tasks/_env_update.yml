@@ -1,0 +1,106 @@
+---
+# Update the instance .env file. Runs AFTER wikis.yaml is generated
+# and BEFORE the orchestrator init_config step. Sets the canonical
+# environment values that the stack and the K8s values.yaml template
+# both consume:
+#
+#   - validate the resolved passwords don't contain characters that
+#     break MediaWiki's installer or shell quoting
+#   - read the just-generated wikis.yaml to derive MW_SITE_*
+#   - write MW_SITE_SERVER, MW_SITE_FQDN, MYSQL_PASSWORD,
+#     CANASTA_IMAGE (+ WIKI_DB_PASSWORD when wikidbuser != root)
+#   - validate external-DB config (USE_EXTERNAL_DB requires
+#     MYSQL_HOST), and set COMPOSE_PROFILES so internal-db is
+#     skipped when an external DB is in use
+#   - generate a placeholder MW_SECRET_KEY so the first
+#     `docker compose up` doesn't warn about empty substitution
+
+- name: Report updating env
+  ansible.builtin.debug:
+    msg: "Updating .env configuration"
+
+- name: Validate passwords for problematic characters
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_passwords.yml"
+  vars:
+    _password_vars:
+      - { key: "MYSQL_PASSWORD", value: "{{ _rootdbpass }}" }
+      - { key: "WIKI_DB_PASSWORD", value: "{{ _wikidbpass }}" }
+
+- name: Read wikis.yaml for domain
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _created_wikis
+
+- name: Get domain from first wiki
+  ansible.builtin.set_fact:
+    _wiki_domain: "{{ _created_wikis.wikis[0].url | regex_replace('/.*$', '') }}"
+
+- name: Set core .env variables
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop:
+    - { key: "MW_SITE_SERVER", value: "https://{{ _wiki_domain }}" }
+    - { key: "MW_SITE_FQDN", value: "{{ _wiki_domain }}" }
+    - { key: "MYSQL_PASSWORD", value: "{{ _rootdbpass }}" }
+    - { key: "CANASTA_IMAGE", value: "{{ _base_image }}" }
+  no_log: true
+
+- name: Set WIKI_DB_PASSWORD for non-root user
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: WIKI_DB_PASSWORD
+    value: "{{ _wikidbpass }}"
+  when: (wikidbuser | default('root')) != 'root'
+  no_log: true
+
+# --- External database setup ---
+# If USE_EXTERNAL_DB=true was set (via -e envfile), validate that
+# MYSQL_HOST is also present, and configure COMPOSE_PROFILES to skip
+# the bundled db container.
+- name: Check for external database configuration
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: USE_EXTERNAL_DB
+  register: _ext_db_check
+
+- name: Validate external DB config
+  when: _ext_db_check.found and _ext_db_check.value | lower == 'true'
+  block:
+    - name: Check MYSQL_HOST is set
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MYSQL_HOST
+      register: _ext_db_host
+
+    - name: Fail if MYSQL_HOST not set for external DB
+      ansible.builtin.fail:
+        msg: >-
+          USE_EXTERNAL_DB=true but MYSQL_HOST is not set. Include
+          MYSQL_HOST in your env file (-e) to specify the external
+          database server.
+      when: not _ext_db_host.found or _ext_db_host.value == ''
+
+- name: Set COMPOSE_PROFILES for database mode
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: COMPOSE_PROFILES
+    value: >-
+      {{ (_ext_db_check.found and _ext_db_check.value | lower == 'true')
+         | ternary('', 'internal-db') }}
+
+# Generate a placeholder MW_SECRET_KEY so docker compose variable substitution
+# doesn't warn about it being empty during the first 'docker compose up'.
+# install.php later replaces this with the key from LocalSettings.php,
+# or the import-database path regenerates it.
+- name: Generate initial MW_SECRET_KEY
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: generate_secret_key.yml

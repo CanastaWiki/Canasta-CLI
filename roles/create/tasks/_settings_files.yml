@@ -1,0 +1,79 @@
+---
+# Optional per-wiki / global / composer settings + TLS-related
+# .env keys.
+#
+# Three optional copy-throughs (each gated on the matching --flag),
+# plus two .env keys that govern TLS provisioning across both
+# orchestrators. Grouped here because they all run after the .env
+# is canonical (`_env_update.yml`) and before orchestrator
+# init_config consumes the instance directory.
+
+- name: Report copying settings files
+  ansible.builtin.debug:
+    msg: "Copying per-wiki settings directory"
+
+- name: Create per-wiki settings directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/config/settings/wikis/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ _created_wikis.wiki_ids }}"
+
+- name: Report copying per-wiki Settings.php
+  when: wiki_settings is defined and wiki_settings != ''
+  ansible.builtin.debug:
+    msg: "Copying per-wiki Settings.php"
+
+- name: Copy per-wiki Settings.php if provided
+  when: wiki_settings is defined and wiki_settings != ''
+  ansible.builtin.copy:
+    src: "{{ wiki_settings }}"
+    dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}/Settings.php"
+    mode: "0644"
+
+- name: Report copying global settings
+  when: global_settings is defined and global_settings != ''
+  ansible.builtin.debug:
+    msg: "Copying global settings"
+
+- name: Copy global settings if provided
+  when: global_settings is defined and global_settings != ''
+  ansible.builtin.copy:
+    src: "{{ global_settings }}"
+    dest: "{{ instance_path }}/config/settings/global/{{ global_settings | basename }}"
+    mode: "0644"
+
+- name: Report copying composer.local.json
+  when: composer is defined and composer != ''
+  ansible.builtin.debug:
+    msg: "Copying composer.local.json"
+
+- name: Copy composer.local.json if provided
+  when: composer is defined and composer != ''
+  ansible.builtin.copy:
+    src: "{{ composer }}"
+    dest: "{{ instance_path }}/config/composer.local.json"
+    mode: "0644"
+
+# --- TLS-related .env keys ---
+# K8s always disables Caddy auto-HTTPS because TLS is handled by the
+# ingress controller (Traefik) + cert-manager, not Caddy.
+- name: Set CADDY_AUTO_HTTPS=off
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: CADDY_AUTO_HTTPS
+    value: "off"
+  when: >-
+    (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+    or (skip_tls | default(false) | bool)
+
+# Persist --staging-certs as CANASTA_STAGING_CERTS so all TLS-
+# provisioning paths (Caddy ACME CA for Compose, cert-manager issuer
+# for K8s, config-set cascade) can honor it consistently.
+- name: Set CANASTA_STAGING_CERTS
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: CANASTA_STAGING_CERTS
+    value: "{{ (staging_certs | default(false) | bool) | string | lower }}"

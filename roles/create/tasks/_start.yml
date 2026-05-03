@@ -1,0 +1,46 @@
+---
+# Start containers for the new instance. Compose runs `docker
+# compose up`; K8s syncs ConfigMaps, deploys the Helm release
+# without --wait, then blocks on `kubectl rollout status`.
+#
+# This is the first start (no dev mode); Compose path is restarted
+# later with the full config (Step 14 in main.yml). K8s does not
+# need the restart because pods come up with the right config from
+# the start.
+
+- name: Report pulling Docker images
+  ansible.builtin.debug:
+    msg: "Pulling Docker images (this may take a while)"
+
+- name: Report starting
+  ansible.builtin.debug:
+    msg: "Creating Canasta instance '{{ id }}'..."
+
+- name: Start containers (Compose)
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml
+  when: (orchestrator | default('compose')) == 'compose'
+
+- name: Start containers (Kubernetes)
+  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+  block:
+    - name: Sync config to Kubernetes ConfigMaps
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_sync_config.yml
+
+    - name: Install Helm release (no wait)
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: helm_deploy.yml
+      vars:
+        helm_wait: false
+        _k8s_namespace: "canasta-{{ id }}"
+
+    - name: Wait for web deployment readiness
+      ansible.builtin.command:
+        cmd: >-
+          kubectl rollout status deployment/canasta-{{ id }}-web
+          -n canasta-{{ id }} --timeout=600s
+      changed_when: false
