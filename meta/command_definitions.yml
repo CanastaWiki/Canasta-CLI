@@ -1563,6 +1563,16 @@ commands:
         type: bool
         default: false
         description: "Force push to non-empty remote"
+      - name: reinit
+        type: bool
+        default: false
+        description: >-
+          Wipe local gitops state (.git, .gitops-host, env.template,
+          wikis.yaml.template, hosts/, plus K8s chart files) before
+          starting. Use after a previous init died mid-run, e.g.
+          before the git push succeeded. Submodule structure is not
+          fully restorable — extensions whose conversion finished
+          before the failure may end up tracked as flat directories.
       - name: pull_requests
         type: bool
         default: false
@@ -1609,6 +1619,13 @@ commands:
         type: path
         required: true
         description: "Path to git-crypt key"
+      - name: reinit
+        type: bool
+        default: false
+        description: >-
+          Wipe local gitops state before joining. Use after a
+          previous init or join died mid-run and left this instance
+          unable to retry.
       - name: git_user_name
         type: string
         description: "Git user.name for commits on the target host (set if not already configured)"
