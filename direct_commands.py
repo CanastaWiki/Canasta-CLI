@@ -499,9 +499,14 @@ def _ssh_args():
     # plants when running through Ansible — direct commands that SSH
     # to a remote should expose the same agent so any forge auth
     # (gitops one-shots, future scripts) works the same way.
+    # ServerAliveInterval keeps long-running commands (e.g.
+    # `helm upgrade --wait --timeout 10m` from `canasta scale`) from
+    # tripping a NAT / firewall idle drop and reporting a bogus
+    # "Broken pipe" while the remote is still working.
     extra = os.environ.get(
         "ANSIBLE_SSH_ARGS",
-        "-o StrictHostKeyChecking=accept-new -o ForwardAgent=yes",
+        "-o StrictHostKeyChecking=accept-new -o ForwardAgent=yes "
+        "-o ServerAliveInterval=30 -o ServerAliveCountMax=20",
     )
     return extra.split() if extra else []
 
@@ -2207,10 +2212,21 @@ def cmd_scale(args):
     helm_cmd = " ".join(cmd_parts)
 
     print("Scaling %s to %d replica(s)…" % (component, replicas))
+    # Don't go through _ssh_run for the helm call — its 30s timeout is
+    # short by an order of magnitude vs helm's own `--wait --timeout
+    # 10m`, which would falsely report failure on a slow rollout.
+    # Stream the helm output through to the operator so they can see
+    # progress / diagnose stuck rollouts.
     if _is_localhost(host):
-        rc = subprocess.call(["bash", "-c", helm_cmd])
+        argv = ["bash", "-c", helm_cmd]
     else:
-        rc, _ = _ssh_run(host, helm_cmd)
+        target = _resolve_ssh_target(host)
+        argv = ["ssh"] + _ssh_args() + [target, helm_cmd]
+    try:
+        rc = subprocess.call(argv)
+    except OSError as e:
+        print("Error running helm upgrade: %s" % e, file=sys.stderr)
+        return 1
     if rc != 0:
         print(
             "Error: helm upgrade failed; values.yaml is updated but "
