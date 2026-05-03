@@ -2,8 +2,13 @@
 # Restart a Canasta instance.
 # Input: id (optional)
 
-- name: Resolve instance
+# Top-level `canasta restart` needs this; nested callers
+# (config set/unset, add, backup restore) already passed through
+# resolve_instance.yml at their own entry point. Re-running it here
+# would do a needless registry round-trip.
+- name: Resolve instance (skip if caller already resolved it)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  when: instance_path is not defined
 
 - name: Stop containers
   ansible.builtin.include_role:

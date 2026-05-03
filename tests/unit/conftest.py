@@ -12,6 +12,18 @@ ROLES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "roles")
 sys.path.insert(0, os.path.join(ROLES_DIR, "common", "library"))
 sys.path.insert(0, os.path.join(ROLES_DIR, "extensions_skins", "library"))
 
+# Role-local module_utils — at Ansible runtime modules import these
+# via `from ansible.module_utils.<file> import …`; in unit tests we
+# import the module directly, so we add the dir to sys.path and stash
+# a reference under the `ansible.module_utils.<file>` namespace so
+# the in-module import resolves the same way it would on a real run.
+import importlib  # noqa: E402
+_module_utils_dir = os.path.join(ROLES_DIR, "common", "module_utils")
+sys.path.insert(0, _module_utils_dir)
+for _name in ("canasta_validate",):
+    _mod = importlib.import_module(_name)
+    sys.modules.setdefault("ansible.module_utils.%s" % _name, _mod)
+
 
 @pytest.fixture
 def tmp_dir():

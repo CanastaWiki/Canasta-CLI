@@ -97,13 +97,26 @@
               register: _new_commit
               changed_when: false
 
-            - name: Update BUILD_COMMIT and BUILD_DATE after pull
-              ansible.builtin.shell:
-                cmd: >-
-                  git rev-parse --short HEAD > BUILD_COMMIT &&
-                  git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' > BUILD_DATE
+            - name: Get new build date
+              ansible.builtin.command:
+                cmd: "git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S'"
                 chdir: "{{ _repo_dir }}"
-              changed_when: true
+              register: _new_build_date
+              changed_when: false
+
+            # Both files derive from values we already captured above —
+            # no need to re-shell out for git rev-parse a second time.
+            - name: Update BUILD_COMMIT after pull
+              ansible.builtin.copy:
+                content: "{{ _new_commit.stdout | trim }}\n"
+                dest: "{{ _repo_dir }}/BUILD_COMMIT"
+                mode: "0644"
+
+            - name: Update BUILD_DATE after pull
+              ansible.builtin.copy:
+                content: "{{ _new_build_date.stdout | trim }}\n"
+                dest: "{{ _repo_dir }}/BUILD_DATE"
+                mode: "0644"
 
             - name: Report update
               ansible.builtin.debug:

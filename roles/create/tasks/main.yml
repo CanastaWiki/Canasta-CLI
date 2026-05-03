@@ -260,58 +260,44 @@
     - { dir: config/settings/wikis }
 
 # --- Step 6: Generate passwords ---
-- name: Generate root DB password if not provided
-  when: rootdbpass is not defined or rootdbpass == ''
-  block:
-    - name: Generate root DB password
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/generate_password.yml"
-    - name: Store root DB password
-      ansible.builtin.set_fact:
-        _rootdbpass: "{{ _generated_password }}"
-    - name: Report root DB password generated
-      ansible.builtin.debug:
-        msg: "Generated root database password (will be saved to .env)"
+- name: Resolve root DB password
+  ansible.builtin.include_tasks: _resolve_password.yml
+  vars:
+    _rp_input: "{{ rootdbpass | default('') }}"
+    _rp_report_msg: "Generated root database password (will be saved to .env)"
 
-- name: Use provided root DB password
+- name: Capture root DB password
   ansible.builtin.set_fact:
-    _rootdbpass: "{{ rootdbpass }}"
-  when: rootdbpass is defined and rootdbpass != ''
+    _rootdbpass: "{{ _resolved_password }}"
 
-- name: Set wiki DB password
+# Wiki DB password follows the root DB password when wikidbuser is
+# 'root' (the canasta default — single account for both); only a
+# distinct wikidbuser warrants a separate password.
+- name: Mirror wiki DB password from root when wikidbuser is root
   ansible.builtin.set_fact:
     _wikidbpass: "{{ _rootdbpass }}"
   when: (wikidbuser | default('root')) == 'root'
 
-- name: Generate wiki DB password if non-root user
-  when: (wikidbuser | default('root')) != 'root' and (wikidbpass is not defined or wikidbpass == '')
-  block:
-    - name: Generate wiki DB password
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/generate_password.yml"
-    - name: Store wiki DB password
-      ansible.builtin.set_fact:
-        _wikidbpass: "{{ _generated_password }}"
+- name: Resolve distinct wiki DB password (non-root wikidbuser)
+  ansible.builtin.include_tasks: _resolve_password.yml
+  vars:
+    _rp_input: "{{ wikidbpass | default('') }}"
+  when: (wikidbuser | default('root')) != 'root'
 
-- name: Use provided wiki DB password
+- name: Capture distinct wiki DB password
   ansible.builtin.set_fact:
-    _wikidbpass: "{{ wikidbpass }}"
-  when: wikidbpass is defined and wikidbpass != '' and (wikidbuser | default('root')) != 'root'
+    _wikidbpass: "{{ _resolved_password }}"
+  when: (wikidbuser | default('root')) != 'root'
 
-- name: Generate admin password if not provided
-  when: password is not defined or password == ''
-  block:
-    - name: Generate admin password
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/generate_password.yml"
-    - name: Store admin password
-      ansible.builtin.set_fact:
-        _admin_password: "{{ _generated_password }}"
-    - name: Report admin password generated
-      ansible.builtin.debug:
-        msg: "Generated admin password."
+- name: Resolve admin password
+  ansible.builtin.include_tasks: _resolve_password.yml
+  vars:
+    _rp_input: "{{ password | default('') }}"
+    _rp_report_msg: "Generated admin password."
 
-- name: Use provided admin password
+- name: Capture admin password
   ansible.builtin.set_fact:
-    _admin_password: "{{ password }}"
-  when: password is defined and password != ''
+    _admin_password: "{{ _resolved_password }}"
 
 # --- Step 7: Merge custom env file (before wikis.yaml, port may affect domain) ---
 - name: Merge custom env file if provided
