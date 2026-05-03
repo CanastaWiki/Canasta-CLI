@@ -2117,9 +2117,8 @@ def cmd_scale(args):
     component = (getattr(args, "component", None) or "web").lower()
     if component not in _SCALE_SUPPORTED_COMPONENTS:
         print(
-            "Error: only 'web' supports replica scaling in this "
-            "release. Component '%s' is not supported (jobrunner, "
-            "varnish, etc. are tracked as follow-ups)." % component,
+            "Error: only 'web' supports replica scaling. "
+            "Component '%s' is not supported." % component,
             file=sys.stderr,
         )
         return 1

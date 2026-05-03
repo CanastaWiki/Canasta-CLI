@@ -1955,10 +1955,9 @@ commands:
       instance, raise PHP-FPM worker limits inside the web image
       rather than running multiple replicas of the same container.
 
-      Scaling other components (jobrunner, varnish) is tracked as a
-      follow-up; only `web` is accepted in this release because the
-      Helm chart currently parameterizes the replica count only on
-      the web Deployment.
+      Only `web` is currently supported. The Helm chart's other
+      Deployments (jobrunner, caddy, varnish) run a single replica
+      and do not accept a replica-count override.
     examples:
       - "canasta scale -i mysite --replicas 3"
     direct_only: true
