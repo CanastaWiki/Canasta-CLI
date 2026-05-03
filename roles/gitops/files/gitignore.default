@@ -25,3 +25,4 @@ config/persistent/
 # Gitops state (host-specific, not shared)
 .gitops-applied
 .gitops-host
+.gitops-deploy-key

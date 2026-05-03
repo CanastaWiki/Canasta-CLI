@@ -88,50 +88,96 @@
   when: _gitops_existing.stat.exists
 
 # --- SSH deploy key ---
-# Saved to {{ key }}.ssh ({{ key }} is reserved for the git-crypt key,
-# consistent with the Compose gitops model).
-- name: Set SSH key path
+# The deploy key is generated on the controller (where {{ key }} is a
+# user-supplied controller-local path) and then mirrored to a fixed
+# spot inside the target's instance directory for git operations to
+# pick up. Earlier code assumed controller and target were the same
+# host: ssh-keygen ran on the play target against a controller path,
+# which usually did not exist there. See #474.
+- name: Set SSH key paths
   ansible.builtin.set_fact:
+    # Controller-local path. The user reads the public side of this
+    # to register a deploy key on the forge.
     _ssh_key_path: "{{ key }}.ssh"
+    # Target-local path. git on the target reads this via
+    # GIT_SSH_COMMAND. .gitops-deploy-key is in .gitignore.default
+    # so it never gets committed.
+    _ssh_key_target_path: "{{ instance_path }}/.gitops-deploy-key"
 
-- name: Check if SSH deploy key already exists
-  ansible.builtin.stat:
-    path: "{{ _ssh_key_path }}"
-  register: _gitops_key_exists
-
-- name: Read existing SSH deploy key
-  ansible.builtin.slurp:
-    src: "{{ _ssh_key_path }}"
-  register: _gitops_ssh_key_existing
-  when: _gitops_key_exists.stat.exists
-  no_log: true
-
-- name: Check if existing file is a real SSH key
+# Save/switch/restore the connection state around the controller-side
+# operations. delegate_to: localhost + vars: { ansible_connection:
+# local } does NOT reliably override the host-level set_fact that
+# switch_connection.yml plants — same failure mode 0d392a6 and
+# b7d3ed2 fixed for resolve_instance and delete deregistration. Use
+# the proven dance with `block`/`always:` so a failure between
+# switch and restore can't leave the play stuck on the controller.
+- name: Save connection state before controller-side key work
   ansible.builtin.set_fact:
-    _existing_is_ssh_key: >-
-      {{ _gitops_key_exists.stat.exists and
-         (_gitops_ssh_key_existing.content | default('') | b64decode)
-         is search('-----BEGIN') }}
+    _gki_saved:
+      host: "{{ ansible_host | default('localhost') }}"
+      conn: "{{ ansible_connection | default('local') }}"
+      user: "{{ ansible_user | default('') }}"
+      python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
 
-- name: Generate SSH deploy key pair
-  ansible.builtin.command:
-    cmd: >-
-      ssh-keygen -t ed25519
-      -f {{ _ssh_key_path }}
-      -N ''
-      -C 'canasta-{{ instance_id }}'
-  when: not (_existing_is_ssh_key | bool)
+- block:
+    - name: Switch to local for SSH key generation
+      ansible.builtin.set_fact:
+        ansible_host: "localhost"
+        ansible_connection: "local"
+        ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-- name: Read the SSH deploy key (generated or existing)
-  ansible.builtin.slurp:
-    src: "{{ _ssh_key_path }}"
-  register: _gitops_ssh_key
-  no_log: true
+    - name: Ensure SSH key parent directory exists on controller
+      ansible.builtin.file:
+        path: "{{ _ssh_key_path | dirname }}"
+        state: directory
+        mode: "0700"
 
-- name: Read the public key for display
-  ansible.builtin.slurp:
-    src: "{{ _ssh_key_path }}.pub"
-  register: _gitops_ssh_pubkey
+    - name: Check if SSH deploy key already exists on controller
+      ansible.builtin.stat:
+        path: "{{ _ssh_key_path }}"
+      register: _gitops_key_exists
+
+    - name: Read existing SSH deploy key from controller
+      ansible.builtin.slurp:
+        src: "{{ _ssh_key_path }}"
+      register: _gitops_ssh_key_existing
+      when: _gitops_key_exists.stat.exists
+      no_log: true
+
+    - name: Check if existing file is a real SSH key
+      ansible.builtin.set_fact:
+        _existing_is_ssh_key: >-
+          {{ _gitops_key_exists.stat.exists and
+             (_gitops_ssh_key_existing.content | default('') | b64decode)
+             is search('-----BEGIN') }}
+
+    - name: Generate SSH deploy key pair on controller
+      ansible.builtin.command:
+        cmd: >-
+          ssh-keygen -t ed25519
+          -f {{ _ssh_key_path }}
+          -N ''
+          -C 'canasta-{{ instance_id }}'
+      when: not (_existing_is_ssh_key | bool)
+
+    - name: Read the SSH deploy private key from controller
+      ansible.builtin.slurp:
+        src: "{{ _ssh_key_path }}"
+      register: _gitops_ssh_key
+      no_log: true
+
+    - name: Read the SSH deploy public key for display
+      ansible.builtin.slurp:
+        src: "{{ _ssh_key_path }}.pub"
+      register: _gitops_ssh_pubkey
+  always:
+    - name: Restore connection state after key generation
+      ansible.builtin.set_fact:
+        ansible_host: "{{ _gki_saved.host }}"
+        ansible_connection: "{{ _gki_saved.conn }}"
+        ansible_user: "{{ _gki_saved.user }}"
+        ansible_python_interpreter: "{{ _gki_saved.python }}"
 
 - name: Display public key for deploy key setup
   ansible.builtin.debug:
@@ -146,11 +192,18 @@
   ansible.builtin.pause:
     prompt: "Press Enter after you have added the deploy key to your repository (or Ctrl+C then A to abort)"
 
+- name: Stage SSH deploy private key on target for git operations
+  ansible.builtin.copy:
+    content: "{{ _gitops_ssh_key.content | b64decode }}"
+    dest: "{{ _ssh_key_target_path }}"
+    mode: "0600"
+  no_log: true
+
 - name: Check remote is empty
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_path }} -o StrictHostKeyChecking=no"
+    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_target_path }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
   register: _gitops_remote
   changed_when: false
   ignore_errors: true
@@ -334,16 +387,38 @@
     path: /tmp/canasta-gitcrypt-key
     state: absent
 
-- name: Write git-crypt key to controller
-  ansible.builtin.copy:
-    content: "{{ _gitcrypt_key_data.content | b64decode }}"
-    dest: "{{ key }}"
-    mode: "0600"
-  delegate_to: localhost
-  vars:
-    ansible_connection: local
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
-  no_log: true
+# Same save/switch/restore dance as the SSH key block above —
+# delegate_to: localhost + vars: doesn't reliably override after
+# switch_connection.yml has run.
+- name: Save connection state before git-crypt key write
+  ansible.builtin.set_fact:
+    _gki_saved:
+      host: "{{ ansible_host | default('localhost') }}"
+      conn: "{{ ansible_connection | default('local') }}"
+      user: "{{ ansible_user | default('') }}"
+      python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
+
+- block:
+    - name: Switch to local for git-crypt key write
+      ansible.builtin.set_fact:
+        ansible_host: "localhost"
+        ansible_connection: "local"
+        ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Write git-crypt key to controller
+      ansible.builtin.copy:
+        content: "{{ _gitcrypt_key_data.content | b64decode }}"
+        dest: "{{ key }}"
+        mode: "0600"
+      no_log: true
+  always:
+    - name: Restore connection state after git-crypt key write
+      ansible.builtin.set_fact:
+        ansible_host: "{{ _gki_saved.host }}"
+        ansible_connection: "{{ _gki_saved.conn }}"
+        ansible_user: "{{ _gki_saved.user }}"
+        ansible_python_interpreter: "{{ _gki_saved.python }}"
 
 # --- Create hosts metadata ---
 - name: Create hosts.yaml
@@ -423,7 +498,7 @@
     cmd: "git push -u origin main {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_path }} -o StrictHostKeyChecking=no"
+    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_target_path }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
   changed_when: true
 
 # --- Create Argo CD repo credential Secret ---
