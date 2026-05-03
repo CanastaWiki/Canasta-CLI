@@ -2842,3 +2842,141 @@ class TestMaintenanceUpdate:
         assert any("--wiki='draft'" in c for c in commands)
         assert not any("--wiki='main'" in c for c in commands)
         assert not any("--wiki='foo'" in c for c in commands)
+
+
+# ---------------------------------------------------------------------------
+# canasta scale
+# ---------------------------------------------------------------------------
+
+class TestScale:
+    def _args(self, **kw):
+        from argparse import Namespace
+        defaults = {"id": "mysite", "replicas": 3, "component": "web"}
+        defaults.update(kw)
+        return Namespace(**defaults)
+
+    def _k8s_inst(self, **kw):
+        return {
+            "id": "mysite",
+            "path": "/srv/mysite",
+            "host": "localhost",
+            "orchestrator": "kubernetes",
+            **kw,
+        }
+
+    def test_registered(self):
+        assert direct_commands.is_direct_command("scale")
+
+    def test_rejects_compose(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("mysite", {
+                "id": "mysite", "path": "/srv/mysite",
+                "host": "localhost", "orchestrator": "compose",
+            }),
+        )
+        rc = direct_commands.cmd_scale(self._args())
+        assert rc == 1
+        assert "Kubernetes-only" in capsys.readouterr().err
+
+    def test_rejects_unsupported_component(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst()),
+        )
+        rc = direct_commands.cmd_scale(self._args(component="varnish"))
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "varnish" in err
+        assert "only 'web'" in err
+
+    def test_rejects_zero_replicas(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst()),
+        )
+        rc = direct_commands.cmd_scale(self._args(replicas=0))
+        assert rc == 1
+        assert "≥ 1" in capsys.readouterr().err
+
+    def test_rejects_non_integer_replicas(self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst()),
+        )
+        rc = direct_commands.cmd_scale(self._args(replicas="abc"))
+        assert rc == 1
+        assert "must be an integer" in capsys.readouterr().err
+
+    def test_no_op_when_already_at_target(self, monkeypatch, capsys, tmp_path):
+        inst_path = tmp_path / "mysite"
+        inst_path.mkdir()
+        (inst_path / "values.yaml").write_text(
+            "web:\n  replicaCount: 3\n",
+        )
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
+        )
+        called = {"helm": False}
+
+        def fail_helm(*a, **kw):
+            called["helm"] = True
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", fail_helm)
+        rc = direct_commands.cmd_scale(self._args(replicas=3))
+        assert rc == 0
+        assert "already 3" in capsys.readouterr().out
+        assert called["helm"] is False  # no helm invoked when no-op
+
+    def test_writes_values_and_invokes_helm(
+        self, monkeypatch, capsys, tmp_path,
+    ):
+        inst_path = tmp_path / "mysite"
+        inst_path.mkdir()
+        (inst_path / "values.yaml").write_text(
+            "instance:\n  id: mysite\nweb:\n  replicaCount: 1\n",
+        )
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
+        )
+        captured = {}
+
+        def fake_call(cmd, *a, **kw):
+            captured["cmd"] = cmd
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", fake_call)
+        rc = direct_commands.cmd_scale(self._args(replicas=5))
+        assert rc == 0
+
+        # values.yaml updated in place
+        new_content = (inst_path / "values.yaml").read_text()
+        assert "replicaCount: 5" in new_content
+        # helm command shape
+        cmd_str = " ".join(captured["cmd"])
+        assert "helm upgrade --install canasta-mysite" in cmd_str
+        assert "--namespace canasta-mysite" in cmd_str
+        assert "values.yaml" in cmd_str
+        assert "--reset-values" in cmd_str
+        assert "--wait" in cmd_str
+
+    def test_helm_failure_reports_partial_state(
+        self, monkeypatch, capsys, tmp_path,
+    ):
+        inst_path = tmp_path / "mysite"
+        inst_path.mkdir()
+        (inst_path / "values.yaml").write_text("web:\n  replicaCount: 1\n")
+        monkeypatch.setattr(
+            direct_commands, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
+        )
+        monkeypatch.setattr(subprocess, "call", lambda *a, **kw: 7)
+        rc = direct_commands.cmd_scale(self._args(replicas=4))
+        assert rc == 7
+        err = capsys.readouterr().err
+        assert "helm upgrade failed" in err
+        # values.yaml was already written before helm ran
+        assert "replicaCount: 4" in (inst_path / "values.yaml").read_text()

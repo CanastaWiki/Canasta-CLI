@@ -2040,6 +2040,191 @@ def _kubectl_section(host, ns, cmd_args, label):
     return (label, out.rstrip())
 
 
+# ---------------------------------------------------------------------------
+# canasta scale
+# ---------------------------------------------------------------------------
+
+def _read_remote_or_local_file(path, host):
+    """Read a file from localhost or a remote host. Returns content or
+    None on error."""
+    if _is_localhost(host):
+        try:
+            with open(path) as f:
+                return f.read()
+        except OSError as e:
+            print("Error reading %s: %s" % (path, e), file=sys.stderr)
+            return None
+    rc, content = _ssh_run(host, "cat %s 2>/dev/null" % _shell_quote(path))
+    if rc != 0:
+        print("Error reading remote %s" % path, file=sys.stderr)
+        return None
+    return content
+
+
+def _write_remote_or_local_file(path, host, content):
+    """Write content to path on localhost or a remote host. Returns True
+    on success."""
+    if _is_localhost(host):
+        try:
+            with open(path, "w") as f:
+                f.write(content)
+            return True
+        except OSError as e:
+            print("Error writing %s: %s" % (path, e), file=sys.stderr)
+            return False
+    target = _resolve_ssh_target(host)
+    ssh_cmd = ["ssh"] + _ssh_args() + [target, "cat > %s" % _shell_quote(path)]
+    try:
+        result = subprocess.run(
+            ssh_cmd, input=content, text=True,
+            capture_output=True, timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        print("Error writing remote %s: %s" % (path, e), file=sys.stderr)
+        return False
+    if result.returncode != 0:
+        print(
+            "Error writing remote %s: %s"
+            % (path, (result.stderr or "").strip()),
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+_SCALE_SUPPORTED_COMPONENTS = ("web",)
+
+
+@register("scale")
+def cmd_scale(args):
+    inst_id, inst = _resolve_instance(args)
+    orchestrator = inst.get("orchestrator", "compose")
+    if orchestrator not in ("kubernetes", "k8s"):
+        print(
+            "Error: `canasta scale` is currently Kubernetes-only. "
+            "Compose support is tracked as a follow-up.",
+            file=sys.stderr,
+        )
+        return 1
+
+    component = (getattr(args, "component", None) or "web").lower()
+    if component not in _SCALE_SUPPORTED_COMPONENTS:
+        print(
+            "Error: only 'web' supports replica scaling in this "
+            "release. Component '%s' is not supported (jobrunner, "
+            "varnish, etc. are tracked as follow-ups)." % component,
+            file=sys.stderr,
+        )
+        return 1
+
+    replicas_raw = getattr(args, "replicas", None)
+    if replicas_raw is None:
+        print("Error: --replicas is required", file=sys.stderr)
+        return 1
+    try:
+        replicas = int(replicas_raw)
+    except (TypeError, ValueError):
+        print(
+            "Error: --replicas must be an integer (got %r)" % replicas_raw,
+            file=sys.stderr,
+        )
+        return 1
+    if replicas < 1:
+        print("Error: --replicas must be ≥ 1", file=sys.stderr)
+        return 1
+
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    if not path:
+        print("Error: instance '%s' has no path" % inst_id, file=sys.stderr)
+        return 1
+
+    values_path = os.path.join(path, "values.yaml")
+    content = _read_remote_or_local_file(values_path, host)
+    if content is None:
+        return 1
+
+    try:
+        data = yaml.safe_load(content) or {}
+    except yaml.YAMLError as e:
+        print("Error: %s is not valid YAML: %s" % (values_path, e), file=sys.stderr)
+        return 1
+    if not isinstance(data, dict):
+        print("Error: %s does not parse as a mapping" % values_path, file=sys.stderr)
+        return 1
+
+    section = data.setdefault(component, {}) or {}
+    if not isinstance(section, dict):
+        print(
+            "Error: %s.%s is not a mapping; refusing to overwrite "
+            "scalar with a replicaCount key." % (values_path, component),
+            file=sys.stderr,
+        )
+        return 1
+    current = section.get("replicaCount")
+    if current == replicas:
+        print(
+            "%s.replicaCount is already %d; nothing to do." % (component, replicas)
+        )
+        return 0
+    section["replicaCount"] = replicas
+    data[component] = section
+
+    new_content = yaml.safe_dump(
+        data, default_flow_style=False, sort_keys=False,
+    )
+    if not _write_remote_or_local_file(values_path, host, new_content):
+        return 1
+
+    # Apply via helm upgrade. Mirror the args helm_deploy.yml uses so
+    # the result matches what `canasta start` / `canasta restart`
+    # would render — including values-configdata.yaml when present.
+    namespace = "canasta-%s" % inst_id
+    chart = os.path.join(path, "_chart")
+    configdata = os.path.join(path, "values-configdata.yaml")
+    cmd_parts = [
+        "helm upgrade --install canasta-%s %s" % (inst_id, _shell_quote(chart)),
+        "--namespace %s --create-namespace" % namespace,
+        "-f %s" % _shell_quote(values_path),
+    ]
+    # Probe for the optional configdata file the same way helm_deploy.yml does.
+    if _is_localhost(host):
+        has_configdata = os.path.isfile(configdata)
+    else:
+        rc, _ = _ssh_run(
+            host, "test -f %s" % _shell_quote(configdata),
+        )
+        has_configdata = (rc == 0)
+    if has_configdata:
+        cmd_parts.append("-f %s" % _shell_quote(configdata))
+    cmd_parts.extend(["--reset-values", "--wait", "--timeout 10m"])
+    helm_cmd = " ".join(cmd_parts)
+
+    print("Scaling %s to %d replica(s)…" % (component, replicas))
+    if _is_localhost(host):
+        rc = subprocess.call(["bash", "-c", helm_cmd])
+    else:
+        rc, _ = _ssh_run(host, helm_cmd)
+    if rc != 0:
+        print(
+            "Error: helm upgrade failed; values.yaml is updated but "
+            "the deployment may not match. Re-run after fixing the "
+            "underlying error.",
+            file=sys.stderr,
+        )
+        return rc
+
+    print(
+        "Scaled %s to %d replica(s). Persisted to %s."
+        % (component, replicas, values_path)
+    )
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# canasta status
+# ---------------------------------------------------------------------------
+
 @register("status")
 def cmd_status(args):
     inst_id, inst = _resolve_status_instance(args)
