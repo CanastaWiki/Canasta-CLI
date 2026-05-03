@@ -2333,6 +2333,50 @@ class TestDoctor:
         assert "www-data group:  N/A (Docker Desktop handles UID mapping on Darwin)" in result
         assert "NOT A MEMBER" not in result
 
+    def test_parse_doctor_reports_detected_rootless_socket(self):
+        d = direct_commands._SENTINEL
+        parts = [
+            "Python 3.12.0",
+            "Docker version 27.0.0",
+            "Docker Compose version v2.30.0",
+            "OK",
+            "user docker www-data",
+            "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED",
+            "git version 2.45.0", "OK",
+            "OK",
+            "Linux",
+            "16 GB", "50G",
+            "unix:///run/user/1000/podman/podman.sock",
+        ]
+        stdout = ("\n" + d + "\n").join(parts) + "\n"
+        result = direct_commands._parse_doctor(stdout, "myhost")
+        assert (
+            "Rootless socket: unix:///run/user/1000/podman/podman.sock"
+        ) in result
+        assert "auto-set --docker-host" in result
+
+    def test_parse_doctor_reports_no_rootless_socket(self):
+        d = direct_commands._SENTINEL
+        parts = [
+            "Python 3.12.0",
+            "Docker version 27.0.0",
+            "Docker Compose version v2.30.0",
+            "OK",
+            "user docker www-data",
+            "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED",
+            "git version 2.45.0", "OK",
+            "OK",
+            "Linux",
+            "16 GB", "50G",
+            "",
+        ]
+        stdout = ("\n" + d + "\n").join(parts) + "\n"
+        result = direct_commands._parse_doctor(stdout, "myhost")
+        assert "Rootless socket: none detected" in result
+        assert "/var/run/docker.sock" in result
+
 
 class TestCanastaStatus:
     """canasta status --id X — direct_only command that gathers
@@ -2983,3 +3027,117 @@ class TestScale:
         assert "helm upgrade failed" in err
         # values.yaml was already written before helm ran
         assert "replicaCount: 4" in (inst_path / "values.yaml").read_text()
+
+
+# ---------------------------------------------------------------------------
+# DOCKER_HOST propagation (#479 phase 2)
+# ---------------------------------------------------------------------------
+
+class TestDockerHostPropagation:
+    """Direct commands that resolve an instance from the registry
+    must export the registered `dockerHost` as DOCKER_HOST so any
+    subsequent local subprocess inherits it. Remote SSH calls
+    prepend it to the command string (SSH does not pass env vars
+    by default). See #479."""
+
+    def test_resolve_instance_sets_docker_host_when_registered(
+        self, monkeypatch,
+    ):
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        monkeypatch.setattr(
+            "canasta.resolve_instance",
+            lambda iid: {
+                "id": "mysite",
+                "path": "/srv/mysite",
+                "host": "remote",
+                "orchestrator": "compose",
+                "dockerHost": "unix:///run/user/1000/podman/podman.sock",
+            },
+        )
+        from argparse import Namespace
+        args = Namespace(id="mysite")
+        direct_commands._resolve_instance(args)
+        assert (
+            os.environ.get("DOCKER_HOST")
+            == "unix:///run/user/1000/podman/podman.sock"
+        )
+
+    def test_resolve_instance_leaves_docker_host_alone_when_unset(
+        self, monkeypatch,
+    ):
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        monkeypatch.setattr(
+            "canasta.resolve_instance",
+            lambda iid: {
+                "id": "mysite",
+                "path": "/srv/mysite",
+                "host": "remote",
+                "orchestrator": "compose",
+                # No dockerHost — the common case.
+            },
+        )
+        from argparse import Namespace
+        direct_commands._resolve_instance(Namespace(id="mysite"))
+        assert "DOCKER_HOST" not in os.environ, (
+            "_resolve_instance must not export DOCKER_HOST when the "
+            "instance has no dockerHost — would override the "
+            "operator's shell DOCKER_HOST silently."
+        )
+
+    def test_ssh_run_prepends_docker_host_to_remote_cmd(
+        self, monkeypatch,
+    ):
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["argv"] = cmd
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        monkeypatch.setenv(
+            "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock"
+        )
+        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        monkeypatch.setattr(
+            direct_commands, "_resolve_ssh_target",
+            lambda h: h,
+        )
+        direct_commands._ssh_run("acme", "docker compose ps")
+        # Last arg is the remote shell command; must carry the env
+        # assignment as a prefix.
+        remote_cmd = captured["argv"][-1]
+        assert remote_cmd.startswith(
+            "DOCKER_HOST='unix:///run/user/1000/podman/podman.sock' "
+        ), "got remote cmd: %r" % remote_cmd
+        assert remote_cmd.endswith("docker compose ps"), (
+            "got remote cmd: %r" % remote_cmd
+        )
+
+    def test_ssh_run_no_prefix_when_docker_host_unset(
+        self, monkeypatch,
+    ):
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["argv"] = cmd
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        monkeypatch.setattr(
+            direct_commands, "_resolve_ssh_target",
+            lambda h: h,
+        )
+        direct_commands._ssh_run("acme", "docker compose ps")
+        remote_cmd = captured["argv"][-1]
+        assert remote_cmd == "docker compose ps", (
+            "remote cmd should be unmodified when DOCKER_HOST unset; "
+            "got %r" % remote_cmd
+        )

@@ -1,0 +1,34 @@
+---
+# Probe the current target for a rootless container socket and set
+# `_detected_docker_host` accordingly. Empty string when nothing
+# rootless was found — caller treats that as "stick with the default
+# /var/run/docker.sock". See #479.
+#
+# We look for podman first (the common rootless setup) and fall back
+# to rootless Docker. Both put their socket under
+# $XDG_RUNTIME_DIR (typically /run/user/<uid>/), so a single shell
+# probe that prefers podman is enough.
+
+- name: Probe target for rootless container socket
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      uid=$(id -u)
+      runtime="${XDG_RUNTIME_DIR:-/run/user/$uid}"
+      for sock in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do
+          if [ -S "$sock" ]; then
+              echo "unix://$sock"
+              exit 0
+          fi
+      done
+      # System docker is the implicit default; no override needed.
+      echo ""
+  register: _detect_docker_sock_probe
+  changed_when: false
+  # The shell is intentionally cheap and idempotent; even on a
+  # locked-down target a `id -u` + a couple of `[ -S … ]` succeed
+  # without privilege.
+
+- name: Capture detected docker host
+  ansible.builtin.set_fact:
+    _detected_docker_host: "{{ _detect_docker_sock_probe.stdout | trim }}"
