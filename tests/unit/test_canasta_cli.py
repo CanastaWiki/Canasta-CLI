@@ -352,7 +352,7 @@ class TestBuildAnsibleArgs:
         self, data, monkeypatch,
     ):
         """build_ansible_args plants a default ANSIBLE_SSH_ARGS that has
-        to include three things at once for remote operations to work
+        to include four things at once for remote operations to work
         without operator ceremony:
 
         - StrictHostKeyChecking=accept-new so first contact with a new
@@ -363,6 +363,11 @@ class TestBuildAnsibleArgs:
           the target host (gitops `git push` to a private repo on a
           remote then authenticates against the forge with the
           operator's keys; see #465).
+        - ServerAliveInterval keeps long-running remote commands
+          (helm upgrade --wait, gitops init's git push, maintenance
+          update) from tripping a NAT or firewall idle drop and
+          reporting a bogus "Broken pipe" while the remote is still
+          working.
 
         Guard against any of those silently disappearing.
         """
@@ -376,6 +381,7 @@ class TestBuildAnsibleArgs:
         assert "StrictHostKeyChecking=accept-new" in ssh_args
         assert "UserKnownHostsFile=" in ssh_args
         assert "ForwardAgent=yes" in ssh_args
+        assert "ServerAliveInterval=" in ssh_args
 
 
 class TestHostCommandsBehavior:

@@ -802,7 +802,13 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         "ANSIBLE_SSH_ARGS",
         "-o StrictHostKeyChecking=accept-new "
         "-o UserKnownHostsFile=~/.ssh/known_hosts "
-        "-o ForwardAgent=yes",
+        "-o ForwardAgent=yes "
+        # Long-running remote commands (helm upgrade --wait, gitops
+        # init's git push, maintenance update) can outlast a NAT or
+        # firewall idle timeout. ServerAliveInterval keeps the SSH
+        # session warm so the parent doesn't see a "Broken pipe"
+        # while the remote is still working.
+        "-o ServerAliveInterval=30 -o ServerAliveCountMax=20",
     )
 
     # Hand the platform-correct config dir to Ansible. get_config_dir()

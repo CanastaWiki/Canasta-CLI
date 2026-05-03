@@ -1933,6 +1933,52 @@ commands:
         type: string
         description: "Target host (default: localhost)"
 
+  - name: scale
+    description: "Set the number of replicas for the web tier (Kubernetes)"
+    long_description: |
+      Set the number of replicas for the web tier of a Canasta
+      instance running on Kubernetes. The new count is persisted to
+      the instance's `values.yaml` and applied via `helm upgrade`,
+      so it survives a later `canasta upgrade` (which would
+      otherwise reset the chart's default).
+
+      Multi-replica web requires a ReadWriteMany storage class for
+      the config and images PVCs. With ReadWriteOnce, additional
+      pods will fail to start with `Multi-Attach` errors — see
+      `canasta storage list` and `canasta storage setup`.
+
+      Kubernetes-only by design. Compose runs all replicas on a
+      single host with no built-in load balancing between them, so
+      the multi-replica model that motivates this command (spread
+      across cluster nodes, fault tolerance, horizontal capacity)
+      doesn't apply. If you need more concurrency on a Compose
+      instance, raise PHP-FPM worker limits inside the web image
+      rather than running multiple replicas of the same container.
+
+      Only `web` is currently supported. The Helm chart's other
+      Deployments (jobrunner, caddy, varnish) run a single replica
+      and do not accept a replica-count override.
+    examples:
+      - "canasta scale -i mysite --replicas 3"
+    direct_only: true
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: replicas
+        short: r
+        type: integer
+        required: true
+        description: "Desired replica count (must be ≥ 1)"
+      - name: component
+        short: c
+        type: string
+        default: web
+        description: >-
+          Component to scale. Currently only `web` is supported;
+          other values are rejected.
+
   - name: status
     description: "Show pod/PVC/ingress/cert state for a single instance"
     long_description: |
