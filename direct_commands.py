@@ -2100,9 +2100,16 @@ def cmd_scale(args):
     inst_id, inst = _resolve_instance(args)
     orchestrator = inst.get("orchestrator", "compose")
     if orchestrator not in ("kubernetes", "k8s"):
+        # Kubernetes-only by design: Compose runs all replicas on the
+        # same host with no built-in cross-replica load balancing, so
+        # the spread-across-nodes / horizontal-capacity model that
+        # motivates this command doesn't apply. Bump PHP-FPM worker
+        # limits inside the image instead.
         print(
-            "Error: `canasta scale` is currently Kubernetes-only. "
-            "Compose support is tracked as a follow-up.",
+            "Error: `canasta scale` is Kubernetes-only by design. "
+            "On Compose, raise PHP-FPM worker limits inside the web "
+            "image rather than running multiple replicas of the same "
+            "container.",
             file=sys.stderr,
         )
         return 1

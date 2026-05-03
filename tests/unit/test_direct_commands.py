@@ -2877,7 +2877,10 @@ class TestScale:
         )
         rc = direct_commands.cmd_scale(self._args())
         assert rc == 1
-        assert "Kubernetes-only" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "Kubernetes-only" in err
+        # Message should also tell Compose users what to do instead.
+        assert "PHP-FPM" in err
 
     def test_rejects_unsupported_component(self, monkeypatch, capsys):
         monkeypatch.setattr(

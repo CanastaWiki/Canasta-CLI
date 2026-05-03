@@ -1934,7 +1934,7 @@ commands:
         description: "Target host (default: localhost)"
 
   - name: scale
-    description: "Set the number of replicas for the web tier"
+    description: "Set the number of replicas for the web tier (Kubernetes)"
     long_description: |
       Set the number of replicas for the web tier of a Canasta
       instance running on Kubernetes. The new count is persisted to
@@ -1947,9 +1947,18 @@ commands:
       pods will fail to start with `Multi-Attach` errors — see
       `canasta storage list` and `canasta storage setup`.
 
-      Compose support and scaling other components (jobrunner,
-      varnish) are tracked as follow-ups; only `web` and only on
-      Kubernetes are accepted in this release.
+      Kubernetes-only by design. Compose runs all replicas on a
+      single host with no built-in load balancing between them, so
+      the multi-replica model that motivates this command (spread
+      across cluster nodes, fault tolerance, horizontal capacity)
+      doesn't apply. If you need more concurrency on a Compose
+      instance, raise PHP-FPM worker limits inside the web image
+      rather than running multiple replicas of the same container.
+
+      Scaling other components (jobrunner, varnish) is tracked as a
+      follow-up; only `web` is accepted in this release because the
+      Helm chart currently parameterizes the replica count only on
+      the web Deployment.
     examples:
       - "canasta scale -i mysite --replicas 3"
     direct_only: true
