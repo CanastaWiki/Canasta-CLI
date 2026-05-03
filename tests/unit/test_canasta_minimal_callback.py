@@ -69,6 +69,35 @@ class TestFormatCmdDiagnostics:
             "FileNotFoundError: [Errno 2] No such file: 'git-crypt')"
         )
 
+    def test_traceback_unavailable_placeholder_suppressed(self):
+        """Ansible sets exception='(traceback unavailable)' for tasks
+        with no real traceback (notably ansible.builtin.fail). The
+        callback must not surface that placeholder — without filtering,
+        a fail task's user-facing error becomes 'Error: <msg>
+        ((traceback unavailable))', which is meaningless noise."""
+        out = canasta_minimal.CallbackModule._format_cmd_diagnostics(
+            "", "(traceback unavailable)"
+        )
+        assert out == ""
+
+    def test_traceback_unavailable_with_cmd_keeps_cmd(self):
+        out = canasta_minimal.CallbackModule._format_cmd_diagnostics(
+            ["git-crypt", "--version"], "(traceback unavailable)"
+        )
+        assert out == " (cmd: git-crypt --version)"
+
+    def test_traceback_unavailable_in_multiline_skips_to_real_line(self):
+        """Multi-line exception where the last line is the placeholder
+        and the prior line is the real error: prefer the real error."""
+        exc = (
+            "FileNotFoundError: [Errno 2] No such file: 'git-crypt'\n"
+            "(traceback unavailable)\n"
+        )
+        out = canasta_minimal.CallbackModule._format_cmd_diagnostics("", exc)
+        assert out == (
+            " (FileNotFoundError: [Errno 2] No such file: 'git-crypt')"
+        )
+
 
 class TestRunnerOnFailed:
     def test_oserror_on_spawn_surfaces_cmd_and_exception(self):
@@ -104,6 +133,20 @@ class TestRunnerOnFailed:
         cb.v2_runner_on_failed(_result(msg="plain failure"))
         msgs = [m for (m, _, _) in cb._captured]
         assert msgs == ["Error: plain failure"]
+
+    def test_fail_task_with_traceback_unavailable_placeholder(self):
+        """End-to-end: ansible.builtin.fail sets exception=
+        '(traceback unavailable)' alongside its real msg. The user
+        should see only the real message, not the placeholder."""
+        cb = _make_callback()
+        cb.v2_runner_on_failed(_result(
+            msg="Instance 'mwstake' not found in the registry or Kubernetes.",
+            exception="(traceback unavailable)",
+        ))
+        msgs = [m for (m, _, _) in cb._captured]
+        assert msgs == [
+            "Error: Instance 'mwstake' not found in the registry or Kubernetes."
+        ]
 
     def test_ignore_errors_suppresses_output(self):
         cb = _make_callback()
