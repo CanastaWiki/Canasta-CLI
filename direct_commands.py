@@ -52,10 +52,21 @@ def _get_script_dir():
 
 
 def _resolve_instance(args):
-    """Resolve instance from --id flag or cwd. Returns (id, inst_dict) or exits."""
+    """Resolve instance from --id flag or cwd. Returns (id, inst_dict) or exits.
+
+    Side effect: when the resolved instance has a `dockerHost` in the
+    registry (set by `canasta create --docker-host=…` or by phase 2's
+    auto-detect at create time, see #479), exports it as DOCKER_HOST
+    in the process environment so any subsequent local `docker` /
+    `docker compose` subprocess inherits it. Remote SSH-wrapped docker
+    calls pick up the same value via _ssh_run's prefix logic.
+    """
     from canasta import resolve_instance
     instance_id = getattr(args, "id", None)
     inst = resolve_instance(instance_id)
+    docker_host = inst.get("dockerHost")
+    if docker_host:
+        os.environ["DOCKER_HOST"] = docker_host
     return inst["id"], inst
 
 
@@ -521,6 +532,14 @@ def _ssh_run(host, cmd):
     # ends up running `ssh node1 …` which fails with "Could not
     # resolve hostname node1" even though canasta knows the mapping.
     target = _resolve_ssh_target(host)
+    # Propagate DOCKER_HOST (set by _resolve_instance from the
+    # registry's dockerHost field) to the remote so docker / docker
+    # compose calls there honor the rootless socket. SSH does NOT
+    # pass env vars by default; prepending the assignment is portable
+    # and works for any cmd that ever shells out to docker.
+    docker_host = os.environ.get("DOCKER_HOST")
+    if docker_host:
+        cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
     full_cmd = ["ssh"] + _ssh_args() + [target, cmd]
     try:
         result = subprocess.run(
@@ -1832,7 +1851,8 @@ git-crypt --version 2>/dev/null && echo OK || echo MISSING; echo "$D"
 command -v crontab >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 uname -s 2>/dev/null || echo unknown; echo "$D"
 python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
-df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown
+df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown; echo "$D"
+runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; for sock in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do if [ -S "$sock" ]; then echo "unix://$sock"; exit 0; fi; done; echo ""
 """
 
 
@@ -1859,6 +1879,7 @@ def _parse_doctor(stdout, hostname):
     host_os = p(13)
     memory = p(14)
     disk = p(15) if len(parts) > 15 else "unknown"
+    rootless_sock = p(16) if len(parts) > 16 else ""
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -1874,6 +1895,17 @@ def _parse_doctor(stdout, hostname):
         "OK (%s)" % compose if "Docker Compose" in compose else "MISSING"))
     lines.append("  Docker daemon:   %s" % (
         "OK (running)" if daemon == "OK" else "NOT RUNNING"))
+    if rootless_sock:
+        lines.append(
+            "  Rootless socket: %s "
+            "(canasta create will auto-set --docker-host to this)"
+            % rootless_sock
+        )
+    else:
+        lines.append(
+            "  Rootless socket: none detected "
+            "(default /var/run/docker.sock)"
+        )
 
     lines.append("")
     lines.append("Kubernetes (optional):")

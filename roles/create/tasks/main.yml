@@ -14,6 +14,17 @@
     msg: "Connecting to {{ ansible_host | default(inventory_hostname) }}..."
   when: ansible_host | default(inventory_hostname) != 'localhost'
 
+# Auto-detect rootless container socket on the target before the
+# first docker call fires. Only runs when the operator didn't pass
+# --docker-host; the play-level env expression in canasta.yml picks
+# up `_detected_docker_host` next-in-line. Probe is silent / cheap
+# even when nothing rootless is installed (`stdout` ends up empty).
+- name: Detect rootless container socket on target
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/detect_docker_socket.yml"
+  when:
+    - orchestrator | default('compose') == 'compose'
+    - (docker_host | default('')) == ''
+
 - name: Check Docker is available
   ansible.builtin.command:
     cmd: docker info
@@ -745,7 +756,7 @@
     path: "{{ instance_path }}"
     orchestrator: "{{ orchestrator | default('compose') }}"
     host: "{{ _registry_host }}"
-    docker_host: "{{ docker_host | default(omit) }}"
+    docker_host: "{{ docker_host | default(_detected_docker_host | default(''), true) | default(omit, true) }}"
     managed_cluster: false
     build_from: "{{ build_from | default(omit) }}"
     state: present
@@ -759,7 +770,7 @@
     id: "{{ id }}"
     path: "{{ instance_path }}"
     orchestrator: "{{ orchestrator | default('compose') }}"
-    docker_host: "{{ docker_host | default(omit) }}"
+    docker_host: "{{ docker_host | default(_detected_docker_host | default(''), true) | default(omit, true) }}"
     managed_cluster: false
     build_from: "{{ build_from | default(omit) }}"
     state: present

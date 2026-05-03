@@ -25,11 +25,16 @@
   #      --docker-host=…). Bound as `docker_host`.
   #   2. dockerHost from the registry, set by resolve_instance.yml on
   #      a previous create. Bound as `instance_docker_host`.
-  #   3. omit — let docker fall back to its compiled-in default.
+  #   3. The probe result from detect_docker_socket.yml (covers a
+  #      first-time `canasta create` against a rootless target where
+  #      no flag was passed and no registry entry exists yet).
+  #      Bound as `_detected_docker_host`.
+  #   4. omit — let docker fall back to its compiled-in default.
   environment:
     DOCKER_HOST: >-
       {{ docker_host
          | default(instance_docker_host | default(''), true)
+         | default(_detected_docker_host | default(''), true)
          | default(omit, true) }}
 
   pre_tasks:
