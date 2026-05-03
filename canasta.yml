@@ -15,6 +15,23 @@
     canasta_root: "{{ playbook_dir }}"
     canasta_default_image: "ghcr.io/canastawiki/canasta:{{ lookup('file', playbook_dir + '/CANASTA_VERSION') | trim }}"
 
+  # DOCKER_HOST applies to every `docker` / `docker compose` invocation
+  # in the play. Operators on rootless podman / rootless Docker need
+  # this to point at their per-user socket
+  # (e.g. unix:///run/user/<uid>/podman/podman.sock); without it,
+  # `docker info` connects to the default `/var/run/docker.sock` and
+  # fails. Precedence:
+  #   1. --docker-host on the current invocation (e.g. canasta create
+  #      --docker-host=…). Bound as `docker_host`.
+  #   2. dockerHost from the registry, set by resolve_instance.yml on
+  #      a previous create. Bound as `instance_docker_host`.
+  #   3. omit — let docker fall back to its compiled-in default.
+  environment:
+    DOCKER_HOST: >-
+      {{ docker_host
+         | default(instance_docker_host | default(''), true)
+         | default(omit, true) }}
+
   pre_tasks:
     - name: Validate command parameter
       ansible.builtin.assert:

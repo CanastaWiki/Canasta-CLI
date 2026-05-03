@@ -115,6 +115,31 @@ class TestInstanceToDict:
         })
         assert "host" not in result
 
+    def test_includes_docker_host(self):
+        result = canasta_registry.instance_to_dict({
+            "id": "test", "path": "/test",
+            "dockerHost": "unix:///run/user/1000/podman/podman.sock",
+        })
+        assert (
+            result["dockerHost"]
+            == "unix:///run/user/1000/podman/podman.sock"
+        )
+
+    def test_omits_empty_docker_host(self):
+        result = canasta_registry.instance_to_dict({
+            "id": "test", "path": "/test", "dockerHost": ""
+        })
+        assert "dockerHost" not in result
+
+    def test_omits_missing_docker_host(self):
+        # The default — instances created without --docker-host should
+        # not carry the field at all (so existing instances stay
+        # byte-identical in conf.json).
+        result = canasta_registry.instance_to_dict({
+            "id": "test", "path": "/test"
+        })
+        assert "dockerHost" not in result
+
 
 class TestFindByPath:
     def test_exact_match(self, sample_config):
