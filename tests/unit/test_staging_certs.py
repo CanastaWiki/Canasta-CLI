@@ -52,14 +52,21 @@ class TestStagingCerts:
     # --- Create time: the flag must land in .env ---
 
     def test_create_writes_canasta_staging_certs_env(self):
-        """roles/create/tasks/main.yml must persist the
-        --staging-certs flag as CANASTA_STAGING_CERTS in .env so
-        both orchestrators' template logic can read it."""
-        path = os.path.join(REPO_ROOT, "roles", "create", "tasks", "main.yml")
-        with open(path) as f:
-            content = f.read()
+        """The create role must persist the --staging-certs flag as
+        CANASTA_STAGING_CERTS in .env so both orchestrators' template
+        logic can read it. The task may live in main.yml or a sub-
+        task file under roles/create/tasks/."""
+        tasks_dir = os.path.join(
+            REPO_ROOT, "roles", "create", "tasks",
+        )
+        combined = []
+        for fname in sorted(os.listdir(tasks_dir)):
+            if fname.endswith(".yml"):
+                with open(os.path.join(tasks_dir, fname)) as f:
+                    combined.append(f.read())
+        content = "\n".join(combined)
         assert "key: CANASTA_STAGING_CERTS" in content, (
-            "create/main.yml must write CANASTA_STAGING_CERTS to .env"
+            "the create role must write CANASTA_STAGING_CERTS to .env"
         )
         assert "staging_certs | default(false)" in content, (
             "The .env value must be derived from the staging_certs flag"

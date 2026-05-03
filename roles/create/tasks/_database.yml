@@ -1,0 +1,59 @@
+---
+# After containers are up, wait for the database to accept
+# connections and then either:
+#   - import an existing dump (--database <file>): replays the SQL
+#     dump and regenerates MW_SECRET_KEY from the imported
+#     LocalSettings.php; or
+#   - run the MediaWiki installer (no dump): creates schema,
+#     installs core, and writes LocalSettings.php for each wiki.
+#
+# Both paths are mutually exclusive on `database is defined`.
+
+- name: Report waiting for database
+  ansible.builtin.debug:
+    msg: "Waiting for database to be ready"
+
+- name: Wait for database
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: wait_for_db.yml
+
+- name: Import existing database
+  when: database is defined and database != ''
+  block:
+    - name: Report importing database
+      ansible.builtin.debug:
+        msg: "Importing database..."
+
+    - name: Import database dump
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: import_database.yml
+      vars:
+        import_wiki_id: "{{ wiki }}"
+        import_database_path: "{{ database }}"
+        import_db_password: "{{ _rootdbpass }}"
+
+    - name: Generate and save MW_SECRET_KEY
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: generate_secret_key.yml
+
+- name: Report running installer
+  ansible.builtin.debug:
+    msg: "Configuring MediaWiki installation"
+  when: database is not defined or database == ''
+
+- name: Run MediaWiki installer
+  when: database is not defined or database == ''
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: install.yml
+  vars:
+    install_wiki_ids: "{{ _created_wikis.wiki_ids }}"
+    install_wikis: "{{ _created_wikis.wikis }}"
+    install_admin_name: "{{ admin | default('WikiSysop') }}"
+    install_admin_password: "{{ _admin_password }}"
+    install_root_db_password: "{{ _rootdbpass }}"
+    install_wiki_db_username: "{{ wikidbuser | default('root') }}"
+    install_wiki_db_password: "{{ _wikidbpass }}"

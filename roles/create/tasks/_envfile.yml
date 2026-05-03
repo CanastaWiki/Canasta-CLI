@@ -1,0 +1,77 @@
+---
+# Custom env file merge + external-DB password override + port
+# detection. Runs BEFORE wikis.yaml is generated because the
+# resolved port (from CADDY_AUTO_HTTPS / HTTP[S]_PORT) determines
+# the domain string written into wikis.yaml.
+#
+# The external-DB block here also overrides _rootdbpass and
+# _wikidbpass with the user-supplied MYSQL_PASSWORD from the env
+# file, since the values generated in _passwords.yml would not
+# match an external DB.
+
+- name: Merge custom env file if provided
+  when: envfile is defined and envfile != ''
+  block:
+    - name: Read custom env file
+      ansible.builtin.slurp:
+        src: "{{ envfile }}"
+      register: _custom_env
+
+    - name: Parse and apply custom env variables
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: "{{ item.split('=', 1)[0] }}"
+        value: "{{ item.split('=', 1)[1] }}"
+      loop: "{{ (_custom_env.content | b64decode).split('\n') | select('match', '^[A-Z].*=') | list }}"
+
+# For external DB, use the password from the env file instead of the
+# generated one. The env file was merged above and may contain
+# MYSQL_PASSWORD from the user's -e file.
+- name: Check if using external DB
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: USE_EXTERNAL_DB
+  register: _ext_db_early_check
+
+- name: Use external DB password from env file
+  when: _ext_db_early_check.found and _ext_db_early_check.value | lower == 'true'
+  block:
+    - name: Read MYSQL_PASSWORD from env file
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MYSQL_PASSWORD
+      register: _ext_db_password
+
+    - name: Override root DB password with external DB password
+      ansible.builtin.set_fact:
+        _rootdbpass: "{{ _ext_db_password.value }}"
+        _wikidbpass: "{{ _ext_db_password.value }}"
+      when: _ext_db_password.found
+      no_log: true
+
+- name: Read HTTPS_PORT and CADDY_AUTO_HTTPS from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _env_for_port
+
+- name: Determine which port (if any) to append to the domain
+  ansible.builtin.set_fact:
+    _http_only: "{{ _env_for_port.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off' }}"
+    _https_port: "{{ _env_for_port.variables.HTTPS_PORT | default('443') }}"
+    _http_port: "{{ _env_for_port.variables.HTTP_PORT | default('80') }}"
+
+- name: Build domain with port
+  # When CADDY_AUTO_HTTPS=off, append HTTP_PORT (if non-standard).
+  # Otherwise, append HTTPS_PORT (if non-standard).
+  ansible.builtin.set_fact:
+    _domain_with_port: >-
+      {{ domain_name | default('localhost') }}{{
+        _http_only
+        | ternary(
+            (_http_port not in ['80', '']) | ternary(':' ~ _http_port, ''),
+            (_https_port not in ['443', '']) | ternary(':' ~ _https_port, '')
+          ) }}

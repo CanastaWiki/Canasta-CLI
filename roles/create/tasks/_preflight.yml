@@ -1,0 +1,76 @@
+---
+# Pre-flight checks for `canasta create`. Runs before any state-
+# mutating step:
+#   - reports the target host (when remote)
+#   - auto-detects a rootless container socket on Compose targets
+#     when --docker-host wasn't passed
+#   - probes Docker on Compose targets and bails if it isn't there
+#   - checks for at least 3500 MiB of host memory on Compose targets
+#     (K8s has its own per-node check in k8s_preflight.yml)
+
+- name: Report connecting to host
+  ansible.builtin.debug:
+    msg: "Connecting to {{ ansible_host | default(inventory_hostname) }}..."
+  when: ansible_host | default(inventory_hostname) != 'localhost'
+
+# Auto-detect rootless container socket on the target before the
+# first docker call fires. Only runs when the operator didn't pass
+# --docker-host; the play-level env expression in canasta.yml picks
+# up `_detected_docker_host` next-in-line. Probe is silent / cheap
+# even when nothing rootless is installed (`stdout` ends up empty).
+- name: Detect rootless container socket on target
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/detect_docker_socket.yml"
+  when:
+    - orchestrator | default('compose') == 'compose'
+    - (docker_host | default('')) == ''
+
+- name: Check Docker is available
+  ansible.builtin.command:
+    cmd: docker info
+  register: _docker_check
+  changed_when: false
+  ignore_errors: true  # OK if Docker not installed
+  when: orchestrator | default('compose') == 'compose'
+
+- name: Fail if Docker not available
+  ansible.builtin.fail:
+    msg: >-
+      Docker is not available on this host.
+      Run 'canasta doctor' to check all dependencies.
+  when:
+    - orchestrator | default('compose') == 'compose'
+    - _docker_check.rc | default(0) != 0
+
+# Compose-only host memory preflight. The K8s path has its own
+# per-node memory check in k8s_preflight.yml — running this on a K8s
+# create would measure the controller host, not the cluster nodes,
+# which is the wrong thing.
+#
+# Threshold is 3500 MiB rather than a round 4096 MiB because cloud
+# instances marketed as "4 GiB" actually expose ~3700-3900 MiB to the
+# kernel after BIOS/UEFI/hypervisor reserves. AWS c7i-flex.large
+# (4 GiB advertised) reports ~3826 MiB MemTotal, for example. The
+# 3500 MiB floor is comfortably above what 2 GiB instances report
+# (~1700-1900 MiB) and below what real 4 GiB cloud instances report.
+- name: Check target host total memory (minimum 3500 MiB) — Compose only
+  ansible.builtin.command:
+    cmd: >-
+      python3 -c "import os;
+      mem_mib = os.sysconf('SC_PAGE_SIZE')
+      * os.sysconf('SC_PHYS_PAGES') // (1024**2);
+      exit(0 if mem_mib >= 3500 else 1)"
+  register: _mem_check
+  changed_when: false
+  ignore_errors: true  # OK if memory check unavailable
+  when: orchestrator | default('compose') == 'compose'
+
+- name: Fail if target host has less than 3500 MiB total memory
+  ansible.builtin.fail:
+    msg: >-
+      Canasta requires at least 3500 MiB of total memory on the target
+      host (in practice, a 4 GiB instance class or larger — cloud
+      instances marketed as 4 GiB report ~3700-3900 MiB after kernel
+      and firmware reserves). The host has less than that.
+  when:
+    - orchestrator | default('compose') == 'compose'
+    - _mem_check.rc | default(0) != 0

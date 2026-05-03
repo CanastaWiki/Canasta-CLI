@@ -505,10 +505,27 @@ class TestResolvePasswordHelper:
         os.path.dirname(__file__), "..", "..",
         "roles", "create", "tasks", "_resolve_password.yml",
     )
-    MAIN_PATH = os.path.join(
+    CREATE_TASKS_DIR = os.path.join(
         os.path.dirname(__file__), "..", "..",
-        "roles", "create", "tasks", "main.yml",
+        "roles", "create", "tasks",
     )
+
+    def _read_create_tasks(self):
+        """Combined contents of all create-role task files (excluding
+        the helper itself). The three password resolutions used to
+        live in main.yml; after the #428 split they live in
+        _passwords.yml. The structural assertions don't care which
+        file holds them — they just guard against the helper pattern
+        being abandoned."""
+        combined = []
+        for fname in sorted(os.listdir(self.CREATE_TASKS_DIR)):
+            if not fname.endswith(".yml"):
+                continue
+            if fname == "_resolve_password.yml":
+                continue  # helper itself; calls generate_password.yml
+            with open(os.path.join(self.CREATE_TASKS_DIR, fname)) as f:
+                combined.append(f.read())
+        return "\n".join(combined)
 
     def test_helper_exists(self):
         assert os.path.isfile(self.HELPER_PATH)
@@ -539,39 +556,33 @@ class TestResolvePasswordHelper:
         )
 
     def test_main_uses_helper_for_each_password(self):
-        with open(self.MAIN_PATH) as f:
-            content = f.read()
+        content = self._read_create_tasks()
         # Three password resolutions: root DB, wiki DB (non-root user
         # branch), admin. Each must include the helper.
         helper_includes = content.count("include_tasks: _resolve_password.yml")
         assert helper_includes >= 3, (
             "Expected at least 3 includes of _resolve_password.yml "
-            "(rootdbpass, wikidbpass non-root branch, admin); "
-            "found %d" % helper_includes
+            "(rootdbpass, wikidbpass non-root branch, admin) across "
+            "roles/create/tasks/*.yml; found %d" % helper_includes
         )
 
     def test_main_no_inline_generate_password_for_create_passwords(self):
         """Defensive: nobody should inline-call generate_password.yml
-        from main.yml for the three passwords the helper now owns. If
-        someone adds a new password type that needs the same pattern,
-        they should call the helper instead of copy-pasting the loop."""
-        with open(self.MAIN_PATH) as f:
-            content = f.read()
-        # The helper itself includes generate_password.yml; main.yml
-        # should not directly include it for create-time passwords.
+        from the create role for the three passwords the helper now
+        owns. If someone adds a new password type that needs the same
+        pattern, they should call the helper instead of copy-pasting
+        the loop."""
+        content = self._read_create_tasks()
+        # The helper itself includes generate_password.yml; create-
+        # role task files should not directly include it.
         assert "include_tasks:" in content
-        # generate_password.yml may be referenced for non-create
-        # password classes (e.g. observability creds in side_effects);
-        # the test scope is just main.yml.
         inline_generate = content.count("generate_password.yml")
         # 0 is the win; tolerate if some other site legitimately
         # includes it without the helper.
         assert inline_generate <= 0, (
             "Found %d inline generate_password.yml include(s) in "
-            "main.yml — these should go through "
-            "_resolve_password.yml. Includes: search for "
-            "'generate_password.yml' in roles/create/tasks/main.yml."
-            % inline_generate
+            "roles/create/tasks/*.yml — these should go through "
+            "_resolve_password.yml." % inline_generate
         )
 
 

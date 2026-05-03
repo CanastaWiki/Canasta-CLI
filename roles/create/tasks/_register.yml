@@ -1,0 +1,38 @@
+---
+# Register the new instance in the controller and (when remote)
+# the target host registry. The host string captured here is what
+# the controller stores in conf.json and uses to drive subsequent
+# commands without -H. It must be derived from `ansible_host`
+# BEFORE delegate_to: localhost, because delegation overrides
+# ansible_host with the delegate's value (always 'localhost'),
+# losing the play target's identity.
+
+- name: Build registry host string
+  ansible.builtin.set_fact:
+    _registry_host: "{{ (ansible_user | default('') + '@') if (ansible_user | default('')) else '' }}{{ ansible_host | default(inventory_hostname) }}"
+
+- name: Register instance in controller config
+  canasta_registry:
+    id: "{{ id }}"
+    path: "{{ instance_path }}"
+    orchestrator: "{{ orchestrator | default('compose') }}"
+    host: "{{ _registry_host }}"
+    docker_host: "{{ docker_host | default(_detected_docker_host | default(''), true) | default(omit, true) }}"
+    managed_cluster: false
+    build_from: "{{ build_from | default(omit) }}"
+    state: present
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+- name: Register instance in target host config
+  canasta_registry:
+    id: "{{ id }}"
+    path: "{{ instance_path }}"
+    orchestrator: "{{ orchestrator | default('compose') }}"
+    docker_host: "{{ docker_host | default(_detected_docker_host | default(''), true) | default(omit, true) }}"
+    managed_cluster: false
+    build_from: "{{ build_from | default(omit) }}"
+    state: present
+  when: inventory_hostname != "localhost"
