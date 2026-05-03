@@ -488,3 +488,128 @@ class TestGitopsReinit:
         assert os.path.isfile(
             os.path.join(GITOPS_TASKS, "_reinit_cleanup.yml")
         )
+
+
+class TestResolvePasswordHelper:
+    """The audit asked for `_resolve_password.yml` to dedupe the
+    'use-provided-or-generate' pattern that was repeated three times
+    in roles/create/tasks/main.yml. These tests guard against:
+
+    1. The helper getting deleted or moved without updating the call
+       sites.
+    2. Future password-resolution code in main.yml drifting away from
+       the helper and bringing the duplication back.
+    """
+
+    HELPER_PATH = os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "roles", "create", "tasks", "_resolve_password.yml",
+    )
+    MAIN_PATH = os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "roles", "create", "tasks", "main.yml",
+    )
+
+    def test_helper_exists(self):
+        assert os.path.isfile(self.HELPER_PATH)
+
+    def test_helper_sets_resolved_password(self):
+        with open(self.HELPER_PATH) as f:
+            tasks = yaml.safe_load(f)
+        # Walk every task (including those in `block:`) and make sure
+        # at least one set_fact targets `_resolved_password` — the
+        # contract the call sites depend on.
+        def walk(items):
+            for t in items or []:
+                if not isinstance(t, dict):
+                    continue
+                yield t
+                for k in ("block", "rescue", "always"):
+                    if k in t:
+                        yield from walk(t[k])
+        sets_resolved = []
+        for t in walk(tasks):
+            sf = t.get("ansible.builtin.set_fact") or t.get("set_fact")
+            if isinstance(sf, dict) and "_resolved_password" in sf:
+                sets_resolved.append(t.get("name", "<unnamed>"))
+        assert sets_resolved, (
+            "_resolve_password.yml must set _resolved_password "
+            "(both the use-provided and generate branches). Found: %r"
+            % sets_resolved
+        )
+
+    def test_main_uses_helper_for_each_password(self):
+        with open(self.MAIN_PATH) as f:
+            content = f.read()
+        # Three password resolutions: root DB, wiki DB (non-root user
+        # branch), admin. Each must include the helper.
+        helper_includes = content.count("include_tasks: _resolve_password.yml")
+        assert helper_includes >= 3, (
+            "Expected at least 3 includes of _resolve_password.yml "
+            "(rootdbpass, wikidbpass non-root branch, admin); "
+            "found %d" % helper_includes
+        )
+
+    def test_main_no_inline_generate_password_for_create_passwords(self):
+        """Defensive: nobody should inline-call generate_password.yml
+        from main.yml for the three passwords the helper now owns. If
+        someone adds a new password type that needs the same pattern,
+        they should call the helper instead of copy-pasting the loop."""
+        with open(self.MAIN_PATH) as f:
+            content = f.read()
+        # The helper itself includes generate_password.yml; main.yml
+        # should not directly include it for create-time passwords.
+        assert "include_tasks:" in content
+        # generate_password.yml may be referenced for non-create
+        # password classes (e.g. observability creds in side_effects);
+        # the test scope is just main.yml.
+        inline_generate = content.count("generate_password.yml")
+        # 0 is the win; tolerate if some other site legitimately
+        # includes it without the helper.
+        assert inline_generate <= 0, (
+            "Found %d inline generate_password.yml include(s) in "
+            "main.yml — these should go through "
+            "_resolve_password.yml. Includes: search for "
+            "'generate_password.yml' in roles/create/tasks/main.yml."
+            % inline_generate
+        )
+
+
+class TestResolveInstanceSkipGate:
+    """`instance_lifecycle/start.yml` and `restart.yml` are entered
+    both top-level (`canasta start` / `canasta restart`) and from
+    nested callers (config set/unset, add, backup restore, devmode
+    enable/disable, upgrade) that already passed through
+    resolve_instance.yml. The include must be gated on
+    `instance_path is not defined` so nested callers skip the
+    redundant registry round-trip."""
+
+    LIFECYCLE_FILES = ["start.yml", "restart.yml"]
+
+    @pytest.mark.parametrize("filename", LIFECYCLE_FILES)
+    def test_resolve_instance_gated_on_instance_path(self, filename):
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "roles", "instance_lifecycle", "tasks", filename,
+        )
+        with open(path) as f:
+            tasks = yaml.safe_load(f)
+        for t in tasks:
+            if not isinstance(t, dict):
+                continue
+            inc = t.get("ansible.builtin.include_tasks") or t.get("include_tasks", "")
+            if "resolve_instance.yml" not in str(inc):
+                continue
+            when = t.get("when", "")
+            assert "instance_path is not defined" in when, (
+                "%s: resolve_instance.yml include must be gated on "
+                "`instance_path is not defined`; got when=%r"
+                % (filename, when)
+            )
+            return
+        # If we never found a resolve_instance include, the file
+        # changed shape — flag it so reviewers don't lose the test.
+        raise AssertionError(
+            "%s no longer includes resolve_instance.yml — the gate "
+            "test needs updating to reflect the new flow." % filename
+        )
