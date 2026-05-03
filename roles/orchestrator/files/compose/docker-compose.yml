@@ -123,9 +123,15 @@ services:
       - varnish
     restart: unless-stopped
     logging: *default-logging
+    # service_started, not service_healthy: the web image's HEALTHCHECK
+    # is declared in the CanastaBase Dockerfile, but podman-compose does
+    # not expose image-level healthchecks to compose dependency
+    # resolution. Asking compose to wait on a healthcheck it can't see
+    # makes 'docker compose up' fail on podman targets. Varnish has its
+    # own healthcheck and tolerates a brief 502 window while web is
+    # still booting.
     depends_on:
-      web:
-        condition: service_healthy
+      - web
     healthcheck:
       test: ["CMD", "varnishadm", "ping"]
       interval: 10s
