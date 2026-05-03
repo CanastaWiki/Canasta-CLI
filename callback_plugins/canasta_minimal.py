@@ -128,9 +128,18 @@ class CallbackModule(CallbackBase):
             # such file or directory: 'git-crypt'").
             for line in reversed(str(exc).splitlines()):
                 line = line.strip()
-                if line:
-                    parts.append(line)
-                    break
+                if not line:
+                    continue
+                # Ansible sets exception="(traceback unavailable)" for
+                # task types that have no real traceback (notably
+                # ansible.builtin.fail). Skip — surfacing it as
+                # diagnostic text just produces "Error: real-msg
+                # ((traceback unavailable))" which adds noise without
+                # information.
+                if line == "(traceback unavailable)":
+                    continue
+                parts.append(line)
+                break
         if not parts:
             return ""
         return " (%s)" % "; ".join(parts)
