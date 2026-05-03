@@ -66,6 +66,10 @@
   when: _git_identity.rc != 0
 
 # --- Step 2: Check no existing repo ---
+- name: Reinit — wipe partial gitops state before re-running init
+  ansible.builtin.include_tasks: _reinit_cleanup.yml
+  when: reinit | default(false) | bool
+
 - name: Check for existing .git directory
   ansible.builtin.stat:
     path: "{{ instance_path }}/.git"
@@ -73,7 +77,12 @@
 
 - name: Fail if git repo already exists
   ansible.builtin.fail:
-    msg: "GitOps already initialized ({{ instance_path }}/.git exists). Use 'gitops join' to join an existing repo."
+    msg: >-
+      GitOps already initialized ({{ instance_path }}/.git exists).
+      Use 'gitops join' to attach this host to an existing remote
+      repo, or pass --reinit to wipe the local gitops state and
+      retry (typical when a previous init died mid-run before the
+      git push succeeded).
   when: _existing_git.stat.exists
 
 # --- Step 3: Key file overwrite check skipped ---

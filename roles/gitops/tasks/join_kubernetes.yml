@@ -20,6 +20,10 @@
     cmd: "git-crypt --version"
   changed_when: false
 
+- name: Reinit — wipe partial gitops state before re-running join
+  ansible.builtin.include_tasks: _reinit_cleanup.yml
+  when: reinit | default(false) | bool
+
 - name: Check for existing .git directory
   ansible.builtin.stat:
     path: "{{ instance_path }}/.git"
@@ -30,6 +34,9 @@
     msg: >-
       GitOps already initialized ({{ instance_path }}/.git exists).
       This instance is already connected to a gitops repository.
+      Pass --reinit to wipe the local gitops state and re-clone
+      from the remote (typical when a previous init or join died
+      mid-run).
   when: _join_existing_git.stat.exists
 
 # --- Stage SSH deploy key on the target ---

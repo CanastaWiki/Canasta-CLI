@@ -1,0 +1,47 @@
+---
+# Wipe gitops-specific state from a partially-initialized instance so
+# `canasta gitops init --reinit` (or `gitops join --reinit`) can start
+# fresh after a previous attempt died midway. The full init flow
+# touches a dozen files in the instance directory; if it fails on the
+# git push, the operator was previously stuck — `init` refused with
+# "GitOps already initialized", and `join` refused for the same
+# reason. See #462.
+#
+# We only delete files that gitops itself creates (or, in the K8s
+# case, copies in from the chart). Files that pre-exist canasta
+# create — .env, config/, the wiki tree, and on K8s values.yaml
+# (which init *merges into* in place) — are left alone.
+#
+# Submodule conversion (Compose: extensions/<X>/.git becomes a
+# gitlink under .git/modules/) cannot be cleanly reversed once the
+# parent .git/ is gone; on a re-init the submodule conversion task
+# will see the stale gitlinks and skip those directories. The
+# resulting repo will not have submodule structure for any extension
+# whose conversion completed before the failure. This is documented
+# in the --reinit help text.
+
+- name: Reinit cleanup — common gitops files
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ item }}"
+    state: absent
+  loop:
+    - .git
+    - .gitmodules
+    - .gitignore
+    - .gitattributes
+    - .gitops-host
+    - env.template
+    - wikis.yaml.template
+    - hosts
+
+- name: Reinit cleanup — Kubernetes-only gitops files
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ item }}"
+    state: absent
+  loop:
+    - Chart.yaml
+    - templates
+    - values.template.yaml
+    - values-configdata.yaml
+    - argocd
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
