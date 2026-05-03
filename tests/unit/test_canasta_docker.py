@@ -480,3 +480,53 @@ class TestPodmanDetection:
 def _shell_quote(s):
     """Single-quote a string for safe embedding in a bash heredoc/echo."""
     return "'" + s.replace("'", "'\\''") + "'"
+
+
+class TestPasswdEntryUsesHostUsername:
+    """The /etc/passwd that canasta-docker bind-mounts into the
+    container has to carry the host operator's actual login name as
+    the in-container username — NOT a literal "canasta". Otherwise
+    Ansible plays that SSH from the container to a remote host
+    without an explicit -u override default to `canasta@<host>`,
+    which the remote sshd rejects with "Too many authentication
+    failures" because no `canasta` user exists there. See #478.
+    """
+
+    def test_passwd_entry_uses_host_username_not_literal_canasta(self):
+        argv, _ = run_dry(["version"])
+        config_dir = next(
+            a.split("=", 1)[1]
+            for a in argv
+            if a.startswith("CANASTA_CONFIG_DIR=")
+        )
+        passwd_path = os.path.join(config_dir, ".canasta-passwd")
+        assert os.path.isfile(passwd_path), (
+            "canasta-docker should have written %s" % passwd_path
+        )
+        with open(passwd_path) as f:
+            entries = [
+                line.strip() for line in f
+                if line.strip() and not line.startswith("#")
+            ]
+        my_uid = str(os.getuid())
+        host_username = os.environ.get("USER") or os.getlogin()
+        my_entry = next(
+            (e for e in entries if e.split(":")[2] == my_uid),
+            None,
+        )
+        assert my_entry, (
+            "no /etc/passwd entry for UID %s in:\n%s"
+            % (my_uid, "\n".join(entries))
+        )
+        username = my_entry.split(":", 1)[0]
+        assert username != "canasta", (
+            "canasta-docker should not write a literal 'canasta' "
+            "username — outbound SSH then defaults to "
+            "'canasta@<host>' and trips sshd's auth-failure limit "
+            "(#478). entry=%r" % my_entry
+        )
+        assert username == host_username, (
+            "in-container username should match host operator's "
+            "(%r) — got %r in entry %r"
+            % (host_username, username, my_entry)
+        )
