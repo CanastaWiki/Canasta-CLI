@@ -52,9 +52,10 @@ import os
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
-
-
-RESERVED_WIKI_IDS = ["settings", "images", "w", "wiki", "wikis"]
+from ansible.module_utils.canasta_validate import (
+    RESERVED_WIKI_IDS,
+    validate_wiki_id,
+)
 
 
 def wikis_yaml_path(instance_path):
@@ -68,22 +69,6 @@ def wikis_yaml_path(instance_path):
             % (real_path, real_base)
         )
     return path
-
-
-def validate_wiki_id(wiki_id):
-    """Validate a wiki ID (matching Go ValidateWikiID).
-
-    NOTE: This validation is intentionally duplicated from canasta_farmsettings.py
-    because Ansible modules in different role library/ directories cannot import
-    each other. Keep both copies in sync.
-    """
-    if not wiki_id:
-        return "wiki ID cannot be empty"
-    if "-" in wiki_id:
-        return "wiki ID '%s' cannot contain hyphens" % wiki_id
-    if wiki_id in RESERVED_WIKI_IDS:
-        return "wiki ID '%s' is reserved (cannot be: %s)" % (wiki_id, ", ".join(RESERVED_WIKI_IDS))
-    return None
 
 
 def read_wikis(instance_path):
