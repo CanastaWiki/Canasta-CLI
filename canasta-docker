@@ -183,8 +183,15 @@ if [[ "$PASSWD_STALE" == "true" ]]; then
         : > "$CANASTA_PASSWD"
     fi
 fi
+# Use the host operator's login name as the in-container username
+# (not a literal "canasta") so SSH connections out of the container
+# default to that name. Otherwise an Ansible play that SSHes to a
+# remote without a -u override tries `canasta@<host>` and the remote
+# sshd rejects after too many auth failures because no `canasta` user
+# exists there. See #478.
+_CANASTA_DOCKER_USER="$(id -un 2>/dev/null || echo "${USER:-canasta}")"
 if ! grep -q "^[^:]*:[^:]*:$(id -u):" "$CANASTA_PASSWD" 2>/dev/null; then
-    echo "canasta:x:$(id -u):$(id -g):canasta:$HOME:/bin/sh" >> "$CANASTA_PASSWD"
+    echo "${_CANASTA_DOCKER_USER}:x:$(id -u):$(id -g):${_CANASTA_DOCKER_USER}:$HOME:/bin/sh" >> "$CANASTA_PASSWD"
 fi
 MOUNTS+=(-v "$CANASTA_PASSWD:/etc/passwd:ro")
 # Add only the groups the container actually needs: the Docker socket
