@@ -613,3 +613,45 @@ class TestResolveInstanceSkipGate:
             "%s no longer includes resolve_instance.yml — the gate "
             "test needs updating to reflect the new flow." % filename
         )
+
+
+class TestPlayLevelDockerHost:
+    """canasta.yml's play-level `environment:` exposes DOCKER_HOST so
+    every Ansible-routed command's docker / docker compose calls
+    inherit it. Operators on rootless podman or rootless Docker
+    set this via `canasta create --docker-host=…` (see #479).
+
+    Drift here is invisible until someone tries the rootless setup,
+    so the structural check is cheap insurance."""
+
+    CANASTA_YML = os.path.join(
+        os.path.dirname(__file__), "..", "..", "canasta.yml",
+    )
+
+    def test_play_environment_exports_docker_host(self):
+        with open(self.CANASTA_YML) as f:
+            plays = yaml.safe_load(f)
+        # The file has one play.
+        play = plays[0]
+        env = play.get("environment", {})
+        assert "DOCKER_HOST" in env, (
+            "canasta.yml must declare a play-level "
+            "`environment: { DOCKER_HOST: … }` so docker tasks "
+            "honor --docker-host / registry dockerHost."
+        )
+
+    def test_docker_host_precedence_flag_then_registry(self):
+        # The expression has to:
+        #   - prefer the `docker_host` var (from --docker-host on the
+        #     current invocation) over the registry value
+        #   - fall back to `instance_docker_host` (set by
+        #     resolve_instance.yml from the registry) when the flag
+        #     wasn't passed
+        #   - omit the env var entirely when neither is set, so
+        #     Docker keeps using its compiled-in default socket
+        with open(self.CANASTA_YML) as f:
+            plays = yaml.safe_load(f)
+        expr = plays[0]["environment"]["DOCKER_HOST"]
+        assert "docker_host" in expr
+        assert "instance_docker_host" in expr
+        assert "omit" in expr

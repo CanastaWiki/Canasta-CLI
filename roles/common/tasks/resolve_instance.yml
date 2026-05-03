@@ -150,6 +150,10 @@
     instance_orchestrator: "{{ _instance_result.instance.orchestrator | default('compose') }}"
     instance_devmode: "{{ _instance_result.instance.devMode | default(false) }}"
     instance_managed_cluster: "{{ _instance_result.instance.managedCluster | default(false) }}"
+    # instance_docker_host feeds canasta.yml's play-level
+    # `environment: DOCKER_HOST: …`. Empty string when the registry
+    # has no override so the env-var ternary picks the next default.
+    instance_docker_host: "{{ _instance_result.instance.dockerHost | default('') }}"
     _instance_host: "{{ _instance_result.instance.host | default('localhost') }}"
 
 # Switch connection to the instance's registered host so commands

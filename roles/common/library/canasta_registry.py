@@ -174,6 +174,8 @@ def instance_to_dict(instance):
         result["kindCluster"] = instance["kindCluster"]
     if instance.get("buildFrom"):
         result["buildFrom"] = instance["buildFrom"]
+    if instance.get("dockerHost"):
+        result["dockerHost"] = instance["dockerHost"]
     return result
 
 
@@ -208,6 +210,7 @@ def run_module():
         kind_cluster=dict(type="str", required=False),
         build_from=dict(type="str", required=False),
         host=dict(type="str", required=False),
+        docker_host=dict(type="str", required=False),
         filter_host=dict(type="str", required=False),
         config_dir=dict(type="str", required=False),
     )
@@ -289,6 +292,7 @@ def run_module():
             "registry": module.params.get("registry"),
             "kindCluster": module.params.get("kind_cluster"),
             "buildFrom": module.params.get("build_from"),
+            "dockerHost": module.params.get("docker_host"),
         })
 
         if inst_id in instances:

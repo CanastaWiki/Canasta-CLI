@@ -745,6 +745,7 @@
     path: "{{ instance_path }}"
     orchestrator: "{{ orchestrator | default('compose') }}"
     host: "{{ _registry_host }}"
+    docker_host: "{{ docker_host | default(omit) }}"
     managed_cluster: false
     build_from: "{{ build_from | default(omit) }}"
     state: present
@@ -758,6 +759,7 @@
     id: "{{ id }}"
     path: "{{ instance_path }}"
     orchestrator: "{{ orchestrator | default('compose') }}"
+    docker_host: "{{ docker_host | default(omit) }}"
     managed_cluster: false
     build_from: "{{ build_from | default(omit) }}"
     state: present

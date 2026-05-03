@@ -194,6 +194,14 @@ commands:
         short: H
         type: string
         description: "Target host for the new instance (default: localhost)"
+      - name: docker_host
+        type: string
+        description: >-
+          Docker API socket on the target. Set this when the target
+          uses rootless podman (typically `unix:///run/user/<uid>/podman/podman.sock`)
+          or rootless Docker. Persisted to the instance registry so
+          subsequent `start`, `stop`, `config set`, etc. inherit it.
+          Leave unset for system Docker on `/var/run/docker.sock`.
       - name: path
         short: p
         type: path
@@ -510,6 +518,13 @@ commands:
         short: H
         type: string
         description: "Target host (default: localhost)"
+      - name: docker_host
+        type: string
+        description: >-
+          Docker API socket on the target. Set this when the target
+          uses rootless podman or rootless Docker (e.g.
+          `unix:///run/user/1000/podman/podman.sock`). Defaults to
+          system Docker's `/var/run/docker.sock`.
       - name: id
         short: i
         type: string
@@ -560,6 +575,13 @@ commands:
         short: H
         type: string
         description: "Target host (default: localhost)"
+      - name: docker_host
+        type: string
+        description: >-
+          Docker API socket on the target. Set this when the target
+          uses rootless podman or rootless Docker (e.g.
+          `unix:///run/user/1000/podman/podman.sock`). Defaults to
+          system Docker's `/var/run/docker.sock`.
       - name: id
         short: i
         type: string
@@ -614,6 +636,12 @@ commands:
         short: H
         type: string
         description: "Target host (default: localhost)"
+      - name: docker_host
+        type: string
+        description: >-
+          Docker API socket on the target. Set this when the target
+          uses rootless podman or rootless Docker. Defaults to system
+          Docker's `/var/run/docker.sock`.
       - name: packages
         type: string
         positional: true
