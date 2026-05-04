@@ -5,6 +5,8 @@
 #   - auto-detects a rootless container socket on Compose targets
 #     when --docker-host wasn't passed
 #   - probes Docker on Compose targets and bails if it isn't there
+#   - probes ports 80/443 + k3s activity on Compose targets so we
+#     fail fast when something else will eat web traffic
 #   - checks for at least 3500 MiB of host memory on Compose targets
 #     (K8s has its own per-node check in k8s_preflight.yml)
 
@@ -40,6 +42,103 @@
   when:
     - orchestrator | default('compose') == 'compose'
     - _docker_check.rc | default(0) != 0
+
+# Port 80/443 conflict detection for Compose. Compose's caddy
+# service binds host ports 80 and 443; if anything else is
+# already serving on them, `docker compose up` will either fail
+# the bind or — worse — appear to start while external traffic
+# silently lands on the foreign service.
+#
+# Two probes catch the common cases:
+#  1. `ss -tln` for a userspace listener (apache, nginx, haproxy,
+#     a docker-proxy from another canasta).
+#  2. `systemctl is-active k3s k3s-agent` for the k3s/Traefik
+#     case, where the LoadBalancer installs PREROUTING NAT rules
+#     ahead of Docker's chain — so port 80/443 traffic to the
+#     external IP gets routed to Traefik even though `ss` shows
+#     no host-level listener.
+#
+# Both probes hard-fail with a remediation hint. Neither needs
+# sudo. The k3s probe also catches a stopped-but-not-cleaned k3s
+# (rules may still be present after `systemctl stop` alone), so
+# the message points at k3s-killall too.
+- name: Probe for userspace listener on port 80
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -tlnH
+      - sport = :80
+  register: _port80_listener
+  changed_when: false
+  failed_when: false
+  when: orchestrator | default('compose') == 'compose'
+
+- name: Probe for userspace listener on port 443
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -tlnH
+      - sport = :443
+  register: _port443_listener
+  changed_when: false
+  failed_when: false
+  when: orchestrator | default('compose') == 'compose'
+
+- name: Fail if port 80 is already in use
+  ansible.builtin.fail:
+    msg: >-
+      Port 80 is already in use on this host:
+      {{ _port80_listener.stdout | trim }}.
+      `canasta create` (Compose) needs ports 80 and 443 free for
+      the caddy service. Stop the conflicting service or use a
+      different host.
+  when:
+    - orchestrator | default('compose') == 'compose'
+    - _port80_listener.stdout | default('') | trim | length > 0
+
+- name: Fail if port 443 is already in use
+  ansible.builtin.fail:
+    msg: >-
+      Port 443 is already in use on this host:
+      {{ _port443_listener.stdout | trim }}.
+      `canasta create` (Compose) needs ports 80 and 443 free for
+      the caddy service. Stop the conflicting service or use a
+      different host.
+  when:
+    - orchestrator | default('compose') == 'compose'
+    - _port443_listener.stdout | default('') | trim | length > 0
+
+- name: Probe whether k3s is running
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - k3s
+      - k3s-agent
+  register: _k3s_active
+  changed_when: false
+  failed_when: false
+  when: orchestrator | default('compose') == 'compose'
+
+# `systemctl is-active` prints one line per service. Treat any
+# 'active' line as a positive — even if only k3s-agent is active.
+- name: Fail if k3s is running
+  ansible.builtin.fail:
+    msg: >-
+      k3s is running on this host. Its Traefik LoadBalancer
+      installs iptables PREROUTING rules that intercept traffic
+      to the host's external IP on ports 80 and 443 BEFORE
+      Docker's NAT can claim them — Compose's caddy will appear
+      to start but external requests will land on Traefik (and
+      404). Stop k3s with 'sudo systemctl stop k3s' followed by
+      'sudo /usr/local/bin/k3s-killall.sh' (the latter also
+      flushes the lingering iptables rules), or use a different
+      host for Compose installs.
+  when:
+    - orchestrator | default('compose') == 'compose'
+    - >-
+      _k3s_active.stdout_lines | default([])
+      | select('eq', 'active') | length > 0
 
 # Compose-only host memory preflight. The K8s path has its own
 # per-node memory check in k8s_preflight.yml — running this on a K8s
