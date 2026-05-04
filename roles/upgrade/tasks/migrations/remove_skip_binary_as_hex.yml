@@ -6,13 +6,13 @@
   ansible.builtin.debug:
     msg: "Checking my.cnf..."
 
-- name: Check if my.cnf exists
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/my.cnf"
-  register: _mycnf
-
+# Only slurp + recompute when my.cnf actually mentions
+# skip-binary-as-hex; the probe pre-checked, so the steady-state
+# upgrade pays no extra round-trips.
 - name: Remove skip-binary-as-hex from non-mysql sections
-  when: _mycnf.stat.exists
+  when:
+    - _mig.files.mycnf
+    - _mig.files.mycnf_has_skip_binary_as_hex
   block:
     - name: Read my.cnf
       ansible.builtin.slurp:

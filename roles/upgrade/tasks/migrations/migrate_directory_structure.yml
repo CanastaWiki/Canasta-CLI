@@ -7,19 +7,8 @@
   ansible.builtin.debug:
     msg: "Checking directory structure..."
 
-- name: Check for old per-wiki config directories
-  ansible.builtin.find:
-    paths: "{{ instance_path }}/config"
-    file_type: directory
-    excludes:
-      - settings
-      - logstash
-      - backup
-      - persistent
-  register: _old_wiki_dirs
-
 - name: Migrate per-wiki directories
-  when: _old_wiki_dirs.files | length > 0
+  when: _mig.old_wiki_dirs | length > 0
   block:
     - name: Create new wikis settings directory
       ansible.builtin.file:
@@ -29,23 +18,15 @@
 
     - name: Move per-wiki directories
       ansible.builtin.command:
-        cmd: "mv {{ item.path }} {{ instance_path }}/config/settings/wikis/{{ item.path | basename }}"
-      loop: "{{ _old_wiki_dirs.files }}"
+        cmd: "mv {{ instance_path }}/config/{{ item }} {{ instance_path }}/config/settings/wikis/{{ item }}"
+      loop: "{{ _mig.old_wiki_dirs }}"
       loop_control:
-        label: "{{ item.path | basename }}"
-      when: item.path | basename not in ['settings', 'logstash', 'backup']
+        label: "{{ item }}"
       changed_when: true
       ignore_errors: true  # OK if dir already moved
 
-- name: Check for PHP files in config/settings/ (not in global/)
-  ansible.builtin.find:
-    paths: "{{ instance_path }}/config/settings"
-    patterns: "*.php"
-    recurse: false
-  register: _stray_php
-
 - name: Migrate stray PHP files to global/
-  when: _stray_php.files | length > 0
+  when: _mig.stray_php | length > 0
   block:
     - name: Ensure global settings directory exists
       ansible.builtin.file:
@@ -55,8 +36,8 @@
 
     - name: Move PHP files to global/
       ansible.builtin.command:
-        cmd: "mv {{ item.path }} {{ instance_path }}/config/settings/global/{{ item.path | basename }}"
-      loop: "{{ _stray_php.files }}"
+        cmd: "mv {{ item }} {{ instance_path }}/config/settings/global/{{ item | basename }}"
+      loop: "{{ _mig.stray_php }}"
       loop_control:
-        label: "{{ item.path | basename }}"
+        label: "{{ item | basename }}"
       changed_when: true
