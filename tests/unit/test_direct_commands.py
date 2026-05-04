@@ -920,9 +920,12 @@ class TestCmdVersion:
 
     def test_missing_version_file(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        # `stderr` is needed because _ssh_run reads result.stderr.strip();
+        # cmd_version may iterate registered instances on the developer's
+        # machine and reach _ssh_run for any host != localhost.
         monkeypatch.setattr(
             subprocess, "run",
-            lambda *a, **kw: type("R", (), {"returncode": 1, "stdout": ""})(),
+            lambda *a, **kw: type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})(),
         )
         rc = direct_commands.cmd_version(None)
         assert rc == 0
@@ -934,7 +937,7 @@ class TestCmdVersion:
         monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
         monkeypatch.setattr(
             subprocess, "run",
-            lambda *a, **kw: type("R", (), {"returncode": 128, "stdout": ""})(),
+            lambda *a, **kw: type("R", (), {"returncode": 128, "stdout": "", "stderr": ""})(),
         )
         rc = direct_commands.cmd_version(None)
         assert rc == 0
