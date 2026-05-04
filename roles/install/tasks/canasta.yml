@@ -131,9 +131,32 @@
         dest: /usr/local/bin/canasta
         state: link
 
+    # ansible_user is the SSH user we connected as; ansible_user_id is
+    # the local-run fallback. Either way, this is the user who will be
+    # invoking 'canasta upgrade' / 'canasta install' on the target, so
+    # they're the one who needs canasta-group membership.
+    - name: Determine operator user
+      ansible.builtin.set_fact:
+        _operator_user: "{{ ansible_user | default(ansible_user_id) }}"
+
+    - name: Add operator to the canasta group
+      ansible.builtin.user:
+        name: "{{ _operator_user }}"
+        groups: canasta
+        append: true
+      register: _operator_group_add
+      when: _operator_user | length > 0
+
     - name: Report canasta installed
       ansible.builtin.debug:
+        msg: "canasta-native installed at /opt/canasta-ansible."
+
+    - name: Report operator group membership
+      ansible.builtin.debug:
         msg: >-
-          canasta-native installed at /opt/canasta-ansible.
-          Add users to the 'canasta' group to let them run
-          'canasta upgrade' and 'canasta install' without sudo.
+          Added '{{ _operator_user }}' to the 'canasta' group. New SSH
+          sessions on this host will pick this up automatically. If
+          you have an existing shell on this host, log out and back in
+          (or run 'newgrp canasta') before invoking 'canasta upgrade'
+          or 'canasta install'.
+      when: _operator_group_add is changed
