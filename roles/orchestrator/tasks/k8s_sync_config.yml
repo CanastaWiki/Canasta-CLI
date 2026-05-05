@@ -75,11 +75,26 @@
   loop_control:
     label: "{{ item.path | regex_replace('^.*/config/settings/', 'settings/') }}"
 
+# Strip secret-bearing keys from the .env content before embedding
+# it in the web ConfigMap. The chart's web/jobrunner deployments read
+# MYSQL_PASSWORD / MW_SECRET_KEY exclusively via secretKeyRef from the
+# canonical K8s Secrets (<id>-db-credentials, <id>-mw-secrets); the
+# .env file at /mediawiki/config/.env is never sourced. Leaving the
+# secrets in the ConfigMap-backed file duplicated them in plaintext
+# and forced the gitops repo to encrypt rendered-values.yaml, which
+# Argo CD couldn't read. See #507.
+- name: Filter secret-bearing keys out of .env for ConfigMap embedding
+  ansible.builtin.set_fact:
+    _sync_env_no_secrets: >-
+      {{ (_sync_env.content | b64decode).splitlines()
+         | reject('match', '^(MYSQL_PASSWORD|MW_SECRET_KEY)=')
+         | join('\n') + '\n' }}
+
 - name: Build web config data
   ansible.builtin.set_fact:
     _web_config_data: >-
       {{
-        {'.env': _sync_env.content | b64decode,
+        {'.env': _sync_env_no_secrets,
          'wikis.yaml': _sync_wikis.content | b64decode}
         | combine(
           (_sync_composer_stat.stat.exists | default(false))

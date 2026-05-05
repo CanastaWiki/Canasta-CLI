@@ -269,6 +269,152 @@ class TestExternalDatabase:
         )
 
 
+class TestK8sSyncConfigSecretsStripped:
+    """Guard the #507 regression class: secret-bearing keys must NOT
+    end up duplicated in the configData.web['.env'] blob — the chart
+    pulls MYSQL_PASSWORD / MW_SECRET_KEY from the canonical K8s
+    Secrets via secretKeyRef, and any plaintext copy in the
+    ConfigMap-backed .env file (a) duplicates the secret in the
+    cluster and (b) forces the gitops repo to encrypt
+    rendered-values.yaml, which Argo CD can't read."""
+
+    SYNC_PATH = os.path.join(ORCHESTRATOR_TASKS, "k8s_sync_config.yml")
+
+    def _load(self):
+        with open(self.SYNC_PATH) as f:
+            return yaml.safe_load(f)
+
+    @staticmethod
+    def _walk_tasks(tasks):
+        for t in tasks or []:
+            if not isinstance(t, dict):
+                continue
+            yield t
+            for nested in ("block", "rescue", "always"):
+                if nested in t:
+                    yield from TestK8sSyncConfigSecretsStripped._walk_tasks(
+                        t[nested],
+                    )
+
+    def test_sync_env_no_secrets_fact_is_set(self):
+        """A set_fact must define _sync_env_no_secrets — the filtered
+        version of .env that web ConfigMap embedding uses."""
+        for task in self._walk_tasks(self._load()):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if isinstance(sf, dict) and "_sync_env_no_secrets" in sf:
+                return
+        raise AssertionError(
+            "k8s_sync_config.yml does not define _sync_env_no_secrets — "
+            "without it, configData.web['.env'] would carry MYSQL_PASSWORD "
+            "and MW_SECRET_KEY duplicated from the K8s Secrets, which "
+            "forces git-crypt encryption of rendered-values.yaml and "
+            "breaks Argo CD reconciliation (#507)."
+        )
+
+    def test_sync_env_no_secrets_rejects_password_and_secret_key(self):
+        """The filter must specifically drop MYSQL_PASSWORD and
+        MW_SECRET_KEY — those are the keys the chart pulls via
+        secretKeyRef and therefore the keys that would be duplicated
+        if left in the .env content."""
+        for task in self._walk_tasks(self._load()):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if not (isinstance(sf, dict) and "_sync_env_no_secrets" in sf):
+                continue
+            expr = sf["_sync_env_no_secrets"]
+            assert "MYSQL_PASSWORD" in expr, (
+                "_sync_env_no_secrets filter must drop MYSQL_PASSWORD"
+            )
+            assert "MW_SECRET_KEY" in expr, (
+                "_sync_env_no_secrets filter must drop MW_SECRET_KEY"
+            )
+            return
+
+    def test_web_config_data_uses_filtered_env(self):
+        """configData.web['.env'] must come from the filtered
+        _sync_env_no_secrets, not from the raw _sync_env."""
+        for task in self._walk_tasks(self._load()):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if not (isinstance(sf, dict) and "_web_config_data" in sf):
+                continue
+            expr = sf["_web_config_data"]
+            assert "_sync_env_no_secrets" in expr, (
+                "_web_config_data must reference _sync_env_no_secrets — "
+                "raw _sync_env carries MYSQL_PASSWORD/MW_SECRET_KEY (#507)."
+            )
+            assert "_sync_env.content" not in expr, (
+                "_web_config_data must NOT reference _sync_env.content "
+                "directly — that's the unfiltered .env containing secrets "
+                "the chart already pulls via secretKeyRef (#507)."
+            )
+            return
+        raise AssertionError(
+            "k8s_sync_config.yml has no _web_config_data set_fact"
+        )
+
+
+class TestK8sGitopsNoEncryption:
+    """Guard the #507 regression class for the gitops side: K8s init
+    must not register hosts/** for git-crypt filtering. After the
+    fix, rendered-values.yaml carries no secrets so encryption is
+    unnecessary; the encryption rule was what broke Argo CD's ability
+    to parse the values file."""
+
+    INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
+
+    @staticmethod
+    def _walk_tasks(tasks):
+        for t in tasks or []:
+            if not isinstance(t, dict):
+                continue
+            yield t
+            for nested in ("block", "rescue", "always"):
+                if nested in t:
+                    yield from TestK8sGitopsNoEncryption._walk_tasks(
+                        t[nested],
+                    )
+
+    def test_gitattributes_does_not_filter_hosts(self):
+        """The .gitattributes that K8s gitops init writes must not
+        register `hosts/**` (or any pattern) for git-crypt filtering.
+        Argo CD reads hosts/<name>/rendered-values.yaml as Helm values
+        and has no git-crypt awareness — encrypted bytes break parsing
+        with a 'control characters not allowed' error (#507)."""
+        with open(self.INIT_K8S) as f:
+            tasks = yaml.safe_load(f)
+        for task in self._walk_tasks(tasks):
+            copy = task.get("ansible.builtin.copy") or task.get("copy")
+            if not isinstance(copy, dict):
+                continue
+            dest = copy.get("dest", "")
+            if not dest.endswith("/.gitattributes"):
+                continue
+            content = copy.get("content")
+            src = copy.get("src", "")
+            # Either the task uses inline content (must not register
+            # hosts/** for git-crypt) or a src file (the canonical
+            # gitattributes.default still has the encryption rule for
+            # the Compose path; that's outside K8s scope).
+            if content is not None:
+                assert "filter=git-crypt" not in content, (
+                    "K8s gitops init writes a .gitattributes that "
+                    "registers files for git-crypt encryption. After "
+                    "#507, rendered-values.yaml is cleartext and Argo "
+                    "CD must be able to parse it — no encryption rules."
+                )
+                return
+            assert "gitattributes.default" not in src, (
+                "K8s gitops init still copies the canonical "
+                "gitattributes.default (which encrypts hosts/**). "
+                "After #507 the K8s path has no secrets in repo, so it "
+                "must write its own .gitattributes without the "
+                "encryption rule."
+            )
+            return
+        raise AssertionError(
+            "init_kubernetes.yml has no .gitattributes-writing task"
+        )
+
+
 class TestGitopsDispatchers:
     """Verify that each dispatched gitops command has both variants."""
 
