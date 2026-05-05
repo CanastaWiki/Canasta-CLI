@@ -79,10 +79,10 @@
 
       {% endif %}
       {% set needs_restart = (lc_files + rc_files)
-         | select('match', '.*\\.(env|yml|yaml)$')
+         | select('match', '.*\.(env|yml|yaml)$')
          | list | length > 0 %}
       {% set needs_update = (lc_files + rc_files)
-         | select('match', '.*\\.php$')
+         | select('match', '.*\.php$')
          | list | length > 0 %}
       {% if needs_restart %}
       A restart would be needed after pulling.
