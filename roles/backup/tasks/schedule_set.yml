@@ -94,12 +94,15 @@
                                 --single-transaction --databases "$db" \
                                 > "/currentsnapshot/config/backup/db_${db}.sql"
                             done
-                        env:
-                          - name: MYSQL_PASSWORD
-                            valueFrom:
-                              secretKeyRef:
-                                name: "{{ instance_id }}-db-credentials"
-                                key: MYSQL_PASSWORD
+                        # canasta-<id>-backup-env carries MYSQL_HOST,
+                        # MYSQL_USER, and MYSQL_PASSWORD. Internal-db
+                        # instances fall back to the in-script defaults
+                        # (db / root) when the Secret omits them;
+                        # external-db instances pick up the values from
+                        # .env (#498).
+                        envFrom:
+                          - secretRef:
+                              name: "canasta-{{ instance_id }}-backup-env"
                         volumeMounts:
                           - name: web-config
                             mountPath: /currentsnapshot/config
@@ -107,11 +110,13 @@
                       - name: restic
                         image: restic/restic:latest
                         command: ["sh", "-c", "{{ _k8s_backup_cmd }}"]
-                        env:
-                          - name: RESTIC_REPOSITORY
-                            value: "{{ _sched_env.variables.RESTIC_REPOSITORY | default('') }}"
-                          - name: RESTIC_PASSWORD
-                            value: "{{ _sched_env.variables.RESTIC_PASSWORD | default('') }}"
+                        # canasta-<id>-backup-env carries every cloud-
+                        # backend credential restic might need (RESTIC_*,
+                        # AWS_*, B2_*, AZURE_*, GOOGLE_*, OS_*, ST_*) —
+                        # see #497.
+                        envFrom:
+                          - secretRef:
+                              name: "canasta-{{ instance_id }}-backup-env"
                         volumeMounts:
                           - name: web-config
                             mountPath: /currentsnapshot/config
