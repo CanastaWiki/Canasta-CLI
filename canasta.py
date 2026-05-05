@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -109,6 +110,115 @@ def find_ansible_playbook():
         file=sys.stderr,
     )
     sys.exit(1)
+
+
+def self_update_cli():
+    """Pull latest CLI code from origin/main before invoking ansible-playbook.
+
+    Runs in the canasta.py process (i.e. before os.execvp swaps in
+    ansible-playbook), so any changes the pull lands on disk —
+    ansible.cfg, module_utils, modules, playbook tasks — are visible
+    to the ansible-playbook process from its very first config load.
+    Used to live as the first task of upgrade.yml itself, but loading
+    ansible.cfg at startup means an in-flight cfg change between
+    pre-pull and post-pull state would silently make ansible-playbook
+    keep using stale values (#489).
+
+    Docker installs (no .git in the script dir) are no-ops here: the
+    canasta-docker wrapper has already pulled the image before this
+    process started.
+    """
+    repo = SCRIPT_DIR
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        return  # Docker install — image pull happened in the wrapper.
+
+    def _git(args, timeout=30, check=False):
+        return subprocess.run(
+            ["git"] + args, cwd=repo,
+            capture_output=True, text=True, timeout=timeout, check=check,
+        )
+
+    try:
+        current_commit = _git(
+            ["rev-parse", "--short", "HEAD"], timeout=5, check=True,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            OSError) as e:
+        print("Warning: could not check current commit: %s" % e,
+              file=sys.stderr)
+        return
+
+    try:
+        with open(os.path.join(repo, "VERSION")) as f:
+            current_version = f.read().strip()
+    except OSError:
+        current_version = "unknown"
+
+    try:
+        _git(["fetch", "origin"], check=True)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            OSError) as e:
+        # `e.stderr` is bytes/None on TimeoutExpired/OSError — guard.
+        detail = getattr(e, "stderr", "") or str(e)
+        print(
+            "Warning: could not fetch from origin (%s); "
+            "skipping self-update check." % detail.strip(),
+            file=sys.stderr,
+        )
+        return
+
+    pending = _git(["log", "HEAD..origin/main", "--oneline"], timeout=10)
+    if pending.returncode != 0 or not pending.stdout.strip():
+        print(
+            "Canasta CLI is already up to date "
+            "(version %s, commit %s)." % (current_version, current_commit)
+        )
+        return
+
+    pull = _git(["pull", "--ff-only", "origin", "main"], timeout=60)
+    if pull.returncode != 0:
+        print(
+            "Could not fast-forward to latest main "
+            "(local branch may have diverged).\n"
+            "Run 'git pull origin main' manually in %s." % repo,
+            file=sys.stderr,
+        )
+        return
+
+    new_commit = _git(
+        ["rev-parse", "--short", "HEAD"], timeout=5,
+    ).stdout.strip() or "unknown"
+    new_date = _git(
+        ["log", "-1", "--format=%cd",
+         "--date=format:%Y-%m-%d %H:%M:%S"],
+        timeout=5,
+    ).stdout.strip() or "unknown"
+    try:
+        with open(os.path.join(repo, "VERSION")) as f:
+            new_version = f.read().strip()
+    except OSError:
+        new_version = "unknown"
+
+    # BUILD_COMMIT/BUILD_DATE drive `canasta version` output for
+    # native installs. Update them in lockstep with the pull so a
+    # subsequent `canasta version` reflects the just-pulled commit.
+    for filename, value in (
+        ("BUILD_COMMIT", new_commit),
+        ("BUILD_DATE", new_date),
+    ):
+        try:
+            with open(os.path.join(repo, filename), "w") as f:
+                f.write(value + "\n")
+        except OSError as e:
+            print(
+                "Warning: could not update %s: %s" % (filename, e),
+                file=sys.stderr,
+            )
+
+    print(
+        "Updated Canasta CLI from %s (%s) to %s (%s)."
+        % (current_version, current_commit, new_version, new_commit)
+    )
 
 
 def internal_name(display_name):
@@ -1064,6 +1174,14 @@ def main():
     ansible_args = build_ansible_args(
         ansible_playbook, command_name, args, data
     )
+
+    # Run the self-update before exec so the playbook process sees
+    # the pulled code (ansible.cfg, module_utils, modules, playbooks)
+    # at startup. Used to be the first task of upgrade.yml itself,
+    # but running it inside the playbook means ansible-playbook's
+    # in-memory config goes stale on cfg changes — see #489.
+    if command_name == "upgrade":
+        self_update_cli()
 
     os.execvp(ansible_args[0], ansible_args)
 
