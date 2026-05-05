@@ -125,19 +125,53 @@
 # secrets file — that's the 'select match secrets-*.yaml' filter,
 # which evaluates to empty for those.
 #
-# 'kubectl apply -f -' is idempotent: if the cluster already has the
-# Secret with the same value (instance was up before restore), this
-# is a no-op. If the cluster has a different value (fresh-cluster
-# DR scenario where 'canasta create' generated new passwords), the
-# snapshot's value overwrites — required for the restored DB whose
-# user-table hashes match the snapshot's password.
+# Two-step restore mirrors Compose's restore.yml policy
+# (clone-friendly):
+#
+#   1. Apply the snapshot's secrets file blanket — so MW_SECRET_KEY
+#      lands at the snapshot's value. MediaWiki uses MW_SECRET_KEY to
+#      derive HMACs for sessions, password-reset tokens, etc.; the
+#      restored wiki content was encrypted with that key, so the new
+#      pod must use the same key to decrypt.
+#   2. Patch MYSQL_PASSWORD and MYSQL_ROOT_PASSWORD back to the values
+#      they had on the running cluster BEFORE the restore. The
+#      running DB pod's mysql.user table has password hashes set when
+#      the pod first started (canasta create) — those hashes match
+#      the cluster's CURRENT plaintext password, not the snapshot's.
+#      Without this preservation step, a clone-into-fresh-cluster
+#      restore would auth-mismatch on the next web pod restart.
+#
+# Compose handles this in restore.yml via 'Save current DB password
+# before restore' + 'Preserve DB password in restored .env'. The K8s
+# equivalent is below.
 - name: Find canasta-managed Secret manifest in snapshot
   ansible.builtin.set_fact:
     _restore_secrets_filename: >-
       {{ (_restore_db_files.stdout_lines | default([])
           | select('match', '^secrets-.+\\.yaml$') | list | first) | default('') }}
 
-- name: Restore canasta-managed K8s Secrets
+- name: Save current DB credentials before secret restore (clone-friendly)
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ instance_id }}-db-credentials"
+    namespace: "{{ _k8s_namespace }}"
+  register: _restore_current_db_secret
+  when: _restore_secrets_filename != ''
+  no_log: true
+
+- name: Capture current DB password values
+  ansible.builtin.set_fact:
+    _restore_current_mysql_pwd: >-
+      {{ ((_restore_current_db_secret.resources | default([]) | first | default({}))
+          .data.MYSQL_PASSWORD | default('')) | b64decode }}
+    _restore_current_mysql_root_pwd: >-
+      {{ ((_restore_current_db_secret.resources | default([]) | first | default({}))
+          .data.MYSQL_ROOT_PASSWORD | default('')) | b64decode }}
+  when: _restore_secrets_filename != ''
+  no_log: true
+
+- name: Restore canasta-managed K8s Secrets from snapshot
   when: _restore_secrets_filename != ''
   ansible.builtin.shell:
     cmd: >-
@@ -145,6 +179,28 @@
       cat /currentsnapshot/config/backup/{{ _restore_secrets_filename }} |
       kubectl apply -n {{ _k8s_namespace }} -f -
   changed_when: true
+  no_log: true
+
+# Preserve the running cluster's DB credentials over the snapshot's
+# values. The strategic-merge patch updates only MYSQL_PASSWORD and
+# MYSQL_ROOT_PASSWORD; everything else from the snapshot's Secret
+# (notably no other keys exist in db-credentials by design) is
+# unchanged. We re-set BOTH because the wiki user account in
+# mysql.user was hashed against the current root password during
+# pod init.
+- name: Preserve current DB password in restored Secret
+  kubernetes.core.k8s:
+    state: patched
+    api_version: v1
+    kind: Secret
+    name: "{{ instance_id }}-db-credentials"
+    namespace: "{{ _k8s_namespace }}"
+    definition:
+      stringData:
+        MYSQL_PASSWORD: "{{ _restore_current_mysql_pwd }}"
+        MYSQL_ROOT_PASSWORD: "{{ _restore_current_mysql_root_pwd }}"
+  when: _restore_secrets_filename != ''
+        and _restore_current_mysql_pwd != ''
   no_log: true
 
 - name: Delete restore pod

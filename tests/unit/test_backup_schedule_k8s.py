@@ -462,6 +462,91 @@ class TestK8sRestoreReplaysSecrets:
         )
 
 
+class TestK8sRestorePreservesCurrentDBPassword:
+    """When the snapshot's secrets manifest is applied, the running
+    cluster's MYSQL_PASSWORD / MYSQL_ROOT_PASSWORD must be preserved
+    over the snapshot's values — same policy Compose's restore.yml
+    follows ('Save current DB password before restore' + 'Preserve
+    DB password in restored .env'). Without this, a clone-into-fresh-
+    cluster restore auth-mismatches: the running DB pod's mysql.user
+    table has hashes of the cluster's CURRENT password, not the
+    snapshot's."""
+
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def _content(self):
+        with open(self.RESTORE_K8S) as f:
+            return f.read()
+
+    def test_saves_current_db_secret_before_apply(self):
+        content = self._content()
+        # Two anchors: the k8s_info read of <id>-db-credentials, and
+        # the set_fact that captures the current MYSQL_PASSWORD.
+        assert "k8s_info:" in content, (
+            "restore_k8s.yml must read the cluster's current "
+            "<id>-db-credentials Secret BEFORE applying the snapshot's "
+            "Secrets, so the live DB user's password can be preserved."
+        )
+        assert "_restore_current_mysql_pwd" in content, (
+            "restore_k8s.yml must capture the running cluster's "
+            "MYSQL_PASSWORD into a fact for re-application post-restore"
+        )
+        assert "_restore_current_mysql_root_pwd" in content, (
+            "restore_k8s.yml must also capture MYSQL_ROOT_PASSWORD; "
+            "both DB user passwords were hashed against the running "
+            "cluster's values during pod init"
+        )
+
+    def test_patches_db_secret_back_after_apply(self):
+        content = self._content()
+        # The strategic-merge patch on <id>-db-credentials with both
+        # password keys, gated on the snapshot's secrets file existing.
+        assert "state: patched" in content, (
+            "restore_k8s.yml must use 'state: patched' (strategic merge) "
+            "to re-apply MYSQL_PASSWORD without touching MW_SECRET_KEY "
+            "in the snapshot-restored Secret"
+        )
+        assert "Preserve current DB password in restored Secret" in content, (
+            "restore_k8s.yml is missing the explicit preserve task — "
+            "without it, fresh-cluster restore auth-mismatches"
+        )
+
+    def test_preserve_step_runs_after_secret_apply(self):
+        """Order matters: snapshot apply MUST come before the patch.
+        If the order were inverted, the patch would land first and
+        then the snapshot's apply would overwrite it back, defeating
+        the preservation."""
+        content = self._content()
+        save_pos = content.find("Save current DB credentials before secret restore")
+        apply_pos = content.find("Restore canasta-managed K8s Secrets from snapshot")
+        patch_pos = content.find("Preserve current DB password in restored Secret")
+        assert save_pos != -1 and apply_pos != -1 and patch_pos != -1, (
+            "Three-step preservation flow expected: save current → "
+            "apply snapshot → patch back. One or more tasks missing."
+        )
+        assert save_pos < apply_pos < patch_pos, (
+            "Order must be: save current creds, then apply snapshot's "
+            "Secrets, then patch the cluster's creds back. Got "
+            "save=%d apply=%d patch=%d." % (save_pos, apply_pos, patch_pos)
+        )
+
+    def test_preserve_uses_stringdata_not_data(self):
+        """stringData lets the K8s API server do the b64 conversion;
+        attempting raw data with un-encoded values would fail."""
+        content = self._content()
+        # Find the Preserve task block and assert stringData appears
+        # after it. (Cheap proximity check — sufficient for a
+        # structural guard.)
+        patch_pos = content.find("Preserve current DB password in restored Secret")
+        block = content[patch_pos:patch_pos + 800]
+        assert "stringData:" in block, (
+            "Preserve task must use 'stringData:' so the K8s API "
+            "server handles the base64 conversion of MYSQL_PASSWORD"
+        )
+
+
 class TestOnDemandBackupCapturesDB:
     """Guard #513: on-demand 'canasta backup create' on K8s must
     capture the wiki database. Pre-fix the dump ran via 'kubectl
