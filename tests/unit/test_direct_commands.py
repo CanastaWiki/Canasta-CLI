@@ -208,8 +208,7 @@ class TestSshRunResolvesCanastaHostName:
     def test_short_name_resolved_via_hosts_yml(self, monkeypatch):
         captured = {}
 
-        monkeypatch.setattr(
-            direct_commands, "_read_hosts_yml",
+        monkeypatch.setattr(direct_commands._helpers, "_read_hosts_yml",
             lambda: {"all": {"hosts": {"node1": {
                 "ansible_host": "cp.example.com",
                 "ansible_user": "admin",
@@ -230,7 +229,7 @@ class TestSshRunResolvesCanastaHostName:
     def test_unregistered_host_passes_through(self, monkeypatch):
         captured = {}
 
-        monkeypatch.setattr(direct_commands, "_read_hosts_yml", lambda: None)
+        monkeypatch.setattr(direct_commands._helpers, "_read_hosts_yml", lambda: None)
 
         def fake_run(full_cmd, **kwargs):
             captured["cmd"] = full_cmd
@@ -244,7 +243,7 @@ class TestSshRunResolvesCanastaHostName:
         """When hosts.yml has no entry but the input is already a
         user@host string, leave it alone."""
         captured = {}
-        monkeypatch.setattr(direct_commands, "_read_hosts_yml", lambda: None)
+        monkeypatch.setattr(direct_commands._helpers, "_read_hosts_yml", lambda: None)
 
         def fake_run(full_cmd, **kwargs):
             captured["cmd"] = full_cmd
@@ -302,7 +301,7 @@ class TestCheckRunningK8s:
                 "remote check must not invoke subprocess.run directly"
             )
 
-        monkeypatch.setattr(direct_commands, "_ssh_run", fake_ssh)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
         monkeypatch.setattr(subprocess, "run", fail_subprocess)
         assert direct_commands._check_running_k8s("mywiki", "node1")
         assert called["host"] == "node1"
@@ -311,15 +310,13 @@ class TestCheckRunningK8s:
         assert "canasta-mywiki" in called["cmd"]  # namespace
 
     def test_remote_not_running(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (0, ""),
         )
         assert not direct_commands._check_running_k8s("mywiki", "node1")
 
     def test_remote_ssh_failure_treated_as_stopped(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (255, ""),  # SSH could not connect
         )
         assert not direct_commands._check_running_k8s("mywiki", "node1")
@@ -500,8 +497,7 @@ class TestCleanup:
         auto-removed — it's 'unreachable', not 'missing'."""
         tmp_path, _ = registry_with_remote
         # Simulate SSH transport failure for the remote host
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run", lambda host, cmd: (255, ""),
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", lambda host, cmd: (255, ""),
         )
 
         args = type("Args", (), {
@@ -522,8 +518,7 @@ class TestCleanup:
         self, registry_with_remote, monkeypatch, capsys
     ):
         tmp_path, _ = registry_with_remote
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run", lambda host, cmd: (255, ""),
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", lambda host, cmd: (255, ""),
         )
 
         args = type("Args", (), {
@@ -544,8 +539,7 @@ class TestCleanup:
         gone on the remote host) — safe to remove without --force."""
         tmp_path, _ = registry_with_remote
         # rc=1 means test -d failed; SSH itself was fine
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run", lambda host, cmd: (1, ""),
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", lambda host, cmd: (1, ""),
         )
 
         args = type("Args", (), {
@@ -565,8 +559,7 @@ class TestCleanup:
         self, registry_with_remote, monkeypatch, capsys
     ):
         tmp_path, _ = registry_with_remote
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run", lambda host, cmd: (1, ""),
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", lambda host, cmd: (1, ""),
         )
 
         args = type("Args", (), {
@@ -591,8 +584,7 @@ class TestCleanup:
 
 class TestGatherInstanceInfo:
     def test_local_instance(self, registry, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_check_running",
+        monkeypatch.setattr(direct_commands._helpers, "_check_running",
             lambda *a, **kw: True,
         )
         _, data = registry
@@ -618,8 +610,7 @@ class TestGatherInstanceInfo:
             + direct_commands._SENTINEL + "\n"
             + "abc123\n"
         )
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (0, ssh_output),
         )
         inst = {
@@ -641,8 +632,7 @@ class TestGatherInstanceInfo:
             + direct_commands._SENTINEL + "\n"
             + "\n"
         )
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (0, ssh_output),
         )
         inst = {
@@ -662,8 +652,7 @@ class TestGatherInstanceInfo:
             + direct_commands._SENTINEL + "\n"
             + "\n"
         )
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (0, ssh_output),
         )
         inst = {
@@ -675,8 +664,7 @@ class TestGatherInstanceInfo:
         assert detail["status"] == "NOT FOUND"
 
     def test_remote_ssh_failure(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (255, ""),
         )
         inst = {
@@ -690,8 +678,7 @@ class TestGatherInstanceInfo:
 
 class TestGatherAllInstances:
     def test_parallel_execution(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_gather_instance_info",
+        monkeypatch.setattr(direct_commands._helpers, "_gather_instance_info",
             lambda iid, inst: direct_commands._make_detail(
                 iid, "localhost", inst["path"], "compose", "STOPPED", [],
             ),
@@ -706,8 +693,7 @@ class TestGatherAllInstances:
         assert results[1]["id"] == "b"
 
     def test_preserves_order(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_gather_instance_info",
+        monkeypatch.setattr(direct_commands._helpers, "_gather_instance_info",
             lambda iid, inst: direct_commands._make_detail(
                 iid, "localhost", "/p", "compose", "STOPPED", [],
             ),
@@ -728,8 +714,7 @@ class TestGatherAllInstances:
                 iid, "localhost", "/p", "compose", "STOPPED", [],
             )
 
-        monkeypatch.setattr(
-            direct_commands, "_gather_instance_info", flaky,
+        monkeypatch.setattr(direct_commands._helpers, "_gather_instance_info", flaky,
         )
         instances = {
             "good": {"path": "/good", "orchestrator": "compose"},
@@ -763,8 +748,7 @@ class TestCmdList:
         assert "No Canasta instances." in capsys.readouterr().out
 
     def test_lists_instances_with_wikis(self, registry, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_check_running",
+        monkeypatch.setattr(direct_commands._helpers, "_check_running",
             lambda *a, **kw: False,
         )
         args = type("Args", (), {"cleanup": False, "host": None})()
@@ -777,8 +761,7 @@ class TestCmdList:
         assert "STOPPED" in out
 
     def test_running_instance(self, registry, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_check_running",
+        monkeypatch.setattr(direct_commands._helpers, "_check_running",
             lambda *a, **kw: True,
         )
         args = type("Args", (), {"cleanup": False, "host": None})()
@@ -788,8 +771,7 @@ class TestCmdList:
         assert "RUNNING" in out
 
     def test_host_filter(self, registry_with_remote, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_gather_instance_info",
+        monkeypatch.setattr(direct_commands._helpers, "_gather_instance_info",
             lambda iid, inst: direct_commands._make_detail(
                 iid,
                 inst.get("host") or "localhost",
@@ -842,7 +824,7 @@ class TestCmdVersion:
     def test_native_checkout(self, tmp_path, monkeypatch, capsys):
         (tmp_path / "VERSION").write_text("4.0.0\n")
         monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
-        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
         monkeypatch.setattr(
             subprocess, "run",
             lambda *a, **kw: type("R", (), {
@@ -862,7 +844,7 @@ class TestCmdVersion:
         (tmp_path / "BUILD_COMMIT").write_text("def5678\n")
         (tmp_path / "BUILD_DATE").write_text("2026-04-18 10:00:00\n")
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
-        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
         rc = direct_commands.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
@@ -878,7 +860,7 @@ class TestCmdVersion:
         (tmp_path / "BUILD_COMMIT").write_text("abc1234\n")
         (tmp_path / "BUILD_DATE").write_text("2026-04-23 00:00:00\n")
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
-        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
         # No instances registered — PWD auto-resolve should be a no-op.
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
         args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
@@ -894,7 +876,7 @@ class TestCmdVersion:
         (tmp_path / "BUILD_COMMIT").write_text("abc1234\n")
         (tmp_path / "BUILD_DATE").write_text("2026-04-23 00:00:00\n")
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
-        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
         args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
         rc = direct_commands.cmd_version(args)
@@ -910,7 +892,7 @@ class TestCmdVersion:
         (tmp_path / "BUILD_COMMIT").write_text("abc1234\n")
         (tmp_path / "BUILD_DATE").write_text("2026-04-20 14:00:00\n")
         monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
-        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
         rc = direct_commands.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
@@ -919,7 +901,7 @@ class TestCmdVersion:
         assert "abc1234" in out
 
     def test_missing_version_file(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
         # `stderr` is needed because _ssh_run reads result.stderr.strip();
         # cmd_version may iterate registered instances on the developer's
         # machine and reach _ssh_run for any host != localhost.
@@ -934,7 +916,7 @@ class TestCmdVersion:
 
     def test_not_a_git_repo(self, tmp_path, monkeypatch, capsys):
         (tmp_path / "VERSION").write_text("4.0.0\n")
-        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
         monkeypatch.setattr(
             subprocess, "run",
             lambda *a, **kw: type("R", (), {"returncode": 128, "stdout": "", "stderr": ""})(),
@@ -966,7 +948,7 @@ class TestCmdVersionInstanceModes:
         config_dir.mkdir()
         (config_dir / "conf.json").write_text(json.dumps({"Instances": instances}))
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
-        monkeypatch.setattr(direct_commands, "_get_script_dir", lambda: str(script_dir))
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(script_dir))
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(config_dir))
         return script_dir, config_dir
 
@@ -1106,8 +1088,7 @@ class TestCmdConfigGet:
     def test_get_single_key(self, tmp_path, monkeypatch, capsys):
         env = tmp_path / ".env"
         env.write_text("MW_SITE_SERVER=https://example.com\nOTHER=value\n")
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
         )
         args = type("Args", (), {
@@ -1120,8 +1101,7 @@ class TestCmdConfigGet:
     def test_get_multiple_keys(self, tmp_path, monkeypatch, capsys):
         env = tmp_path / ".env"
         env.write_text("A=1\nB=2\nC=3\n")
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
         )
         args = type("Args", (), {
@@ -1135,8 +1115,7 @@ class TestCmdConfigGet:
     def test_get_missing_key(self, tmp_path, monkeypatch, capsys):
         env = tmp_path / ".env"
         env.write_text("MW_SITE_SERVER=https://example.com\n")
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
         )
         args = type("Args", (), {
@@ -1149,8 +1128,7 @@ class TestCmdConfigGet:
     def test_get_all_sorted(self, tmp_path, monkeypatch, capsys):
         env = tmp_path / ".env"
         env.write_text("ZEBRA=z\nAPPLE=a\nMIDDLE=m\n")
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
         )
         args = type("Args", (), {"id": "test", "key": None, "force": False})()
@@ -1162,8 +1140,7 @@ class TestCmdConfigGet:
         assert lines[2] == "ZEBRA=z"
 
     def test_no_env_file(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
         )
         args = type("Args", (), {"id": "test", "key": None, "force": False})()
@@ -1211,8 +1188,7 @@ class TestLifecycleCommands:
         assert direct_commands.is_direct_command("restart")
 
     def test_k8s_start_falls_back(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("k8s-site", {
                 "path": "/srv/k8s-site",
                 "orchestrator": "kubernetes",
@@ -1222,8 +1198,7 @@ class TestLifecycleCommands:
         assert direct_commands.cmd_start(args) is direct_commands.FALLBACK
 
     def test_k8s_restart_falls_back(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("k8s-site", {
                 "path": "/srv/k8s-site",
                 "orchestrator": "kubernetes",
@@ -1247,8 +1222,7 @@ class TestLifecycleCommands:
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
         monkeypatch.setattr(subprocess, "run", mock_run)
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("k8s-site", {
                 "path": "/srv/k8s-site",
                 "orchestrator": "kubernetes",
@@ -1282,8 +1256,7 @@ class TestLifecycleCommands:
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
         monkeypatch.setattr(subprocess, "run", mock_run)
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("extdb-site", {
                 "path": "/srv/extdb-site",
                 "orchestrator": "kubernetes",
@@ -1317,15 +1290,13 @@ class TestLifecycleCommands:
             return type("R", (), {"returncode": 0})()
 
         monkeypatch.setattr(subprocess, "run", mock_run)
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
             }),
         )
-        monkeypatch.setattr(
-            direct_commands, "_compose_file_args",
+        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
 
@@ -1344,15 +1315,13 @@ class TestLifecycleCommands:
             return type("R", (), {"returncode": 0})()
 
         monkeypatch.setattr(subprocess, "run", mock_run)
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
             }),
         )
-        monkeypatch.setattr(
-            direct_commands, "_compose_file_args",
+        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
 
@@ -1369,15 +1338,13 @@ class TestLifecycleCommands:
             return type("R", (), {"returncode": 0})()
 
         monkeypatch.setattr(subprocess, "run", mock_run)
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
             }),
         )
-        monkeypatch.setattr(
-            direct_commands, "_compose_file_args",
+        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
 
@@ -1396,15 +1363,13 @@ class TestLifecycleCommands:
             return type("R", (), {"returncode": 1})()
 
         monkeypatch.setattr(subprocess, "run", mock_run)
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
             }),
         )
-        monkeypatch.setattr(
-            direct_commands, "_compose_file_args",
+        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
 
@@ -1421,17 +1386,15 @@ class TestLifecycleCommands:
             # Return empty .env for the sync-profiles read
             return 0, ""
 
-        monkeypatch.setattr(direct_commands, "_ssh_run", mock_ssh)
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", mock_ssh)
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
                 "host": "admin@remote",
             }),
         )
-        monkeypatch.setattr(
-            direct_commands, "_compose_file_args",
+        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
 
@@ -1589,8 +1552,7 @@ class TestDumpComposeFailure:
             })()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        monkeypatch.setattr(
-            direct_commands, "_compose_file_args",
+        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
         direct_commands._dump_compose_failure({
@@ -1848,16 +1810,14 @@ class TestDirectCommandRegistry:
             + "\n" + d + "\n"
             + "0\t0\n"
         )
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", {
                 "path": "/srv/mysite",
                 "orchestrator": "compose",
                 "host": "admin@remote",
             }),
         )
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (0, ssh_output),
         )
         args = type("Args", (), {"id": "mysite"})()
@@ -1990,16 +1950,14 @@ class TestCmdGitopsStatusK8s:
                 "operationState": {"finishedAt": "2026-04-23T12:00:00Z"},
             }
         }
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", {
                 "path": "/srv/mysite",
                 "orchestrator": "kubernetes",
                 "host": "admin@k8s-control",
             }),
         )
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (0, ssh_output),
         )
         monkeypatch.setattr(
@@ -2043,8 +2001,7 @@ class TestExecInContainer:
         assert "Cite" in out
 
     def test_k8s(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_k8s_get_pod",
+        monkeypatch.setattr(direct_commands._helpers, "_k8s_get_pod",
             lambda ns, svc: "canasta-test-web-abc123",
         )
         monkeypatch.setattr(
@@ -2061,8 +2018,7 @@ class TestExecInContainer:
         assert rc == 0
 
     def test_k8s_no_pod(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_k8s_get_pod",
+        monkeypatch.setattr(direct_commands._helpers, "_k8s_get_pod",
             lambda ns, svc: None,
         )
         rc, out = direct_commands._exec_in_container(
@@ -2081,12 +2037,10 @@ class TestExtensionSkinList:
         assert direct_commands.is_direct_command("skin_list")
 
     def test_extension_list_output(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}),
         )
-        monkeypatch.setattr(
-            direct_commands, "_exec_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
             lambda *a, **kw: (0, "Cite\nVisualEditor\nParserFunctions\n"),
         )
         args = type("Args", (), {"id": "test", "wiki": None})()
@@ -2098,12 +2052,10 @@ class TestExtensionSkinList:
         assert "VisualEditor" in out
 
     def test_skin_list_output(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}),
         )
-        monkeypatch.setattr(
-            direct_commands, "_exec_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
             lambda *a, **kw: (0, "Vector\nTimeless\n"),
         )
         args = type("Args", (), {"id": "test", "wiki": None})()
@@ -2114,12 +2066,10 @@ class TestExtensionSkinList:
         assert "Vector" in out
 
     def test_list_error(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}),
         )
-        monkeypatch.setattr(
-            direct_commands, "_exec_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
             lambda *a, **kw: (1, ""),
         )
         args = type("Args", (), {"id": "test", "wiki": None})()
@@ -2185,8 +2135,7 @@ class TestCmdGitopsDiff:
         assert direct_commands.is_direct_command("gitops_diff")
 
     def test_k8s_falls_back(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("k8s", {"path": "/p", "orchestrator": "kubernetes"}),
         )
         args = type("Args", (), {"id": "k8s"})()
@@ -2200,16 +2149,14 @@ class TestCmdGitopsDiff:
             + "\n" + d + "\n"
             + "\n"
         )
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", {
                 "path": "/srv/mysite",
                 "orchestrator": "compose",
                 "host": "admin@remote",
             }),
         )
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (0, ssh_output),
         )
         args = type("Args", (), {"id": "mysite"})()
@@ -2229,23 +2176,20 @@ class TestBackupList:
         assert direct_commands.is_direct_command("backup_list")
 
     def test_k8s_falls_back(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("k8s", {"path": "/p", "orchestrator": "kubernetes"}),
         )
         args = type("Args", (), {"id": "k8s"})()
         assert direct_commands.cmd_backup_list(args) is direct_commands.FALLBACK
 
     def test_compose_runs_restic(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
             }),
         )
-        monkeypatch.setattr(
-            direct_commands, "_read_env_file",
+        monkeypatch.setattr(direct_commands._helpers, "_read_env_file",
             lambda *a: {"RESTIC_REPOSITORY": "s3:s3.amazonaws.com/bucket"},
         )
         monkeypatch.setattr(
@@ -2393,14 +2337,13 @@ class TestCanastaStatus:
         return Namespace(**defaults)
 
     def test_unknown_id_errors(self, monkeypatch, capsys):
-        monkeypatch.setattr(direct_commands, "_read_registry", lambda p: {})
+        monkeypatch.setattr(direct_commands._helpers, "_read_registry", lambda p: {})
         rc = direct_commands.cmd_status(self._args(id="ghost"))
         assert rc == 1
         assert "not found in the registry" in capsys.readouterr().err
 
     def test_k8s_routes_through_ssh(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_read_registry",
+        monkeypatch.setattr(direct_commands._helpers, "_read_registry",
             lambda p: {
                 "mysite": {
                     "id": "mysite", "orchestrator": "kubernetes",
@@ -2408,8 +2351,7 @@ class TestCanastaStatus:
                 },
             },
         )
-        monkeypatch.setattr(
-            direct_commands, "_check_running_k8s",
+        monkeypatch.setattr(direct_commands._helpers, "_check_running_k8s",
             lambda inst, host: True,
         )
         ssh_calls = []
@@ -2418,7 +2360,7 @@ class TestCanastaStatus:
             ssh_calls.append((host, cmd))
             return 0, "stub-output"
 
-        monkeypatch.setattr(direct_commands, "_ssh_run", fake_ssh)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
         # Make sure no local subprocess is called for K8s sections.
         monkeypatch.setattr(
             subprocess, "run",
@@ -2448,8 +2390,7 @@ class TestCanastaStatus:
 
     def test_compose_uses_docker_compose_ps_locally(self, monkeypatch, capsys, tmp_path):
         path = str(tmp_path)
-        monkeypatch.setattr(
-            direct_commands, "_read_registry",
+        monkeypatch.setattr(direct_commands._helpers, "_read_registry",
             lambda p: {
                 "mysite": {
                     "id": "mysite", "orchestrator": "compose",
@@ -2457,8 +2398,7 @@ class TestCanastaStatus:
                 },
             },
         )
-        monkeypatch.setattr(
-            direct_commands, "_check_running_compose",
+        monkeypatch.setattr(direct_commands._helpers, "_check_running_compose",
             lambda p, h: False,
         )
         captured = {}
@@ -2479,8 +2419,7 @@ class TestCanastaStatus:
 
     def test_resolves_by_cwd_when_no_id(self, monkeypatch, tmp_path, capsys):
         path = str(tmp_path)
-        monkeypatch.setattr(
-            direct_commands, "_read_registry",
+        monkeypatch.setattr(direct_commands._helpers, "_read_registry",
             lambda p: {
                 "by-cwd": {
                     "id": "by-cwd", "orchestrator": "compose",
@@ -2488,7 +2427,7 @@ class TestCanastaStatus:
                 },
             },
         )
-        monkeypatch.setattr(direct_commands, "_check_running_compose", lambda p, h: True)
+        monkeypatch.setattr(direct_commands._helpers, "_check_running_compose", lambda p, h: True)
         monkeypatch.setattr(
             subprocess, "run",
             lambda *a, **k: type("R", (), {"returncode": 0, "stdout": ""})(),
@@ -2512,8 +2451,7 @@ class TestArgocdCommands:
         return Namespace(**defaults)
 
     def test_password_remote_ssh(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (0, "secret123\n"),
         )
         rc = direct_commands.cmd_argocd_password(self._args(host="node1"))
@@ -2521,8 +2459,7 @@ class TestArgocdCommands:
         assert capsys.readouterr().out.strip() == "secret123"
 
     def test_password_secret_missing(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (1, ""),
         )
         rc = direct_commands.cmd_argocd_password(self._args(host="node1"))
@@ -2535,8 +2472,7 @@ class TestArgocdCommands:
             "NAME              SYNC STATUS   HEALTH STATUS\n"
             "canasta-mysite    Synced        Healthy\n"
         )
-        monkeypatch.setattr(
-            direct_commands, "_ssh_run",
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
             lambda host, cmd: (0, sample),
         )
         rc = direct_commands.cmd_argocd_apps(self._args(host="node1"))
@@ -2547,13 +2483,11 @@ class TestArgocdCommands:
         """`canasta argocd ui --host node1` must run `ssh -L … kubectl
         port-forward …`, not a local kubectl call."""
         # Suppress the up-front password fetch.
-        monkeypatch.setattr(
-            direct_commands, "_argocd_admin_password",
+        monkeypatch.setattr(direct_commands.argocd, "_argocd_admin_password",
             lambda host: (0, "shh"),
         )
         # Stub host resolution to a fixed user@host string.
-        monkeypatch.setattr(
-            direct_commands, "_resolve_ssh_target",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
             lambda host: "admin@node1.example",
         )
         captured = {}
@@ -2581,8 +2515,7 @@ class TestArgocdCommands:
         assert "9443:443" in joined
 
     def test_ui_local_uses_kubectl_directly(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_argocd_admin_password",
+        monkeypatch.setattr(direct_commands.argocd, "_argocd_admin_password",
             lambda host: (0, ""),  # secret missing — should still proceed
         )
         captured = {}
@@ -2655,8 +2588,7 @@ class TestMaintenanceScript:
         return type("Args", (), defaults)()
 
     def _patch_resolve(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
@@ -2675,7 +2607,7 @@ class TestMaintenanceScript:
             captured["command"] = command
             return 0
 
-        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
         rc = direct_commands.cmd_maintenance_script(self._args())
         assert rc == 0
         assert "ls maintenance/*.php" in captured["command"]
@@ -2683,8 +2615,7 @@ class TestMaintenanceScript:
 
     def test_invalid_path_rejected(self, monkeypatch, capsys):
         self._patch_resolve(monkeypatch)
-        monkeypatch.setattr(
-            direct_commands, "_stream_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
             lambda *a, **kw: 0,
         )
         rc = direct_commands.cmd_maintenance_script(
@@ -2701,7 +2632,7 @@ class TestMaintenanceScript:
             captured["command"] = command
             return 0
 
-        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
         rc = direct_commands.cmd_maintenance_script(
             self._args(script_args="rebuildall.php"),
         )
@@ -2716,7 +2647,7 @@ class TestMaintenanceScript:
             captured["command"] = command
             return 0
 
-        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
         direct_commands.cmd_maintenance_script(
             self._args(script_args="rebuildall.php", wiki="main"),
         )
@@ -2730,8 +2661,7 @@ class TestMaintenanceExtension:
         return type("Args", (), defaults)()
 
     def _patch_resolve(self, monkeypatch):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
@@ -2750,7 +2680,7 @@ class TestMaintenanceExtension:
             captured["command"] = command
             return 0
 
-        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
         rc = direct_commands.cmd_maintenance_extension(self._args())
         assert rc == 0
         assert "find -L extensions" in captured["command"]
@@ -2764,7 +2694,7 @@ class TestMaintenanceExtension:
             captured["command"] = command
             return 0
 
-        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
         direct_commands.cmd_maintenance_extension(
             self._args(script_args="Cite/maintenance/foo.php"),
         )
@@ -2785,16 +2715,14 @@ class TestMaintenanceUpdate:
         return type("Args", (), defaults)()
 
     def _patch_resolve(self, monkeypatch, wikis=None):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
                 "host": "localhost",
             }),
         )
-        monkeypatch.setattr(
-            direct_commands, "_read_wiki_ids",
+        monkeypatch.setattr(direct_commands.maintenance, "_read_wiki_ids",
             lambda inst: wikis if wikis is not None else ["main", "draft"],
         )
 
@@ -2804,8 +2732,7 @@ class TestMaintenanceUpdate:
     def test_runs_update_runjobs_for_each_wiki(self, monkeypatch):
         self._patch_resolve(monkeypatch)
         # No SMW present.
-        monkeypatch.setattr(
-            direct_commands, "_exec_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
             lambda *a, **kw: (0, "no\n"),
         )
         commands = []
@@ -2814,7 +2741,7 @@ class TestMaintenanceUpdate:
             commands.append(command)
             return 0
 
-        monkeypatch.setattr(direct_commands, "_stream_in_container", fake_stream)
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
         rc = direct_commands.cmd_maintenance_update(self._args())
         assert rc == 0
         # update.php for both wikis, then runJobs for both wikis.
@@ -2830,13 +2757,11 @@ class TestMaintenanceUpdate:
 
     def test_skip_jobs_skips_runjobs(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main"])
-        monkeypatch.setattr(
-            direct_commands, "_exec_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
             lambda *a, **kw: (0, "no\n"),
         )
         commands = []
-        monkeypatch.setattr(
-            direct_commands, "_stream_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
             lambda iid, i, c, service="web": commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(skip_jobs=True))
@@ -2845,13 +2770,11 @@ class TestMaintenanceUpdate:
 
     def test_smw_runs_when_present(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main"])
-        monkeypatch.setattr(
-            direct_commands, "_exec_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
             lambda *a, **kw: (0, "yes\n"),
         )
         commands = []
-        monkeypatch.setattr(
-            direct_commands, "_stream_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
             lambda iid, i, c, service="web": commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args())
@@ -2861,13 +2784,11 @@ class TestMaintenanceUpdate:
         self._patch_resolve(monkeypatch, wikis=["main"])
         # _exec_in_container shouldn't even be called when skip_smw is True;
         # still stub it defensively.
-        monkeypatch.setattr(
-            direct_commands, "_exec_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
             lambda *a, **kw: (0, "yes\n"),
         )
         commands = []
-        monkeypatch.setattr(
-            direct_commands, "_stream_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
             lambda iid, i, c, service="web": commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(skip_smw=True))
@@ -2875,13 +2796,11 @@ class TestMaintenanceUpdate:
 
     def test_explicit_wiki_overrides_wikis_yaml(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main", "draft", "foo"])
-        monkeypatch.setattr(
-            direct_commands, "_exec_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
             lambda *a, **kw: (0, "no\n"),
         )
         commands = []
-        monkeypatch.setattr(
-            direct_commands, "_stream_in_container",
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
             lambda iid, i, c, service="web": commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(wiki="draft"))
@@ -2915,8 +2834,7 @@ class TestScale:
         assert direct_commands.is_direct_command("scale")
 
     def test_rejects_compose(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", {
                 "id": "mysite", "path": "/srv/mysite",
                 "host": "localhost", "orchestrator": "compose",
@@ -2930,8 +2848,7 @@ class TestScale:
         assert "PHP-FPM" in err
 
     def test_rejects_unsupported_component(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", self._k8s_inst()),
         )
         rc = direct_commands.cmd_scale(self._args(component="varnish"))
@@ -2941,8 +2858,7 @@ class TestScale:
         assert "only 'web'" in err
 
     def test_rejects_zero_replicas(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", self._k8s_inst()),
         )
         rc = direct_commands.cmd_scale(self._args(replicas=0))
@@ -2950,8 +2866,7 @@ class TestScale:
         assert "≥ 1" in capsys.readouterr().err
 
     def test_rejects_non_integer_replicas(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", self._k8s_inst()),
         )
         rc = direct_commands.cmd_scale(self._args(replicas="abc"))
@@ -2964,8 +2879,7 @@ class TestScale:
         (inst_path / "values.yaml").write_text(
             "web:\n  replicaCount: 3\n",
         )
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
         )
         called = {"helm": False}
@@ -2988,8 +2902,7 @@ class TestScale:
         (inst_path / "values.yaml").write_text(
             "instance:\n  id: mysite\nweb:\n  replicaCount: 1\n",
         )
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
         )
         captured = {}
@@ -3019,8 +2932,7 @@ class TestScale:
         inst_path = tmp_path / "mysite"
         inst_path.mkdir()
         (inst_path / "values.yaml").write_text("web:\n  replicaCount: 1\n")
-        monkeypatch.setattr(
-            direct_commands, "_resolve_instance",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
         )
         monkeypatch.setattr(subprocess, "call", lambda *a, **kw: 7)
@@ -3104,8 +3016,7 @@ class TestDockerHostPropagation:
             "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock"
         )
         monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
-        monkeypatch.setattr(
-            direct_commands, "_resolve_ssh_target",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
             lambda h: h,
         )
         direct_commands._ssh_run("acme", "docker compose ps")
@@ -3134,8 +3045,7 @@ class TestDockerHostPropagation:
 
         monkeypatch.delenv("DOCKER_HOST", raising=False)
         monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
-        monkeypatch.setattr(
-            direct_commands, "_resolve_ssh_target",
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
             lambda h: h,
         )
         direct_commands._ssh_run("acme", "docker compose ps")
