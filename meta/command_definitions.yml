@@ -140,8 +140,32 @@ command_groups:
   - name: backup_schedule
     description: "Manage scheduled backups"
     long_description: |
-      Manage recurring backup schedules using crontab. Backup output
-      is logged to `backup.log` in the instance directory.
+      Manage recurring backup schedules. The implementation differs
+      by orchestrator:
+
+      **Compose** instances use a host crontab entry that runs
+      `canasta backup create -i <id> --tag scheduled` on the schedule.
+      Output goes to `backup.log` in the instance directory; failures
+      are visible there and via `tail -F`. Requires the `cron` package
+      on the host (Debian: `apt install cron`).
+
+      **Kubernetes** instances use a `CronJob` named
+      `canasta-backup-<id>` in the instance namespace. The Job pod
+      runs a `dump-databases` init container (mariadb-dump for every
+      DB on the configured `MYSQL_HOST`) followed by a `restic`
+      container that snapshots the instance's PVCs. Both containers
+      `envFrom` a `canasta-<id>-backup-env` Secret that's synced from
+      the instance's `.env` and contains restic + cloud-backend
+      credentials (`RESTIC_*`, `AWS_*`, `B2_*`, `AZURE_*`,
+      `GOOGLE_*`, `OS_*`, `ST_*`) plus `MYSQL_HOST` / `MYSQL_USER`
+      / `MYSQL_PASSWORD`. The CronJob keeps the last 3 successful
+      and 7 failed Jobs for post-mortem.
+
+      When a scheduled K8s backup fails, the operator finds it via
+      `kubectl get jobs -n canasta-<id>` (status `Failed`) and
+      `kubectl logs -n canasta-<id> job/<name>` for the dump or
+      restic error. Watch out for the failed-history limit cycling
+      old failures off the cluster after seven runs.
 
   - name: gitops
     description: "Git-based configuration management"
@@ -1500,15 +1524,35 @@ commands:
   - name: backup_schedule_set
     description: "Set a recurring backup schedule"
     long_description: |
-      Schedule recurring backups using a cron expression. This adds
-      or updates a crontab entry that runs `canasta backup create`
-      on the specified schedule. Backup output is logged to
-      `backup.log` in the instance directory.
+      Schedule recurring backups using a cron expression. The cron
+      expression follows the standard 5-field format
+      `minute hour day-of-month month day-of-week`.
 
-      Use `--purge-older-than` to automatically purge old backups
-      after each scheduled backup.
+      On **Compose**, this writes a host crontab entry that runs
+      `canasta backup create -i <id> --tag scheduled` on the
+      schedule. Output goes to `backup.log` in the instance
+      directory.
+
+      On **Kubernetes**, this creates a `CronJob` named
+      `canasta-backup-<id>` in the instance namespace. The Job pod
+      runs `mariadb-dump` per database followed by `restic backup`
+      against the configured `RESTIC_REPOSITORY`. Both steps consume
+      credentials via the `canasta-<id>-backup-env` Secret —
+      including any cloud-backend env (`AWS_*`, `B2_*`, `AZURE_*`,
+      `GOOGLE_*`) the user set in `.env`. To inspect the rendered
+      schedule and resources, use `kubectl get cronjob
+      canasta-backup-<id> -n canasta-<id> -o yaml`.
+
+      Use `--purge-older-than` to chain `restic forget --prune
+      --keep-within <duration>` after each backup, so old snapshots
+      are pruned without a separate maintenance run.
+
+      Setting a new schedule replaces the existing one in place
+      (same crontab entry name on Compose, same CronJob name on
+      Kubernetes); duplicates aren't created.
     examples:
       - "canasta backup schedule set '0 2 * * *'"
+      - "canasta backup schedule set '0 3 * * *' --purge-older-than 30d"
     playbook: backup_schedule_set.yml
     parameters:
       - name: id
@@ -1529,6 +1573,14 @@ commands:
     long_description: |
       Show the current backup schedule for this instance, if one
       exists.
+
+      On Compose, queries the host crontab and parses the
+      `canasta backup create -i <id>` entry. On Kubernetes, queries
+      the `canasta-backup-<id>` CronJob in the instance namespace.
+      Reports the schedule expression and whether a `--purge-older-
+      than` is wired in. "No backup schedule found" means no entry
+      exists for this instance on the orchestrator's native
+      scheduling surface.
     examples:
       - "canasta backup schedule list"
     playbook: backup_schedule_list.yml
@@ -1541,8 +1593,11 @@ commands:
   - name: backup_schedule_remove
     description: "Remove a scheduled backup"
     long_description: |
-      Remove the crontab entry for recurring backups of this
-      instance.
+      Remove the recurring backup schedule for this instance. On
+      Compose this deletes the host crontab entry; on Kubernetes
+      this deletes the `canasta-backup-<id>` CronJob. A Job that's
+      already running at the moment the schedule is removed
+      finishes naturally — only future firings stop.
     examples:
       - "canasta backup schedule remove"
     playbook: backup_schedule_remove.yml
