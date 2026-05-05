@@ -360,9 +360,20 @@
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 
-- name: Write .gitattributes for git-crypt
+# K8s gitops repo carries no secrets after #507 — MYSQL_PASSWORD and
+# MW_SECRET_KEY are pulled at deploy time from the per-instance K8s
+# Secrets (<id>-db-credentials, <id>-mw-secrets) via secretKeyRef, and
+# k8s_sync_config.yml strips them out of the configData.web['.env']
+# blob before rendering. With no secret-bearing files left, no
+# git-crypt filter is needed; encrypting rendered-values.yaml broke
+# Argo CD's ability to parse it as Helm values. The git-crypt init/
+# export scaffolding below stays in place for now (still useful if a
+# future addition wants per-file encryption) but no patterns are
+# registered for filtering. Follow-up cleanup will remove the dead
+# scaffolding.
+- name: Write empty .gitattributes (no files marked for git-crypt)
   ansible.builtin.copy:
-    src: "{{ role_path }}/files/gitattributes.default"
+    content: ""
     dest: "{{ instance_path }}/.gitattributes"
     mode: "0644"
 
