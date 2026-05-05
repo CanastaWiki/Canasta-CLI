@@ -985,3 +985,164 @@ class TestInstallCommand:
     def test_install_resolves_to_correct_command(self, parser):
         args = parser.parse_args(["install", "docker"])
         assert canasta_cli.resolve_command_name(args) == "install"
+
+
+# ----------------------------------------------------------------
+# self_update_cli — pre-exec git pull on the install dir
+# ----------------------------------------------------------------
+
+import subprocess as _subprocess
+
+
+class TestSelfUpdateCli:
+    """canasta.self_update_cli runs in canasta.py before exec'ing
+    ansible-playbook so the playbook process always sees the post-pull
+    state of ansible.cfg / module_utils / etc. (#489)."""
+
+    def _patch_repo(self, monkeypatch, tmp_path, has_git=True, version="4.0.0"):
+        """Set up a fake install dir at tmp_path. Returns the dir path."""
+        if has_git:
+            (tmp_path / ".git").mkdir()
+        (tmp_path / "VERSION").write_text(version + "\n")
+        monkeypatch.setattr(canasta_cli, "SCRIPT_DIR", str(tmp_path))
+        return tmp_path
+
+    def _make_runner(self, side_effects):
+        """Return a fake subprocess.run that pops responses from a list.
+        Each side_effect is dict(stdout=..., returncode=..., stderr=...).
+        """
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append(argv)
+            if not side_effects:
+                raise AssertionError(
+                    "unexpected subprocess.run after %d calls: %r"
+                    % (len(calls), argv)
+                )
+            spec = side_effects.pop(0)
+            return type("R", (), {
+                "returncode": spec.get("returncode", 0),
+                "stdout": spec.get("stdout", ""),
+                "stderr": spec.get("stderr", ""),
+            })()
+
+        return fake_run, calls
+
+    def test_no_op_when_not_a_git_repo(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        self._patch_repo(monkeypatch, tmp_path, has_git=False)
+
+        def fail_run(*a, **kw):
+            raise AssertionError("subprocess.run should not be called")
+
+        monkeypatch.setattr(_subprocess, "run", fail_run)
+        canasta_cli.self_update_cli()
+        out = capsys.readouterr()
+        assert out.out == ""
+        assert out.err == ""
+
+    def test_already_up_to_date(self, monkeypatch, tmp_path, capsys):
+        self._patch_repo(monkeypatch, tmp_path)
+        runner, calls = self._make_runner([
+            {"stdout": "abc1234\n"},   # rev-parse current
+            {"stdout": ""},             # fetch
+            {"stdout": ""},             # log HEAD..origin/main → empty
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        out = capsys.readouterr().out
+        assert "already up to date" in out
+        assert "4.0.0" in out
+        assert "abc1234" in out
+
+    def test_pulls_and_updates_build_files(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        self._patch_repo(monkeypatch, tmp_path, version="4.0.0")
+        # Sequence: rev-parse current, fetch, log (has updates),
+        # pull, rev-parse new, log -1 date.
+        runner, calls = self._make_runner([
+            {"stdout": "old1234\n"},
+            {"stdout": ""},
+            {"stdout": "new1234 some change\n"},   # pending updates
+            {"stdout": ""},                         # pull succeeded
+            {"stdout": "new1234\n"},
+            {"stdout": "2026-05-05 10:00:00\n"},
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+
+        # VERSION file changes between current and new — the helper
+        # re-reads it after the pull.
+        version_reads = [iter(["4.0.0", "4.1.0"])]
+        original_open = open
+
+        def fake_open(path, *args, **kwargs):
+            if str(path).endswith("VERSION") and not args:
+                # Only intercept reads of VERSION (no mode arg = read).
+                content = next(version_reads[0])
+                from io import StringIO
+                return StringIO(content)
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.open", fake_open)
+        canasta_cli.self_update_cli()
+
+        # Restore real open before reading the BUILD files.
+        monkeypatch.undo()
+        out = capsys.readouterr().out
+        assert "Updated Canasta CLI" in out
+        assert "4.0.0" in out
+        assert "old1234" in out
+        assert "4.1.0" in out
+        assert "new1234" in out
+
+        assert (tmp_path / "BUILD_COMMIT").read_text().strip() == "new1234"
+        assert (tmp_path / "BUILD_DATE").read_text().strip() == (
+            "2026-05-05 10:00:00"
+        )
+
+    def test_pull_failure_warns_and_continues(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        self._patch_repo(monkeypatch, tmp_path)
+        runner, calls = self._make_runner([
+            {"stdout": "abc1234\n"},
+            {"stdout": ""},
+            {"stdout": "ff00 some change\n"},
+            {"stdout": "", "returncode": 1, "stderr": "diverged\n"},
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        err = capsys.readouterr().err
+        assert "Could not fast-forward" in err
+
+    def test_fetch_failure_warns_and_returns(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        self._patch_repo(monkeypatch, tmp_path)
+        # Sequence: rev-parse current succeeds, fetch raises CalledProcessError.
+        attempts = [
+            type("R", (), {
+                "returncode": 0, "stdout": "abc1234\n", "stderr": "",
+            })(),
+        ]
+        fail_after_first = [False]
+
+        def runner(argv, **kwargs):
+            if fail_after_first[0]:
+                raise AssertionError("should not run more after fetch fail")
+            if "fetch" in argv:
+                fail_after_first[0] = True
+                check = kwargs.get("check", False)
+                if check:
+                    raise _subprocess.CalledProcessError(
+                        128, argv, output="", stderr="network",
+                    )
+            return attempts.pop(0)
+
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        err = capsys.readouterr().err
+        assert "could not fetch from origin" in err
