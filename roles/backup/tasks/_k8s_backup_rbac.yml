@@ -1,0 +1,59 @@
+---
+# RBAC for K8s backup Pods.
+#
+# Creates a per-instance ServiceAccount + Role + RoleBinding so backup
+# Pods can read the canasta-managed Secrets (for dump-secrets) without
+# the default ServiceAccount's lack of Secret-read perms blocking
+# them. Scoped: only 'get' verb, only the two specific Secret names
+# we capture in the snapshot.
+#
+# Included by both schedule_set.yml (CronJob path) and k8s_run_backup.yml
+# (on-demand path) — idempotent, so running both keeps a single set
+# of resources in the namespace.
+#
+# Input: instance_id
+
+- name: Create ServiceAccount for backup Pod
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: "canasta-backup-{{ instance_id }}"
+        namespace: "canasta-{{ instance_id }}"
+
+- name: Create Role granting read on canasta-managed Secrets
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: "canasta-backup-{{ instance_id }}"
+        namespace: "canasta-{{ instance_id }}"
+      rules:
+        - apiGroups: [""]
+          resources: ["secrets"]
+          resourceNames:
+            - "{{ instance_id }}-db-credentials"
+            - "{{ instance_id }}-mw-secrets"
+          verbs: ["get"]
+
+- name: Bind Role to backup ServiceAccount
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: "canasta-backup-{{ instance_id }}"
+        namespace: "canasta-{{ instance_id }}"
+      subjects:
+        - kind: ServiceAccount
+          name: "canasta-backup-{{ instance_id }}"
+          namespace: "canasta-{{ instance_id }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: "canasta-backup-{{ instance_id }}"
