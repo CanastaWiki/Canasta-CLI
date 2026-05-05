@@ -132,6 +132,21 @@
       ansible.builtin.set_fact:
         _k8s_namespace: "canasta-{{ instance_id }}"
 
+    # Slurp values.yaml from the target host once and parse it. All
+    # three downstream reads (web.replicaCount, db.enabled,
+    # argocd.syncPolicy) used to call lookup('file', instance_path ~
+    # '/values.yaml'), which runs on the controller — broken when
+    # controller and target are different hosts (#514). Same fix shape
+    # PR #115 used for init_kubernetes.yml and push_kubernetes.yml.
+    - name: Read values.yaml from target
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/values.yaml"
+      register: _start_values_raw
+
+    - name: Parse values.yaml
+      ansible.builtin.set_fact:
+        _start_values: "{{ _start_values_raw.content | b64decode | from_yaml }}"
+
     - name: Sync config to ConfigMaps
       ansible.builtin.include_tasks: k8s_sync_config.yml
 
@@ -153,9 +168,7 @@
       block:
         - name: Read web replica count from values
           ansible.builtin.set_fact:
-            _web_replicas: >-
-              {{ (lookup('file', instance_path ~ '/values.yaml')
-                  | from_yaml).get('web', {}).get('replicaCount', 1) }}
+            _web_replicas: "{{ _start_values.get('web', {}).get('replicaCount', 1) }}"
 
         # External-DB instances with Elasticsearch disabled have no
         # StatefulSets; 'kubectl scale --all' errors with "no objects
@@ -199,9 +212,7 @@
     # -db StatefulSet and the rollout-status call errors with NotFound.
     - name: Read db.enabled from values.yaml
       ansible.builtin.set_fact:
-        _db_enabled: >-
-          {{ (lookup('file', instance_path ~ '/values.yaml')
-              | from_yaml).get('db', {}).get('enabled', true) }}
+        _db_enabled: "{{ _start_values.get('db', {}).get('enabled', true) }}"
 
     - name: Wait for DB readiness
       ansible.builtin.command:
@@ -237,9 +248,7 @@
       block:
         - name: Read sync policy from values.yaml
           ansible.builtin.set_fact:
-            _argocd_sync_policy: >-
-              {{ (lookup('file', instance_path ~ '/values.yaml')
-                  | from_yaml).get('argocd', {}).get('syncPolicy', {}) }}
+            _argocd_sync_policy: "{{ _start_values.get('argocd', {}).get('syncPolicy', {}) }}"
 
         - name: Build sync policy patch
           ansible.builtin.set_fact:
