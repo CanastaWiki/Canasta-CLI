@@ -259,3 +259,194 @@ class TestBackupEnvSecretSyncTask:
                 "cover %r (used by restic backends or the "
                 "dump-databases init container)." % prefix_or_key
             )
+
+
+class TestK8sSecretBackupCapture:
+    """Guard #510: canasta-managed K8s Secrets must land in the
+    restic snapshot. Without them, a fresh-cluster restore can bring
+    back the DB content but no new wiki pod can authenticate against
+    it (MYSQL_PASSWORD is in the K8s Secret, not in the DB itself).
+    """
+
+    @staticmethod
+    def _pod_template(spec):
+        return spec["jobTemplate"]["spec"]["template"]["spec"]
+
+    def test_dump_secrets_init_container_present(self):
+        spec = _find_cronjob_definition()["spec"]
+        init_names = {c["name"]
+                      for c in self._pod_template(spec)["initContainers"]}
+        assert "dump-secrets" in init_names, (
+            "schedule_set.yml CronJob must include a 'dump-secrets' "
+            "init container that captures canasta-managed K8s Secrets "
+            "into the restic snapshot. Without it, fresh-cluster "
+            "restore loses MYSQL_PASSWORD/MW_SECRET_KEY (#510)."
+        )
+
+    def test_dump_secrets_writes_to_canonical_path(self):
+        spec = _find_cronjob_definition()["spec"]
+        init = next(c for c in self._pod_template(spec)["initContainers"]
+                    if c["name"] == "dump-secrets")
+        cmd = " ".join(init["command"])
+        # Path must align with where restore_k8s.yml looks for the
+        # secrets file (alongside DB dumps, under the dumps emptyDir).
+        assert "/currentsnapshot/config/backup/secrets-" in cmd, (
+            "dump-secrets must write to "
+            "/currentsnapshot/config/backup/secrets-<id>.yaml "
+            "to align with restore_k8s.yml's lookup path."
+        )
+
+    def test_dump_secrets_targets_db_credentials_and_mw_secrets(self):
+        """Dump by explicit name (not label-selector) so this works
+        on instances pre-dating any canasta-managed-by label
+        convention."""
+        spec = _find_cronjob_definition()["spec"]
+        init = next(c for c in self._pod_template(spec)["initContainers"]
+                    if c["name"] == "dump-secrets")
+        cmd = " ".join(init["command"])
+        assert "-db-credentials" in cmd, (
+            "dump-secrets must include the <id>-db-credentials Secret "
+            "(carries MYSQL_PASSWORD)"
+        )
+        assert "-mw-secrets" in cmd, (
+            "dump-secrets must include the <id>-mw-secrets Secret "
+            "(carries MW_SECRET_KEY)"
+        )
+
+    def test_dump_secrets_does_not_capture_backup_env(self):
+        """The canasta-<id>-backup-env Secret carries the credentials
+        needed to READ the snapshot. Including it in the snapshot is
+        chicken-and-egg — operator can't get the bootstrap creds
+        without the snapshot, can't read the snapshot without the
+        creds. Out of scope per #510."""
+        spec = _find_cronjob_definition()["spec"]
+        init = next(c for c in self._pod_template(spec)["initContainers"]
+                    if c["name"] == "dump-secrets")
+        cmd = " ".join(init["command"])
+        assert "backup-env" not in cmd, (
+            "dump-secrets must NOT include the backup-env Secret "
+            "(creds-to-read-the-snapshot must not live IN the snapshot)"
+        )
+
+    def test_dump_secrets_mounts_dumps_emptydir(self):
+        """The init container must mount the same dumps emptyDir the
+        SQL dumps go into, so the secrets file ends up in the
+        snapshot tree restic backs up."""
+        spec = _find_cronjob_definition()["spec"]
+        init = next(c for c in self._pod_template(spec)["initContainers"]
+                    if c["name"] == "dump-secrets")
+        mounts = {m["name"]: m for m in init.get("volumeMounts") or []}
+        assert "dumps" in mounts
+        assert mounts["dumps"]["mountPath"] == "/currentsnapshot/config/backup"
+
+    def test_pod_uses_dedicated_serviceaccount(self):
+        """The dump-secrets init container needs RBAC to read Secrets;
+        the default ServiceAccount has no such permission."""
+        spec = _find_cronjob_definition()["spec"]
+        sa = self._pod_template(spec).get("serviceAccountName")
+        assert sa, (
+            "Backup CronJob Pod must specify a serviceAccountName — "
+            "dump-secrets needs Secret-read RBAC the default SA lacks"
+        )
+        assert "canasta-backup-" in sa, (
+            "ServiceAccount name should be canasta-backup-<id> for "
+            "consistency with the Role/RoleBinding created alongside"
+        )
+
+
+class TestK8sSecretBackupRBAC:
+    """The CronJob's ServiceAccount must have a Role + RoleBinding
+    that grants read on the canasta-managed Secrets. Scoped narrowly:
+    only the two Secret names we dump, only `get` verb, namespace-
+    local. Least-privilege RBAC."""
+
+    def _find_resources(self, kind):
+        for task in _walk_tasks(_load_tasks()):
+            k8s = task.get("kubernetes.core.k8s") or task.get("k8s")
+            if not isinstance(k8s, dict):
+                continue
+            defn = k8s.get("definition") or {}
+            if defn.get("kind") == kind and k8s.get("state") == "present":
+                yield defn
+
+    def test_serviceaccount_created(self):
+        sas = list(self._find_resources("ServiceAccount"))
+        assert len(sas) >= 1, (
+            "schedule_set.yml must create a ServiceAccount for the "
+            "backup Pod (#510)"
+        )
+
+    def test_role_grants_only_get_on_named_secrets(self):
+        roles = list(self._find_resources("Role"))
+        assert len(roles) >= 1, (
+            "schedule_set.yml must create a Role granting Secret read "
+            "to the backup ServiceAccount (#510)"
+        )
+        rules = roles[0]["rules"]
+        # Single rule, get-only, scoped to the two Secret names
+        assert len(rules) == 1, (
+            "Role should have exactly one rule (least-privilege); "
+            "anything else suggests scope creep"
+        )
+        rule = rules[0]
+        assert "secrets" in rule.get("resources", [])
+        assert rule.get("verbs", []) == ["get"], (
+            "Role must grant only 'get' — list/watch/create/etc. would "
+            "exceed what dump-secrets actually needs"
+        )
+        names = rule.get("resourceNames", [])
+        # Dump-secrets reads two Secrets by name
+        assert len(names) == 2, (
+            "Role should be scoped to exactly the two Secret names "
+            "dump-secrets reads — broader scope is unjustified"
+        )
+
+    def test_rolebinding_targets_backup_serviceaccount(self):
+        rbs = list(self._find_resources("RoleBinding"))
+        assert len(rbs) >= 1
+        rb = rbs[0]
+        subjects = rb.get("subjects", [])
+        assert len(subjects) == 1
+        assert subjects[0].get("kind") == "ServiceAccount"
+        assert "canasta-backup-" in subjects[0].get("name", "")
+
+
+class TestK8sRestoreReplaysSecrets:
+    """restore_k8s.yml must apply the snapshot's secrets-<id>.yaml
+    file when present, so a fresh-cluster restore brings back
+    MYSQL_PASSWORD / MW_SECRET_KEY (#510)."""
+
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def test_restore_apply_secrets_task_exists(self):
+        with open(self.RESTORE_K8S) as f:
+            content = f.read()
+        # The task name explicitly mentions Secrets; the command pipes
+        # through 'kubectl apply -f -'. Both should be present.
+        assert "Restore canasta-managed K8s Secrets" in content, (
+            "restore_k8s.yml must have a task that restores the "
+            "canasta-managed Secrets from the snapshot (#510)"
+        )
+        assert "kubectl apply" in content, (
+            "restore_k8s.yml's secrets-restore task must use "
+            "'kubectl apply' so it's idempotent against an existing "
+            "Secret with the same value"
+        )
+
+    def test_restore_skips_when_secrets_file_missing(self):
+        """Snapshots taken before #510 won't have a secrets-*.yaml
+        file. Restoring those must skip the secrets task gracefully,
+        not fail."""
+        with open(self.RESTORE_K8S) as f:
+            content = f.read()
+        # The when-guard checks for the filename being non-empty
+        assert "_restore_secrets_filename" in content, (
+            "restore_k8s.yml should resolve the secrets filename "
+            "conditionally so pre-#510 snapshots restore cleanly"
+        )
+        assert "_restore_secrets_filename != ''" in content, (
+            "restore_k8s.yml's secrets-restore task must guard "
+            "on the filename being non-empty (pre-#510 snapshots)"
+        )

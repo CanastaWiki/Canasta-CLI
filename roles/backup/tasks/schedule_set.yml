@@ -64,6 +64,56 @@
              | ternary('&& restic --cache-dir /tmp/restic-cache forget --prune --keep-within ' +
                (purge_older_than | default('')), '') }}
 
+    # ServiceAccount + Role + RoleBinding for the dump-secrets init
+    # container. Without this, the Pod's default ServiceAccount has no
+    # permission to read Secrets and the kubectl get fails. Scoped to
+    # the canasta-<id> namespace and to the two specific Secret names
+    # we need — least privilege. See #510 for the DR gap this closes.
+    - name: Create ServiceAccount for backup Pod
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: "canasta-backup-{{ instance_id }}"
+            namespace: "canasta-{{ instance_id }}"
+
+    - name: Create Role granting read on canasta-managed Secrets
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: "canasta-backup-{{ instance_id }}"
+            namespace: "canasta-{{ instance_id }}"
+          rules:
+            - apiGroups: [""]
+              resources: ["secrets"]
+              resourceNames:
+                - "{{ instance_id }}-db-credentials"
+                - "{{ instance_id }}-mw-secrets"
+              verbs: ["get"]
+
+    - name: Bind Role to backup ServiceAccount
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: "canasta-backup-{{ instance_id }}"
+            namespace: "canasta-{{ instance_id }}"
+          subjects:
+            - kind: ServiceAccount
+              name: "canasta-backup-{{ instance_id }}"
+              namespace: "canasta-{{ instance_id }}"
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: "canasta-backup-{{ instance_id }}"
+
     - name: Create backup CronJob
       kubernetes.core.k8s:
         state: present
@@ -90,6 +140,11 @@
                 template:
                   spec:
                     restartPolicy: Never
+                    # The dump-secrets init container needs RBAC to
+                    # read the canasta-<id>-{db-credentials,mw-secrets}
+                    # Secrets. Without a dedicated SA, the Pod runs as
+                    # 'default' which has no Secret read permission.
+                    serviceAccountName: "canasta-backup-{{ instance_id }}"
                     initContainers:
                       - name: dump-databases
                         image: "{{ _sched_env.variables.CANASTA_IMAGE | default('ghcr.io/canastawiki/canasta:latest') }}"
@@ -121,6 +176,36 @@
                         # paths aligned means scheduled-snapshot
                         # restore Just Works without a path-flavor
                         # branch in the restore flow.
+                        volumeMounts:
+                          - name: dumps
+                            mountPath: /currentsnapshot/config/backup
+                      # Dump canasta-managed K8s Secrets into the same
+                      # snapshot tree so a fresh-cluster restore can
+                      # bring back MYSQL_PASSWORD / MW_SECRET_KEY. Without
+                      # this, restic preserves the database content and
+                      # PVCs, but a freshly-deployed wiki pod can't
+                      # authenticate against the restored DB and all
+                      # MW sessions / password-reset tokens become
+                      # unrecoverable. See #510.
+                      #
+                      # We dump by explicit name (not label-selector)
+                      # so this works against existing instances that
+                      # pre-date the canasta-managed-by label
+                      # convention. The resulting file is YAML with a
+                      # 'kind: List' wrapper that 'kubectl apply -f'
+                      # treats as a multi-document apply.
+                      - name: dump-secrets
+                        image: bitnami/kubectl:latest
+                        command:
+                          - sh
+                          - -c
+                          - |
+                            kubectl get secret \
+                              {{ instance_id }}-db-credentials \
+                              {{ instance_id }}-mw-secrets \
+                              -n canasta-{{ instance_id }} \
+                              -o yaml \
+                              > /currentsnapshot/config/backup/secrets-{{ instance_id }}.yaml
                         volumeMounts:
                           - name: dumps
                             mountPath: /currentsnapshot/config/backup

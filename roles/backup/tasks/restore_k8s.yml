@@ -120,6 +120,33 @@
        | select('match', '^db_.*\\.sql$') | list }}
   no_log: true
 
+# Restore the canasta-managed K8s Secrets if the snapshot includes
+# them (#510). Older snapshots taken before #510 don't have the
+# secrets file — that's the 'select match secrets-*.yaml' filter,
+# which evaluates to empty for those.
+#
+# 'kubectl apply -f -' is idempotent: if the cluster already has the
+# Secret with the same value (instance was up before restore), this
+# is a no-op. If the cluster has a different value (fresh-cluster
+# DR scenario where 'canasta create' generated new passwords), the
+# snapshot's value overwrites — required for the restored DB whose
+# user-table hashes match the snapshot's password.
+- name: Find canasta-managed Secret manifest in snapshot
+  ansible.builtin.set_fact:
+    _restore_secrets_filename: >-
+      {{ (_restore_db_files.stdout_lines | default([])
+          | select('match', '^secrets-.+\\.yaml$') | list | first) | default('') }}
+
+- name: Restore canasta-managed K8s Secrets
+  when: _restore_secrets_filename != ''
+  ansible.builtin.shell:
+    cmd: >-
+      kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      cat /currentsnapshot/config/backup/{{ _restore_secrets_filename }} |
+      kubectl apply -n {{ _k8s_namespace }} -f -
+  changed_when: true
+  no_log: true
+
 - name: Delete restore pod
   kubernetes.core.k8s:
     state: absent
