@@ -65,6 +65,13 @@
           spec:
             schedule: "{{ cron_expression }}"
             concurrencyPolicy: Forbid
+            # Keep the last 3 successes (enough to confirm "the last
+            # few backups completed") and 7 failures (a week of daily
+            # failures stays around long enough for the operator to
+            # notice — the K8s default of 1 silently rotates failure
+            # context off the cluster too quickly).
+            successfulJobsHistoryLimit: 3
+            failedJobsHistoryLimit: 7
             jobTemplate:
               spec:
                 backoffLimit: 1
