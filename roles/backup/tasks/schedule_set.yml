@@ -44,6 +44,17 @@
       register: _sched_env
       no_log: true
 
+    # Local-path restic repos (RESTIC_REPOSITORY beginning with /)
+    # need a hostPath bind on the restic container so the container's
+    # view of that path matches the host. Cloud-backend repos don't —
+    # they're URIs, not filesystem paths. Mirrors the same detection
+    # in k8s_run_backup.yml's on-demand backup.
+    - name: Detect local restic repository
+      ansible.builtin.set_fact:
+        _sched_restic_repo: "{{ _sched_env.variables.RESTIC_REPOSITORY | default('') }}"
+        _sched_local_repo: >-
+          {{ (_sched_env.variables.RESTIC_REPOSITORY | default('')) is match('^/') }}
+
     - name: Build restic command
       ansible.builtin.set_fact:
         _k8s_backup_cmd: >-
@@ -86,7 +97,6 @@
                           - sh
                           - -c
                           - |
-                            mkdir -p /currentsnapshot/config/backup
                             EXCLUDE='^(information_schema|performance_schema|mysql|sys)$'
                             for db in $(mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" -p"$MYSQL_PASSWORD" \
                               -N -e "SHOW DATABASES" | grep -vE "$EXCLUDE"); do
@@ -103,9 +113,17 @@
                         envFrom:
                           - secretRef:
                               name: "canasta-{{ instance_id }}-backup-env"
+                        # The dumps emptyDir is mounted AT
+                        # /currentsnapshot/config/backup so the SQL
+                        # files land at the same path the on-demand
+                        # path uses. restore_k8s.yml looks there for
+                        # files matching db_*.sql, so keeping the
+                        # paths aligned means scheduled-snapshot
+                        # restore Just Works without a path-flavor
+                        # branch in the restore flow.
                         volumeMounts:
-                          - name: web-config
-                            mountPath: /currentsnapshot/config
+                          - name: dumps
+                            mountPath: /currentsnapshot/config/backup
                     containers:
                       - name: restic
                         image: restic/restic:latest
@@ -117,9 +135,24 @@
                         envFrom:
                           - secretRef:
                               name: "canasta-{{ instance_id }}-backup-env"
+                        # Mount the dumps scratch volume under the
+                        # /currentsnapshot tree so restic captures the
+                        # SQL files as part of the snapshot. Restored
+                        # snapshots will contain
+                        # /currentsnapshot/db-dumps/db_<wiki>.sql, which
+                        # the restore flow can replay against the wiki
+                        # DB on first boot.
+                        # The dumps emptyDir mounts on TOP of the
+                        # web-config ConfigMap subdir (K8s allows
+                        # mount-on-mount). Restic sees a merged tree:
+                        # ConfigMap content at /currentsnapshot/config,
+                        # SQL dumps at /currentsnapshot/config/backup.
                         volumeMounts:
                           - name: web-config
                             mountPath: /currentsnapshot/config
+                            readOnly: true
+                          - name: dumps
+                            mountPath: /currentsnapshot/config/backup
                             readOnly: true
                           - name: images
                             mountPath: /currentsnapshot/images
@@ -138,6 +171,12 @@
                         configMap:
                           name: "canasta-{{ instance_id }}-web-config"
                           optional: true
+                      # Pod-lifetime scratch dir for the DB dumps. The
+                      # init container writes db_*.sql here; the restic
+                      # container reads them from
+                      # /currentsnapshot/db-dumps.
+                      - name: dumps
+                        emptyDir: {}
                       - name: images
                         persistentVolumeClaim:
                           claimName: "canasta-{{ instance_id }}-images"
@@ -150,6 +189,37 @@
                       - name: public-assets
                         persistentVolumeClaim:
                           claimName: "canasta-{{ instance_id }}-public-assets"
+
+    # Local-path restic repos need a hostPath mount on the restic
+    # container; cloud-backend repos don't. Patch the local-repo
+    # volume + mount into the CronJob via strategic-merge so a
+    # second `canasta backup schedule set` doesn't duplicate the
+    # entries (volumes are keyed by .name; volumeMounts by
+    # .mountPath — strategic merge replaces by key).
+    - name: Patch local-repo volume into CronJob (local-path repo only)
+      kubernetes.core.k8s:
+        state: patched
+        kind: CronJob
+        api_version: batch/v1
+        name: "canasta-backup-{{ instance_id }}"
+        namespace: "canasta-{{ instance_id }}"
+        definition:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    volumes:
+                      - name: local-repo
+                        hostPath:
+                          path: "{{ _sched_restic_repo }}"
+                          type: DirectoryOrCreate
+                    containers:
+                      - name: restic
+                        volumeMounts:
+                          - name: local-repo
+                            mountPath: "{{ _sched_restic_repo }}"
+      when: _sched_local_repo | bool
 
 - name: Report schedule set
   ansible.builtin.debug:
