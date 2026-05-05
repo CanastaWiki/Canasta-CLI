@@ -337,19 +337,22 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
-- name: Write .gitignore
+# Source the canonical gitignore.default so the security-critical
+# entries (.gitops-deploy-key, admin-password_*, config/wikis.yaml,
+# etc.) cannot drift out of the K8s path. K8s-only additions are
+# appended after — never replace the shared list. See #505 for the
+# regression this guards against.
+- name: Write .gitignore (canonical base + K8s additions)
   ansible.builtin.copy:
     content: |
-      .env
-      .gitops-host
-      .gitops-applied
+      {{ lookup('file', role_path + '/files/gitignore.default') }}
+
+      # K8s-specific additions
       _initdb/
       docker-compose*.yml
       my.cnf
       scripts/
-      admin-password_*
       values-configdata.yaml
-      images/
       extensions/
       skins/
       public_assets/
