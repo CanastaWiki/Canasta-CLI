@@ -139,6 +139,65 @@ class TestBackupEnvSecret:
         names = [e.get("secretRef", {}).get("name") for e in env_from]
         assert self._expected_secret_name() in names
 
+    def test_init_container_writes_to_writable_dumps_volume(self):
+        """The init container's mariadb-dump output must land in a
+        writable volume. Previously dumped to /currentsnapshot/config
+        which is the read-only ConfigMap mount — every scheduled run
+        crashed with "Read-only file system" until the dumps emptyDir
+        was added."""
+        spec = _find_cronjob_definition()["spec"]
+        init = self._pod_template(spec)["initContainers"][0]
+        assert init["name"] == "dump-databases"
+
+        mounted = {m["name"] for m in init.get("volumeMounts") or []}
+        assert "web-config" not in mounted, (
+            "dump-databases initContainer should not mount the "
+            "read-only web-config ConfigMap; use the writable dumps "
+            "emptyDir for SQL files."
+        )
+        assert "dumps" in mounted, (
+            "dump-databases initContainer must mount the dumps "
+            "emptyDir to write SQL files."
+        )
+
+        cmd = " ".join(init["command"])
+        # The dump path must align with what restore_k8s.yml looks
+        # for (it iterates /currentsnapshot/config/backup/db_*.sql).
+        # Diverging paths here would make scheduled-snapshot restores
+        # silently skip the DB restore step.
+        assert "/currentsnapshot/config/backup/" in cmd, (
+            "dump-databases script must write to "
+            "/currentsnapshot/config/backup/ to match the path "
+            "restore_k8s.yml reads from."
+        )
+
+    def test_dumps_volume_is_emptydir_at_config_backup_subpath(self):
+        """The dumps volume must mount AT /currentsnapshot/config/backup
+        in both the init container (writable) and the restic container
+        (read-only) so SQL files are captured at the same path the
+        on-demand backup path uses — keeps restore_k8s.yml happy with
+        a single path."""
+        spec = _find_cronjob_definition()["spec"]
+        pod = self._pod_template(spec)
+
+        volumes = {v["name"]: v for v in pod["volumes"]}
+        assert "dumps" in volumes
+        assert "emptyDir" in volumes["dumps"]
+
+        # Init container — writable mount at the canonical dump path
+        init = pod["initContainers"][0]
+        init_dumps = [m for m in init.get("volumeMounts") or []
+                      if m["name"] == "dumps"]
+        assert len(init_dumps) == 1
+        assert init_dumps[0]["mountPath"] == "/currentsnapshot/config/backup"
+
+        # Restic container — same path, this time read-only
+        restic = next(c for c in pod["containers"] if c["name"] == "restic")
+        restic_dumps = [m for m in restic.get("volumeMounts") or []
+                        if m["name"] == "dumps"]
+        assert len(restic_dumps) == 1
+        assert restic_dumps[0]["mountPath"] == "/currentsnapshot/config/backup"
+
     def test_no_inline_restic_env_anymore(self):
         """The pre-fix layout passed RESTIC_REPOSITORY/PASSWORD as
         inline `env:` entries. After #497 the Secret is the canonical
