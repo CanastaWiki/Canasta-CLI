@@ -103,11 +103,13 @@
                   - sh
                   - -c
                   - "restic --cache-dir /tmp/restic-cache {{ backup_args | join(' ') }}"
-                env:
-                  - name: RESTIC_REPOSITORY
-                    value: "{{ _restic_repo }}"
-                  - name: RESTIC_PASSWORD
-                    value: "{{ _restic_password }}"
+                # canasta-<id>-backup-env carries RESTIC_*, AWS_*,
+                # B2_*, AZURE_*, GOOGLE_*, OS_*, ST_* — every cloud-
+                # backend credential restic might need (#497). Mirrors
+                # what Compose's --env-file pattern provides.
+                envFrom:
+                  - secretRef:
+                      name: "canasta-{{ instance_id }}-backup-env"
                 volumeMounts: "{{ _restic_volume_mounts }}"
             volumes: "{{ _restic_volumes }}"
 

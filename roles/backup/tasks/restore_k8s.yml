@@ -38,11 +38,13 @@
                 restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target / && \
                 touch /tmp/restore-done && \
                 sleep 3600
-            env:
-              - name: RESTIC_REPOSITORY
-                value: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
-              - name: RESTIC_PASSWORD
-                value: "{{ _restore_env.variables.RESTIC_PASSWORD }}"
+            # canasta-<id>-backup-env carries every cloud-backend
+            # credential restic might need (RESTIC_*, AWS_*, B2_*,
+            # AZURE_*, GOOGLE_*, OS_*, ST_*) — same Secret the on-
+            # demand backup Job and scheduled CronJob use (#497).
+            envFrom:
+              - secretRef:
+                  name: "canasta-{{ instance_id }}-backup-env"
             volumeMounts:
               - name: restore-data
                 mountPath: /currentsnapshot

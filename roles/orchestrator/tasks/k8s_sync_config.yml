@@ -150,6 +150,42 @@
           | ternary({'Caddyfile.global': _sync_caddyfile_global.content | default('') | b64decode}, {}))
       }}
 
+# --- Backup environment Secret ---
+# The on-demand backup Job (k8s_run_backup.yml) and the scheduled
+# CronJob (roles/backup/tasks/schedule_set.yml) both need restic +
+# DB env to land on the backup containers. Build a single Secret
+# from .env so envFrom: secretRef gives both flows everything they
+# need — including cloud-backend creds (#497) and external-DB
+# host/user (#498) — without per-task plumbing.
+#
+# Filter to backup-relevant prefixes plus the explicit MYSQL_HOST/
+# USER/PASSWORD that the dump-databases init container uses. Other
+# .env entries (MW_SITE_FQDN, CANASTA_ENABLE_*, …) stay out of this
+# Secret — they're not relevant to backup, and a leaner Secret is
+# easier to inspect with kubectl describe.
+- name: Build backup env data
+  ansible.builtin.set_fact:
+    _backup_env_data: >-
+      {{ _sync_env_dict.variables | default({}) | dict2items
+         | selectattr('key', 'match',
+             '^(RESTIC_|AWS_|B2_|AZURE_|GOOGLE_|OS_|ST_|MYSQL_HOST$|MYSQL_USER$|MYSQL_PASSWORD$)')
+         | items2dict }}
+  no_log: true
+
+- name: Apply backup env Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "canasta-{{ instance_id }}-backup-env"
+        namespace: "{{ _k8s_namespace }}"
+      type: Opaque
+      stringData: "{{ _backup_env_data }}"
+  when: _backup_env_data | length > 0
+  no_log: true
+
 # --- Write configData into values.yaml ---
 # The Helm chart templates render ConfigMaps from configData values.
 # This allows both Ansible-driven and Argo CD-driven workflows to use
