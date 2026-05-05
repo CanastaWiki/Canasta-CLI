@@ -16,48 +16,17 @@
   ansible.builtin.debug:
     msg: "Checking hosts/hosts.yaml..."
 
-- name: Check for .gitops-host (instance has gitops set up)
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.gitops-host"
-  register: _hosts_yaml_gitops_marker
-
-- name: Check for existing hosts.yaml
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/hosts/hosts.yaml"
-  register: _hosts_yaml_existing
-  when: _hosts_yaml_gitops_marker.stat.exists
-
-- name: Find per-host directories under hosts/
-  ansible.builtin.find:
-    paths: "{{ instance_path }}/hosts"
-    file_type: directory
-    excludes:
-      - "_shared"
-    recurse: false
-  register: _hosts_yaml_host_dirs
-  when:
-    - _hosts_yaml_gitops_marker.stat.exists
-    - not (_hosts_yaml_existing.stat.exists | default(false))
-
 - name: Backfill hosts.yaml from existing per-host directories
   when:
-    - _hosts_yaml_gitops_marker.stat.exists
-    - not (_hosts_yaml_existing.stat.exists | default(false))
-    - (_hosts_yaml_host_dirs.files | default([]) | length) > 0
+    - _mig.files.gitops_host
+    - not _mig.files.hosts_yaml
+    - (_mig.host_dirs | length) > 0
   block:
-    - name: Collect host names from directory listing
-      ansible.builtin.set_fact:
-        _hosts_yaml_entries: >-
-          {{ _hosts_yaml_host_dirs.files
-             | map(attribute='path')
-             | map('basename')
-             | sort | list }}
-
     - name: Write hosts.yaml
       ansible.builtin.copy:
         content: |
           hosts:
-          {% for _h in _hosts_yaml_entries %}
+          {% for _h in _mig.host_dirs %}
             - name: {{ _h }}
               role: both
               pull_requests: false
@@ -69,7 +38,7 @@
       ansible.builtin.debug:
         msg: >-
           Backfilled hosts/hosts.yaml with
-          {{ _hosts_yaml_entries | length }} host(s):
-          {{ _hosts_yaml_entries | join(', ') }}.
+          {{ _mig.host_dirs | length }} host(s):
+          {{ _mig.host_dirs | join(', ') }}.
           Roles default to 'both'; edit hosts.yaml if any host should
           be source-only or sink-only.

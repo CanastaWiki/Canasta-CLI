@@ -5,17 +5,10 @@
   ansible.builtin.debug:
     msg: "Checking CANASTA_IMAGE..."
 
-- name: Check if CANASTA_IMAGE is set
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read
-    key: CANASTA_IMAGE
-  register: _img_check
-
 - name: Set CANASTA_IMAGE if missing
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: set
     key: CANASTA_IMAGE
     value: "{{ canasta_default_image }}"
-  when: not _img_check.found or _img_check.value == ''
+  when: not (_mig.env.CANASTA_IMAGE | default(''))

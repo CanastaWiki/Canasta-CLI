@@ -28,6 +28,13 @@
   ansible.builtin.debug:
     msg: "Checking for config migrations..."
 
+# Single round-trip that gathers every stat / find / .env-read each
+# migration would otherwise do for itself. Each migration consults
+# `_mig` and skips entirely on no-op, collapsing what used to be
+# ~12-15 round-trips on a steady-state upgrade into one.
+- name: Probe migration-relevant state
+  ansible.builtin.include_tasks: pre_migration_probe.yml
+
 - name: Run migrations
   ansible.builtin.include_tasks: "migrations/{{ _migration }}"
   loop:
@@ -125,24 +132,18 @@
   when:
     - instance_orchestrator | default('compose') == 'compose'
     - _upgrade_inst.instance.buildFrom | default('') == ''
+    # CANASTA_IMAGE was already read by the migration probe; reuse
+    # those values instead of re-reading .env.
+    - _mig.env_present.CANASTA_IMAGE
+    - _mig.env.CANASTA_IMAGE is match('^ghcr\\.io/canastawiki/canasta:')
+    - _mig.env.CANASTA_IMAGE != canasta_default_image
   block:
-    - name: Read current CANASTA_IMAGE
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read
-        key: CANASTA_IMAGE
-      register: _upgrade_current_image
-
     - name: Update CANASTA_IMAGE to latest default tag
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: set
         key: CANASTA_IMAGE
         value: "{{ canasta_default_image }}"
-      when:
-        - _upgrade_current_image.found
-        - _upgrade_current_image.value is match('^ghcr\\.io/canastawiki/canasta:')
-        - _upgrade_current_image.value != canasta_default_image
 
 # --- Pull and restart ---
 - name: Report pulling images

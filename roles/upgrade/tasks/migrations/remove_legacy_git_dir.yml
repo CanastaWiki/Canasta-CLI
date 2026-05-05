@@ -6,18 +6,10 @@
   ansible.builtin.debug:
     msg: "Checking for legacy .git directories..."
 
-- name: Check for .gitops-host
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.gitops-host"
-  register: _gitops_host
-
-- name: Check for .git directory
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.git"
-  register: _legacy_git
-
 - name: Remove legacy .git directory
   ansible.builtin.file:
     path: "{{ instance_path }}/.git"
     state: absent
-  when: _legacy_git.stat.exists and not _gitops_host.stat.exists
+  when:
+    - _mig.files.legacy_git
+    - not _mig.files.gitops_host
