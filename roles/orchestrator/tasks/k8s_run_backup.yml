@@ -34,6 +34,30 @@
   ansible.builtin.set_fact:
     _restic_local_repo: "{{ _restic_repo is match('^/') }}"
 
+# Detect 'backup' verb in backup_args. The on-demand Job is also used
+# for non-snapshot operations (forget, snapshots, init, unlock, etc.);
+# only true backup operations need the DB-dump and Secret-dump init
+# containers. See #513 for the bug this closes — pre-fix, on-demand
+# 'canasta backup create' on K8s captured static files only and
+# silently lost the wiki database.
+- name: Detect backup operation
+  ansible.builtin.set_fact:
+    _is_backup_op: "{{ 'backup' in backup_args }}"
+
+- name: Read DB password for dump-databases (backup ops only)
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MYSQL_PASSWORD
+  register: _backup_dbpass
+  when: _is_backup_op | bool
+  no_log: true
+
+- name: Create RBAC for backup Pods (backup ops only)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/backup/tasks/_k8s_backup_rbac.yml
+  when: _is_backup_op | bool
+
 - name: Generate unique job name
   ansible.builtin.set_fact:
     _backup_job_name: "restic-{{ lookup('pipe', 'date +%s') }}"
@@ -81,6 +105,72 @@
          'hostPath': {'path': _restic_repo, 'type': 'DirectoryOrCreate'}}] }}
   when: _restic_local_repo | bool
 
+# Backup ops add a 'dumps' emptyDir + mount-on-mount over the
+# web-config ConfigMap subdir at /currentsnapshot/config/backup. The
+# init containers write SQL dumps and the Secret manifest there;
+# restic captures the merged tree. Same mount-on-mount pattern the
+# scheduled CronJob uses (see roles/backup/tasks/schedule_set.yml).
+- name: Add dumps volume + mount-on-mount for backup ops
+  when: _is_backup_op | bool
+  ansible.builtin.set_fact:
+    _restic_volumes: "{{ _restic_volumes + [{'name': 'dumps', 'emptyDir': {}}] }}"
+    _restic_volume_mounts: >-
+      {{ _restic_volume_mounts + [{'name': 'dumps',
+         'mountPath': '/currentsnapshot/config/backup', 'readOnly': true}] }}
+
+# Build the init container list. Empty for non-backup ops (forget,
+# snapshots, etc. don't need DB or Secret dumps). For backup ops:
+# 1) dump-databases (mariadb-dump → /currentsnapshot/config/backup/db_*.sql)
+# 2) dump-secrets (canasta-managed K8s Secrets → secrets-<id>.yaml)
+- name: Default empty init containers
+  ansible.builtin.set_fact:
+    _backup_init_containers: []
+
+- name: Build init containers for backup ops
+  when: _is_backup_op | bool
+  ansible.builtin.set_fact:
+    _backup_init_containers:
+      # canasta-<id>-backup-env carries MYSQL_HOST, MYSQL_USER,
+      # MYSQL_PASSWORD per #498. Internal-db falls back to the
+      # 'db' / 'root' defaults baked into the script.
+      - name: dump-databases
+        image: "{{ _backup_env.variables.CANASTA_IMAGE | default('ghcr.io/canastawiki/canasta:latest') }}"
+        command:
+          - sh
+          - -c
+          - |
+            EXCLUDE='^(information_schema|performance_schema|mysql|sys)$'
+            for db in $(mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" -p"$MYSQL_PASSWORD" \
+              -N -e "SHOW DATABASES" | grep -vE "$EXCLUDE"); do
+              mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" -p"$MYSQL_PASSWORD" \
+                --single-transaction --databases "$db" \
+                > "/currentsnapshot/config/backup/db_${db}.sql"
+            done
+        envFrom:
+          - secretRef:
+              name: "canasta-{{ instance_id }}-backup-env"
+        volumeMounts:
+          - name: dumps
+            mountPath: /currentsnapshot/config/backup
+      # Captures canasta-managed Secrets so a fresh-cluster restore
+      # can bring back MYSQL_PASSWORD / MW_SECRET_KEY (#510). Same
+      # by-name dump strategy the scheduled CronJob uses.
+      - name: dump-secrets
+        image: bitnami/kubectl:latest
+        command:
+          - sh
+          - -c
+          - |
+            kubectl get secret \
+              {{ instance_id }}-db-credentials \
+              {{ instance_id }}-mw-secrets \
+              -n canasta-{{ instance_id }} \
+              -o yaml \
+              > /currentsnapshot/config/backup/secrets-{{ instance_id }}.yaml
+        volumeMounts:
+          - name: dumps
+            mountPath: /currentsnapshot/config/backup
+
 - name: Create restic Job
   kubernetes.core.k8s:
     state: present
@@ -96,6 +186,11 @@
         template:
           spec:
             restartPolicy: Never
+            # Both init containers (when present) and the restic
+            # main container can use the dedicated backup SA. For
+            # non-backup ops the SA is unused and harmless.
+            serviceAccountName: "{{ (_is_backup_op | bool) | ternary('canasta-backup-' + instance_id, omit) }}"
+            initContainers: "{{ _backup_init_containers }}"
             containers:
               - name: restic
                 image: restic/restic:latest

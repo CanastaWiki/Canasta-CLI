@@ -22,14 +22,28 @@
   register: _backup_dbpass
   no_log: true
 
-- name: Create backup staging directory
+# Compose path: dump DBs into the live web container's
+# /mediawiki/config/backup, which is bind-mounted from the host's
+# instance_path/config — restic's container then mounts the same host
+# path and the dumps appear in the snapshot.
+#
+# K8s path: SKIP this — it would write into the live web pod's
+# emptyDir, which the separately-spawned restic Job has no access to
+# (the Job mounts the web-config ConfigMap, not the live pod's
+# emptyDir). Pre-#513, this dance ran on K8s anyway and the dumps
+# silently vanished from on-demand snapshots, leaving wiki content
+# unprotected. The K8s path now does the dump as an init container
+# inside the restic Job itself — see k8s_run_backup.yml's
+# _backup_init_containers.
+- name: Create backup staging directory (Compose)
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
   vars:
     exec_service: web
     exec_command: "mkdir -p /mediawiki/config/backup"
+  when: instance_orchestrator | default('compose') == 'compose'
 
-- name: Dump each wiki database
+- name: Dump each wiki database (Compose)
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
   vars:
@@ -43,6 +57,7 @@
       > /mediawiki/config/backup/db_{{ item | quote }}.sql
   loop: "{{ _backup_wikis.wiki_ids }}"
   no_log: true
+  when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Get hostname for tag
   ansible.builtin.command:
@@ -101,10 +116,13 @@
   ansible.builtin.debug:
     msg: "{{ _restic_result.stdout }}"
 
-- name: Clean up backup staging directory (from inside container)
+# Compose-only cleanup. The K8s path's dump-databases init container
+# uses an emptyDir that's torn down with the Job — no cleanup needed.
+- name: Clean up backup staging directory (Compose)
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/config/backup"
+  when: instance_orchestrator | default('compose') == 'compose'
   ignore_errors: true  # OK if backup dir doesn't exist

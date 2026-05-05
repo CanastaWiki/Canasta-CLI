@@ -355,13 +355,23 @@ class TestK8sSecretBackupCapture:
 
 
 class TestK8sSecretBackupRBAC:
-    """The CronJob's ServiceAccount must have a Role + RoleBinding
+    """The backup Pod's ServiceAccount must have a Role + RoleBinding
     that grants read on the canasta-managed Secrets. Scoped narrowly:
     only the two Secret names we dump, only `get` verb, namespace-
-    local. Least-privilege RBAC."""
+    local. Least-privilege RBAC.
+
+    Source of truth is roles/backup/tasks/_k8s_backup_rbac.yml — both
+    the CronJob path (schedule_set.yml) and the on-demand path
+    (k8s_run_backup.yml) include this file (#513 refactor)."""
+
+    SHARED_RBAC_PATH = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "_k8s_backup_rbac.yml",
+    )
 
     def _find_resources(self, kind):
-        for task in _walk_tasks(_load_tasks()):
+        with open(self.SHARED_RBAC_PATH) as f:
+            tasks = yaml.safe_load(f)
+        for task in _walk_tasks(tasks):
             k8s = task.get("kubernetes.core.k8s") or task.get("k8s")
             if not isinstance(k8s, dict):
                 continue
@@ -449,4 +459,189 @@ class TestK8sRestoreReplaysSecrets:
         assert "_restore_secrets_filename != ''" in content, (
             "restore_k8s.yml's secrets-restore task must guard "
             "on the filename being non-empty (pre-#510 snapshots)"
+        )
+
+
+class TestOnDemandBackupCapturesDB:
+    """Guard #513: on-demand 'canasta backup create' on K8s must
+    capture the wiki database. Pre-fix the dump ran via 'kubectl
+    exec' into the live web pod's emptyDir; the restic Job spawned
+    separately and mounted the web-config ConfigMap (different
+    volume), so the SQL dumps silently vanished from the snapshot.
+    """
+
+    K8S_RUN_BACKUP = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml",
+    )
+    CREATE_YML = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "create.yml",
+    )
+
+    @staticmethod
+    def _walk(tasks):
+        for t in tasks or []:
+            if not isinstance(t, dict):
+                continue
+            yield t
+            for nested in ("block", "rescue", "always"):
+                if nested in t:
+                    yield from TestOnDemandBackupCapturesDB._walk(t[nested])
+
+    def _load_run_backup(self):
+        with open(self.K8S_RUN_BACKUP) as f:
+            return yaml.safe_load(f)
+
+    def test_detects_backup_operation(self):
+        """The on-demand path must distinguish 'backup' from
+        'forget'/'snapshots'/'init'/etc., so init-container overhead
+        only runs when actually needed."""
+        for task in self._walk(self._load_run_backup()):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if isinstance(sf, dict) and "_is_backup_op" in sf:
+                expr = sf["_is_backup_op"]
+                assert "'backup' in backup_args" in expr, (
+                    "_is_backup_op should test for 'backup' in backup_args"
+                )
+                return
+        raise AssertionError(
+            "k8s_run_backup.yml must define _is_backup_op so the DB- "
+            "and Secret-dump init containers only fire on backup ops "
+            "(#513)"
+        )
+
+    def test_init_containers_built_for_backup_ops(self):
+        """A _backup_init_containers fact must be defined and
+        populated only on backup ops."""
+        # Default-empty case
+        found_default_empty = False
+        # Backup-op-conditional case
+        found_backup_op_conditional = False
+        for task in self._walk(self._load_run_backup()):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if not (isinstance(sf, dict) and "_backup_init_containers" in sf):
+                continue
+            value = sf["_backup_init_containers"]
+            when = task.get("when", "")
+            if value == [] or value == "[]":
+                found_default_empty = True
+            elif "_is_backup_op" in str(when):
+                # Conditional set_fact for backup ops — value should
+                # be a list of two init containers.
+                if isinstance(value, list) and len(value) == 2:
+                    names = [c.get("name") for c in value]
+                    assert "dump-databases" in names, (
+                        "Backup-op init containers must include "
+                        "dump-databases"
+                    )
+                    assert "dump-secrets" in names, (
+                        "Backup-op init containers must include "
+                        "dump-secrets (matches scheduled CronJob, "
+                        "consolidates with #510)"
+                    )
+                    found_backup_op_conditional = True
+        assert found_default_empty, (
+            "k8s_run_backup.yml must default _backup_init_containers "
+            "to [] so non-backup ops (forget, snapshots, etc.) skip "
+            "the dump overhead"
+        )
+        assert found_backup_op_conditional, (
+            "k8s_run_backup.yml must conditionally populate "
+            "_backup_init_containers with both dump-databases and "
+            "dump-secrets when _is_backup_op (#513 + #510 symmetry)"
+        )
+
+    def test_dumps_volume_added_for_backup_ops(self):
+        """The dumps emptyDir + mount-on-mount under
+        /currentsnapshot/config/backup must exist when backup-op,
+        matching the schedule_set.yml CronJob's pattern."""
+        with open(self.K8S_RUN_BACKUP) as f:
+            content = f.read()
+        # Both the volume and the mount point must be added together
+        # in a backup-op-gated set_fact.
+        assert "'name': 'dumps'" in content, (
+            "k8s_run_backup.yml must add a 'dumps' emptyDir volume "
+            "for backup ops"
+        )
+        assert "/currentsnapshot/config/backup" in content, (
+            "k8s_run_backup.yml must mount the dumps emptyDir at "
+            "/currentsnapshot/config/backup (mount-on-mount over "
+            "the web-config ConfigMap subdir)"
+        )
+
+    def test_rbac_included_for_backup_ops(self):
+        """k8s_run_backup.yml must include the shared _k8s_backup_rbac
+        task when running a backup op so the SA/Role/RoleBinding for
+        dump-secrets exists. The same shared file is included by
+        schedule_set.yml — single source of truth."""
+        with open(self.K8S_RUN_BACKUP) as f:
+            content = f.read()
+        assert "_k8s_backup_rbac.yml" in content, (
+            "k8s_run_backup.yml must include the shared "
+            "_k8s_backup_rbac.yml task file (factored out per #513)"
+        )
+
+    def test_create_dump_gated_on_compose(self):
+        """create.yml's mariadb-dump-via-kubectl-exec is a no-op on
+        K8s (the dump lands in the live web pod's emptyDir, invisible
+        to the restic Job). Must be gated on Compose so it doesn't
+        run uselessly on K8s."""
+        with open(self.CREATE_YML) as f:
+            tasks = yaml.safe_load(f)
+        for task in self._walk(tasks):
+            name = task.get("name", "")
+            if "Dump each wiki database" not in name:
+                continue
+            when = task.get("when", "")
+            assert "compose" in str(when).lower(), (
+                "create.yml's 'Dump each wiki database' task must be "
+                "gated on the Compose orchestrator — running on K8s "
+                "writes to a transient emptyDir the restic Job can't "
+                "see (#513)"
+            )
+            return
+        raise AssertionError(
+            "create.yml has no 'Dump each wiki database' task"
+        )
+
+
+class TestSharedBackupRBAC:
+    """The SA + Role + RoleBinding live in roles/backup/tasks/
+    _k8s_backup_rbac.yml so the CronJob (schedule_set.yml) and the
+    on-demand Job (k8s_run_backup.yml) stay in lockstep. Schedule_set
+    must include the shared file (refactored per #513)."""
+
+    SHARED_RBAC = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "_k8s_backup_rbac.yml",
+    )
+
+    def test_shared_file_exists(self):
+        assert os.path.isfile(self.SHARED_RBAC), (
+            "Expected shared RBAC file at roles/backup/tasks/"
+            "_k8s_backup_rbac.yml (#513)"
+        )
+
+    def test_shared_file_creates_three_resources(self):
+        """ServiceAccount, Role, RoleBinding."""
+        with open(self.SHARED_RBAC) as f:
+            tasks = yaml.safe_load(f)
+        kinds = []
+        for task in tasks:
+            k8s = task.get("kubernetes.core.k8s") or task.get("k8s") or {}
+            defn = k8s.get("definition") or {}
+            if defn.get("kind"):
+                kinds.append(defn["kind"])
+        assert kinds == ["ServiceAccount", "Role", "RoleBinding"], (
+            "Shared RBAC file must create exactly: ServiceAccount, "
+            "Role, RoleBinding (got %r)" % kinds
+        )
+
+    def test_schedule_set_uses_shared_include(self):
+        """schedule_set.yml must include the shared file rather than
+        defining its own copy — single source of truth, no drift."""
+        with open(SCHEDULE_SET) as f:
+            content = f.read()
+        assert "_k8s_backup_rbac.yml" in content, (
+            "schedule_set.yml must include the shared "
+            "_k8s_backup_rbac.yml task file (refactored per #513 to "
+            "share with k8s_run_backup.yml)"
         )
