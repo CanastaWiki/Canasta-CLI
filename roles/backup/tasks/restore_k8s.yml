@@ -17,6 +17,43 @@
   register: _restore_env
   no_log: true
 
+# Cloud-backend RESTIC_REPOSITORY values are URIs (s3:..., b2:...,
+# azure:..., gs:...), not filesystem paths. Mounting them as a
+# hostPath fails container init with 'no such file or directory'.
+# Only local-path repos (RESTIC_REPOSITORY beginning with /) need
+# the hostPath bind. Mirrors the same detection in schedule_set.yml
+# and k8s_run_backup.yml for the backup direction. See #519.
+- name: Detect local restic repository
+  ansible.builtin.set_fact:
+    _restore_local_repo: >-
+      {{ (_restore_env.variables.RESTIC_REPOSITORY | default('')) is match('^/') }}
+
+- name: Build restore pod volume mounts
+  ansible.builtin.set_fact:
+    _restore_volume_mounts:
+      - { name: restore-data, mountPath: /currentsnapshot }
+
+- name: Add local-repo mount when RESTIC_REPOSITORY is a path
+  ansible.builtin.set_fact:
+    _restore_volume_mounts: >-
+      {{ _restore_volume_mounts + [{'name': 'local-repo',
+         'mountPath': _restore_env.variables.RESTIC_REPOSITORY}] }}
+  when: _restore_local_repo | bool
+
+- name: Build restore pod volumes
+  ansible.builtin.set_fact:
+    _restore_volumes:
+      - name: restore-data
+        emptyDir: {}
+
+- name: Add local-repo hostPath volume when RESTIC_REPOSITORY is a path
+  ansible.builtin.set_fact:
+    _restore_volumes: >-
+      {{ _restore_volumes + [{'name': 'local-repo',
+         'hostPath': {'path': _restore_env.variables.RESTIC_REPOSITORY,
+                      'type': 'DirectoryOrCreate'}}] }}
+  when: _restore_local_repo | bool
+
 # If a previous restore failed mid-run, the restic-restore pod may
 # still exist. kubernetes.core.k8s state: present then refuses to
 # update it because Pod spec changes are forbidden post-creation
@@ -59,18 +96,8 @@
             envFrom:
               - secretRef:
                   name: "canasta-{{ instance_id }}-backup-env"
-            volumeMounts:
-              - name: restore-data
-                mountPath: /currentsnapshot
-              - name: local-repo
-                mountPath: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
-        volumes:
-          - name: restore-data
-            emptyDir: {}
-          - name: local-repo
-            hostPath:
-              path: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
-              type: DirectoryOrCreate
+            volumeMounts: "{{ _restore_volume_mounts }}"
+        volumes: "{{ _restore_volumes }}"
 
 - name: Wait for restore pod to be running
   ansible.builtin.command:

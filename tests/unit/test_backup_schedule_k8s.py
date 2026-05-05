@@ -905,3 +905,97 @@ class TestDumpSecretsStripsEphemeralMetadata:
             "resourceVersion / uid / creationTimestamp; same "
             "rationale as schedule_set.yml"
         )
+
+
+class TestK8sRestoreCloudBackendDoesNotMountHostPath:
+    """Guard #519: cloud-backend RESTIC_REPOSITORY values (s3:...,
+    b2:..., azure:..., gs:...) are URIs, not filesystem paths.
+    Pre-fix, restore_k8s.yml unconditionally mounted RESTIC_REPOSITORY
+    as a hostPath; for cloud URIs this failed container init with
+    'no such file or directory' and the entire restore aborted.
+    Only local-path repos (^/...) should get the hostPath bind.
+    Mirrors the same detection schedule_set.yml and k8s_run_backup.yml
+    use for the backup direction."""
+
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def _content(self):
+        with open(self.RESTORE_K8S) as f:
+            return f.read()
+
+    def test_local_repo_detection_present(self):
+        """A `_restore_local_repo` fact must be set from a regex
+        check of the RESTIC_REPOSITORY against `^/`. That mirrors the
+        backup-side detection in schedule_set.yml and k8s_run_backup.yml."""
+        c = self._content()
+        assert "_restore_local_repo:" in c, (
+            "restore_k8s.yml must define _restore_local_repo to "
+            "distinguish path-style RESTIC_REPOSITORY from URIs (#519)"
+        )
+        assert "is match('^/')" in c, (
+            "restore_local_repo detection must use the same regex as "
+            "the backup paths: RESTIC_REPOSITORY is match('^/')"
+        )
+
+    def test_volumes_built_conditionally(self):
+        """The local-repo volume + mount must be added via a
+        conditional set_fact, NOT inlined unconditionally in the
+        Pod definition."""
+        c = self._content()
+        # The conditional add tasks
+        assert "Add local-repo mount when RESTIC_REPOSITORY is a path" in c, (
+            "restore_k8s.yml needs the conditional volume-mount append"
+        )
+        assert "Add local-repo hostPath volume when RESTIC_REPOSITORY is a path" in c, (
+            "restore_k8s.yml needs the conditional volume append"
+        )
+        # And both gated on _restore_local_repo
+        # Each conditional add should have when: _restore_local_repo
+        for task_marker in (
+            "Add local-repo mount when RESTIC_REPOSITORY is a path",
+            "Add local-repo hostPath volume when RESTIC_REPOSITORY is a path",
+        ):
+            idx = c.find(task_marker)
+            block = c[idx:idx + 600]
+            assert "when: _restore_local_repo" in block, (
+                "%r must be gated on _restore_local_repo" % task_marker
+            )
+
+    def test_pod_uses_built_volumes_facts(self):
+        """The Create restore pod task should reference
+        `_restore_volume_mounts` and `_restore_volumes`, not inline
+        volumes/volumeMounts. Inline values would re-introduce the
+        unconditional hostPath mount that #519 was about."""
+        c = self._content()
+        # The Create restore pod block should reference the facts
+        idx = c.find("Create restore pod")
+        block = c[idx:idx + 1500]
+        assert "_restore_volume_mounts" in block, (
+            "Create restore pod must read volumeMounts from "
+            "_restore_volume_mounts fact (built conditionally)"
+        )
+        assert "_restore_volumes" in block, (
+            "Create restore pod must read volumes from "
+            "_restore_volumes fact (built conditionally)"
+        )
+
+    def test_no_unconditional_local_repo_volume(self):
+        """The old shape — inline `local-repo` volume with a hardcoded
+        hostPath of `RESTIC_REPOSITORY` — must NOT be present. That
+        was the #519 bug."""
+        c = self._content()
+        # Find the Create restore pod block and assert no inline
+        # local-repo volume in it.
+        idx = c.find("- name: Create restore pod")
+        end = c.find("- name: Wait for restore pod", idx)
+        block = c[idx:end] if end != -1 else c[idx:idx + 2000]
+        # The literal pattern that was wrong: hostPath: path: "{{ ... }}"
+        # under a volumes: stanza in the Pod definition.
+        assert "type: DirectoryOrCreate" not in block, (
+            "Create restore pod should not contain an inline "
+            "hostPath/DirectoryOrCreate — that was the #519 bug "
+            "(cloud backends fail container init). The conditional "
+            "_restore_volumes append handles local-path repos only."
+        )
