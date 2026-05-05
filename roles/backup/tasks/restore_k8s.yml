@@ -17,6 +17,20 @@
   register: _restore_env
   no_log: true
 
+# If a previous restore failed mid-run, the restic-restore pod may
+# still exist. kubernetes.core.k8s state: present then refuses to
+# update it because Pod spec changes are forbidden post-creation
+# (immutable fields). Delete first to make this idempotent.
+- name: Clean up any stale restic-restore pod from a prior failed run
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Pod
+    name: restic-restore
+    namespace: "{{ _k8s_namespace }}"
+    wait: true
+    wait_timeout: 60
+
 - name: Create restore pod
   kubernetes.core.k8s:
     state: present
@@ -117,7 +131,7 @@
       mariadb -u root -p"{{ _restore_dbpass.value }}"
   loop: >-
     {{ _restore_db_files.stdout_lines | default([])
-       | select('match', '^db_.*\\.sql$') | list }}
+       | select('match', '^db_.*\.sql$') | list }}
   no_log: true
 
 # Restore the canasta-managed K8s Secrets if the snapshot includes
@@ -148,7 +162,7 @@
   ansible.builtin.set_fact:
     _restore_secrets_filename: >-
       {{ (_restore_db_files.stdout_lines | default([])
-          | select('match', '^secrets-.+\\.yaml$') | list | first) | default('') }}
+          | select('match', '^secrets-.+\.yaml$') | list | first) | default('') }}
 
 - name: Save current DB credentials before secret restore (clone-friendly)
   kubernetes.core.k8s_info:
@@ -211,20 +225,17 @@
     name: restic-restore
     namespace: "{{ _k8s_namespace }}"
 
-# Re-render gitops templates after restore. The snapshot contains the
-# SOURCE host's rendered .env and config. On this host those need to
-# be re-rendered from templates + current host vars.
-- name: Detect gitops instance
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.gitops-host"
-  register: _restore_k8s_gitops_stat
-
-- name: Re-render gitops templates against this host's vars
-  ansible.builtin.include_role:
-    name: gitops
-    tasks_from: render_compose.yml
-  when: _restore_k8s_gitops_stat.stat.exists | default(false)
-
+# NOTE: Compose's restore.yml re-renders env.template + host vars
+# here via render_compose.yml. K8s gitops uses a different layout
+# (values.template.yaml + hosts/<name>/vars.yaml + rendered-values.yaml,
+# none of which are produced by render_compose.yml), so invoking
+# render_compose for K8s gitops crashed with "File not found:
+# env.template" and aborted the restore. For K8s we skip the
+# re-render entirely — k8s_sync_config below rebuilds the ConfigMaps
+# from the restored .env and config files, and Argo CD reconciles
+# from the gitops repo on next sync. Cross-host gitops clones that
+# need a fresh render should run `canasta gitops pull` or its K8s
+# equivalent after restore.
 - name: Sync config to ConfigMaps
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml

@@ -161,11 +161,18 @@
           - sh
           - -c
           - |
+            # Strip ephemeral metadata (resourceVersion, uid,
+            # creationTimestamp) so 'kubectl apply' at restore time
+            # doesn't fail with a resourceVersion conflict against
+            # the live object's current rv.
             kubectl get secret \
               {{ instance_id }}-db-credentials \
               {{ instance_id }}-mw-secrets \
               -n canasta-{{ instance_id }} \
               -o yaml \
+              | sed -E \
+                -e '/^  (resourceVersion|uid|creationTimestamp):/d' \
+                -e '/^    (resourceVersion|uid|creationTimestamp):/d' \
               > /currentsnapshot/config/backup/secrets-{{ instance_id }}.yaml
         volumeMounts:
           - name: dumps

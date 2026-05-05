@@ -730,3 +730,178 @@ class TestSharedBackupRBAC:
             "_k8s_backup_rbac.yml task file (refactored per #513 to "
             "share with k8s_run_backup.yml)"
         )
+
+
+class TestK8sRestoreImportRegexNotDoubleEscaped:
+    """The restore loop's regex `'^db_.*\.sql$'` and the secrets-
+    filename regex `'^secrets-.+\.yaml$'` must use a SINGLE backslash
+    in the YAML block scalar context. With `\\.` (two), Ansible's
+    Jinja parses the literal `\\.` regex which is "literal backslash
+    + any char" — never matches `.sql` / `.yaml`. The Import + all
+    secrets-restore tasks were silently skipping for every K8s
+    restore. Surfaced during PR #518 validation."""
+
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def _content(self):
+        with open(self.RESTORE_K8S) as f:
+            return f.read()
+
+    def test_db_dump_regex_uses_single_backslash(self):
+        c = self._content()
+        assert "'^db_.*\\.sql$'" in c, (
+            "restore_k8s.yml must filter dumps with `'^db_.*\\.sql$'`"
+        )
+        assert "'^db_.*\\\\.sql$'" not in c, (
+            "restore_k8s.yml has `\\\\.sql` (double-escaped) in the "
+            "dump-import regex; in YAML block scalar this becomes the "
+            "regex `\\.` for 'literal backslash + any char', never "
+            "matches *.sql, and the import task silently skips."
+        )
+
+    def test_secrets_filename_regex_uses_single_backslash(self):
+        c = self._content()
+        assert "'^secrets-.+\\.yaml$'" in c
+        assert "'^secrets-.+\\\\.yaml$'" not in c, (
+            "Same regex bug for the secrets-filename match — would "
+            "silently skip every secrets-restore task"
+        )
+
+
+class TestK8sRestoreStalePodCleanup:
+    """If a previous restore failed mid-run, the restic-restore pod
+    persists. kubernetes.core.k8s state: present then can't update
+    it (Pod spec is immutable post-creation), and the restore aborts.
+    Need to delete first."""
+
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def test_stale_pod_cleanup_before_create(self):
+        with open(self.RESTORE_K8S) as f:
+            tasks = yaml.safe_load(f)
+        clean_idx = create_idx = -1
+        for i, t in enumerate(tasks):
+            if not isinstance(t, dict):
+                continue
+            name = t.get("name", "")
+            if name.startswith("Clean up any stale restic-restore"):
+                clean_idx = i
+                # Must be state: absent on the pod
+                k8s = t.get("kubernetes.core.k8s") or t.get("k8s") or {}
+                assert k8s.get("state") == "absent", (
+                    "Stale-pod cleanup must use state: absent"
+                )
+            elif name == "Create restore pod":
+                create_idx = i
+        assert clean_idx != -1, (
+            "restore_k8s.yml must have a stale-pod cleanup task before "
+            "Create restore pod (kubernetes.core.k8s state: present "
+            "can't update an existing Pod)"
+        )
+        assert create_idx != -1
+        assert clean_idx < create_idx, (
+            "Cleanup must run before Create restore pod, not after"
+        )
+
+
+class TestK8sRestoreNoComposeRenderForK8sGitops:
+    """K8s gitops uses values.template.yaml + hosts/<name>/vars.yaml,
+    not env.template. restore_k8s.yml previously invoked
+    render_compose.yml which crashes with 'File not found:
+    env.template' for K8s gitops instances. The include must be
+    removed or replaced with K8s-aware logic."""
+
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def test_does_not_invoke_render_compose(self):
+        """Strip comment lines before checking — explanatory comments
+        may legitimately mention the old anti-pattern."""
+        with open(self.RESTORE_K8S) as f:
+            non_comment = "\n".join(
+                line for line in f.read().splitlines()
+                if not line.lstrip().startswith("#")
+            )
+        assert "render_compose.yml" not in non_comment, (
+            "restore_k8s.yml must not invoke render_compose.yml — that "
+            "task expects env.template (Compose-only artifact) and "
+            "fails for K8s gitops instances. See #521."
+        )
+
+
+class TestDiffComposeMatchRegex:
+    """canasta gitops diff's display message uses regexes for filename
+    matching. Same `\\.` block-scalar bug as restore_k8s.yml — the
+    regex never matches anything, so 'A restart would be needed' /
+    'A maintenance update may be needed' messages would never trigger
+    even when there are matching .env / .yml / .php changes."""
+
+    DIFF_COMPOSE = os.path.join(
+        REPO_ROOT, "roles", "gitops", "tasks", "diff_compose.yml",
+    )
+
+    def test_regex_uses_single_backslash(self):
+        with open(self.DIFF_COMPOSE) as f:
+            content = f.read()
+        # Should have single backslash for literal dot
+        assert "'.*\\.(env|yml|yaml)$'" in content
+        assert "'.*\\.php$'" in content
+        # Must not have the broken double-backslash form
+        assert "'.*\\\\.(env|yml|yaml)$'" not in content, (
+            "diff_compose.yml has `\\\\.` in regex; would never match"
+        )
+        assert "'.*\\\\.php$'" not in content, (
+            "diff_compose.yml has `\\\\.php` in regex; would never match"
+        )
+
+
+class TestDumpSecretsStripsEphemeralMetadata:
+    """`kubectl get secret -o yaml` emits resourceVersion, uid, and
+    creationTimestamp. `kubectl apply -f` then refuses to apply,
+    erroring with 'object has been modified'. Both dump-secrets init
+    containers (scheduled CronJob + on-demand Job) must strip those
+    fields with sed."""
+
+    SCHEDULE_SET = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "schedule_set.yml",
+    )
+    K8S_RUN_BACKUP = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml",
+    )
+
+    def _has_strip_in_dump_secrets(self, path):
+        with open(path) as f:
+            content = f.read()
+        # The dump-secrets command must include the sed strip
+        # and target the three ephemeral fields. Check both
+        # at-once.
+        return all(
+            field in content
+            for field in (
+                "dump-secrets",
+                "resourceVersion",
+                "uid",
+                "creationTimestamp",
+                "sed",
+            )
+        )
+
+    def test_schedule_set_strips_metadata(self):
+        assert self._has_strip_in_dump_secrets(self.SCHEDULE_SET), (
+            "schedule_set.yml dump-secrets must sed-strip "
+            "resourceVersion / uid / creationTimestamp; without it "
+            "kubectl apply at restore time fails with 'object has "
+            "been modified' resourceVersion conflict"
+        )
+
+    def test_k8s_run_backup_strips_metadata(self):
+        assert self._has_strip_in_dump_secrets(self.K8S_RUN_BACKUP), (
+            "k8s_run_backup.yml dump-secrets must sed-strip "
+            "resourceVersion / uid / creationTimestamp; same "
+            "rationale as schedule_set.yml"
+        )
