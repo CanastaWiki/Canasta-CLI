@@ -415,6 +415,54 @@ class TestK8sGitopsNoEncryption:
         )
 
 
+class TestK8sStartReadsValuesFromTarget:
+    """Guard #514: lookup('file', ...) runs on the controller, but
+    instance_path is target-side. canasta start broke against any
+    remote K8s target because three set_fact tasks tried to read the
+    instance's values.yaml via lookup. Ban the anti-pattern here so
+    the same regression can't drift back in (PR #115 had to fix the
+    same shape in init_kubernetes.yml + push_kubernetes.yml; #265 and
+    earlier reintroduced it in start.yml)."""
+
+    START_YML = os.path.join(ORCHESTRATOR_TASKS, "start.yml")
+
+    def test_no_lookup_file_against_instance_path(self):
+        """No `lookup('file', instance_path ~ ...)` calls. They MUST
+        be slurp-based to read on the play target via SSH."""
+        with open(self.START_YML) as f:
+            content = f.read()
+        # Strip comments before checking — explanatory comments may
+        # mention the old pattern legitimately.
+        non_comment_lines = [
+            line for line in content.splitlines()
+            if not line.strip().startswith("#")
+        ]
+        active = "\n".join(non_comment_lines)
+        assert "lookup('file', instance_path" not in active, (
+            "start.yml has a lookup('file', instance_path ~ ...) call. "
+            "lookup runs on the controller but instance_path is the "
+            "target-side path; this breaks canasta start against any "
+            "remote K8s host. Use ansible.builtin.slurp + from_yaml. "
+            "See #514."
+        )
+
+    def test_values_yaml_slurped(self):
+        """The K8s start path must slurp values.yaml from the target
+        and parse it into a single fact (_start_values) so all three
+        downstream reads (web.replicaCount, db.enabled,
+        argocd.syncPolicy) share one source."""
+        with open(self.START_YML) as f:
+            content = f.read()
+        assert "ansible.builtin.slurp:" in content, (
+            "start.yml must slurp values.yaml from the target instead "
+            "of looking it up controller-side (#514)"
+        )
+        assert "_start_values" in content, (
+            "start.yml should parse the slurped values into a "
+            "_start_values fact and reuse it across the three reads"
+        )
+
+
 class TestGitopsDispatchers:
     """Verify that each dispatched gitops command has both variants."""
 
