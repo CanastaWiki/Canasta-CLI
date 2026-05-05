@@ -999,3 +999,86 @@ class TestK8sRestoreCloudBackendDoesNotMountHostPath:
             "(cloud backends fail container init). The conditional "
             "_restore_volumes append handles local-path repos only."
         )
+
+
+class TestK8sRestoreUsesWebPodForDbImport:
+    """Guard #520: the DB-dump import target must be the WEB pod, not
+    a DB pod. External-DB instances have no in-cluster DB pod —
+    looking it up returns an empty list and the restore aborts with
+    `array index out of bounds`. The web pod always exists and has
+    mariadb-client + the right env vars (MYSQL_HOST / MYSQL_USER /
+    MYSQL_PASSWORD) for whichever DB the chart is configured against,
+    so a single unified path covers internal AND external DB."""
+
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def _content(self):
+        with open(self.RESTORE_K8S) as f:
+            return f.read()
+
+    def test_db_import_targets_web_component(self):
+        """The k8s_get_pod include for the import-target lookup must
+        use _k8s_component: web. Pre-fix it was 'db', which doesn't
+        exist for external-DB instances."""
+        c = self._content()
+        with open(self.RESTORE_K8S) as f:
+            tasks = yaml.safe_load(f)
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            inc = task.get("ansible.builtin.include_tasks") or task.get("include_tasks")
+            if not inc or "k8s_get_pod.yml" not in str(inc):
+                continue
+            comp = (task.get("vars") or {}).get("_k8s_component")
+            assert comp == "web", (
+                "k8s_get_pod include must request _k8s_component: web, "
+                "not %r — external-DB instances have no in-cluster DB "
+                "pod, so 'db' lookup aborts the restore (#520)" % comp
+            )
+            return
+        raise AssertionError(
+            "restore_k8s.yml has no k8s_get_pod.yml include — expected "
+            "one for the DB import target lookup"
+        )
+
+    def test_db_import_uses_pod_env_vars(self):
+        """The import shell command must use the web pod's env vars
+        (MYSQL_HOST / MYSQL_USER / MYSQL_PASSWORD) rather than
+        hardcoding `-u root` + a passed-in _restore_dbpass.value.
+        That makes it work for external-DB (where the user is not
+        'root' and MYSQL_HOST is the external host)."""
+        c = self._content()
+        # Look at the Import each DB dump task
+        idx = c.find("- name: Import each DB dump")
+        assert idx != -1, "Import each DB dump task missing"
+        block = c[idx:idx + 1500]
+        # Must reference pod env vars, not hardcoded root + restored .env.
+        # ${MYSQL_HOST:-db} / ${MYSQL_USER:-root} forms are valid;
+        # "$MYSQL_PASSWORD" has no internal-DB default.
+        assert "MYSQL_HOST" in block, (
+            "Import command should connect to $MYSQL_HOST (web pod's "
+            "env, set per the chart's db.enabled gate)"
+        )
+        assert "MYSQL_USER" in block, (
+            "Import command should authenticate as $MYSQL_USER, not "
+            "hardcoded root — external DB users are typically not root"
+        )
+        assert "$MYSQL_PASSWORD" in block, (
+            "Import command should use $MYSQL_PASSWORD from the web "
+            "pod's env (sourced from <id>-db-credentials Secret)"
+        )
+        # Must NOT use the old hardcoded -u root form
+        assert "-u root -p" not in block, (
+            "Import command must not use hardcoded `-u root` — would "
+            "fail for external DB where the operator-supplied user "
+            "is not root"
+        )
+        # Must NOT reference _restore_dbpass.value (now sourced from
+        # pod env via secretKeyRef, not from controller-side .env read)
+        assert "_restore_dbpass" not in block, (
+            "Import command must not use _restore_dbpass.value — that "
+            "ties auth to the controller-side .env read instead of the "
+            "pod env vars that match the running cluster"
+        )

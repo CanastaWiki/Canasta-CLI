@@ -133,11 +133,31 @@
   changed_when: true
   ignore_errors: true
 
-- name: Get DB pod name
+# Use the WEB pod (not a DB pod) as the import target. Reasons:
+#
+#   - External-DB instances have no in-cluster DB pod. The previous
+#     code looked up component=db, got an empty list, and crashed
+#     with `array index out of bounds` (#520). Restore was unusable
+#     for any external-DB K8s install.
+#   - The web pod always exists. It has the canasta image (mariadb-
+#     client included) and env vars MYSQL_HOST / MYSQL_USER /
+#     MYSQL_PASSWORD already wired up to whichever DB the chart is
+#     configured against:
+#       internal: MYSQL_HOST=db, MYSQL_USER=root, MYSQL_PASSWORD via
+#                 secretKeyRef from <id>-db-credentials
+#       external: MYSQL_HOST/USER from values.externalDatabase,
+#                 MYSQL_PASSWORD via the same secretKeyRef
+#   - One unified path replaces the two cases — simpler than
+#     branching on db.enabled.
+#
+# Performance note: import goes via TCP to the DB rather than via a
+# local socket inside the DB pod (the previous shape). Negligible
+# for a one-shot restore.
+- name: Get web pod name (DB import target — works for internal and external DB)
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_get_pod.yml
   vars:
-    _k8s_component: db
+    _k8s_component: web
 
 - name: Find DB dump files in restore pod
   ansible.builtin.command:
@@ -155,7 +175,7 @@
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
       cat /currentsnapshot/config/backup/{{ item }} |
       kubectl exec -i -n {{ _k8s_namespace }} {{ _k8s_pod_name }} --
-      mariadb -u root -p"{{ _restore_dbpass.value }}"
+      bash -c 'mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" -p"$MYSQL_PASSWORD"'
   loop: >-
     {{ _restore_db_files.stdout_lines | default([])
        | select('match', '^db_.*\.sql$') | list }}
