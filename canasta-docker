@@ -17,6 +17,30 @@
 
 set -euo pipefail
 
+# `canasta install` provisions software ON THE HOST — k3s as a systemd
+# unit, the docker engine package, etc. That work can't run inside the
+# canasta-ansible container, which has no systemd and no privilege over
+# the host package manager. Reject these commands early with a clear
+# pointer to the supported alternatives, instead of failing later with
+# a cryptic "Can not find systemd" from the k3s installer.
+if [[ "${1:-}" == "install" ]]; then
+    cat >&2 <<'INSTALL_GUARD_EOF'
+Error: 'canasta install' is not supported in canasta-docker mode.
+
+These commands install system packages on the host (k3s as a systemd
+unit, docker engine, etc.) which can't run from inside a container.
+
+Either:
+  - Use canasta-native:
+      curl -fsSL https://get.canasta.wiki | bash -s -- --native
+  - Or install the dependency manually on the host (e.g.
+      curl -sfL https://get.k3s.io | sh -
+    for k3s) and use canasta-docker for the rest of the workflow
+    (create, start, backup, restore, etc.).
+INSTALL_GUARD_EOF
+    exit 1
+fi
+
 # CANASTA_CLI_IMAGE is the post-rename name; CANASTA_ANSIBLE_IMAGE
 # remains a backwards-compatible fallback for users who already
 # set the old name in their environment.
