@@ -935,3 +935,44 @@ class TestPlayLevelDockerHost:
         assert "docker_host" in expr
         assert "instance_docker_host" in expr
         assert "omit" in expr
+
+
+class TestRequirementsCollectionsHelm4Compat:
+    """Guard #525: kubernetes.core must be pinned to a version that
+    supports Helm 4. Pre-fix `requirements.yml` had `>=3.0.0` which
+    let pip install collection 6.3.0 — which rejects Helm 4 with
+    'Helm version must be >=3.0.0,<4.0.0'. Helm 4 is now what
+    `brew install helm` provides on macOS by default, so any
+    operator on a fresh laptop hits this immediately. 6.4.0 added
+    Helm 4 support."""
+
+    REQUIREMENTS = os.path.join(REPO_ROOT, "requirements.yml")
+
+    def _kubernetes_core_pin(self):
+        with open(self.REQUIREMENTS) as f:
+            req = yaml.safe_load(f)
+        for c in req.get("collections", []):
+            if c.get("name") == "kubernetes.core":
+                return c.get("version")
+        raise AssertionError("kubernetes.core not pinned in requirements.yml")
+
+    def test_kubernetes_core_min_version_is_helm4_compatible(self):
+        pin = self._kubernetes_core_pin()
+        # The pin should require >= 6.4.0 (or any later version with
+        # known Helm 4 support).
+        assert ">=6.4" in pin or ">= 6.4" in pin or ">=6.5" in pin or ">=7" in pin or ">= 7" in pin, (
+            "requirements.yml pins kubernetes.core %r — must be "
+            ">=6.4.0 to support Helm 4 (#525). Earlier versions "
+            "reject Helm 4 at module load." % pin
+        )
+
+    def test_kubernetes_core_lower_bound_not_below_6_4(self):
+        """Belt-and-suspenders: catch a future regression where the
+        lower bound gets relaxed below 6.4.0 again."""
+        pin = self._kubernetes_core_pin()
+        for bad in (">=3.0", ">=4.", ">=5.", ">=6.0", ">=6.1", ">=6.2", ">=6.3"):
+            assert bad not in pin, (
+                "requirements.yml has kubernetes.core lower bound "
+                "%r which lets pip install pre-Helm-4 versions; "
+                "must be >=6.4.0 (#525)" % pin
+            )
