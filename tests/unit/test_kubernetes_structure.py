@@ -378,7 +378,12 @@ class TestK8sGitopsNoEncryption:
         register `hosts/**` (or any pattern) for git-crypt filtering.
         Argo CD reads hosts/<name>/rendered-values.yaml as Helm values
         and has no git-crypt awareness — encrypted bytes break parsing
-        with a 'control characters not allowed' error (#507)."""
+        with a 'control characters not allowed' error (#507).
+
+        After #509 dropped the entire git-crypt scaffolding from K8s,
+        there's no .gitattributes-writing task at all, which trivially
+        satisfies the 'no encryption rules' invariant. This test
+        accepts either shape."""
         with open(self.INIT_K8S) as f:
             tasks = yaml.safe_load(f)
         for task in self._walk_tasks(tasks):
@@ -390,10 +395,6 @@ class TestK8sGitopsNoEncryption:
                 continue
             content = copy.get("content")
             src = copy.get("src", "")
-            # Either the task uses inline content (must not register
-            # hosts/** for git-crypt) or a src file (the canonical
-            # gitattributes.default still has the encryption rule for
-            # the Compose path; that's outside K8s scope).
             if content is not None:
                 assert "filter=git-crypt" not in content, (
                     "K8s gitops init writes a .gitattributes that "
@@ -410,8 +411,82 @@ class TestK8sGitopsNoEncryption:
                 "encryption rule."
             )
             return
-        raise AssertionError(
-            "init_kubernetes.yml has no .gitattributes-writing task"
+        # No .gitattributes-writing task at all (#509 result) is fine —
+        # the absence of a filter rule is the same as an empty rule
+        # set as far as Argo CD is concerned.
+
+
+class TestK8sGitopsNoGitcryptScaffolding:
+    """Guard #509: K8s gitops init/join must not invoke any git-crypt
+    operations. After #508 nothing in the K8s repo is encrypted, so
+    `git-crypt --version` checks, `git-crypt init`, `git-crypt
+    export-key`, `git-crypt unlock`, and the controller-side write of
+    the exported key are all dead scaffolding. They were removed in
+    #509 to simplify the K8s gitops flow and to drop git-crypt as a
+    K8s prerequisite (Compose still uses it)."""
+
+    INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
+    JOIN_K8S = os.path.join(GITOPS_TASKS, "join_kubernetes.yml")
+
+    def _active_content(self, path):
+        """Concat non-comment lines so explanatory comments mentioning
+        git-crypt don't false-positive against the regression check."""
+        with open(path) as f:
+            return "\n".join(
+                line for line in f.read().splitlines()
+                if not line.lstrip().startswith("#")
+            )
+
+    def test_init_does_not_check_gitcrypt_installed(self):
+        c = self._active_content(self.INIT_K8S)
+        assert "git-crypt --version" not in c, (
+            "init_kubernetes.yml has a `git-crypt --version` "
+            "preflight check; that's dead scaffolding after #509 — "
+            "K8s gitops doesn't use git-crypt."
+        )
+
+    def test_init_does_not_run_gitcrypt_init(self):
+        c = self._active_content(self.INIT_K8S)
+        assert "git-crypt init" not in c, (
+            "init_kubernetes.yml runs `git-crypt init` but that's a "
+            "no-op now (no .gitattributes filter rule). Removed in "
+            "#509."
+        )
+
+    def test_init_does_not_export_gitcrypt_key(self):
+        c = self._active_content(self.INIT_K8S)
+        assert "git-crypt export-key" not in c, (
+            "init_kubernetes.yml exports a git-crypt key; with no "
+            "encryption applied, the key is dead bytes (#509)."
+        )
+
+    def test_join_does_not_check_gitcrypt_installed(self):
+        c = self._active_content(self.JOIN_K8S)
+        assert "git-crypt --version" not in c, (
+            "join_kubernetes.yml has a `git-crypt --version` check; "
+            "K8s gitops repos are cleartext after #509, no git-crypt "
+            "needed."
+        )
+
+    def test_join_does_not_unlock_gitcrypt(self):
+        c = self._active_content(self.JOIN_K8S)
+        assert "git-crypt unlock" not in c, (
+            "join_kubernetes.yml runs `git-crypt unlock`; nothing in "
+            "the K8s gitops repo is encrypted (#509). Compose still "
+            "uses unlock — that's in roles/gitops/tasks/join.yml."
+        )
+
+    def test_compose_join_still_uses_gitcrypt(self):
+        """Belt-and-suspenders: Compose's gitops join MUST still
+        unlock git-crypt — its repo encrypts hosts/<host>/vars.yaml.
+        Removing git-crypt from Compose would be a regression."""
+        compose_join = os.path.join(GITOPS_TASKS, "join.yml")
+        with open(compose_join) as f:
+            content = f.read()
+        assert "git-crypt unlock" in content, (
+            "join.yml (Compose) must still use git-crypt unlock — "
+            "Compose's repo encrypts hosts/<host>/vars.yaml. #509 "
+            "was K8s-only."
         )
 
 

@@ -1615,6 +1615,12 @@ commands:
     long_description: |
       Bootstrap git-based configuration management. Converts extensions
       and skins to submodules and pushes to a remote repository.
+
+      On Compose, per-host vars.yaml is encrypted with git-crypt so
+      secrets stay out of the repo at rest. On Kubernetes, secrets
+      live in K8s Secrets (created by `canasta create`) rather than
+      in the gitops repo, so the K8s repo is cleartext and Argo CD
+      can read rendered-values.yaml directly.
     examples:
       - "canasta gitops init -n prod --repo git@github.com:org/config.git --key /tmp/gc.key"
     playbook: gitops_init.yml
@@ -1641,7 +1647,14 @@ commands:
       - name: key
         type: path
         required: true
-        description: "Path to export the git-crypt key"
+        description: >-
+          Path basename for the gitops keys. The SSH deploy key is
+          derived as `<key>.ssh` (private) and `<key>.ssh.pub`
+          (public — register this as a deploy key on the forge).
+          On Compose, `<key>` itself also receives the git-crypt
+          symmetric key for unlocking encrypted vars on other hosts.
+          K8s does not use git-crypt; the parameter only affects
+          the SSH key path there.
       - name: force
         type: bool
         default: false
@@ -1672,10 +1685,11 @@ commands:
     long_description: |
       Join an existing gitops repository for a Canasta instance.
 
-      Clones the repo, unlocks git-crypt with the provided key,
-      adds this host to the host inventory, extracts host-specific
-      values into `vars.yaml`, and pushes the new host entry back
-      to the repo.
+      Clones the repo, adds this host to the host inventory, extracts
+      host-specific values into `vars.yaml`, and pushes the new host
+      entry back to the repo. On Compose this also unlocks git-crypt
+      so encrypted vars become readable; K8s repos are cleartext and
+      need no unlock step.
 
       The instance must already exist and have a working `.env`
       file. Use `canasta gitops init` to bootstrap a new gitops
@@ -1701,7 +1715,11 @@ commands:
       - name: key
         type: path
         required: true
-        description: "Path to git-crypt key"
+        description: >-
+          Path basename for the gitops keys, same as `gitops init`.
+          On Compose, `<key>` is the git-crypt symmetric key. On K8s,
+          only `<key>.ssh` (the SSH deploy key) is used — git-crypt
+          is not part of the K8s gitops flow.
       - name: reinit
         type: bool
         default: false
