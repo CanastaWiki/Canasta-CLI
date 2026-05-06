@@ -86,8 +86,12 @@
               - sh
               - -c
               - |
-                restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target / && \
-                touch /tmp/restore-done && \
+                # Don't gate the sentinel on restic's exit code: snapshots from
+                # EBS-backed PVCs include security.selinux xattrs that the
+                # restore pod's overlay fs can't accept, so restic exits 1 on
+                # the lost+found dirs even though all wiki content restored.
+                restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target /
+                touch /tmp/restore-done
                 sleep 3600
             # canasta-<id>-backup-env carries every cloud-backend
             # credential restic might need (RESTIC_*, AWS_*, B2_*,
