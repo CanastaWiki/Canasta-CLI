@@ -1,13 +1,23 @@
 ---
 # GitOps init (Kubernetes) — multi-environment aware.
-# Uses git-crypt for secrets in per-host vars.yaml.
 # Repo structure:
 #   values.template.yaml    ← shared, with {{placeholder}} syntax
 #   hosts/hosts.yaml        ← host registry
-#   hosts/{name}/vars.yaml  ← per-host values (encrypted)
+#   hosts/{name}/vars.yaml  ← per-host values (cleartext, no secrets)
 #   hosts/{name}/rendered-values.yaml  ← rendered for Argo CD
 #   Chart.yaml, templates/  ← shared Helm chart
+#
+# No git-crypt: K8s secrets (MYSQL_PASSWORD, MW_SECRET_KEY) live in
+# K8s Secrets, not in the gitops repo. The repo is therefore safe
+# to be cleartext, which Argo CD requires anyway (it has no
+# git-crypt support and can't decrypt encrypted values files).
+# See #507 / #508 for the original switch and #509 for the
+# scaffolding cleanup.
+#
 # Input: host_name, role, repo, key, force, pull_requests
+#   key is the SSH deploy key path basename (private at <key>.ssh,
+#   public at <key>.ssh.pub). Despite the name, it has no git-crypt
+#   meaning on K8s.
 # Requires: instance_path, instance_id (set by dispatcher)
 
 # --- Validate prerequisites ---
@@ -22,9 +32,8 @@
   ansible.builtin.fail:
     msg: >-
       git is not installed on the gitops target host.
-      Install it with: canasta install -i {{ instance_id }} git-crypt
-      (or `canasta install -H <host> git-crypt`) — the git-crypt
-      package pulls in git as a dependency.
+      Install it via your distro's package manager
+      (e.g. `apt install git` on Debian/Ubuntu).
   when: _git_check.rc | default(1) != 0
 
 - name: Set git user.name on target host
@@ -52,21 +61,6 @@
       Git user identity is not configured for this canasta gitops setup.
       Pass --git-user-name and --git-user-email to this command.
   when: _git_identity.rc != 0
-
-- name: Check git-crypt is installed
-  ansible.builtin.command:
-    cmd: "git-crypt --version"
-  register: _gitcrypt_check
-  changed_when: false
-  ignore_errors: true
-
-- name: Fail if git-crypt not installed
-  ansible.builtin.fail:
-    msg: >-
-      git-crypt is not installed on the gitops target host.
-      Install it with: canasta install -i {{ instance_id }} git-crypt
-      (or `canasta install -H <host> git-crypt`).
-  when: _gitcrypt_check.rc != 0
 
 - name: Reinit — wipe partial gitops state before re-running init
   ansible.builtin.include_tasks: _reinit_cleanup.yml
@@ -360,81 +354,15 @@
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 
-# K8s gitops repo carries no secrets after #507 — MYSQL_PASSWORD and
-# MW_SECRET_KEY are pulled at deploy time from the per-instance K8s
-# Secrets (<id>-db-credentials, <id>-mw-secrets) via secretKeyRef, and
+# K8s gitops repo carries no secrets after #508 — MYSQL_PASSWORD
+# and MW_SECRET_KEY are pulled at deploy time from K8s Secrets
+# (<id>-db-credentials, <id>-mw-secrets) via secretKeyRef, and
 # k8s_sync_config.yml strips them out of the configData.web['.env']
 # blob before rendering. With no secret-bearing files left, no
-# git-crypt filter is needed; encrypting rendered-values.yaml broke
-# Argo CD's ability to parse it as Helm values. The git-crypt init/
-# export scaffolding below stays in place for now (still useful if a
-# future addition wants per-file encryption) but no patterns are
-# registered for filtering. Follow-up cleanup will remove the dead
-# scaffolding.
-- name: Write empty .gitattributes (no files marked for git-crypt)
-  ansible.builtin.copy:
-    content: ""
-    dest: "{{ instance_path }}/.gitattributes"
-    mode: "0644"
-
-# --- Initialize git-crypt ---
-- name: Initialize git-crypt
-  ansible.builtin.command:
-    cmd: "git-crypt init"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-
-- name: Export git-crypt key on remote host
-  ansible.builtin.command:
-    cmd: "git-crypt export-key /tmp/canasta-gitcrypt-key"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-
-- name: Read git-crypt key from remote host
-  ansible.builtin.slurp:
-    src: /tmp/canasta-gitcrypt-key
-  register: _gitcrypt_key_data
-  no_log: true
-
-- name: Remove temporary key from remote
-  ansible.builtin.file:
-    path: /tmp/canasta-gitcrypt-key
-    state: absent
-
-# Same save/switch/restore dance as the SSH key block above —
-# delegate_to: localhost + vars: doesn't reliably override after
-# switch_connection.yml has run.
-- name: Save connection state before git-crypt key write
-  ansible.builtin.set_fact:
-    _gki_saved:
-      host: "{{ ansible_host | default('localhost') }}"
-      conn: "{{ ansible_connection | default('local') }}"
-      user: "{{ ansible_user | default('') }}"
-      python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
-
-- block:
-    - name: Switch to local for git-crypt key write
-      ansible.builtin.set_fact:
-        ansible_host: "localhost"
-        ansible_connection: "local"
-        ansible_user: ""
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
-
-    - name: Write git-crypt key to controller
-      ansible.builtin.copy:
-        content: "{{ _gitcrypt_key_data.content | b64decode }}"
-        dest: "{{ key }}"
-        mode: "0600"
-      no_log: true
-  always:
-    - name: Restore connection state after git-crypt key write
-      ansible.builtin.set_fact:
-        ansible_host: "{{ _gki_saved.host }}"
-        ansible_connection: "{{ _gki_saved.conn }}"
-        ansible_user: "{{ _gki_saved.user }}"
-        ansible_python_interpreter: "{{ _gki_saved.python }}"
-
-# --- Create hosts metadata ---
+# git-crypt filter is needed and the entire git-crypt scaffolding
+# (init, export, key transfer to the controller, target-side
+# cleanup) was removed in #509. Compose's gitops path still uses
+# git-crypt — this is a K8s-specific simplification.
 - name: Create hosts.yaml
   ansible.builtin.copy:
     content: |
