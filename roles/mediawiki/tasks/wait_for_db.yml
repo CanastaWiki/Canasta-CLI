@@ -18,4 +18,11 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
-    exec_command: "/wait-for-it.sh -t {{ canasta_db_wait_timeout | default(10) }} {{ _db_host }}:{{ _db_port }}"
+    # Default 60s. Compose's bundled MariaDB usually answers in
+    # under 5s after `docker compose up`; the longer timeout is
+    # padding for K8s + external DB scenarios where a freshly-
+    # scheduled pod has to (a) finish its initContainers, (b) DNS-
+    # resolve a managed-database endpoint via VPC DNS, and (c)
+    # establish the first TCP connection over the cluster network.
+    # 10s wasn't enough for EKS + RDS in testing.
+    exec_command: "/wait-for-it.sh -t {{ canasta_db_wait_timeout | default(60) }} {{ _db_host }}:{{ _db_port }}"
