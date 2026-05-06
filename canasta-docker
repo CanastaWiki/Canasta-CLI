@@ -164,20 +164,59 @@ with open(sys.argv[2], 'w') as f:
 fi
 
 # Sanitize kubeconfig for the container.
-# Docker Desktop on macOS exposes the K8s API server at 127.0.0.1:6443
-# from the host (via port forwarding from the VM). Inside a container,
-# 127.0.0.1 is the container's own loopback — the host is reachable at
-# kubernetes.docker.internal instead (which is also in the API server's
-# TLS certificate SANs, so no --insecure-skip-tls-verify needed).
-# Without this fix, every K8s command via canasta-docker against Docker
-# Desktop fails with "Cannot reach Kubernetes cluster." See #78.
+#
+# Local-cluster kubeconfigs point the K8s API at 127.0.0.1 or localhost
+# from the host's perspective. Inside a container, 127.0.0.1 is the
+# container's own loopback, so the cluster is unreachable without a
+# rewrite to a hostname the container can resolve to the host.
+#
+# - macOS Docker Desktop: kubernetes.docker.internal is pre-resolved
+#   inside containers and is in Docker Desktop's K8s API cert SAN list,
+#   so TLS validation works with no extra flags. See #78.
+#
+# - Linux Docker: kubernetes.docker.internal doesn't exist; use
+#   host.docker.internal added via --add-host. Self-signed local
+#   clusters (k3s, kind, etc.) typically don't include any external
+#   hostname in their cert SANs, so we also drop the CA pin and skip
+#   TLS verification — the connection traverses the docker bridge to
+#   the host's loopback rather than untrusted network. See #534.
 KUBE_CONFIG="$HOME/.kube/config"
 if [[ -f "$KUBE_CONFIG" ]] \
     && grep -qE 'server:.*https://(127\.0\.0\.1|localhost)' "$KUBE_CONFIG" 2>/dev/null; then
     CANASTA_KUBE_CONFIG="$CONFIG_DIR/.kube-config"
-    sed -e 's|server: https://127\.0\.0\.1|server: https://kubernetes.docker.internal|g' \
-        -e 's|server: https://localhost|server: https://kubernetes.docker.internal|g' \
-        "$KUBE_CONFIG" > "$CANASTA_KUBE_CONFIG" 2>/dev/null
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sed -e 's|server: https://127\.0\.0\.1|server: https://kubernetes.docker.internal|g' \
+            -e 's|server: https://localhost|server: https://kubernetes.docker.internal|g' \
+            "$KUBE_CONFIG" > "$CANASTA_KUBE_CONFIG" 2>/dev/null
+    else
+        # Linux Docker. Do the hostname rewrite + drop CA pin + add
+        # insecure-skip-tls-verify in one python pass for robustness
+        # against indentation / formatting variations across kubeconfigs.
+        if command -v python3 &>/dev/null; then
+            python3 - "$KUBE_CONFIG" "$CANASTA_KUBE_CONFIG" <<'PYEOF' 2>/dev/null
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+with open(src) as f:
+    text = f.read()
+text = re.sub(r'(server:\s*https://)(127\.0\.0\.1|localhost)\b',
+              r'\1host.docker.internal', text)
+# Drop CA pin lines and inject insecure-skip-tls-verify under each cluster.
+out_lines = []
+for line in text.splitlines():
+    if re.match(r'^\s*certificate-authority-data:', line):
+        continue
+    out_lines.append(line)
+    m = re.match(r'^(\s*)server:\s*https://host\.docker\.internal', line)
+    if m:
+        out_lines.append(f'{m.group(1)}insecure-skip-tls-verify: true')
+with open(dst, 'w') as f:
+    f.write('\n'.join(out_lines) + '\n')
+PYEOF
+        fi
+        if [[ -f "$CANASTA_KUBE_CONFIG" ]]; then
+            MOUNTS+=(--add-host=host.docker.internal:host-gateway)
+        fi
+    fi
     if [[ -f "$CANASTA_KUBE_CONFIG" ]]; then
         MOUNTS+=(-v "$CANASTA_KUBE_CONFIG":"$HOME/.kube/config":ro)
     fi
