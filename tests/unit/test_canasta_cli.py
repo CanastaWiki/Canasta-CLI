@@ -1062,7 +1062,7 @@ class TestSelfUpdateCli:
     ):
         self._patch_repo(monkeypatch, tmp_path, version="4.0.0")
         # Sequence: rev-parse current, fetch, log (has updates),
-        # pull, rev-parse new, log -1 date.
+        # pull, rev-parse new, log -1 date, pip install, galaxy install.
         runner, calls = self._make_runner([
             {"stdout": "old1234\n"},
             {"stdout": ""},
@@ -1070,6 +1070,8 @@ class TestSelfUpdateCli:
             {"stdout": ""},                         # pull succeeded
             {"stdout": "new1234\n"},
             {"stdout": "2026-05-05 10:00:00\n"},
+            {"stdout": ""},                         # pip install
+            {"stdout": ""},                         # ansible-galaxy install
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
 
@@ -1102,6 +1104,58 @@ class TestSelfUpdateCli:
         assert (tmp_path / "BUILD_DATE").read_text().strip() == (
             "2026-05-05 10:00:00"
         )
+
+        # pip + ansible-galaxy ran with the right arguments.
+        pip_call = calls[6]
+        assert pip_call[1:] == [
+            "-m", "pip", "install", "--quiet",
+            "-r", str(tmp_path / "requirements.txt"),
+        ]
+        galaxy_call = calls[7]
+        assert galaxy_call[-5:] == [
+            "collection", "install", "--upgrade",
+            "-r", str(tmp_path / "requirements.yml"),
+        ]
+
+    def test_dep_refresh_failure_warns(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        """If pip install or ansible-galaxy fails after a successful pull,
+        the wrapper warns but doesn't abort the upgrade flow — instances
+        downstream still get their normal upgrade attempt against whatever
+        deps are on disk."""
+        self._patch_repo(monkeypatch, tmp_path, version="4.0.0")
+        runner, calls = self._make_runner([
+            {"stdout": "old1234\n"},
+            {"stdout": ""},
+            {"stdout": "new1234 some change\n"},
+            {"stdout": ""},
+            {"stdout": "new1234\n"},
+            {"stdout": "2026-05-05 10:00:00\n"},
+            {"stdout": "", "returncode": 1},        # pip fails
+            {"stdout": "", "returncode": 1},        # galaxy fails
+        ])
+
+        def runner_with_check(argv, **kwargs):
+            res = runner(argv, **kwargs)
+            if kwargs.get("check") and res.returncode != 0:
+                raise _subprocess.CalledProcessError(
+                    res.returncode, argv,
+                    output=res.stdout, stderr=res.stderr,
+                )
+            return res
+
+        monkeypatch.setattr(_subprocess, "run", runner_with_check)
+        canasta_cli.self_update_cli()
+
+        captured = capsys.readouterr()
+        # The "Updated Canasta CLI ..." success line still prints —
+        # the code update itself succeeded.
+        assert "Updated Canasta CLI" in captured.out
+        # Both refresh failures should produce warnings.
+        assert "pip install -r requirements.txt failed" in captured.err
+        assert "ansible-galaxy collection install failed" in captured.err
+        assert "dependency refresh incomplete" in captured.err
 
     def test_pull_failure_warns_and_continues(
         self, monkeypatch, tmp_path, capsys,

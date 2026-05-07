@@ -215,10 +215,48 @@ def self_update_cli():
                 file=sys.stderr,
             )
 
+    # Refresh Python and Ansible deps in case requirements.txt or
+    # requirements.yml was bumped in the pull. Without this, dep pins
+    # added to the new code don't actually land — operators see new
+    # code with stale collections (Helm 4 / kubernetes.core 6.4 was
+    # the last instance) and hit cryptic playbook errors.
+    def _refresh_deps(label, cmd, timeout):
+        try:
+            subprocess.run(cmd, check=True, timeout=timeout)
+            return True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+                OSError) as e:
+            print(
+                "Warning: %s failed (%s).\nRe-run manually:\n  %s"
+                % (label, e, " ".join(cmd)),
+                file=sys.stderr,
+            )
+            return False
+
+    pip_ok = _refresh_deps(
+        "pip install -r requirements.txt",
+        [sys.executable, "-m", "pip", "install", "--quiet",
+         "-r", os.path.join(repo, "requirements.txt")],
+        timeout=180,
+    )
+    galaxy = os.path.join(os.path.dirname(sys.executable), "ansible-galaxy")
+    galaxy_ok = _refresh_deps(
+        "ansible-galaxy collection install",
+        [galaxy, "collection", "install", "--upgrade",
+         "-r", os.path.join(repo, "requirements.yml")],
+        timeout=300,
+    )
+
     print(
         "Updated Canasta CLI from %s (%s) to %s (%s)."
         % (current_version, current_commit, new_version, new_commit)
     )
+    if not (pip_ok and galaxy_ok):
+        print(
+            "Warning: dependency refresh incomplete; see above. "
+            "Instances may still be upgraded against stale deps.",
+            file=sys.stderr,
+        )
 
 
 def internal_name(display_name):
