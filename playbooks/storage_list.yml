@@ -39,7 +39,7 @@
         if (_kubectl_ctx is succeeded) and (_kubectl_ctx.stdout | trim | length > 0)
         else '(unknown)' }}
       Canasta default StorageClass: {{ _default_sc.value
-        if _default_sc.value | default('') | length > 0
+        if _default_sc.value | default('', true) | length > 0
         else '(none — pass --storage-class on canasta create)' }}
 
       {{ _sc_raw.stdout }}
