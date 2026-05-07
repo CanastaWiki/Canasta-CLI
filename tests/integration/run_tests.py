@@ -1389,16 +1389,20 @@ def test_gitops_push_shared_vars(inst):
         "--key", key_file,
     )
 
-    print("Adding shared-category keys to host vars...")
+    print("Adding mixed shared and host-specific keys to host vars...")
     vars_file = os.path.join(
         inst.instance_path(), "hosts", "testhost", "vars.yaml",
     )
     import yaml
     with open(vars_file) as f:
         vars_data = yaml.safe_load(f) or {}
-    vars_data["restic_repository"] = "s3:s3.example.com/test-backup"
+    # Should migrate to shared (in gitops_shared_keys):
     vars_data["restic_password"] = "test-password"
     vars_data["aws_access_key_id"] = "AKIATEST"
+    vars_data["aws_secret_access_key"] = "secrettest"
+    # Should stay per-host (environment-specific identifiers):
+    vars_data["restic_repository"] = "s3:s3.example.com/test-backup"
+    vars_data["aws_bucket_name"] = "test-bucket"
     with open(vars_file, "w") as f:
         yaml.dump(vars_data, f)
 
@@ -1406,7 +1410,7 @@ def test_gitops_push_shared_vars(inst):
     inst.run_ok("gitops", "add", "-i", inst.id)
     inst.run_ok("gitops", "push", "-i", inst.id)
 
-    print("Checking _shared/vars.yaml was created with migrated keys...")
+    print("Checking shared-list keys migrated to _shared/vars.yaml...")
     shared_file = os.path.join(
         inst.instance_path(), "hosts", "_shared", "vars.yaml",
     )
@@ -1415,19 +1419,42 @@ def test_gitops_push_shared_vars(inst):
     )
     with open(shared_file) as f:
         shared_data = yaml.safe_load(f) or {}
-    assert shared_data.get("restic_repository") == "s3:s3.example.com/test-backup", (
-        "restic_repository not in shared vars: %s" % shared_data
+    assert shared_data.get("restic_password") == "test-password", (
+        "restic_password not in shared vars: %s" % shared_data
     )
     assert shared_data.get("aws_access_key_id") == "AKIATEST", (
         "aws_access_key_id not in shared vars: %s" % shared_data
     )
+    assert shared_data.get("aws_secret_access_key") == "secrettest", (
+        "aws_secret_access_key not in shared vars: %s" % shared_data
+    )
 
-    print("Checking keys were removed from host vars...")
+    print("Checking environment-specific keys stayed per-host...")
+    assert "restic_repository" not in shared_data, (
+        "restic_repository should NOT be in shared (per-host): %s"
+        % shared_data
+    )
+    assert "aws_bucket_name" not in shared_data, (
+        "aws_bucket_name should NOT be in shared (per-host): %s"
+        % shared_data
+    )
+
+    print("Checking host vars: shared-list keys removed, host-specific kept...")
     with open(vars_file) as f:
         host_data = yaml.safe_load(f) or {}
-    assert "restic_repository" not in host_data, (
-        "restic_repository should have been removed from host vars: %s"
+    assert "restic_password" not in host_data, (
+        "restic_password should have moved to shared, still in host: %s"
         % host_data
+    )
+    assert "aws_access_key_id" not in host_data, (
+        "aws_access_key_id should have moved to shared, still in host: %s"
+        % host_data
+    )
+    assert host_data.get("restic_repository") == "s3:s3.example.com/test-backup", (
+        "restic_repository should remain per-host: %s" % host_data
+    )
+    assert host_data.get("aws_bucket_name") == "test-bucket", (
+        "aws_bucket_name should remain per-host: %s" % host_data
     )
 
 
