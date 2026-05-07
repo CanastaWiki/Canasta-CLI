@@ -165,6 +165,27 @@
           | ternary({'Caddyfile.global': _sync_caddyfile_global.content | default('') | b64decode}, {}))
       }}
 
+# --- Varnish config ---
+#
+# default.vcl is the per-instance Varnish config — same file Compose
+# uses, mounted from the operator's instance directory. Reading it
+# here (instead of the Helm chart's bundled files/default.vcl) means:
+#   - one canonical default.vcl in the repo
+#     (instance_template/config/default.vcl)
+#   - K8s operators get the same per-instance VCL customization
+#     story as Compose: edit ~/canasta/<id>/config/default.vcl,
+#     run canasta restart, the new VCL lands.
+
+- name: Read default.vcl
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/default.vcl"
+  register: _sync_default_vcl
+
+- name: Build varnish config data
+  ansible.builtin.set_fact:
+    _varnish_config_data:
+      default.vcl: "{{ _sync_default_vcl.content | b64decode }}"
+
 # --- Backup environment Secret ---
 # The on-demand backup Job (k8s_run_backup.yml) and the scheduled
 # CronJob (roles/backup/tasks/schedule_set.yml) both need restic +
@@ -206,10 +227,10 @@
 # This allows both Ansible-driven and Argo CD-driven workflows to use
 # the same mechanism.
 #
-# default.vcl and my.cnf are NOT synced here — the Helm chart ships
-# built-in defaults via .Files.Get (files/default.vcl, files/my.cnf).
-# configData.varnish and configData.db are only populated if the user
-# has custom overrides, which is handled by gitops push (not here).
+# my.cnf is still NOT synced here — it ships as the chart's
+# files/my.cnf and is small enough that operator customization
+# isn't a real use case yet. If that changes, mirror the varnish
+# pattern above.
 
 - name: Write configData to separate values file
   ansible.builtin.copy:
@@ -218,6 +239,7 @@
             'web': _web_config_data,
             'env': _env_config_data,
             'caddy': _caddy_config_data,
+            'varnish': _varnish_config_data,
           }} | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values-configdata.yaml"
     mode: "0644"
