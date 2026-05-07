@@ -15,6 +15,48 @@
 - name: Resolve cp-host SSH target from hosts.yml
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_cp_host_ssh.yml"
 
+# --- Confirm cp-host actually has a running k3s server ---
+#
+# Without this, a misconfigured invocation (cp-host doesn't have k3s
+# installed yet, cp-host is a worker not a cp, k3s service stopped,
+# SSH key changed) hits the token-fetch task below and fails with a
+# generic "Module failed: non-zero return code" — which `no_log: true`
+# below then censors entirely, leaving the operator with `exit=2` and
+# no diagnostic. Catch the common misuse cases here, before the
+# sensitive task runs, so we can produce an actionable message.
+- name: Probe cp-host for active k3s server
+  ansible.builtin.command:
+    argv:
+      - ssh
+      - -o
+      - StrictHostKeyChecking=accept-new
+      - "{{ _cp_ssh_target }}"
+      - systemctl is-active k3s
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+  register: _cp_k3s_active
+  changed_when: false
+  failed_when: false
+
+- name: Fail if cp-host has no active k3s control plane
+  ansible.builtin.fail:
+    msg: |-
+      Host '{{ cp_host }}' is not running a k3s control plane
+      (systemctl is-active k3s returned: {{ (_cp_k3s_active.stdout | default('') | trim) or 'no output (SSH or sudo failure)' }}).
+
+      Common causes:
+        - You haven't installed k3s on '{{ cp_host }}' yet. Run
+            canasta install k8s-cp --host {{ cp_host }}
+          first, then retry this worker install.
+        - The cp-host you specified is itself a worker, not a control plane.
+          The cp-host argument must point at the cluster's control-plane node.
+        - The k3s service is installed but stopped. Start it on '{{ cp_host }}'
+          (sudo systemctl start k3s) and retry.
+  when: >-
+    _cp_k3s_active.rc != 0
+    or (_cp_k3s_active.stdout | default('') | trim) != 'active'
+
 # --- SSH to cp-host, fetch token + cluster-internal IP ---
 
 - name: Fetch k3s join token from cp-host
