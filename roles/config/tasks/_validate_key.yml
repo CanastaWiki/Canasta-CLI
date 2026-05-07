@@ -12,6 +12,39 @@
       Delete the instance and recreate with the new database configuration.
   when: _config_key in ['USE_EXTERNAL_DB', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_SSL']
 
+# Secret-bearing keys on Kubernetes live in K8s Secret resources
+# (<id>-db-credentials, <id>-mw-secrets); pods read via secretKeyRef
+# and never see .env directly. Updating .env via 'canasta config set'
+# leaves the K8s Secret at its old value, so the running wiki keeps
+# authenticating with the previous credential — a silent no-op that
+# misleads operators who expect rotation. Block these keys on K8s
+# and point at the kubectl-based rotation flow. Compose reads .env
+# directly at container start, so the same keys are mutable there
+# (config set + canasta restart propagates).
+- name: Block secret-bearing keys on Kubernetes (K8s Secret is the source of truth)
+  ansible.builtin.fail:
+    msg: |
+      '{{ _config_key }}' cannot be set via 'canasta config set' on a
+      Kubernetes instance. The wiki's pods read this value from a K8s
+      Secret via secretKeyRef; updating .env alone leaves the running
+      wiki authenticating with the previous value.
+
+      To rotate this credential:
+        1. Update the value at its source (e.g., on the database server
+           for MYSQL_PASSWORD; generate a fresh random value for
+           MW_SECRET_KEY — note that rotating MW_SECRET_KEY invalidates
+           all sessions and password-reset tokens).
+        2. Update the K8s Secret in the cluster:
+             kubectl create secret generic <id>-db-credentials \
+               --from-literal=MYSQL_PASSWORD='<new-value>' \
+               --dry-run=client -o yaml | kubectl apply -f -
+           (Use <id>-mw-secrets and key MW_SECRET_KEY for the MW key.)
+        3. Restart the wiki pods so they pick up the new value:
+             canasta restart -i {{ id | default('<id>') }}
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - _config_key in ['MYSQL_PASSWORD', 'WIKI_DB_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'MW_SECRET_KEY']
+
 - name: Check if key is recognized
   ansible.builtin.fail:
     msg: >-
