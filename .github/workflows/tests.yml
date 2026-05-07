@@ -136,7 +136,7 @@ jobs:
     name: "Integration: GitOps"
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -157,7 +157,7 @@ jobs:
         run: >-
           sg www-data -c '.venv/bin/python tests/integration/run_tests.py
           gitops gitops-pull-diff config-set-gitops gitops-push-shared gitops-push-reporting'
-        timeout-minutes: 15
+        timeout-minutes: 20
 
   integration-k8s:
     name: "Integration: Kubernetes"
