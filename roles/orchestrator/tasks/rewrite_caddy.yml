@@ -24,6 +24,18 @@
     _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
     _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') }}"
 
+- name: Refuse to render Caddyfile with empty observability credentials
+  ansible.builtin.fail:
+    msg: >-
+      CANASTA_ENABLE_OBSERVABILITY is true but OS_PASSWORD_HASH is empty
+      in .env. Rendering the Caddyfile now would produce a basicauth
+      block with no password and crash the caddy container on next
+      start. Run 'canasta config set CANASTA_ENABLE_OBSERVABILITY=true'
+      to regenerate the credentials.
+  when:
+    - _observable | bool
+    - _os_password_hash | length == 0
+
 - name: Determine reverse proxy backend
   ansible.builtin.set_fact:
     _backend: "{{ (_varnish_enabled | bool) | ternary('varnish:80', 'web:80') }}"
