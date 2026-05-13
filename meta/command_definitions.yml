@@ -1153,8 +1153,8 @@ commands:
       In a wiki farm, runs on all wikis by default. Use `--wiki` to
       target a specific wiki.
     examples:
-      - "canasta maintenance script -- rebuildall"
-      - "canasta maintenance script -- createAndPromote SomeUser --sysop"
+      - "canasta maintenance script rebuildall"
+      - "canasta maintenance script createAndPromote SomeUser --sysop"
     direct_only: true
     parameters:
       - name: id
@@ -1186,8 +1186,8 @@ commands:
       target a specific wiki.
     examples:
       - "canasta maintenance extension"
-      - "canasta maintenance extension -- Cite:fixHTMLOutputForCite"
-      - "canasta maintenance extension -- SemanticMediaWiki:rebuildData -v"
+      - "canasta maintenance extension Cite:fixHTMLOutputForCite"
+      - "canasta maintenance extension SemanticMediaWiki:rebuildData -v"
     direct_only: true
     parameters:
       - name: id
