@@ -45,6 +45,11 @@ services:
 
   web:
     image: ${CANASTA_IMAGE:-ghcr.io/canastawiki/canasta:latest}
+    # The image entrypoint chowns files and uses runuser to drop to
+    # www-data — both need root. Docker uses the image USER (root),
+    # but podman-compose runs as the calling host user unless this is
+    # set explicitly.
+    user: root
     restart: unless-stopped
     logging: *default-logging
     extra_hosts:
@@ -119,6 +124,9 @@ services:
 
   varnish:
     image: docker.io/library/varnish:7.0.2-alpine
+    # Same as `web`: needed so podman-compose doesn't run as the host
+    # user and lose read access to the bind-mounted default.vcl.
+    user: root
     profiles:
       - varnish
     restart: unless-stopped
