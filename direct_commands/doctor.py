@@ -29,6 +29,7 @@ command -v crontab >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 uname -s 2>/dev/null || echo unknown; echo "$D"
 python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
 df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown; echo "$D"
+cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; for sock in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do if [ -S "$sock" ]; then echo "unix://$sock"; exit 0; fi; done; echo ""
 """
 
@@ -56,7 +57,8 @@ def _parse_doctor(stdout, hostname):
     host_os = p(13)
     memory = p(14)
     disk = p(15) if len(parts) > 15 else "unknown"
-    rootless_sock = p(16) if len(parts) > 16 else ""
+    unpriv_port_start = p(16) if len(parts) > 16 else "unknown"
+    rootless_sock = p(17) if len(parts) > 17 else ""
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -78,6 +80,27 @@ def _parse_doctor(stdout, hostname):
             "(canasta create will auto-set --docker-host to this)"
             % rootless_sock
         )
+        try:
+            port_floor = int(unpriv_port_start)
+        except (TypeError, ValueError):
+            port_floor = None
+        if port_floor is not None and port_floor > 80:
+            lines.append(
+                "  Privileged ports: BLOCKED — "
+                "net.ipv4.ip_unprivileged_port_start=%d. Rootless Docker "
+                "cannot bind Canasta's port 80/443. Fix with:\n"
+                "                     sudo sysctl "
+                "net.ipv4.ip_unprivileged_port_start=80\n"
+                "                     echo "
+                "net.ipv4.ip_unprivileged_port_start=80 | sudo tee "
+                "/etc/sysctl.d/canasta-privport.conf"
+                % port_floor
+            )
+        elif port_floor is not None:
+            lines.append(
+                "  Privileged ports: OK (ip_unprivileged_port_start=%d)"
+                % port_floor
+            )
     else:
         lines.append(
             "  Rootless socket: none detected "

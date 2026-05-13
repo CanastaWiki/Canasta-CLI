@@ -2232,6 +2232,7 @@ class TestDoctor:
             "Linux",
             "16 GB",
             "50G",
+            "1024",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
         result = direct_commands._parse_doctor(stdout, "myhost")
@@ -2250,7 +2251,7 @@ class TestDoctor:
             "user", "MISSING", "MISSING", "MISSING",
             "UNREACHABLE", "MISSING", "MISSING", "MISSING",
             "MISSING", "Linux",
-            "unknown", "unknown",
+            "unknown", "unknown", "unknown",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
         result = direct_commands._parse_doctor(stdout, "myhost")
@@ -2273,7 +2274,7 @@ class TestDoctor:
             "git version 2.45.0", "OK",
             "OK",
             "Darwin",
-            "16 GB", "50G",
+            "16 GB", "50G", "unknown",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
         result = direct_commands._parse_doctor(stdout, "myhost")
@@ -2293,7 +2294,7 @@ class TestDoctor:
             "git version 2.45.0", "OK",
             "OK",
             "Linux",
-            "16 GB", "50G",
+            "16 GB", "50G", "80",
             "unix:///run/user/1000/podman/podman.sock",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
@@ -2316,13 +2317,58 @@ class TestDoctor:
             "git version 2.45.0", "OK",
             "OK",
             "Linux",
-            "16 GB", "50G",
+            "16 GB", "50G", "1024",
             "",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
         result = direct_commands._parse_doctor(stdout, "myhost")
         assert "Rootless socket: none detected" in result
         assert "/var/run/docker.sock" in result
+        assert "Privileged ports" not in result
+
+    def test_parse_doctor_rootless_with_blocked_priv_ports(self):
+        d = direct_commands._SENTINEL
+        parts = [
+            "Python 3.12.0",
+            "Docker version 27.0.0",
+            "Docker Compose version v2.30.0",
+            "OK",
+            "user docker www-data",
+            "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED",
+            "git version 2.45.0", "OK",
+            "OK",
+            "Linux",
+            "16 GB", "50G", "1024",
+            "unix:///run/user/1000/docker.sock",
+        ]
+        stdout = ("\n" + d + "\n").join(parts) + "\n"
+        result = direct_commands._parse_doctor(stdout, "myhost")
+        assert "Privileged ports: BLOCKED" in result
+        assert "ip_unprivileged_port_start=1024" in result
+        assert "sudo sysctl net.ipv4.ip_unprivileged_port_start=80" in result
+        assert "/etc/sysctl.d/canasta-privport.conf" in result
+
+    def test_parse_doctor_rootless_with_priv_ports_ok(self):
+        d = direct_commands._SENTINEL
+        parts = [
+            "Python 3.12.0",
+            "Docker version 27.0.0",
+            "Docker Compose version v2.30.0",
+            "OK",
+            "user docker www-data",
+            "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED",
+            "git version 2.45.0", "OK",
+            "OK",
+            "Linux",
+            "16 GB", "50G", "80",
+            "unix:///run/user/1000/docker.sock",
+        ]
+        stdout = ("\n" + d + "\n").join(parts) + "\n"
+        result = direct_commands._parse_doctor(stdout, "myhost")
+        assert "Privileged ports: OK (ip_unprivileged_port_start=80)" in result
+        assert "BLOCKED" not in result
 
 
 class TestCanastaStatus:
