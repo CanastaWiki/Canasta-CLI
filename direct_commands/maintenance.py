@@ -77,7 +77,7 @@ def cmd_maintenance_script(args):
         return 1
 
     wiki = getattr(args, "wiki", "") or ""
-    cmd = "php maintenance/%s%s" % (
+    cmd = "php maintenance/run.php %s%s" % (
         script_args,
         " --wiki=%s" % _helpers._shell_quote(wiki) if wiki else "",
     )
@@ -110,7 +110,7 @@ def cmd_maintenance_extension(args):
         return 1
 
     wiki = getattr(args, "wiki", "") or ""
-    cmd = "php extensions/%s%s" % (
+    cmd = "php maintenance/run.php %s%s" % (
         script_args,
         " --wiki=%s" % _helpers._shell_quote(wiki) if wiki else "",
     )

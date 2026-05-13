@@ -2683,7 +2683,56 @@ class TestMaintenanceScript:
             self._args(script_args="rebuildall.php"),
         )
         assert rc == 0
-        assert "php maintenance/rebuildall.php" in captured["command"]
+        assert "php maintenance/run.php rebuildall.php" in captured["command"]
+
+    def test_runs_script_without_php_extension(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        rc = direct_commands.cmd_maintenance_script(
+            self._args(script_args="createAndPromote"),
+        )
+        assert rc == 0
+        assert "php maintenance/run.php createAndPromote" in captured["command"]
+
+    def test_runs_subdirectory_script(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        direct_commands.cmd_maintenance_script(
+            self._args(script_args="storage/recompressTracked"),
+        )
+        assert (
+            "php maintenance/run.php storage/recompressTracked"
+            in captured["command"]
+        )
+
+    def test_passes_script_args_through(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        direct_commands.cmd_maintenance_script(
+            self._args(script_args="createAndPromote SomeUser --sysop"),
+        )
+        assert (
+            "php maintenance/run.php createAndPromote SomeUser --sysop"
+            in captured["command"]
+        )
 
     def test_wiki_flag_appended(self, monkeypatch):
         self._patch_resolve(monkeypatch)
@@ -2697,6 +2746,7 @@ class TestMaintenanceScript:
         direct_commands.cmd_maintenance_script(
             self._args(script_args="rebuildall.php", wiki="main"),
         )
+        assert "php maintenance/run.php rebuildall.php" in captured["command"]
         assert "--wiki='main'" in captured["command"]
 
 
@@ -2742,11 +2792,64 @@ class TestMaintenanceExtension:
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
         direct_commands.cmd_maintenance_extension(
-            self._args(script_args="Cite/maintenance/foo.php"),
+            self._args(script_args="Cite:fixHTMLOutputForCite"),
         )
         assert (
-            "php extensions/Cite/maintenance/foo.php" in captured["command"]
+            "php maintenance/run.php Cite:fixHTMLOutputForCite"
+            in captured["command"]
         )
+
+    def test_extension_script_without_php_extension(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        direct_commands.cmd_maintenance_extension(
+            self._args(script_args="SemanticMediaWiki:rebuildData"),
+        )
+        assert (
+            "php maintenance/run.php SemanticMediaWiki:rebuildData"
+            in captured["command"]
+        )
+
+    def test_extension_script_passes_args_through(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        direct_commands.cmd_maintenance_extension(
+            self._args(script_args="Cite:foo arg1 --flag"),
+        )
+        assert (
+            "php maintenance/run.php Cite:foo arg1 --flag"
+            in captured["command"]
+        )
+
+    def test_extension_script_with_wiki_flag(self, monkeypatch):
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web"):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        direct_commands.cmd_maintenance_extension(
+            self._args(script_args="Cite:fixHTMLOutputForCite", wiki="main"),
+        )
+        assert (
+            "php maintenance/run.php Cite:fixHTMLOutputForCite"
+            in captured["command"]
+        )
+        assert "--wiki='main'" in captured["command"]
 
 
 class TestMaintenanceUpdate:

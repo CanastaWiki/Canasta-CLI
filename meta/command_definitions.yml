@@ -1142,7 +1142,9 @@ commands:
 
       With no arguments, lists all available maintenance scripts.
       With one or more arguments, runs the specified script. The
-      script name is relative to the `maintenance/` directory.
+      script name is relative to the `maintenance/` directory. The
+      `.php` suffix is optional — `createAndPromote` and
+      `createAndPromote.php` are both valid.
 
       Flags (`-i`, `--wiki`) must come before the script name.
       Everything after the script name is treated as script
@@ -1151,7 +1153,8 @@ commands:
       In a wiki farm, runs on all wikis by default. Use `--wiki` to
       target a specific wiki.
     examples:
-      - "canasta maintenance script -- rebuildall.php"
+      - "canasta maintenance script -- rebuildall"
+      - "canasta maintenance script -- createAndPromote SomeUser --sysop"
     direct_only: true
     parameters:
       - name: id
@@ -1170,25 +1173,21 @@ commands:
   - name: maintenance_extension
     description: "Run extension maintenance scripts"
     long_description: |
-      Run maintenance scripts provided by loaded MediaWiki
-      extensions.
+      Run maintenance scripts provided by MediaWiki extensions.
 
-      With no arguments, lists all loaded extensions that have a
-      `maintenance/` directory. With one argument (extension name),
-      lists available maintenance scripts for that extension. With
-      two or more arguments (extension name, script name, and
-      optional script arguments), runs the specified script.
+      With no arguments, lists all installed extensions that have a
+      `maintenance/` directory. With arguments, runs the specified
+      script using MediaWiki's `run.php` wrapper with the extension-
+      prefix syntax `<ExtName>:<scriptName>`. The `.php` suffix is
+      optional. Anything after the script name is passed through as
+      script arguments — no quotes needed.
 
-      Flags (`-i`, `--wiki`) must come before the extension name.
-      Everything after the extension name is treated as the script
-      and its arguments — no quotes needed.
-
-      Only extensions that are currently loaded (enabled) for the
-      target wiki are shown and allowed to run. In a wiki farm, runs
-      on all wikis by default. Use `--wiki` to target a specific
-      wiki.
+      In a wiki farm, runs on all wikis by default. Use `--wiki` to
+      target a specific wiki.
     examples:
       - "canasta maintenance extension"
+      - "canasta maintenance extension -- Cite:fixHTMLOutputForCite"
+      - "canasta maintenance extension -- SemanticMediaWiki:rebuildData -v"
     direct_only: true
     parameters:
       - name: id
