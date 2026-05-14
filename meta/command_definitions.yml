@@ -449,6 +449,42 @@ commands:
         type: string
         description: "Canasta instance ID"
 
+  - name: rebuild
+    description: "Rebuild custom images for a Canasta instance"
+    long_description: |
+      Rebuild every service that has a `build:` directive in the
+      merged compose config (docker-compose.override.yml or
+      docker-compose.dev.yml) and restart the instance to pick up
+      the rebuilt image.
+
+      Use this after editing a custom Dockerfile, or after changing
+      the base CANASTA_IMAGE when you want to refresh a layered
+      custom image. `canasta upgrade` also performs the same
+      rebuild automatically when the configured image changes;
+      `canasta rebuild` is the standalone form for cases where the
+      operator wants to rebuild without an upgrade.
+
+      Compose only. Kubernetes instances must build and push their
+      custom image to a registry manually.
+    examples:
+      - "canasta rebuild"
+      - "canasta rebuild -i mywiki --no-cache"
+      - "canasta rebuild --no-restart"
+    direct_only: true
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: no_cache
+        type: bool
+        default: false
+        description: "Pass --no-cache to docker compose build"
+      - name: no_restart
+        type: bool
+        default: false
+        description: "Build images but skip the restart afterward"
+
   - name: list
     description: "List all registered Canasta instances"
     long_description: |
