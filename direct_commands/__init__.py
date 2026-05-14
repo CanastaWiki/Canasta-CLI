@@ -98,6 +98,7 @@ from . import extension_skin  # noqa: F401
 from . import backup      # noqa: F401
 from . import doctor      # noqa: F401
 from . import argocd      # noqa: F401
+from . import rebuild     # noqa: F401
 
 # Per-handler symbols re-exported so test code can reach
 # direct_commands.cmd_list, direct_commands.cmd_doctor, etc.
@@ -141,3 +142,4 @@ from .argocd import (  # noqa: F401
     cmd_argocd_ui,
     _argocd_admin_password,
 )
+from .rebuild import cmd_rebuild, _list_buildable_services  # noqa: F401
