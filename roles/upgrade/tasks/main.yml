@@ -161,12 +161,52 @@
   ansible.builtin.set_fact:
     _images_updated: "{{ _pull_changed | default(false) | bool }}"
 
-# Also check if the running web container's image differs from what
-# .env configures. Catches the case where a prior upgrade pulled the
-# new image but failed to restart (e.g., due to the old detection bug).
+# Detect services that have a `build:` directive. The merged compose
+# config (main + override + dev) is what docker actually uses, so
+# query it directly rather than parsing the override file alone.
+# Covers operator overrides (custom Dockerfile) and devmode xdebug.
+- name: Enumerate buildable services from merged compose config (Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Check for docker-compose.override.yml
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.override.yml"
+      register: _override_exists_upgrade
+
+    - name: Build compose file arguments
+      ansible.builtin.set_fact:
+        _upgrade_compose_files: >-
+          {{ ['-f', 'docker-compose.yml'] +
+             (_override_exists_upgrade.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
+             ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
+
+    - name: Render merged compose config as JSON
+      ansible.builtin.command:
+        cmd: "docker compose {{ _upgrade_compose_files | join(' ') }} config --format json"
+        chdir: "{{ instance_path }}"
+      register: _upgrade_compose_config
+      changed_when: false
+      failed_when: false
+
+    - name: Extract buildable service names
+      ansible.builtin.set_fact:
+        _buildable_services: >-
+          {{ ((_upgrade_compose_config.stdout | from_json).services
+              | default({})
+              | dict2items
+              | selectattr('value.build', 'defined')
+              | map(attribute='key')
+              | list) if (_upgrade_compose_config.rc | default(1)) == 0 else [] }}
+
+# Running-vs-configured check. Catches the case where pull skipped
+# the buildable web service (--ignore-buildable) but the configured
+# CANASTA_IMAGE is newer than what's running. Only meaningful when
+# at least one service has a build directive — otherwise the regular
+# pull-based detection is authoritative.
 - name: Check running container image vs configured (Compose)
   when:
     - instance_orchestrator | default('compose') == 'compose'
+    - (_buildable_services | default([]) | length) > 0
     - not (_images_updated | bool)
   block:
     - name: Get running web container image ID
@@ -216,15 +256,22 @@
         - _running_id is succeeded
         - (_configured_id.stdout | default('')) != (_running_id.stdout | default(''))
 
-    - name: Rebuild buildable services if image was bumped
-      ansible.builtin.command:
-        cmd: "docker compose build --build-arg CANASTA_IMAGE={{ _configured_image.value }} web"
-        chdir: "{{ instance_path }}"
-      changed_when: true
-      ignore_errors: true
-      when:
-        - _images_updated | bool
-        - _configured_image.found
+# Rebuild every service with a `build:` directive whenever any image
+# change is detected. This fires even when `_images_updated` was set
+# by the pull task (e.g., varnish/caddy updated) — the rebuild is
+# cheap thanks to Docker layer caching and avoids a stale buildable
+# image when other services updated.
+- name: Rebuild buildable services if image was bumped (Compose)
+  ansible.builtin.command:
+    cmd: "docker compose {{ _upgrade_compose_files | join(' ') }} build {{ item }}"
+    chdir: "{{ instance_path }}"
+  loop: "{{ _buildable_services | default([]) }}"
+  changed_when: true
+  ignore_errors: true
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - _images_updated | bool
+    - (_buildable_services | default([]) | length) > 0
 
 - name: Restart containers
   when: _images_updated | bool
