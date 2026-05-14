@@ -57,6 +57,9 @@
         - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
       ignore_errors: true  # Best-effort cleanup on failure
 
+    # Only remove the directory if this run created it. A pre-existing
+    # directory (e.g., the operator was using it as a staging area for
+    # an upgrade) belongs to the operator and must not be deleted.
     - name: Clean up on failure (remove directory)
       ansible.builtin.file:
         path: "{{ instance_path }}"
@@ -64,6 +67,7 @@
       when:
         - instance_path is defined
         - not (keep_config | default(false) | bool)
+        - instance_dir_was_created | default(false) | bool
       ignore_errors: true  # Best-effort cleanup on failure
 
     - name: Deregister instance on failure

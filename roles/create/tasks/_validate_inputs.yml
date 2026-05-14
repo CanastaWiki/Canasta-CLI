@@ -33,6 +33,59 @@
       Run 'canasta delete --id {{ id }}' to remove it first.
   when: _existing is succeeded
 
+# --- Target directory check ---
+# Refuse to enter a non-empty existing directory. Without this guard,
+# `file: state: directory` would silently claim the directory and the
+# rescue handler in playbooks/create.yml would recursively delete it
+# (along with the operator's pre-existing files) on any later failure.
+- name: Resolve target directory absolute path
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "-c"
+      - "import os, sys; print(os.path.abspath(sys.argv[1]))"
+      - "{{ (path | default('.')) ~ '/' ~ id }}"
+  register: _target_path
+  changed_when: false
+
+- name: Probe target directory
+  ansible.builtin.stat:
+    path: "{{ _target_path.stdout }}"
+  register: _target_dir
+
+- name: Probe target directory contents
+  ansible.builtin.find:
+    paths: "{{ _target_path.stdout }}"
+    file_type: any
+    hidden: true
+  register: _target_contents
+  when:
+    - _target_dir.stat.exists
+    - _target_dir.stat.isdir | default(false)
+
+- name: Fail if target path exists but is not a directory
+  ansible.builtin.fail:
+    msg: >-
+      Target path '{{ _target_path.stdout }}' exists but is not a
+      directory. Remove or rename it before running canasta create.
+  when:
+    - _target_dir.stat.exists
+    - not (_target_dir.stat.isdir | default(false))
+
+- name: Fail if target directory is not empty
+  ansible.builtin.fail:
+    msg: >-
+      Target directory '{{ _target_path.stdout }}' already exists and
+      is not empty ({{ _target_contents.matched }} entries). canasta
+      create would copy stack files into this location and (on any
+      mid-flight failure) recursively delete its entire contents.
+      Move or remove the existing contents first, or pass --path to a
+      different parent directory.
+  when:
+    - _target_dir.stat.exists
+    - _target_dir.stat.isdir | default(false)
+    - (_target_contents.matched | default(0)) > 0
+
 # --- Stale-state check ---
 # Even when the registry has no entry for this instance, a prior
 # 'canasta create' that failed mid-flight may have left orchestrator

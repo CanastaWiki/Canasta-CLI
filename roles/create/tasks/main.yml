@@ -56,6 +56,20 @@
     instance_managed_cluster: false
     instance_devmode: false
 
+# Record whether the target directory existed BEFORE this run so the
+# rescue handler in playbooks/create.yml can refuse to remove a
+# pre-existing directory on failure. The pre-flight check refuses to
+# enter a non-empty directory, but an empty directory created by the
+# operator (or a symlink target with a race) can still pre-exist.
+- name: Stat target before directory creation
+  ansible.builtin.stat:
+    path: "{{ instance_path }}"
+  register: _pre_existing_target
+
+- name: Record whether this run created the instance directory
+  ansible.builtin.set_fact:
+    instance_dir_was_created: "{{ not _pre_existing_target.stat.exists }}"
+
 - name: Create instance directory
   ansible.builtin.file:
     path: "{{ instance_path }}"
