@@ -593,6 +593,28 @@ commands:
           registered. Mutually exclusive with --host; --host wins if
           both are given.
 
+  - name: wiki_check
+    description: "Check that configured wikis are accessible"
+    long_description: |
+      Verify that wiki is running correctly by reading the instance's configured wikis from `config/wikis.yaml` and
+      verify that each wiki responds successfully over HTTP.
+    examples:
+      - "canasta wiki-check -i mysite"
+      - "canasta wiki-check --host prod1.example.com -i mysite"
+    direct_only: true
+    parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"
+      - name: id
+        short: i
+        type: string
+        description: >-
+          Canasta instance ID — check the host where this instance is
+          registered. Mutually exclusive with --host; --host wins if
+          both are given.
+
   - name: install
     description: "Install dependencies on the target host"
     long_description: |
