@@ -50,7 +50,7 @@ class CallbackModule(CallbackBase):
         # Show nothing on success; on failure the error was already printed
         pass
 
-    def v2_runner_on_start(self, host, task):
+    def v2_runner_on_start(self, host, task, *args, **kwargs):
         pass
 
     # Messages that should be displayed in green
@@ -58,28 +58,34 @@ class CallbackModule(CallbackBase):
         "Please note that mailing",
     )
 
-    def v2_runner_on_ok(self, result):
+    def v2_runner_on_ok(self, result, *args, **kwargs):
         # Only show output from debug tasks (filter Ansible internal messages)
-        if result._task.action in ("ansible.builtin.debug", "debug"):
-            msg = result._result.get("msg")
-            if msg and msg not in ("All items completed", "All items skipped"):
-                msg_str = str(msg)
-                if any(msg_str.startswith(p) for p in self._GREEN_PREFIXES):
-                    self._display.display(msg_str, color="green")
-                else:
-                    self._display.display(msg_str)
+        # result may be a CallbackTaskResult or a Task for implicit tasks
+        if hasattr(result, '_task'):
+            if result._task.action in ("ansible.builtin.debug", "debug"):
+                msg = result._result.get("msg")
+                if msg and msg not in ("All items completed", "All items skipped"):
+                    msg_str = str(msg)
+                    if any(msg_str.startswith(p) for p in self._GREEN_PREFIXES):
+                        self._display.display(msg_str, color="green")
+                    else:
+                        self._display.display(msg_str)
 
-    def v2_runner_on_skipped(self, result):
+    def v2_runner_on_skipped(self, *args, **kwargs):
+        # Ansible calls this with either (result) or (host, task, utr)
+        # depending on whether it's a regular task or a meta task.
+        # Accept any arguments and suppress all output.
         pass
 
-    def v2_runner_on_unreachable(self, result):
+    def v2_runner_on_unreachable(self, result, *args, **kwargs):
         self._display.display(
             "ERROR: Host unreachable: %s" % result._result.get("msg", ""),
             color="red",
             stderr=True,
         )
 
-    def v2_runner_on_failed(self, result, ignore_errors=False):
+    def v2_runner_on_failed(self, result, *args, **kwargs):
+        ignore_errors = kwargs.get("ignore_errors", False)
         if ignore_errors:
             return
         msg = result._result.get("msg", "")
@@ -98,7 +104,7 @@ class CallbackModule(CallbackBase):
         if stderr:
             self._display.display(stderr, color="red", stderr=True)
 
-    def v2_runner_item_on_failed(self, result):
+    def v2_runner_item_on_failed(self, result, *args, **kwargs):
         # Display the specific item's failure message (e.g., missing
         # required parameter in a loop over param definitions).
         msg = result._result.get("msg", "")
