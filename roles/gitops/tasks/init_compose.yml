@@ -1,6 +1,6 @@
 ---
 # GitOps init (Compose) - Full 13-step workflow matching Go implementation.
-# Input: id, host_name, role, repo, key, force, pull_requests
+# Input: id, host_name, role, repo, key, ssh_key, force, pull_requests
 # Requires: instance_path, instance_id (set by dispatcher)
 
 # --- Step 1: Validate prerequisites ---
@@ -13,6 +13,17 @@
   ansible.builtin.command:
     cmd: "git-crypt --version"
   changed_when: false
+
+# --- Set SSH command for git operations ---
+- name: Set SSH command for git operations
+  ansible.builtin.set_fact:
+    _git_ssh_command: "ssh -i {{ ssh_key }} -o StrictHostKeyChecking=no"
+  when: ssh_key is defined and ssh_key | length > 0
+
+- name: Set empty SSH command for git operations
+  ansible.builtin.set_fact:
+    _git_ssh_command: ""
+  when: ssh_key is not defined or ssh_key | length == 0
 
 # --- Step 1b: Configure git identity if provided ---
 - name: Set git user.name on target host
@@ -57,13 +68,23 @@
 # The fetch module handles overwriting if the file already exists.
 
 # --- Step 4: Validate remote is empty (unless --force) ---
-- name: Check remote is empty
+- name: Check remote is empty (with SSH)
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
   register: _remote_check
   changed_when: false
   ignore_errors: true  # OK if remote unreachable
   when: not (force | default(false) | bool)
+  environment:
+    GIT_SSH_COMMAND: "{{ _git_ssh_command }}"
+
+- name: Check remote is empty (without SSH)
+  ansible.builtin.command:
+    cmd: "git ls-remote {{ repo }}"
+  register: _remote_check
+  changed_when: false
+  ignore_errors: true  # OK if remote unreachable
+  when: (not (force | default(false) | bool)) and (_git_ssh_command | length == 0)
 
 - name: Fail if remote is not empty
   ansible.builtin.fail:
@@ -343,11 +364,20 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
-- name: Push to remote
+- name: Push to remote (with SSH)
   ansible.builtin.command:
     cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }} -u origin main"
     chdir: "{{ instance_path }}"
   changed_when: true
+  environment:
+    GIT_SSH_COMMAND: "{{ _git_ssh_command }}"
+
+- name: Push to remote (without SSH)
+  ansible.builtin.command:
+    cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }} -u origin main"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: _git_ssh_command | length == 0
 
 - name: Report gitops initialized
   ansible.builtin.debug:

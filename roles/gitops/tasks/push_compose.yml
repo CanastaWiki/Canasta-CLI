@@ -5,6 +5,12 @@
 # Requires: instance_path, instance_id (set by dispatcher)
 # Optional: message (commit message, defaults to 'Configuration update')
 
+# --- Set SSH command for git operations ---
+- name: Set SSH command for git operations
+  ansible.builtin.set_fact:
+    _git_ssh_command: "ssh -i {{ ssh_key }} -o StrictHostKeyChecking=no"
+  when: ssh_key is defined and ssh_key | length > 0
+
 # --- Validate role allows push ---
 - name: Read hosts.yaml
   ansible.builtin.slurp:
@@ -181,6 +187,9 @@
         cmd: "git push origin main"
         chdir: "{{ instance_path }}"
       changed_when: true
+      environment:
+        GIT_SSH_COMMAND: "{{ _git_ssh_command }}"
+      when: _git_ssh_command is defined
 
     - name: Report pushed
       ansible.builtin.debug:
@@ -213,6 +222,9 @@
         cmd: "git push origin {{ _push_branch }}"
         chdir: "{{ instance_path }}"
       changed_when: true
+      environment:
+        GIT_SSH_COMMAND: "{{ _git_ssh_command }}"
+      when: _git_ssh_command is defined
 
     - name: Create pull request
       ansible.builtin.command:

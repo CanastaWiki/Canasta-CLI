@@ -30,7 +30,32 @@
     msg: >-
       GitOps already initialized ({{ instance_path }}/.git exists).
       This instance is already connected to a gitops repository.
-  when: _join_existing_git.stat.exists
+      Pass --reinit to wipe the local gitops state and re-clone from
+      the remote (typical when a previous init or join died mid-run).
+  when:
+    - _join_existing_git.stat.exists
+    - not (reinit | default(false) | bool)
+
+# --- Reinit: save user files, wipe local gitops state ---
+- name: Reinit - save values.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _reinit_values
+  when: reinit | default(false) | bool
+
+- name: Reinit - create backup directory
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: "canasta-reinit-"
+  register: _reinit_backup_dir
+  when: reinit | default(false) | bool
+
+- name: Reinit - copy values.yaml to backup
+  ansible.builtin.copy:
+    content: "{{ _reinit_values.content | b64decode }}"
+    dest: "{{ _reinit_backup_dir.path }}/values.yaml"
+    mode: "0644"
+  when: reinit | default(false) | bool and _reinit_values is defined
 
 # --- Clone repo to temp location ---
 - name: Create temp directory for clone
@@ -44,183 +69,242 @@
     cmd: "git clone -b main {{ repo }} ."
     chdir: "{{ _join_tmpdir.path }}"
   changed_when: true
+  register: _clone_result
+  failed_when: _clone_result.rc != 0
+  environment:
+    GIT_SSH_COMMAND: "ssh -i {{ ssh_key | default(key) }} -o StrictHostKeyChecking=no"
 
-# --- Copy key to remote and unlock git-crypt ---
-- name: Copy git-crypt key from controller to remote
-  ansible.builtin.copy:
-    src: "{{ key }}"
-    dest: "/tmp/canasta-gitcrypt-key"
-    mode: "0600"
-
-- name: Unlock git-crypt with provided key
+# --- Reinit: restore .git if clone failed ---
+- name: Reinit - restore .git from backup on clone failure
   ansible.builtin.command:
-    cmd: "git-crypt unlock /tmp/canasta-gitcrypt-key"
-    chdir: "{{ _join_tmpdir.path }}"
+    cmd: "mv {{ instance_path }}/.git.old {{ instance_path }}/.git"
   changed_when: true
+  when: reinit | default(false) | bool and _clone_result is defined and _clone_result.rc != 0
+  ignore_errors: true
 
-- name: Remove temp key from remote
-  ansible.builtin.file:
-    path: "/tmp/canasta-gitcrypt-key"
-    state: absent
-
-# --- Validate host name not already in config ---
-- name: Read hosts.yaml from cloned repo
-  ansible.builtin.slurp:
-    src: "{{ _join_tmpdir.path }}/hosts/hosts.yaml"
-  register: _join_hosts_raw
-
-- name: Parse hosts config
-  ansible.builtin.set_fact:
-    _join_hosts: "{{ _join_hosts_raw.content | b64decode | from_yaml }}"
-
-- name: Fail if host name already exists
+- name: Reinit - fail if clone failed
   ansible.builtin.fail:
     msg: >-
-      Environment '{{ host_name }}' already exists in the gitops repository.
-      Choose a different name or remove the existing environment first.
-  when: >-
-    _join_hosts.hosts | default([])
-    | selectattr('name', 'equalto', host_name)
-    | list | length > 0
+      Git clone failed. The original .git directory has been restored.
+      Check your network connection and repository URL, then retry.
+  when: reinit | default(false) | bool and _clone_result is defined and _clone_result.rc != 0
 
-# --- Move .git into instance directory ---
-- name: Move .git from temp clone to instance
+# --- Reinit: backup old .git AFTER successful clone ---
+- name: Reinit - backup old .git to .git.old AFTER successful clone
   ansible.builtin.command:
-    cmd: "mv {{ _join_tmpdir.path }}/.git {{ instance_path }}/.git"
+    cmd: "mv {{ instance_path }}/.git {{ instance_path }}/.git.old"
   changed_when: true
+  when: reinit | default(false) | bool and _clone_result is defined and _clone_result.rc == 0
+  ignore_errors: true
 
-- name: Checkout tracked files from repo (decrypted via git-crypt)
-  ansible.builtin.command:
-    cmd: "git checkout HEAD -- ."
-    chdir: "{{ instance_path }}"
-  changed_when: true
+# --- Protected block: restore .git.old on any failure ---
+- block:
+    # --- Copy key to remote and unlock git-crypt ---
+    - name: Copy git-crypt key from controller to remote
+      ansible.builtin.copy:
+        src: "{{ key }}"
+        dest: "/tmp/canasta-gitcrypt-key"
+        mode: "0600"
 
-- name: Configure git pull strategy
-  ansible.builtin.command:
-    cmd: "git config pull.rebase false"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+    - name: Unlock git-crypt with provided key
+      ansible.builtin.command:
+        cmd: "git-crypt unlock /tmp/canasta-gitcrypt-key"
+        chdir: "{{ _join_tmpdir.path }}"
+      changed_when: true
 
-# --- Extract per-host vars from current values.yaml ---
-- name: Read current values.yaml
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/values.yaml"
-  register: _join_values_raw
+    - name: Remove temp key from remote
+      ansible.builtin.file:
+        path: "/tmp/canasta-gitcrypt-key"
+        state: absent
 
-- name: Parse values
-  ansible.builtin.set_fact:
-    _join_values: "{{ _join_values_raw.content | b64decode | from_yaml }}"
+    # --- Validate host name not already in config ---
+    - name: Read hosts.yaml from cloned repo
+      ansible.builtin.slurp:
+        src: "{{ _join_tmpdir.path }}/hosts/hosts.yaml"
+      register: _join_hosts_raw
 
-# --- Add host to config and write vars ---
-- name: Add host to hosts.yaml
-  ansible.builtin.copy:
-    content: |
-      {{ _join_hosts
-         | combine({'hosts': _join_hosts.hosts | default([])
-                    + [{'name': host_name,
-                        'role': role | default('both')}]},
-                   recursive=True)
-         | to_nice_yaml(indent=2) }}
-    dest: "{{ instance_path }}/hosts/hosts.yaml"
-    mode: "0644"
+    - name: Parse hosts config
+      ansible.builtin.set_fact:
+        _join_hosts: "{{ _join_hosts_raw.content | b64decode | from_yaml }}"
 
-- name: Create host vars directory
-  ansible.builtin.file:
-    path: "{{ instance_path }}/hosts/{{ host_name }}"
-    state: directory
-    mode: "0755"
+    - name: Fail if host name already exists
+      ansible.builtin.fail:
+        msg: >-
+          Environment '{{ host_name }}' already exists in the gitops repository.
+          Choose a different name or remove the existing environment first.
+      when: >-
+        _join_hosts.hosts | default([])
+        | selectattr('name', 'equalto', host_name)
+        | list | length > 0
 
-- name: Write host vars from current values
-  ansible.builtin.copy:
-    content: |
-      # Per-environment values for {{ host_name }}
-      domains:
-      {% for d in _join_values.domains | default(['localhost']) %}
-        - "{{ d }}"
-      {% endfor %}
-      instance_id: "{{ instance_id }}"
-      image_tag: "{{ _join_values.image.tag | default('') }}"
-      db_secret_name: "{{ _join_values.secrets.dbSecretName | default('') }}"
-      mw_secret_name: "{{ _join_values.secrets.mwSecretName | default('') }}"
-      ingress_class: "{{ _join_values.ingress.className | default('') }}"
-      ingress_tls: {{ _join_values.ingress.tls | default(true) | lower }}
-      web_replica_count: {{ _join_values.web.replicaCount | default(1) }}
-    dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
-    mode: "0644"
-  no_log: true
+    # --- Move .git into instance directory ---
+    - name: Move .git from temp clone to instance
+      ansible.builtin.command:
+        cmd: "mv {{ _join_tmpdir.path }}/.git {{ instance_path }}/.git"
+      changed_when: true
 
-# --- Save host identity (before render, which reads it) ---
-- name: Save .gitops-host identity
-  ansible.builtin.copy:
-    content: "{{ host_name }}"
-    dest: "{{ instance_path }}/.gitops-host"
-    mode: "0644"
+    - name: Checkout tracked files from repo (decrypted via git-crypt)
+      ansible.builtin.command:
+        cmd: "git checkout HEAD -- ."
+        chdir: "{{ instance_path }}"
+      changed_when: true
 
-# --- Render values for this environment ---
-- name: Render values from template + vars
-  ansible.builtin.include_tasks: render_kubernetes.yml
+    - name: Configure git pull strategy
+      ansible.builtin.command:
+        cmd: "git config pull.rebase false"
+        chdir: "{{ instance_path }}"
+      changed_when: true
 
-# --- Create Argo CD Application for this environment ---
-- name: Create argocd directory
-  ansible.builtin.file:
-    path: "{{ instance_path }}/argocd"
-    state: directory
-    mode: "0755"
+    # --- Reinit: restore saved user files ---
+    - name: Reinit - restore values.yaml
+      ansible.builtin.copy:
+        content: "{{ _reinit_values.content | b64decode }}"
+        dest: "{{ instance_path }}/values.yaml"
+        mode: "0644"
+      when: reinit | default(false) | bool and _reinit_values is defined
 
-- name: Generate Argo CD Application manifest
-  ansible.builtin.copy:
-    content: |
-      apiVersion: argoproj.io/v1alpha1
-      kind: Application
-      metadata:
-        name: canasta-{{ instance_id }}
-        namespace: {{ argocd_namespace | default('argocd') }}
-      spec:
-        project: default
-        source:
-          repoURL: {{ repo }}
-          targetRevision: HEAD
-          path: .
-          helm:
-            valueFiles:
-              - hosts/{{ host_name }}/rendered-values.yaml
-        destination:
-          server: https://kubernetes.default.svc
-          namespace: canasta-{{ instance_id }}
-        syncPolicy:
-          automated:
-            selfHeal: true
-            prune: true
-          syncOptions:
-            - CreateNamespace=true
-    dest: "{{ instance_path }}/argocd/application.yaml"
-    mode: "0644"
+    - name: Reinit - clean up backup directory
+      ansible.builtin.file:
+        path: "{{ _reinit_backup_dir.path }}"
+        state: absent
+      when: reinit | default(false) | bool
 
-- name: Apply Argo CD Application to cluster
-  kubernetes.core.k8s:
-    state: present
-    src: "{{ instance_path }}/argocd/application.yaml"
+    # --- Extract per-host vars from current values.yaml ---
+    - name: Read current values.yaml
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/values.yaml"
+      register: _join_values_raw
 
-# --- Commit and push ---
-- name: Stage all changes
-  ansible.builtin.command:
-    cmd: "git add -A"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+    - name: Parse values
+      ansible.builtin.set_fact:
+        _join_values: "{{ _join_values_raw.content | b64decode | from_yaml }}"
 
-- name: Commit
-  ansible.builtin.command:
-    cmd: "git commit -m 'Add environment {{ host_name }}'"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+    # --- Add host to config and write vars ---
+    - name: Add host to hosts.yaml
+      ansible.builtin.copy:
+        content: |
+          {{ _join_hosts
+             | combine({'hosts': _join_hosts.hosts | default([])
+                        + [{'name': host_name,
+                            'role': role | default('both')}]},
+                       recursive=True)
+             | to_nice_yaml(indent=2) }}
+        dest: "{{ instance_path }}/hosts/hosts.yaml"
+        mode: "0644"
 
-- name: Push to remote
-  ansible.builtin.command:
-    cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }}"
-    chdir: "{{ instance_path }}"
-  environment:
-    GIT_SSH_COMMAND: "ssh -i {{ key }} -o StrictHostKeyChecking=no"
-  changed_when: true
+    - name: Create host vars directory
+      ansible.builtin.file:
+        path: "{{ instance_path }}/hosts/{{ host_name }}"
+        state: directory
+        mode: "0755"
+
+    - name: Write host vars from current values
+      ansible.builtin.copy:
+        content: |
+          # Per-environment values for {{ host_name }}
+          domains:
+          {% for d in _join_values.domains | default(['localhost']) %}
+            - "{{ d }}"
+          {% endfor %}
+          instance_id: "{{ instance_id }}"
+          image_tag: "{{ _join_values.image.tag | default('') }}"
+          db_secret_name: "{{ _join_values.secrets.dbSecretName | default('') }}"
+          mw_secret_name: "{{ _join_values.secrets.mwSecretName | default('') }}"
+          ingress_class: "{{ _join_values.ingress.className | default('') }}"
+          ingress_tls: {{ _join_values.ingress.tls | default(true) | lower }}
+          web_replica_count: {{ _join_values.web.replicaCount | default(1) }}
+        dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
+        mode: "0644"
+      no_log: true
+
+    # --- Save host identity (before render, which reads it) ---
+    - name: Save .gitops-host identity
+      ansible.builtin.copy:
+        content: "{{ host_name }}"
+        dest: "{{ instance_path }}/.gitops-host"
+        mode: "0644"
+
+    # --- Render values for this environment ---
+    - name: Render values from template + vars
+      ansible.builtin.include_tasks: render_kubernetes.yml
+
+    # --- Create Argo CD Application for this environment ---
+    - name: Create argocd directory
+      ansible.builtin.file:
+        path: "{{ instance_path }}/argocd"
+        state: directory
+        mode: "0755"
+
+    - name: Generate Argo CD Application manifest
+      ansible.builtin.copy:
+        content: |
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: canasta-{{ instance_id }}
+            namespace: {{ argocd_namespace | default('argocd') }}
+          spec:
+            project: default
+            source:
+              repoURL: {{ repo }}
+              targetRevision: HEAD
+              path: .
+              helm:
+                valueFiles:
+                  - hosts/{{ host_name }}/rendered-values.yaml
+            destination:
+              server: https://kubernetes.default.svc
+              namespace: canasta-{{ instance_id }}
+            syncPolicy:
+              automated:
+                selfHeal: true
+                prune: true
+              syncOptions:
+                - CreateNamespace=true
+        dest: "{{ instance_path }}/argocd/application.yaml"
+        mode: "0644"
+
+    - name: Apply Argo CD Application to cluster
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ instance_path }}/argocd/application.yaml"
+
+    # --- Commit and push ---
+    - name: Stage all changes
+      ansible.builtin.command:
+        cmd: "git add -A"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Commit
+      ansible.builtin.command:
+        cmd: "git commit -m 'Add environment {{ host_name }}'"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Push to remote
+      ansible.builtin.command:
+        cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }}"
+        chdir: "{{ instance_path }}"
+      environment:
+        GIT_SSH_COMMAND: "ssh -i {{ ssh_key | default(key) }} -o StrictHostKeyChecking=no"
+      changed_when: true
+
+  when: reinit | default(false) | bool and _clone_result is defined and _clone_result.rc == 0
+  rescue:
+    # --- Reinit - restore .git on any failure ---
+    - name: Reinit - restore .git from backup on failure
+      ansible.builtin.command:
+        cmd: "mv {{ instance_path }}/.git.old {{ instance_path }}/.git"
+      changed_when: true
+      register: _restore_result
+      failed_when: _restore_result.rc != 0
+
+    - name: Reinit - report failure and restore original .git
+      ansible.builtin.fail:
+        msg: >-
+          Operation failed. The original .git directory has been restored.
+          Please retry the command after addressing the error.
 
 # --- Clean up ---
 - name: Remove temp clone directory

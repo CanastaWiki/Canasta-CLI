@@ -65,7 +65,69 @@
     msg: >-
       GitOps already initialized ({{ instance_path }}/.git exists).
       This instance is already connected to a gitops repository.
-  when: _join_existing_git.stat.exists
+      Pass --reinit to wipe the local gitops state and re-clone from
+      the remote (typical when a previous init or join died mid-run).
+  when:
+    - _join_existing_git.stat.exists
+    - not (reinit | default(false) | bool)
+
+# --- Reinit: save user files, wipe local gitops state ---
+- name: Reinit - save .env
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.env"
+  register: _reinit_env
+  when: reinit | default(false) | bool
+
+- name: Reinit - find admin password files
+  ansible.builtin.find:
+    paths: "{{ instance_path }}"
+    patterns: "admin-password_*"
+    file_type: file
+  register: _reinit_admin_passwords
+  when: reinit | default(false) | bool
+
+- name: Reinit - save wikis.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/wikis.yaml"
+  register: _reinit_wikis
+  ignore_errors: true
+  when: reinit | default(false) | bool
+
+- name: Reinit - create backup directory
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: "canasta-reinit-"
+  register: _reinit_backup_dir
+  when: reinit | default(false) | bool
+
+- name: Reinit - copy .env to backup
+  ansible.builtin.copy:
+    content: "{{ _reinit_env.content | b64decode }}"
+    dest: "{{ _reinit_backup_dir.path }}/.env"
+    mode: "0600"
+  when: reinit | default(false) | bool and _reinit_env is defined
+
+- name: Reinit - copy admin password files to backup
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "{{ _reinit_backup_dir.path }}/"
+    remote_src: true
+  loop: "{{ _reinit_admin_passwords.files | default([]) }}"
+  when: reinit | default(false) | bool
+
+- name: Reinit - copy wikis.yaml to backup
+  ansible.builtin.copy:
+    content: "{{ _reinit_wikis.content | b64decode }}"
+    dest: "{{ _reinit_backup_dir.path }}/wikis.yaml"
+    mode: "0644"
+  when: reinit | default(false) | bool and _reinit_wikis is defined and _reinit_wikis.content is defined
+
+# Note: We intentionally do NOT remove config/, extensions/, skins/, etc.
+# during reinit because those files may be owned by root (from Docker volumes)
+# and we may not have permission to remove them. Instead, git checkout HEAD
+# will overwrite tracked files after we move in the new .git directory.
+# If git checkout fails due to permission issues, the user should manually
+# remove the root-owned directories or run the command as root.
 
 # --key is a controller-local path. The ansible.builtin.copy task
 # below reads src from the controller automatically (Ansible's
@@ -81,235 +143,327 @@
 
 - name: Clone gitops repository
   ansible.builtin.command:
-    cmd: "git clone {{ repo }} ."
+    # During reinit, use saved remote URL in case user used $(git remote get-url origin)
+    cmd: "git clone {{ repo if repo is defined and repo != '' else _reinit_git_remote.stdout | trim }} ."
     chdir: "{{ _join_tmpdir.path }}"
   changed_when: true
+  register: _clone_result
+  failed_when: _clone_result.rc != 0
+  environment:
+    GIT_SSH_COMMAND: "ssh -i {{ ssh_key | default(key) }} -o StrictHostKeyChecking=no"
 
-# --- Step 3: Copy key to remote and unlock git-crypt ---
-- name: Copy git-crypt key from controller to remote
-  ansible.builtin.copy:
-    src: "{{ key }}"
-    dest: "/tmp/canasta-gitcrypt-key"
-    mode: "0600"
-
-- name: Unlock git-crypt with provided key
+# --- Step 2b: Reinit - save git remote URL ---
+- name: Reinit - save git remote URL
   ansible.builtin.command:
-    cmd: "git-crypt unlock /tmp/canasta-gitcrypt-key"
-    chdir: "{{ _join_tmpdir.path }}"
+    cmd: "git remote get-url origin"
+    chdir: "{{ instance_path }}"
+  register: _reinit_git_remote
   changed_when: true
+  when: reinit | default(false) | bool
+  ignore_errors: true
 
-- name: Remove temp key from remote
-  ansible.builtin.file:
-    path: "/tmp/canasta-gitcrypt-key"
-    state: absent
+# --- Step 2c: Reinit - restore .git if clone failed ---
+- name: Reinit - restore .git from backup on clone failure
+  ansible.builtin.command:
+    cmd: "mv {{ instance_path }}/.git.old {{ instance_path }}/.git"
+  changed_when: true
+  when: reinit | default(false) | bool and _clone_result is defined and _clone_result.rc != 0
+  ignore_errors: true
 
-# --- Step 4: Validate host name not already in config ---
-- name: Read hosts.yaml from cloned repo
-  ansible.builtin.slurp:
-    src: "{{ _join_tmpdir.path }}/hosts/hosts.yaml"
-  register: _join_hosts_raw
-
-- name: Parse hosts config
-  ansible.builtin.set_fact:
-    _join_hosts: "{{ _join_hosts_raw.content | b64decode | from_yaml }}"
-
-- name: Fail if host name already exists
+- name: Reinit - fail if clone failed
   ansible.builtin.fail:
     msg: >-
-      Host '{{ host_name }}' already exists in the gitops repository.
-      Choose a different name or remove the existing host first.
-  when: >-
-    _join_hosts.hosts | default([])
-    | selectattr('name', 'equalto', host_name)
-    | list | length > 0
+      Git clone failed. The original .git directory has been restored.
+      Check your network connection and repository URL, then retry.
+  when: reinit | default(false) | bool and _clone_result is defined and _clone_result.rc != 0
 
-# --- Step 5: Move .git into instance directory ---
-- name: Remove legacy .gitignore files
-  ansible.builtin.file:
-    path: "{{ instance_path }}/{{ item }}"
-    state: absent
-  loop:
-    - extensions/.gitignore
-    - skins/.gitignore
-    - config/.gitignore
-
-- name: Move .git from temp clone to instance
+# --- Step 2d: Reinit - backup old .git AFTER successful clone ---
+- name: Reinit - backup old .git to .git.old AFTER successful clone
   ansible.builtin.command:
-    cmd: "mv {{ _join_tmpdir.path }}/.git {{ instance_path }}/.git"
+    cmd: "mv {{ instance_path }}/.git {{ instance_path }}/.git.old"
   changed_when: true
+  when: reinit | default(false) | bool and _clone_result is defined and _clone_result.rc == 0
+  ignore_errors: true
 
-- name: Checkout tracked files from repo (decrypted via git-crypt)
+# --- Step 2d: Reinit - backup old .git AFTER successful clone ---
+- name: Reinit - backup old .git to .git.old AFTER successful clone
   ansible.builtin.command:
-    cmd: "git checkout HEAD -- ."
-    chdir: "{{ instance_path }}"
+    cmd: "mv {{ instance_path }}/.git {{ instance_path }}/.git.old"
   changed_when: true
+  when: reinit | default(false) | bool and _clone_result is defined and _clone_result.rc == 0
+  ignore_errors: true
 
-- name: Configure git pull strategy
-  ansible.builtin.command:
-    cmd: "git config pull.rebase false"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+# --- Protected block: restore .git.old on any failure ---
+- block:
+    # --- Step 3: Copy key to remote and unlock git-crypt ---
+    - name: Copy git-crypt key from controller to remote
+      ansible.builtin.copy:
+        src: "{{ key }}"
+        dest: "/tmp/canasta-gitcrypt-key"
+        mode: "0600"
 
-# --- Step 6: Extract vars from current .env ---
-- name: Define placeholder keys
-  ansible.builtin.set_fact:
-    _join_placeholder_keys:
-      - MYSQL_PASSWORD
-      - WIKI_DB_PASSWORD
-      - MW_SECRET_KEY
-      - RESTIC_REPOSITORY
-      - RESTIC_PASSWORD
-      - MW_SITE_SERVER
-      - MW_SITE_FQDN
-      - HTTPS_PORT
-      - HTTP_PORT
-    _join_secret_prefixes: "^(AWS_|AZURE_|B2_|GOOGLE_|OS_|ST_|RCLONE_)"
+    - name: Unlock git-crypt with provided key
+      ansible.builtin.command:
+        cmd: "git-crypt unlock /tmp/canasta-gitcrypt-key"
+        chdir: "{{ _join_tmpdir.path }}"
+      changed_when: true
 
-- name: Read current .env
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read_all
-  register: _join_env
+    - name: Remove temp key from remote
+      ansible.builtin.file:
+        path: "/tmp/canasta-gitcrypt-key"
+        state: absent
 
-- name: Read wikis for URL and password extraction
-  canasta_wikis_yaml:
-    instance_path: "{{ instance_path }}"
-    state: read
-  register: _join_wikis
+    # --- Step 4: Validate host name not already in config ---
+    - name: Read hosts.yaml from cloned repo
+      ansible.builtin.slurp:
+        src: "{{ _join_tmpdir.path }}/hosts/hosts.yaml"
+      register: _join_hosts_raw
 
-- name: Build vars from current .env and wikis
-  ansible.builtin.set_fact:
-    _join_vars: >-
-      {{
-        dict(
-          _join_env.variables | dict2items
-          | selectattr('key', 'in', _join_placeholder_keys)
-          | map(attribute='key')
-          | map('lower')
-          | zip(
-              _join_env.variables | dict2items
-              | selectattr('key', 'in', _join_placeholder_keys)
-              | map(attribute='value')
-              | list)
-          | list
-        )
-        | combine(
+    - name: Parse hosts config
+      ansible.builtin.set_fact:
+        _join_hosts: "{{ _join_hosts_raw.content | b64decode | from_yaml }}"
+
+    - name: Fail if host name already exists
+      ansible.builtin.fail:
+        msg: >-
+          Host '{{ host_name }}' already exists in the gitops repository.
+          Choose a different name or remove the existing host first.
+      when: >-
+        _join_hosts.hosts | default([])
+        | selectattr('name', 'equalto', host_name)
+        | list | length > 0
+
+    # --- Step 5: Move .git into instance directory ---
+    - name: Remove legacy .gitignore files
+      ansible.builtin.file:
+        path: "{{ instance_path }}/{{ item }}"
+        state: absent
+      loop:
+        - extensions/.gitignore
+        - skins/.gitignore
+        - config/.gitignore
+
+    - name: Move .git from temp clone to instance
+      ansible.builtin.command:
+        cmd: "mv {{ _join_tmpdir.path }}/.git {{ instance_path }}/.git"
+      changed_when: true
+
+    - name: Checkout tracked files from repo (decrypted via git-crypt)
+      ansible.builtin.command:
+        cmd: "git checkout HEAD -- ."
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Configure git pull strategy
+      ansible.builtin.command:
+        cmd: "git config pull.rebase false"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    # --- Reinit: restore saved user files ---
+    - name: Reinit - restore .env
+      ansible.builtin.copy:
+        content: "{{ _reinit_env.content | b64decode }}"
+        dest: "{{ instance_path }}/.env"
+        mode: "0600"
+      when: reinit | default(false) | bool and _reinit_env is defined
+
+    - name: Reinit - restore admin password files
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "{{ instance_path }}/"
+        remote_src: true
+      loop: "{{ _reinit_admin_passwords.files | default([]) }}"
+      when: reinit | default(false) | bool
+
+    - name: Reinit - restore wikis.yaml
+      ansible.builtin.copy:
+        content: "{{ _reinit_wikis.content | b64decode }}"
+        dest: "{{ instance_path }}/wikis.yaml"
+        mode: "0644"
+      when: reinit | default(false) | bool and _reinit_wikis is defined and _reinit_wikis.content is defined
+
+    - name: Reinit - clean up backup directory
+      ansible.builtin.file:
+        path: "{{ _reinit_backup_dir.path }}"
+        state: absent
+      when: reinit | default(false) | bool
+
+    # --- Step 6: Extract vars from current .env ---
+    - name: Define placeholder keys
+      ansible.builtin.set_fact:
+        _join_placeholder_keys:
+          - MYSQL_PASSWORD
+          - WIKI_DB_PASSWORD
+          - MW_SECRET_KEY
+          - RESTIC_REPOSITORY
+          - RESTIC_PASSWORD
+          - MW_SITE_SERVER
+          - MW_SITE_FQDN
+          - HTTPS_PORT
+          - HTTP_PORT
+        _join_secret_prefixes: "^(AWS_|AZURE_|B2_|GOOGLE_|OS_|ST_|RCLONE_)"
+
+    - name: Read current .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _join_env
+
+    - name: Read wikis for URL and password extraction
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _join_wikis
+
+    - name: Build vars from current .env and wikis
+      ansible.builtin.set_fact:
+        _join_vars: >-
+          {{
             dict(
               _join_env.variables | dict2items
-              | selectattr('key', 'match', _join_secret_prefixes)
+              | selectattr('key', 'in', _join_placeholder_keys)
               | map(attribute='key')
               | map('lower')
               | zip(
                   _join_env.variables | dict2items
-                  | selectattr('key', 'match', _join_secret_prefixes)
+                  | selectattr('key', 'in', _join_placeholder_keys)
                   | map(attribute='value')
                   | list)
               | list
             )
-          )
-      }}
-
-- name: Add wiki URL vars
-  ansible.builtin.set_fact:
-    _join_vars: >-
-      {{ _join_vars | combine(
-           dict(_join_wikis.wikis | default([])
-                | map(attribute='id')
-                | map('regex_replace', '^', 'wiki_url_')
-                | zip(_join_wikis.wikis | default([])
-                      | map(attribute='url')
+            | combine(
+                dict(
+                  _join_env.variables | dict2items
+                  | selectattr('key', 'match', _join_secret_prefixes)
+                  | map(attribute='key')
+                  | map('lower')
+                  | zip(
+                      _join_env.variables | dict2items
+                      | selectattr('key', 'match', _join_secret_prefixes)
+                      | map(attribute='value')
                       | list)
-                | list)
-         ) }}
+                  | list
+                )
+              )
+          }}
 
-- name: Add admin password vars
-  ansible.builtin.set_fact:
-    _join_vars: >-
-      {{ _join_vars | combine(
-           dict(_join_wikis.wiki_ids | default([])
-                | map('regex_replace', '^', 'admin_password_')
-                | zip(_join_wikis.wiki_ids | default([])
-                      | map('extract', lookup('file',
-                          instance_path ~ '/admin-password_' ~ item,
-                          errors='ignore') | default(''))
-                      | list)
-                | list)
-         ) }}
-  ignore_errors: true  # OK if some admin password files don't exist
+    - name: Add wiki URL vars
+      ansible.builtin.set_fact:
+        _join_vars: >-
+          {{ _join_vars | combine(
+               dict(_join_wikis.wikis | default([])
+                    | map(attribute='id')
+                    | map('regex_replace', '^', 'wiki_url_')
+                    | zip(_join_wikis.wikis | default([])
+                          | map(attribute='url')
+                          | list)
+                    | list)
+             ) }}
 
-# --- Step 7: Add host to config and write vars ---
-- name: Add host to hosts.yaml
-  ansible.builtin.copy:
-    content: |
-      {{ _join_hosts
-         | combine({'hosts': _join_hosts.hosts | default([])
-                    + [{'name': host_name,
-                        'role': role | default('both')}]},
-                   recursive=True)
-         | to_nice_yaml(indent=2) }}
-    dest: "{{ instance_path }}/hosts/hosts.yaml"
-    mode: "0644"
+    - name: Add admin password vars
+      ansible.builtin.set_fact:
+        _join_vars: >-
+          {{ _join_vars | combine(
+               dict(_join_wikis.wiki_ids | default([])
+                    | map('regex_replace', '^', 'admin_password_')
+                    | zip(_join_wikis.wiki_ids | default([])
+                          | map('extract', lookup('file',
+                              instance_path ~ '/admin-password_' ~ item,
+                              errors='ignore') | default(''))
+                          | list)
+                    | list)
+             ) }}
+      ignore_errors: true  # OK if some admin password files don't exist
 
-- name: Create host vars directory
-  ansible.builtin.file:
-    path: "{{ instance_path }}/hosts/{{ host_name }}"
-    state: directory
-    mode: "0755"
+    # --- Step 7: Add host to config and write vars ---
+    - name: Add host to hosts.yaml
+      ansible.builtin.copy:
+        content: |
+          {{ _join_hosts
+             | combine({'hosts': _join_hosts.hosts | default([])
+                        + [{'name': host_name,
+                            'role': role | default('both')}]},
+                       recursive=True)
+             | to_nice_yaml(indent=2) }}
+        dest: "{{ instance_path }}/hosts/hosts.yaml"
+        mode: "0644"
 
-- name: Write host vars
-  ansible.builtin.copy:
-    content: "{{ _join_vars | to_nice_yaml(indent=2) }}"
-    dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
-    mode: "0644"
-  no_log: true
+    - name: Create host vars directory
+      ansible.builtin.file:
+        path: "{{ instance_path }}/hosts/{{ host_name }}"
+        state: directory
+        mode: "0755"
 
-# --- Step 8: Write .gitops-host ---
-- name: Save .gitops-host identity
-  ansible.builtin.copy:
-    content: "{{ host_name }}"
-    dest: "{{ instance_path }}/.gitops-host"
-    mode: "0644"
+    - name: Write host vars
+      ansible.builtin.copy:
+        content: "{{ _join_vars | to_nice_yaml(indent=2) }}"
+        dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
+        mode: "0644"
+      no_log: true
 
-# --- Step 9: Render .env and wikis.yaml from templates + vars ---
-# Join builds host vars from the fresh create's .env, but doesn't
-# re-render .env from the template. Without this, shared vars from
-# hosts/_shared/vars.yaml (backup creds, etc.) never flow into .env.
-- name: Render .env and wikis.yaml from templates
-  ansible.builtin.include_role:
-    name: gitops
-    tasks_from: render_compose.yml
+    # --- Step 8: Write .gitops-host ---
+    - name: Save .gitops-host identity
+      ansible.builtin.copy:
+        content: "{{ host_name }}"
+        dest: "{{ instance_path }}/.gitops-host"
+        mode: "0644"
 
-- name: Regenerate orchestrator config (Caddyfile)
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: update_config.yml
+    # --- Step 9: Render .env and wikis.yaml from templates + vars ---
+    - name: Render .env and wikis.yaml from templates
+      ansible.builtin.include_role:
+        name: gitops
+        tasks_from: render_compose.yml
 
-# --- Step 10: Update submodules ---
-- name: Update submodules
-  ansible.builtin.command:
-    cmd: "git submodule update --init --recursive"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  ignore_errors: true  # OK if no submodules configured
+    - name: Regenerate orchestrator config (Caddyfile)
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: update_config.yml
 
-# --- Step 11: Commit and push ---
-- name: Stage all changes
-  ansible.builtin.command:
-    cmd: "git add -A"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+    # --- Step 10: Update submodules ---
+    - name: Update submodules
+      ansible.builtin.command:
+        cmd: "git submodule update --init --recursive"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      ignore_errors: true  # OK if no submodules configured
 
-- name: Commit
-  ansible.builtin.command:
-    cmd: "git commit -m 'Add host {{ host_name }}'"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+    # --- Step 11: Commit and push ---
+    - name: Stage all changes
+      ansible.builtin.command:
+        cmd: "git add -A"
+        chdir: "{{ instance_path }}"
+      changed_when: true
 
-- name: Push to remote
-  ansible.builtin.command:
-    cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }}"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+    - name: Commit
+      ansible.builtin.command:
+        cmd: "git -c commit.gpgsign=false commit -m 'Add host {{ host_name }}'"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Push to remote
+      ansible.builtin.command:
+        cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }}"
+        chdir: "{{ instance_path }}"
+      environment:
+        GIT_SSH_COMMAND: "ssh -i {{ ssh_key | default(key) }} -o StrictHostKeyChecking=no"
+      changed_when: true
+
+  when: reinit | default(false) | bool and _clone_result is defined and _clone_result.rc == 0
+  rescue:
+    # --- Reinit - restore .git on any failure ---
+    - name: Reinit - restore .git from backup on failure
+      ansible.builtin.command:
+        cmd: "mv {{ instance_path }}/.git.old {{ instance_path }}/.git"
+      changed_when: true
+      register: _restore_result
+      failed_when: _restore_result.rc != 0
+
+    - name: Reinit - report failure and restore original .git
+      ansible.builtin.fail:
+        msg: >-
+          Operation failed. The original .git directory has been restored.
+          Please retry the command after addressing the error.
 
 # --- Step 11: Clean up temp dir ---
 - name: Remove temp clone directory
@@ -317,7 +471,14 @@
     path: "{{ _join_tmpdir.path }}"
     state: absent
 
-# --- Step 12: Report ---
+# --- Step 12: Cleanup backup .git.old ---
+- name: Reinit - clean up backup .git.old
+  ansible.builtin.file:
+    path: "{{ instance_path }}/.git.old"
+    state: absent
+  when: reinit | default(false) | bool
+
+# --- Step 13: Report ---
 - name: Report gitops joined
   ansible.builtin.debug:
     msg: >-

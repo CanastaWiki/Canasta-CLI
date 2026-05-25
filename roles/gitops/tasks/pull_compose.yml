@@ -5,6 +5,12 @@
 # a restart or maintenance update is needed.
 # Requires: instance_path, instance_id (set by dispatcher)
 
+# --- Set SSH command for git operations ---
+- name: Set SSH command for git operations
+  ansible.builtin.set_fact:
+    _git_ssh_command: "ssh -i {{ ssh_key }} -o StrictHostKeyChecking=no"
+  when: ssh_key is defined and ssh_key | length > 0
+
 # --- Step 1: Check for uncommitted changes ---
 - name: Check for uncommitted changes
   ansible.builtin.command:
@@ -48,6 +54,9 @@
     chdir: "{{ instance_path }}"
   register: _pull_result
   changed_when: "'Already up to date' not in _pull_result.stdout"
+  environment:
+    GIT_SSH_COMMAND: "{{ _git_ssh_command }}"
+  when: _git_ssh_command is defined
 
 - name: Update submodules
   ansible.builtin.command:

@@ -1153,10 +1153,17 @@ def cmd_host_remove(args):
 # canasta gitops status
 # ---------------------------------------------------------------------------
 
-def _gitops_status_script(path):
+def _gitops_status_script(path, ssh_key=None):
     """Build a batched shell script that gathers all gitops status info."""
     d = _SENTINEL
     qp = _shell_quote(path)
+
+    # Build the SSH command prefix if ssh_key provided
+    ssh_prefix = ""
+    if ssh_key:
+        ssh_prefix = 'GIT_SSH_COMMAND="ssh -i {} -o StrictHostKeyChecking=no" '.format(
+            _shell_quote(ssh_key))
+
     return (
         "cd %(p)s; "
         "cat .gitops-host 2>/dev/null || echo MISSING; "
@@ -1171,9 +1178,9 @@ def _gitops_status_script(path):
         "echo '%(d)s'; "
         "git diff --name-only 2>/dev/null; "
         "echo '%(d)s'; "
-        "git fetch 2>/dev/null; "
-        "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'"
-    ) % {"p": qp, "d": d}
+        "%(ssh_prefix)s git fetch 2>/dev/null; "
+        "%(ssh_prefix)s git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'"
+    ) % {"p": qp, "d": d, "ssh_prefix": ssh_prefix}
 
 
 def _parse_gitops_status(stdout, instance_id):
@@ -1325,8 +1332,9 @@ def cmd_gitops_status(args):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     orchestrator = inst.get("orchestrator", "compose")
+    ssh_key = getattr(args, "ssh_key", None)
 
-    script = _gitops_status_script(path)
+    script = _gitops_status_script(path, ssh_key=ssh_key)
 
     if _is_localhost(host):
         try:

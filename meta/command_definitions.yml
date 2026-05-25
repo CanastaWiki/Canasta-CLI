@@ -1516,7 +1516,7 @@ commands:
       Bootstrap git-based configuration management. Converts extensions
       and skins to submodules and pushes to a remote repository.
     examples:
-      - "canasta gitops init -n prod --repo git@github.com:org/config.git --key /tmp/gc.key"
+      - "canasta gitops init -n prod --repo git@github.com:org/config.git --key /tmp/gc.key --ssh-key ~/.ssh/git_key"
     playbook: gitops_init.yml
     parameters:
       - name: id
@@ -1542,6 +1542,9 @@ commands:
         type: path
         required: true
         description: "Path to export the git-crypt key"
+      - name: ssh_key
+        type: path
+        description: "Path to SSH private key for git operations (will be used for GIT_SSH_COMMAND)"
       - name: force
         type: bool
         default: false
@@ -1571,7 +1574,7 @@ commands:
       file. Use `canasta gitops init` to bootstrap a new gitops
       repository instead.
     examples:
-      - "canasta gitops join -n staging --repo git@github.com:org/config.git --key /tmp/gc.key"
+      - "canasta gitops join -n staging --repo git@github.com:org/config.git --key /tmp/gc.key --ssh-key ~/.ssh/git_key"
     playbook: gitops_join.yml
     parameters:
       - name: id
@@ -1592,6 +1595,16 @@ commands:
         type: path
         required: true
         description: "Path to git-crypt key"
+      - name: ssh_key
+        type: path
+        description: "Path to SSH private key for git operations (will be used for GIT_SSH_COMMAND)"
+      - name: reinit
+        type: bool
+        default: false
+        description: >-
+          Wipe local gitops state and re-clone from the remote. Use
+          when a previous init or join died mid-run, or to force a
+          clean reconnection to the gitops repository.
       - name: git_user_name
         type: string
         description: "Git user.name for commits on the target host (set if not already configured)"
@@ -1659,6 +1672,9 @@ commands:
         short: m
         type: string
         description: "Commit message (defaults to 'Configuration update')"
+      - name: ssh_key
+        type: path
+        description: "Path to SSH private key for git operations (will be used for GIT_SSH_COMMAND)"
 
   - name: gitops_pull
     description: "Pull latest configuration from the git repository"
@@ -1675,6 +1691,9 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: ssh_key
+        type: path
+        description: "Path to SSH private key for git operations (will be used for GIT_SSH_COMMAND)"
 
   - name: gitops_status
     description: "Show gitops status for the instance"
@@ -1689,6 +1708,9 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: ssh_key
+        type: path
+        description: "Path to SSH private key for git operations (will be used for GIT_SSH_COMMAND)"
 
   - name: gitops_diff
     description: "Show local and remote changes since the branches diverged"
