@@ -1359,6 +1359,90 @@ def test_config_set_gitops(inst):
     )
 
 
+def test_config_set_gitops_domain(inst):
+    """config set MW_SITE_FQDN must survive config regenerate under gitops.
+
+    The side effects of a domain change derive MW_SITE_FQDN/MW_SITE_SERVER
+    and rewrite wiki URLs in the rendered .env/config/wikis.yaml. Those
+    derived values must also be propagated to hosts/<host>/vars.yaml, or
+    the next 'config regenerate' re-renders the files from the templates
+    and silently reverts the change.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    import yaml
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    new_domain = "wiki3.example.com"
+    print("Changing primary domain via config set...")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "MW_SITE_FQDN=%s" % new_domain, "--no-restart",
+    )
+
+    print("Regenerating config from gitops source of truth...")
+    inst.run_ok("config", "regenerate", "-i", inst.id)
+
+    # After regenerate the rendered files are re-derived from vars.yaml /
+    # templates. If the config set change reached the gitops source of
+    # truth the new domain survives; otherwise it reverts to localhost.
+    inst_path = inst.instance_path()
+
+    print("Verifying config/wikis.yaml kept the new domain...")
+    with open(os.path.join(inst_path, "config", "wikis.yaml")) as f:
+        wikis = yaml.safe_load(f)["wikis"]
+    primary_url = wikis[0]["url"]
+    assert primary_url.startswith(new_domain), (
+        "wikis.yaml primary url reverted after regenerate: %s" % primary_url
+    )
+
+    print("Verifying Caddyfile kept the new domain...")
+    with open(os.path.join(inst_path, "config", "Caddyfile")) as f:
+        caddyfile = f.read()
+    assert new_domain in caddyfile, (
+        "Caddyfile reverted after regenerate (no %s):\n%s"
+        % (new_domain, caddyfile)
+    )
+
+    print("Verifying vars.yaml recorded the new domain...")
+    vars_file = os.path.join(inst_path, "hosts", "testhost", "vars.yaml")
+    with open(vars_file) as f:
+        vars_data = yaml.safe_load(f)
+    assert vars_data.get("mw_site_fqdn") == new_domain, (
+        "mw_site_fqdn not propagated to vars.yaml: %s" % vars_data
+    )
+    assert new_domain in (vars_data.get("mw_site_server") or ""), (
+        "mw_site_server not propagated to vars.yaml: %s" % vars_data
+    )
+    assert new_domain in (vars_data.get("wiki_url_main") or ""), (
+        "wiki_url_main not propagated to vars.yaml: %s" % vars_data
+    )
+
+
 def test_gitops_push_shared_vars(inst):
     """Verify gitops push auto-migrates shared credential keys (#206)."""
     if shutil.which("git-crypt") is None:
@@ -1779,6 +1863,7 @@ ALL_TESTS = {
     "sitemap": test_sitemap,
     "maintenance": test_maintenance,
     "config-set-gitops": test_config_set_gitops,
+    "config-set-gitops-domain": test_config_set_gitops_domain,
     "gitops-push-shared": test_gitops_push_shared_vars,
     "gitops-push-reporting": test_gitops_push_reporting,
     "backup-restore-safety": test_backup_restore_excludes_safety,
