@@ -61,6 +61,7 @@ from ._helpers import (  # noqa: F401
     _hosts_yml_path,
     _is_localhost,
     _k8s_get_pod,
+    _lint_env_content,
     _make_detail,
     _normalize_script_args,
     _parse_env_entries,
