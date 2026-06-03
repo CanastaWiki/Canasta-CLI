@@ -72,6 +72,46 @@
         loop_var: _config_setting
         label: "{{ _config_setting.split('=', 1)[0] }}"
 
+    # MW_SITE_FQDN / HTTP_PORT / HTTPS_PORT / CADDY_AUTO_HTTPS re-derive
+    # MW_SITE_FQDN/MW_SITE_SERVER and rewrite wiki URLs in the rendered
+    # .env and config/wikis.yaml via _side_effects.yml. Those derived
+    # values are not in the typed settings, so the loop above never
+    # propagates them; without this block the next 'config regenerate' /
+    # 'gitops pull' re-renders them back to the pre-change domain.
+    - name: Propagate domain side effects to gitops vars
+      when: >-
+        settings.split() | map('regex_replace', '=.*$', '') | list
+        | intersect(['MW_SITE_FQDN', 'HTTP_PORT', 'HTTPS_PORT', 'CADDY_AUTO_HTTPS'])
+        | length > 0
+      block:
+        - name: Read final .env for derived domain keys
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: read_all
+          register: _config_env_final
+
+        - name: Propagate derived MW_SITE_FQDN/MW_SITE_SERVER to vars.yaml
+          ansible.builtin.include_tasks: _update_gitops_var.yml
+          loop:
+            - "MW_SITE_FQDN={{ _config_env_final.variables.MW_SITE_FQDN | default('') }}"
+            - "MW_SITE_SERVER={{ _config_env_final.variables.MW_SITE_SERVER | default('') }}"
+          loop_control:
+            loop_var: _config_setting
+            label: "{{ _config_setting.split('=', 1)[0] }}"
+
+        - name: Read final wikis.yaml for URL propagation
+          canasta_wikis_yaml:
+            instance_path: "{{ instance_path }}"
+            state: read
+          register: _config_wikis_final
+
+        - name: Propagate wiki URLs to vars.yaml
+          ansible.builtin.include_tasks: _update_gitops_wiki_url.yml
+          loop: "{{ _config_wikis_final.wikis }}"
+          loop_control:
+            loop_var: _gw_wiki
+            label: "wiki_url_{{ _gw_wiki.id }}"
+
 - name: Regenerate Caddyfile after config change
   ansible.builtin.include_role:
     name: orchestrator

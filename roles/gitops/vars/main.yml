@@ -11,6 +11,7 @@ gitops_placeholder_keys:
   - MW_SITE_FQDN
   - HTTPS_PORT
   - HTTP_PORT
+  - CADDY_AUTO_HTTPS
 
 # Keys whose name starts with any of these prefixes are treated as
 # credentials and get placeholders in env.template.

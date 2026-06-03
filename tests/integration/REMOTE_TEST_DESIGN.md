@@ -127,14 +127,10 @@ The existing `tests/integration/run_tests.py` framework can be extended:
 
 1. Add a `--remote` flag to `run_tests.py` that spins up the remote container
    before tests and tears it down after.
-2. Create a new Molecule scenario `tests/integration/molecule/remote/` with:
-   - `molecule.yml` -- defines the remote container as a platform
-   - `converge.yml` -- runs the test scenarios above
-   - `verify.yml` -- assertions
-3. Alternatively, use a `docker-compose.test.yml` at
+2. Alternatively, use a `docker-compose.test.yml` at
    `tests/integration/` that defines the remote container, and
    have `run_tests.py --remote` call `docker compose up -d` before
-   invoking pytest.
+   invoking the tests.
 
 ### Suggested pytest structure
 
