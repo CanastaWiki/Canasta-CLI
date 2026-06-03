@@ -26,6 +26,54 @@ ANSIBLE_CFG = os.path.join(SCRIPT_DIR, "ansible.cfg")
 # Ensure Ansible uses the repo's config regardless of working directory
 os.environ.setdefault("ANSIBLE_CONFIG", ANSIBLE_CFG)
 
+
+def _ca_bundle_override(environ, verify_paths, path_exists, certifi_where):
+    """Decide whether to point SSL_CERT_FILE at certifi's CA bundle.
+
+    Returns the certifi bundle path when the interpreter has no usable
+    system CA store, or None to leave the environment untouched.
+
+    python.org's macOS Python ships without a working CA store, so the
+    venv's `ansible-galaxy` fails to verify TLS to galaxy.ansible.com with
+    CERTIFICATE_VERIFY_FAILED. We fall back to certifi, but only when:
+      * the user hasn't set SSL_CERT_FILE themselves (corporate CA / custom
+        trust store wins), and
+      * the interpreter has no usable system CA store — so Linux and
+        Homebrew Python, which verify against the OS trust store, are left
+        alone (avoids overriding a system store that trusts internal CAs).
+
+    `certifi_where` is passed in as a callable so the policy stays pure and
+    import-free for unit tests.
+    """
+    if environ.get("SSL_CERT_FILE"):
+        return None
+    cafile = verify_paths.cafile
+    capath = verify_paths.capath
+    if ( cafile and path_exists( cafile ) ) or ( capath and path_exists( capath ) ):
+        return None
+    return certifi_where()
+
+
+def _ensure_ca_bundle():
+    """Export SSL_CERT_FILE/REQUESTS_CA_BUNDLE for interpreters lacking a
+    system CA store (see _ca_bundle_override). No-op on Linux / when the
+    user configured their own bundle, and silently skipped if certifi isn't
+    installed yet (e.g. before the first dependency refresh)."""
+    try:
+        import ssl
+        import certifi
+    except ImportError:
+        return
+    override = _ca_bundle_override(
+        os.environ, ssl.get_default_verify_paths(), os.path.exists, certifi.where
+    )
+    if override:
+        os.environ["SSL_CERT_FILE"] = override
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", override)
+
+
+_ensure_ca_bundle()
+
 # Commands that have subcommands (e.g., "config get" -> "config_get")
 SUBCOMMAND_GROUPS = {
     "config": ["get", "set", "unset", "regenerate"],
