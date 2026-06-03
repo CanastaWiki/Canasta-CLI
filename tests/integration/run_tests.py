@@ -1443,6 +1443,100 @@ def test_config_set_gitops_domain(inst):
     )
 
 
+def test_config_set_gitops_port(inst):
+    """config set HTTP_PORT must survive config regenerate under gitops.
+
+    Mirrors test_config_set_gitops_domain for a port change. Changing the
+    active port (HTTP_PORT here, since the test env runs CADDY_AUTO_HTTPS=off)
+    derives MW_SITE_FQDN/MW_SITE_SERVER and rewrites wiki URLs in the rendered
+    .env/config/wikis.yaml with the new port suffix. Those derived values plus
+    the raw http_port must reach hosts/<host>/vars.yaml, or the next
+    'config regenerate' re-renders the files from the templates and silently
+    drops the port.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    import yaml
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    new_port = "18080"
+    print("Changing active port (HTTP_PORT) via config set...")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "HTTP_PORT=%s" % new_port, "--no-restart",
+    )
+
+    print("Regenerating config from gitops source of truth...")
+    inst.run_ok("config", "regenerate", "-i", inst.id)
+
+    # After regenerate the rendered files are re-derived from vars.yaml /
+    # templates. If the port change reached the gitops source of truth the
+    # new port survives; otherwise it reverts to the original port.
+    inst_path = inst.instance_path()
+    port_suffix = ":%s" % new_port
+
+    print("Verifying config/wikis.yaml kept the new port...")
+    with open(os.path.join(inst_path, "config", "wikis.yaml")) as f:
+        wikis = yaml.safe_load(f)["wikis"]
+    primary_url = wikis[0]["url"]
+    assert port_suffix in primary_url, (
+        "wikis.yaml primary url dropped the port after regenerate: %s"
+        % primary_url
+    )
+
+    print("Verifying .env kept the new port in MW_SITE_*...")
+    env = read_env(inst.env_path())
+    assert port_suffix in env.get("MW_SITE_FQDN", ""), (
+        "MW_SITE_FQDN dropped the port after regenerate: %s"
+        % env.get("MW_SITE_FQDN")
+    )
+    assert port_suffix in env.get("MW_SITE_SERVER", ""), (
+        "MW_SITE_SERVER dropped the port after regenerate: %s"
+        % env.get("MW_SITE_SERVER")
+    )
+
+    print("Verifying vars.yaml recorded the new port...")
+    vars_file = os.path.join(inst_path, "hosts", "testhost", "vars.yaml")
+    with open(vars_file) as f:
+        vars_data = yaml.safe_load(f)
+    assert str(vars_data.get("http_port")) == new_port, (
+        "http_port not propagated to vars.yaml: %s" % vars_data
+    )
+    assert port_suffix in (vars_data.get("mw_site_fqdn") or ""), (
+        "mw_site_fqdn missing port in vars.yaml: %s" % vars_data
+    )
+    assert port_suffix in (vars_data.get("mw_site_server") or ""), (
+        "mw_site_server missing port in vars.yaml: %s" % vars_data
+    )
+    assert port_suffix in (vars_data.get("wiki_url_main") or ""), (
+        "wiki_url_main missing port in vars.yaml: %s" % vars_data
+    )
+
+
 def test_gitops_push_shared_vars(inst):
     """Verify gitops push auto-migrates shared credential keys (#206)."""
     if shutil.which("git-crypt") is None:
@@ -1864,6 +1958,7 @@ ALL_TESTS = {
     "maintenance": test_maintenance,
     "config-set-gitops": test_config_set_gitops,
     "config-set-gitops-domain": test_config_set_gitops_domain,
+    "config-set-gitops-port": test_config_set_gitops_port,
     "gitops-push-shared": test_gitops_push_shared_vars,
     "gitops-push-reporting": test_gitops_push_reporting,
     "backup-restore-safety": test_backup_restore_excludes_safety,
