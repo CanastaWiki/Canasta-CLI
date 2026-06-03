@@ -563,12 +563,14 @@ def test_gitops_join(inst):
     )
 
     bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
-    # Default the bare repo's HEAD to 'main' so the join's `git clone`
-    # checks out the branch gitops pushes to. Without this, a runner whose
-    # git defaults new repos to 'master' (e.g. CI) clones an empty master
-    # and the join fails reading hosts/hosts.yaml.
+    # Deliberately default the bare repo's HEAD to 'master' while gitops
+    # pushes content to 'main'. This is the adversarial case: the join must
+    # clone 'main' explicitly (git clone -b main) rather than follow the
+    # remote's default HEAD, or it checks out an empty master and fails
+    # reading hosts/hosts.yaml. Forcing master here exercises that on every
+    # runner regardless of its git init.defaultBranch.
     subprocess.run(
-        ["git", "init", "--bare", "--initial-branch=main", bare_repo],
+        ["git", "init", "--bare", "--initial-branch=master", bare_repo],
         capture_output=True, check=True,
     )
     key_file = os.path.join(inst.work_dir, "gitops-test.key")

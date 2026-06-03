@@ -86,9 +86,16 @@
     prefix: "canasta-join-"
   register: _join_tmpdir
 
+# Pin the branch: `gitops init` mandates main (git init -b main +
+# push -u origin main), so the repo's content always lives on main. A
+# bare `git clone` instead follows the remote's default HEAD — fine on
+# GitHub/GitLab (first push sets the default), but a plain `git init`
+# remote keeps HEAD on master and the clone checks out an empty tree,
+# so the join then fails reading hosts/hosts.yaml. -b main matches the
+# K8s join and init's guarantee.
 - name: Clone gitops repository
   ansible.builtin.command:
-    cmd: "git clone {{ repo }} ."
+    cmd: "git clone -b main {{ repo }} ."
     chdir: "{{ _join_tmpdir.path }}"
   environment: "{{ gitops_git_env }}"
   changed_when: true
