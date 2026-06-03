@@ -3203,3 +3203,41 @@ class TestDockerHostPropagation:
             "remote cmd should be unmodified when DOCKER_HOST unset; "
             "got %r" % remote_cmd
         )
+
+
+class TestLintEnvContent:
+    """_lint_env_content flags quoted values / CRLF that survive read-time
+    stripping but reach docker --env-file literally."""
+
+    def test_clean(self):
+        assert direct_commands._lint_env_content("A=1\nB=2\n# c\n") == (
+            [], False
+        )
+
+    def test_double_quoted(self):
+        assert direct_commands._lint_env_content('PW="x"\n') == (["PW"], False)
+
+    def test_single_quoted(self):
+        assert direct_commands._lint_env_content("PW='x'\n") == (["PW"], False)
+
+    def test_unquoted_not_flagged(self):
+        assert direct_commands._lint_env_content("PW=x\n") == ([], False)
+
+    def test_crlf(self):
+        assert direct_commands._lint_env_content("A=1\r\n") == ([], True)
+
+    def test_quoted_and_crlf(self):
+        # Trailing CR must not defeat quote detection.
+        assert direct_commands._lint_env_content('PW="x"\r\nA=1\r\n') == (
+            ["PW"], True
+        )
+
+    def test_comments_and_blanks_ignored(self):
+        assert direct_commands._lint_env_content('# PW="x"\n\nA=1\n') == (
+            [], False
+        )
+
+    def test_multiple_quoted_keys(self):
+        assert direct_commands._lint_env_content('A="1"\nB=2\nC=\'3\'\n') == (
+            ["A", "C"], False
+        )

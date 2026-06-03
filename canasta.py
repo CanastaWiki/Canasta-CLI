@@ -26,6 +26,54 @@ ANSIBLE_CFG = os.path.join(SCRIPT_DIR, "ansible.cfg")
 # Ensure Ansible uses the repo's config regardless of working directory
 os.environ.setdefault("ANSIBLE_CONFIG", ANSIBLE_CFG)
 
+
+def _ca_bundle_override(environ, verify_paths, path_exists, certifi_where):
+    """Decide whether to point SSL_CERT_FILE at certifi's CA bundle.
+
+    Returns the certifi bundle path when the interpreter has no usable
+    system CA store, or None to leave the environment untouched.
+
+    python.org's macOS Python ships without a working CA store, so the
+    venv's `ansible-galaxy` fails to verify TLS to galaxy.ansible.com with
+    CERTIFICATE_VERIFY_FAILED. We fall back to certifi, but only when:
+      * the user hasn't set SSL_CERT_FILE themselves (corporate CA / custom
+        trust store wins), and
+      * the interpreter has no usable system CA store — so Linux and
+        Homebrew Python, which verify against the OS trust store, are left
+        alone (avoids overriding a system store that trusts internal CAs).
+
+    `certifi_where` is passed in as a callable so the policy stays pure and
+    import-free for unit tests.
+    """
+    if environ.get("SSL_CERT_FILE"):
+        return None
+    cafile = verify_paths.cafile
+    capath = verify_paths.capath
+    if ( cafile and path_exists( cafile ) ) or ( capath and path_exists( capath ) ):
+        return None
+    return certifi_where()
+
+
+def _ensure_ca_bundle():
+    """Export SSL_CERT_FILE/REQUESTS_CA_BUNDLE for interpreters lacking a
+    system CA store (see _ca_bundle_override). No-op on Linux / when the
+    user configured their own bundle, and silently skipped if certifi isn't
+    installed yet (e.g. before the first dependency refresh)."""
+    try:
+        import ssl
+        import certifi
+    except ImportError:
+        return
+    override = _ca_bundle_override(
+        os.environ, ssl.get_default_verify_paths(), os.path.exists, certifi.where
+    )
+    if override:
+        os.environ["SSL_CERT_FILE"] = override
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", override)
+
+
+_ensure_ca_bundle()
+
 # Commands that have subcommands (e.g., "config get" -> "config_get")
 SUBCOMMAND_GROUPS = {
     "config": ["get", "set", "unset", "regenerate"],
@@ -737,6 +785,44 @@ def print_subcommand_help(group, data):
     print("Run 'canasta %s <subcommand> --help' for details." % group)
 
 
+def nested_group_for(command_name):
+    """If command_name names a bare nested group (e.g. 'backup_schedule' or
+    'storage_setup'), return (group, nested_group); otherwise None.
+
+    Lets the dispatcher treat a nested group invoked without a leaf
+    subcommand the same way it treats a bare top-level group — by listing
+    its subcommands rather than erroring with "Unknown command".
+    """
+    for group, nested_map in NESTED_SUBCOMMAND_GROUPS.items():
+        for nested_group in nested_map:
+            if command_name == "%s_%s" % (group, internal_name(nested_group)):
+                return (group, nested_group)
+    return None
+
+
+def print_nested_subcommand_help(group, nested_group, data):
+    """Print the subcommands of a nested group (e.g. 'backup schedule')."""
+    cmd_index = {c["name"]: c for c in data["commands"]}
+    subcmds = NESTED_SUBCOMMAND_GROUPS.get(group, {}).get(nested_group, [])
+    rows = []
+    for sub in subcmds:
+        internal = "%s_%s_%s" % (
+            group, internal_name(nested_group), internal_name(sub)
+        )
+        desc = cmd_index.get(internal, {}).get("description", "") or ""
+        rows.append((sub, desc))
+
+    width = max((len(r[0]) for r in rows), default=0)
+    print("Available '%s %s' subcommands:" % (group, nested_group))
+    for name, desc in rows:
+        print("  %-*s  %s" % (width, name, desc))
+    print("")
+    print(
+        "Run 'canasta %s %s <subcommand> --help' for details."
+        % (group, nested_group)
+    )
+
+
 def resolve_command_name(args):
     """Resolve the internal command name from parsed args."""
     cmd = args.command
@@ -1063,6 +1149,12 @@ def main():
         # list the subcommands with descriptions instead of erroring.
         if command_name in SUBCOMMAND_GROUPS:
             print_subcommand_help(command_name, data)
+            sys.exit(2)
+        # Same for a bare nested group (e.g. 'canasta backup schedule',
+        # 'canasta storage setup'): list its leaf subcommands.
+        nested = nested_group_for(command_name)
+        if nested:
+            print_nested_subcommand_help(nested[0], nested[1], data)
             sys.exit(2)
         print("Unknown command: %s" % command_name, file=sys.stderr)
         sys.exit(1)

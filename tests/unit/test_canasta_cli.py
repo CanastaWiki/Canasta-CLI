@@ -2,6 +2,7 @@
 
 import os
 import sys
+import types
 
 import pytest
 
@@ -1200,3 +1201,79 @@ class TestSelfUpdateCli:
         canasta_cli.self_update_cli()
         err = capsys.readouterr().err
         assert "could not fetch from origin" in err
+
+
+class TestCaBundleOverride:
+    """_ca_bundle_override falls back to certifi only when the interpreter
+    has no usable system CA store and the user hasn't set SSL_CERT_FILE."""
+
+    @staticmethod
+    def _paths(cafile=None, capath=None):
+        return types.SimpleNamespace(cafile=cafile, capath=capath)
+
+    def test_respects_user_set_ssl_cert_file(self):
+        # An explicit user value is never overridden, even with no system store.
+        result = canasta_cli._ca_bundle_override(
+            {"SSL_CERT_FILE": "/my/ca.pem"},
+            self._paths(cafile="/missing", capath="/missing"),
+            lambda p: False,
+            lambda: "/certifi/cacert.pem",
+        )
+        assert result is None
+
+    def test_skips_when_system_cafile_exists(self):
+        result = canasta_cli._ca_bundle_override(
+            {},
+            self._paths(cafile="/etc/ssl/cert.pem"),
+            lambda p: p == "/etc/ssl/cert.pem",
+            lambda: "/certifi/cacert.pem",
+        )
+        assert result is None
+
+    def test_skips_when_system_capath_exists(self):
+        result = canasta_cli._ca_bundle_override(
+            {},
+            self._paths(capath="/etc/ssl/certs"),
+            lambda p: p == "/etc/ssl/certs",
+            lambda: "/certifi/cacert.pem",
+        )
+        assert result is None
+
+    def test_falls_back_to_certifi_when_no_system_store(self):
+        # python.org macOS: verify paths point at files that don't exist.
+        result = canasta_cli._ca_bundle_override(
+            {},
+            self._paths(cafile="/missing/cert.pem", capath="/missing/certs"),
+            lambda p: False,
+            lambda: "/certifi/cacert.pem",
+        )
+        assert result == "/certifi/cacert.pem"
+
+
+class TestNestedGroupHelp:
+    """A bare nested group (e.g. 'canasta backup schedule') lists its
+    subcommands instead of erroring with 'Unknown command'."""
+
+    def test_nested_group_for_backup_schedule(self):
+        assert canasta_cli.nested_group_for("backup_schedule") == (
+            "backup", "schedule"
+        )
+
+    def test_nested_group_for_storage_setup(self):
+        assert canasta_cli.nested_group_for("storage_setup") == (
+            "storage", "setup"
+        )
+
+    def test_nested_group_for_leaf_command_is_none(self):
+        # A real leaf command, not a nested group.
+        assert canasta_cli.nested_group_for("backup_list") is None
+
+    def test_nested_group_for_unknown_is_none(self):
+        assert canasta_cli.nested_group_for("not_a_group") is None
+
+    def test_print_nested_help_lists_subcommands(self, data, capsys):
+        canasta_cli.print_nested_subcommand_help("backup", "schedule", data)
+        out = capsys.readouterr().out
+        assert "backup schedule" in out
+        for sub in ("set", "list", "remove"):
+            assert sub in out
