@@ -111,11 +111,53 @@
     cmd: "mv {{ _join_tmpdir.path }}/.git {{ instance_path }}/.git"
   changed_when: true
 
-- name: Checkout tracked files from repo
+# Mirror the Compose join: a blind `git checkout HEAD -- .` rewrites
+# every tracked path and can fail to unlink pre-existing, differently
+# owned files (#571). Materialize .gitattributes first so git-crypt
+# decrypts hosts/** on checkout, then rewrite only the files that differ
+# and surface a permission failure as an actionable message.
+- name: Materialize .gitattributes so git-crypt filters apply on checkout
   ansible.builtin.command:
-    cmd: "git checkout HEAD -- ."
+    cmd: "git checkout HEAD -- .gitattributes"
     chdir: "{{ instance_path }}"
   changed_when: true
+
+- name: Find tracked files whose content differs from the repo
+  ansible.builtin.command:
+    cmd: "git diff --name-only HEAD"
+    chdir: "{{ instance_path }}"
+  register: _join_diff
+  changed_when: false
+
+- name: Check out only the differing files (decrypted via git-crypt)
+  ansible.builtin.command:
+    cmd: "git checkout HEAD -- {{ item | quote }}"
+    chdir: "{{ instance_path }}"
+  loop: "{{ _join_diff.stdout_lines }}"
+  register: _join_checkout
+  changed_when: true
+  failed_when: false
+
+- name: Fail with guidance if any file could not be replaced
+  vars:
+    _join_blocked: >-
+      {{ _join_checkout.results | default([])
+         | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0)
+         | map(attribute='item') | list }}
+  ansible.builtin.fail:
+    msg: |
+      Could not replace these tracked files while joining the gitops
+      repository (permission denied):
+
+        {{ _join_blocked | join('\n        ') }}
+
+      They are likely owned by a different user than the account running
+      the join. Make the instance directory writable by your user, then
+      retry with --reinit:
+
+        sudo chown -R "$(id -un):$(id -gn)" {{ instance_path }}
+        canasta gitops join ... --reinit
+  when: _join_blocked | length > 0
 
 - name: Configure git pull strategy
   ansible.builtin.command:
