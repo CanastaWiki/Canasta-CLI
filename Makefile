@@ -19,8 +19,11 @@ venv: $(VENV)/bin/activate
 test-unit: venv
 	$(PYTEST) tests/unit/ -v
 
+# Integration tests call ./canasta commands as subprocesses. Requires
+# Docker and git-crypt. Pass a test name to run a single test, e.g.
+# 'python tests/integration/run_tests.py lifecycle'.
 test-integration: venv
-	$(VENV)/bin/molecule test -s default
+	$(PYTHON) tests/integration/run_tests.py
 
 test: test-unit
 
@@ -59,5 +62,5 @@ build-info:
 # --- Clean -------------------------------------------------------------------
 
 clean:
-	rm -rf $(VENV) .pytest_cache .molecule docs/commands/*.md
+	rm -rf $(VENV) .pytest_cache docs/commands/*.md
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
