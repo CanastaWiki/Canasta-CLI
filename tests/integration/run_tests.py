@@ -563,8 +563,12 @@ def test_gitops_join(inst):
     )
 
     bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    # Default the bare repo's HEAD to 'main' so the join's `git clone`
+    # checks out the branch gitops pushes to. Without this, a runner whose
+    # git defaults new repos to 'master' (e.g. CI) clones an empty master
+    # and the join fails reading hosts/hosts.yaml.
     subprocess.run(
-        ["git", "init", "--bare", bare_repo],
+        ["git", "init", "--bare", "--initial-branch=main", bare_repo],
         capture_output=True, check=True,
     )
     key_file = os.path.join(inst.work_dir, "gitops-test.key")
