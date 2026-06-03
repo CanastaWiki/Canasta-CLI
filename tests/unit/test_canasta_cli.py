@@ -1248,3 +1248,32 @@ class TestCaBundleOverride:
             lambda: "/certifi/cacert.pem",
         )
         assert result == "/certifi/cacert.pem"
+
+
+class TestNestedGroupHelp:
+    """A bare nested group (e.g. 'canasta backup schedule') lists its
+    subcommands instead of erroring with 'Unknown command'."""
+
+    def test_nested_group_for_backup_schedule(self):
+        assert canasta_cli.nested_group_for("backup_schedule") == (
+            "backup", "schedule"
+        )
+
+    def test_nested_group_for_storage_setup(self):
+        assert canasta_cli.nested_group_for("storage_setup") == (
+            "storage", "setup"
+        )
+
+    def test_nested_group_for_leaf_command_is_none(self):
+        # A real leaf command, not a nested group.
+        assert canasta_cli.nested_group_for("backup_list") is None
+
+    def test_nested_group_for_unknown_is_none(self):
+        assert canasta_cli.nested_group_for("not_a_group") is None
+
+    def test_print_nested_help_lists_subcommands(self, data, capsys):
+        canasta_cli.print_nested_subcommand_help("backup", "schedule", data)
+        out = capsys.readouterr().out
+        assert "backup schedule" in out
+        for sub in ("set", "list", "remove"):
+            assert sub in out
