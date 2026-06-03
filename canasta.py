@@ -785,6 +785,44 @@ def print_subcommand_help(group, data):
     print("Run 'canasta %s <subcommand> --help' for details." % group)
 
 
+def nested_group_for(command_name):
+    """If command_name names a bare nested group (e.g. 'backup_schedule' or
+    'storage_setup'), return (group, nested_group); otherwise None.
+
+    Lets the dispatcher treat a nested group invoked without a leaf
+    subcommand the same way it treats a bare top-level group — by listing
+    its subcommands rather than erroring with "Unknown command".
+    """
+    for group, nested_map in NESTED_SUBCOMMAND_GROUPS.items():
+        for nested_group in nested_map:
+            if command_name == "%s_%s" % (group, internal_name(nested_group)):
+                return (group, nested_group)
+    return None
+
+
+def print_nested_subcommand_help(group, nested_group, data):
+    """Print the subcommands of a nested group (e.g. 'backup schedule')."""
+    cmd_index = {c["name"]: c for c in data["commands"]}
+    subcmds = NESTED_SUBCOMMAND_GROUPS.get(group, {}).get(nested_group, [])
+    rows = []
+    for sub in subcmds:
+        internal = "%s_%s_%s" % (
+            group, internal_name(nested_group), internal_name(sub)
+        )
+        desc = cmd_index.get(internal, {}).get("description", "") or ""
+        rows.append((sub, desc))
+
+    width = max((len(r[0]) for r in rows), default=0)
+    print("Available '%s %s' subcommands:" % (group, nested_group))
+    for name, desc in rows:
+        print("  %-*s  %s" % (width, name, desc))
+    print("")
+    print(
+        "Run 'canasta %s %s <subcommand> --help' for details."
+        % (group, nested_group)
+    )
+
+
 def resolve_command_name(args):
     """Resolve the internal command name from parsed args."""
     cmd = args.command
@@ -1111,6 +1149,12 @@ def main():
         # list the subcommands with descriptions instead of erroring.
         if command_name in SUBCOMMAND_GROUPS:
             print_subcommand_help(command_name, data)
+            sys.exit(2)
+        # Same for a bare nested group (e.g. 'canasta backup schedule',
+        # 'canasta storage setup'): list its leaf subcommands.
+        nested = nested_group_for(command_name)
+        if nested:
+            print_nested_subcommand_help(nested[0], nested[1], data)
             sys.exit(2)
         print("Unknown command: %s" % command_name, file=sys.stderr)
         sys.exit(1)
