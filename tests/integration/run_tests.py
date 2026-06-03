@@ -540,6 +540,104 @@ def test_gitops(inst):
     )
 
 
+def test_gitops_join(inst):
+    """Join a second instance to an existing gitops repo.
+
+    Exercises the join working-tree checkout (#571/#582): files present in
+    the repo but not yet in the joining instance are materialized, and a
+    tracked file that differs locally is replaced with the repo's version.
+    Uses a host-owned settings file (not the container-managed Caddyfile)
+    for the diverging case so the assertion is portable.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    import yaml
+
+    # --- Instance A: create, init gitops, push a tracked settings file ---
+    print("Creating instance A...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops on A (host 'hosta')...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "hosta",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    print("Adding a tracked settings file on A and pushing...")
+    rel_settings = os.path.join("config", "settings", "global", "JoinTest.php")
+    a_settings = os.path.join(inst.instance_path(), rel_settings)
+    repo_content = "<?php\n$wgJoinTest = 'from-repo';\n"
+    os.makedirs(os.path.dirname(a_settings), exist_ok=True)
+    with open(a_settings, "w") as f:
+        f.write(repo_content)
+    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok("gitops", "push", "-i", inst.id)
+
+    # --- Instance B: create, seed a diverging copy, join ---
+    inst_b = TestInstance("inttest-gitops-join-b")
+    try:
+        print("Creating instance B...")
+        inst_b.run_ok(
+            "create", "-i", inst_b.id, "-w", "main",
+            "-n", "localhost", "-p", inst_b.work_dir,
+            "-e", inst_b.env_file,
+        )
+        b_path = inst_b.instance_path()
+
+        # Seed B with a stale copy of the tracked settings file so the join
+        # must overwrite it (the per-file checkout-of-differing path).
+        b_settings = os.path.join(b_path, rel_settings)
+        os.makedirs(os.path.dirname(b_settings), exist_ok=True)
+        with open(b_settings, "w") as f:
+            f.write("<?php\n$wgJoinTest = 'local-stale';\n")
+
+        print("Joining B to A's gitops repo (host 'hostb')...")
+        inst_b.run_ok(
+            "gitops", "join", "-i", inst_b.id, "-n", "hostb",
+            "--repo", bare_repo, "--key", key_file,
+        )
+
+        print("Verifying B picked up the gitops structure...")
+        assert os.path.isfile(os.path.join(b_path, ".gitops-host")), (
+            ".gitops-host not created on join"
+        )
+        b_vars = os.path.join(b_path, "hosts", "hostb", "vars.yaml")
+        assert os.path.isfile(b_vars), (
+            "hosts/hostb/vars.yaml not created on join"
+        )
+        with open(b_vars) as f:
+            assert isinstance(yaml.safe_load(f), dict), (
+                "hosts/hostb/vars.yaml is not a valid vars mapping"
+            )
+
+        print("Verifying the diverging settings file was replaced...")
+        with open(b_settings) as f:
+            b_after = f.read()
+        assert b_after == repo_content, (
+            "join did not replace B's diverging settings file with the "
+            "repo version; got: %r" % b_after
+        )
+
+        print("Verifying A's host vars survived B's join...")
+        assert os.path.isfile(
+            os.path.join(b_path, "hosts", "hosta", "vars.yaml")
+        ), "A's host entry was not materialized into B on join"
+    finally:
+        inst_b.cleanup()
+
+
 def test_extension_skin(inst):
     """Enable/disable extensions and skins, verify via API."""
     print("Creating instance...")
@@ -1947,6 +2045,7 @@ ALL_TESTS = {
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
     "gitops": test_gitops,
+    "gitops-join": test_gitops_join,
     "gitops-pull-diff": test_gitops_pull_diff,
     "extension-skin": test_extension_skin,
     "wiki-farm": test_wiki_farm,
