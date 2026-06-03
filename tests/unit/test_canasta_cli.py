@@ -2,6 +2,7 @@
 
 import os
 import sys
+import types
 
 import pytest
 
@@ -1200,3 +1201,50 @@ class TestSelfUpdateCli:
         canasta_cli.self_update_cli()
         err = capsys.readouterr().err
         assert "could not fetch from origin" in err
+
+
+class TestCaBundleOverride:
+    """_ca_bundle_override falls back to certifi only when the interpreter
+    has no usable system CA store and the user hasn't set SSL_CERT_FILE."""
+
+    @staticmethod
+    def _paths(cafile=None, capath=None):
+        return types.SimpleNamespace(cafile=cafile, capath=capath)
+
+    def test_respects_user_set_ssl_cert_file(self):
+        # An explicit user value is never overridden, even with no system store.
+        result = canasta_cli._ca_bundle_override(
+            {"SSL_CERT_FILE": "/my/ca.pem"},
+            self._paths(cafile="/missing", capath="/missing"),
+            lambda p: False,
+            lambda: "/certifi/cacert.pem",
+        )
+        assert result is None
+
+    def test_skips_when_system_cafile_exists(self):
+        result = canasta_cli._ca_bundle_override(
+            {},
+            self._paths(cafile="/etc/ssl/cert.pem"),
+            lambda p: p == "/etc/ssl/cert.pem",
+            lambda: "/certifi/cacert.pem",
+        )
+        assert result is None
+
+    def test_skips_when_system_capath_exists(self):
+        result = canasta_cli._ca_bundle_override(
+            {},
+            self._paths(capath="/etc/ssl/certs"),
+            lambda p: p == "/etc/ssl/certs",
+            lambda: "/certifi/cacert.pem",
+        )
+        assert result is None
+
+    def test_falls_back_to_certifi_when_no_system_store(self):
+        # python.org macOS: verify paths point at files that don't exist.
+        result = canasta_cli._ca_bundle_override(
+            {},
+            self._paths(cafile="/missing/cert.pem", capath="/missing/certs"),
+            lambda p: False,
+            lambda: "/certifi/cacert.pem",
+        )
+        assert result == "/certifi/cacert.pem"
