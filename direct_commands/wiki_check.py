@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wiki-check command — verify MediaWiki main pages are accessible."""
+"""wiki-check command — verify MediaWiki instances are accessible."""
 
 import ssl
 import sys
@@ -9,50 +9,75 @@ from . import _helpers
 from ._helpers import register
 
 
+_PROTOCOLS = ("https", "http")
+_LOCAL_DOMAINS = {"localhost", "127.0.0.1"}
+
+
 def _build_urls(wiki_url):
     base = wiki_url.rstrip("/")
     if base.startswith("http://") or base.startswith("https://"):
-        base_urls = [base]
+        return [base + "/"]
+
+    parsed = urllib.parse.urlsplit("http://" + base)
+    host = parsed.netloc
+    path = parsed.path.rstrip("/")
+    if path:
+        host = host + path
+
+    return [f"{protocol}://{host}/" for protocol in _PROTOCOLS]
+
+
+def _localhost_probe(url, instance_path):
+    parsed = urllib.parse.urlsplit(url)
+    scheme = parsed.scheme
+    domain = parsed.netloc
+    url_path = parsed.path or "/"
+
+    bare_hostname = domain.split(":")[0]
+
+    if bare_hostname in _LOCAL_DOMAINS:
+        req = urllib.request.Request(url)
+        context = ssl._create_unverified_context() if scheme == "https" else None
+        try:
+            with urllib.request.urlopen(req, timeout=15, context=context) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
+
+    env = _helpers._read_env_file(instance_path, "localhost") if instance_path else {}
+    if scheme == "https":
+        port = env.get("HTTPS_PORT", "")
     else:
-        parsed = urllib.parse.urlsplit("http://" + base)
-        host = parsed.netloc
-        path = parsed.path.rstrip("/")
-        if path:
-            host = host + path
+        port = env.get("HTTP_PORT", "")
 
-        port = None
-        if ":" in parsed.netloc:
-            port_value = parsed.netloc.rsplit(":", 1)[-1]
-            if port_value.isdigit():
-                port = port_value
+    if port:
+        check_url = f"{scheme}://127.0.0.1:{port}{url_path}"
+    else:
+        check_url = url
 
-        base_urls = ["%s://%s" % (protocol, host) for protocol in ["https", "http"]]
+    req = urllib.request.Request(check_url)
+    req.add_header("Host", domain)
 
-    wiki_main_page_suffixes = ["/wiki/Main_Page", "/Main_Page"]
-    urls = []
-    for base_url in base_urls:
-        for suffix in wiki_main_page_suffixes:
-            urls.append(base_url + suffix)
-    return urls
+    if scheme == "https":
+        context = ssl._create_unverified_context()
+    else:
+        context = None
+
+    try:
+        with urllib.request.urlopen(req, timeout=15, context=context) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
 
 
-def _check_url(wiki_url, host):
+def _check_url(wiki_url, host, instance_path=""):
     for url in _build_urls(wiki_url):
         if _helpers._is_localhost(host):
-            req = urllib.request.Request(url)
-            if url.startswith("https://"):
-                context = ssl._create_unverified_context()
-            else:
-                context = None
-            try:
-                with urllib.request.urlopen(req, timeout=15, context=context) as resp:
-                    if resp.status == 200:
-                        return True
-            except Exception:
-                continue
+            if _localhost_probe(url, instance_path):
+                return True
         else:
             cmd = (
-                "curl -sSL -o /dev/null -w '%{http_code}' "
+                "curl -sSLk -o /dev/null -w '%{http_code}' "
                 + _helpers._shell_quote(url)
             )
             rc, stdout = _helpers._ssh_run(host, cmd)
@@ -91,7 +116,7 @@ def cmd_wiki_check(args):
             all_ok = False
             continue
 
-        if _check_url(wiki_url, host):
+        if _check_url(wiki_url, host, instance_path=path):
             print("Wiki '%s' is reachable at %s." % (wiki_id, wiki_url))
         else:
             print("Wiki '%s' could not be reached at %s." % (wiki_id, wiki_url))
