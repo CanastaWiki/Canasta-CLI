@@ -131,13 +131,24 @@
         dest: /usr/local/bin/canasta
         state: link
 
-    # ansible_user is the SSH user we connected as; ansible_user_id is
-    # the local-run fallback. Either way, this is the user who will be
-    # invoking 'canasta upgrade' / 'canasta install' on the target, so
-    # they're the one who needs canasta-group membership.
-    - name: Determine operator user
+    # Determine the operator (SSH) user who will invoke canasta on the
+    # target — they're the one who needs canasta-group membership.
+    # ansible_user (if set in inventory) wins; otherwise read it with
+    # `id -un` run WITHOUT become, so we capture the connecting SSH user
+    # rather than root. The dispatcher play is gather_facts: false (so
+    # ansible_user_id is unavailable here) and this block is become: true
+    # (so the fact would resolve to 'root' anyway) — hence the explicit
+    # pre-become lookup.
+    - name: Determine operator (SSH) user
+      ansible.builtin.command: id -un
+      become: false
+      changed_when: false
+      register: _operator_user_cmd
+
+    - name: Set operator user fact
       ansible.builtin.set_fact:
-        _operator_user: "{{ ansible_user | default(ansible_user_id) }}"
+        _operator_user: >-
+          {{ ansible_user | default(_operator_user_cmd.stdout, true) }}
 
     - name: Add operator to the canasta group
       ansible.builtin.user:
