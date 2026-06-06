@@ -30,7 +30,8 @@ uname -s 2>/dev/null || echo unknown; echo "$D"
 python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
 df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown; echo "$D"
 cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
-runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; for sock in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do if [ -S "$sock" ]; then echo "unix://$sock"; exit 0; fi; done; echo ""
+runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
+command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo OK || echo BROKEN; } || echo MISSING
 """
 
 
@@ -59,6 +60,9 @@ def _parse_doctor(stdout, hostname):
     disk = p(15) if len(parts) > 15 else "unknown"
     unpriv_port_start = p(16) if len(parts) > 16 else "unknown"
     rootless_sock = p(17) if len(parts) > 17 else ""
+    # canasta probe is appended after rootless (index 18) so adding it
+    # didn't shift the existing positional indices above.
+    host_canasta = p(18) if len(parts) > 18 else "MISSING"
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -135,6 +139,15 @@ def _parse_doctor(stdout, hostname):
         "OK" if crontab == "OK"
         else "not installed (install cron to use canasta backup schedule "
              "on Compose; K8s uses an in-cluster CronJob instead)"))
+    # Scheduled backups run `canasta backup create` on the host via the
+    # crontab, so a runnable canasta must exist there (any flavor —
+    # native or docker). BROKEN = the command exists but doesn't run.
+    lines.append("  canasta on host: %s" % (
+        "OK" if host_canasta == "OK"
+        else "installed but not runnable" if host_canasta == "BROKEN"
+        else "not installed (scheduled backups run 'canasta backup create' "
+             "on the host; install with 'canasta install canasta -H <host>' "
+             "or canasta-docker)"))
 
     lines.append("")
     lines.append("System:")
