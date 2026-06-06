@@ -2244,6 +2244,26 @@ class TestDoctor:
         assert "crontab:         OK" in result
         assert "www-data group:  OK (member)" in result
 
+    def test_parse_doctor_reports_host_canasta(self):
+        d = direct_commands._SENTINEL
+        # 18 base parts (through the rootless socket at index 17); the
+        # canasta probe is appended at index 18.
+        base = [
+            "Python 3.12.0", "Docker version 27.0.0",
+            "Docker Compose version v2.30.0", "OK",
+            "user docker www-data", "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED", "git version 2.45.0", "OK", "OK",
+            "Linux", "16 GB", "50G", "1024", "",
+        ]
+        for value, expected in [
+            ("OK", "canasta on host: OK"),
+            ("BROKEN", "canasta on host: installed but not runnable"),
+            ("MISSING", "canasta on host: not installed"),
+        ]:
+            stdout = ("\n" + d + "\n").join(base + [value]) + "\n"
+            result = direct_commands._parse_doctor(stdout, "myhost")
+            assert expected in result
+
     def test_parse_doctor_missing_deps(self):
         d = direct_commands._SENTINEL
         parts = [
