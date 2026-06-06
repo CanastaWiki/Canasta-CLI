@@ -11,12 +11,35 @@
 - name: Set backup schedule (Compose)
   when: instance_orchestrator | default('compose') == 'compose'
   block:
+    # The host crontab runs 'canasta backup create' on this host, so a
+    # runnable 'canasta' must exist here. Any flavor satisfies it
+    # (canasta-native or canasta-docker) — we only check that the command
+    # runs. Also, cron's PATH is minimal (typically /usr/bin:/bin) and
+    # usually excludes /usr/local/bin where canasta lives, so we resolve
+    # the absolute path now and bake it into the crontab.
+    - name: Resolve canasta executable on the host
+      ansible.builtin.shell: command -v canasta
+      register: _host_canasta
+      changed_when: false
+      failed_when: false
+
+    - name: Require a runnable canasta on the host for scheduled backups
+      ansible.builtin.fail:
+        msg: >-
+          Scheduled backups run 'canasta backup create' on this host via
+          crontab, but no 'canasta' executable was found here. Install it
+          first — 'canasta install canasta -H <host>' (or install
+          canasta-docker) — then re-run 'canasta backup schedule set'.
+      when: _host_canasta.rc != 0 or (_host_canasta.stdout | trim) == ''
+
     - name: Build backup command for cron
       ansible.builtin.set_fact:
-        _cron_base: "canasta backup create -i {{ instance_id }} --tag scheduled"
+        _cron_base: >-
+          {{ _host_canasta.stdout | trim }} backup create
+          -i {{ instance_id }} --tag scheduled
         _cron_purge: >-
           {{ (purge_older_than is defined and purge_older_than != '')
-             | ternary('&& canasta backup purge -i ' + instance_id + ' --keep-within ' + (purge_older_than | default('')), '') }}
+             | ternary('&& ' + (_host_canasta.stdout | trim) + ' backup purge -i ' + instance_id + ' --keep-within ' + (purge_older_than | default('')), '') }}
         _cron_log: '>> "{{ instance_path }}/backup.log" 2>&1'
 
     - name: Assemble cron command
