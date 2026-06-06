@@ -83,6 +83,32 @@ def _read_env_content(path, host):
     return content if rc == 0 else ""
 
 
+def _lint_env_content(content):
+    """Find .env hygiene problems that survive read-time quote-stripping but
+    reach `docker --env-file` literally: quoted values and CRLF endings.
+    Mirrors canasta_env.lint_env_file() in the Ansible module. Returns
+    (quoted_keys, has_crlf).
+    """
+    has_crlf = "\r" in content
+    quoted_keys = []
+    for line in content.split("\n"):
+        # Tolerate a trailing CR so key detection works on CRLF files.
+        stripped = line.rstrip("\r").strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split("=", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if len(value) >= 2 and (
+            (value.startswith('"') and value.endswith('"'))
+            or (value.startswith("'") and value.endswith("'"))
+        ):
+            quoted_keys.append(key)
+    return quoted_keys, has_crlf
+
+
 def _parse_env_entries(content):
     """Parse .env content into ordered (key, value, is_comment) tuples.
 

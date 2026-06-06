@@ -60,6 +60,52 @@
               is match('^/'))
              | ternary(_backup_repo_env.value, '') }}
 
+    - name: Read RESTIC_PASSWORD from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: RESTIC_PASSWORD
+      register: _backup_pw_env
+      no_log: true
+
+    # Fail fast with a clear message instead of letting restic emit an
+    # opaque error. Mirrors the Kubernetes path (k8s_run_backup.yml), so
+    # both orchestrators behave the same way. backup has no -r override —
+    # the repo always comes from .env — so requiring both here is safe.
+    - name: Fail if restic repository or password is not configured
+      ansible.builtin.fail:
+        msg: "RESTIC_REPOSITORY and RESTIC_PASSWORD must be set in .env."
+      when: >-
+        (_backup_repo_env.value | default('')) == ''
+        or (_backup_pw_env.value | default('')) == ''
+
+    # Quoted values and CRLF endings are stripped by canasta_env on read
+    # (so `canasta config get` looks fine) but pass through Docker's
+    # --env-file literally, a common cause of restic "wrong password".
+    # Surface it as an advisory rather than failing.
+    - name: Check .env for quoted or CRLF values
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: lint
+      register: _backup_env_lint
+
+    - name: Build .env hygiene warning
+      ansible.builtin.set_fact:
+        _backup_env_warn: >-
+          {{ ([] if _backup_env_lint.quoted_keys | length == 0
+               else ['quoted values (' + (_backup_env_lint.quoted_keys | join(', ')) + ')'])
+             + ([] if not _backup_env_lint.has_crlf else ['CRLF line endings']) }}
+
+    - name: Warn about quoted or CRLF .env values
+      ansible.builtin.debug:
+        msg: >-
+          Warning: {{ instance_path }}/.env has {{ _backup_env_warn | join(' and ') }}.
+          Docker --env-file passes these to restic literally (unlike
+          'canasta config get', which strips them) — a common cause of restic
+          'wrong password' or backend auth failures. Remove surrounding quotes
+          and use LF line endings.
+      when: _backup_env_warn | length > 0
+
     - name: Run restic container
       ansible.builtin.shell:
         cmd: |

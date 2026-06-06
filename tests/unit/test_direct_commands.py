@@ -2244,6 +2244,26 @@ class TestDoctor:
         assert "crontab:         OK" in result
         assert "www-data group:  OK (member)" in result
 
+    def test_parse_doctor_reports_host_canasta(self):
+        d = direct_commands._SENTINEL
+        # 18 base parts (through the rootless socket at index 17); the
+        # canasta probe is appended at index 18.
+        base = [
+            "Python 3.12.0", "Docker version 27.0.0",
+            "Docker Compose version v2.30.0", "OK",
+            "user docker www-data", "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED", "git version 2.45.0", "OK", "OK",
+            "Linux", "16 GB", "50G", "1024", "",
+        ]
+        for value, expected in [
+            ("OK", "canasta on host: OK"),
+            ("BROKEN", "canasta on host: installed but not runnable"),
+            ("MISSING", "canasta on host: not installed"),
+        ]:
+            stdout = ("\n" + d + "\n").join(base + [value]) + "\n"
+            result = direct_commands._parse_doctor(stdout, "myhost")
+            assert expected in result
+
     def test_parse_doctor_missing_deps(self):
         d = direct_commands._SENTINEL
         parts = [
@@ -3202,4 +3222,42 @@ class TestDockerHostPropagation:
         assert remote_cmd == "docker compose ps", (
             "remote cmd should be unmodified when DOCKER_HOST unset; "
             "got %r" % remote_cmd
+        )
+
+
+class TestLintEnvContent:
+    """_lint_env_content flags quoted values / CRLF that survive read-time
+    stripping but reach docker --env-file literally."""
+
+    def test_clean(self):
+        assert direct_commands._lint_env_content("A=1\nB=2\n# c\n") == (
+            [], False
+        )
+
+    def test_double_quoted(self):
+        assert direct_commands._lint_env_content('PW="x"\n') == (["PW"], False)
+
+    def test_single_quoted(self):
+        assert direct_commands._lint_env_content("PW='x'\n") == (["PW"], False)
+
+    def test_unquoted_not_flagged(self):
+        assert direct_commands._lint_env_content("PW=x\n") == ([], False)
+
+    def test_crlf(self):
+        assert direct_commands._lint_env_content("A=1\r\n") == ([], True)
+
+    def test_quoted_and_crlf(self):
+        # Trailing CR must not defeat quote detection.
+        assert direct_commands._lint_env_content('PW="x"\r\nA=1\r\n') == (
+            ["PW"], True
+        )
+
+    def test_comments_and_blanks_ignored(self):
+        assert direct_commands._lint_env_content('# PW="x"\n\nA=1\n') == (
+            [], False
+        )
+
+    def test_multiple_quoted_keys(self):
+        assert direct_commands._lint_env_content('A="1"\nB=2\nC=\'3\'\n') == (
+            ["A", "C"], False
         )
