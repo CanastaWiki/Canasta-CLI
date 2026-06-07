@@ -3261,3 +3261,52 @@ class TestLintEnvContent:
         assert direct_commands._lint_env_content('A="1"\nB=2\nC=\'3\'\n') == (
             ["A", "C"], False
         )
+
+
+class TestResolveInstanceByCwd:
+    """#596: status/doctor/version must detect the instance from any
+    subdirectory (walking up parent dirs), honoring CANASTA_HOST_PWD."""
+
+    @staticmethod
+    def _args(instance_id=None):
+        import types
+        return types.SimpleNamespace(id=instance_id)
+
+    def test_top_level_dir(self, registry, monkeypatch):
+        _, data = registry
+        path = data["Instances"]["siteA"]["path"]
+        monkeypatch.setenv("CANASTA_HOST_PWD", path)
+        iid, inst = direct_commands._helpers._resolve_instance_by_cwd(self._args())
+        assert iid == "siteA"
+        assert inst["path"] == path
+
+    def test_subdirectory_walks_up(self, registry, monkeypatch):
+        _, data = registry
+        sub = os.path.join(data["Instances"]["siteA"]["path"], "config")
+        monkeypatch.setenv("CANASTA_HOST_PWD", sub)
+        iid, _inst = direct_commands._helpers._resolve_instance_by_cwd(self._args())
+        assert iid == "siteA"
+
+    def test_deeper_subdirectory_walks_up(self, registry, monkeypatch):
+        _, data = registry
+        deep = os.path.join(
+            data["Instances"]["siteB"]["path"], "config", "settings"
+        )
+        os.makedirs(deep, exist_ok=True)
+        monkeypatch.setenv("CANASTA_HOST_PWD", deep)
+        iid, _inst = direct_commands._helpers._resolve_instance_by_cwd(self._args())
+        assert iid == "siteB"
+
+    def test_no_match_returns_none(self, registry, monkeypatch):
+        monkeypatch.setenv("CANASTA_HOST_PWD", "/")
+        assert direct_commands._helpers._resolve_instance_by_cwd(
+            self._args()
+        ) == (None, None)
+
+    def test_explicit_id_wins(self, registry, monkeypatch):
+        monkeypatch.setenv("CANASTA_HOST_PWD", "/nowhere")
+        iid, inst = direct_commands._helpers._resolve_instance_by_cwd(
+            self._args("siteB")
+        )
+        assert iid == "siteB"
+        assert inst is not None

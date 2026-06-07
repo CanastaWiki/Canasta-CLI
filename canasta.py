@@ -507,8 +507,10 @@ def resolve_instance(instance_id=None):
         inst["id"] = instance_id
         return inst
 
-    # Walk up from cwd to find a matching instance path
-    search = os.path.abspath(os.getcwd())
+    # Walk up from cwd to find a matching instance path. Honor
+    # CANASTA_HOST_PWD (the dockerized CLI passes the host's working
+    # directory there) before falling back to the process cwd.
+    search = os.path.abspath(os.environ.get("CANASTA_HOST_PWD") or os.getcwd())
     while True:
         for iid, inst in instances.items():
             if os.path.abspath(inst.get("path", "")) == search:
