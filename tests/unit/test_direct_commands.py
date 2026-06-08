@@ -1534,6 +1534,65 @@ class TestSyncComposeProfiles:
         assert "# Canasta config" in content
         assert "# profiles below" in content
 
+    # --- CrowdSec profile + managed caddy image ---
+
+    def test_adds_crowdsec_profile_and_caddy_image_when_enabled(self, tmp_path):
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_CROWDSEC=true\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "COMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "COMPOSE_PROFILES=crowdsec" in content
+        # Enabling crowdsec switches the caddy image to the bouncer build.
+        assert (
+            "CANASTA_CADDY_IMAGE=%s" % direct_commands._helpers._CADDY_CROWDSEC_IMAGE
+            in content
+        )
+
+    def test_crowdsec_off_by_default(self, tmp_path):
+        # Unset flag must not add the profile or touch the caddy image.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_VARNISH=false\nCOMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "crowdsec" not in content
+        # No spurious empty CANASTA_CADDY_IMAGE line is added.
+        assert "CANASTA_CADDY_IMAGE" not in content
+
+    def test_disabling_crowdsec_reverts_managed_caddy_image(self, tmp_path):
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_CROWDSEC=false\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "CANASTA_CADDY_IMAGE=%s\n"
+            "COMPOSE_PROFILES=crowdsec\n"
+            % direct_commands._helpers._CADDY_CROWDSEC_IMAGE
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        # Profile dropped and the managed image cleared back to default.
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert line == "COMPOSE_PROFILES="
+            if line.startswith("CANASTA_CADDY_IMAGE="):
+                assert line == "CANASTA_CADDY_IMAGE="
+
+    def test_custom_caddy_image_is_not_clobbered(self, tmp_path):
+        # An operator-set custom caddy image must survive enabling crowdsec.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_CROWDSEC=true\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "CANASTA_CADDY_IMAGE=myregistry/custom-caddy:1.0\n"
+            "COMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "CANASTA_CADDY_IMAGE=myregistry/custom-caddy:1.0" in content
+        # Profile is still added even though the image is left alone.
+        assert "COMPOSE_PROFILES=crowdsec" in content
+
 
 class TestDumpComposeFailure:
     def test_prints_ps_and_logs_to_stderr(self, monkeypatch, capsys):
