@@ -18,10 +18,14 @@ something structural string-greps wouldn't detect.
 
 import os
 import re
+import sys
 
 import jinja2
 import pytest
 import yaml
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+import canasta as canasta_cli  # noqa: E402 (the canasta.py module)
 
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -298,3 +302,120 @@ class TestCrowdsecBundledFiles:
         )
         content = _read(path)
         assert "ghcr.io/canastawiki/canasta-caddy-crowdsec" in content
+
+
+class TestCrowdsecCommands:
+    def _defs(self):
+        return canasta_cli.load_definitions()
+
+    def test_subcommand_group_registered(self):
+        assert canasta_cli.SUBCOMMAND_GROUPS.get("crowdsec") == [
+            "enroll", "status",
+        ], "crowdsec must be a subcommand group with enroll + status"
+
+    def test_group_umbrella_defined(self):
+        defs = self._defs()
+        groups = {g["name"] for g in defs.get("command_groups", [])}
+        assert "crowdsec" in groups, (
+            "crowdsec needs an umbrella entry under command_groups so the "
+            "group has help text"
+        )
+
+    @pytest.mark.parametrize("cmd_name,playbook", [
+        ("crowdsec_enroll", "crowdsec_enroll.yml"),
+        ("crowdsec_status", "crowdsec_status.yml"),
+    ])
+    def test_command_defined_with_playbook(self, cmd_name, playbook):
+        defs = self._defs()
+        cmd = next(
+            (c for c in defs["commands"] if c["name"] == cmd_name), None,
+        )
+        assert cmd is not None, "%s must be defined" % cmd_name
+        assert cmd.get("playbook") == playbook
+        assert os.path.exists(
+            os.path.join(REPO_ROOT, "playbooks", playbook)
+        ), "playbook %s must exist" % playbook
+
+    def test_enable_disable_not_in_group(self):
+        """Enable/disable stays as `canasta config set`, matching the
+        other optional features — it must NOT be duplicated as crowdsec
+        subcommands."""
+        assert "enable" not in canasta_cli.SUBCOMMAND_GROUPS["crowdsec"]
+        assert "disable" not in canasta_cli.SUBCOMMAND_GROUPS["crowdsec"]
+
+
+class TestCrowdsecEnrollRole:
+    def _enroll(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "enroll.yml",
+        ))
+
+    def test_registers_bouncer_and_captures_raw_key(self):
+        content = self._enroll()
+        assert "cscli bouncers add canasta-caddy -o raw" in content, (
+            "enroll must register the bouncer and capture the raw key"
+        )
+
+    def test_force_revokes_existing_bouncer(self):
+        content = self._enroll()
+        assert "cscli bouncers delete canasta-caddy" in content, (
+            "enroll must be able to revoke an existing bouncer (--force / "
+            "orphaned registration)"
+        )
+
+    def test_persists_key_via_config_set(self):
+        """Storing the key must go through config set so the Caddyfile
+        re-renders, gitops vars update, and the instance restarts."""
+        content = self._enroll()
+        assert "CROWDSEC_BOUNCER_API_KEY=" in content
+        assert "tasks_from: set.yml" in content
+
+    def test_key_handling_is_no_log(self):
+        content = self._enroll()
+        assert "no_log: true" in content, (
+            "the token-bearing tasks must be no_log so the key never lands "
+            "in Ansible output"
+        )
+
+    def test_compose_only_guard(self):
+        # Guard lives in the shared preflight include.
+        preflight = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "_preflight.yml",
+        ))
+        assert "not in ['compose']" in preflight
+        assert "Kubernetes" in preflight
+
+
+class TestCrowdsecStatusRole:
+    def test_lists_bouncers_and_decisions(self):
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
+        ))
+        assert "cscli bouncers list" in content
+        assert "cscli decisions list" in content
+
+
+class TestCrowdsecWhitelist:
+    def test_whitelist_ships_and_is_valid(self):
+        path = os.path.join(
+            REPO_ROOT, "instance_template", "config", "crowdsec",
+            "whitelists.yaml",
+        )
+        assert os.path.exists(path), (
+            "whitelists.yaml must ship in the instance template, like "
+            "Caddyfile.global, ready to edit"
+        )
+        parsed = yaml.safe_load(_read(path))
+        # A parser whitelist needs a 'whitelist' node to load cleanly.
+        assert "whitelist" in parsed
+        assert "reason" in parsed["whitelist"]
+
+    def test_whitelist_mounted_into_parser_dir(self):
+        svc = _load_compose()["services"]["crowdsec"]
+        vols = svc.get("volumes", [])
+        assert any(
+            "whitelists.yaml" in v and "parsers/s02-enrich" in v for v in vols
+        ), (
+            "whitelists.yaml must mount into /etc/crowdsec/parsers/"
+            "s02-enrich/ so CrowdSec loads it"
+        )
