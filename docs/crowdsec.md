@@ -91,6 +91,46 @@ responsible for ensuring your image includes the
 [`caddy-crowdsec-bouncer`](https://github.com/hslatman/caddy-crowdsec-bouncer)
 HTTP module, or the rendered `crowdsec` directive will fail to load.
 
+## Running behind a CDN or WAF (Cloudflare, Imperva)
+
+CrowdSec only works if it sees the **real client IP**. CrowdSec parses
+Caddy's access log and the bouncer enforces in Caddy, so as long as Caddy
+is the true edge (publishes :80/:443 directly), it already records the
+real client — the Varnish/Apache hops are downstream and invisible to it.
+
+But if Caddy itself sits behind a CDN/WAF (Cloudflare, Imperva, an LB),
+that proxy terminates the client connection and opens its own connection
+to Caddy. Without configuration, Caddy would see the *proxy's* IP — so
+CrowdSec would detect, and the bouncer would block, your CDN instead of
+the attacker. Tell Caddy who to trust:
+
+```bash
+canasta config set CADDY_TRUSTED_PROXIES=cloudflare -i mysite   # behind Cloudflare
+canasta config set CADDY_TRUSTED_PROXIES=imperva    -i mysite   # behind Imperva
+```
+
+Each provider mode does the safe thing automatically: it locks
+`trusted_proxies` to that provider's published edge ranges **and** reads
+the provider's dedicated client-IP header (`CF-Connecting-IP` /
+`Incap-Client-IP`). Locking the ranges is essential — trusting the header
+from any source would let a client hit the origin directly and forge its
+IP, bypassing every ban. Because both the log parser and the bouncer read
+the same resolved `client_ip`, this one setting fixes detection and
+enforcement together. The provider ranges are vendored and refreshed
+automatically (see `scripts/update_proxy_ips.py`).
+
+For any other proxy, pass a comma-separated CIDR list (uses
+`X-Forwarded-For`, strict right-to-left):
+
+```bash
+canasta config set CADDY_TRUSTED_PROXIES=10.0.0.0/8,192.0.2.0/24 -i mysite
+```
+
+A typo (anything that isn't `cloudflare`, `imperva`, or valid CIDRs) is
+rejected at `config set` time rather than crashing Caddy on restart. Also
+restrict your host firewall so the origin only accepts traffic from the
+same provider ranges, so attackers can't bypass the CDN entirely.
+
 ## Whitelisting trusted IPs
 
 To make sure a false positive can never lock you out, list your
