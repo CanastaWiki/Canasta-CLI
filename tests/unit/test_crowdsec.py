@@ -310,8 +310,8 @@ class TestCrowdsecCommands:
 
     def test_subcommand_group_registered(self):
         assert canasta_cli.SUBCOMMAND_GROUPS.get("crowdsec") == [
-            "enroll", "status",
-        ], "crowdsec must be a subcommand group with enroll + status"
+            "enroll", "status", "ban", "unban",
+        ], "crowdsec subcommand group must expose enroll/status/ban/unban"
 
     def test_group_umbrella_defined(self):
         defs = self._defs()
@@ -324,6 +324,8 @@ class TestCrowdsecCommands:
     @pytest.mark.parametrize("cmd_name,playbook", [
         ("crowdsec_enroll", "crowdsec_enroll.yml"),
         ("crowdsec_status", "crowdsec_status.yml"),
+        ("crowdsec_ban", "crowdsec_ban.yml"),
+        ("crowdsec_unban", "crowdsec_unban.yml"),
     ])
     def test_command_defined_with_playbook(self, cmd_name, playbook):
         defs = self._defs()
@@ -393,6 +395,34 @@ class TestCrowdsecStatusRole:
         ))
         assert "cscli bouncers list" in content
         assert "cscli decisions list" in content
+
+
+class TestCrowdsecBanUnban:
+    def test_ban_requires_positional_ip(self):
+        defs = canasta_cli.load_definitions()
+        cmd = next(c for c in defs["commands"] if c["name"] == "crowdsec_ban")
+        ip = next((p for p in cmd["parameters"] if p["name"] == "ip"), None)
+        assert ip is not None
+        assert ip.get("positional") is True
+        assert ip.get("required") is True
+
+    def test_ban_role_adds_decision_with_optional_flags(self):
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "ban.yml",
+        ))
+        # Uses cscli decisions add against --ip, with duration/reason
+        # appended only when provided (argv, not a shell string).
+        assert "'cscli', 'decisions', 'add', '--ip'" in content
+        assert "duration" in content
+        assert "reason" in content
+
+    def test_unban_role_deletes_decision(self):
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "unban.yml",
+        ))
+        assert "decisions" in content
+        assert "delete" in content
+        assert "--ip" in content
 
 
 class TestCrowdsecWhitelist:

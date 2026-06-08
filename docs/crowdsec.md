@@ -111,19 +111,36 @@ whitelist:
 CrowdSec reads parser files at start, so apply changes with
 `canasta restart -i mysite`.
 
+## Blocking and unblocking IPs
+
+To act on an address immediately — independent of CrowdSec's automatic
+detection — add or remove a decision:
+
+```bash
+canasta crowdsec ban 203.0.113.50 -i mysite                       # default 4h ban
+canasta crowdsec ban 203.0.113.50 --duration 24h --reason "scraper" -i mysite
+canasta crowdsec unban 203.0.113.50 -i mysite
+```
+
+`canasta crowdsec status` lists the decisions currently in effect.
+(These are live decisions in the engine's database; for a *permanent*
+allow, add the address to `config/crowdsec/whitelists.yaml` instead.)
+
 ## Tuning detection
 
 The bundled `crowdsecurity/caddy` and `crowdsecurity/http-cve`
 collections are installed at container start (via the `COLLECTIONS`
-environment variable). For ad-hoc inspection or to install more
-collections, run `cscli` in the container via `canasta maintenance exec`
-rather than reaching for bare docker:
+environment variable) and cover common HTTP attacks and CVE probes.
+
+Installing additional hub collections is an advanced, ad-hoc action — it
+writes to the engine's data volume rather than to version-controlled
+config, so it is not tracked by gitops and is lost if the volume is
+recreated:
 
 ```bash
-canasta maintenance exec -i mysite -s crowdsec -- cscli decisions list
 canasta maintenance exec -i mysite -s crowdsec -- cscli collections install crowdsecurity/http-dos
 ```
 
-(Durable detection changes — whitelists, custom scenarios — belong in
+Durable detection changes — whitelists, custom scenarios — belong in
 version-controlled files under `config/crowdsec/`, not ad-hoc `cscli`
-state, so they survive container recreation and travel with gitops.)
+state, so they survive container recreation and travel with gitops.
