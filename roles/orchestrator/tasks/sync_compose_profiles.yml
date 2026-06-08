@@ -34,21 +34,25 @@
     value: "{{ _desired_profiles | join(',') }}"
   when: _desired_profiles | sort != _current_profiles | sort
 
-# The caddy service runs the bouncer-enabled image variant only while
-# CrowdSec is on. CANASTA_CADDY_IMAGE is treated as Canasta-managed when
-# it is empty or already holds the managed crowdsec image — a custom
-# value the operator set themselves is left untouched. Mirrors
-# _CADDY_CROWDSEC_IMAGE in direct_commands/_helpers.py.
-- name: Reconcile CANASTA_CADDY_IMAGE for the CrowdSec bouncer
+# The caddy service runs the plugin image when a plugin feature is on:
+# CrowdSec (the bouncer), or a provider trusted-proxy mode
+# (cloudflare/imperva, which need caddy-cdn-ranges). An explicit CIDR list
+# uses Caddy's built-in 'static' source and runs on stock Caddy.
+# CANASTA_CADDY_IMAGE is treated as Canasta-managed when it is empty or
+# already holds the managed image — a custom value the operator set is
+# left untouched. Mirrors _CADDY_PLUGIN_IMAGE in direct_commands/_helpers.py.
+- name: Reconcile CANASTA_CADDY_IMAGE for plugin features
   vars:
     _crowdsec_on: "{{ _env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
+    _tp_mode: "{{ _env_profiles.variables.CADDY_TRUSTED_PROXIES | default('') | trim | lower }}"
+    _plugin_needed: "{{ _crowdsec_on or (_tp_mode in ['cloudflare', 'imperva']) }}"
     _current_caddy_image: "{{ _env_profiles.variables.CANASTA_CADDY_IMAGE | default('') }}"
-    _crowdsec_caddy_image: "ghcr.io/canastawiki/canasta-caddy-crowdsec:2.10.2"
+    _plugin_caddy_image: "ghcr.io/canastawiki/canasta-caddy:2.10.2"
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: set
     key: CANASTA_CADDY_IMAGE
-    value: "{{ _crowdsec_on | ternary(_crowdsec_caddy_image, '') }}"
+    value: "{{ _plugin_needed | ternary(_plugin_caddy_image, '') }}"
   when:
-    - _current_caddy_image in ['', _crowdsec_caddy_image]
-    - _current_caddy_image != (_crowdsec_on | ternary(_crowdsec_caddy_image, ''))
+    - _current_caddy_image in ['', _plugin_caddy_image]
+    - _current_caddy_image != (_plugin_needed | ternary(_plugin_caddy_image, ''))

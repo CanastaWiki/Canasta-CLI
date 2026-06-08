@@ -107,13 +107,13 @@ services:
       - elasticsearch:/usr/share/elasticsearch/data
 
   caddy:
-    # Defaults to upstream Caddy. When CrowdSec is enabled
-    # (CANASTA_ENABLE_CROWDSEC=true), the profile sync points
-    # CANASTA_CADDY_IMAGE at the bouncer-enabled variant
-    # (ghcr.io/canastawiki/canasta-caddy-crowdsec) built with the
-    # caddy-crowdsec-bouncer plugin. The image only carries the plugin;
-    # it behaves identically to upstream Caddy until the Caddyfile
-    # actually renders a `crowdsec` directive.
+    # Defaults to upstream Caddy. When a plugin feature is enabled —
+    # CrowdSec (CANASTA_ENABLE_CROWDSEC=true) or a provider trusted-proxy
+    # mode (CADDY_TRUSTED_PROXIES=cloudflare|imperva) — the profile sync
+    # points CANASTA_CADDY_IMAGE at ghcr.io/canastawiki/canasta-caddy,
+    # which bundles the bouncer and caddy-cdn-ranges plugins. The plugins
+    # are inert until the rendered Caddyfile uses them, so the image
+    # behaves identically to upstream Caddy otherwise.
     image: ${CANASTA_CADDY_IMAGE:-docker.io/library/caddy:2.10.2-alpine}
     restart: unless-stopped
     logging: *default-logging

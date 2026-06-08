@@ -293,11 +293,14 @@
         key: MW_SITE_SERVER
         value: "{{ _server_scheme }}{{ _config_value }}"
 
-- name: Sync COMPOSE_PROFILES when feature flags change
+# Also reconciles CANASTA_CADDY_IMAGE, so CADDY_TRUSTED_PROXIES (which can
+# require the plugin image) belongs in this trigger list too.
+- name: Sync COMPOSE_PROFILES / caddy image when feature flags change
   when:
     - instance_orchestrator | default('compose') == 'compose'
     - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH',
-                      'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CROWDSEC']
+                      'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CROWDSEC',
+                      'CADDY_TRUSTED_PROXIES']
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
 

@@ -8,14 +8,35 @@
 {
 {% if _trusted_proxies_enabled | default(false) %}
     # Recover the real client IP when Caddy is behind a trusted upstream
-    # proxy (Cloudflare/Imperva/LB). The source ranges are locked so the
+    # proxy (Cloudflare/Imperva/LB). The trusted source is locked so the
     # client-IP header can't be forged by a client hitting the origin
     # directly. Toggled by CADDY_TRUSTED_PROXIES in .env.
     servers {
-        trusted_proxies static {{ _trusted_proxies_cidrs | join(' ') }}
         client_ip_headers {{ _trusted_proxies_headers }}
+{% if _tp_dynamic | default(false) %}
+        # caddy-cdn-ranges keeps the provider's edge ranges current
+        # in-process (re-fetched on the interval), so this instance never
+        # depends on a vendored list or a redeploy to stay correct.
+        trusted_proxies {
+            source cdn_ranges {
+                interval 12h
+{% if _tp_mode == 'cloudflare' %}
+                provider cloudflare
+{% elif _tp_mode == 'imperva' %}
+                provider {
+                    imperva {
+                        ipv4_url https://my.imperva.com/api/integration/v1/ips "ipRanges"
+                        ipv6_url https://my.imperva.com/api/integration/v1/ips "ipv6Ranges"
+                    }
+                }
+{% endif %}
+            }
+        }
+{% else %}
+        trusted_proxies static {{ _trusted_proxies_cidrs | join(' ') }}
 {% if _trusted_proxies_strict | default(false) %}
         trusted_proxies_strict
+{% endif %}
 {% endif %}
     }
 {% endif %}

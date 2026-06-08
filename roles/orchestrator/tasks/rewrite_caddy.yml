@@ -52,11 +52,13 @@
 
 # Trusted-proxy handling: when Caddy sits behind a CDN/proxy (Cloudflare,
 # Imperva, an LB), recover the real client IP. 'cloudflare'/'imperva' are
-# first-class modes that lock trusted_proxies to that provider's edge
-# ranges and read its dedicated client-IP header — locking the ranges is
-# what stops a direct-to-origin client from spoofing the header. Anything
-# else is treated as an explicit comma-separated CIDR list using
-# X-Forwarded-For (strict, right-to-left).
+# first-class modes that keep trusted_proxies current IN-PROCESS via the
+# caddy-cdn-ranges plugin (Caddy re-fetches the provider's published edge
+# ranges on an interval, so a long-lived instance never goes stale) and
+# read the provider's dedicated client-IP header. Locking the ranges to
+# the provider is what stops a direct-to-origin client from spoofing the
+# header. Anything else is an explicit comma-separated CIDR list using
+# Caddy's built-in static source + X-Forwarded-For (strict, right-to-left).
 - name: Determine trusted-proxy mode
   ansible.builtin.set_fact:
     _tp_raw: "{{ _env_caddy.variables.CADDY_TRUSTED_PROXIES | default('') | trim }}"
@@ -66,16 +68,13 @@
     _tp_mode: "{{ _tp_raw | lower }}"
     _trusted_proxies_enabled: "{{ (_tp_raw | length) > 0 }}"
 
-- name: Load provider edge ranges for trusted proxies
-  ansible.builtin.include_vars:
-    file: "{{ canasta_root }}/roles/orchestrator/vars/{{ _tp_mode }}_ips.yml"
-  when: _tp_mode in ['cloudflare', 'imperva']
-
-- name: Resolve trusted-proxy CIDRs, header, and strict mode
+- name: Resolve trusted-proxy rendering parameters
   ansible.builtin.set_fact:
+    # cloudflare/imperva -> dynamic cdn_ranges source (needs the plugin
+    # image); anything else -> built-in static source on stock Caddy.
+    _tp_dynamic: "{{ _tp_mode in ['cloudflare', 'imperva'] }}"
     _trusted_proxies_cidrs: >-
-      {{ cloudflare_ip_ranges if _tp_mode == 'cloudflare'
-         else imperva_ip_ranges if _tp_mode == 'imperva'
+      {{ [] if _tp_mode in ['cloudflare', 'imperva']
          else (_tp_raw | split(',') | map('trim') | reject('equalto', '') | list) }}
     _trusted_proxies_headers: >-
       {{ 'Cf-Connecting-Ip' if _tp_mode == 'cloudflare'

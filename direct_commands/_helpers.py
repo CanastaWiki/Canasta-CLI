@@ -295,10 +295,16 @@ _MANAGED_PROFILES = [
     ("crowdsec", "CANASTA_ENABLE_CROWDSEC", "false"),
 ]
 
-# Bouncer-enabled Caddy image that the caddy service runs while CrowdSec
-# is on. Kept in sync with the literal in
+# Plugin-enabled Caddy image the caddy service runs when a feature needs
+# a Caddy plugin: CrowdSec (the bouncer) or a provider trusted-proxy mode
+# (caddy-cdn-ranges). Kept in sync with the literal in
 # roles/orchestrator/tasks/sync_compose_profiles.yml.
-_CADDY_CROWDSEC_IMAGE = "ghcr.io/canastawiki/canasta-caddy-crowdsec:2.10.2"
+_CADDY_PLUGIN_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.10.2"
+
+# Trusted-proxy modes that need the cdn_ranges plugin (and so the plugin
+# image). An explicit CIDR list uses Caddy's built-in 'static' source and
+# runs on stock Caddy. Mirrors rewrite_caddy.yml / sync_compose_profiles.yml.
+_CADDY_PLUGIN_TRUSTED_PROXY_MODES = ("cloudflare", "imperva")
 
 
 def _sync_compose_profiles(inst):
@@ -331,15 +337,18 @@ def _sync_compose_profiles(inst):
 
     profiles_changed = sorted(desired) != sorted(current)
 
-    # Point the caddy service at the bouncer image while CrowdSec is on.
-    # CANASTA_CADDY_IMAGE is managed only when empty or already the
-    # managed value; a custom override the operator set is left alone.
+    # Point the caddy service at the plugin image when a plugin feature is
+    # on — CrowdSec, or a provider trusted-proxy mode (cloudflare/imperva).
+    # CANASTA_CADDY_IMAGE is managed only when empty or already the managed
+    # value; a custom override the operator set is left alone.
     crowdsec_on = (
         env.get("CANASTA_ENABLE_CROWDSEC", "false").strip().lower() == "true"
     )
+    tp_mode = env.get("CADDY_TRUSTED_PROXIES", "").strip().lower()
+    plugin_needed = crowdsec_on or tp_mode in _CADDY_PLUGIN_TRUSTED_PROXY_MODES
     current_caddy_image = env.get("CANASTA_CADDY_IMAGE", "")
-    desired_caddy_image = _CADDY_CROWDSEC_IMAGE if crowdsec_on else ""
-    image_managed = current_caddy_image in ("", _CADDY_CROWDSEC_IMAGE)
+    desired_caddy_image = _CADDY_PLUGIN_IMAGE if plugin_needed else ""
+    image_managed = current_caddy_image in ("", _CADDY_PLUGIN_IMAGE)
     image_changed = image_managed and current_caddy_image != desired_caddy_image
 
     if not profiles_changed and not image_changed:
