@@ -107,7 +107,14 @@ services:
       - elasticsearch:/usr/share/elasticsearch/data
 
   caddy:
-    image: docker.io/library/caddy:2.10.2-alpine
+    # Defaults to upstream Caddy. When CrowdSec is enabled
+    # (CANASTA_ENABLE_CROWDSEC=true), the profile sync points
+    # CANASTA_CADDY_IMAGE at the bouncer-enabled variant
+    # (ghcr.io/canastawiki/canasta-caddy-crowdsec) built with the
+    # caddy-crowdsec-bouncer plugin. The image only carries the plugin;
+    # it behaves identically to upstream Caddy until the Caddyfile
+    # actually renders a `crowdsec` directive.
+    image: ${CANASTA_CADDY_IMAGE:-docker.io/library/caddy:2.10.2-alpine}
     restart: unless-stopped
     logging: *default-logging
     ports:
@@ -115,6 +122,11 @@ services:
       - "${HTTPS_PORT:-443}:443"
     environment:
       - MW_SITE_FQDN=${MW_SITE_FQDN:-localhost}
+      # Consumed by the rendered Caddyfile's crowdsec directive via the
+      # {env.CROWDSEC_BOUNCER_API_KEY} placeholder. Empty by default;
+      # rewrite_caddy.yml only renders the directive when this is set,
+      # so an unset key never breaks Caddy startup.
+      - CROWDSEC_BOUNCER_API_KEY=${CROWDSEC_BOUNCER_API_KEY:-}
     volumes:
       - caddy-data:/data
       - ./config/Caddyfile:/etc/caddy/Caddyfile
@@ -217,6 +229,30 @@ services:
       - ./scripts/observable-init.sh:/observable-init.sh:ro
     entrypoint: /bin/sh /observable-init.sh
 
+  crowdsec:
+    # CrowdSec detection engine (LAPI on :8080). Opt-in: only runs when
+    # the `crowdsec` profile is active, which the profile sync derives
+    # from CANASTA_ENABLE_CROWDSEC. It parses the Caddy access log,
+    # correlates attack patterns, and publishes IP decisions that the
+    # caddy-crowdsec-bouncer enforces.
+    image: crowdsecurity/crowdsec:v1.6.11
+    profiles:
+      - crowdsec
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      # Installed at container start. The caddy collection ships the
+      # Caddy log parser plus base HTTP attack scenarios.
+      - COLLECTIONS=crowdsecurity/caddy crowdsecurity/http-cve
+    volumes:
+      - crowdsec-db:/var/lib/crowdsec/data
+      - crowdsec-config:/etc/crowdsec
+      # Tells CrowdSec which file to watch (labels.type: caddy). Always
+      # present in the instance template so the bind mount never resolves
+      # to a directory when the profile is enabled.
+      - ./config/crowdsec/acquis.yaml:/etc/crowdsec/acquis.d/caddy.yaml:ro
+      - caddy-logs:/var/log/caddy:ro
+
 volumes:
   mysql-data-volume:
   elasticsearch:
@@ -226,3 +262,5 @@ volumes:
   caddy-logs:
   mysql-logs:
   logstash-sincedb:
+  crowdsec-db:
+  crowdsec-config:
