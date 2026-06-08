@@ -27,17 +27,35 @@
       {{ _purge_list + ['--keep-daily', keep_daily] }}
   when: keep_daily is defined and keep_daily != ''
 
+- name: Add keep-weekly
+  ansible.builtin.set_fact:
+    _purge_list: >-
+      {{ _purge_list + ['--keep-weekly', keep_weekly] }}
+  when: keep_weekly is defined and keep_weekly != ''
+
 - name: Add keep-monthly
   ansible.builtin.set_fact:
     _purge_list: >-
       {{ _purge_list + ['--keep-monthly', keep_monthly] }}
   when: keep_monthly is defined and keep_monthly != ''
 
+- name: Add keep-yearly
+  ansible.builtin.set_fact:
+    _purge_list: >-
+      {{ _purge_list + ['--keep-yearly', keep_yearly] }}
+  when: keep_yearly is defined and keep_yearly != ''
+
 - name: Add keep-within
   ansible.builtin.set_fact:
     _purge_list: >-
-      {{ _purge_list + ['--keep-within', older_than] }}
-  when: older_than is defined and older_than != ''
+      {{ _purge_list + ['--keep-within', keep_within] }}
+  when: keep_within is defined and keep_within != ''
+
+- name: Add keep-tag
+  ansible.builtin.set_fact:
+    _purge_list: >-
+      {{ _purge_list + ['--keep-tag', keep_tag] }}
+  when: keep_tag is defined and keep_tag != ''
 
 - name: Purge old backups
   ansible.builtin.include_tasks: >-
