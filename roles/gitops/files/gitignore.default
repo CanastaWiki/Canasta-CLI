@@ -29,7 +29,8 @@ images/
 config/persistent/
 
 # Editor / tooling backup files
-*.bak*
+*.bak
+*.bak.*
 
 # Gitops state (host-specific, not shared)
 .gitops-applied
