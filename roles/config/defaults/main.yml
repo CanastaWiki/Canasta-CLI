@@ -78,6 +78,12 @@ canasta_known_keys:
     group: Caddy / TLS
     description: Use Let's Encrypt staging CA (untrusted, but avoids rate limits)
     default: "false"
+  - name: CADDY_TRUSTED_PROXIES
+    group: Caddy / TLS
+    description: >-
+      Recover real client IPs when Caddy is behind a proxy/CDN. Set to
+      "cloudflare" or "imperva", or a comma-separated CIDR list. Unset =
+      Caddy is the edge (default).
 
   - name: CANASTA_IMAGE
     group: Docker Image

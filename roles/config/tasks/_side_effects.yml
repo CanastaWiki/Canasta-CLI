@@ -24,6 +24,23 @@
     - _config_key == 'CADDY_AUTO_HTTPS'
     - _config_value | lower not in ['on', 'off']
 
+# Catch typos like 'cloudfalre' at set time rather than letting an
+# unparseable trusted_proxies directive crash Caddy on next start.
+- name: Validate CADDY_TRUSTED_PROXIES value
+  ansible.builtin.fail:
+    msg: >-
+      CADDY_TRUSTED_PROXIES must be 'cloudflare', 'imperva', or a
+      comma-separated list of IP/CIDR ranges
+      (e.g. 10.0.0.0/8,192.0.2.0/24). Got '{{ _config_value }}'.
+  when:
+    - _config_key == 'CADDY_TRUSTED_PROXIES'
+    - (_config_value | trim | length) > 0
+    - _config_value | trim | lower not in ['cloudflare', 'imperva']
+    - >-
+      (_config_value | split(',') | map('trim') | reject('equalto', '') | list
+       | select('match', '^[0-9A-Fa-f:.]+(/[0-9]+)?$') | list | length)
+      != (_config_value | split(',') | map('trim') | reject('equalto', '') | list | length)
+
 # Two incompatible-feature combinations are caught here at config-set
 # time, before the misconfiguration can land in .env. The runtime
 # FarmConfigLoader.php in the canasta image catches the same conditions
