@@ -40,19 +40,21 @@ At this point CrowdSec is running and learning, but the bouncer is not
 yet enforcing decisions (no key). Enroll one:
 
 ```bash
-# Generate a bouncer token from the running engine. Run from the
-# instance directory (the directory canasta created for mysite).
-docker compose exec crowdsec cscli bouncers add canasta-caddy
+canasta crowdsec enroll -i mysite
 ```
 
-Copy the generated API key and store it:
+`enroll` registers the Caddy bouncer with the running engine, captures
+the generated API key, stores it as `CROWDSEC_BOUNCER_API_KEY`, and
+restarts so the Caddyfile picks up the `crowdsec` directive and the
+bouncer begins enforcing decisions. It is idempotent — running it again
+is a no-op once a key is stored; use `--force` to revoke the bouncer and
+issue a fresh key.
+
+Check what's registered and what's currently blocked:
 
 ```bash
-canasta config set CROWDSEC_BOUNCER_API_KEY=<token> -i mysite
+canasta crowdsec status -i mysite
 ```
-
-The `config set` restarts the instance, re-renders the Caddyfile with the
-`crowdsec` directive, and the bouncer begins enforcing decisions.
 
 ## Disable it
 
@@ -89,14 +91,39 @@ responsible for ensuring your image includes the
 [`caddy-crowdsec-bouncer`](https://github.com/hslatman/caddy-crowdsec-bouncer)
 HTTP module, or the rendered `crowdsec` directive will fail to load.
 
+## Whitelisting trusted IPs
+
+To make sure a false positive can never lock you out, list your
+office/VPN/monitoring/CDN addresses in the instance's
+`config/crowdsec/whitelists.yaml`. It ships ready to edit (like
+`Caddyfile.global`), is version-controlled, and is never overwritten by
+upgrades:
+
+```yaml
+whitelist:
+  reason: "trusted sources"
+  ip:
+    - "203.0.113.10"
+  cidr:
+    - "198.51.100.0/24"
+```
+
+CrowdSec reads parser files at start, so apply changes with
+`canasta restart -i mysite`.
+
 ## Tuning detection
 
 The bundled `crowdsecurity/caddy` and `crowdsecurity/http-cve`
 collections are installed at container start (via the `COLLECTIONS`
-environment variable). To add more collections, manage scenarios, or
-inspect decisions, use `cscli` inside the container:
+environment variable). For ad-hoc inspection or to install more
+collections, run `cscli` in the container via `canasta maintenance exec`
+rather than reaching for bare docker:
 
 ```bash
-docker compose exec crowdsec cscli decisions list
-docker compose exec crowdsec cscli collections install crowdsecurity/http-dos
+canasta maintenance exec -i mysite -s crowdsec -- cscli decisions list
+canasta maintenance exec -i mysite -s crowdsec -- cscli collections install crowdsecurity/http-dos
 ```
+
+(Durable detection changes — whitelists, custom scenarios — belong in
+version-controlled files under `config/crowdsec/`, not ad-hoc `cscli`
+state, so they survive container recreation and travel with gitops.)
