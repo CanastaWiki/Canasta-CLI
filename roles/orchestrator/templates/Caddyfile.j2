@@ -2,12 +2,26 @@
 # To add custom Caddy directives, edit Caddyfile.site instead.
 # For global Caddy options or additional site blocks, edit Caddyfile.global instead.
 
-{% if _staging_certs | default(false) %}
-# Use the Let's Encrypt staging CA (untrusted by browsers, but
-# avoids production rate limits while testing). Toggled by
-# CANASTA_STAGING_CERTS in .env.
+{% if (_staging_certs | default(false)) or (_crowdsec_active | default(false)) %}
+# Caddy global options block. Caddy permits only one, so every
+# CLI-managed global directive is emitted together here.
 {
+{% if _staging_certs | default(false) %}
+    # Use the Let's Encrypt staging CA (untrusted by browsers, but
+    # avoids production rate limits while testing). Toggled by
+    # CANASTA_STAGING_CERTS in .env.
     acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+{% endif %}
+{% if _crowdsec_active | default(false) %}
+    # CrowdSec bouncer. Toggled by CANASTA_ENABLE_CROWDSEC together with
+    # a bouncer API key; rewrite_caddy.yml only sets _crowdsec_active
+    # when both are present, so the key placeholder below is never empty.
+    order crowdsec first
+    crowdsec {
+        api_url http://crowdsec:8080
+        api_key {env.CROWDSEC_BOUNCER_API_KEY}
+    }
+{% endif %}
 }
 
 {% endif %}
@@ -16,6 +30,9 @@ import /etc/caddy/Caddyfile.global
 {{ _site_address }} {
     import /etc/caddy/Caddyfile.site
 
+{% if _crowdsec_active | default(false) %}
+    crowdsec
+{% endif %}
 {% if _observable %}
     @opensearch path /opensearch /opensearch/*
     handle @opensearch {

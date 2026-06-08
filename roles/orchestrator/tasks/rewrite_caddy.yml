@@ -23,6 +23,16 @@
     _staging_certs: "{{ _env_caddy.variables.CANASTA_STAGING_CERTS | default('false') | lower == 'true' }}"
     _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
     _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') }}"
+    # CrowdSec is only "active" (directive rendered) when the feature is
+    # enabled AND a bouncer API key is present. Enabling the flag without
+    # a key leaves Caddy in a clean degraded state — the bouncer image
+    # runs but no crowdsec directive is emitted, so Caddy starts normally
+    # and blocks nothing until the operator enrolls a bouncer. This is
+    # the guard that prevents the unconditional-key startup failure that
+    # got the original implementation reverted.
+    _crowdsec_active: >-
+      {{ (_env_caddy.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true')
+         and (_env_caddy.variables.CROWDSEC_BOUNCER_API_KEY | default('') | length > 0) }}
 
 - name: Refuse to render Caddyfile with empty observability credentials
   ansible.builtin.fail:
