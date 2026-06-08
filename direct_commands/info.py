@@ -254,20 +254,15 @@ def cmd_version(args):
 
     # No -i: try cwd resolution. If inside an instance directory,
     # give the same full-fidelity report as -i.
+    iid, inst = _helpers._resolve_instance_by_cwd(args)
+    if inst:
+        image, running = _read_instance_image(iid, inst)
+        print("Instance '%s': %s (running: %s)" % (iid, image, running))
+        return 0
+
     config_dir = _helpers._get_config_dir()
     conf_path = os.path.join(config_dir, "conf.json")
     instances = _helpers._read_registry(conf_path)
-    cwd = os.path.abspath(os.getcwd())
-    while True:
-        for iid, inst in instances.items():
-            if os.path.abspath(inst.get("path", "")) == cwd:
-                image, running = _read_instance_image(iid, inst)
-                print("Instance '%s': %s (running: %s)" % (iid, image, running))
-                return 0
-        parent = os.path.dirname(cwd)
-        if parent == cwd:
-            break
-        cwd = parent
 
     # Outside any instance directory: list every registered instance
     # with its pinned CANASTA_IMAGE tag only (no docker-compose-exec
@@ -287,22 +282,12 @@ def cmd_version(args):
     return 0
 
 def _resolve_status_instance(args):
-    """Pick the instance the user wants status for.
-
-    Same dispatch as `canasta delete`: --id wins; if absent, look up
-    by current working directory against the registry's `path` field.
-    Returns (id, instance_dict) or (None, None) on no match.
+    """Pick the instance the user wants status for: --id wins, otherwise
+    detect it from the working directory, walking up parent dirs so it
+    works from any subdirectory. Returns (id, instance_dict) or
+    (None, None) on no match. See _helpers._resolve_instance_by_cwd.
     """
-    inst_id = getattr(args, "id", None)
-    conf_path = os.path.join(_helpers._get_config_dir(), "conf.json")
-    instances = _helpers._read_registry(conf_path)
-    if inst_id:
-        return (inst_id, instances.get(inst_id))
-    cwd = os.environ.get("CANASTA_HOST_PWD") or os.getcwd()
-    for k, v in instances.items():
-        if v.get("path") == cwd:
-            return (k, v)
-    return (None, None)
+    return _helpers._resolve_instance_by_cwd(args)
 
 
 def _kubectl_section(host, ns, cmd_args, label):

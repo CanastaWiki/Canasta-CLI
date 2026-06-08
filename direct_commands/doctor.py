@@ -199,14 +199,9 @@ def cmd_doctor(args):
                 return 1
             host = instances[inst_id].get("host") or "localhost"
         else:
-            cwd = os.path.abspath(
-                os.environ.get("CANASTA_HOST_PWD") or os.getcwd()
-            )
-            for inst in instances.values():
-                p = inst.get("path", "")
-                if p and os.path.abspath(p) == cwd:
-                    host = inst.get("host") or "localhost"
-                    break
+            _, inst = _helpers._resolve_instance_by_cwd(args)
+            if inst:
+                host = inst.get("host") or "localhost"
     script = _DOCTOR_SCRIPT % {"delim": _helpers._SENTINEL}
 
     if not host or host == "localhost":
