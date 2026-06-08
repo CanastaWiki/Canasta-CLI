@@ -127,9 +127,17 @@ canasta config set CADDY_TRUSTED_PROXIES=10.0.0.0/8,192.0.2.0/24 -i mysite
 ```
 
 A typo (anything that isn't `cloudflare`, `imperva`, or valid CIDRs) is
-rejected at `config set` time rather than crashing Caddy on restart. Also
-restrict your host firewall so the origin only accepts traffic from the
-same provider ranges, so attackers can't bypass the CDN entirely.
+rejected at `config set` time rather than crashing Caddy on restart.
+
+This stays correct even if someone reaches the origin directly: Canasta
+only publishes Caddy's `:80/:443` (Varnish, Apache, and the database are
+internal to the Compose network and unreachable from outside), and a
+direct hit doesn't come from a trusted range — so Caddy ignores its
+client-IP header and attributes the real source IP, which CrowdSec can
+still ban. Restricting the host firewall to the provider's ranges is
+optional hardening that forces traffic through the CDN's *own*
+WAF/rate-limiting layer; it isn't needed for correct IP attribution
+here (and watch out for ACME HTTP-01 challenges if you do it).
 
 ## Whitelisting trusted IPs
 
