@@ -1530,10 +1530,11 @@ commands:
     long_description: |
       Remove backup snapshots that exceed the specified retention
       policy and reclaim disk space. At least one retention flag
-      (`--older-than` or `--keep-last`) is required.
+      (e.g. `--keep-within` or `--keep-last`) is required. The
+      retention flags mirror restic's `forget` options.
     examples:
       - "canasta backup purge --keep-last 5"
-      - "canasta backup purge --older-than 30d"
+      - "canasta backup purge --keep-within 30d"
     playbook: backup_purge.yml
     parameters:
       - name: id
@@ -1549,12 +1550,21 @@ commands:
       - name: keep_daily
         type: string
         description: "Number of daily backups to keep"
+      - name: keep_weekly
+        type: string
+        description: "Number of weekly backups to keep"
       - name: keep_monthly
         type: string
         description: "Number of monthly backups to keep"
-      - name: older_than
+      - name: keep_yearly
         type: string
-        description: "Purge backups older than this (e.g. 30d, 6m)"
+        description: "Number of yearly backups to keep"
+      - name: keep_within
+        type: string
+        description: "Keep all backups made within this duration (e.g. 30d, 6m)"
+      - name: keep_tag
+        type: string
+        description: "Keep backups that have this tag"
 
   - name: backup_schedule_set
     description: "Set a recurring backup schedule"

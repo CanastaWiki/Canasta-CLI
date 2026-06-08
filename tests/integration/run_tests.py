@@ -873,7 +873,7 @@ def test_backup_advanced(inst):
     print("Purging older snapshots (keep last 1)...")
     inst.run_ok(
         "backup", "purge", "-i", inst.id,
-        "--older-than", "1h",
+        "--keep-within", "1h",
     )
 
     print("Verifying at least one snapshot remains after purge...")
