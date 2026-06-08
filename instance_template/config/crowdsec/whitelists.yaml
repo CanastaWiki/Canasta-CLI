@@ -1,0 +1,31 @@
+# CrowdSec whitelist for this Canasta instance.
+#
+# Mounted into the crowdsec container as a parser-level whitelist
+# (/etc/crowdsec/parsers/s02-enrich/), so any IP or range listed here is
+# never acted on — events from it are dropped before they reach a
+# scenario. This file is version-controlled and is NOT overwritten by
+# the CLI or by upgrades; edit it to fit your environment.
+#
+# Only used when CrowdSec is enabled (CANASTA_ENABLE_CROWDSEC=true).
+# Changes take effect on the next 'canasta restart' (CrowdSec reads
+# parser files at start).
+#
+# Add your office/VPN/monitoring/CDN addresses under ip:/cidr: below so a
+# false positive can never lock you out. (CrowdSec sees the real client
+# IP from the Caddy access log, so the default loopback entry never
+# whitelists actual visitors — it just keeps this a valid, no-op file.)
+name: canasta/whitelists
+description: "Canasta instance whitelist (edit to add trusted IPs/ranges)"
+whitelist:
+  reason: "canasta default whitelist"
+  ip:
+    - "127.0.0.1"
+  cidr: []
+  # Add trusted addresses, e.g.:
+  #   ip:
+  #     - "203.0.113.10"
+  #   cidr:
+  #     - "198.51.100.0/24"
+  # Advanced: match on parsed event fields instead of source IP.
+  # expression:
+  #   - "evt.Parsed.http_user_agent == 'MyHealthcheckBot/1.0'"

@@ -251,6 +251,9 @@ services:
       # present in the instance template so the bind mount never resolves
       # to a directory when the profile is enabled.
       - ./config/crowdsec/acquis.yaml:/etc/crowdsec/acquis.d/caddy.yaml:ro
+      # User-editable, version-controlled whitelist (trusted IPs/ranges).
+      # Loaded as a parser whitelist; takes effect on restart.
+      - ./config/crowdsec/whitelists.yaml:/etc/crowdsec/parsers/s02-enrich/canasta-whitelists.yaml:ro
       - caddy-logs:/var/log/caddy:ro
 
 volumes:
