@@ -1547,7 +1547,7 @@ class TestSyncComposeProfiles:
         assert "COMPOSE_PROFILES=crowdsec" in content
         # Enabling crowdsec switches the caddy image to the bouncer build.
         assert (
-            "CANASTA_CADDY_IMAGE=%s" % direct_commands._helpers._CADDY_CROWDSEC_IMAGE
+            "CANASTA_CADDY_IMAGE=%s" % direct_commands._helpers._CADDY_PLUGIN_IMAGE
             in content
         )
 
@@ -1568,7 +1568,7 @@ class TestSyncComposeProfiles:
             "CANASTA_ENABLE_VARNISH=false\n"
             "CANASTA_CADDY_IMAGE=%s\n"
             "COMPOSE_PROFILES=crowdsec\n"
-            % direct_commands._helpers._CADDY_CROWDSEC_IMAGE
+            % direct_commands._helpers._CADDY_PLUGIN_IMAGE
         )
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
@@ -1592,6 +1592,35 @@ class TestSyncComposeProfiles:
         assert "CANASTA_CADDY_IMAGE=myregistry/custom-caddy:1.0" in content
         # Profile is still added even though the image is left alone.
         assert "COMPOSE_PROFILES=crowdsec" in content
+
+    # --- Caddy plugin image is also driven by trusted-proxy provider modes ---
+
+    def test_trusted_proxies_provider_mode_switches_caddy_image(self, tmp_path):
+        # imperva needs the caddy-cdn-ranges plugin, so the image switches
+        # even with CrowdSec off.
+        (tmp_path / ".env").write_text(
+            "CADDY_TRUSTED_PROXIES=imperva\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "COMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert (
+            "CANASTA_CADDY_IMAGE=%s" % direct_commands._helpers._CADDY_PLUGIN_IMAGE
+            in content
+        )
+
+    def test_explicit_cidr_trusted_proxies_stays_on_stock_caddy(self, tmp_path):
+        # An explicit CIDR list uses Caddy's built-in static source, so no
+        # plugin image is needed.
+        (tmp_path / ".env").write_text(
+            "CADDY_TRUSTED_PROXIES=10.0.0.0/8\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "COMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "CANASTA_CADDY_IMAGE" not in content
 
 
 class TestDumpComposeFailure:

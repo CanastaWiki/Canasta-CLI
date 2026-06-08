@@ -36,9 +36,9 @@ CADDYFILE_J2 = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "templates", "Caddyfile.j2",
 )
 
-# Must match _CADDY_CROWDSEC_IMAGE in direct_commands/_helpers.py and the
+# Must match _CADDY_PLUGIN_IMAGE in direct_commands/_helpers.py and the
 # literal in sync_compose_profiles.yml.
-CROWDSEC_CADDY_IMAGE = "ghcr.io/canastawiki/canasta-caddy-crowdsec:2.10.2"
+PLUGIN_CADDY_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.10.2"
 
 
 def _load_compose():
@@ -256,7 +256,7 @@ class TestCrowdsecProfileSync:
         assert "CANASTA_ENABLE_CROWDSEC" in content
         # Image reconciliation must be present and target the managed key.
         assert "CANASTA_CADDY_IMAGE" in content
-        assert CROWDSEC_CADDY_IMAGE in content
+        assert PLUGIN_CADDY_IMAGE in content
 
     def test_side_effects_triggers_profile_sync_for_crowdsec(self):
         content = _read(
@@ -290,18 +290,18 @@ class TestCrowdsecBundledFiles:
 
     def test_xcaddy_dockerfile_builds_bouncer_module(self):
         path = os.path.join(
-            REPO_ROOT, "images", "caddy-crowdsec", "Dockerfile",
+            REPO_ROOT, "images", "caddy", "Dockerfile",
         )
         content = _read(path)
         assert "xcaddy build" in content
         assert "caddy-crowdsec-bouncer/http" in content
 
-    def test_publish_workflow_targets_crowdsec_image(self):
+    def test_publish_workflow_targets_caddy_image(self):
         path = os.path.join(
-            REPO_ROOT, ".github", "workflows", "docker-caddy-crowdsec.yml",
+            REPO_ROOT, ".github", "workflows", "docker-caddy.yml",
         )
         content = _read(path)
-        assert "ghcr.io/canastawiki/canasta-caddy-crowdsec" in content
+        assert "ghcr.io/canastawiki/canasta-caddy" in content
 
 
 class TestCrowdsecCommands:
