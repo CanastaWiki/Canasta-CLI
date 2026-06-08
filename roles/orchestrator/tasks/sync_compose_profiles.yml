@@ -47,7 +47,7 @@
     _tp_mode: "{{ _env_profiles.variables.CADDY_TRUSTED_PROXIES | default('') | trim | lower }}"
     _plugin_needed: "{{ _crowdsec_on or (_tp_mode in ['cloudflare', 'imperva']) }}"
     _current_caddy_image: "{{ _env_profiles.variables.CANASTA_CADDY_IMAGE | default('') }}"
-    _plugin_caddy_image: "ghcr.io/canastawiki/canasta-caddy:2.10.2"
+    _plugin_caddy_image: "ghcr.io/canastawiki/canasta-caddy:2.11.3"
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: set

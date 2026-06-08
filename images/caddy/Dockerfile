@@ -17,11 +17,12 @@
 #     long-lived instance stays correct without any repo-side IP list or
 #     a 'canasta upgrade'.
 #
-# Keep CADDY_VERSION in lockstep with the caddy service image tag in
-# roles/orchestrator/files/compose/docker-compose.yml, and the published
+# CADDY_VERSION is set by what the bundled plugins require, so it can lead
+# the stock default caddy:<ver>-alpine in docker-compose.yml — the
+# crowdsec bouncer v0.13.1 pins Caddy v2.11.3. Keep the published image
 # tag in lockstep with _CADDY_PLUGIN_IMAGE / the sync_compose_profiles
 # literal.
-ARG CADDY_VERSION=2.10.2
+ARG CADDY_VERSION=2.11.3
 ARG CROWDSEC_BOUNCER_VERSION=v0.13.1
 ARG CDN_RANGES_VERSION=v2.1.0
 

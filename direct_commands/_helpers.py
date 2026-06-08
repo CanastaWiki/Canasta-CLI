@@ -299,7 +299,7 @@ _MANAGED_PROFILES = [
 # a Caddy plugin: CrowdSec (the bouncer) or a provider trusted-proxy mode
 # (caddy-cdn-ranges). Kept in sync with the literal in
 # roles/orchestrator/tasks/sync_compose_profiles.yml.
-_CADDY_PLUGIN_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.10.2"
+_CADDY_PLUGIN_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.11.3"
 
 # Trusted-proxy modes that need the cdn_ranges plugin (and so the plugin
 # image). An explicit CIDR list uses Caddy's built-in 'static' source and

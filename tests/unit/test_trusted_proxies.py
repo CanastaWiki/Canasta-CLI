@@ -98,7 +98,7 @@ class TestTrustedProxiesRendering:
     def test_cloudflare_uses_dynamic_cdn_ranges(self):
         out = _render_proxy("cloudflare", "Cf-Connecting-Ip", dynamic=True)
         assert "client_ip_headers Cf-Connecting-Ip" in out
-        assert "source cdn_ranges" in out
+        assert "trusted_proxies cdn_ranges" in out
         assert "provider cloudflare" in out
         assert "interval 12h" in out
         # Dynamic, not a hard-coded static list.
@@ -108,7 +108,7 @@ class TestTrustedProxiesRendering:
     def test_imperva_uses_dynamic_cdn_ranges_with_open_api(self):
         out = _render_proxy("imperva", "Incap-Client-IP", dynamic=True)
         assert "client_ip_headers Incap-Client-IP" in out
-        assert "source cdn_ranges" in out
+        assert "trusted_proxies cdn_ranges" in out
         assert "my.imperva.com/api/integration/v1/ips" in out
         # JMESPath extraction of the two arrays Imperva's API returns.
         assert '"ipRanges"' in out

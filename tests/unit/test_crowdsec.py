@@ -38,7 +38,7 @@ CADDYFILE_J2 = os.path.join(
 
 # Must match _CADDY_PLUGIN_IMAGE in direct_commands/_helpers.py and the
 # literal in sync_compose_profiles.yml.
-PLUGIN_CADDY_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.10.2"
+PLUGIN_CADDY_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.11.3"
 
 
 def _load_compose():

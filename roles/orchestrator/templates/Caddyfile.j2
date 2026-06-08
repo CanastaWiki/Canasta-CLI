@@ -17,20 +17,18 @@
         # caddy-cdn-ranges keeps the provider's edge ranges current
         # in-process (re-fetched on the interval), so this instance never
         # depends on a vendored list or a redeploy to stay correct.
-        trusted_proxies {
-            source cdn_ranges {
-                interval 12h
+        trusted_proxies cdn_ranges {
+            interval 12h
 {% if _tp_mode == 'cloudflare' %}
-                provider cloudflare
+            provider cloudflare
 {% elif _tp_mode == 'imperva' %}
-                provider {
-                    imperva {
-                        ipv4_url https://my.imperva.com/api/integration/v1/ips "ipRanges"
-                        ipv6_url https://my.imperva.com/api/integration/v1/ips "ipv6Ranges"
-                    }
+            provider {
+                imperva {
+                    ipv4_url https://my.imperva.com/api/integration/v1/ips "ipRanges"
+                    ipv6_url https://my.imperva.com/api/integration/v1/ips "ipv6Ranges"
                 }
-{% endif %}
             }
+{% endif %}
         }
 {% else %}
         trusted_proxies static {{ _trusted_proxies_cidrs | join(' ') }}

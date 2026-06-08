@@ -50,7 +50,7 @@ jobs:
         with:
           images: ghcr.io/canastawiki/canasta-caddy
           tags: |
-            type=raw,value=2.10.2
+            type=raw,value=2.11.3
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Set up QEMU for multi-platform builds
