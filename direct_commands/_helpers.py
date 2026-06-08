@@ -70,6 +70,34 @@ def _resolve_instance(args):
     return inst["id"], inst
 
 
+def _resolve_instance_by_cwd(args):
+    """Resolve (id, inst) from --id, else by walking UP from the working
+    directory to a registered instance path.
+
+    Honors CANASTA_HOST_PWD (the dockerized CLI passes the host's working
+    directory there) before os.getcwd(), and walks up parent directories so
+    the instance is detected from any subdirectory — not just its top level.
+    Returns (None, None) on no match so callers can emit their own error
+    message, unlike canasta.resolve_instance() which exits. Shared by
+    `status`, `doctor`, and `version` so they detect instances identically.
+    """
+    inst_id = getattr(args, "id", None)
+    conf_path = os.path.join(_get_config_dir(), "conf.json")
+    instances = _read_registry(conf_path)
+    if inst_id:
+        return (inst_id, instances.get(inst_id))
+    search = os.path.abspath(os.environ.get("CANASTA_HOST_PWD") or os.getcwd())
+    while True:
+        for iid, inst in instances.items():
+            if os.path.abspath(inst.get("path", "")) == search:
+                return (iid, inst)
+        parent = os.path.dirname(search)
+        if parent == search:
+            break
+        search = parent
+    return (None, None)
+
+
 def _read_env_content(path, host):
     """Read raw .env file content. Returns '' if missing or unreadable."""
     env_path = os.path.join(path, ".env")
