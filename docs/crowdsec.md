@@ -22,8 +22,9 @@ key.
 1. Adds the `crowdsec` Compose profile, starting a
    `crowdsecurity/crowdsec` container (LAPI on `:8080`) that reads the
    Caddy access log via `config/crowdsec/acquis.yaml`.
-2. Switches the caddy service to the bouncer-enabled image variant
-   `ghcr.io/canastawiki/canasta-caddy-crowdsec` by setting the managed
+2. Switches the caddy service to the plugin image
+   `ghcr.io/canastawiki/canasta-caddy` (upstream Caddy plus the bouncer
+   and `caddy-cdn-ranges` plugins) by setting the managed
    `CANASTA_CADDY_IMAGE` value in `.env`. (A custom `CANASTA_CADDY_IMAGE`
    you set yourself is left untouched — see *Custom Caddy image* below.)
 3. Injects the bouncer directives into the generated Caddyfile **only
@@ -83,13 +84,16 @@ Caddyfile with no CrowdSec directive at all, and Caddy starts normally.
 
 ## Custom Caddy image
 
-`CANASTA_CADDY_IMAGE` is managed automatically by the CrowdSec toggle,
-but only when it is empty or already holds the managed crowdsec image. If
-you set it to your own value (e.g. a Caddy build with additional
-plugins), the toggle will not overwrite it. In that case you are
-responsible for ensuring your image includes the
+`CANASTA_CADDY_IMAGE` is managed automatically — it switches to
+`ghcr.io/canastawiki/canasta-caddy` whenever a plugin feature is on
+(CrowdSec, or a `cloudflare`/`imperva` trusted-proxy mode) — but only
+when it is empty or already holds the managed image. If you set it to
+your own value (e.g. a Caddy build with extra plugins), the toggle won't
+overwrite it. In that case you're responsible for including the
 [`caddy-crowdsec-bouncer`](https://github.com/hslatman/caddy-crowdsec-bouncer)
-HTTP module, or the rendered `crowdsec` directive will fail to load.
+HTTP module and
+[`caddy-cdn-ranges`](https://github.com/sarumaj/caddy-cdn-ranges) for the
+features you use, or the rendered directives will fail to load.
 
 ## Running behind a CDN or WAF (Cloudflare, Imperva)
 
@@ -110,14 +114,22 @@ canasta config set CADDY_TRUSTED_PROXIES=imperva    -i mysite   # behind Imperva
 ```
 
 Each provider mode does the safe thing automatically: it locks
-`trusted_proxies` to that provider's published edge ranges **and** reads
-the provider's dedicated client-IP header (`CF-Connecting-IP` /
+`trusted_proxies` to that provider's edge ranges **and** reads the
+provider's dedicated client-IP header (`CF-Connecting-IP` /
 `Incap-Client-IP`). Locking the ranges is essential — trusting the header
 from any source would let a client hit the origin directly and forge its
 IP, bypassing every ban. Because both the log parser and the bouncer read
 the same resolved `client_ip`, this one setting fixes detection and
-enforcement together. The provider ranges are vendored and refreshed
-automatically (see `scripts/update_proxy_ips.py`).
+enforcement together.
+
+The edge ranges are kept current **on the instance, in-process**: the
+plugin image bundles [`caddy-cdn-ranges`](https://github.com/sarumaj/caddy-cdn-ranges),
+which re-fetches each provider's published ranges on an interval
+(Cloudflare's list; Imperva's open ranges API). So a long-lived instance
+stays correct on its own — no vendored list in this repo, and no
+`canasta upgrade` needed when a provider changes ranges. (Note this means
+the instance needs outbound network access to the provider's range
+endpoint.)
 
 For any other proxy, pass a comma-separated CIDR list (uses
 `X-Forwarded-For`, strict right-to-left):
