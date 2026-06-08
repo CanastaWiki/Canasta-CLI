@@ -292,11 +292,18 @@ _MANAGED_PROFILES = [
     ("observable", "CANASTA_ENABLE_OBSERVABILITY", "false"),
     ("elasticsearch", "CANASTA_ENABLE_ELASTICSEARCH", "false"),
     ("varnish", "CANASTA_ENABLE_VARNISH", "true"),
+    ("crowdsec", "CANASTA_ENABLE_CROWDSEC", "false"),
 ]
+
+# Bouncer-enabled Caddy image that the caddy service runs while CrowdSec
+# is on. Kept in sync with the literal in
+# roles/orchestrator/tasks/sync_compose_profiles.yml.
+_CADDY_CROWDSEC_IMAGE = "ghcr.io/canastawiki/canasta-caddy-crowdsec:2.10.2"
 
 
 def _sync_compose_profiles(inst):
-    """Align COMPOSE_PROFILES in .env with the CANASTA_ENABLE_* feature flags.
+    """Align COMPOSE_PROFILES (and the CrowdSec Caddy image) in .env with
+    the CANASTA_ENABLE_* feature flags.
 
     Called before 'docker compose up' so hand-edited .env files, gitops
     pulls, or any other drift between the managed flags and
@@ -322,12 +329,31 @@ def _sync_compose_profiles(inst):
         if env.get(flag, default).strip().lower() == "true":
             desired.append(profile)
 
-    if sorted(desired) == sorted(current):
+    profiles_changed = sorted(desired) != sorted(current)
+
+    # Point the caddy service at the bouncer image while CrowdSec is on.
+    # CANASTA_CADDY_IMAGE is managed only when empty or already the
+    # managed value; a custom override the operator set is left alone.
+    crowdsec_on = (
+        env.get("CANASTA_ENABLE_CROWDSEC", "false").strip().lower() == "true"
+    )
+    current_caddy_image = env.get("CANASTA_CADDY_IMAGE", "")
+    desired_caddy_image = _CADDY_CROWDSEC_IMAGE if crowdsec_on else ""
+    image_managed = current_caddy_image in ("", _CADDY_CROWDSEC_IMAGE)
+    image_changed = image_managed and current_caddy_image != desired_caddy_image
+
+    if not profiles_changed and not image_changed:
         return  # No change needed
 
-    new_entries = _set_env_entry(
-        entries, "COMPOSE_PROFILES", ",".join(desired),
-    )
+    new_entries = entries
+    if profiles_changed:
+        new_entries = _set_env_entry(
+            new_entries, "COMPOSE_PROFILES", ",".join(desired),
+        )
+    if image_changed:
+        new_entries = _set_env_entry(
+            new_entries, "CANASTA_CADDY_IMAGE", desired_caddy_image,
+        )
     _write_env_content(path, host, _entries_to_content(new_entries))
 
 

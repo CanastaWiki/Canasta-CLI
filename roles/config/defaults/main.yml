@@ -39,6 +39,10 @@ canasta_known_keys:
     description: Days between sitemap refreshes
     default: "1"
 
+  - name: CANASTA_ENABLE_CROWDSEC
+    group: Features
+    description: Enable CrowdSec behavioral threat detection (Compose only)
+    default: "false"
   - name: CANASTA_ENABLE_ELASTICSEARCH
     group: Features
     description: Enable Elasticsearch
@@ -78,6 +82,12 @@ canasta_known_keys:
   - name: CANASTA_IMAGE
     group: Docker Image
     description: Override the default Canasta image
+
+  - name: CROWDSEC_BOUNCER_API_KEY
+    group: Security (CrowdSec)
+    description: >-
+      Caddy bouncer API key from 'cscli bouncers add'. Optional; the
+      bouncer stays dormant (blocks nothing) until it is set.
 
   - name: RESTIC_REPOSITORY
     group: Backup (Restic)

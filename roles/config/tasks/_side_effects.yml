@@ -279,9 +279,36 @@
 - name: Sync COMPOSE_PROFILES when feature flags change
   when:
     - instance_orchestrator | default('compose') == 'compose'
-    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH', 'CANASTA_ENABLE_OBSERVABILITY']
+    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH',
+                      'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CROWDSEC']
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
+
+# CrowdSec without a bouncer key starts cleanly but enforces nothing.
+# Point the operator at the one-time enrollment step rather than letting
+# them assume protection is active.
+- name: Warn when CrowdSec is enabled without a bouncer key
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - _config_key == 'CANASTA_ENABLE_CROWDSEC'
+    - _config_value | lower == 'true'
+  block:
+    - name: Read CROWDSEC_BOUNCER_API_KEY from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CROWDSEC_BOUNCER_API_KEY
+      register: _se_crowdsec_key
+
+    - name: Advise enrolling a bouncer
+      ansible.builtin.debug:
+        msg: >-
+          CrowdSec is enabled but CROWDSEC_BOUNCER_API_KEY is unset, so
+          Caddy starts without enforcing any decisions. Enroll a bouncer
+          once the crowdsec container is running:
+          'docker compose exec crowdsec cscli bouncers add canasta-caddy',
+          then 'canasta config set CROWDSEC_BOUNCER_API_KEY=<token>'.
+      when: _se_crowdsec_key.value | default('') | length == 0
 
 - name: Apply CANASTA_ENABLE_OBSERVABILITY side effects
   when: _config_key == 'CANASTA_ENABLE_OBSERVABILITY' and _config_value | lower == 'true'
