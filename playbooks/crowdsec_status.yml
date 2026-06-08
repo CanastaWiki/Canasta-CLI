@@ -1,0 +1,7 @@
+---
+# canasta crowdsec status
+
+- name: CrowdSec Status
+  ansible.builtin.include_role:
+    name: crowdsec
+    tasks_from: status.yml

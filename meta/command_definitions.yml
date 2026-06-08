@@ -199,6 +199,28 @@ command_groups:
       All three accept `--host` to dispatch via SSH to the
       controlling host. See [[Help:Multi-node Kubernetes]].
 
+  - name: crowdsec
+    description: "Manage CrowdSec threat detection (Compose)"
+    long_description: |
+      Manage the optional CrowdSec security profile on a Compose
+      instance. Enable or disable CrowdSec itself with
+      `canasta config set CANASTA_ENABLE_CROWDSEC=true|false` (the
+      same pattern as the other optional features); this group covers
+      the steps that don't reduce to a single config value:
+
+      * `enroll` registers the Caddy bouncer with the CrowdSec engine,
+        captures the generated API key, stores it as
+        `CROWDSEC_BOUNCER_API_KEY`, and restarts so the bouncer starts
+        enforcing decisions.
+      * `status` shows the registered bouncers and the currently active
+        IP decisions.
+
+      Durable detection tuning (whitelisting trusted IPs, custom rules)
+      is done by editing `config/crowdsec/whitelists.yaml` in the
+      instance directory — a version-controlled file, like
+      `Caddyfile.global`. CrowdSec is a Compose-only feature; see
+      `docs/crowdsec.md`.
+
 commands:
   # ---------------------------------------------------------------------------
   # Instance lifecycle
@@ -1267,6 +1289,53 @@ commands:
         type: string
         positional: true
         description: "Command and arguments to execute"
+
+  # ---------------------------------------------------------------------------
+  # CrowdSec
+  # ---------------------------------------------------------------------------
+  - name: crowdsec_enroll
+    description: "Enroll the Caddy bouncer with CrowdSec"
+    long_description: |
+      Register the Caddy bouncer with the running CrowdSec engine,
+      store the generated API key as CROWDSEC_BOUNCER_API_KEY, and
+      restart so the bouncer begins enforcing decisions.
+
+      Run this once after enabling CrowdSec
+      (`canasta config set CANASTA_ENABLE_CROWDSEC=true`). It is
+      idempotent: if the bouncer is already enrolled and a key is
+      stored, it reports success and does nothing. Use `--force` to
+      revoke the existing bouncer and issue a fresh key. Compose only.
+    examples:
+      - "canasta crowdsec enroll"
+      - "canasta crowdsec enroll -i mysite"
+      - "canasta crowdsec enroll -i mysite --force"
+    playbook: crowdsec_enroll.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: force
+        short: f
+        type: bool
+        default: false
+        description: "Revoke the existing bouncer and issue a fresh key"
+
+  - name: crowdsec_status
+    description: "Show CrowdSec bouncers and active decisions"
+    long_description: |
+      Show the bouncers registered with the CrowdSec engine and the IP
+      decisions (bans, captchas) currently in effect. Read-only.
+      Compose only.
+    examples:
+      - "canasta crowdsec status"
+      - "canasta crowdsec status -i mysite"
+    playbook: crowdsec_status.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
 
   # ---------------------------------------------------------------------------
   # DevMode

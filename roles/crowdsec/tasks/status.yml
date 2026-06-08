@@ -1,0 +1,32 @@
+---
+# canasta crowdsec status - show registered bouncers and active
+# decisions. Read-only.
+# Input: id (optional)
+
+- name: Preflight (resolve, Compose-only, crowdsec running)
+  ansible.builtin.include_tasks: _preflight.yml
+
+- name: List registered bouncers
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli bouncers list"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_bouncers
+  changed_when: false
+
+- name: List active decisions
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli decisions list"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_decisions
+  changed_when: false
+
+- name: Show CrowdSec status
+  ansible.builtin.debug:
+    msg: |-
+      CrowdSec status for instance '{{ instance_id }}'
+
+      Bouncers:
+      {{ _crowdsec_bouncers.stdout | default('(none)') }}
+
+      Decisions:
+      {{ _crowdsec_decisions.stdout | default('(none)') }}
