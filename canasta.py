@@ -215,12 +215,21 @@ def self_update_cli():
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
             OSError) as e:
         # `e.stderr` is bytes/None on TimeoutExpired/OSError — guard.
-        detail = getattr(e, "stderr", "") or str(e)
-        print(
-            "Warning: could not fetch from origin (%s); "
-            "skipping self-update check." % detail.strip(),
-            file=sys.stderr,
+        detail = (getattr(e, "stderr", "") or str(e)).strip()
+        msg = (
+            "WARNING: self-update skipped — could not fetch from origin "
+            "(%s).\nThe CLI was NOT updated; this run uses the existing "
+            "version (%s, %s)." % (detail, current_version, current_commit)
         )
+        if "ermission denied" in detail:
+            msg += (
+                "\nThe install dir (%s) is not writable by you — you are "
+                "likely not in the 'canasta' group. Fix with:\n"
+                "  sudo usermod -aG canasta $(id -un)\n"
+                "then log out and back in (or run 'newgrp canasta') and "
+                "re-run." % repo
+            )
+        print(msg, file=sys.stderr)
         return
 
     pending = _git(["log", "HEAD..origin/main", "--oneline"], timeout=10)

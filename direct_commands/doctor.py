@@ -31,7 +31,8 @@ python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES'
 df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown; echo "$D"
 cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
-command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo OK || echo BROKEN; } || echo MISSING
+command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo OK || echo BROKEN; } || echo MISSING; echo "$D"
+cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi
 """
 
 
@@ -63,6 +64,9 @@ def _parse_doctor(stdout, hostname):
     # canasta probe is appended after rootless (index 18) so adding it
     # didn't shift the existing positional indices above.
     host_canasta = p(18) if len(parts) > 18 else "MISSING"
+    # Writability of the native install dir's .git — the precondition for
+    # `canasta upgrade`'s self-update (git fetch). NA on docker installs.
+    selfupdate = p(19) if len(parts) > 19 else "NA"
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -168,12 +172,35 @@ def _parse_doctor(stdout, hostname):
                 "sudo usermod -aG www-data $USER (then log out and back in, "
                 "or start a new shell, for the change to take effect)"
             )
+        canasta_member = "canasta" in groups.split()
+        if canasta_member:
+            lines.append("  canasta group:   OK (member)")
+        else:
+            lines.append(
+                "  canasta group:   NOT A MEMBER — 'canasta upgrade' "
+                "self-updates by writing the install dir; without membership "
+                "the git fetch is skipped and the CLI silently stays on the "
+                "old version. Add with: sudo usermod -aG canasta $USER "
+                "(then log out and back in)"
+            )
     else:
         os_label = host_os if host_os and host_os != "unknown" else "this OS"
         lines.append(
             "  www-data group:  N/A (Docker Desktop handles UID mapping on %s)"
             % os_label
         )
+
+    # Direct self-update precondition: can the operator write the native
+    # install dir's .git? NA on docker installs / no native canasta.
+    if selfupdate == "NOT_WRITABLE":
+        lines.append(
+            "  Self-update:     BLOCKED — the canasta install dir's .git is "
+            "not writable by you, so 'canasta upgrade' silently skips the "
+            "self-update and the CLI stays on the old version (see "
+            "'canasta group' above)"
+        )
+    elif selfupdate == "WRITABLE":
+        lines.append("  Self-update:     OK (install dir writable)")
 
     return "\n".join(lines)
 
