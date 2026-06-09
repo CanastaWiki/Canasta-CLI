@@ -176,6 +176,14 @@ def self_update_cli():
     canasta-docker wrapper has already pulled the image before this
     process started.
     """
+    if os.environ.get("CANASTA_SELF_UPDATED"):
+        # This process is the re-exec spawned by the first invocation
+        # after it pulled (see os.execv at the end of this function).
+        # The code on disk is already current and settled, so skip the
+        # update check entirely — including its "already up to date"
+        # line — and let this fresh process run the command.
+        return
+
     repo = SCRIPT_DIR
     if not os.path.isdir(os.path.join(repo, ".git")):
         return  # Docker install — image pull happened in the wrapper.
@@ -305,6 +313,19 @@ def self_update_cli():
             "Instances may still be upgraded against stale deps.",
             file=sys.stderr,
         )
+
+    # The pull just rewrote this process's own ansible roles, modules,
+    # and module_utils on disk. Continuing to ansible-playbook in the
+    # very process that did the pulling intermittently fails to resolve
+    # a freshly written module_utils. Re-exec the CLI so the rest of the
+    # command runs in a clean process against fully-settled code;
+    # the CANASTA_SELF_UPDATED guard at the top stops the re-exec'd
+    # process from looping back through the update.
+    os.environ["CANASTA_SELF_UPDATED"] = "1"
+    os.execv(
+        sys.executable,
+        [sys.executable, os.path.abspath(__file__)] + sys.argv[1:],
+    )
 
 
 def internal_name(display_name):
