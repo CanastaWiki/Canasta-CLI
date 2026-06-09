@@ -1000,6 +1000,14 @@ class TestSelfUpdateCli:
     ansible-playbook so the playbook process always sees the post-pull
     state of ansible.cfg / module_utils / etc. (#489)."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_self_updated_flag(self, monkeypatch):
+        """self_update_cli sets CANASTA_SELF_UPDATED before it re-execs;
+        keep that out of the rest of the suite."""
+        monkeypatch.delenv("CANASTA_SELF_UPDATED", raising=False)
+        yield
+        os.environ.pop("CANASTA_SELF_UPDATED", None)
+
     def _patch_repo(self, monkeypatch, tmp_path, has_git=True, version="4.0.0"):
         """Set up a fake install dir at tmp_path. Returns the dir path."""
         if has_git:
@@ -1034,6 +1042,24 @@ class TestSelfUpdateCli:
         self, monkeypatch, tmp_path, capsys,
     ):
         self._patch_repo(monkeypatch, tmp_path, has_git=False)
+
+        def fail_run(*a, **kw):
+            raise AssertionError("subprocess.run should not be called")
+
+        monkeypatch.setattr(_subprocess, "run", fail_run)
+        canasta_cli.self_update_cli()
+        out = capsys.readouterr()
+        assert out.out == ""
+        assert out.err == ""
+
+    def test_skips_silently_when_already_self_updated(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        """The re-exec'd process (CANASTA_SELF_UPDATED set) returns
+        immediately — no git calls, no 'already up to date' line — even
+        though the install dir is a real git repo."""
+        self._patch_repo(monkeypatch, tmp_path)  # has_git=True
+        monkeypatch.setenv("CANASTA_SELF_UPDATED", "1")
 
         def fail_run(*a, **kw):
             raise AssertionError("subprocess.run should not be called")
@@ -1090,7 +1116,19 @@ class TestSelfUpdateCli:
             return original_open(path, *args, **kwargs)
 
         monkeypatch.setattr("builtins.open", fake_open)
+        execv_calls = []
+        monkeypatch.setattr(
+            canasta_cli.os, "execv",
+            lambda *a: execv_calls.append(a),
+        )
         canasta_cli.self_update_cli()
+
+        # After a successful pull the CLI re-execs itself on the fresh
+        # code, guarded by CANASTA_SELF_UPDATED so it won't loop.
+        assert len(execv_calls) == 1
+        assert execv_calls[0][0] == sys.executable
+        assert str(execv_calls[0][1][1]).endswith("canasta.py")
+        assert os.environ.get("CANASTA_SELF_UPDATED") == "1"
 
         # Restore real open before reading the BUILD files.
         monkeypatch.undo()
@@ -1147,6 +1185,7 @@ class TestSelfUpdateCli:
             return res
 
         monkeypatch.setattr(_subprocess, "run", runner_with_check)
+        monkeypatch.setattr(canasta_cli.os, "execv", lambda *a: None)
         canasta_cli.self_update_cli()
 
         captured = capsys.readouterr()
