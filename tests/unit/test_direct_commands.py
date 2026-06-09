@@ -2264,6 +2264,34 @@ class TestDoctor:
             result = direct_commands._parse_doctor(stdout, "myhost")
             assert expected in result
 
+    # 20 parts: through the canasta probe (18) + self-update writability (19).
+    @staticmethod
+    def _doctor_parts(groups, writable):
+        return [
+            "Python 3.12.0", "Docker version 27.0.0",
+            "Docker Compose version v2.30.0", "OK",
+            groups, "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED", "git version 2.45.0", "OK", "OK",
+            "Linux", "16 GB", "50G", "1024", "", "OK", writable,
+        ]
+
+    def test_parse_doctor_canasta_group_member(self):
+        d = direct_commands._SENTINEL
+        parts = self._doctor_parts("user docker www-data canasta", "WRITABLE")
+        result = direct_commands._parse_doctor(
+            ("\n" + d + "\n").join(parts) + "\n", "myhost")
+        assert "canasta group:   OK (member)" in result
+        assert "Self-update:     OK (install dir writable)" in result
+
+    def test_parse_doctor_not_in_canasta_group_flags_self_update(self):
+        d = direct_commands._SENTINEL
+        parts = self._doctor_parts("user docker www-data", "NOT_WRITABLE")
+        result = direct_commands._parse_doctor(
+            ("\n" + d + "\n").join(parts) + "\n", "myhost")
+        assert "canasta group:   NOT A MEMBER" in result
+        assert "usermod -aG canasta" in result
+        assert "Self-update:     BLOCKED" in result
+
     def test_parse_doctor_missing_deps(self):
         d = direct_commands._SENTINEL
         parts = [

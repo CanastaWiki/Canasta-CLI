@@ -1241,6 +1241,32 @@ class TestSelfUpdateCli:
         err = capsys.readouterr().err
         assert "could not fetch from origin" in err
 
+    def test_fetch_permission_denied_gives_remediation(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        """A permission-denied fetch (operator not in the canasta group)
+        surfaces loudly with the usermod remediation, not a quiet skip."""
+        self._patch_repo(monkeypatch, tmp_path)
+        first = [type("R", (), {
+            "returncode": 0, "stdout": "abc1234\n", "stderr": "",
+        })()]
+
+        def runner(argv, **kwargs):
+            if "fetch" in argv and kwargs.get("check"):
+                raise _subprocess.CalledProcessError(
+                    128, argv, output="",
+                    stderr="error: cannot open '.git/FETCH_HEAD': "
+                           "Permission denied",
+                )
+            return first.pop(0)
+
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        err = capsys.readouterr().err
+        assert "self-update skipped" in err
+        assert "NOT updated" in err
+        assert "usermod -aG canasta" in err
+
 
 class TestCaBundleOverride:
     """_ca_bundle_override falls back to certifi only when the interpreter
