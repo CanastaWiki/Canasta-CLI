@@ -1,8 +1,11 @@
 ---
 # Copy stack files to the instance directory.
 # Dispatches to Compose or Kubernetes based on instance_orchestrator.
-# No-clobber: only creates files that don't already exist.
-# Input: instance_path, instance_orchestrator
+# The managed docker-compose.yml is force-refreshed when stack_files_force
+# is set (upgrade), so compose changes (e.g. a new crowdsec service) reach
+# instances created on an older version. All other files are no-clobber to
+# preserve operator-owned content (override, scripts, logstash configs).
+# Input: instance_path, instance_orchestrator, stack_files_force (bool)
 
 - name: Write Compose stack files
   when: instance_orchestrator | default('compose') == 'compose'
@@ -15,8 +18,9 @@
       ansible.builtin.copy:
         src: "{{ role_path }}/files/compose/docker-compose.yml"
         dest: "{{ instance_path }}/docker-compose.yml"
-        force: false
+        force: "{{ stack_files_force | default(false) | bool }}"
         mode: "0644"
+      register: _compose_stack_copy
 
     - name: Copy docker-compose.override.yml.example
       ansible.builtin.copy:
