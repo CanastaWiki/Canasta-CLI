@@ -1,0 +1,60 @@
+---
+# Discover the custom Docker build inputs (Dockerfile + build context)
+# referenced by docker-compose.override.yml, so a backup captures everything
+# needed to rebuild a custom image on restore. Without this, a backup keeps
+# the override that declares `build:` but not the Dockerfile/context it points
+# at, and a restore onto a fresh host fails to start.
+#
+# Compose-only: K8s custom images are pushed to the in-cluster registry rather
+# than built from a local context, so there is nothing on disk to capture.
+#
+# Output: _build_staging_map - dict of {host_path: '/currentsnapshot/<rel>'},
+#         ready to combine into a backup volume map. Empty when the instance
+#         has no buildable services.
+#
+# For each buildable service:
+#   - context is the instance directory  -> stage the Dockerfile file itself
+#     (the rest of the context is already covered by the standard dirs).
+#   - context is a subdirectory          -> stage that whole directory; the
+#     Dockerfile lives inside it, so it is captured too.
+
+- name: Initialize build staging map
+  ansible.builtin.set_fact:
+    _build_staging_map: {}
+
+- name: Discover custom build inputs (Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Render merged compose config as JSON
+      ansible.builtin.command:
+        cmd: "docker compose config --format json"
+        chdir: "{{ instance_path }}"
+      register: _build_compose_config
+      changed_when: false
+
+    # `docker compose config` resolves build.context to an absolute path and
+    # leaves build.dockerfile as a filename relative to that context.
+    - name: Collect build context and Dockerfile paths
+      ansible.builtin.set_fact:
+        _build_staging_paths: >-
+          {{ _build_staging_paths | default([])
+             + [ (_ctx == _instance_dir)
+                 | ternary(
+                     _instance_dir ~ '/' ~ (item.value.build.dockerfile | default('Dockerfile')),
+                     _ctx) ] }}
+      vars:
+        _instance_dir: "{{ instance_path | regex_replace('/$', '') }}"
+        _ctx: "{{ item.value.build.context | regex_replace('/$', '') }}"
+      loop: "{{ (_build_compose_config.stdout | from_json).services | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: item.value.build is defined
+
+    - name: Build staging map from discovered paths
+      ansible.builtin.set_fact:
+        _build_staging_map: >-
+          {{ _build_staging_map | combine(
+               {item: '/currentsnapshot/' ~ (item | relpath(instance_path))}) }}
+      loop: "{{ _build_staging_paths | default([]) | unique }}"
+      loop_control:
+        label: "{{ item }}"
