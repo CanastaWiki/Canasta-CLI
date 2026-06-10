@@ -17,6 +17,14 @@
 #     (the rest of the context is already covered by the standard dirs).
 #   - context is a subdirectory          -> stage that whole directory; the
 #     Dockerfile lives inside it, so it is captured too.
+#
+# Limitation: with an instance-directory context, only the Dockerfile is
+# captured. A Dockerfile that COPYs additional files from the instance root
+# (e.g. COPY scripts/foo.sh ...) will not have those sources backed up unless
+# they already live under a standard dir. Staging the whole instance directory
+# is not an option - it is the entire instance (.git, generated compose files,
+# logs), which the allowlist exists to exclude. Builds that COPY files should
+# use a dedicated subdirectory as the build context, which is captured in full.
 
 - name: Initialize build staging map
   ansible.builtin.set_fact:
