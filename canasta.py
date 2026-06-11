@@ -322,10 +322,9 @@ def self_update_cli(dev=False):
                     "(%s); keeping the current build (version %s, commit %s) "
                     "rather than moving backward.\nUse 'canasta upgrade --dev' "
                     "to keep tracking development builds, or re-run the "
-                    "installer to return to the latest release:\n"
-                    "  curl -fsSL https://get.canasta.wiki | bash -s -- "
-                    "--native --prefix %s"
-                    % (target_ref, current_version, current_commit, repo)
+                    "installer at https://get.canasta.wiki to return to the "
+                    "latest release."
+                    % (target_ref, current_version, current_commit)
                 )
             return
         # HEAD is behind the latest release (or on a divergent line that
