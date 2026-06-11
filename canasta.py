@@ -321,10 +321,10 @@ def self_update_cli(dev=False):
                     "Canasta CLI is already ahead of the latest release "
                     "(%s); keeping the current build (version %s, commit %s) "
                     "rather than moving backward.\nUse 'canasta upgrade --dev' "
-                    "to keep tracking development builds, or run "
-                    "'git checkout %s' in %s to pin the release exactly."
-                    % (target_ref, current_version, current_commit,
-                       target_ref, repo)
+                    "to keep tracking development builds, or re-run the "
+                    "installer to return to the latest release:\n"
+                    "  curl -fsSL https://get.canasta.wiki | bash"
+                    % (target_ref, current_version, current_commit)
                 )
             return
         # HEAD is behind the latest release (or on a divergent line that
