@@ -246,6 +246,40 @@ class TestCrowdsecConfigKeys:
         assert "CROWDSEC_BOUNCER_API_KEY" in keys
 
 
+class TestCrowdsecGitopsDurability:
+    """On a gitops instance, .env is re-rendered from env.template +
+    hosts/<host>/vars.yaml on every pull/regenerate. A feature key only
+    survives that round trip if it is a placeholder key; otherwise the
+    render resets it to the off state captured at init time, silently
+    disabling CrowdSec on the next restart."""
+
+    def _placeholder_keys(self):
+        gitops_vars = yaml.safe_load(
+            _read(os.path.join(REPO_ROOT, "roles", "gitops", "vars", "main.yml"))
+        )
+        return gitops_vars["gitops_placeholder_keys"]
+
+    def test_crowdsec_inputs_are_placeholder_keys(self):
+        keys = self._placeholder_keys()
+        for k in (
+            "CANASTA_ENABLE_CROWDSEC",
+            "CROWDSEC_BOUNCER_API_KEY",
+            "CADDY_TRUSTED_PROXIES",
+        ):
+            assert k in keys, (
+                "%s must be a gitops placeholder key or it is dropped from "
+                ".env on the next gitops render/pull" % k
+            )
+
+    def test_derived_keys_not_persisted(self):
+        # CANASTA_CADDY_IMAGE and COMPOSE_PROFILES are re-derived from the
+        # feature flags by sync_compose_profiles on start; persisting them
+        # would freeze a value the start sequence already reconciles.
+        keys = self._placeholder_keys()
+        assert "CANASTA_CADDY_IMAGE" not in keys
+        assert "COMPOSE_PROFILES" not in keys
+
+
 class TestCrowdsecProfileSync:
     def test_sync_compose_profiles_handles_crowdsec(self):
         content = _read(
