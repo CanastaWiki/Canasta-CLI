@@ -1,0 +1,20 @@
+---
+# canasta crowdsec reload - restart just the CrowdSec engine to apply pending
+# changes (accepted console enrollment, whitelist edits) and pull the latest
+# blocklists, without bouncing the rest of the instance.
+# Input: id (optional)
+
+- name: Preflight (resolve, Compose-only, crowdsec running)
+  ansible.builtin.include_tasks: _preflight.yml
+
+- name: Restart the CrowdSec engine
+  ansible.builtin.command:
+    cmd: "docker compose restart crowdsec"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Report
+  ansible.builtin.debug:
+    msg: >-
+      Reloaded the CrowdSec engine for instance '{{ instance_id }}'. The
+      Caddy bouncer keeps enforcing cached decisions during the restart.

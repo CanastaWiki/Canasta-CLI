@@ -80,7 +80,7 @@ SUBCOMMAND_GROUPS = {
     "extension": ["list", "enable", "disable"],
     "skin": ["list", "enable", "disable"],
     "maintenance": ["update", "script", "extension", "exec"],
-    "crowdsec": ["bouncer-enroll", "console-enroll", "status", "ban", "unban"],
+    "crowdsec": ["bouncer-enroll", "console-enroll", "reload", "status", "ban", "unban"],
     "devmode": ["enable", "disable"],
     "sitemap": ["generate", "remove"],
     "backup": [
