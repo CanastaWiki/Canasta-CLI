@@ -2170,12 +2170,19 @@ class TestExtensionSkinList:
 # ---------------------------------------------------------------------------
 
 class TestParseGitopsDiff:
-    def _make_output(self, uncommitted="", local="", remote="", submodules=""):
+    def _make_output(self, uncommitted="", uncommitted_patch="",
+                     local="", local_patch="", remote="", remote_patch="",
+                     submodules=""):
+        # Seven sentinel-separated sections: for each boundary a
+        # --name-only list followed by the patch, then submodule status.
         d = direct_commands._SENTINEL
         return (
             uncommitted + "\n" + d + "\n"
+            + uncommitted_patch + "\n" + d + "\n"
             + local + "\n" + d + "\n"
+            + local_patch + "\n" + d + "\n"
             + remote + "\n" + d + "\n"
+            + remote_patch + "\n" + d + "\n"
             + submodules + "\n"
         )
 
@@ -2190,7 +2197,18 @@ class TestParseGitopsDiff:
         out = self._make_output(uncommitted="config/.env\nconfig/wikis.yaml")
         result = direct_commands._parse_gitops_diff(out)
         assert "Uncommitted changes: 2 file(s)" in result
-        assert "config/.env" in result
+
+    def test_patch_content_shown(self):
+        patch = (
+            "diff --git a/config/.env b/config/.env\n"
+            "@@ -1 +1 @@\n-FOO=old\n+FOO=new"
+        )
+        out = self._make_output(uncommitted="config/.env",
+                                uncommitted_patch=patch)
+        result = direct_commands._parse_gitops_diff(out)
+        assert "Uncommitted changes: 1 file(s)" in result
+        assert "+FOO=new" in result
+        assert "-FOO=old" in result
 
     def test_local_and_remote(self):
         out = self._make_output(local="config/.env", remote="config/settings.php")
@@ -2233,6 +2251,9 @@ class TestCmdGitopsDiff:
         d = direct_commands._SENTINEL
         ssh_output = (
             "config/.env\n" + d + "\n"
+            + "diff --git a/config/.env b/config/.env\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "\n" + d + "\n"
             + "\n" + d + "\n"
             + "\n" + d + "\n"
             + "\n"
