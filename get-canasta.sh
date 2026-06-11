@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
 # get-canasta.sh — Install or upgrade to the Ansible-based Canasta CLI.
 #
+# By default this installs the latest released version of the CLI (the
+# highest vX.Y.Z tag); pass --dev to track the development branch (the
+# head of main) instead. This mirrors 'canasta upgrade', which also
+# defaults to the latest release and takes --dev for development builds.
+#
 # Usage:
 #   curl -fsSL https://get.canasta.wiki | bash
 #   curl -fsSL https://get.canasta.wiki | bash -s -- --native
 #   curl -fsSL https://get.canasta.wiki | bash -s -- --docker
+#   curl -fsSL https://get.canasta.wiki | bash -s -- --dev
 #
 # Documentation: https://canasta.wiki/wiki/Help:Installation
 #
 # Flags:
 #   --native    Install canasta-native (requires Python 3.10+, git)
 #   --docker    Install canasta-docker (requires Docker only, default)
+#   --dev       Track the development branch (head of main) instead of
+#               the latest released version
 #   --prefix    Installation prefix (default: /opt/canasta-ansible for native)
 #
 # Linux native installs create a 'canasta' system group. Add users with:
@@ -27,10 +35,10 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/CanastaWiki/Canasta-CLI.git"
-DOCKER_WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/canasta-docker"
 BIN_DIR="/usr/local/bin"
 MODE=""
 PREFIX=""
+DEV=false
 
 # --- Helpers -----------------------------------------------------------------
 
@@ -42,6 +50,86 @@ need_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
         error "Required command not found: $1"
     fi
+}
+
+# Highest vX.Y.Z release tag on the repo (e.g. v4.0.4); empty on failure.
+# Prefers git ls-remote (no API rate limits); falls back to the GitHub
+# tags API via curl. The Releases API is intentionally not used — it pins
+# v3.7.0 as 'latest' for legacy clients. Mirrors the resolver in canasta.py
+# and the canasta-docker wrapper.
+latest_release_tag() {
+    local tag=""
+    if command -v git >/dev/null 2>&1; then
+        tag="$(git ls-remote --tags --refs "$REPO_URL" 'v*' 2>/dev/null \
+            | sed 's#.*refs/tags/##' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V | tail -1 || true)"
+    fi
+    if [[ -z "$tag" ]] && command -v curl >/dev/null 2>&1; then
+        tag="$(curl -fsSL "https://api.github.com/repos/CanastaWiki/Canasta-CLI/tags" 2>/dev/null \
+            | grep -oE '"name": *"v[0-9]+\.[0-9]+\.[0-9]+"' \
+            | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' \
+            | sort -V | tail -1 || true)"
+    fi
+    printf '%s' "$tag"
+}
+
+# Point a freshly cloned/updated native checkout at the selected channel:
+# the latest release tag by default (detached checkout), or the head of
+# main with --dev. $1 = install dir; $2 = sudo prefix ("$SUDO" or "").
+set_native_channel() {
+    local install_dir="$1"
+    local sudo_cmd="${2:-}"
+    if [[ "$DEV" == true ]]; then
+        info "Tracking development branch (head of main)..."
+        $sudo_cmd git -C "$install_dir" checkout --quiet main
+        $sudo_cmd git -C "$install_dir" pull --ff-only --quiet
+        return
+    fi
+    local tag
+    tag="$(latest_release_tag)"
+    if [[ -z "$tag" ]]; then
+        warn "Could not determine the latest release tag; staying on the default branch (development)."
+        return
+    fi
+    info "Checking out latest release ${tag}..."
+    $sudo_cmd git -C "$install_dir" fetch --tags --quiet origin || true
+    $sudo_cmd git -C "$install_dir" checkout --quiet "$tag"
+}
+
+# The user who will actually run 'canasta' (not necessarily root, when the
+# installer is invoked via sudo). Used to place the Docker-mode channel pin
+# in that user's config dir.
+target_user() { echo "${SUDO_USER:-$(id -un)}"; }
+
+# Resolve the config dir the canasta-docker wrapper will use for the target
+# user, mirroring the wrapper's own logic (minus the root /etc/canasta case,
+# since the pin is for the non-root user who runs canasta).
+canasta_config_dir() {
+    local u h
+    u="$(target_user)"
+    h="$(getent passwd "$u" 2>/dev/null | cut -d: -f6)"
+    [[ -z "$h" ]] && h="$(eval echo "~$u" 2>/dev/null)"
+    [[ -z "$h" ]] && return 0
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "$h/Library/Application Support/canasta"
+    elif [[ "$u" == "$(id -un)" && -n "${XDG_CONFIG_HOME:-}" ]]; then
+        echo "$XDG_CONFIG_HOME/canasta"
+    else
+        echo "$h/.config/canasta"
+    fi
+}
+
+# Best-effort: pin the Docker-mode image channel so the first command runs
+# the right image before any 'canasta upgrade'. A later upgrade rewrites
+# this, so a miss here is harmless. $1 = tag to pin ('latest' or a version).
+pin_docker_channel() {
+    local tag="$1" cfg
+    cfg="$(canasta_config_dir)" || return 0
+    [[ -z "$cfg" ]] && return 0
+    $SUDO mkdir -p "$cfg" 2>/dev/null || return 0
+    printf '%s\n' "$tag" | $SUDO tee "$cfg/cli_image_tag" >/dev/null 2>&1 || return 0
+    $SUDO chown -R "$(target_user)" "$cfg" 2>/dev/null || true
 }
 
 install_native_deps() {
@@ -180,10 +268,11 @@ parse_args() {
         case "$1" in
             --native) MODE="native" ;;
             --docker) MODE="docker" ;;
+            --dev) DEV=true ;;
             --prefix) PREFIX="$2"; shift ;;
             --prefix=*) PREFIX="${1#*=}" ;;
             -h|--help)
-                echo "Usage: get-canasta.sh [--native|--docker] [--prefix PATH]"
+                echo "Usage: get-canasta.sh [--native|--docker] [--dev] [--prefix PATH]"
                 exit 0
                 ;;
             *) error "Unknown option: $1" ;;
@@ -205,10 +294,29 @@ install_docker_mode() {
     need_cmd curl
     need_sudo
 
-    info "Downloading canasta-docker wrapper..."
+    # Select the channel: the latest released wrapper + image tag by
+    # default, or the head of main with --dev.
+    local wrapper_ref="main"
+    local pin_tag="latest"
+    if [[ "$DEV" != true ]]; then
+        local tag
+        tag="$(latest_release_tag)"
+        if [[ -n "$tag" ]]; then
+            wrapper_ref="$tag"
+            pin_tag="${tag#v}"
+        else
+            warn "Could not determine the latest release; using main (development)."
+        fi
+    fi
+    local wrapper_url="https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/${wrapper_ref}/canasta-docker"
+
+    info "Downloading canasta-docker wrapper (${wrapper_ref})..."
     $SUDO curl -fsSL --retry 3 --retry-delay 5 \
-        -o "${BIN_DIR}/canasta-docker" "$DOCKER_WRAPPER_URL"
+        -o "${BIN_DIR}/canasta-docker" "$wrapper_url"
     $SUDO chmod +x "${BIN_DIR}/canasta-docker"
+
+    # Pin the image channel so the first command runs the chosen image.
+    pin_docker_channel "$pin_tag"
 
     info "Creating canasta symlink..."
     $SUDO ln -sf "${BIN_DIR}/canasta-docker" "${BIN_DIR}/canasta"
@@ -245,14 +353,14 @@ install_native_linux() {
         $SUDO groupadd --system canasta
     fi
 
-    # Clone or update the repo
+    # Clone or update the repo, then move to the selected channel.
     if [[ -d "${install_dir}/.git" ]]; then
         info "Updating existing installation at ${install_dir}..."
-        $SUDO git -C "$install_dir" pull --ff-only
     else
         info "Cloning Canasta CLI to ${install_dir}..."
         $SUDO git clone "$REPO_URL" "$install_dir"
     fi
+    set_native_channel "$install_dir" "$SUDO"
 
     # Mark as safe directory for git (so non-root users can run git
     # commands against the root-owned repo during e.g. 'canasta upgrade')
@@ -310,14 +418,15 @@ install_native_macos() {
 
     info "Installing Canasta (native mode, macOS)..."
 
-    # Clone or update the repo (user-owned, no sudo needed for the repo)
+    # Clone or update the repo (user-owned, no sudo needed for the repo),
+    # then move to the selected channel.
     if [[ -d "${install_dir}/.git" ]]; then
         info "Updating existing installation at ${install_dir}..."
-        git -C "$install_dir" pull --ff-only
     else
         info "Cloning Canasta CLI to ${install_dir}..."
         git clone "$REPO_URL" "$install_dir"
     fi
+    set_native_channel "$install_dir" ""
 
     # Create venv and install deps
     info "Creating Python virtual environment..."
@@ -426,7 +535,13 @@ post_install_upgrade() {
     info "Running 'canasta upgrade' to apply config migrations and"
     info "pull current container images for registered instances..."
     info "========================================"
-    if ! "${BIN_DIR}/canasta" upgrade; then
+    local rc=0
+    if [[ "$DEV" == true ]]; then
+        "${BIN_DIR}/canasta" upgrade --dev || rc=$?
+    else
+        "${BIN_DIR}/canasta" upgrade || rc=$?
+    fi
+    if [[ "$rc" -ne 0 ]]; then
         warn ""
         warn "'canasta upgrade' reported issues; review the output above."
         warn "The Canasta CLI itself is installed and ready. Re-run"

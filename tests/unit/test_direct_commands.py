@@ -822,22 +822,76 @@ class TestCmdVersion:
         assert direct_commands.is_direct_command("version")
 
     def test_native_checkout(self, tmp_path, monkeypatch, capsys):
+        # Release checkout: HEAD carries a vX.Y.Z tag, so the version shows.
         (tmp_path / "VERSION").write_text("4.0.0\n")
         monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
         monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {
-                "returncode": 0,
-                "stdout": "abc1234\n" if "rev-parse" in a[0] else "2026-04-18 12:00:00\n",
-            })(),
-        )
+
+        def fake_run(*a, **kw):
+            if "tag" in a[0]:
+                stdout = "v4.0.0\n"            # release tag points at HEAD
+            elif "rev-parse" in a[0]:
+                stdout = "abc1234\n"
+            else:
+                stdout = "2026-04-18 12:00:00\n"
+            return type("R", (), {"returncode": 0, "stdout": stdout})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
         rc = direct_commands.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "v4.0.0" in out
         assert "native" in out
         assert "abc1234" in out
+
+    def test_native_dev_checkout_shows_dev(self, tmp_path, monkeypatch, capsys):
+        # Dev checkout: no release tag at HEAD, so 'dev' replaces the number
+        # (the VERSION file may not match the eventual release).
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
+
+        def fake_run(*a, **kw):
+            if "tag" in a[0]:
+                stdout = ""                    # no tag points at HEAD
+            elif "rev-parse" in a[0]:
+                stdout = "abc1234\n"
+            else:
+                stdout = "2026-04-18 12:00:00\n"
+            return type("R", (), {"returncode": 0, "stdout": stdout})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Canasta CLI dev (" in out
+        assert "v4.0.0" not in out
+        assert "native" in out
+
+    def test_docker_release_tag_shows_version(self, tmp_path, monkeypatch, capsys):
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        (tmp_path / "BUILD_COMMIT").write_text("def5678\n")
+        (tmp_path / "BUILD_DATE").write_text("2026-04-18 10:00:00\n")
+        monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+        monkeypatch.setenv("CANASTA_CLI_IMAGE_TAG", "4.0.0")
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "v4.0.0" in out
+
+    def test_docker_latest_tag_shows_dev(self, tmp_path, monkeypatch, capsys):
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        (tmp_path / "BUILD_COMMIT").write_text("def5678\n")
+        (tmp_path / "BUILD_DATE").write_text("2026-04-18 10:00:00\n")
+        monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+        monkeypatch.setenv("CANASTA_CLI_IMAGE_TAG", "latest")
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Canasta CLI dev (" in out
+        assert "v4.0.0" not in out
 
     def test_docker_mode(self, tmp_path, monkeypatch, capsys):
         (tmp_path / "VERSION").write_text("4.0.0\n")
