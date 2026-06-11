@@ -2175,11 +2175,13 @@ def test_crowdsec(inst):
 
     _wait_for_crowdsec_lapi(inst)
 
-    print("Enrolling the Caddy bouncer...")
-    inst.run_ok("crowdsec", "enroll", "-i", inst.id)
+    # Enabling CrowdSec above auto-enrolls the bouncer on the restart, so the
+    # key is already stored; this exercises bouncer-enroll's idempotent path.
+    print("Re-running bouncer-enroll (idempotent)...")
+    inst.run_ok("crowdsec", "bouncer-enroll", "-i", inst.id)
     env = read_env(inst.env_path())
     assert env.get("CROWDSEC_BOUNCER_API_KEY", ""), (
-        "enroll must store CROWDSEC_BOUNCER_API_KEY"
+        "bouncer-enroll must store CROWDSEC_BOUNCER_API_KEY"
     )
 
     print("Checking status lists the bouncer...")

@@ -407,10 +407,10 @@ class TestCrowdsecCommands:
 
     def test_subcommand_group_registered(self):
         assert canasta_cli.SUBCOMMAND_GROUPS.get("crowdsec") == [
-            "enroll", "console-enroll", "status", "ban", "unban",
+            "bouncer-enroll", "console-enroll", "status", "ban", "unban",
         ], (
             "crowdsec subcommand group must expose "
-            "enroll/console-enroll/status/ban/unban"
+            "bouncer-enroll/console-enroll/status/ban/unban"
         )
 
     def test_group_umbrella_defined(self):
@@ -422,7 +422,7 @@ class TestCrowdsecCommands:
         )
 
     @pytest.mark.parametrize("cmd_name,playbook", [
-        ("crowdsec_enroll", "crowdsec_enroll.yml"),
+        ("crowdsec_bouncer_enroll", "crowdsec_bouncer_enroll.yml"),
         ("crowdsec_console_enroll", "crowdsec_console_enroll.yml"),
         ("crowdsec_status", "crowdsec_status.yml"),
         ("crowdsec_ban", "crowdsec_ban.yml"),
@@ -450,7 +450,7 @@ class TestCrowdsecCommands:
 class TestCrowdsecEnrollRole:
     def _enroll(self):
         return _read(os.path.join(
-            REPO_ROOT, "roles", "crowdsec", "tasks", "enroll.yml",
+            REPO_ROOT, "roles", "crowdsec", "tasks", "bouncer_enroll.yml",
         ))
 
     def test_registers_bouncer_and_captures_raw_key(self):
@@ -714,7 +714,7 @@ class TestCrowdsecAutoEnroll:
         content = _read(os.path.join(
             REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml",
         ))
-        assert "tasks_from: enroll.yml" in content, (
+        assert "tasks_from: bouncer_enroll.yml" in content, (
             "start.yml must auto-enroll the bouncer via the crowdsec role"
         )
         assert "CANASTA_ENABLE_CROWDSEC" in content, (
@@ -729,7 +729,7 @@ class TestCrowdsecAutoEnroll:
         """Auto-enroll runs right after start, when the engine may still be
         booting, so enroll must poll the LAPI before issuing cscli calls."""
         content = _read(os.path.join(
-            REPO_ROOT, "roles", "crowdsec", "tasks", "enroll.yml",
+            REPO_ROOT, "roles", "crowdsec", "tasks", "bouncer_enroll.yml",
         ))
         assert "cscli lapi status" in content, (
             "enroll must wait for the LAPI to be ready before adding a bouncer"
