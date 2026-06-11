@@ -125,6 +125,28 @@
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim == 'has'
 
+    # CrowdSec auto-enrollment. When the crowdsec profile is active but no
+    # bouncer key is stored yet, register the Caddy bouncer with the
+    # now-running engine so enabling CrowdSec "just works" — no separate
+    # `canasta crowdsec enroll` step. enroll.yml stores the key (via config
+    # set) BEFORE it restarts, so the restart's re-entrant start finds the
+    # key present and the guard below is false: self-terminating, not
+    # recursive. Gated on the key being absent, so it is a cheap no-op on
+    # every subsequent start.
+    - name: Read CrowdSec enablement and bouncer key for auto-enroll
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _start_crowdsec_env
+
+    - name: Auto-enroll the CrowdSec bouncer when enabled but unenrolled
+      ansible.builtin.include_role:
+        name: crowdsec
+        tasks_from: enroll.yml
+      when:
+        - _start_crowdsec_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true'
+        - (_start_crowdsec_env.variables.CROWDSEC_BOUNCER_API_KEY | default('') | length) == 0
+
 - name: Start (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:

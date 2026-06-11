@@ -211,7 +211,13 @@ command_groups:
       * `enroll` registers the Caddy bouncer with the CrowdSec engine,
         captures the generated API key, stores it as
         `CROWDSEC_BOUNCER_API_KEY`, and restarts so the bouncer starts
-        enforcing decisions.
+        enforcing decisions. This now happens automatically the first
+        time the instance starts after CrowdSec is enabled; run it by
+        hand only to force a fresh key (`--force`).
+      * `console-enroll` connects the engine to the CrowdSec Console
+        (app.crowdsec.net) for the full community blocklist. Optional —
+        the engine already pulls the smaller "Lite" community blocklist
+        via the Central API by default.
       * `status` shows the registered bouncers and the currently active
         IP decisions.
       * `ban` / `unban` add or remove a manual decision for an IP,
@@ -1310,11 +1316,13 @@ commands:
       store the generated API key as CROWDSEC_BOUNCER_API_KEY, and
       restart so the bouncer begins enforcing decisions.
 
-      Run this once after enabling CrowdSec
-      (`canasta config set CANASTA_ENABLE_CROWDSEC=true`). It is
-      idempotent: if the bouncer is already enrolled and a key is
-      stored, it reports success and does nothing. Use `--force` to
-      revoke the existing bouncer and issue a fresh key. Compose only.
+      Enabling CrowdSec
+      (`canasta config set CANASTA_ENABLE_CROWDSEC=true`) now enrolls the
+      bouncer automatically on the next start, so you rarely need to run
+      this by hand. It is idempotent: if the bouncer is already enrolled
+      and a key is stored, it reports success and does nothing. Use
+      `--force` to revoke the existing bouncer and issue a fresh key.
+      Compose only.
     examples:
       - "canasta crowdsec enroll"
       - "canasta crowdsec enroll -i mysite"
@@ -1330,6 +1338,42 @@ commands:
         type: bool
         default: false
         description: "Revoke the existing bouncer and issue a fresh key"
+
+  - name: crowdsec_console_enroll
+    description: "Connect CrowdSec to the Console for the full community blocklist"
+    long_description: |
+      Enroll this instance's CrowdSec engine in the CrowdSec Console
+      (https://app.crowdsec.net) to unlock the full community blocklist
+      plus any console-managed third-party blocklists.
+
+      This is optional. Without it, the engine still pulls the smaller
+      "Lite" community blocklist automatically via the Central API — so
+      CrowdSec already blocks crowd-sourced IPs out of the box; console
+      enrollment just upgrades that to the full list.
+
+      Get an enrollment key from the Console (Security Engines → Enroll),
+      run this command, then return to the Console to accept the pending
+      engine and subscribe it to the blocklists you want. Distinct from
+      `canasta crowdsec enroll`, which registers the local Caddy bouncer
+      with the engine. Compose only.
+    examples:
+      - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx"
+      - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx --name prod1"
+      - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx -i mysite"
+    playbook: crowdsec_console_enroll.yml
+    parameters:
+      - name: key
+        type: string
+        positional: true
+        required: true
+        description: "Console enrollment key from app.crowdsec.net"
+      - name: name
+        type: string
+        description: "Instance name to show in the Console"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
 
   - name: crowdsec_status
     description: "Show CrowdSec bouncers and active decisions"

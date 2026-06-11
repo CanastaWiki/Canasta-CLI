@@ -407,8 +407,11 @@ class TestCrowdsecCommands:
 
     def test_subcommand_group_registered(self):
         assert canasta_cli.SUBCOMMAND_GROUPS.get("crowdsec") == [
-            "enroll", "status", "ban", "unban",
-        ], "crowdsec subcommand group must expose enroll/status/ban/unban"
+            "enroll", "console-enroll", "status", "ban", "unban",
+        ], (
+            "crowdsec subcommand group must expose "
+            "enroll/console-enroll/status/ban/unban"
+        )
 
     def test_group_umbrella_defined(self):
         defs = self._defs()
@@ -420,6 +423,7 @@ class TestCrowdsecCommands:
 
     @pytest.mark.parametrize("cmd_name,playbook", [
         ("crowdsec_enroll", "crowdsec_enroll.yml"),
+        ("crowdsec_console_enroll", "crowdsec_console_enroll.yml"),
         ("crowdsec_status", "crowdsec_status.yml"),
         ("crowdsec_ban", "crowdsec_ban.yml"),
         ("crowdsec_unban", "crowdsec_unban.yml"),
@@ -668,4 +672,65 @@ class TestCrowdsecStatusWiring:
             "the filter_plugins path must be registered so the status filter "
             "loads at runtime (role-local plugins don't auto-discover under "
             "include_role)"
+        )
+
+
+class TestCrowdsecConsoleEnrollRole:
+    def _console(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "console_enroll.yml",
+        ))
+
+    def test_runs_cscli_console_enroll(self):
+        content = self._console()
+        assert "'cscli', 'console', 'enroll'" in content, (
+            "console-enroll must call `cscli console enroll`"
+        )
+
+    def test_requires_a_key(self):
+        content = self._console()
+        assert "key is not defined" in content, (
+            "console-enroll must fail clearly when no enrollment key is given"
+        )
+
+    def test_key_handling_is_no_log(self):
+        content = self._console()
+        assert "no_log: true" in content, (
+            "the enroll step must be no_log so the key never lands in output"
+        )
+
+    def test_restarts_engine_to_apply(self):
+        content = self._console()
+        assert "docker compose restart crowdsec" in content, (
+            "the engine must restart so it picks up the console credentials"
+        )
+
+
+class TestCrowdsecAutoEnroll:
+    def test_start_auto_enrolls_when_enabled_without_key(self):
+        """Enabling CrowdSec should enroll the bouncer on the next start,
+        with no separate manual step — gated on the key being absent so it
+        is a no-op once enrolled."""
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml",
+        ))
+        assert "tasks_from: enroll.yml" in content, (
+            "start.yml must auto-enroll the bouncer via the crowdsec role"
+        )
+        assert "CANASTA_ENABLE_CROWDSEC" in content, (
+            "auto-enroll must be gated on CrowdSec being enabled"
+        )
+        assert "CROWDSEC_BOUNCER_API_KEY" in content, (
+            "auto-enroll must be gated on the bouncer key being absent so it "
+            "is idempotent and does not recurse through the restart"
+        )
+
+    def test_enroll_waits_for_lapi_ready(self):
+        """Auto-enroll runs right after start, when the engine may still be
+        booting, so enroll must poll the LAPI before issuing cscli calls."""
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "enroll.yml",
+        ))
+        assert "cscli lapi status" in content, (
+            "enroll must wait for the LAPI to be ready before adding a bouncer"
         )

@@ -13,6 +13,19 @@
     key: CROWDSEC_BOUNCER_API_KEY
   register: _crowdsec_key
 
+# The engine's LAPI may still be coming up when this runs straight after a
+# start (auto-enroll) — `cscli bouncers` calls fail until it answers. Poll
+# until ready so both the manual command and auto-enroll are race-free.
+- name: Wait for the CrowdSec LAPI to be ready
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli lapi status"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_lapi
+  until: _crowdsec_lapi.rc == 0
+  retries: 30
+  delay: 2
+  changed_when: false
+
 - name: List registered bouncers
   ansible.builtin.command:
     cmd: "docker compose exec -T crowdsec cscli bouncers list -o json"
