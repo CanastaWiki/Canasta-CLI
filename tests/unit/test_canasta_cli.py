@@ -1087,7 +1087,7 @@ class TestSelfUpdateCli:
             {"stdout": ""},                  # fetch --tags
             {"stdout": "v3.7.0\nv4.0.0\n"},  # tag -l v* → latest is v4.0.0
             {"stdout": "abc1234\n"},         # rev-parse v4.0.0 == HEAD
-            {"stdout": "main\n"},            # rev-parse --abbrev-ref HEAD
+            {"returncode": 0},               # merge-base --is-ancestor (contained)
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
         canasta_cli.self_update_cli()
@@ -1096,6 +1096,33 @@ class TestSelfUpdateCli:
         assert "release v4.0.0" in out
         assert "4.0.0" in out
         assert "abc1234" in out
+
+    def test_release_ahead_does_not_downgrade(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        # On a development build ahead of the latest release tag: the
+        # release tag is contained in HEAD, so 'canasta upgrade' must NOT
+        # check it out (no travelling backward in time).
+        self._patch_repo(monkeypatch, tmp_path)
+        execv_calls = []
+        monkeypatch.setattr(
+            canasta_cli.os, "execv", lambda *a: execv_calls.append(a),
+        )
+        runner, calls = self._make_runner([
+            {"stdout": "newbuild\n"},        # rev-parse current HEAD (ahead)
+            {"stdout": ""},                   # fetch --tags
+            {"stdout": "v4.0.0\nv4.0.4\n"},   # tag -l v* → latest is v4.0.4
+            {"stdout": "old4044\n"},          # rev-parse v4.0.4 (behind HEAD)
+            {"returncode": 0},                # merge-base: tag IS ancestor of HEAD
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        out = capsys.readouterr().out
+        assert "already ahead of the latest release" in out
+        assert "v4.0.4" in out
+        # No checkout, no re-exec — we stayed on the current build.
+        assert not any("checkout" in c for c in calls)
+        assert execv_calls == []
 
     def test_dev_already_up_to_date(self, monkeypatch, tmp_path, capsys):
         # --dev tracks origin/main; up to date only when on main and at HEAD.
@@ -1124,7 +1151,7 @@ class TestSelfUpdateCli:
             {"stdout": ""},                          # fetch --tags
             {"stdout": "v4.0.0\nv4.1.0\n"},          # tag -l → latest v4.1.0
             {"stdout": "new1234\n"},                 # rev-parse v4.1.0
-            {"stdout": "main\n"},                    # rev-parse --abbrev-ref
+            {"returncode": 1},                       # merge-base: not contained → move
             {"stdout": ""},                          # checkout v4.1.0
             {"stdout": "new1234\n"},                 # rev-parse new HEAD
             {"stdout": "2026-05-05 10:00:00\n"},     # log -1 date
@@ -1200,7 +1227,7 @@ class TestSelfUpdateCli:
             {"stdout": ""},                          # fetch --tags
             {"stdout": "v4.0.0\nv4.1.0\n"},          # tag -l → latest v4.1.0
             {"stdout": "new1234\n"},                 # rev-parse v4.1.0
-            {"stdout": "main\n"},                    # rev-parse --abbrev-ref
+            {"returncode": 1},                       # merge-base: not contained → move
             {"stdout": ""},                          # checkout v4.1.0
             {"stdout": "new1234\n"},                 # rev-parse new HEAD
             {"stdout": "2026-05-05 10:00:00\n"},     # log -1 date
@@ -1241,7 +1268,7 @@ class TestSelfUpdateCli:
             {"stdout": ""},                          # fetch --tags
             {"stdout": "v4.0.0\nv4.1.0\n"},          # tag -l → latest v4.1.0
             {"stdout": "def5678\n"},                 # rev-parse v4.1.0 != HEAD
-            {"stdout": "main\n"},                    # rev-parse --abbrev-ref
+            {"returncode": 1},                       # merge-base: not contained → move
             {"stdout": "", "returncode": 1, "stderr": "diverged\n"},  # checkout
         ])
         monkeypatch.setattr(_subprocess, "run", runner)

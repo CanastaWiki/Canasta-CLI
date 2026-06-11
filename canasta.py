@@ -281,30 +281,54 @@ def self_update_cli(dev=False):
     target_commit = _git(
         ["rev-parse", "--short", target_ref], timeout=5,
     ).stdout.strip()
-    on_main = _git(
-        ["rev-parse", "--abbrev-ref", "HEAD"], timeout=5,
-    ).stdout.strip() == "main"
-
-    # Already at the target? For --dev we also require being on the main
-    # branch, so a prior release upgrade's detached HEAD still switches back.
-    if target_commit and target_commit == current_commit \
-            and (not dev or on_main):
-        channel = "dev (main)" if dev else "release %s" % target_ref
-        print(
-            "Canasta CLI is already up to date "
-            "(version %s, commit %s, %s)."
-            % (current_version, current_commit, channel)
-        )
-        return
 
     if dev:
+        on_main = _git(
+            ["rev-parse", "--abbrev-ref", "HEAD"], timeout=5,
+        ).stdout.strip() == "main"
+        # Already on main at origin/main? Nothing to do. (Require being on
+        # the main branch so a prior release upgrade's detached HEAD still
+        # switches back.)
+        if target_commit and target_commit == current_commit and on_main:
+            print(
+                "Canasta CLI is already up to date "
+                "(version %s, commit %s, dev (main))."
+                % (current_version, current_commit)
+            )
+            return
         # Restore the main branch first — a previous release upgrade may
         # have left a detached HEAD at a tag — then fast-forward.
         co = _git(["checkout", "main"], timeout=30)
         pull = _git(["pull", "--ff-only", "origin", "main"], timeout=60)
         move_failed = co.returncode != 0 or pull.returncode != 0
     else:
-        # Detached checkout of the latest release tag.
+        # Release channel: only ever move forward. If the latest release
+        # tag is already contained in HEAD — we're sitting on it, or on a
+        # newer development build — checking it out would be a downgrade,
+        # so stay put. 'canasta upgrade' must never travel backward in time.
+        contained = _git(
+            ["merge-base", "--is-ancestor", target_ref, "HEAD"], timeout=5,
+        ).returncode == 0
+        if contained:
+            if target_commit == current_commit:
+                print(
+                    "Canasta CLI is already up to date "
+                    "(version %s, commit %s, release %s)."
+                    % (current_version, current_commit, target_ref)
+                )
+            else:
+                print(
+                    "Canasta CLI is already ahead of the latest release "
+                    "(%s); keeping the current build (version %s, commit %s) "
+                    "rather than moving backward.\nUse 'canasta upgrade --dev' "
+                    "to keep tracking development builds, or run "
+                    "'git checkout %s' in %s to pin the release exactly."
+                    % (target_ref, current_version, current_commit,
+                       target_ref, repo)
+                )
+            return
+        # HEAD is behind the latest release (or on a divergent line that
+        # doesn't contain it) — move to the release tag.
         co = _git(["checkout", target_ref], timeout=60)
         move_failed = co.returncode != 0
 
