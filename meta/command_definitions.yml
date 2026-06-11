@@ -218,9 +218,9 @@ command_groups:
         (app.crowdsec.net) for the full community blocklist. Optional —
         the engine already pulls the smaller "Lite" community blocklist
         via the Central API by default.
-      * `reload` restarts just the engine to apply changes (accepted
-        console enrollment, whitelist edits) or force a blocklist pull,
-        without restarting the whole instance.
+      * `reload` restarts just the engine to apply changes (an accepted
+        console enrollment, whitelist edits) without restarting the whole
+        instance.
       * `status` shows the registered bouncers and the currently active
         IP decisions.
       * `ban` / `unban` add or remove a manual decision for an IP,
@@ -1385,9 +1385,11 @@ commands:
     long_description: |
       Restart just the CrowdSec engine container to apply pending changes
       without restarting the whole instance. Use it after accepting a
-      console enrollment, after editing `config/crowdsec/whitelists.yaml`,
-      or to force a fresh blocklist pull. The Caddy bouncer keeps enforcing
-      its cached decisions during the brief restart. Compose only.
+      console enrollment or after editing `config/crowdsec/whitelists.yaml`.
+      The Caddy bouncer keeps enforcing its cached decisions during the
+      brief restart. Note that community and console blocklists arrive on
+      CrowdSec's own pull cycle (about every 2 hours), which a restart does
+      not force. Compose only.
     examples:
       - "canasta crowdsec reload"
       - "canasta crowdsec reload -i mysite"
