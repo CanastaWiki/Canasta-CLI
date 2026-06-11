@@ -36,9 +36,7 @@
   no_log: true
 
 # cscli writes the console credentials into the persisted /etc/crowdsec
-# volume; a restart makes the engine pick them up and begin syncing
-# console-pushed blocklists (mirrors `systemctl reload crowdsec` on a
-# host install).
+# volume; restart so the engine picks them up.
 - name: Restart the CrowdSec engine to apply the enrollment
   ansible.builtin.command:
     cmd: "docker compose restart crowdsec"
@@ -53,5 +51,5 @@
         1. Accept the pending enrollment for this engine.
         2. Under Blocklists, subscribe the engine to the CrowdSec
            Community Blocklist (and any others you want).
-      Then run 'canasta crowdsec reload' to apply the acceptance and pull
-      the blocklists now (otherwise they arrive on CrowdSec's ~2h schedule).
+      Then run 'canasta crowdsec reload' to apply the acceptance. Subscribed
+      blocklists arrive on CrowdSec's own pull cycle (about every 2 hours).

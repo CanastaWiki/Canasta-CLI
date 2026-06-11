@@ -1,7 +1,8 @@
 ---
 # canasta crowdsec reload - restart just the CrowdSec engine to apply pending
-# changes (accepted console enrollment, whitelist edits) and pull the latest
-# blocklists, without bouncing the rest of the instance.
+# changes (accepted console enrollment, whitelist edits) without bouncing the
+# rest of the instance. Blocklists arrive on CrowdSec's own ~2h pull cycle,
+# which a restart does not force.
 # Input: id (optional)
 
 - name: Preflight (resolve, Compose-only, crowdsec running)
