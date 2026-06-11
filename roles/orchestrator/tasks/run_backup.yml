@@ -41,7 +41,7 @@
                 alpine sh -c \
                 "rm -rf /currentsnapshot/* && \
               {% for src, dst in backup_volumes.items() %}
-                mkdir -p $(dirname {{ dst }}) && cp -a /src{{ loop.index0 }} {{ dst }}{{ ' && ' if not loop.last else '' }} \
+                cp -a /src{{ loop.index0 }} {{ dst }}{{ ' && ' if not loop.last else '' }} \
               {% endfor %}
                 "
           changed_when: true

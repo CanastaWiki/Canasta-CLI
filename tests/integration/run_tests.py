@@ -561,6 +561,67 @@ def test_backup_custom_dockerfile(inst):
     shutil.rmtree(backup_dir, ignore_errors=True)
 
 
+def test_backup_missing_dockerfile(inst):
+    """A backup of an override that references a missing Dockerfile is clean.
+
+    Regression: discovery trusts `docker compose config`, which emits the
+    build: section even when the Dockerfile is absent. Staging that missing
+    path would bind-mount it, and on Linux Docker creates a root-owned junk
+    directory there. Discovery must stat each path and stage only existing
+    ones, so the backup leaves the instance directory untouched.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)  # Brief wait for containers to stabilize
+
+    inst_path = inst.instance_path()
+    override_path = os.path.join(inst_path, "docker-compose.override.yml")
+    dockerfile_path = os.path.join(inst_path, "Dockerfile.custom")
+
+    print("Adding an override that references a NON-EXISTENT Dockerfile...")
+    with open(override_path, "w") as f:
+        f.write(
+            "services:\n"
+            "  web:\n"
+            "    image: %s:custom\n"
+            "    build:\n"
+            "      context: .\n"
+            "      dockerfile: Dockerfile.custom\n"
+            % inst.id
+        )
+    assert not os.path.exists(dockerfile_path), "precondition: Dockerfile absent"
+
+    print("Configuring backup repository...")
+    backup_dir = tempfile.mkdtemp(prefix="canasta-int-backup-")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_REPOSITORY=%s" % backup_dir, "--no-restart",
+    )
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_PASSWORD=testpass", "--no-restart",
+    )
+
+    print("Initializing backup repository...")
+    inst.run_ok("backup", "init", "-i", inst.id)
+
+    print("Creating backup snapshot (must not create a junk Dockerfile dir)...")
+    inst.run_ok("backup", "create", "-i", inst.id, "-t", "missing-df")
+
+    print("Verifying no junk Dockerfile.custom was created...")
+    assert not os.path.isdir(dockerfile_path), (
+        "backup created a junk directory at Dockerfile.custom"
+    )
+    assert not os.path.exists(dockerfile_path), (
+        "backup created an unexpected Dockerfile.custom entry"
+    )
+    shutil.rmtree(backup_dir, ignore_errors=True)
+
+
 def test_gitops(inst):
     """Init gitops, verify templates, push, verify remote."""
     # Check prerequisites
@@ -2047,6 +2108,7 @@ ALL_TESTS = {
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
     "backup-custom-dockerfile": test_backup_custom_dockerfile,
+    "backup-missing-dockerfile": test_backup_missing_dockerfile,
     "gitops": test_gitops,
     "gitops-pull-diff": test_gitops_pull_diff,
     "extension-skin": test_extension_skin,
