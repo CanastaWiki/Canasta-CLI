@@ -210,47 +210,62 @@ def cmd_gitops_status(args):
         print(_parse_gitops_status(stdout, inst_id))
     return 0
 
-def _gitops_diff_script(path):
+def _gitops_diff_script(path, stat=False):
+    # For each of the three boundaries we emit two sections: a
+    # --name-only list (for the file count and the restart/update
+    # heuristics) followed by the actual patch the user asked to see.
+    # Uncommitted uses `HEAD` so staged *and* unstaged changes both
+    # show up (plain `git diff` would miss staged files). Local and
+    # remote use three-dot ranges so each side shows what its own
+    # commits introduced since the branches diverged, rather than the
+    # symmetric two-dot file set.
     d = _helpers._SENTINEL
     qp = _helpers._shell_quote(path)
+    fmt = "--stat" if stat else "-p"
     return (
         "cd %(p)s; "
-        "git diff --name-only 2>/dev/null; "
+        "git diff --name-only HEAD 2>/dev/null; "
         "echo '%(d)s'; "
-        "git diff --name-only HEAD @{upstream} 2>/dev/null; "
+        "git diff %(f)s HEAD 2>/dev/null; "
         "echo '%(d)s'; "
-        "git diff --name-only @{upstream} HEAD 2>/dev/null; "
+        "git diff --name-only @{upstream}...HEAD 2>/dev/null; "
+        "echo '%(d)s'; "
+        "git diff %(f)s @{upstream}...HEAD 2>/dev/null; "
+        "echo '%(d)s'; "
+        "git diff --name-only HEAD...@{upstream} 2>/dev/null; "
+        "echo '%(d)s'; "
+        "git diff %(f)s HEAD...@{upstream} 2>/dev/null; "
         "echo '%(d)s'; "
         "git submodule status 2>/dev/null"
-    ) % {"p": qp, "d": d}
+    ) % {"p": qp, "d": d, "f": fmt}
 
 
 def _parse_gitops_diff(stdout):
     parts = stdout.split(_helpers._SENTINEL + "\n")
 
-    uncommitted = parts[0].strip() if len(parts) > 0 else ""
-    local = parts[1].strip() if len(parts) > 1 else ""
-    remote = parts[2].strip() if len(parts) > 2 else ""
-    submodules_raw = parts[3].strip() if len(parts) > 3 else ""
+    def _names(i):
+        raw = parts[i].strip() if len(parts) > i else ""
+        return sorted(raw.split("\n")) if raw else []
 
-    uc_files = sorted(uncommitted.split("\n")) if uncommitted else []
-    lc_files = sorted(local.split("\n")) if local else []
-    rc_files = sorted(remote.split("\n")) if remote else []
+    def _patch(i):
+        return parts[i].strip("\n") if len(parts) > i else ""
 
-    lines = ["Uncommitted changes: %d file(s)" % len(uc_files)]
-    for f in uc_files:
-        lines.append("  %s" % f)
-    lines.append("")
+    uc_files, uc_patch = _names(0), _patch(1)
+    lc_files, lc_patch = _names(2), _patch(3)
+    rc_files, rc_patch = _names(4), _patch(5)
+    submodules_raw = parts[6].strip() if len(parts) > 6 else ""
 
-    lines.append("Local changes (not yet pushed): %d file(s)" % len(lc_files))
-    for f in lc_files:
-        lines.append("  %s" % f)
-    lines.append("")
+    lines = []
 
-    lines.append("Remote changes (would be applied on pull): %d file(s)" % len(rc_files))
-    for f in rc_files:
-        lines.append("  %s" % f)
-    lines.append("")
+    def _section(title, files, patch):
+        lines.append("%s: %d file(s)" % (title, len(files)))
+        if patch:
+            lines.append(patch)
+        lines.append("")
+
+    _section("Uncommitted changes", uc_files, uc_patch)
+    _section("Local changes (not yet pushed)", lc_files, lc_patch)
+    _section("Remote changes (would be applied on pull)", rc_files, rc_patch)
 
     subs = [
         s.split()[1] for s in submodules_raw.split("\n")
@@ -285,7 +300,7 @@ def cmd_gitops_diff(args):
 
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    script = _gitops_diff_script(path)
+    script = _gitops_diff_script(path, stat=bool(getattr(args, "stat", False)))
 
     if _helpers._is_localhost(host):
         try:
