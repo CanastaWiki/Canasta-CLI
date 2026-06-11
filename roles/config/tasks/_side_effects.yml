@@ -328,7 +328,7 @@
           when the instance starts.
           {{ '' if not (no_restart | default(false) | bool)
              else ("Because --no-restart was used, run 'canasta start -i "
-                   ~ instance_id ~ "' (or 'canasta crowdsec enroll -i "
+                   ~ instance_id ~ "' (or 'canasta crowdsec bouncer-enroll -i "
                    ~ instance_id ~ "') to activate enforcement.") }}
       when: _se_crowdsec_key.value | default('') | length == 0
 

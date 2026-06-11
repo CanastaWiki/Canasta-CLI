@@ -1,6 +1,6 @@
 ---
-# canasta crowdsec enroll - register the Caddy bouncer with the CrowdSec
-# engine, persist its API key, and restart so it starts enforcing.
+# canasta crowdsec bouncer-enroll - register the Caddy bouncer with the
+# CrowdSec engine, persist its API key, and restart so it starts enforcing.
 # Input: id (optional), force (bool)
 
 - name: Preflight (resolve, Compose-only, crowdsec running)

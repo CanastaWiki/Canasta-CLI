@@ -208,8 +208,8 @@ command_groups:
       same pattern as the other optional features); this group covers
       the steps that don't reduce to a single config value:
 
-      * `enroll` registers the Caddy bouncer with the CrowdSec engine,
-        captures the generated API key, stores it as
+      * `bouncer-enroll` registers the Caddy bouncer with the CrowdSec
+        engine, captures the generated API key, stores it as
         `CROWDSEC_BOUNCER_API_KEY`, and restarts so the bouncer starts
         enforcing decisions. This now happens automatically the first
         time the instance starts after CrowdSec is enabled; run it by
@@ -1309,8 +1309,8 @@ commands:
   # ---------------------------------------------------------------------------
   # CrowdSec
   # ---------------------------------------------------------------------------
-  - name: crowdsec_enroll
-    description: "Enroll the Caddy bouncer with CrowdSec"
+  - name: crowdsec_bouncer_enroll
+    description: "Register the Caddy bouncer with the CrowdSec engine"
     long_description: |
       Register the Caddy bouncer with the running CrowdSec engine,
       store the generated API key as CROWDSEC_BOUNCER_API_KEY, and
@@ -1321,13 +1321,15 @@ commands:
       bouncer automatically on the next start, so you rarely need to run
       this by hand. It is idempotent: if the bouncer is already enrolled
       and a key is stored, it reports success and does nothing. Use
-      `--force` to revoke the existing bouncer and issue a fresh key.
-      Compose only.
+      `--force` to revoke the existing bouncer and issue a fresh key
+      (e.g. to rotate a key, or recover one that drifted out of sync).
+      Distinct from `console-enroll`, which connects the engine to the
+      cloud CrowdSec Console. Compose only.
     examples:
-      - "canasta crowdsec enroll"
-      - "canasta crowdsec enroll -i mysite"
-      - "canasta crowdsec enroll -i mysite --force"
-    playbook: crowdsec_enroll.yml
+      - "canasta crowdsec bouncer-enroll"
+      - "canasta crowdsec bouncer-enroll -i mysite"
+      - "canasta crowdsec bouncer-enroll -i mysite --force"
+    playbook: crowdsec_bouncer_enroll.yml
     parameters:
       - name: id
         short: i
@@ -1354,8 +1356,8 @@ commands:
       Get an enrollment key from the Console (Security Engines → Enroll),
       run this command, then return to the Console to accept the pending
       engine and subscribe it to the blocklists you want. Distinct from
-      `canasta crowdsec enroll`, which registers the local Caddy bouncer
-      with the engine. Compose only.
+      `canasta crowdsec bouncer-enroll`, which registers the local Caddy
+      bouncer with the engine. Compose only.
     examples:
       - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx"
       - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx --name prod1"

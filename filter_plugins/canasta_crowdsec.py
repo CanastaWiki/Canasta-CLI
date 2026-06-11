@@ -48,8 +48,8 @@ def canasta_crowdsec_status_bouncers(bouncers, family_name="canasta-caddy"):
                 "  + %d stale auto-created duplicate registration(s) from past "
                 "container restarts (harmless — only the active bouncer above "
                 "pulls decisions). CrowdSec cannot delete these individually; "
-                "run 'canasta crowdsec enroll --force' to reset to a single "
-                "registration." % stale
+                "run 'canasta crowdsec bouncer-enroll --force' to reset to a "
+                "single registration." % stale
             )
 
     for b in others:

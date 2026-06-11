@@ -1,7 +1,0 @@
----
-# canasta crowdsec enroll
-
-- name: CrowdSec Enroll
-  ansible.builtin.include_role:
-    name: crowdsec
-    tasks_from: enroll.yml
