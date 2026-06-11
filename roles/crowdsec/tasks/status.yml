@@ -30,6 +30,33 @@
   register: _crowdsec_decisions
   changed_when: false
 
+# Central API registration is what enables the crowd-sourced community
+# blocklist; a non-zero rc means it never registered (the silent failure
+# mode this surfaces). Console status reflects whether the engine is wired
+# to the cloud Console for the full blocklist. Both are read-only probes.
+- name: Get Central API (community blocklist) status
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli capi status"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_capi
+  changed_when: false
+  failed_when: false
+
+- name: Get console enrollment status
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli console status"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_console
+  changed_when: false
+  failed_when: false
+
+- name: Summarize Central API state
+  ansible.builtin.set_fact:
+    _crowdsec_capi_line: >-
+      {{ 'registered — community blocklist active'
+         if _crowdsec_capi.rc == 0
+         else 'not registered (no community blocklist; auto-registers on the next start)' }}
+
 - name: Show CrowdSec status
   ansible.builtin.debug:
     msg: |-
@@ -37,6 +64,12 @@
 
       Bouncers:
       {{ _crowdsec_bouncer_list | canasta_crowdsec_status_bouncers }}
+
+      Central API (community blocklist): {{ _crowdsec_capi_line }}
+
+      Console:
+      {{ (_crowdsec_console.stdout | default('') | trim)
+         or 'not enrolled — run: canasta crowdsec console-enroll <key> (optional, for the full blocklist)' }}
 
       Decisions:
       {{ _crowdsec_decisions.stdout | default('(none)') }}
