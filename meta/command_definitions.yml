@@ -1991,18 +1991,24 @@ commands:
   - name: gitops_diff
     description: "Show local and remote changes since the branches diverged"
     long_description: |
-      Show uncommitted working tree changes, then fetch the latest
-      from the remote and show what files have changed locally, what
-      files have changed on the remote, and which files have changed
-      in both (potential merge conflicts).
+      Show the actual patch for uncommitted working tree changes, for
+      local commits not yet pushed, and for remote commits that would
+      be applied on the next pull. Each section is headed by its file
+      count. Use --stat to show a diffstat summary instead of the full
+      patch.
     examples:
       - "canasta gitops diff"
+      - "canasta gitops diff --stat"
     playbook: gitops_diff.yml
     parameters:
       - name: id
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: stat
+        type: bool
+        default: false
+        description: "Show a diffstat summary instead of the full patch"
 
   - name: gitops_fix_submodules
     description: "Convert extensions and skins to proper git submodules"
