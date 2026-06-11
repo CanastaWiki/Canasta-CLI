@@ -30,6 +30,17 @@ def _result(**fields):
     return SimpleNamespace(_result=dict(fields))
 
 
+def _item_result(ignore_errors=None, **fields):
+    """A loop-item result as Ansible delivers it to v2_runner_item_on_failed:
+    the per-item _ansible_ignore_errors marker has already been consumed by
+    loop aggregation, so the only reliable ignore_errors signal is the task
+    object's own ignore_errors field."""
+    return SimpleNamespace(
+        _result=dict(fields),
+        _task=SimpleNamespace(ignore_errors=ignore_errors),
+    )
+
+
 class TestFormatCmdDiagnostics:
     def test_empty(self):
         assert canasta_minimal.CallbackModule._format_cmd_diagnostics("", "") == ""
@@ -165,18 +176,39 @@ class TestRunnerOnFailed:
 class TestRunnerItemOnFailed:
     def test_item_failure_displayed_when_not_ignored(self):
         cb = _make_callback()
+        cb.v2_runner_item_on_failed(
+            _item_result(ignore_errors=None, msg="missing required parameter")
+        )
+        msgs = [m for (m, _, _) in cb._captured]
+        assert msgs == ["Error: missing required parameter"]
+
+    def test_item_failure_displayed_when_no_task_attached(self):
+        """Defensive: a result without a _task object (e.g. some param
+        validation loops) must still surface its message."""
+        cb = _make_callback()
         cb.v2_runner_item_on_failed(_result(msg="missing required parameter"))
         msgs = [m for (m, _, _) in cb._captured]
         assert msgs == ["Error: missing required parameter"]
 
-    def test_item_failure_suppressed_when_ignore_errors(self):
-        """A failed loop item in an ignore_errors task carries the task's
-        ignore_errors via _ansible_ignore_errors. The callback must honor
-        it — otherwise the 'OK if dir already moved' mv in the upgrade
-        directory-structure migration leaks a bare 'Error: ...' line."""
+    def test_item_failure_suppressed_via_task_ignore_errors(self):
+        """How Ansible actually delivers it: the per-item
+        _ansible_ignore_errors marker is consumed during loop aggregation
+        and is absent from the item result, so the callback must read
+        ignore_errors off the task. Otherwise the 'OK if dir already moved'
+        mv in the upgrade directory-structure migration leaks a bare
+        'Error: ...' line into the output."""
         cb = _make_callback()
-        cb.v2_runner_item_on_failed(_result(
-            msg="The command exited with a non-zero return code.",
-            _ansible_ignore_errors=True,
+        cb.v2_runner_item_on_failed(_item_result(
+            ignore_errors=True,
+            msg="non-zero return code",
         ))
+        assert cb._captured == []
+
+    def test_item_failure_suppressed_via_ignore_errors_kwarg(self):
+        """Belt-and-suspenders for any ansible-core version that passes
+        ignore_errors as a kwarg to the item callback."""
+        cb = _make_callback()
+        cb.v2_runner_item_on_failed(
+            _result(msg="non-zero return code"), ignore_errors=True
+        )
         assert cb._captured == []
