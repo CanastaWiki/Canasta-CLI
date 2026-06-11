@@ -1,0 +1,12 @@
+# CrowdSec acquisition config for this Canasta instance.
+# Tells the CrowdSec engine which logs to read. Mounted into the
+# crowdsec container at /etc/crowdsec/acquis.d/caddy.yaml.
+#
+# Only used when CrowdSec is enabled (CANASTA_ENABLE_CROWDSEC=true);
+# harmless otherwise. The labels.type must be `caddy` so the
+# crowdsecurity/caddy parser picks up the access log (Caddy writes it
+# as JSON by default).
+filenames:
+  - /var/log/caddy/access.log
+labels:
+  type: caddy

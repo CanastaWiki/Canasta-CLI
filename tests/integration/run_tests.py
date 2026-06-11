@@ -2097,6 +2097,92 @@ def test_gitops_fix_submodules_orphan(inst):
     )
 
 
+def _wait_for_crowdsec_lapi(inst, timeout=120):
+    """Poll until the crowdsec LAPI answers cscli, so enroll doesn't race
+    container startup (collection install + sqlite init take a few seconds)."""
+    deadline = time.time() + timeout
+    last = ""
+    print("  Waiting for crowdsec LAPI...", flush=True)
+    while time.time() < deadline:
+        result = subprocess.run(
+            ["docker", "compose", "exec", "-T", "crowdsec",
+             "cscli", "lapi", "status"],
+            capture_output=True, text=True, cwd=inst.instance_path(),
+        )
+        if result.returncode == 0:
+            print("  crowdsec LAPI is ready")
+            return
+        last = (result.stderr or result.stdout or "").strip()
+        time.sleep(5)
+    raise AssertionError(
+        "crowdsec LAPI not ready within %ds (last: %s)" % (timeout, last)
+    )
+
+
+def test_crowdsec(inst):
+    """Enable CrowdSec on an instance created BEFORE the feature existed,
+    verify the acquisition/whitelist files are backfilled (not left as empty
+    bind-mount directories), and exercise enroll -> status -> ban -> unban.
+
+    The live 'banned IP gets a 403' path is validated against a real
+    deployment rather than here: in the port-mapped test environment Caddy
+    sees the Docker bridge gateway as the client, which makes a 403 assertion
+    environment-fragile. This pins the deterministic behavior (backfill +
+    command/decision plumbing)."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    crowdsec_dir = os.path.join(inst.instance_path(), "config", "crowdsec")
+
+    print("Enabling CrowdSec (config set restarts the instance)...")
+    inst.run_ok("config", "set", "-i", inst.id, "CANASTA_ENABLE_CROWDSEC=true")
+
+    # The instance was created before the feature was enabled, so nothing
+    # but the backfill materializes these. They must be FILES — a directory
+    # here means the engine gets a dir where its acquisition file should be.
+    print("Verifying crowdsec config files were backfilled as files...")
+    for name in ("acquis.yaml", "whitelists.yaml"):
+        path = os.path.join(crowdsec_dir, name)
+        assert os.path.isfile(path), (
+            "%s should be backfilled as a file, not a directory" % path
+        )
+
+    # COMPOSE_PROFILES self-heals from the flag on start.
+    env = read_env(inst.env_path())
+    assert "crowdsec" in env.get("COMPOSE_PROFILES", ""), (
+        "crowdsec profile should be active: %s" % env.get("COMPOSE_PROFILES")
+    )
+
+    _wait_for_crowdsec_lapi(inst)
+
+    print("Enrolling the Caddy bouncer...")
+    inst.run_ok("crowdsec", "enroll", "-i", inst.id)
+    env = read_env(inst.env_path())
+    assert env.get("CROWDSEC_BOUNCER_API_KEY", ""), (
+        "enroll must store CROWDSEC_BOUNCER_API_KEY"
+    )
+
+    print("Checking status lists the bouncer...")
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "canasta-caddy" in out, "status should list the canasta-caddy bouncer"
+
+    # 203.0.113.0/24 is TEST-NET-3 (documentation range) — safe to ban.
+    print("Banning a test IP and verifying the decision appears...")
+    inst.run_ok("crowdsec", "ban", "203.0.113.7", "-i", inst.id)
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "203.0.113.7" in out, "banned IP should appear in decisions"
+
+    print("Unbanning and verifying the decision is gone...")
+    inst.run_ok("crowdsec", "unban", "203.0.113.7", "-i", inst.id)
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "203.0.113.7" not in out, "unbanned IP should be gone from decisions"
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -2127,6 +2213,7 @@ ALL_TESTS = {
     "backup-restore-safety": test_backup_restore_excludes_safety,
     "gitops-status-fetch": test_gitops_status_fetch,
     "gitops-fix-submodules": test_gitops_fix_submodules_orphan,
+    "crowdsec": test_crowdsec,
 }
 
 
