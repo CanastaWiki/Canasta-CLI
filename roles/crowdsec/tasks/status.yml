@@ -30,10 +30,8 @@
   register: _crowdsec_decisions
   changed_when: false
 
-# Central API registration is what enables the crowd-sourced community
-# blocklist; a non-zero rc means it never registered (the silent failure
-# mode this surfaces). Console status reflects whether the engine is wired
-# to the cloud Console for the full blocklist. Both are read-only probes.
+# Read-only probes: CAPI registration gates the community blocklist;
+# console status reflects whether the engine is wired to the Console.
 - name: Get Central API (community blocklist) status
   ansible.builtin.command:
     cmd: "docker compose exec -T crowdsec cscli capi status"
@@ -50,12 +48,32 @@
   changed_when: false
   failed_when: false
 
-- name: Summarize Central API state
+# `cscli decisions list` excludes CAPI blocklist decisions, so count them by
+# origin. -o raw keeps the payload to one integer; tail drops the CSV header.
+- name: Count community-blocklist (CAPI) decisions
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T crowdsec sh -c
+      'cscli decisions list --origin CAPI -o raw 2>/dev/null | tail -n +2 | wc -l'
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_capi_count
+  changed_when: false
+  failed_when: false
+
+- name: Summarize Central API and console state
   ansible.builtin.set_fact:
+    # Show the loaded-IP count when registered.
     _crowdsec_capi_line: >-
-      {{ 'registered — community blocklist active'
+      {{ ('registered — community blocklist active'
+          ~ ((' (' ~ (_crowdsec_capi_count.stdout | trim) ~ ' IPs loaded)')
+             if (_crowdsec_capi_count.stdout | trim | int) > 0 else ''))
          if _crowdsec_capi.rc == 0
          else 'not registered (no community blocklist; auto-registers on the next start)' }}
+    # An enrolled engine has at least one forward option activated (✅).
+    _crowdsec_console_line: >-
+      {{ 'enrolled'
+         if (_crowdsec_console.rc == 0 and '✅' in (_crowdsec_console.stdout | default('')))
+         else 'not enrolled — run: canasta crowdsec console-enroll <key> (optional, for the full blocklist)' }}
 
 - name: Show CrowdSec status
   ansible.builtin.debug:
@@ -66,10 +84,7 @@
       {{ _crowdsec_bouncer_list | canasta_crowdsec_status_bouncers }}
 
       Central API (community blocklist): {{ _crowdsec_capi_line }}
+      Console: {{ _crowdsec_console_line }}
 
-      Console:
-      {{ (_crowdsec_console.stdout | default('') | trim)
-         or 'not enrolled — run: canasta crowdsec console-enroll <key> (optional, for the full blocklist)' }}
-
-      Decisions:
+      Local decisions (manual bans + scenario detections):
       {{ _crowdsec_decisions.stdout | default('(none)') }}
