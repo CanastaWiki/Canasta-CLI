@@ -2119,6 +2119,21 @@ def _wait_for_crowdsec_lapi(inst, timeout=120):
     )
 
 
+def _cscli(inst, *args):
+    """Run a cscli command inside the instance's crowdsec container."""
+    result = subprocess.run(
+        ["docker", "compose", "exec", "-T", "crowdsec", "cscli"] + list(args),
+        capture_output=True, text=True, cwd=inst.instance_path(),
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            "cscli %s failed (rc=%d): %s"
+            % (" ".join(args), result.returncode,
+               (result.stderr or result.stdout).strip())
+        )
+    return result.stdout
+
+
 def test_crowdsec(inst):
     """Enable CrowdSec on an instance created BEFORE the feature existed,
     verify the acquisition/whitelist files are backfilled (not left as empty
@@ -2170,6 +2185,7 @@ def test_crowdsec(inst):
     print("Checking status lists the bouncer...")
     out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
     assert "canasta-caddy" in out, "status should list the canasta-caddy bouncer"
+    assert "active" in out, "status should mark the live bouncer active"
 
     # 203.0.113.0/24 is TEST-NET-3 (documentation range) — safe to ban.
     print("Banning a test IP and verifying the decision appears...")
@@ -2181,6 +2197,29 @@ def test_crowdsec(inst):
     inst.run_ok("crowdsec", "unban", "203.0.113.7", "-i", inst.id)
     out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
     assert "203.0.113.7" not in out, "unbanned IP should be gone from decisions"
+
+    # Recreating the caddy container makes CrowdSec auto-create an undeletable
+    # 'canasta-caddy@<ip>' child each time it reconnects from a new IP,
+    # accumulating stale 'valid' rows (issue #619). They cannot be pruned
+    # (deleting the parent cascades and revokes the shared key), so status
+    # collapses the family for display instead. Simulate two duplicates and
+    # verify status shows one active bouncer plus a stale-count note rather
+    # than listing each row.
+    print("Simulating stale IP-suffixed bouncer duplicates...")
+    for ip in ("172.18.0.250", "172.18.0.251"):
+        _cscli(inst, "bouncers", "add", "canasta-caddy@%s" % ip, "-o", "raw")
+
+    print("Verifying status collapses the duplicates for display...")
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert out.count("— active") == 1, (
+        "status should show exactly one active canasta-caddy registration"
+    )
+    assert "2 stale auto-created duplicate" in out, (
+        "status should summarize the two duplicates as a stale count"
+    )
+    assert "172.18.0.250" not in out and "172.18.0.251" not in out, (
+        "individual stale duplicate rows must not be listed"
+    )
 
 
 # --- Test runner ---
