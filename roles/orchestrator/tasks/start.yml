@@ -139,6 +139,17 @@
         state: read_all
       register: _start_crowdsec_env
 
+    # Register the engine with the Central API first, so the community
+    # blocklist is active and console enrollment is possible. Idempotent
+    # (skips once registered); its restart is of the crowdsec container
+    # only, so it does not re-enter this start.
+    - name: Ensure CrowdSec is registered with the Central API
+      ansible.builtin.include_role:
+        name: crowdsec
+        tasks_from: ensure_capi.yml
+      when:
+        - _start_crowdsec_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true'
+
     - name: Auto-enroll the CrowdSec bouncer when enabled but unenrolled
       ansible.builtin.include_role:
         name: crowdsec

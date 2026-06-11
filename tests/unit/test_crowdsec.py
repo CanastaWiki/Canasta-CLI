@@ -674,6 +674,20 @@ class TestCrowdsecStatusWiring:
             "include_role)"
         )
 
+    def test_status_reports_capi_and_console(self):
+        """status must surface Central API registration (the community
+        blocklist) and console enrollment, so an un-registered engine is no
+        longer a silent failure."""
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
+        ))
+        assert "cscli capi status" in content, (
+            "status must probe Central API registration (community blocklist)"
+        )
+        assert "cscli console status" in content, (
+            "status must probe console enrollment state"
+        )
+
 
 class TestCrowdsecConsoleEnrollRole:
     def _console(self):
@@ -734,3 +748,57 @@ class TestCrowdsecAutoEnroll:
         assert "cscli lapi status" in content, (
             "enroll must wait for the LAPI to be ready before adding a bouncer"
         )
+
+
+class TestCrowdsecCapiRegistration:
+    def _capi(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "ensure_capi.yml",
+        ))
+
+    def test_registers_capi_to_enable_community_blocklist(self):
+        """Without CAPI registration there is no community blocklist and
+        console enrollment is impossible; ensure_capi must register it."""
+        content = self._capi()
+        assert "cscli capi register" in content, (
+            "ensure_capi must register the engine with the Central API"
+        )
+        assert "online_api_credentials.yaml" in content, (
+            "the registration must write the CAPI credentials file"
+        )
+
+    def test_registration_is_idempotent(self):
+        """It must skip once registered, so it is a cheap no-op on every
+        subsequent start (gated on `cscli capi status` failing)."""
+        content = self._capi()
+        assert "cscli capi status" in content, (
+            "ensure_capi must check capi status to stay idempotent"
+        )
+        assert "_crowdsec_capi_status.rc != 0" in content, (
+            "registration must be gated on capi status failing"
+        )
+
+    def test_credentials_are_no_log(self):
+        content = self._capi()
+        assert "no_log: true" in content, (
+            "the register step must be no_log so CAPI credentials never leak"
+        )
+
+    def test_restarts_engine_to_load_credentials(self):
+        content = self._capi()
+        assert "docker compose restart crowdsec" in content, (
+            "the engine must restart to pick up the new CAPI credentials"
+        )
+
+    def test_start_ensures_capi_when_enabled(self):
+        """start.yml must register CAPI when CrowdSec is enabled, before the
+        bouncer auto-enroll (console enrollment depends on CAPI)."""
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml",
+        ))
+        assert "tasks_from: ensure_capi.yml" in content, (
+            "start.yml must ensure CAPI registration via the crowdsec role"
+        )
+        assert content.index("tasks_from: ensure_capi.yml") < content.index(
+            "tasks_from: bouncer_enroll.yml"
+        ), "CAPI registration must run before bouncer auto-enroll"
