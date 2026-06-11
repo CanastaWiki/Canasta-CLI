@@ -1120,6 +1120,9 @@ class TestSelfUpdateCli:
         out = capsys.readouterr().out
         assert "already ahead of the latest release" in out
         assert "v4.0.4" in out
+        # The return-to-release hint must keep native users on native — the
+        # bare installer one-liner defaults to Docker mode.
+        assert "--native" in out
         # No checkout, no re-exec — we stayed on the current build.
         assert not any("checkout" in c for c in calls)
         assert execv_calls == []
