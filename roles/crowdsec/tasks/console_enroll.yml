@@ -53,5 +53,5 @@
         1. Accept the pending enrollment for this engine.
         2. Under Blocklists, subscribe the engine to the CrowdSec
            Community Blocklist (and any others you want).
-      Subscribed blocklists are pulled on CrowdSec's Central API schedule
-      (about every 2 hours) and enforced by the Caddy bouncer.
+      Then run 'canasta crowdsec reload' to apply the acceptance and pull
+      the blocklists now (otherwise they arrive on CrowdSec's ~2h schedule).

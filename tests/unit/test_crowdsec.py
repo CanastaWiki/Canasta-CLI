@@ -407,10 +407,11 @@ class TestCrowdsecCommands:
 
     def test_subcommand_group_registered(self):
         assert canasta_cli.SUBCOMMAND_GROUPS.get("crowdsec") == [
-            "bouncer-enroll", "console-enroll", "status", "ban", "unban",
+            "bouncer-enroll", "console-enroll", "reload",
+            "status", "ban", "unban",
         ], (
             "crowdsec subcommand group must expose "
-            "bouncer-enroll/console-enroll/status/ban/unban"
+            "bouncer-enroll/console-enroll/reload/status/ban/unban"
         )
 
     def test_group_umbrella_defined(self):
@@ -424,6 +425,7 @@ class TestCrowdsecCommands:
     @pytest.mark.parametrize("cmd_name,playbook", [
         ("crowdsec_bouncer_enroll", "crowdsec_bouncer_enroll.yml"),
         ("crowdsec_console_enroll", "crowdsec_console_enroll.yml"),
+        ("crowdsec_reload", "crowdsec_reload.yml"),
         ("crowdsec_status", "crowdsec_status.yml"),
         ("crowdsec_ban", "crowdsec_ban.yml"),
         ("crowdsec_unban", "crowdsec_unban.yml"),
@@ -745,6 +747,28 @@ class TestCrowdsecConsoleEnrollRole:
         content = self._console()
         assert "docker compose restart crowdsec" in content, (
             "the engine must restart so it picks up the console credentials"
+        )
+
+
+class TestCrowdsecReloadRole:
+    def _reload(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "reload.yml",
+        ))
+
+    def test_restarts_only_the_engine(self):
+        """reload must bounce just the crowdsec container, not the whole
+        instance."""
+        content = self._reload()
+        assert "docker compose restart crowdsec" in content, (
+            "reload must restart only the crowdsec engine container"
+        )
+
+    def test_preflight_gated(self):
+        content = self._reload()
+        assert "_preflight.yml" in content, (
+            "reload must run the shared crowdsec preflight (Compose-only, "
+            "engine running)"
         )
 
 
