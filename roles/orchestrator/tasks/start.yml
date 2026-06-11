@@ -125,24 +125,17 @@
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim == 'has'
 
-    # CrowdSec auto-enrollment. When the crowdsec profile is active but no
-    # bouncer key is stored yet, register the Caddy bouncer with the
-    # now-running engine so enabling CrowdSec "just works" — no separate
-    # `canasta crowdsec bouncer-enroll` step. bouncer_enroll.yml stores the
-    # key (via config set) BEFORE it restarts, so the restart's re-entrant
-    # start finds the key present and the guard below is false:
-    # self-terminating, not recursive. Gated on the key being absent, so it
-    # is a cheap no-op on every subsequent start.
+    # Auto-enroll the bouncer when CrowdSec is on but no key is stored yet.
+    # bouncer_enroll stores the key before its restart, so the re-entrant
+    # start sees the key and skips — gated on key-absent, no recursion.
     - name: Read CrowdSec enablement and bouncer key for auto-enroll
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: read_all
       register: _start_crowdsec_env
 
-    # Register the engine with the Central API first, so the community
-    # blocklist is active and console enrollment is possible. Idempotent
-    # (skips once registered); its restart is of the crowdsec container
-    # only, so it does not re-enter this start.
+    # Register CAPI before bouncer auto-enroll (console enrollment depends on
+    # it). Idempotent; restarts only the crowdsec container.
     - name: Ensure CrowdSec is registered with the Central API
       ansible.builtin.include_role:
         name: crowdsec

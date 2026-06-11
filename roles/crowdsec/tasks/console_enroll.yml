@@ -3,9 +3,8 @@
 # to the CrowdSec Console (app.crowdsec.net), which unlocks the full
 # community blocklist plus any console-managed third-party blocklists.
 #
-# Optional. Without it the engine still pulls the smaller "Lite" community
-# blocklist via the Central API by default, so CrowdSec already blocks
-# crowd-sourced IPs out of the box; this just upgrades that to the full list.
+# Optional: without it the engine still pulls the smaller "Lite" community
+# blocklist via the Central API. This upgrades that to the full list.
 # Input: id (optional), key (str, required), name (str, optional)
 
 - name: Preflight (resolve, Compose-only, crowdsec running)
