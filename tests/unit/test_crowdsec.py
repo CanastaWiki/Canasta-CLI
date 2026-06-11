@@ -305,6 +305,62 @@ class TestCrowdsecProfileSync:
             "compose profile-sync trigger list"
         )
 
+    def test_image_reconcile_matches_managed_repo_by_prefix(self):
+        # An instance carrying an OLDER managed tag must still be recognized
+        # as managed (and bumped), not stranded on the stale image.
+        sync = _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks",
+            "sync_compose_profiles.yml",
+        ))
+        assert "startswith(_managed_caddy_prefix)" in sync
+        helpers = _read(os.path.join(
+            REPO_ROOT, "direct_commands", "_helpers.py",
+        ))
+        assert "_managed_caddy_prefix" in helpers
+        assert ".startswith(" in helpers
+
+
+class TestCrowdsecConfigBackfill:
+    """config/crowdsec/{acquis,whitelists}.yaml must reach an instance that
+    enables CrowdSec after create. Otherwise Docker creates directories at
+    the bind-mount paths, the engine gets a directory where its acquisition
+    file should be, and detection silently never works."""
+
+    def _ensure(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks",
+            "ensure_crowdsec_config.yml",
+        ))
+
+    def test_template_ships_both_files(self):
+        for f in ("acquis.yaml", "whitelists.yaml"):
+            assert os.path.isfile(os.path.join(
+                REPO_ROOT, "instance_template", "config", "crowdsec", f,
+            )), "instance_template must ship %s for the wholesale copy" % f
+
+    def test_backfill_copies_both_files_no_clobber(self):
+        content = self._ensure()
+        assert "force: false" in content, "backfill must not clobber edits"
+        assert "acquis.yaml" in content
+        assert "whitelists.yaml" in content
+
+    def test_backfill_clears_stray_directory(self):
+        # A prior crash-loop can leave Docker-created dirs at the file paths.
+        content = self._ensure()
+        assert "isdir" in content
+        assert "state: absent" in content
+
+    def test_wired_into_start_path_gated_on_profile(self):
+        sync = _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks",
+            "sync_compose_profiles.yml",
+        ))
+        assert "ensure_crowdsec_config.yml" in sync, (
+            "backfill must run from sync_compose_profiles (the pre-up "
+            "chokepoint hit by start/init/config-set)"
+        )
+        assert "'crowdsec' in _desired_profiles" in sync
+
 
 class TestCrowdsecBundledFiles:
     def test_acquisition_config_present_and_valid(self):
@@ -409,10 +465,32 @@ class TestCrowdsecEnrollRole:
         assert "tasks_from: set.yml" in content
 
     def test_key_handling_is_no_log(self):
+        # The cscli-add step captures the raw key under no_log.
         content = self._enroll()
         assert "no_log: true" in content, (
-            "the token-bearing tasks must be no_log so the key never lands "
-            "in Ansible output"
+            "the cscli-add task must be no_log so the captured key never "
+            "lands in Ansible output"
+        )
+
+    def test_value_bearing_set_is_no_log_for_secrets(self):
+        # no_log on the enclosing include_role does NOT propagate, so the
+        # .env write that carries the key must suppress itself on a
+        # secret-key match. enroll's old include-level no_log was a no-op.
+        set_single = _read(os.path.join(
+            REPO_ROOT, "roles", "config", "tasks", "_set_single.yml",
+        ))
+        assert "no_log:" in set_single
+        assert "canasta_secret_key_pattern" in set_single
+        defaults = yaml.safe_load(
+            _read(os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml"))
+        )
+        pattern = defaults["canasta_secret_key_pattern"]
+        assert re.search(pattern, "CROWDSEC_BOUNCER_API_KEY"), (
+            "secret pattern must match the bouncer key"
+        )
+        assert re.search(pattern, "MYSQL_PASSWORD")
+        assert re.search(pattern, "CANASTA_ENABLE_CROWDSEC") is None, (
+            "non-secret toggle must not be suppressed"
         )
 
     def test_compose_only_guard(self):

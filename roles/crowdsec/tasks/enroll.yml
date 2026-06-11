@@ -72,16 +72,18 @@
       ansible.builtin.debug:
         msg: >-
           Registered bouncer 'canasta-caddy'. Storing its key and
-          restarting to activate it (the steps below are suppressed to
-          keep the key out of the logs)...
+          restarting to activate it...
 
+    # config set carries the key into the .env / gitops-vars writes, which
+    # are no_log'd at the task level on a secret-key match. no_log here would
+    # not propagate into the included role anyway, and would also hide the
+    # restart output we want to surface.
     - name: Store the key, re-render the Caddyfile, and restart
       ansible.builtin.include_role:
         name: config
         tasks_from: set.yml
       vars:
         settings: "CROWDSEC_BOUNCER_API_KEY={{ _crowdsec_add.stdout | trim }}"
-      no_log: true
 
     - name: Report success
       ansible.builtin.debug:

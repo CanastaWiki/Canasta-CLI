@@ -112,3 +112,11 @@ canasta_known_prefixes:
   - "ST_"
   - "RCLONE_"
   - "SMTP_"
+
+# Keys whose value is a secret. The .env write (and gitops vars write)
+# that carries one of these runs with no_log so the value can't leak via
+# -v, the stock callback, or a task-failure dump. A substring match keeps
+# it fail-safe for future keys (over-suppression is harmless); covers
+# CROWDSEC_BOUNCER_API_KEY, MYSQL_PASSWORD, RESTIC_PASSWORD, MW_SECRET_KEY,
+# and the credential-prefix keys above.
+canasta_secret_key_pattern: "(PASSWORD|SECRET|TOKEN|KEY)"

@@ -126,6 +126,12 @@ services:
       # {env.CROWDSEC_BOUNCER_API_KEY} placeholder. Empty by default;
       # rewrite_caddy.yml only renders the directive when this is set,
       # so an unset key never breaks Caddy startup.
+      #
+      # No depends_on the crowdsec service: it lives behind the optional
+      # `crowdsec` profile, and a profile-gated dependency isn't expressible
+      # in a single compose file. At boot with a key set, the bouncer's first
+      # LAPI call can race the engine, but the hslatman bouncer retries
+      # rather than crashing, so this is harmless startup log noise.
       - CROWDSEC_BOUNCER_API_KEY=${CROWDSEC_BOUNCER_API_KEY:-}
     volumes:
       - caddy-data:/data
@@ -247,9 +253,11 @@ services:
     volumes:
       - crowdsec-db:/var/lib/crowdsec/data
       - crowdsec-config:/etc/crowdsec
-      # Tells CrowdSec which file to watch (labels.type: caddy). Always
-      # present in the instance template so the bind mount never resolves
-      # to a directory when the profile is enabled.
+      # Tells CrowdSec which file to watch (labels.type: caddy). Present in
+      # the instance template for new instances, and backfilled for existing
+      # instances by ensure_crowdsec_config.yml (run from sync_compose_profiles
+      # before every start), so the bind mount never resolves to a directory
+      # when the profile is enabled.
       - ./config/crowdsec/acquis.yaml:/etc/crowdsec/acquis.d/caddy.yaml:ro
       # User-editable, version-controlled whitelist (trusted IPs/ranges).
       # Loaded as a parser whitelist; takes effect on restart.

@@ -1,0 +1,49 @@
+---
+# Ensure the CrowdSec acquisition + whitelist files exist as FILES before
+# the crowdsec container binds them. New instances get these from the
+# wholesale instance_template copy at create time; this backfills an
+# instance that enables CrowdSec after create (config set / upgrade), where
+# nothing else materializes config/crowdsec/. Without it, Docker creates a
+# *directory* at each bind-mount path, the engine gets a directory where its
+# acquisition file should be, detection silently never works, and junk lands
+# in the gitops-tracked config/ tree — the same failure mode as the empty
+# bind-mount directories addressed elsewhere.
+# Input: instance_path, canasta_root
+
+- name: Ensure config/crowdsec directory exists
+  ansible.builtin.file:
+    path: "{{ instance_path }}/config/crowdsec"
+    state: directory
+    mode: "0755"
+
+# A previous crash-loop (engine started before the files existed) can leave
+# Docker-created directories at the file paths. copy with force:false won't
+# overwrite a directory, so clear any stray dir first.
+- name: Stat crowdsec bind-mount file paths
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/crowdsec/{{ item }}"
+  loop:
+    - acquis.yaml
+    - whitelists.yaml
+  register: _crowdsec_cfg_stat
+
+- name: Remove stray directories at crowdsec file paths
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    state: absent
+  loop: "{{ _crowdsec_cfg_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - item.stat.exists
+    - item.stat.isdir
+
+- name: Backfill crowdsec config files (no-clobber)
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/instance_template/config/crowdsec/{{ item }}"
+    dest: "{{ instance_path }}/config/crowdsec/{{ item }}"
+    force: false
+    mode: "0644"
+  loop:
+    - acquis.yaml
+    - whitelists.yaml

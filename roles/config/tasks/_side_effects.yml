@@ -325,9 +325,7 @@
         msg: >-
           CrowdSec is enabled but CROWDSEC_BOUNCER_API_KEY is unset, so
           Caddy starts without enforcing any decisions. Enroll a bouncer
-          once the crowdsec container is running:
-          'docker compose exec crowdsec cscli bouncers add canasta-caddy',
-          then 'canasta config set CROWDSEC_BOUNCER_API_KEY=<token>'.
+          with 'canasta crowdsec enroll -i {{ instance_id }}'.
       when: _se_crowdsec_key.value | default('') | length == 0
 
 - name: Apply CANASTA_ENABLE_OBSERVABILITY side effects

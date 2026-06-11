@@ -348,7 +348,13 @@ def _sync_compose_profiles(inst):
     plugin_needed = crowdsec_on or tp_mode in _CADDY_PLUGIN_TRUSTED_PROXY_MODES
     current_caddy_image = env.get("CANASTA_CADDY_IMAGE", "")
     desired_caddy_image = _CADDY_PLUGIN_IMAGE if plugin_needed else ""
-    image_managed = current_caddy_image in ("", _CADDY_PLUGIN_IMAGE)
+    # Managed when empty or ANY tag of the managed repo, so an instance on an
+    # older managed tag is recognized as managed and bumped rather than
+    # stranded. Mirror sync_compose_profiles.yml.
+    _managed_caddy_prefix = _CADDY_PLUGIN_IMAGE.rsplit(":", 1)[0] + ":"
+    image_managed = current_caddy_image == "" or current_caddy_image.startswith(
+        _managed_caddy_prefix
+    )
     image_changed = image_managed and current_caddy_image != desired_caddy_image
 
     if not profiles_changed and not image_changed:

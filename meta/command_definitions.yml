@@ -220,8 +220,7 @@ command_groups:
       Durable detection tuning (whitelisting trusted IPs, custom rules)
       is done by editing `config/crowdsec/whitelists.yaml` in the
       instance directory — a version-controlled file, like
-      `Caddyfile.global`. CrowdSec is a Compose-only feature; see
-      `docs/crowdsec.md`.
+      `Caddyfile.global`. CrowdSec is a Compose-only feature.
 
 commands:
   # ---------------------------------------------------------------------------
