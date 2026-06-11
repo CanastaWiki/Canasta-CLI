@@ -6,12 +6,22 @@
 - name: Preflight (resolve, Compose-only, crowdsec running)
   ansible.builtin.include_tasks: _preflight.yml
 
+# JSON (not the table) so we can collapse the caddy bouncer family. CrowdSec
+# auto-creates an undeletable 'canasta-caddy@<ip>' child every time the caddy
+# container reconnects from a new IP, so the raw list grows a trail of stale
+# 'valid' rows that confuse the output (issue #619).
 - name: List registered bouncers
   ansible.builtin.command:
-    cmd: "docker compose exec -T crowdsec cscli bouncers list"
+    cmd: "docker compose exec -T crowdsec cscli bouncers list -o json"
     chdir: "{{ instance_path }}"
   register: _crowdsec_bouncers
   changed_when: false
+
+# cscli prints "null" (not "[]") when no bouncers exist, so coalesce to an
+# empty list before parsing.
+- name: Parse bouncer list
+  ansible.builtin.set_fact:
+    _crowdsec_bouncer_list: "{{ ((_crowdsec_bouncers.stdout | trim) or '[]') | from_json }}"
 
 - name: List active decisions
   ansible.builtin.command:
@@ -26,7 +36,7 @@
       CrowdSec status for instance '{{ instance_id }}'
 
       Bouncers:
-      {{ _crowdsec_bouncers.stdout | default('(none)') }}
+      {{ _crowdsec_bouncer_list | canasta_crowdsec_status_bouncers }}
 
       Decisions:
       {{ _crowdsec_decisions.stdout | default('(none)') }}

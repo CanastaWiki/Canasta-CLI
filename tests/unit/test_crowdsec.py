@@ -27,6 +27,11 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import canasta as canasta_cli  # noqa: E402 (the canasta.py module)
 
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "..", "..", "filter_plugins")
+)
+from canasta_crowdsec import canasta_crowdsec_status_bouncers  # noqa: E402
+
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 COMPOSE_PATH = os.path.join(
@@ -562,4 +567,105 @@ class TestCrowdsecWhitelist:
         ), (
             "whitelists.yaml must mount into /etc/crowdsec/parsers/"
             "s02-enrich/ so CrowdSec loads it"
+        )
+
+
+def _bouncer(name, last_pull=None, ip_address=None):
+    """A minimal `cscli bouncers list -o json` entry."""
+    return {
+        "name": name, "last_pull": last_pull,
+        "ip_address": ip_address, "valid": True,
+    }
+
+
+class TestCrowdsecStatusBouncersDisplay:
+    """`crowdsec status` collapses the canasta-caddy bouncer family for
+    display: CrowdSec auto-creates an undeletable 'canasta-caddy@<ip>' child
+    each time the caddy container reconnects from a new IP, so the raw list
+    accumulates harmless stale 'valid' rows (issue #619). The status filter
+    shows the single live registration plus a count of the duplicates rather
+    than listing each one."""
+
+    def test_empty_and_none_render_none(self):
+        assert canasta_crowdsec_status_bouncers([]) == "  (none)"
+        assert canasta_crowdsec_status_bouncers(None) == "  (none)"
+
+    def test_single_bouncer_no_stale_note(self):
+        out = canasta_crowdsec_status_bouncers([
+            _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
+        ])
+        assert "canasta-caddy — active" in out
+        assert "172.18.0.3" in out
+        assert "2026-06-11T12:00:00Z" in out
+        assert "stale" not in out  # no duplicates -> no note
+
+    def test_duplicates_collapse_to_live_plus_count(self):
+        # The real aic shape: stale base + stale child + live child.
+        out = canasta_crowdsec_status_bouncers([
+            _bouncer("canasta-caddy", "2026-06-11T02:54:46Z", "172.18.0.4"),
+            _bouncer("canasta-caddy@172.18.0.5", "2026-06-11T03:44:44Z", "172.18.0.5"),
+            _bouncer("canasta-caddy@172.18.0.3", "2026-06-11T10:42:33Z", "172.18.0.3"),
+        ])
+        # The live (most-recently-pulled) registration is shown as active.
+        assert "canasta-caddy@172.18.0.3 — active" in out
+        assert "172.18.0.3" in out
+        # The two stale duplicates are summarized, not listed individually.
+        assert "2 stale auto-created duplicate" in out
+        assert "enroll --force" in out
+        assert "canasta-caddy@172.18.0.5" not in out
+        # Exactly one active line (the note also contains the word "active").
+        assert out.count("— active") == 1
+
+    def test_live_base_with_stale_children(self):
+        out = canasta_crowdsec_status_bouncers([
+            _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
+            _bouncer("canasta-caddy@172.18.0.9", "2026-06-11T09:00:00Z", "172.18.0.9"),
+        ])
+        assert "canasta-caddy — active" in out
+        assert "1 stale auto-created duplicate" in out
+
+    def test_never_pulled_renders_never(self):
+        out = canasta_crowdsec_status_bouncers([
+            _bouncer("canasta-caddy", None, None),
+        ])
+        assert "active" in out
+        assert "never" in out
+        assert "IP ?" in out
+
+    def test_other_bouncers_listed_verbatim(self):
+        out = canasta_crowdsec_status_bouncers([
+            _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
+            _bouncer("some-firewall-bouncer", "2026-06-11T11:00:00Z", "10.0.0.2"),
+        ])
+        assert "canasta-caddy — active" in out
+        assert "some-firewall-bouncer" in out
+        assert "10.0.0.2" in out
+        # A non-family name (no '@') is not folded into the caddy family.
+        out2 = canasta_crowdsec_status_bouncers([
+            _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
+            _bouncer("canasta-caddy-extra", "2026-06-11T11:00:00Z", "10.0.0.2"),
+        ])
+        assert "canasta-caddy-extra" in out2
+        assert "stale" not in out2
+
+
+class TestCrowdsecStatusWiring:
+    def test_status_lists_bouncers_as_json_and_uses_filter(self):
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
+        ))
+        assert "cscli bouncers list -o json" in content, (
+            "status must read the bouncer list as JSON so the family can be "
+            "collapsed"
+        )
+        assert "canasta_crowdsec_status_bouncers" in content, (
+            "status must render bouncers through the de-duplicating filter"
+        )
+
+    def test_status_filter_registered_in_ansible_cfg(self):
+        cfg = _read(os.path.join(REPO_ROOT, "ansible.cfg"))
+        assert "filter_plugins = filter_plugins" in cfg, (
+            "the filter_plugins path must be registered so the status filter "
+            "loads at runtime (role-local plugins don't auto-discover under "
+            "include_role)"
         )
