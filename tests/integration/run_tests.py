@@ -461,6 +461,167 @@ def test_backup(inst):
     shutil.rmtree(backup_dir, ignore_errors=True)
 
 
+def test_backup_custom_dockerfile(inst):
+    """A custom Dockerfile + override are captured by backup and restored.
+
+    Regression: backup staged docker-compose.override.yml but not the
+    Dockerfile / build context it references, so a restore onto a fresh host
+    had an override pointing at a missing build and could not start.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)  # Brief wait for containers to stabilize
+
+    inst_path = inst.instance_path()
+    override_path = os.path.join(inst_path, "docker-compose.override.yml")
+    dockerfile_path = os.path.join(inst_path, "Dockerfile.custom")
+
+    # Reuse the instance's own base image so the build is a no-op single FROM
+    # layer (instant, no network) rather than pulling a fresh image.
+    canasta_image = "ghcr.io/canastawiki/canasta:latest"
+    with open(inst.env_path()) as f:
+        for line in f:
+            if line.startswith("CANASTA_IMAGE="):
+                canasta_image = line.split("=", 1)[1].strip()
+                break
+
+    print("Adding a custom web build (override + Dockerfile.custom)...")
+    with open(override_path, "w") as f:
+        f.write(
+            "services:\n"
+            "  web:\n"
+            "    image: %s:custom\n"
+            "    build:\n"
+            "      context: .\n"
+            "      dockerfile: Dockerfile.custom\n"
+            % inst.id
+        )
+    with open(dockerfile_path, "w") as f:
+        f.write("FROM %s\n" % canasta_image)
+
+    print("Configuring backup repository...")
+    backup_dir = tempfile.mkdtemp(prefix="canasta-int-backup-")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_REPOSITORY=%s" % backup_dir, "--no-restart",
+    )
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_PASSWORD=testpass", "--no-restart",
+    )
+
+    print("Initializing backup repository...")
+    inst.run_ok("backup", "init", "-i", inst.id)
+
+    print("Creating backup snapshot...")
+    inst.run_ok("backup", "create", "-i", inst.id, "-t", "custom-build")
+
+    print("Verifying the Dockerfile is inside the snapshot...")
+    output = inst.run_quiet("backup", "list", "-i", inst.id)
+    snapshot_id = None
+    for line in output.split("\n"):
+        if "custom-build" in line:
+            match = re.search(r'\b([0-9a-f]{8,})\b', line)
+            if match:
+                snapshot_id = match.group(1)
+                break
+    assert snapshot_id, "Could not extract snapshot ID from:\n%s" % output
+    files = inst.run_quiet(
+        "backup", "files", "-i", inst.id, "-s", snapshot_id,
+    )
+    assert "Dockerfile.custom" in files, (
+        "Dockerfile.custom not captured in snapshot:\n%s" % files
+    )
+
+    print("Deleting build inputs to simulate loss...")
+    os.remove(override_path)
+    os.remove(dockerfile_path)
+
+    print("Restoring from backup...")
+    inst.run_ok(
+        "backup", "restore", "-i", inst.id,
+        "-s", snapshot_id, "--skip-safety-backup",
+    )
+
+    print("Verifying build inputs are back on disk...")
+    assert os.path.isfile(dockerfile_path), "Dockerfile.custom was not restored"
+    assert os.path.isfile(override_path), (
+        "docker-compose.override.yml was not restored"
+    )
+
+    print("Restarting after restore...")
+    inst.run_ok("restart", "-i", inst.id)
+
+    print("Verifying wiki accessible after restore...")
+    wait_for_wiki(inst.http_port, timeout=300)
+    shutil.rmtree(backup_dir, ignore_errors=True)
+
+
+def test_backup_missing_dockerfile(inst):
+    """A backup of an override that references a missing Dockerfile is clean.
+
+    Regression: discovery trusts `docker compose config`, which emits the
+    build: section even when the Dockerfile is absent. Staging that missing
+    path would bind-mount it, and on Linux Docker creates a root-owned junk
+    directory there. Discovery must stat each path and stage only existing
+    ones, so the backup leaves the instance directory untouched.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)  # Brief wait for containers to stabilize
+
+    inst_path = inst.instance_path()
+    override_path = os.path.join(inst_path, "docker-compose.override.yml")
+    dockerfile_path = os.path.join(inst_path, "Dockerfile.custom")
+
+    print("Adding an override that references a NON-EXISTENT Dockerfile...")
+    with open(override_path, "w") as f:
+        f.write(
+            "services:\n"
+            "  web:\n"
+            "    image: %s:custom\n"
+            "    build:\n"
+            "      context: .\n"
+            "      dockerfile: Dockerfile.custom\n"
+            % inst.id
+        )
+    assert not os.path.exists(dockerfile_path), "precondition: Dockerfile absent"
+
+    print("Configuring backup repository...")
+    backup_dir = tempfile.mkdtemp(prefix="canasta-int-backup-")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_REPOSITORY=%s" % backup_dir, "--no-restart",
+    )
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_PASSWORD=testpass", "--no-restart",
+    )
+
+    print("Initializing backup repository...")
+    inst.run_ok("backup", "init", "-i", inst.id)
+
+    print("Creating backup snapshot (must not create a junk Dockerfile dir)...")
+    inst.run_ok("backup", "create", "-i", inst.id, "-t", "missing-df")
+
+    print("Verifying no junk Dockerfile.custom was created...")
+    assert not os.path.isdir(dockerfile_path), (
+        "backup created a junk directory at Dockerfile.custom"
+    )
+    assert not os.path.exists(dockerfile_path), (
+        "backup created an unexpected Dockerfile.custom entry"
+    )
+    shutil.rmtree(backup_dir, ignore_errors=True)
+
+
 def test_gitops(inst):
     """Init gitops, verify templates, push, verify remote."""
     # Check prerequisites
@@ -1946,6 +2107,8 @@ ALL_TESTS = {
     "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
+    "backup-custom-dockerfile": test_backup_custom_dockerfile,
+    "backup-missing-dockerfile": test_backup_missing_dockerfile,
     "gitops": test_gitops,
     "gitops-pull-diff": test_gitops_pull_diff,
     "extension-skin": test_extension_skin,
