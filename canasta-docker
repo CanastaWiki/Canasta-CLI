@@ -43,8 +43,11 @@ fi
 
 # CANASTA_CLI_IMAGE is the post-rename name; CANASTA_ANSIBLE_IMAGE
 # remains a backwards-compatible fallback for users who already
-# set the old name in their environment.
-IMAGE="${CANASTA_CLI_IMAGE:-${CANASTA_ANSIBLE_IMAGE:-ghcr.io/canastawiki/canasta-ansible:latest}}"
+# set the old name in their environment. When either is set the user has
+# pinned the image explicitly and 'canasta upgrade' leaves it alone.
+ENV_IMAGE_OVERRIDE=false
+[[ -n "${CANASTA_CLI_IMAGE:-}" || -n "${CANASTA_ANSIBLE_IMAGE:-}" ]] \
+    && ENV_IMAGE_OVERRIDE=true
 
 # Determine config directory (same logic as canasta_registry.py)
 if [[ -n "${CANASTA_CONFIG_DIR:-}" ]]; then
@@ -59,6 +62,18 @@ fi
 
 # Ensure config directory exists
 mkdir -p "$CONFIG_DIR"
+
+# Select the canasta-ansible image. The channel (release vs dev) is pinned
+# by 'canasta upgrade' in $CONFIG_DIR/cli_image_tag and applies to every
+# command; an explicit CANASTA_CLI_IMAGE/CANASTA_ANSIBLE_IMAGE env var wins
+# over it. Default to the floating 'latest' tag when nothing is pinned.
+PINNED_TAG_FILE="$CONFIG_DIR/cli_image_tag"
+DEFAULT_TAG="latest"
+if [[ -f "$PINNED_TAG_FILE" ]]; then
+    PINNED_TAG="$(tr -d '[:space:]' < "$PINNED_TAG_FILE")"
+    [[ -n "$PINNED_TAG" ]] && DEFAULT_TAG="$PINNED_TAG"
+fi
+IMAGE="${CANASTA_CLI_IMAGE:-${CANASTA_ANSIBLE_IMAGE:-ghcr.io/canastawiki/canasta-ansible:$DEFAULT_TAG}}"
 
 # Base mounts: Docker socket + registry + current directory + $HOME.
 # The container runs as the invoking user's UID/GID so that any files
@@ -530,16 +545,52 @@ if [[ "$SSH_FWD_OK" == "true" ]]; then
     )
 fi
 
-# When the user runs 'canasta upgrade', pull the latest image and update
-# this wrapper script from the main branch, matching the Go CLI's
-# self-update behavior.
+# When the user runs 'canasta upgrade', pull the canasta-ansible image for
+# the selected channel and update this wrapper script to match. Default is
+# the latest released version; 'canasta upgrade --dev' tracks head of main.
+# The chosen channel is persisted to $PINNED_TAG_FILE so every later command
+# runs the same image.
 WRAPPER_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
-WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/main/canasta-docker"
+
+# Resolve the highest vX.Y.Z release tag via the GitHub tags API (no jq/git
+# dependency). Echoes the bare version (e.g. 4.0.4), or nothing on failure.
+latest_release_tag() {
+    curl -fsSL "https://api.github.com/repos/CanastaWiki/Canasta-CLI/tags" 2>/dev/null \
+        | grep -oE '"name": *"v[0-9]+\.[0-9]+\.[0-9]+"' \
+        | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' \
+        | sort -V | tail -1 | sed 's/^v//'
+}
+
+DEV_CHANNEL=false
+for arg in "$@"; do
+    [[ "$arg" == "--dev" ]] && DEV_CHANNEL=true
+done
+
 for arg in "$@"; do
     case "$arg" in
         -*) continue ;;
         upgrade)
-            echo "Pulling latest canasta-ansible image..."
+            if [[ "$ENV_IMAGE_OVERRIDE" == "true" ]]; then
+                # User pinned the image explicitly; just refresh it.
+                WRAPPER_REF="main"
+            elif [[ "$DEV_CHANNEL" == "true" ]]; then
+                echo "latest" > "$PINNED_TAG_FILE"
+                IMAGE="ghcr.io/canastawiki/canasta-ansible:latest"
+                WRAPPER_REF="main"
+            else
+                TAG="$(latest_release_tag)"
+                if [[ -z "$TAG" ]]; then
+                    echo "Warning: could not determine the latest release; keeping current image ($IMAGE)." >&2
+                    WRAPPER_REF="main"
+                else
+                    echo "$TAG" > "$PINNED_TAG_FILE"
+                    IMAGE="ghcr.io/canastawiki/canasta-ansible:$TAG"
+                    WRAPPER_REF="v$TAG"
+                fi
+            fi
+            WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/${WRAPPER_REF}/canasta-docker"
+
+            echo "Pulling canasta-ansible image ($IMAGE)..."
             docker pull "$IMAGE"
 
             # Update the wrapper script itself if the upstream differs.
@@ -617,8 +668,11 @@ if [[ -t 0 ]]; then
 fi
 
 # Tell canasta.py it's running under the docker wrapper, so
-# 'canasta version' reports the correct run mode.
+# 'canasta version' reports the correct run mode. Pass the resolved image
+# tag too (the part after the last colon) so 'canasta version' can tell a
+# release (semver tag) from a dev build (':latest').
 DOCKER_RUN_FLAGS+=(-e CANASTA_RUN_MODE=docker)
+DOCKER_RUN_FLAGS+=(-e "CANASTA_CLI_IMAGE_TAG=${IMAGE##*:}")
 
 # Detect if `docker` is actually a podman shim (e.g. the podman-docker
 # package on Debian/Fedora installs /usr/bin/docker as a wrapper that

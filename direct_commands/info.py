@@ -180,6 +180,39 @@ def _read_instance_image(inst_id, inst):
     return image, running
 
 
+def _detect_dev_build(script_dir, mode):
+    """Whether this CLI is a development build rather than a tagged release.
+
+    Returns True for a dev build, False for an exact release, or None when
+    it can't be determined (callers then fall back to the VERSION file).
+
+    The VERSION file is unreliable on a dev checkout — it commonly still
+    holds the last release's number until the next bump — so 'canasta
+    version' shows 'dev' instead of a possibly-wrong number in that case.
+    """
+    if mode == "docker":
+        # The canasta-docker wrapper passes the resolved image tag: a bare
+        # semver is a release, 'latest' (or any other tag) is a dev build.
+        tag = os.environ.get("CANASTA_CLI_IMAGE_TAG")
+        if not tag:
+            return None
+        return not re.match(r"^\d+\.\d+\.\d+$", tag)
+    # Native install: a release is a detached checkout whose HEAD carries a
+    # vX.Y.Z tag (done by 'canasta upgrade'); anything else is a dev build.
+    try:
+        result = subprocess.run(
+            ["git", "tag", "--points-at", "HEAD"],
+            cwd=script_dir, capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    return not any(
+        re.match(r"^v\d+\.\d+\.\d+$", t) for t in result.stdout.split()
+    )
+
+
 @register("version")
 def cmd_version(args):
     script_dir = _helpers._get_script_dir()
@@ -236,7 +269,12 @@ def cmd_version(args):
         except (subprocess.TimeoutExpired, OSError):
             date = "unknown"
 
-    print("Canasta CLI v%s (%s, commit %s, built %s)" % (version, mode, commit, date))
+    # On a dev build the VERSION number may not yet match the eventual
+    # release, so show 'dev' instead of a potentially-misleading version.
+    dev_build = _detect_dev_build(script_dir, mode)
+    version_label = "dev" if dev_build else "v%s" % version
+    print("Canasta CLI %s (%s, commit %s, built %s)"
+          % (version_label, mode, commit, date))
     print("Target Canasta version: %s" % target_canasta_version)
 
     # --cli-only: stop after the two-line header; no instance reads.

@@ -749,8 +749,13 @@ commands:
     long_description: |
       Upgrade all registered Canasta instances by refreshing configs,
       pulling latest images, running migrations, and restarting containers.
+
+      By default the CLI itself updates to the latest released version
+      (the highest vX.Y.Z tag). Pass --dev to track the development branch
+      (head of main) instead.
     examples:
       - "canasta upgrade"
+      - "canasta upgrade --dev"
       - "canasta upgrade --dry-run"
     playbook: upgrade.yml
     parameters:
@@ -758,6 +763,10 @@ commands:
         type: bool
         default: false
         description: "Preview changes without applying"
+      - name: dev
+        type: bool
+        default: false
+        description: "Track the development branch (head of main) instead of the latest release"
 
   # ---------------------------------------------------------------------------
   # Wiki management

@@ -1038,6 +1038,15 @@ class TestSelfUpdateCli:
 
         return fake_run, calls
 
+    def test_pick_latest_release_tag(self):
+        tags = ("v3.7.0 v4.0.0 v4.0.2 v4.0.10 v5.0.0-rc1 main "
+                "not-a-tag").split()
+        # Numeric (not lexical) ordering: v4.0.10 > v4.0.2; pre-release and
+        # non-version refs are ignored.
+        assert canasta_cli._pick_latest_release_tag(tags) == "v4.0.10"
+        assert canasta_cli._pick_latest_release_tag([]) is None
+        assert canasta_cli._pick_latest_release_tag(["v5.0.0-rc1"]) is None
+
     def test_no_op_when_not_a_git_repo(
         self, monkeypatch, tmp_path, capsys,
     ):
@@ -1071,34 +1080,56 @@ class TestSelfUpdateCli:
         assert out.err == ""
 
     def test_already_up_to_date(self, monkeypatch, tmp_path, capsys):
+        # Default (released) channel: latest tag's commit already == HEAD.
         self._patch_repo(monkeypatch, tmp_path)
         runner, calls = self._make_runner([
-            {"stdout": "abc1234\n"},   # rev-parse current
-            {"stdout": ""},             # fetch
-            {"stdout": ""},             # log HEAD..origin/main → empty
+            {"stdout": "abc1234\n"},        # rev-parse current HEAD
+            {"stdout": ""},                  # fetch --tags
+            {"stdout": "v3.7.0\nv4.0.0\n"},  # tag -l v* → latest is v4.0.0
+            {"stdout": "abc1234\n"},         # rev-parse v4.0.0 == HEAD
+            {"stdout": "main\n"},            # rev-parse --abbrev-ref HEAD
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
         canasta_cli.self_update_cli()
         out = capsys.readouterr().out
         assert "already up to date" in out
+        assert "release v4.0.0" in out
         assert "4.0.0" in out
         assert "abc1234" in out
+
+    def test_dev_already_up_to_date(self, monkeypatch, tmp_path, capsys):
+        # --dev tracks origin/main; up to date only when on main and at HEAD.
+        self._patch_repo(monkeypatch, tmp_path)
+        runner, calls = self._make_runner([
+            {"stdout": "abc1234\n"},   # rev-parse current HEAD
+            {"stdout": ""},             # fetch --tags
+            {"stdout": "abc1234\n"},    # rev-parse origin/main == HEAD
+            {"stdout": "main\n"},       # rev-parse --abbrev-ref HEAD
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli(dev=True)
+        out = capsys.readouterr().out
+        assert "already up to date" in out
+        assert "dev (main)" in out
 
     def test_pulls_and_updates_build_files(
         self, monkeypatch, tmp_path, capsys,
     ):
         self._patch_repo(monkeypatch, tmp_path, version="4.0.0")
-        # Sequence: rev-parse current, fetch, log (has updates),
-        # pull, rev-parse new, log -1 date, pip install, galaxy install.
+        # Default (released) channel sequence: rev-parse current, fetch,
+        # tag -l, rev-parse target, rev-parse abbrev-ref, checkout tag,
+        # rev-parse new, log -1 date, pip install, galaxy install.
         runner, calls = self._make_runner([
-            {"stdout": "old1234\n"},
-            {"stdout": ""},
-            {"stdout": "new1234 some change\n"},   # pending updates
-            {"stdout": ""},                         # pull succeeded
-            {"stdout": "new1234\n"},
-            {"stdout": "2026-05-05 10:00:00\n"},
-            {"stdout": ""},                         # pip install
-            {"stdout": ""},                         # ansible-galaxy install
+            {"stdout": "old1234\n"},                # rev-parse HEAD
+            {"stdout": ""},                          # fetch --tags
+            {"stdout": "v4.0.0\nv4.1.0\n"},          # tag -l → latest v4.1.0
+            {"stdout": "new1234\n"},                 # rev-parse v4.1.0
+            {"stdout": "main\n"},                    # rev-parse --abbrev-ref
+            {"stdout": ""},                          # checkout v4.1.0
+            {"stdout": "new1234\n"},                 # rev-parse new HEAD
+            {"stdout": "2026-05-05 10:00:00\n"},     # log -1 date
+            {"stdout": ""},                          # pip install
+            {"stdout": ""},                          # ansible-galaxy install
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
 
@@ -1145,12 +1176,12 @@ class TestSelfUpdateCli:
         )
 
         # pip + ansible-galaxy ran with the right arguments.
-        pip_call = calls[6]
+        pip_call = calls[8]
         assert pip_call[1:] == [
             "-m", "pip", "install", "--quiet",
             "-r", str(tmp_path / "requirements.txt"),
         ]
-        galaxy_call = calls[7]
+        galaxy_call = calls[9]
         assert galaxy_call[-5:] == [
             "collection", "install", "--upgrade",
             "-r", str(tmp_path / "requirements.yml"),
@@ -1165,12 +1196,14 @@ class TestSelfUpdateCli:
         deps are on disk."""
         self._patch_repo(monkeypatch, tmp_path, version="4.0.0")
         runner, calls = self._make_runner([
-            {"stdout": "old1234\n"},
-            {"stdout": ""},
-            {"stdout": "new1234 some change\n"},
-            {"stdout": ""},
-            {"stdout": "new1234\n"},
-            {"stdout": "2026-05-05 10:00:00\n"},
+            {"stdout": "old1234\n"},                # rev-parse HEAD
+            {"stdout": ""},                          # fetch --tags
+            {"stdout": "v4.0.0\nv4.1.0\n"},          # tag -l → latest v4.1.0
+            {"stdout": "new1234\n"},                 # rev-parse v4.1.0
+            {"stdout": "main\n"},                    # rev-parse --abbrev-ref
+            {"stdout": ""},                          # checkout v4.1.0
+            {"stdout": "new1234\n"},                 # rev-parse new HEAD
+            {"stdout": "2026-05-05 10:00:00\n"},     # log -1 date
             {"stdout": "", "returncode": 1},        # pip fails
             {"stdout": "", "returncode": 1},        # galaxy fails
         ])
@@ -1197,20 +1230,40 @@ class TestSelfUpdateCli:
         assert "ansible-galaxy collection install failed" in captured.err
         assert "dependency refresh incomplete" in captured.err
 
-    def test_pull_failure_warns_and_continues(
+    def test_move_failure_warns_and_continues(
         self, monkeypatch, tmp_path, capsys,
     ):
+        # A failed checkout of the release tag (dirty/divergent tree) warns
+        # but does not abort the rest of the upgrade.
         self._patch_repo(monkeypatch, tmp_path)
         runner, calls = self._make_runner([
-            {"stdout": "abc1234\n"},
-            {"stdout": ""},
-            {"stdout": "ff00 some change\n"},
-            {"stdout": "", "returncode": 1, "stderr": "diverged\n"},
+            {"stdout": "abc1234\n"},                # rev-parse HEAD
+            {"stdout": ""},                          # fetch --tags
+            {"stdout": "v4.0.0\nv4.1.0\n"},          # tag -l → latest v4.1.0
+            {"stdout": "def5678\n"},                 # rev-parse v4.1.0 != HEAD
+            {"stdout": "main\n"},                    # rev-parse --abbrev-ref
+            {"stdout": "", "returncode": 1, "stderr": "diverged\n"},  # checkout
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
         canasta_cli.self_update_cli()
         err = capsys.readouterr().err
-        assert "Could not fast-forward" in err
+        assert "Could not move to v4.1.0" in err
+
+    def test_no_release_tags_warns_and_returns(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        # Released channel with no vX.Y.Z tags: skip, pointing at --dev.
+        self._patch_repo(monkeypatch, tmp_path)
+        runner, calls = self._make_runner([
+            {"stdout": "abc1234\n"},   # rev-parse HEAD
+            {"stdout": ""},             # fetch --tags
+            {"stdout": "\n"},           # tag -l → none
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        err = capsys.readouterr().err
+        assert "no release tags found" in err
+        assert "--dev" in err
 
     def test_fetch_failure_warns_and_returns(
         self, monkeypatch, tmp_path, capsys,
