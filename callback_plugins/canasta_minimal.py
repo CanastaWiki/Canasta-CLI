@@ -151,6 +151,16 @@ class CallbackModule(CallbackBase):
         return " (%s)" % "; ".join(parts)
 
     def v2_runner_item_on_failed(self, result, *args, **kwargs):
+        # Respect the task's ignore_errors. Unlike v2_runner_on_failed,
+        # item callbacks are not passed ignore_errors as a kwarg; Ansible
+        # instead stamps the task's value onto the item result as
+        # _ansible_ignore_errors (see task_executor). Without this check, a
+        # failed loop item in an ignore_errors task (e.g. the "OK if dir
+        # already moved" mv in the directory-structure migration) leaks a
+        # bare "Error: ..." into the upgrade output even though the failure
+        # is being ignored.
+        if result._result.get("_ansible_ignore_errors"):
+            return
         # Display the specific item's failure message (e.g., missing
         # required parameter in a loop over param definitions).
         msg = result._result.get("msg", "")

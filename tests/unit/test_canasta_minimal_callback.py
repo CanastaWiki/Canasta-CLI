@@ -160,3 +160,23 @@ class TestRunnerOnFailed:
         cb = _make_callback()
         cb.v2_runner_on_failed(_result(msg="One or more items failed"))
         assert cb._captured == []
+
+
+class TestRunnerItemOnFailed:
+    def test_item_failure_displayed_when_not_ignored(self):
+        cb = _make_callback()
+        cb.v2_runner_item_on_failed(_result(msg="missing required parameter"))
+        msgs = [m for (m, _, _) in cb._captured]
+        assert msgs == ["Error: missing required parameter"]
+
+    def test_item_failure_suppressed_when_ignore_errors(self):
+        """A failed loop item in an ignore_errors task carries the task's
+        ignore_errors via _ansible_ignore_errors. The callback must honor
+        it — otherwise the 'OK if dir already moved' mv in the upgrade
+        directory-structure migration leaks a bare 'Error: ...' line."""
+        cb = _make_callback()
+        cb.v2_runner_item_on_failed(_result(
+            msg="The command exited with a non-zero return code.",
+            _ansible_ignore_errors=True,
+        ))
+        assert cb._captured == []
