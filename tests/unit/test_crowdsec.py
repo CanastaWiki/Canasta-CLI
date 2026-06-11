@@ -688,6 +688,34 @@ class TestCrowdsecStatusWiring:
             "status must probe console enrollment state"
         )
 
+    def test_status_counts_blocklist_decisions(self):
+        """Community-blocklist decisions are hidden from `cscli decisions
+        list`, so status must count them by origin — otherwise a loaded
+        blocklist reads as 'no decisions'."""
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
+        ))
+        assert "--origin CAPI" in content, (
+            "status must count community-blocklist (CAPI) decisions, which are "
+            "excluded from the default decisions list"
+        )
+
+    def test_status_summarizes_console_without_raw_table(self):
+        """The raw `cscli console status` table includes an unrelated
+        `console_management` row that reads as a problem; status must show a
+        one-line enrolled/not-enrolled summary instead of dumping it."""
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
+        ))
+        assert "_crowdsec_console_line" in content, (
+            "status must derive a one-line console summary"
+        )
+        assert "Console: {{ _crowdsec_console_line }}" in content, (
+            "status must display the one-line console summary, not dump the "
+            "raw cscli console table (which shows the misleading "
+            "console_management row)"
+        )
+
 
 class TestCrowdsecConsoleEnrollRole:
     def _console(self):
