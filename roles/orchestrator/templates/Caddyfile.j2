@@ -52,6 +52,10 @@
     crowdsec {
         api_url http://crowdsec:8080
         api_key {env.CROWDSEC_BOUNCER_API_KEY}
+        # Streaming-mode poll interval. The plugin default is 60s, which
+        # leaves up to ~60-90s before a new ban reaches this bouncer; 15s
+        # tightens propagation without meaningfully loading the LAPI.
+        ticker_interval 15s
     }
 {% endif %}
 }

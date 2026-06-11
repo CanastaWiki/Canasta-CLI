@@ -174,6 +174,8 @@ class TestCaddyfileRendering:
         assert "api_url http://crowdsec:8080" in out
         # The key is referenced via env placeholder, never inlined.
         assert "api_key {env.CROWDSEC_BOUNCER_API_KEY}" in out
+        # Faster-than-default streaming poll for quicker ban propagation.
+        assert "ticker_interval 15s" in out
         # Global block comes before the imported global file / site block.
         assert out.index("order crowdsec first") < out.index(
             "import /etc/caddy/Caddyfile.global"
