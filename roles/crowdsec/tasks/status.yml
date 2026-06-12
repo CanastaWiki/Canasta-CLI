@@ -87,12 +87,10 @@
          if _crowdsec_capi.rc == 0
          else 'not registered (no community blocklist; auto-registers on the next start)' }}
     # `cscli console status -o raw` is CSV (option,enabled); an enrolled engine
-    # has at least one forward option set to true. List the subscribed
-    # blocklists with their IP counts when any have been pulled.
+    # has at least one forward option set to true. The breakdown filter returns
+    # a ready-to-append block (real newlines) or '' when no lists are pulled.
     _crowdsec_console_line: >-
-      {{ ('enrolled'
-          ~ (('\n  Subscribed blocklists:\n' ~ _crowdsec_blocklist_lines)
-             if (_crowdsec_blocklist_lines | length > 0) else ''))
+      {{ ('enrolled' ~ _crowdsec_blocklist_lines)
          if (_crowdsec_console.rc == 0 and ',true' in (_crowdsec_console.stdout | default('')))
          else 'not enrolled — run: canasta crowdsec console-enroll <key> (optional, for the full blocklist)' }}
 
