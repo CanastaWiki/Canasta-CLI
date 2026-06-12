@@ -80,6 +80,7 @@ SUBCOMMAND_GROUPS = {
     "extension": ["list", "enable", "disable"],
     "skin": ["list", "enable", "disable"],
     "maintenance": ["update", "script", "extension", "exec"],
+    "crowdsec": ["bouncer-enroll", "console-enroll", "reload", "status", "ban", "unban"],
     "devmode": ["enable", "disable"],
     "sitemap": ["generate", "remove"],
     "backup": [
@@ -160,22 +161,59 @@ def find_ansible_playbook():
     sys.exit(1)
 
 
-def self_update_cli():
-    """Pull latest CLI code from origin/main before invoking ansible-playbook.
+_RELEASE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+
+
+def _pick_latest_release_tag(tags):
+    """Return the highest strict vX.Y.Z tag from `tags`, or None.
+
+    Pre-releases (e.g. v5.0.0-rc1) and non-version tags are ignored so we
+    only ever move to a real release. Comparison is by numeric (major,
+    minor, patch) tuple, not lexical, so v4.0.10 sorts above v4.0.9.
+    """
+    best = None
+    best_key = None
+    for tag in tags:
+        m = _RELEASE_TAG_RE.match(tag.strip())
+        if not m:
+            continue
+        key = tuple(int(p) for p in m.groups())
+        if best_key is None or key > best_key:
+            best, best_key = tag.strip(), key
+    return best
+
+
+def self_update_cli(dev=False):
+    """Update the CLI code before invoking ansible-playbook.
+
+    By default the CLI moves to the latest released version — the highest
+    vX.Y.Z git tag, via a detached checkout. Pass ``dev=True`` to instead
+    track the head of main (``git checkout main && git pull --ff-only``).
+    Release tags are used rather than the GitHub Releases API because the
+    Releases API deliberately keeps v3.7.0 as 'latest' for legacy clients
+    (see .github/workflows/docker.yml).
 
     Runs in the canasta.py process (i.e. before os.execvp swaps in
-    ansible-playbook), so any changes the pull lands on disk —
+    ansible-playbook), so any changes the move lands on disk —
     ansible.cfg, module_utils, modules, playbook tasks — are visible
     to the ansible-playbook process from its very first config load.
     Used to live as the first task of upgrade.yml itself, but loading
     ansible.cfg at startup means an in-flight cfg change between
-    pre-pull and post-pull state would silently make ansible-playbook
+    pre- and post-move state would silently make ansible-playbook
     keep using stale values (#489).
 
     Docker installs (no .git in the script dir) are no-ops here: the
     canasta-docker wrapper has already pulled the image before this
     process started.
     """
+    if os.environ.get("CANASTA_SELF_UPDATED"):
+        # This process is the re-exec spawned by the first invocation
+        # after it pulled (see os.execv at the end of this function).
+        # The code on disk is already current and settled, so skip the
+        # update check entirely — including its "already up to date"
+        # line — and let this fresh process run the command.
+        return
+
     repo = SCRIPT_DIR
     if not os.path.isdir(os.path.join(repo, ".git")):
         return  # Docker install — image pull happened in the wrapper.
@@ -203,32 +241,103 @@ def self_update_cli():
         current_version = "unknown"
 
     try:
-        _git(["fetch", "origin"], check=True)
+        _git(["fetch", "--tags", "origin"], check=True)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
             OSError) as e:
         # `e.stderr` is bytes/None on TimeoutExpired/OSError — guard.
-        detail = getattr(e, "stderr", "") or str(e)
-        print(
-            "Warning: could not fetch from origin (%s); "
-            "skipping self-update check." % detail.strip(),
-            file=sys.stderr,
+        detail = (getattr(e, "stderr", "") or str(e)).strip()
+        msg = (
+            "WARNING: self-update skipped — could not fetch from origin "
+            "(%s).\nThe CLI was NOT updated; this run uses the existing "
+            "version (%s, %s)." % (detail, current_version, current_commit)
         )
+        if "ermission denied" in detail:
+            msg += (
+                "\nThe install dir (%s) is not writable by you — you are "
+                "likely not in the 'canasta' group. Fix with:\n"
+                "  sudo usermod -aG canasta $(id -un)\n"
+                "then log out and back in (or run 'newgrp canasta') and "
+                "re-run." % repo
+            )
+        print(msg, file=sys.stderr)
         return
 
-    pending = _git(["log", "HEAD..origin/main", "--oneline"], timeout=10)
-    if pending.returncode != 0 or not pending.stdout.strip():
-        print(
-            "Canasta CLI is already up to date "
-            "(version %s, commit %s)." % (current_version, current_commit)
-        )
-        return
+    # Resolve the ref this run should move to: head of main for --dev, or
+    # the latest release tag otherwise.
+    if dev:
+        target_ref = "origin/main"
+    else:
+        tags = _git(["tag", "-l", "v*"], timeout=10).stdout.split()
+        target_ref = _pick_latest_release_tag(tags)
+        if target_ref is None:
+            print(
+                "WARNING: self-update skipped — no release tags found.\n"
+                "Use 'canasta upgrade --dev' to track the development "
+                "branch (head of main) instead.",
+                file=sys.stderr,
+            )
+            return
 
-    pull = _git(["pull", "--ff-only", "origin", "main"], timeout=60)
-    if pull.returncode != 0:
+    target_commit = _git(
+        ["rev-parse", "--short", target_ref], timeout=5,
+    ).stdout.strip()
+
+    if dev:
+        on_main = _git(
+            ["rev-parse", "--abbrev-ref", "HEAD"], timeout=5,
+        ).stdout.strip() == "main"
+        # Already on main at origin/main? Nothing to do. (Require being on
+        # the main branch so a prior release upgrade's detached HEAD still
+        # switches back.)
+        if target_commit and target_commit == current_commit and on_main:
+            print(
+                "Canasta CLI is already up to date "
+                "(version %s, commit %s, dev (main))."
+                % (current_version, current_commit)
+            )
+            return
+        # Restore the main branch first — a previous release upgrade may
+        # have left a detached HEAD at a tag — then fast-forward.
+        co = _git(["checkout", "main"], timeout=30)
+        pull = _git(["pull", "--ff-only", "origin", "main"], timeout=60)
+        move_failed = co.returncode != 0 or pull.returncode != 0
+    else:
+        # Release channel: only ever move forward. If the latest release
+        # tag is already contained in HEAD — we're sitting on it, or on a
+        # newer development build — checking it out would be a downgrade,
+        # so stay put. 'canasta upgrade' must never travel backward in time.
+        contained = _git(
+            ["merge-base", "--is-ancestor", target_ref, "HEAD"], timeout=5,
+        ).returncode == 0
+        if contained:
+            if target_commit == current_commit:
+                print(
+                    "Canasta CLI is already up to date "
+                    "(version %s, commit %s, release %s)."
+                    % (current_version, current_commit, target_ref)
+                )
+            else:
+                print(
+                    "Canasta CLI is already ahead of the latest release "
+                    "(%s); keeping the current build (version %s, commit %s) "
+                    "rather than moving backward.\nUse 'canasta upgrade --dev' "
+                    "to keep tracking development builds, or re-run the "
+                    "installer at https://get.canasta.wiki to return to the "
+                    "latest release."
+                    % (target_ref, current_version, current_commit)
+                )
+            return
+        # HEAD is behind the latest release (or on a divergent line that
+        # doesn't contain it) — move to the release tag.
+        co = _git(["checkout", target_ref], timeout=60)
+        move_failed = co.returncode != 0
+
+    if move_failed:
         print(
-            "Could not fast-forward to latest main "
-            "(local branch may have diverged).\n"
-            "Run 'git pull origin main' manually in %s." % repo,
+            "Could not move to %s "
+            "(local checkout may have uncommitted changes or have "
+            "diverged).\nResolve manually in %s (e.g. check 'git status')."
+            % (target_ref, repo),
             file=sys.stderr,
         )
         return
@@ -305,6 +414,19 @@ def self_update_cli():
             "Instances may still be upgraded against stale deps.",
             file=sys.stderr,
         )
+
+    # The pull just rewrote this process's own ansible roles, modules,
+    # and module_utils on disk. Continuing to ansible-playbook in the
+    # very process that did the pulling intermittently fails to resolve
+    # a freshly written module_utils. Re-exec the CLI so the rest of the
+    # command runs in a clean process against fully-settled code;
+    # the CANASTA_SELF_UPDATED guard at the top stops the re-exec'd
+    # process from looping back through the update.
+    os.environ["CANASTA_SELF_UPDATED"] = "1"
+    os.execv(
+        sys.executable,
+        [sys.executable, os.path.abspath(__file__)] + sys.argv[1:],
+    )
 
 
 def internal_name(display_name):
@@ -507,8 +629,10 @@ def resolve_instance(instance_id=None):
         inst["id"] = instance_id
         return inst
 
-    # Walk up from cwd to find a matching instance path
-    search = os.path.abspath(os.getcwd())
+    # Walk up from cwd to find a matching instance path. Honor
+    # CANASTA_HOST_PWD (the dockerized CLI passes the host's working
+    # directory there) before falling back to the process cwd.
+    search = os.path.abspath(os.environ.get("CANASTA_HOST_PWD") or os.getcwd())
     while True:
         for iid, inst in instances.items():
             if os.path.abspath(inst.get("path", "")) == search:
@@ -1311,7 +1435,7 @@ def main():
     # but running it inside the playbook means ansible-playbook's
     # in-memory config goes stale on cfg changes — see #489.
     if command_name == "upgrade":
-        self_update_cli()
+        self_update_cli(dev=getattr(args, "dev", False))
 
     os.execvp(ansible_args[0], ansible_args)
 

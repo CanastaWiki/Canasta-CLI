@@ -70,6 +70,34 @@ def _resolve_instance(args):
     return inst["id"], inst
 
 
+def _resolve_instance_by_cwd(args):
+    """Resolve (id, inst) from --id, else by walking UP from the working
+    directory to a registered instance path.
+
+    Honors CANASTA_HOST_PWD (the dockerized CLI passes the host's working
+    directory there) before os.getcwd(), and walks up parent directories so
+    the instance is detected from any subdirectory — not just its top level.
+    Returns (None, None) on no match so callers can emit their own error
+    message, unlike canasta.resolve_instance() which exits. Shared by
+    `status`, `doctor`, and `version` so they detect instances identically.
+    """
+    inst_id = getattr(args, "id", None)
+    conf_path = os.path.join(_get_config_dir(), "conf.json")
+    instances = _read_registry(conf_path)
+    if inst_id:
+        return (inst_id, instances.get(inst_id))
+    search = os.path.abspath(os.environ.get("CANASTA_HOST_PWD") or os.getcwd())
+    while True:
+        for iid, inst in instances.items():
+            if os.path.abspath(inst.get("path", "")) == search:
+                return (iid, inst)
+        parent = os.path.dirname(search)
+        if parent == search:
+            break
+        search = parent
+    return (None, None)
+
+
 def _read_env_content(path, host):
     """Read raw .env file content. Returns '' if missing or unreadable."""
     env_path = os.path.join(path, ".env")
@@ -264,11 +292,24 @@ _MANAGED_PROFILES = [
     ("observable", "CANASTA_ENABLE_OBSERVABILITY", "false"),
     ("elasticsearch", "CANASTA_ENABLE_ELASTICSEARCH", "false"),
     ("varnish", "CANASTA_ENABLE_VARNISH", "true"),
+    ("crowdsec", "CANASTA_ENABLE_CROWDSEC", "false"),
 ]
+
+# Plugin-enabled Caddy image the caddy service runs when a feature needs
+# a Caddy plugin: CrowdSec (the bouncer) or a provider trusted-proxy mode
+# (caddy-cdn-ranges). Kept in sync with the literal in
+# roles/orchestrator/tasks/sync_compose_profiles.yml.
+_CADDY_PLUGIN_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.11.3"
+
+# Trusted-proxy modes that need the cdn_ranges plugin (and so the plugin
+# image). An explicit CIDR list uses Caddy's built-in 'static' source and
+# runs on stock Caddy. Mirrors rewrite_caddy.yml / sync_compose_profiles.yml.
+_CADDY_PLUGIN_TRUSTED_PROXY_MODES = ("cloudflare", "imperva")
 
 
 def _sync_compose_profiles(inst):
-    """Align COMPOSE_PROFILES in .env with the CANASTA_ENABLE_* feature flags.
+    """Align COMPOSE_PROFILES (and the CrowdSec Caddy image) in .env with
+    the CANASTA_ENABLE_* feature flags.
 
     Called before 'docker compose up' so hand-edited .env files, gitops
     pulls, or any other drift between the managed flags and
@@ -294,12 +335,40 @@ def _sync_compose_profiles(inst):
         if env.get(flag, default).strip().lower() == "true":
             desired.append(profile)
 
-    if sorted(desired) == sorted(current):
+    profiles_changed = sorted(desired) != sorted(current)
+
+    # Point the caddy service at the plugin image when a plugin feature is
+    # on — CrowdSec, or a provider trusted-proxy mode (cloudflare/imperva).
+    # CANASTA_CADDY_IMAGE is managed only when empty or already the managed
+    # value; a custom override the operator set is left alone.
+    crowdsec_on = (
+        env.get("CANASTA_ENABLE_CROWDSEC", "false").strip().lower() == "true"
+    )
+    tp_mode = env.get("CADDY_TRUSTED_PROXIES", "").strip().lower()
+    plugin_needed = crowdsec_on or tp_mode in _CADDY_PLUGIN_TRUSTED_PROXY_MODES
+    current_caddy_image = env.get("CANASTA_CADDY_IMAGE", "")
+    desired_caddy_image = _CADDY_PLUGIN_IMAGE if plugin_needed else ""
+    # Managed when empty or ANY tag of the managed repo, so an instance on an
+    # older managed tag is recognized as managed and bumped rather than
+    # stranded. Mirror sync_compose_profiles.yml.
+    _managed_caddy_prefix = _CADDY_PLUGIN_IMAGE.rsplit(":", 1)[0] + ":"
+    image_managed = current_caddy_image == "" or current_caddy_image.startswith(
+        _managed_caddy_prefix
+    )
+    image_changed = image_managed and current_caddy_image != desired_caddy_image
+
+    if not profiles_changed and not image_changed:
         return  # No change needed
 
-    new_entries = _set_env_entry(
-        entries, "COMPOSE_PROFILES", ",".join(desired),
-    )
+    new_entries = entries
+    if profiles_changed:
+        new_entries = _set_env_entry(
+            new_entries, "COMPOSE_PROFILES", ",".join(desired),
+        )
+    if image_changed:
+        new_entries = _set_env_entry(
+            new_entries, "CANASTA_CADDY_IMAGE", desired_caddy_image,
+        )
     _write_env_content(path, host, _entries_to_content(new_entries))
 
 

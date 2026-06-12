@@ -180,6 +180,39 @@ def _read_instance_image(inst_id, inst):
     return image, running
 
 
+def _detect_dev_build(script_dir, mode):
+    """Whether this CLI is a development build rather than a tagged release.
+
+    Returns True for a dev build, False for an exact release, or None when
+    it can't be determined (callers then fall back to the VERSION file).
+
+    The VERSION file is unreliable on a dev checkout — it commonly still
+    holds the last release's number until the next bump — so 'canasta
+    version' shows 'dev' instead of a possibly-wrong number in that case.
+    """
+    if mode == "docker":
+        # The canasta-docker wrapper passes the resolved image tag: a bare
+        # semver is a release, 'latest' (or any other tag) is a dev build.
+        tag = os.environ.get("CANASTA_CLI_IMAGE_TAG")
+        if not tag:
+            return None
+        return not re.match(r"^\d+\.\d+\.\d+$", tag)
+    # Native install: a release is a detached checkout whose HEAD carries a
+    # vX.Y.Z tag (done by 'canasta upgrade'); anything else is a dev build.
+    try:
+        result = subprocess.run(
+            ["git", "tag", "--points-at", "HEAD"],
+            cwd=script_dir, capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    return not any(
+        re.match(r"^v\d+\.\d+\.\d+$", t) for t in result.stdout.split()
+    )
+
+
 @register("version")
 def cmd_version(args):
     script_dir = _helpers._get_script_dir()
@@ -236,7 +269,12 @@ def cmd_version(args):
         except (subprocess.TimeoutExpired, OSError):
             date = "unknown"
 
-    print("Canasta CLI v%s (%s, commit %s, built %s)" % (version, mode, commit, date))
+    # On a dev build the VERSION number may not yet match the eventual
+    # release, so show 'dev' instead of a potentially-misleading version.
+    dev_build = _detect_dev_build(script_dir, mode)
+    version_label = "dev" if dev_build else "v%s" % version
+    print("Canasta CLI %s (%s, commit %s, built %s)"
+          % (version_label, mode, commit, date))
     print("Target Canasta version: %s" % target_canasta_version)
 
     # --cli-only: stop after the two-line header; no instance reads.
@@ -254,20 +292,15 @@ def cmd_version(args):
 
     # No -i: try cwd resolution. If inside an instance directory,
     # give the same full-fidelity report as -i.
+    iid, inst = _helpers._resolve_instance_by_cwd(args)
+    if inst:
+        image, running = _read_instance_image(iid, inst)
+        print("Instance '%s': %s (running: %s)" % (iid, image, running))
+        return 0
+
     config_dir = _helpers._get_config_dir()
     conf_path = os.path.join(config_dir, "conf.json")
     instances = _helpers._read_registry(conf_path)
-    cwd = os.path.abspath(os.getcwd())
-    while True:
-        for iid, inst in instances.items():
-            if os.path.abspath(inst.get("path", "")) == cwd:
-                image, running = _read_instance_image(iid, inst)
-                print("Instance '%s': %s (running: %s)" % (iid, image, running))
-                return 0
-        parent = os.path.dirname(cwd)
-        if parent == cwd:
-            break
-        cwd = parent
 
     # Outside any instance directory: list every registered instance
     # with its pinned CANASTA_IMAGE tag only (no docker-compose-exec
@@ -287,22 +320,12 @@ def cmd_version(args):
     return 0
 
 def _resolve_status_instance(args):
-    """Pick the instance the user wants status for.
-
-    Same dispatch as `canasta delete`: --id wins; if absent, look up
-    by current working directory against the registry's `path` field.
-    Returns (id, instance_dict) or (None, None) on no match.
+    """Pick the instance the user wants status for: --id wins, otherwise
+    detect it from the working directory, walking up parent dirs so it
+    works from any subdirectory. Returns (id, instance_dict) or
+    (None, None) on no match. See _helpers._resolve_instance_by_cwd.
     """
-    inst_id = getattr(args, "id", None)
-    conf_path = os.path.join(_helpers._get_config_dir(), "conf.json")
-    instances = _helpers._read_registry(conf_path)
-    if inst_id:
-        return (inst_id, instances.get(inst_id))
-    cwd = os.environ.get("CANASTA_HOST_PWD") or os.getcwd()
-    for k, v in instances.items():
-        if v.get("path") == cwd:
-            return (k, v)
-    return (None, None)
+    return _helpers._resolve_instance_by_cwd(args)
 
 
 def _kubectl_section(host, ns, cmd_args, label):

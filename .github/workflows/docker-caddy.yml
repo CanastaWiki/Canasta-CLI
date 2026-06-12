@@ -1,0 +1,69 @@
+---
+# Build and push Canasta's Caddy image (upstream Caddy + the plugins
+# Canasta's optional features need: the CrowdSec bouncer and
+# caddy-cdn-ranges).
+#
+# The caddy service runs this image when CrowdSec is enabled or a provider
+# trusted-proxy mode (CADDY_TRUSTED_PROXIES=cloudflare|imperva) is set. It
+# is versioned by the bundled Caddy release, not the Canasta-CLI VERSION
+# file, so it builds only when its Dockerfile changes or on manual
+# dispatch — independent of the canasta-ansible image pipeline in
+# docker.yml.
+#
+# Tags: the Caddy base version (e.g. 2.10.2) plus 'latest' on main. Keep
+# the version tag in lockstep with _CADDY_PLUGIN_IMAGE in
+# direct_commands/_helpers.py and the literal in
+# roles/orchestrator/tasks/sync_compose_profiles.yml.
+
+name: Caddy Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/caddy/**"
+      - ".github/workflows/docker-caddy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/canastawiki/canasta-caddy
+          tags: |
+            type=raw,value=2.11.3
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up QEMU for multi-platform builds
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: images/caddy
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

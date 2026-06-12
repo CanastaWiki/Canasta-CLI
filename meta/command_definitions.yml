@@ -199,6 +199,38 @@ command_groups:
       All three accept `--host` to dispatch via SSH to the
       controlling host. See [[Help:Multi-node Kubernetes]].
 
+  - name: crowdsec
+    description: "Manage CrowdSec threat detection (Compose)"
+    long_description: |
+      Manage the optional CrowdSec security profile on a Compose
+      instance. Enable or disable CrowdSec itself with
+      `canasta config set CANASTA_ENABLE_CROWDSEC=true|false` (the
+      same pattern as the other optional features); this group covers
+      the steps that don't reduce to a single config value:
+
+      * `bouncer-enroll` registers the Caddy bouncer with the CrowdSec
+        engine, captures the generated API key, stores it as
+        `CROWDSEC_BOUNCER_API_KEY`, and restarts so the bouncer starts
+        enforcing decisions. This now happens automatically the first
+        time the instance starts after CrowdSec is enabled; run it by
+        hand only to force a fresh key (`--force`).
+      * `console-enroll` connects the engine to the CrowdSec Console
+        (app.crowdsec.net) for the full community blocklist. Optional —
+        the engine already pulls the smaller "Lite" community blocklist
+        via the Central API by default.
+      * `reload` restarts just the engine to apply changes (an accepted
+        console enrollment, whitelist edits) without restarting the whole
+        instance.
+      * `status` shows the registered bouncers and the currently active
+        IP decisions.
+      * `ban` / `unban` add or remove a manual decision for an IP,
+        independent of CrowdSec's automatic detection.
+
+      Durable detection tuning (whitelisting trusted IPs, custom rules)
+      is done by editing `config/crowdsec/whitelists.yaml` in the
+      instance directory — a version-controlled file, like
+      `Caddyfile.global`. CrowdSec is a Compose-only feature.
+
 commands:
   # ---------------------------------------------------------------------------
   # Instance lifecycle
@@ -726,8 +758,13 @@ commands:
     long_description: |
       Upgrade all registered Canasta instances by refreshing configs,
       pulling latest images, running migrations, and restarting containers.
+
+      By default the CLI itself updates to the latest released version
+      (the highest vX.Y.Z tag). Pass --dev to track the development branch
+      (head of main) instead.
     examples:
       - "canasta upgrade"
+      - "canasta upgrade --dev"
       - "canasta upgrade --dry-run"
     playbook: upgrade.yml
     parameters:
@@ -735,6 +772,10 @@ commands:
         type: bool
         default: false
         description: "Preview changes without applying"
+      - name: dev
+        type: bool
+        default: false
+        description: "Track the development branch (head of main) instead of the latest release"
 
   # ---------------------------------------------------------------------------
   # Wiki management
@@ -1269,6 +1310,161 @@ commands:
         description: "Command and arguments to execute"
 
   # ---------------------------------------------------------------------------
+  # CrowdSec
+  # ---------------------------------------------------------------------------
+  - name: crowdsec_bouncer_enroll
+    description: "Register the Caddy bouncer with the CrowdSec engine"
+    long_description: |
+      Register the Caddy bouncer with the running CrowdSec engine,
+      store the generated API key as CROWDSEC_BOUNCER_API_KEY, and
+      restart so the bouncer begins enforcing decisions.
+
+      Enabling CrowdSec
+      (`canasta config set CANASTA_ENABLE_CROWDSEC=true`) now enrolls the
+      bouncer automatically on the next start, so you rarely need to run
+      this by hand. It is idempotent: if the bouncer is already enrolled
+      and a key is stored, it reports success and does nothing. Use
+      `--force` to revoke the existing bouncer and issue a fresh key
+      (e.g. to rotate a key, or recover one that drifted out of sync).
+      Distinct from `console-enroll`, which connects the engine to the
+      cloud CrowdSec Console. Compose only.
+    examples:
+      - "canasta crowdsec bouncer-enroll"
+      - "canasta crowdsec bouncer-enroll -i mysite"
+      - "canasta crowdsec bouncer-enroll -i mysite --force"
+    playbook: crowdsec_bouncer_enroll.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: force
+        short: f
+        type: bool
+        default: false
+        description: "Revoke the existing bouncer and issue a fresh key"
+
+  - name: crowdsec_console_enroll
+    description: "Connect CrowdSec to the Console for the full community blocklist"
+    long_description: |
+      Enroll this instance's CrowdSec engine in the CrowdSec Console
+      (https://app.crowdsec.net) to unlock the full community blocklist
+      plus any console-managed third-party blocklists.
+
+      This is optional. Without it, the engine still pulls the smaller
+      "Lite" community blocklist automatically via the Central API — so
+      CrowdSec already blocks crowd-sourced IPs out of the box; console
+      enrollment just upgrades that to the full list.
+
+      Get an enrollment key from the Console (Security Engines → Enroll),
+      run this command, then return to the Console to accept the pending
+      engine and subscribe it to the blocklists you want. Distinct from
+      `canasta crowdsec bouncer-enroll`, which registers the local Caddy
+      bouncer with the engine. Compose only.
+    examples:
+      - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx"
+      - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx --name prod1"
+      - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx -i mysite"
+    playbook: crowdsec_console_enroll.yml
+    parameters:
+      - name: key
+        type: string
+        positional: true
+        required: true
+        description: "Console enrollment key from app.crowdsec.net"
+      - name: name
+        type: string
+        description: "Instance name to show in the Console"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_reload
+    description: "Restart the CrowdSec engine to apply changes"
+    long_description: |
+      Restart just the CrowdSec engine container to apply pending changes
+      without restarting the whole instance. Use it after accepting a
+      console enrollment or after editing `config/crowdsec/whitelists.yaml`.
+      The Caddy bouncer keeps enforcing its cached decisions during the
+      brief restart. Note that community and console blocklists arrive on
+      CrowdSec's own pull cycle (about every 2 hours), which a restart does
+      not force. Compose only.
+    examples:
+      - "canasta crowdsec reload"
+      - "canasta crowdsec reload -i mysite"
+    playbook: crowdsec_reload.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_status
+    description: "Show CrowdSec bouncers and active decisions"
+    long_description: |
+      Show the bouncers registered with the CrowdSec engine and the IP
+      decisions (bans, captchas) currently in effect. Read-only.
+      Compose only.
+    examples:
+      - "canasta crowdsec status"
+      - "canasta crowdsec status -i mysite"
+    playbook: crowdsec_status.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_ban
+    description: "Block an IP via a manual CrowdSec decision"
+    long_description: |
+      Add a manual CrowdSec decision blocking an IP address, independent
+      of the engine's automatic detection. Defaults to a 4-hour ban.
+      Compose only.
+    examples:
+      - "canasta crowdsec ban 203.0.113.50"
+      - "canasta crowdsec ban 203.0.113.50 --duration 24h --reason scraper"
+      - "canasta crowdsec ban 203.0.113.50 -i mysite"
+    playbook: crowdsec_ban.yml
+    parameters:
+      - name: ip
+        type: string
+        positional: true
+        required: true
+        description: "IP address to block"
+      - name: duration
+        type: string
+        description: "Ban duration (e.g. 4h, 24h, 7d). Default: CrowdSec's 4h"
+      - name: reason
+        type: string
+        description: "Reason recorded with the decision"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_unban
+    description: "Remove a manual CrowdSec decision for an IP"
+    long_description: |
+      Remove CrowdSec decisions for an IP address (e.g. lift a ban added
+      by `canasta crowdsec ban` or by automatic detection). Compose only.
+    examples:
+      - "canasta crowdsec unban 203.0.113.50"
+      - "canasta crowdsec unban 203.0.113.50 -i mysite"
+    playbook: crowdsec_unban.yml
+    parameters:
+      - name: ip
+        type: string
+        positional: true
+        required: true
+        description: "IP address to unblock"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  # ---------------------------------------------------------------------------
   # DevMode
   # ---------------------------------------------------------------------------
   - name: devmode_enable
@@ -1530,10 +1726,11 @@ commands:
     long_description: |
       Remove backup snapshots that exceed the specified retention
       policy and reclaim disk space. At least one retention flag
-      (`--older-than` or `--keep-last`) is required.
+      (e.g. `--keep-within` or `--keep-last`) is required. The
+      retention flags mirror restic's `forget` options.
     examples:
       - "canasta backup purge --keep-last 5"
-      - "canasta backup purge --older-than 30d"
+      - "canasta backup purge --keep-within 30d"
     playbook: backup_purge.yml
     parameters:
       - name: id
@@ -1549,12 +1746,21 @@ commands:
       - name: keep_daily
         type: string
         description: "Number of daily backups to keep"
+      - name: keep_weekly
+        type: string
+        description: "Number of weekly backups to keep"
       - name: keep_monthly
         type: string
         description: "Number of monthly backups to keep"
-      - name: older_than
+      - name: keep_yearly
         type: string
-        description: "Purge backups older than this (e.g. 30d, 6m)"
+        description: "Number of yearly backups to keep"
+      - name: keep_within
+        type: string
+        description: "Keep all backups made within this duration (e.g. 30d, 6m)"
+      - name: keep_tag
+        type: string
+        description: "Keep backups that have this tag"
 
   - name: backup_schedule_set
     description: "Set a recurring backup schedule"
@@ -1863,18 +2069,24 @@ commands:
   - name: gitops_diff
     description: "Show local and remote changes since the branches diverged"
     long_description: |
-      Show uncommitted working tree changes, then fetch the latest
-      from the remote and show what files have changed locally, what
-      files have changed on the remote, and which files have changed
-      in both (potential merge conflicts).
+      Show the actual patch for uncommitted working tree changes, for
+      local commits not yet pushed, and for remote commits that would
+      be applied on the next pull. Each section is headed by its file
+      count. Use --stat to show a diffstat summary instead of the full
+      patch.
     examples:
       - "canasta gitops diff"
+      - "canasta gitops diff --stat"
     playbook: gitops_diff.yml
     parameters:
       - name: id
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: stat
+        type: bool
+        default: false
+        description: "Show a diffstat summary instead of the full patch"
 
   - name: gitops_fix_submodules
     description: "Convert extensions and skins to proper git submodules"

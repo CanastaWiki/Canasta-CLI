@@ -1,0 +1,40 @@
+---
+# Register the CrowdSec engine with the Central API (CAPI), which enables the
+# community blocklist and is a prerequisite for console-enroll. With a
+# persistent /etc/crowdsec volume the image does not self-register, so we do.
+# Idempotent: skips once `cscli capi status` succeeds.
+# Input: instance_path (the crowdsec engine must already be running)
+
+- name: Check whether CrowdSec is registered with the Central API
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli capi status"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_capi_status
+  changed_when: false
+  failed_when: false
+
+- name: Register the engine with the Central API
+  when: _crowdsec_capi_status.rc != 0
+  block:
+    - name: Announce CAPI registration
+      ansible.builtin.debug:
+        msg: >-
+          Registering the CrowdSec engine with the Central API so the
+          community blocklist is active...
+
+    # cscli writes the credentials to stdout; redirect them into the
+    # credentials file. no_log so they never reach Ansible output.
+    - name: Register CAPI and write the credentials file
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T crowdsec
+          sh -c 'cscli capi register > /etc/crowdsec/online_api_credentials.yaml'
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      no_log: true
+
+    - name: Restart the engine so it loads the CAPI credentials
+      ansible.builtin.command:
+        cmd: "docker compose restart crowdsec"
+        chdir: "{{ instance_path }}"
+      changed_when: true

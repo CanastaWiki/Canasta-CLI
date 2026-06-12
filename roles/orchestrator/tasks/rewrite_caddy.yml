@@ -23,6 +23,16 @@
     _staging_certs: "{{ _env_caddy.variables.CANASTA_STAGING_CERTS | default('false') | lower == 'true' }}"
     _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
     _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') }}"
+    # CrowdSec is only "active" (directive rendered) when the feature is
+    # enabled AND a bouncer API key is present. Enabling the flag without
+    # a key leaves Caddy in a clean degraded state — the bouncer image
+    # runs but no crowdsec directive is emitted, so Caddy starts normally
+    # and blocks nothing until the operator enrolls a bouncer. This is
+    # the guard that prevents the unconditional-key startup failure that
+    # got the original implementation reverted.
+    _crowdsec_active: >-
+      {{ (_env_caddy.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true')
+         and (_env_caddy.variables.CROWDSEC_BOUNCER_API_KEY | default('') | length > 0) }}
 
 - name: Refuse to render Caddyfile with empty observability credentials
   ansible.builtin.fail:
@@ -39,6 +49,42 @@
 - name: Determine reverse proxy backend
   ansible.builtin.set_fact:
     _backend: "{{ (_varnish_enabled | bool) | ternary('varnish:80', 'web:80') }}"
+
+# Trusted-proxy handling: when Caddy sits behind a CDN/proxy (Cloudflare,
+# Imperva, an LB), recover the real client IP. 'cloudflare'/'imperva' are
+# first-class modes that keep trusted_proxies current IN-PROCESS via the
+# caddy-cdn-ranges plugin (Caddy re-fetches the provider's published edge
+# ranges on an interval, so a long-lived instance never goes stale) and
+# read the provider's dedicated client-IP header. Locking the ranges to
+# the provider is what stops a direct-to-origin client from spoofing the
+# header. Anything else is an explicit comma-separated CIDR list using
+# Caddy's built-in static source + X-Forwarded-For (strict, right-to-left).
+- name: Determine trusted-proxy mode
+  ansible.builtin.set_fact:
+    _tp_raw: "{{ _env_caddy.variables.CADDY_TRUSTED_PROXIES | default('') | trim }}"
+
+- name: Normalize trusted-proxy mode
+  ansible.builtin.set_fact:
+    _tp_mode: "{{ _tp_raw | lower }}"
+    _trusted_proxies_enabled: "{{ (_tp_raw | length) > 0 }}"
+
+- name: Resolve trusted-proxy rendering parameters
+  ansible.builtin.set_fact:
+    # cloudflare/imperva -> dynamic cdn_ranges source (needs the plugin
+    # image); anything else -> built-in static source on stock Caddy.
+    _tp_dynamic: "{{ _tp_mode in ['cloudflare', 'imperva'] }}"
+    _trusted_proxies_cidrs: >-
+      {{ [] if _tp_mode in ['cloudflare', 'imperva']
+         else (_tp_raw | split(',') | map('trim') | reject('equalto', '') | list) }}
+    _trusted_proxies_headers: >-
+      {{ 'Cf-Connecting-Ip' if _tp_mode == 'cloudflare'
+         else 'Incap-Client-IP' if _tp_mode == 'imperva'
+         else 'X-Forwarded-For' }}
+    # Strict (right-to-left XFF) only matters for the generic X-Forwarded-For
+    # path. The provider modes read a single-value dedicated header the
+    # provider sets, so strict is moot there.
+    _trusted_proxies_strict: "{{ _tp_mode not in ['cloudflare', 'imperva'] }}"
+  when: _trusted_proxies_enabled | bool
 
 - name: Extract unique server names from wiki URLs
   ansible.builtin.set_fact:

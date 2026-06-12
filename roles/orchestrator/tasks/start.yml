@@ -125,6 +125,32 @@
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim == 'has'
 
+    # Auto-enroll the bouncer when CrowdSec is on but no key is stored yet.
+    # bouncer_enroll stores the key before its restart, so the re-entrant
+    # start sees the key and skips — gated on key-absent, no recursion.
+    - name: Read CrowdSec enablement and bouncer key for auto-enroll
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _start_crowdsec_env
+
+    # Register CAPI before bouncer auto-enroll (console enrollment depends on
+    # it). Idempotent; restarts only the crowdsec container.
+    - name: Ensure CrowdSec is registered with the Central API
+      ansible.builtin.include_role:
+        name: crowdsec
+        tasks_from: ensure_capi.yml
+      when:
+        - _start_crowdsec_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true'
+
+    - name: Auto-enroll the CrowdSec bouncer when enabled but unenrolled
+      ansible.builtin.include_role:
+        name: crowdsec
+        tasks_from: bouncer_enroll.yml
+      when:
+        - _start_crowdsec_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true'
+        - (_start_crowdsec_env.variables.CROWDSEC_BOUNCER_API_KEY | default('') | length) == 0
+
 - name: Start (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:

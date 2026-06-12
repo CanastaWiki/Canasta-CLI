@@ -20,16 +20,21 @@
         _ugv_vars_file: >-
           {{ instance_path }}/hosts/{{ _config_host_raw.content | b64decode | trim }}/vars.yaml
 
+    # The slurped vars file and the combined fact both carry secret
+    # values (vars.yaml holds passwords/keys), so suppress them when the
+    # key being set is a secret. The write below is always no_log.
     - name: Read current vars
       ansible.builtin.slurp:
         src: "{{ _ugv_vars_file }}"
       register: _ugv_vars_raw
+      no_log: "{{ _ugv_key is search(canasta_secret_key_pattern) }}"
 
     - name: Update var value
       ansible.builtin.set_fact:
         _ugv_updated_vars: >-
           {{ (_ugv_vars_raw.content | b64decode | from_yaml)
              | combine({_ugv_placeholder: _ugv_value}) }}
+      no_log: "{{ _ugv_key is search(canasta_secret_key_pattern) }}"
 
     - name: Write updated vars.yaml
       ansible.builtin.copy:
