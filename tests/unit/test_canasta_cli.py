@@ -1000,6 +1000,14 @@ class TestSelfUpdateCli:
     ansible-playbook so the playbook process always sees the post-pull
     state of ansible.cfg / module_utils / etc. (#489)."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_self_updated_flag(self, monkeypatch):
+        """self_update_cli sets CANASTA_SELF_UPDATED before it re-execs;
+        keep that out of the rest of the suite."""
+        monkeypatch.delenv("CANASTA_SELF_UPDATED", raising=False)
+        yield
+        os.environ.pop("CANASTA_SELF_UPDATED", None)
+
     def _patch_repo(self, monkeypatch, tmp_path, has_git=True, version="4.0.0"):
         """Set up a fake install dir at tmp_path. Returns the dir path."""
         if has_git:
@@ -1030,6 +1038,15 @@ class TestSelfUpdateCli:
 
         return fake_run, calls
 
+    def test_pick_latest_release_tag(self):
+        tags = ("v3.7.0 v4.0.0 v4.0.2 v4.0.10 v5.0.0-rc1 main "
+                "not-a-tag").split()
+        # Numeric (not lexical) ordering: v4.0.10 > v4.0.2; pre-release and
+        # non-version refs are ignored.
+        assert canasta_cli._pick_latest_release_tag(tags) == "v4.0.10"
+        assert canasta_cli._pick_latest_release_tag([]) is None
+        assert canasta_cli._pick_latest_release_tag(["v5.0.0-rc1"]) is None
+
     def test_no_op_when_not_a_git_repo(
         self, monkeypatch, tmp_path, capsys,
     ):
@@ -1044,35 +1061,105 @@ class TestSelfUpdateCli:
         assert out.out == ""
         assert out.err == ""
 
+    def test_skips_silently_when_already_self_updated(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        """The re-exec'd process (CANASTA_SELF_UPDATED set) returns
+        immediately — no git calls, no 'already up to date' line — even
+        though the install dir is a real git repo."""
+        self._patch_repo(monkeypatch, tmp_path)  # has_git=True
+        monkeypatch.setenv("CANASTA_SELF_UPDATED", "1")
+
+        def fail_run(*a, **kw):
+            raise AssertionError("subprocess.run should not be called")
+
+        monkeypatch.setattr(_subprocess, "run", fail_run)
+        canasta_cli.self_update_cli()
+        out = capsys.readouterr()
+        assert out.out == ""
+        assert out.err == ""
+
     def test_already_up_to_date(self, monkeypatch, tmp_path, capsys):
+        # Default (released) channel: latest tag's commit already == HEAD.
         self._patch_repo(monkeypatch, tmp_path)
         runner, calls = self._make_runner([
-            {"stdout": "abc1234\n"},   # rev-parse current
-            {"stdout": ""},             # fetch
-            {"stdout": ""},             # log HEAD..origin/main → empty
+            {"stdout": "abc1234\n"},        # rev-parse current HEAD
+            {"stdout": ""},                  # fetch --tags
+            {"stdout": "v3.7.0\nv4.0.0\n"},  # tag -l v* → latest is v4.0.0
+            {"stdout": "abc1234\n"},         # rev-parse v4.0.0 == HEAD
+            {"returncode": 0},               # merge-base --is-ancestor (contained)
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
         canasta_cli.self_update_cli()
         out = capsys.readouterr().out
         assert "already up to date" in out
+        assert "release v4.0.0" in out
         assert "4.0.0" in out
         assert "abc1234" in out
+
+    def test_release_ahead_does_not_downgrade(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        # On a development build ahead of the latest release tag: the
+        # release tag is contained in HEAD, so 'canasta upgrade' must NOT
+        # check it out (no travelling backward in time).
+        self._patch_repo(monkeypatch, tmp_path)
+        execv_calls = []
+        monkeypatch.setattr(
+            canasta_cli.os, "execv", lambda *a: execv_calls.append(a),
+        )
+        runner, calls = self._make_runner([
+            {"stdout": "newbuild\n"},        # rev-parse current HEAD (ahead)
+            {"stdout": ""},                   # fetch --tags
+            {"stdout": "v4.0.0\nv4.0.4\n"},   # tag -l v* → latest is v4.0.4
+            {"stdout": "old4044\n"},          # rev-parse v4.0.4 (behind HEAD)
+            {"returncode": 0},                # merge-base: tag IS ancestor of HEAD
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        out = capsys.readouterr().out
+        assert "already ahead of the latest release" in out
+        assert "v4.0.4" in out
+        # The hint points to the installer URL (operators pick their own
+        # options) rather than a bare command that would default to Docker.
+        assert "get.canasta.wiki" in out
+        # No checkout, no re-exec — we stayed on the current build.
+        assert not any("checkout" in c for c in calls)
+        assert execv_calls == []
+
+    def test_dev_already_up_to_date(self, monkeypatch, tmp_path, capsys):
+        # --dev tracks origin/main; up to date only when on main and at HEAD.
+        self._patch_repo(monkeypatch, tmp_path)
+        runner, calls = self._make_runner([
+            {"stdout": "abc1234\n"},   # rev-parse current HEAD
+            {"stdout": ""},             # fetch --tags
+            {"stdout": "abc1234\n"},    # rev-parse origin/main == HEAD
+            {"stdout": "main\n"},       # rev-parse --abbrev-ref HEAD
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli(dev=True)
+        out = capsys.readouterr().out
+        assert "already up to date" in out
+        assert "dev (main)" in out
 
     def test_pulls_and_updates_build_files(
         self, monkeypatch, tmp_path, capsys,
     ):
         self._patch_repo(monkeypatch, tmp_path, version="4.0.0")
-        # Sequence: rev-parse current, fetch, log (has updates),
-        # pull, rev-parse new, log -1 date, pip install, galaxy install.
+        # Default (released) channel sequence: rev-parse current, fetch,
+        # tag -l, rev-parse target, rev-parse abbrev-ref, checkout tag,
+        # rev-parse new, log -1 date, pip install, galaxy install.
         runner, calls = self._make_runner([
-            {"stdout": "old1234\n"},
-            {"stdout": ""},
-            {"stdout": "new1234 some change\n"},   # pending updates
-            {"stdout": ""},                         # pull succeeded
-            {"stdout": "new1234\n"},
-            {"stdout": "2026-05-05 10:00:00\n"},
-            {"stdout": ""},                         # pip install
-            {"stdout": ""},                         # ansible-galaxy install
+            {"stdout": "old1234\n"},                # rev-parse HEAD
+            {"stdout": ""},                          # fetch --tags
+            {"stdout": "v4.0.0\nv4.1.0\n"},          # tag -l → latest v4.1.0
+            {"stdout": "new1234\n"},                 # rev-parse v4.1.0
+            {"returncode": 1},                       # merge-base: not contained → move
+            {"stdout": ""},                          # checkout v4.1.0
+            {"stdout": "new1234\n"},                 # rev-parse new HEAD
+            {"stdout": "2026-05-05 10:00:00\n"},     # log -1 date
+            {"stdout": ""},                          # pip install
+            {"stdout": ""},                          # ansible-galaxy install
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
 
@@ -1090,7 +1177,19 @@ class TestSelfUpdateCli:
             return original_open(path, *args, **kwargs)
 
         monkeypatch.setattr("builtins.open", fake_open)
+        execv_calls = []
+        monkeypatch.setattr(
+            canasta_cli.os, "execv",
+            lambda *a: execv_calls.append(a),
+        )
         canasta_cli.self_update_cli()
+
+        # After a successful pull the CLI re-execs itself on the fresh
+        # code, guarded by CANASTA_SELF_UPDATED so it won't loop.
+        assert len(execv_calls) == 1
+        assert execv_calls[0][0] == sys.executable
+        assert str(execv_calls[0][1][1]).endswith("canasta.py")
+        assert os.environ.get("CANASTA_SELF_UPDATED") == "1"
 
         # Restore real open before reading the BUILD files.
         monkeypatch.undo()
@@ -1107,12 +1206,12 @@ class TestSelfUpdateCli:
         )
 
         # pip + ansible-galaxy ran with the right arguments.
-        pip_call = calls[6]
+        pip_call = calls[8]
         assert pip_call[1:] == [
             "-m", "pip", "install", "--quiet",
             "-r", str(tmp_path / "requirements.txt"),
         ]
-        galaxy_call = calls[7]
+        galaxy_call = calls[9]
         assert galaxy_call[-5:] == [
             "collection", "install", "--upgrade",
             "-r", str(tmp_path / "requirements.yml"),
@@ -1127,12 +1226,14 @@ class TestSelfUpdateCli:
         deps are on disk."""
         self._patch_repo(monkeypatch, tmp_path, version="4.0.0")
         runner, calls = self._make_runner([
-            {"stdout": "old1234\n"},
-            {"stdout": ""},
-            {"stdout": "new1234 some change\n"},
-            {"stdout": ""},
-            {"stdout": "new1234\n"},
-            {"stdout": "2026-05-05 10:00:00\n"},
+            {"stdout": "old1234\n"},                # rev-parse HEAD
+            {"stdout": ""},                          # fetch --tags
+            {"stdout": "v4.0.0\nv4.1.0\n"},          # tag -l → latest v4.1.0
+            {"stdout": "new1234\n"},                 # rev-parse v4.1.0
+            {"returncode": 1},                       # merge-base: not contained → move
+            {"stdout": ""},                          # checkout v4.1.0
+            {"stdout": "new1234\n"},                 # rev-parse new HEAD
+            {"stdout": "2026-05-05 10:00:00\n"},     # log -1 date
             {"stdout": "", "returncode": 1},        # pip fails
             {"stdout": "", "returncode": 1},        # galaxy fails
         ])
@@ -1147,6 +1248,7 @@ class TestSelfUpdateCli:
             return res
 
         monkeypatch.setattr(_subprocess, "run", runner_with_check)
+        monkeypatch.setattr(canasta_cli.os, "execv", lambda *a: None)
         canasta_cli.self_update_cli()
 
         captured = capsys.readouterr()
@@ -1158,20 +1260,40 @@ class TestSelfUpdateCli:
         assert "ansible-galaxy collection install failed" in captured.err
         assert "dependency refresh incomplete" in captured.err
 
-    def test_pull_failure_warns_and_continues(
+    def test_move_failure_warns_and_continues(
         self, monkeypatch, tmp_path, capsys,
     ):
+        # A failed checkout of the release tag (dirty/divergent tree) warns
+        # but does not abort the rest of the upgrade.
         self._patch_repo(monkeypatch, tmp_path)
         runner, calls = self._make_runner([
-            {"stdout": "abc1234\n"},
-            {"stdout": ""},
-            {"stdout": "ff00 some change\n"},
-            {"stdout": "", "returncode": 1, "stderr": "diverged\n"},
+            {"stdout": "abc1234\n"},                # rev-parse HEAD
+            {"stdout": ""},                          # fetch --tags
+            {"stdout": "v4.0.0\nv4.1.0\n"},          # tag -l → latest v4.1.0
+            {"stdout": "def5678\n"},                 # rev-parse v4.1.0 != HEAD
+            {"returncode": 1},                       # merge-base: not contained → move
+            {"stdout": "", "returncode": 1, "stderr": "diverged\n"},  # checkout
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
         canasta_cli.self_update_cli()
         err = capsys.readouterr().err
-        assert "Could not fast-forward" in err
+        assert "Could not move to v4.1.0" in err
+
+    def test_no_release_tags_warns_and_returns(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        # Released channel with no vX.Y.Z tags: skip, pointing at --dev.
+        self._patch_repo(monkeypatch, tmp_path)
+        runner, calls = self._make_runner([
+            {"stdout": "abc1234\n"},   # rev-parse HEAD
+            {"stdout": ""},             # fetch --tags
+            {"stdout": "\n"},           # tag -l → none
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        err = capsys.readouterr().err
+        assert "no release tags found" in err
+        assert "--dev" in err
 
     def test_fetch_failure_warns_and_returns(
         self, monkeypatch, tmp_path, capsys,
@@ -1201,6 +1323,32 @@ class TestSelfUpdateCli:
         canasta_cli.self_update_cli()
         err = capsys.readouterr().err
         assert "could not fetch from origin" in err
+
+    def test_fetch_permission_denied_gives_remediation(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        """A permission-denied fetch (operator not in the canasta group)
+        surfaces loudly with the usermod remediation, not a quiet skip."""
+        self._patch_repo(monkeypatch, tmp_path)
+        first = [type("R", (), {
+            "returncode": 0, "stdout": "abc1234\n", "stderr": "",
+        })()]
+
+        def runner(argv, **kwargs):
+            if "fetch" in argv and kwargs.get("check"):
+                raise _subprocess.CalledProcessError(
+                    128, argv, output="",
+                    stderr="error: cannot open '.git/FETCH_HEAD': "
+                           "Permission denied",
+                )
+            return first.pop(0)
+
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        err = capsys.readouterr().err
+        assert "self-update skipped" in err
+        assert "NOT updated" in err
+        assert "usermod -aG canasta" in err
 
 
 class TestCaBundleOverride:

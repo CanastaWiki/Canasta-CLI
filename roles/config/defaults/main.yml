@@ -39,6 +39,10 @@ canasta_known_keys:
     description: Days between sitemap refreshes
     default: "1"
 
+  - name: CANASTA_ENABLE_CROWDSEC
+    group: Features
+    description: Enable CrowdSec behavioral threat detection (Compose only)
+    default: "false"
   - name: CANASTA_ENABLE_ELASTICSEARCH
     group: Features
     description: Enable Elasticsearch
@@ -74,10 +78,22 @@ canasta_known_keys:
     group: Caddy / TLS
     description: Use Let's Encrypt staging CA (untrusted, but avoids rate limits)
     default: "false"
+  - name: CADDY_TRUSTED_PROXIES
+    group: Caddy / TLS
+    description: >-
+      Recover real client IPs when Caddy is behind a proxy/CDN. Set to
+      "cloudflare" or "imperva", or a comma-separated CIDR list. Unset =
+      Caddy is the edge (default).
 
   - name: CANASTA_IMAGE
     group: Docker Image
     description: Override the default Canasta image
+
+  - name: CROWDSEC_BOUNCER_API_KEY
+    group: Security (CrowdSec)
+    description: >-
+      Caddy bouncer API key from 'cscli bouncers add'. Optional; the
+      bouncer stays dormant (blocks nothing) until it is set.
 
   - name: RESTIC_REPOSITORY
     group: Backup (Restic)
@@ -96,3 +112,11 @@ canasta_known_prefixes:
   - "ST_"
   - "RCLONE_"
   - "SMTP_"
+
+# Keys whose value is a secret. The .env write (and gitops vars write)
+# that carries one of these runs with no_log so the value can't leak via
+# -v, the stock callback, or a task-failure dump. A substring match keeps
+# it fail-safe for future keys (over-suppression is harmless); covers
+# CROWDSEC_BOUNCER_API_KEY, MYSQL_PASSWORD, RESTIC_PASSWORD, MW_SECRET_KEY,
+# and the credential-prefix keys above.
+canasta_secret_key_pattern: "(PASSWORD|SECRET|TOKEN|KEY)"

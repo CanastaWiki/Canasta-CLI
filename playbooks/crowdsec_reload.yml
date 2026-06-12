@@ -1,0 +1,7 @@
+---
+# canasta crowdsec reload
+
+- name: CrowdSec Reload
+  ansible.builtin.include_role:
+    name: crowdsec
+    tasks_from: reload.yml

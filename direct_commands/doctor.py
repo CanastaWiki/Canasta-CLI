@@ -30,7 +30,9 @@ uname -s 2>/dev/null || echo unknown; echo "$D"
 python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
 df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown; echo "$D"
 cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
-runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; for sock in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do if [ -S "$sock" ]; then echo "unix://$sock"; exit 0; fi; done; echo ""
+runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
+command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo OK || echo BROKEN; } || echo MISSING; echo "$D"
+cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi
 """
 
 
@@ -59,6 +61,12 @@ def _parse_doctor(stdout, hostname):
     disk = p(15) if len(parts) > 15 else "unknown"
     unpriv_port_start = p(16) if len(parts) > 16 else "unknown"
     rootless_sock = p(17) if len(parts) > 17 else ""
+    # canasta probe is appended after rootless (index 18) so adding it
+    # didn't shift the existing positional indices above.
+    host_canasta = p(18) if len(parts) > 18 else "MISSING"
+    # Writability of the native install dir's .git — the precondition for
+    # `canasta upgrade`'s self-update (git fetch). NA on docker installs.
+    selfupdate = p(19) if len(parts) > 19 else "NA"
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -135,6 +143,15 @@ def _parse_doctor(stdout, hostname):
         "OK" if crontab == "OK"
         else "not installed (install cron to use canasta backup schedule "
              "on Compose; K8s uses an in-cluster CronJob instead)"))
+    # Scheduled backups run `canasta backup create` on the host via the
+    # crontab, so a runnable canasta must exist there (any flavor —
+    # native or docker). BROKEN = the command exists but doesn't run.
+    lines.append("  canasta on host: %s" % (
+        "OK" if host_canasta == "OK"
+        else "installed but not runnable" if host_canasta == "BROKEN"
+        else "not installed (scheduled backups run 'canasta backup create' "
+             "on the host; install with 'canasta install canasta -H <host>' "
+             "or canasta-docker)"))
 
     lines.append("")
     lines.append("System:")
@@ -155,12 +172,35 @@ def _parse_doctor(stdout, hostname):
                 "sudo usermod -aG www-data $USER (then log out and back in, "
                 "or start a new shell, for the change to take effect)"
             )
+        canasta_member = "canasta" in groups.split()
+        if canasta_member:
+            lines.append("  canasta group:   OK (member)")
+        else:
+            lines.append(
+                "  canasta group:   NOT A MEMBER — 'canasta upgrade' "
+                "self-updates by writing the install dir; without membership "
+                "the git fetch is skipped and the CLI silently stays on the "
+                "old version. Add with: sudo usermod -aG canasta $USER "
+                "(then log out and back in)"
+            )
     else:
         os_label = host_os if host_os and host_os != "unknown" else "this OS"
         lines.append(
             "  www-data group:  N/A (Docker Desktop handles UID mapping on %s)"
             % os_label
         )
+
+    # Direct self-update precondition: can the operator write the native
+    # install dir's .git? NA on docker installs / no native canasta.
+    if selfupdate == "NOT_WRITABLE":
+        lines.append(
+            "  Self-update:     BLOCKED — the canasta install dir's .git is "
+            "not writable by you, so 'canasta upgrade' silently skips the "
+            "self-update and the CLI stays on the old version (see "
+            "'canasta group' above)"
+        )
+    elif selfupdate == "WRITABLE":
+        lines.append("  Self-update:     OK (install dir writable)")
 
     return "\n".join(lines)
 
@@ -186,14 +226,9 @@ def cmd_doctor(args):
                 return 1
             host = instances[inst_id].get("host") or "localhost"
         else:
-            cwd = os.path.abspath(
-                os.environ.get("CANASTA_HOST_PWD") or os.getcwd()
-            )
-            for inst in instances.values():
-                p = inst.get("path", "")
-                if p and os.path.abspath(p) == cwd:
-                    host = inst.get("host") or "localhost"
-                    break
+            _, inst = _helpers._resolve_instance_by_cwd(args)
+            if inst:
+                host = inst.get("host") or "localhost"
     script = _DOCTOR_SCRIPT % {"delim": _helpers._SENTINEL}
 
     if not host or host == "localhost":

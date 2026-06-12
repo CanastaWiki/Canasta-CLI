@@ -41,6 +41,15 @@ RUN mkdir /run/sshd \
 RUN mkdir -p /etc/canasta \
     && chown testuser:testuser /etc/canasta
 
+# Stub 'canasta' on PATH. 'canasta backup schedule set' preflights that a
+# runnable canasta exists on the host (scheduled backups run 'canasta
+# backup create' there via crontab) and bakes its absolute path into the
+# cron entry. The schedule tests only verify the crontab is written and
+# read back, not that a backup runs, so a no-op stub satisfies the
+# preflight without installing the full CLI on the test host.
+RUN printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/canasta \
+    && chmod 0755 /usr/local/bin/canasta
+
 EXPOSE 22
 
 CMD ["/usr/sbin/sshd", "-D", "-e"]

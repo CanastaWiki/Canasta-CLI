@@ -101,11 +101,26 @@
   loop_control:
     label: "{{ item.item }}"
 
+- name: Discover custom Docker build inputs
+  ansible.builtin.include_tasks: discover_build_paths.yml
+
+- name: Add custom build inputs to staging
+  ansible.builtin.set_fact:
+    _backup_volumes: "{{ _backup_volumes | combine(_build_staging_map) }}"
+
+# --host pins restic's host to the instance id, so every snapshot of this
+# instance shares a stable host. Without it, restic records the host as the
+# ephemeral restic container's random id (different every run), so it never
+# finds a parent ("no parent snapshot found, will read all files") and
+# `forget --group-by host,paths` puts each snapshot in its own group. A
+# stable host restores incremental backups and correct retention grouping.
 - name: Create backup snapshot
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
   vars:
     backup_args:
+      - "--host"
+      - "{{ instance_id }}"
       - "--tag"
       - "{{ _backup_tag }}"
       - "backup"

@@ -843,22 +843,76 @@ class TestCmdVersion:
         assert direct_commands.is_direct_command("version")
 
     def test_native_checkout(self, tmp_path, monkeypatch, capsys):
+        # Release checkout: HEAD carries a vX.Y.Z tag, so the version shows.
         (tmp_path / "VERSION").write_text("4.0.0\n")
         monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
         monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {
-                "returncode": 0,
-                "stdout": "abc1234\n" if "rev-parse" in a[0] else "2026-04-18 12:00:00\n",
-            })(),
-        )
+
+        def fake_run(*a, **kw):
+            if "tag" in a[0]:
+                stdout = "v4.0.0\n"            # release tag points at HEAD
+            elif "rev-parse" in a[0]:
+                stdout = "abc1234\n"
+            else:
+                stdout = "2026-04-18 12:00:00\n"
+            return type("R", (), {"returncode": 0, "stdout": stdout})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
         rc = direct_commands.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "v4.0.0" in out
         assert "native" in out
         assert "abc1234" in out
+
+    def test_native_dev_checkout_shows_dev(self, tmp_path, monkeypatch, capsys):
+        # Dev checkout: no release tag at HEAD, so 'dev' replaces the number
+        # (the VERSION file may not match the eventual release).
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
+
+        def fake_run(*a, **kw):
+            if "tag" in a[0]:
+                stdout = ""                    # no tag points at HEAD
+            elif "rev-parse" in a[0]:
+                stdout = "abc1234\n"
+            else:
+                stdout = "2026-04-18 12:00:00\n"
+            return type("R", (), {"returncode": 0, "stdout": stdout})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Canasta CLI dev (" in out
+        assert "v4.0.0" not in out
+        assert "native" in out
+
+    def test_docker_release_tag_shows_version(self, tmp_path, monkeypatch, capsys):
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        (tmp_path / "BUILD_COMMIT").write_text("def5678\n")
+        (tmp_path / "BUILD_DATE").write_text("2026-04-18 10:00:00\n")
+        monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+        monkeypatch.setenv("CANASTA_CLI_IMAGE_TAG", "4.0.0")
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "v4.0.0" in out
+
+    def test_docker_latest_tag_shows_dev(self, tmp_path, monkeypatch, capsys):
+        (tmp_path / "VERSION").write_text("4.0.0\n")
+        (tmp_path / "BUILD_COMMIT").write_text("def5678\n")
+        (tmp_path / "BUILD_DATE").write_text("2026-04-18 10:00:00\n")
+        monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+        monkeypatch.setenv("CANASTA_CLI_IMAGE_TAG", "latest")
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
+        rc = direct_commands.cmd_version(None)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Canasta CLI dev (" in out
+        assert "v4.0.0" not in out
 
     def test_docker_mode(self, tmp_path, monkeypatch, capsys):
         (tmp_path / "VERSION").write_text("4.0.0\n")
@@ -1555,6 +1609,94 @@ class TestSyncComposeProfiles:
         assert "# Canasta config" in content
         assert "# profiles below" in content
 
+    # --- CrowdSec profile + managed caddy image ---
+
+    def test_adds_crowdsec_profile_and_caddy_image_when_enabled(self, tmp_path):
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_CROWDSEC=true\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "COMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "COMPOSE_PROFILES=crowdsec" in content
+        # Enabling crowdsec switches the caddy image to the bouncer build.
+        assert (
+            "CANASTA_CADDY_IMAGE=%s" % direct_commands._helpers._CADDY_PLUGIN_IMAGE
+            in content
+        )
+
+    def test_crowdsec_off_by_default(self, tmp_path):
+        # Unset flag must not add the profile or touch the caddy image.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_VARNISH=false\nCOMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "crowdsec" not in content
+        # No spurious empty CANASTA_CADDY_IMAGE line is added.
+        assert "CANASTA_CADDY_IMAGE" not in content
+
+    def test_disabling_crowdsec_reverts_managed_caddy_image(self, tmp_path):
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_CROWDSEC=false\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "CANASTA_CADDY_IMAGE=%s\n"
+            "COMPOSE_PROFILES=crowdsec\n"
+            % direct_commands._helpers._CADDY_PLUGIN_IMAGE
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        # Profile dropped and the managed image cleared back to default.
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert line == "COMPOSE_PROFILES="
+            if line.startswith("CANASTA_CADDY_IMAGE="):
+                assert line == "CANASTA_CADDY_IMAGE="
+
+    def test_custom_caddy_image_is_not_clobbered(self, tmp_path):
+        # An operator-set custom caddy image must survive enabling crowdsec.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_CROWDSEC=true\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "CANASTA_CADDY_IMAGE=myregistry/custom-caddy:1.0\n"
+            "COMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "CANASTA_CADDY_IMAGE=myregistry/custom-caddy:1.0" in content
+        # Profile is still added even though the image is left alone.
+        assert "COMPOSE_PROFILES=crowdsec" in content
+
+    # --- Caddy plugin image is also driven by trusted-proxy provider modes ---
+
+    def test_trusted_proxies_provider_mode_switches_caddy_image(self, tmp_path):
+        # imperva needs the caddy-cdn-ranges plugin, so the image switches
+        # even with CrowdSec off.
+        (tmp_path / ".env").write_text(
+            "CADDY_TRUSTED_PROXIES=imperva\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "COMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert (
+            "CANASTA_CADDY_IMAGE=%s" % direct_commands._helpers._CADDY_PLUGIN_IMAGE
+            in content
+        )
+
+    def test_explicit_cidr_trusted_proxies_stays_on_stock_caddy(self, tmp_path):
+        # An explicit CIDR list uses Caddy's built-in static source, so no
+        # plugin image is needed.
+        (tmp_path / ".env").write_text(
+            "CADDY_TRUSTED_PROXIES=10.0.0.0/8\n"
+            "CANASTA_ENABLE_VARNISH=false\n"
+            "COMPOSE_PROFILES=\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "CANASTA_CADDY_IMAGE" not in content
+
 
 class TestDumpComposeFailure:
     def test_prints_ps_and_logs_to_stderr(self, monkeypatch, capsys):
@@ -2103,12 +2245,19 @@ class TestExtensionSkinList:
 # ---------------------------------------------------------------------------
 
 class TestParseGitopsDiff:
-    def _make_output(self, uncommitted="", local="", remote="", submodules=""):
+    def _make_output(self, uncommitted="", uncommitted_patch="",
+                     local="", local_patch="", remote="", remote_patch="",
+                     submodules=""):
+        # Seven sentinel-separated sections: for each boundary a
+        # --name-only list followed by the patch, then submodule status.
         d = direct_commands._SENTINEL
         return (
             uncommitted + "\n" + d + "\n"
+            + uncommitted_patch + "\n" + d + "\n"
             + local + "\n" + d + "\n"
+            + local_patch + "\n" + d + "\n"
             + remote + "\n" + d + "\n"
+            + remote_patch + "\n" + d + "\n"
             + submodules + "\n"
         )
 
@@ -2123,7 +2272,18 @@ class TestParseGitopsDiff:
         out = self._make_output(uncommitted="config/.env\nconfig/wikis.yaml")
         result = direct_commands._parse_gitops_diff(out)
         assert "Uncommitted changes: 2 file(s)" in result
-        assert "config/.env" in result
+
+    def test_patch_content_shown(self):
+        patch = (
+            "diff --git a/config/.env b/config/.env\n"
+            "@@ -1 +1 @@\n-FOO=old\n+FOO=new"
+        )
+        out = self._make_output(uncommitted="config/.env",
+                                uncommitted_patch=patch)
+        result = direct_commands._parse_gitops_diff(out)
+        assert "Uncommitted changes: 1 file(s)" in result
+        assert "+FOO=new" in result
+        assert "-FOO=old" in result
 
     def test_local_and_remote(self):
         out = self._make_output(local="config/.env", remote="config/settings.php")
@@ -2166,6 +2326,9 @@ class TestCmdGitopsDiff:
         d = direct_commands._SENTINEL
         ssh_output = (
             "config/.env\n" + d + "\n"
+            + "diff --git a/config/.env b/config/.env\n" + d + "\n"
+            + "\n" + d + "\n"
+            + "\n" + d + "\n"
             + "\n" + d + "\n"
             + "\n" + d + "\n"
             + "\n"
@@ -2264,6 +2427,54 @@ class TestDoctor:
         assert "kubectl:         OK" in result
         assert "crontab:         OK" in result
         assert "www-data group:  OK (member)" in result
+
+    def test_parse_doctor_reports_host_canasta(self):
+        d = direct_commands._SENTINEL
+        # 18 base parts (through the rootless socket at index 17); the
+        # canasta probe is appended at index 18.
+        base = [
+            "Python 3.12.0", "Docker version 27.0.0",
+            "Docker Compose version v2.30.0", "OK",
+            "user docker www-data", "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED", "git version 2.45.0", "OK", "OK",
+            "Linux", "16 GB", "50G", "1024", "",
+        ]
+        for value, expected in [
+            ("OK", "canasta on host: OK"),
+            ("BROKEN", "canasta on host: installed but not runnable"),
+            ("MISSING", "canasta on host: not installed"),
+        ]:
+            stdout = ("\n" + d + "\n").join(base + [value]) + "\n"
+            result = direct_commands._parse_doctor(stdout, "myhost")
+            assert expected in result
+
+    # 20 parts: through the canasta probe (18) + self-update writability (19).
+    @staticmethod
+    def _doctor_parts(groups, writable):
+        return [
+            "Python 3.12.0", "Docker version 27.0.0",
+            "Docker Compose version v2.30.0", "OK",
+            groups, "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED", "git version 2.45.0", "OK", "OK",
+            "Linux", "16 GB", "50G", "1024", "", "OK", writable,
+        ]
+
+    def test_parse_doctor_canasta_group_member(self):
+        d = direct_commands._SENTINEL
+        parts = self._doctor_parts("user docker www-data canasta", "WRITABLE")
+        result = direct_commands._parse_doctor(
+            ("\n" + d + "\n").join(parts) + "\n", "myhost")
+        assert "canasta group:   OK (member)" in result
+        assert "Self-update:     OK (install dir writable)" in result
+
+    def test_parse_doctor_not_in_canasta_group_flags_self_update(self):
+        d = direct_commands._SENTINEL
+        parts = self._doctor_parts("user docker www-data", "NOT_WRITABLE")
+        result = direct_commands._parse_doctor(
+            ("\n" + d + "\n").join(parts) + "\n", "myhost")
+        assert "canasta group:   NOT A MEMBER" in result
+        assert "usermod -aG canasta" in result
+        assert "Self-update:     BLOCKED" in result
 
     def test_parse_doctor_missing_deps(self):
         d = direct_commands._SENTINEL
@@ -3262,3 +3473,52 @@ class TestLintEnvContent:
         assert direct_commands._lint_env_content('A="1"\nB=2\nC=\'3\'\n') == (
             ["A", "C"], False
         )
+
+
+class TestResolveInstanceByCwd:
+    """#596: status/doctor/version must detect the instance from any
+    subdirectory (walking up parent dirs), honoring CANASTA_HOST_PWD."""
+
+    @staticmethod
+    def _args(instance_id=None):
+        import types
+        return types.SimpleNamespace(id=instance_id)
+
+    def test_top_level_dir(self, registry, monkeypatch):
+        _, data = registry
+        path = data["Instances"]["siteA"]["path"]
+        monkeypatch.setenv("CANASTA_HOST_PWD", path)
+        iid, inst = direct_commands._helpers._resolve_instance_by_cwd(self._args())
+        assert iid == "siteA"
+        assert inst["path"] == path
+
+    def test_subdirectory_walks_up(self, registry, monkeypatch):
+        _, data = registry
+        sub = os.path.join(data["Instances"]["siteA"]["path"], "config")
+        monkeypatch.setenv("CANASTA_HOST_PWD", sub)
+        iid, _inst = direct_commands._helpers._resolve_instance_by_cwd(self._args())
+        assert iid == "siteA"
+
+    def test_deeper_subdirectory_walks_up(self, registry, monkeypatch):
+        _, data = registry
+        deep = os.path.join(
+            data["Instances"]["siteB"]["path"], "config", "settings"
+        )
+        os.makedirs(deep, exist_ok=True)
+        monkeypatch.setenv("CANASTA_HOST_PWD", deep)
+        iid, _inst = direct_commands._helpers._resolve_instance_by_cwd(self._args())
+        assert iid == "siteB"
+
+    def test_no_match_returns_none(self, registry, monkeypatch):
+        monkeypatch.setenv("CANASTA_HOST_PWD", "/")
+        assert direct_commands._helpers._resolve_instance_by_cwd(
+            self._args()
+        ) == (None, None)
+
+    def test_explicit_id_wins(self, registry, monkeypatch):
+        monkeypatch.setenv("CANASTA_HOST_PWD", "/nowhere")
+        iid, inst = direct_commands._helpers._resolve_instance_by_cwd(
+            self._args("siteB")
+        )
+        assert iid == "siteB"
+        assert inst is not None

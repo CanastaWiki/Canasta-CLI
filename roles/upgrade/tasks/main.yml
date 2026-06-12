@@ -84,10 +84,15 @@
         - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
 # --- Refresh config ---
-- name: Refresh stack files (no-clobber)
+# Force-refresh the managed docker-compose.yml so compose changes (e.g. a
+# newly added crowdsec service) reach instances created on an older
+# version. User-adjacent files stay no-clobber inside write_stack_files.
+- name: Refresh stack files (force-refresh managed compose)
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: write_stack_files.yml
+  vars:
+    stack_files_force: true
 
 - name: Initialize orchestrator config
   ansible.builtin.include_role:
@@ -273,8 +278,16 @@
     - _images_updated | bool
     - (_buildable_services | default([]) | length) > 0
 
+# A compose-only change (e.g. gaining the crowdsec service) must also
+# trigger a recreate, not just an image bump.
+- name: Decide whether a restart is needed
+  ansible.builtin.set_fact:
+    _restart_needed: >-
+      {{ (_images_updated | bool)
+         or (_compose_stack_copy is defined and _compose_stack_copy is changed) }}
+
 - name: Restart containers
-  when: _images_updated | bool
+  when: _restart_needed | bool
   block:
     - name: Report restarting
       ansible.builtin.debug:
@@ -304,4 +317,4 @@
 - name: Report already up to date
   ansible.builtin.debug:
     msg: "Already up to date — no restart needed."
-  when: not (_images_updated | bool)
+  when: not (_restart_needed | bool)

@@ -1,0 +1,117 @@
+---
+# Discover the custom Docker build inputs (Dockerfile + build context)
+# referenced by docker-compose.override.yml, so a backup captures everything
+# needed to rebuild a custom image on restore. Without this, a backup keeps
+# the override that declares `build:` but not the Dockerfile/context it points
+# at, and a restore onto a fresh host fails to start.
+#
+# Compose-only: K8s custom images are pushed to the in-cluster registry rather
+# than built from a local context, so there is nothing on disk to capture.
+#
+# Output: _build_staging_map - dict of {host_path: '/currentsnapshot/<rel>'},
+#         ready to combine into a backup volume map. Empty when the instance
+#         has no buildable services.
+#
+# Each build input is reduced to its TOP-LEVEL component under the instance
+# directory before staging, so a backup stages and a restore replaces at the
+# same granularity (a whole top-level entry):
+#   - context is the instance directory      -> the Dockerfile's top-level
+#     component (the Dockerfile itself when it sits at the instance root).
+#   - context is, or sits under, a subdir    -> that top-level directory.
+# Staging a nested path on its own would put a partial directory in the
+# snapshot, and the wholesale restore would then delete that directory's
+# unstaged siblings.
+#
+# Limitation: with an instance-directory context, only the Dockerfile is
+# captured. A Dockerfile that COPYs additional files from the instance root
+# (e.g. COPY scripts/foo.sh ...) will not have those sources backed up unless
+# they already live under a standard dir. Staging the whole instance directory
+# is not an option - it is the entire instance (.git, generated compose files,
+# logs), which the allowlist exists to exclude. Builds that COPY files should
+# use a dedicated subdirectory as the build context, which is captured in full.
+
+- name: Initialize build staging facts
+  ansible.builtin.set_fact:
+    _build_staging_map: {}
+    _build_staging_paths: []
+
+- name: Discover custom build inputs (Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    # `docker compose config` reports build.context as a physical path (symlinks
+    # resolved). Resolve the instance dir the same way so the two are comparable
+    # - otherwise a symlinked instance path makes every context look "outside"
+    # the instance and the build inputs silently miss the snapshot.
+    - name: Resolve physical instance directory
+      ansible.builtin.command:
+        cmd: "realpath {{ instance_path }}"
+      register: _build_instance_realpath
+      changed_when: false
+
+    - name: Set physical instance directory
+      ansible.builtin.set_fact:
+        _build_instance_dir: "{{ _build_instance_realpath.stdout }}"
+
+    - name: Render merged compose config as JSON
+      ansible.builtin.command:
+        cmd: "docker compose config --format json"
+        chdir: "{{ instance_path }}"
+      register: _build_compose_config
+      changed_when: false
+      # The rendered config interpolates .env values (including
+      # MYSQL_PASSWORD); keep it out of task logs. The variable is still
+      # usable below - only its display is suppressed.
+      no_log: true
+
+    # Pull out just the build sections. The secret-bearing remainder of the
+    # rendered config is dropped here, so every task below operates on
+    # secret-free data and needs no no_log of its own.
+    - name: Extract build sections
+      ansible.builtin.set_fact:
+        _build_specs: >-
+          {{ (_build_compose_config.stdout | from_json).services | dict2items
+             | map(attribute='value.build') | select('defined') | list }}
+
+    # `docker compose config` resolves build.context to an absolute path and
+    # leaves build.dockerfile as a filename relative to that context. Reduce
+    # each build input to its top-level component under the instance dir.
+    - name: Compute top-level build input paths
+      ansible.builtin.set_fact:
+        _build_staging_paths: "{{ _build_staging_paths + [_top] }}"
+      vars:
+        _instance_dir: "{{ _build_instance_dir | regex_replace('/$', '') }}"
+        _ctx: "{{ item.context | regex_replace('/$', '') }}"
+        _target: >-
+          {{ (_ctx == _instance_dir)
+             | ternary(_instance_dir ~ '/' ~ (item.dockerfile | default('Dockerfile')), _ctx) }}
+        _rel: "{{ _target | relpath(_instance_dir) }}"
+        _top: "{{ _instance_dir ~ '/' ~ (_rel.split('/') | first) }}"
+      loop: "{{ _build_specs }}"
+      loop_control:
+        label: "{{ item.context }}"
+      # Skip anything that resolves outside the instance directory (e.g. an
+      # unexpected symlinked context); the restore only handles paths within it.
+      when: not _rel.startswith('..')
+
+    - name: Stat discovered build inputs
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: _build_stat
+      loop: "{{ _build_staging_paths | unique }}"
+      loop_control:
+        label: "{{ item }}"
+
+    # Only stage inputs that actually exist on disk. A declared-but-missing
+    # build input (an override that references a Dockerfile not yet created)
+    # would otherwise be bind-mounted by the staging container, which on Linux
+    # creates a junk directory at that path - the same broken state this task
+    # exists to prevent.
+    - name: Stage existing build inputs
+      ansible.builtin.set_fact:
+        _build_staging_map: >-
+          {{ _build_staging_map | combine(
+               {item.item: '/currentsnapshot/' ~ (item.item | relpath(_build_instance_dir))}) }}
+      loop: "{{ _build_stat.results }}"
+      when: item.stat.exists
+      loop_control:
+        label: "{{ item.item }}"

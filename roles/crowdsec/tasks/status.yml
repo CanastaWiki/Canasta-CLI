@@ -1,0 +1,109 @@
+---
+# canasta crowdsec status - show registered bouncers and active
+# decisions. Read-only.
+# Input: id (optional)
+
+- name: Preflight (resolve, Compose-only, crowdsec running)
+  ansible.builtin.include_tasks: _preflight.yml
+
+# JSON (not the table) so we can collapse the caddy bouncer family. CrowdSec
+# auto-creates an undeletable 'canasta-caddy@<ip>' child every time the caddy
+# container reconnects from a new IP, so the raw list grows a trail of stale
+# 'valid' rows that confuse the output (issue #619).
+- name: List registered bouncers
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli bouncers list -o json"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_bouncers
+  changed_when: false
+
+# cscli prints "null" (not "[]") when no bouncers exist, so coalesce to an
+# empty list before parsing.
+- name: Parse bouncer list
+  ansible.builtin.set_fact:
+    _crowdsec_bouncer_list: "{{ ((_crowdsec_bouncers.stdout | trim) or '[]') | from_json }}"
+
+- name: List active decisions
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli decisions list"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_decisions
+  changed_when: false
+
+# Read-only probes: CAPI registration gates the community blocklist;
+# console status reflects whether the engine is wired to the Console.
+- name: Get Central API (community blocklist) status
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli capi status"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_capi
+  changed_when: false
+  failed_when: false
+
+- name: Get console enrollment status
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli console status -o raw"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_console
+  changed_when: false
+  failed_when: false
+
+# `cscli decisions list` excludes CAPI blocklist decisions, so count them by
+# origin. -o raw keeps the payload to one integer; tail drops the CSV header.
+- name: Count community-blocklist (CAPI) decisions
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T crowdsec sh -c
+      'cscli decisions list --origin CAPI -o raw 2>/dev/null | tail -n +2 | wc -l'
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_capi_count
+  changed_when: false
+  failed_when: false
+
+# Console-subscribed blocklists carry origin 'lists' and are excluded from the
+# default decisions list; fetch them (raw CSV) and break them down per list.
+- name: List console-blocklist (lists) decisions
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T crowdsec
+      cscli decisions list --origin lists -o raw
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_lists_raw
+  changed_when: false
+  failed_when: false
+
+- name: Break down console blocklists by list
+  ansible.builtin.set_fact:
+    _crowdsec_blocklist_lines: >-
+      {{ _crowdsec_lists_raw.stdout | default('') | canasta_crowdsec_blocklist_breakdown }}
+
+- name: Summarize Central API and console state
+  ansible.builtin.set_fact:
+    # Show the loaded-IP count when registered.
+    _crowdsec_capi_line: >-
+      {{ ('registered — community blocklist active'
+          ~ ((' (' ~ (_crowdsec_capi_count.stdout | trim) ~ ' IPs loaded)')
+             if (_crowdsec_capi_count.stdout | trim | int) > 0 else ''))
+         if _crowdsec_capi.rc == 0
+         else 'not registered (no community blocklist; auto-registers on the next start)' }}
+    # `cscli console status -o raw` is CSV (option,enabled); an enrolled engine
+    # has at least one forward option set to true. The breakdown filter returns
+    # a ready-to-append block (real newlines) or '' when no lists are pulled.
+    _crowdsec_console_line: >-
+      {{ ('enrolled' ~ _crowdsec_blocklist_lines)
+         if (_crowdsec_console.rc == 0 and ',true' in (_crowdsec_console.stdout | default('')))
+         else 'not enrolled — run: canasta crowdsec console-enroll <key> (optional, for the full blocklist)' }}
+
+- name: Show CrowdSec status
+  ansible.builtin.debug:
+    msg: |-
+      CrowdSec status for instance '{{ instance_id }}'
+
+      Bouncers:
+      {{ _crowdsec_bouncer_list | canasta_crowdsec_status_bouncers }}
+
+      Central API (community blocklist): {{ _crowdsec_capi_line }}
+      Console: {{ _crowdsec_console_line }}
+
+      Local decisions (manual bans + scenario detections):
+      {{ _crowdsec_decisions.stdout | default('(none)') }}
