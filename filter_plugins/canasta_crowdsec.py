@@ -71,8 +71,11 @@ def canasta_crowdsec_blocklist_breakdown(raw):
     ``reason`` is the subscribed blocklist's name (e.g. ``otx-webscanners``).
     Console-blocklist decisions number in the thousands and are excluded from
     the default ``cscli decisions list``, so this groups them by list and
-    returns aligned, indented ``name  count`` lines for the status message —
+    returns a ready-to-append block headed by ``Subscribed blocklists:`` —
     or ``""`` when there are none.
+
+    All newlines are produced here (Jinja string literals do not interpret
+    ``\\n``), so the caller can concatenate the result directly.
     """
     import csv
     import io
@@ -92,10 +95,9 @@ def canasta_crowdsec_blocklist_breakdown(raw):
         return ""
 
     width = max(len(name) for name in counts)
-    return "\n".join(
-        "    %-*s  %d" % (width, name, counts[name])
-        for name in sorted(counts)
-    )
+    lines = ["    %-*s  %d" % (width, name, counts[name])
+             for name in sorted(counts)]
+    return "\n  Subscribed blocklists:\n" + "\n".join(lines)
 
 
 class FilterModule(object):
