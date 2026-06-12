@@ -90,12 +90,18 @@
     # are no_log'd at the task level on a secret-key match. no_log here would
     # not propagate into the included role anyway, and would also hide the
     # restart output we want to surface.
+    #
+    # Pass the key via config_settings_override, NOT settings: this enroll
+    # runs inside the restart that the original `config set` triggered, where
+    # `settings` is an extra-var that include_role vars cannot override. Using
+    # `settings` here would silently re-apply the outer setting, never store
+    # the key, and loop the restart/auto-enroll cycle forever.
     - name: Store the key, re-render the Caddyfile, and restart
       ansible.builtin.include_role:
         name: config
         tasks_from: set.yml
       vars:
-        settings: "CROWDSEC_BOUNCER_API_KEY={{ _crowdsec_add.stdout | trim }}"
+        config_settings_override: "CROWDSEC_BOUNCER_API_KEY={{ _crowdsec_add.stdout | trim }}"
 
     - name: Report success
       ansible.builtin.debug:

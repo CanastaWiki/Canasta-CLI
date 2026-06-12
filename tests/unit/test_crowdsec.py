@@ -478,6 +478,28 @@ class TestCrowdsecEnrollRole:
         assert "CROWDSEC_BOUNCER_API_KEY=" in content
         assert "tasks_from: set.yml" in content
 
+    def test_key_store_uses_override_not_settings_extra_var(self):
+        """Regression: auto-enroll runs inside a config-set-triggered
+        restart, where `settings` is an Ansible extra-var that
+        include_role vars cannot override. Passing the key as `settings:`
+        silently re-applied the OUTER setting, never stored the key, and
+        looped the restart/auto-enroll cycle forever. The nested call must
+        use config_settings_override, which set.yml honors over `settings`.
+        """
+        content = self._enroll()
+        assert "config_settings_override: \"CROWDSEC_BOUNCER_API_KEY=" in content, (
+            "enroll must pass the key via config_settings_override so it "
+            "survives the extra-var precedence of `settings`"
+        )
+        # set.yml must resolve the override ahead of the extra-var.
+        set_yml = _read(os.path.join(
+            REPO_ROOT, "roles", "config", "tasks", "set.yml",
+        ))
+        assert "config_settings_override | default(settings)" in set_yml, (
+            "set.yml must read config_settings_override (falling back to the "
+            "settings extra-var) so internal callers can substitute the key"
+        )
+
     def test_key_handling_is_no_log(self):
         # The cscli-add step captures the raw key under no_log.
         content = self._enroll()
