@@ -30,7 +30,10 @@ import canasta as canasta_cli  # noqa: E402 (the canasta.py module)
 sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", "..", "filter_plugins")
 )
-from canasta_crowdsec import canasta_crowdsec_status_bouncers  # noqa: E402
+from canasta_crowdsec import (  # noqa: E402
+    canasta_crowdsec_status_bouncers,
+    canasta_crowdsec_blocklist_breakdown,
+)
 
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -655,6 +658,35 @@ class TestCrowdsecStatusBouncersDisplay:
         assert "stale" not in out2
 
 
+class TestCrowdsecBlocklistBreakdown:
+    HEADER = ("id,source,ip,reason,action,country,as,events_count,"
+              "expiration,simulated,alert_id")
+
+    def _raw(self, rows):
+        return "\n".join([self.HEADER] + rows)
+
+    def test_groups_and_counts_by_list(self):
+        raw = self._raw([
+            "1,lists,Ip:1.1.1.1,otx-webscanners,ban,,,0,1h,false,16",
+            "2,lists,Ip:2.2.2.2,otx-webscanners,ban,,,0,1h,false,16",
+            "3,lists,Ip:3.3.3.3,firehol_dyndns_ponmocup,ban,,,0,1h,false,15",
+        ])
+        out = canasta_crowdsec_blocklist_breakdown(raw)
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        assert len(lines) == 2
+        # one line per list, sorted by name (firehol_... before otx-...)
+        assert ("firehol_dyndns_ponmocup" in lines[0]
+                and lines[0].rstrip().endswith("1"))
+        assert ("otx-webscanners" in lines[1]
+                and lines[1].rstrip().endswith("2"))
+
+    def test_empty_when_no_decisions(self):
+        # cscli prints just the header (or nothing) when there are none.
+        assert canasta_crowdsec_blocklist_breakdown(self._raw([])) == ""
+        assert canasta_crowdsec_blocklist_breakdown("") == ""
+        assert canasta_crowdsec_blocklist_breakdown(None) == ""
+
+
 class TestCrowdsecStatusWiring:
     def test_status_lists_bouncers_as_json_and_uses_filter(self):
         content = _read(os.path.join(
@@ -701,6 +733,10 @@ class TestCrowdsecStatusWiring:
             "status must count community-blocklist (CAPI) decisions, which are "
             "excluded from the default decisions list"
         )
+        assert "--origin lists" in content, (
+            "status must also count console-subscribed blocklist (lists) "
+            "decisions, which are likewise excluded from the default list"
+        )
 
     def test_status_summarizes_console_without_raw_table(self):
         """The raw `cscli console status` table includes an unrelated
@@ -716,6 +752,20 @@ class TestCrowdsecStatusWiring:
             "status must display the one-line console summary, not dump the "
             "raw cscli console table (which shows the misleading "
             "console_management row)"
+        )
+
+    def test_console_enrolled_detection_is_glyph_free(self):
+        """Enrolled-detection must read the stable `-o raw` CSV (option,enabled)
+        rather than scraping the human table's ✅ glyph, which is fragile to
+        cscli formatting/locale/color changes."""
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
+        ))
+        assert "cscli console status -o raw" in content, (
+            "console status must be read as raw CSV, not the human table"
+        )
+        assert "✅" not in content, (
+            "enrolled-detection must not depend on the ✅ glyph"
         )
 
 

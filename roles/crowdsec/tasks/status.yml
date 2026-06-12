@@ -42,7 +42,7 @@
 
 - name: Get console enrollment status
   ansible.builtin.command:
-    cmd: "docker compose exec -T crowdsec cscli console status"
+    cmd: "docker compose exec -T crowdsec cscli console status -o raw"
     chdir: "{{ instance_path }}"
   register: _crowdsec_console
   changed_when: false
@@ -60,6 +60,23 @@
   changed_when: false
   failed_when: false
 
+# Console-subscribed blocklists carry origin 'lists' and are excluded from the
+# default decisions list; fetch them (raw CSV) and break them down per list.
+- name: List console-blocklist (lists) decisions
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T crowdsec
+      cscli decisions list --origin lists -o raw
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_lists_raw
+  changed_when: false
+  failed_when: false
+
+- name: Break down console blocklists by list
+  ansible.builtin.set_fact:
+    _crowdsec_blocklist_lines: >-
+      {{ _crowdsec_lists_raw.stdout | default('') | canasta_crowdsec_blocklist_breakdown }}
+
 - name: Summarize Central API and console state
   ansible.builtin.set_fact:
     # Show the loaded-IP count when registered.
@@ -69,10 +86,14 @@
              if (_crowdsec_capi_count.stdout | trim | int) > 0 else ''))
          if _crowdsec_capi.rc == 0
          else 'not registered (no community blocklist; auto-registers on the next start)' }}
-    # An enrolled engine has at least one forward option activated (✅).
+    # `cscli console status -o raw` is CSV (option,enabled); an enrolled engine
+    # has at least one forward option set to true. List the subscribed
+    # blocklists with their IP counts when any have been pulled.
     _crowdsec_console_line: >-
-      {{ 'enrolled'
-         if (_crowdsec_console.rc == 0 and '✅' in (_crowdsec_console.stdout | default('')))
+      {{ ('enrolled'
+          ~ (('\n  Subscribed blocklists:\n' ~ _crowdsec_blocklist_lines)
+             if (_crowdsec_blocklist_lines | length > 0) else ''))
+         if (_crowdsec_console.rc == 0 and ',true' in (_crowdsec_console.stdout | default('')))
          else 'not enrolled — run: canasta crowdsec console-enroll <key> (optional, for the full blocklist)' }}
 
 - name: Show CrowdSec status
