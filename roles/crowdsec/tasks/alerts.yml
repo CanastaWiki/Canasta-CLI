@@ -3,7 +3,7 @@
 # attacks/probes), optionally filtered to one source IP. Read-only.
 # Input: id (optional), ip (str, optional filter)
 
-- name: Preflight (resolve, Compose-only, crowdsec running)
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
   ansible.builtin.include_tasks: _preflight.yml
 
 # argv (not a shell string) so the optional --ip filter is appended cleanly
@@ -13,8 +13,7 @@
   ansible.builtin.set_fact:
     _crowdsec_has_ip: "{{ (ip | default('') | string | length) > 0 }}"
     _crowdsec_alerts_argv: >-
-      {{ ['docker', 'compose', 'exec', '-T', 'crowdsec',
-          'cscli', 'alerts', 'list']
+      {{ _cscli_argv + ['cscli', 'alerts', 'list']
          + (['--ip', ip | string] if (ip | default('') | string | length > 0) else []) }}
 
 - name: Set the header IP suffix
@@ -24,7 +23,7 @@
 - name: List alerts
   ansible.builtin.command:
     argv: "{{ _crowdsec_alerts_argv }}"
-    chdir: "{{ instance_path }}"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
   register: _crowdsec_alerts
   changed_when: false
 

@@ -1,31 +1,56 @@
 ---
-# Shared preflight for crowdsec subcommands: resolve the instance, refuse
-# on non-Compose orchestrators, and verify the crowdsec service is up.
-# Output: instance_id, instance_path, instance_orchestrator (+ the rest
-# of resolve_instance's facts).
+# Shared preflight for crowdsec subcommands: resolve the instance, verify the
+# crowdsec engine is up (Compose service or K8s sidecar), and build the
+# orchestrator-appropriate cscli prefix.
+# Output: instance_id, instance_path, instance_orchestrator (+ the rest of
+# resolve_instance's facts), _cscli_prefix, _cscli_chdir.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Refuse on non-Compose orchestrators
-  ansible.builtin.fail:
-    msg: >-
-      CrowdSec is a Docker Compose feature. Instance '{{ instance_id }}'
-      runs on {{ instance_orchestrator }}; there is no CrowdSec
-      integration for Kubernetes yet.
-  when: instance_orchestrator | default('compose') not in ['compose']
+# --- Compose: the crowdsec service must be running ---
+- name: Verify crowdsec service is running (Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: List running services
+      ansible.builtin.command:
+        cmd: "docker compose ps --services --filter status=running"
+        chdir: "{{ instance_path }}"
+      register: _crowdsec_running
+      changed_when: false
 
-- name: List running services
-  ansible.builtin.command:
-    cmd: "docker compose ps --services --filter status=running"
-    chdir: "{{ instance_path }}"
-  register: _crowdsec_running
-  changed_when: false
+    - name: Refuse when the crowdsec service is not running
+      ansible.builtin.fail:
+        msg: >-
+          The crowdsec service is not running for instance
+          '{{ instance_id }}'. Enable it first with
+          'canasta config set CANASTA_ENABLE_CROWDSEC=true', then retry.
+      when: "'crowdsec' not in (_crowdsec_running.stdout_lines | default([]))"
 
-- name: Refuse when the crowdsec service is not running
-  ansible.builtin.fail:
-    msg: >-
-      The crowdsec service is not running for instance
-      '{{ instance_id }}'. Enable it first with
-      'canasta config set CANASTA_ENABLE_CROWDSEC=true', then retry.
-  when: "'crowdsec' not in (_crowdsec_running.stdout_lines | default([]))"
+# --- Kubernetes: the crowdsec sidecar must be Ready in the caddy pod ---
+- name: Verify crowdsec sidecar is running (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    # Space-separated `name=ready` pairs for every container in the caddy pod,
+    # e.g. "caddy=true crowdsec=true ". kubectl jsonpath has no filter
+    # expressions, so emit them all and substring-match below.
+    - name: Read container readiness from the caddy pod
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get pods -n canasta-{{ instance_id }}
+          -l app.kubernetes.io/component=caddy
+          --field-selector=status.phase=Running
+          -o jsonpath={range .items[0].status.containerStatuses[*]}{.name}={.ready} {end}
+      register: _crowdsec_k8s_ready
+      changed_when: false
+
+    - name: Refuse when the crowdsec sidecar is not running
+      ansible.builtin.fail:
+        msg: >-
+          The CrowdSec engine is not running for instance
+          '{{ instance_id }}'. Enable it first with
+          'canasta config set CANASTA_ENABLE_CROWDSEC=true', then retry.
+      when: "'crowdsec=true' not in (_crowdsec_k8s_ready.stdout | default(''))"
+
+- name: Build the cscli command prefix for this orchestrator
+  ansible.builtin.include_tasks: _resolve_cscli.yml

@@ -200,10 +200,10 @@ command_groups:
       controlling host. See [[Help:Multi-node Kubernetes]].
 
   - name: crowdsec
-    description: "Manage CrowdSec threat detection (Compose)"
+    description: "Manage CrowdSec threat detection"
     long_description: |
-      Manage the optional CrowdSec security profile on a Compose
-      instance. Enable or disable CrowdSec itself with
+      Manage the optional CrowdSec security feature on a Compose or
+      Kubernetes instance. Enable or disable CrowdSec itself with
       `canasta config set CANASTA_ENABLE_CROWDSEC=true|false` (the
       same pattern as the other optional features); this group covers
       the steps that don't reduce to a single config value:
@@ -235,7 +235,13 @@ command_groups:
       Durable detection tuning (whitelisting trusted IPs, custom rules)
       is done by editing `config/crowdsec/whitelists.yaml` in the
       instance directory — a version-controlled file, like
-      `Caddyfile.global`. CrowdSec is a Compose-only feature.
+      `Caddyfile.global`.
+
+      On Kubernetes the engine runs as a sidecar in the Caddy pod and the
+      same subcommands work via `kubectl exec`. Because Caddy always sits
+      behind the in-cluster ingress there, CrowdSec auto-trusts the cluster
+      pod CIDRs (override with `CADDY_TRUSTED_PROXY_CIDRS`) so it attributes
+      decisions to the real client IP rather than the ingress.
 
 commands:
   # ---------------------------------------------------------------------------
@@ -1333,7 +1339,7 @@ commands:
       `--force` to revoke the existing bouncer and issue a fresh key
       (e.g. to rotate a key, or recover one that drifted out of sync).
       Distinct from `console-enroll`, which connects the engine to the
-      cloud CrowdSec Console. Compose only.
+      cloud CrowdSec Console.
     examples:
       - "canasta crowdsec bouncer-enroll"
       - "canasta crowdsec bouncer-enroll -i mysite"
@@ -1366,7 +1372,7 @@ commands:
       run this command, then return to the Console to accept the pending
       engine and subscribe it to the blocklists you want. Distinct from
       `canasta crowdsec bouncer-enroll`, which registers the local Caddy
-      bouncer with the engine. Compose only.
+      bouncer with the engine.
     examples:
       - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx"
       - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx --name prod1"
@@ -1389,13 +1395,15 @@ commands:
   - name: crowdsec_reload
     description: "Restart the CrowdSec engine to apply changes"
     long_description: |
-      Restart just the CrowdSec engine container to apply pending changes
-      without restarting the whole instance. Use it after accepting a
-      console enrollment or after editing `config/crowdsec/whitelists.yaml`.
-      The Caddy bouncer keeps enforcing its cached decisions during the
-      brief restart. Note that community and console blocklists arrive on
+      Restart the CrowdSec engine to apply pending changes without
+      restarting the whole instance. Use it after accepting a console
+      enrollment or after editing `config/crowdsec/whitelists.yaml`.
+      On Compose only the engine container bounces, so the Caddy bouncer
+      keeps enforcing its cached decisions throughout; on Kubernetes the
+      engine is a sidecar in the Caddy pod, so the pod rolls and Caddy
+      blips briefly. Note that community and console blocklists arrive on
       CrowdSec's own pull cycle (about every 2 hours), which a restart does
-      not force. Compose only.
+      not force.
 
       After you unsubscribe a list — or delete the engine — in the Console,
       the engine keeps enforcing the IPs it already pulled from that list:
@@ -1431,7 +1439,6 @@ commands:
     long_description: |
       Show the bouncers registered with the CrowdSec engine and the IP
       decisions (bans, captchas) currently in effect. Read-only.
-      Compose only.
     examples:
       - "canasta crowdsec status"
       - "canasta crowdsec status -i mysite"
@@ -1447,7 +1454,6 @@ commands:
     long_description: |
       Add a manual CrowdSec decision blocking an IP address, independent
       of the engine's automatic detection. Defaults to a 4-hour ban.
-      Compose only.
     examples:
       - "canasta crowdsec ban 203.0.113.50"
       - "canasta crowdsec ban 203.0.113.50 --duration 24h --reason scraper"
@@ -1474,7 +1480,7 @@ commands:
     description: "Remove a manual CrowdSec decision for an IP"
     long_description: |
       Remove CrowdSec decisions for an IP address (e.g. lift a ban added
-      by `canasta crowdsec ban` or by automatic detection). Compose only.
+      by `canasta crowdsec ban` or by automatic detection).
     examples:
       - "canasta crowdsec unban 203.0.113.50"
       - "canasta crowdsec unban 203.0.113.50 -i mysite"
@@ -1500,7 +1506,7 @@ commands:
       bundled `crowdsecurity/caddy` collection covers aggressive
       crawling and known scraper/bot user-agents out of the box.
       Replaces reaching for `docker compose exec crowdsec cscli
-      scenarios list`. Read-only. Compose only.
+      scenarios list`. Read-only.
     examples:
       - "canasta crowdsec scenarios"
       - "canasta crowdsec scenarios -i mysite"
@@ -1520,7 +1526,7 @@ commands:
       being enforced, alerts include the detection history (and
       community/console-sourced events), so this answers "is CrowdSec
       actually catching anything?". Optionally filter by source IP.
-      Read-only. Compose only.
+      Read-only.
     examples:
       - "canasta crowdsec alerts"
       - "canasta crowdsec alerts --ip 203.0.113.50"
@@ -1543,7 +1549,7 @@ commands:
       decisions each bouncer has pulled. The quickest way to confirm
       detection is flowing — a parsed-lines count of zero means the
       engine isn't seeing the Caddy log, which no other command reveals.
-      Read-only. Compose only.
+      Read-only.
     examples:
       - "canasta crowdsec metrics"
       - "canasta crowdsec metrics -i mysite"

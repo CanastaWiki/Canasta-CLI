@@ -13,7 +13,28 @@
     # directly. Toggled by CADDY_TRUSTED_PROXIES in .env.
     servers {
         client_ip_headers {{ _trusted_proxies_headers }}
-{% if _tp_dynamic | default(false) %}
+{% if _tp_combine | default(false) %}
+        # Kubernetes: Caddy's immediate peer is the in-cluster ingress, not
+        # the CDN, so trust the cluster CIDRs AND the CDN's published ranges
+        # together via caddy-combine-ip-ranges. caddy-cdn-ranges keeps the
+        # provider's edge ranges current in-process (re-fetched on interval).
+        trusted_proxies combine {
+            static {{ _trusted_proxies_cidrs | join(' ') }}
+            cdn_ranges {
+                interval 12h
+{% if _tp_mode == 'cloudflare' %}
+                provider cloudflare
+{% elif _tp_mode == 'imperva' %}
+                provider {
+                    imperva {
+                        ipv4_url https://my.imperva.com/api/integration/v1/ips "ipRanges"
+                        ipv6_url https://my.imperva.com/api/integration/v1/ips "ipv6Ranges"
+                    }
+                }
+{% endif %}
+            }
+        }
+{% elif _tp_dynamic | default(false) %}
         # caddy-cdn-ranges keeps the provider's edge ranges current
         # in-process (re-fetched on the interval), so this instance never
         # depends on a vendored list or a redeploy to stay correct.
