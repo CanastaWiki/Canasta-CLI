@@ -411,10 +411,11 @@ class TestCrowdsecCommands:
     def test_subcommand_group_registered(self):
         assert canasta_cli.SUBCOMMAND_GROUPS.get("crowdsec") == [
             "bouncer-enroll", "console-enroll", "reload",
-            "status", "ban", "unban",
+            "status", "scenarios", "alerts", "metrics",
+            "ban", "unban",
         ], (
-            "crowdsec subcommand group must expose "
-            "bouncer-enroll/console-enroll/reload/status/ban/unban"
+            "crowdsec subcommand group must expose bouncer-enroll/"
+            "console-enroll/reload/status/scenarios/alerts/metrics/ban/unban"
         )
 
     def test_group_umbrella_defined(self):
@@ -430,6 +431,9 @@ class TestCrowdsecCommands:
         ("crowdsec_console_enroll", "crowdsec_console_enroll.yml"),
         ("crowdsec_reload", "crowdsec_reload.yml"),
         ("crowdsec_status", "crowdsec_status.yml"),
+        ("crowdsec_scenarios", "crowdsec_scenarios.yml"),
+        ("crowdsec_alerts", "crowdsec_alerts.yml"),
+        ("crowdsec_metrics", "crowdsec_metrics.yml"),
         ("crowdsec_ban", "crowdsec_ban.yml"),
         ("crowdsec_unban", "crowdsec_unban.yml"),
     ])
@@ -573,6 +577,51 @@ class TestCrowdsecBanUnban:
         assert "decisions" in content
         assert "delete" in content
         assert "--ip" in content
+
+
+class TestCrowdsecInspectionRoles:
+    """The read-only inspection commands (scenarios/alerts/metrics) that
+    replace reaching for `docker compose exec crowdsec cscli ...`. Each must
+    run the shared preflight (Compose-only, engine running) and be read-only
+    (changed_when: false), never mutating engine state."""
+
+    def _role(self, name):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", name,
+        ))
+
+    def test_scenarios_lists_collections_and_scenarios(self):
+        content = self._role("scenarios.yml")
+        assert "_preflight.yml" in content
+        assert "cscli collections list" in content
+        assert "cscli scenarios list" in content, (
+            "scenarios must list scenarios — the docker command the wiki "
+            "tells users to run by hand"
+        )
+        assert "changed_when: false" in content, (
+            "scenarios must be read-only"
+        )
+
+    def test_alerts_lists_alerts_with_optional_ip_filter(self):
+        content = self._role("alerts.yml")
+        assert "_preflight.yml" in content
+        assert "'cscli', 'alerts', 'list'" in content
+        # The --ip filter is appended only when provided (argv, not a shell
+        # string), mirroring ban's optional-flag handling.
+        assert "'--ip', ip | string" in content
+        assert "changed_when: false" in content, "alerts must be read-only"
+
+    def test_metrics_reads_engine_metrics_resiliently(self):
+        content = self._role("metrics.yml")
+        assert "_preflight.yml" in content
+        assert "cscli metrics" in content
+        assert "changed_when: false" in content, "metrics must be read-only"
+        # Metrics depend on the (default-on) prometheus endpoint; a non-zero
+        # rc must surface stderr, not raise an Ansible traceback.
+        assert "failed_when: false" in content, (
+            "metrics must not hard-fail when prometheus is disabled"
+        )
+        assert "stderr" in content
 
 
 class TestCrowdsecWhitelist:

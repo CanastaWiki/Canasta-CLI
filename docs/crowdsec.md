@@ -186,11 +186,36 @@ canasta crowdsec unban 203.0.113.50 -i mysite
 (These are live decisions in the engine's database; for a *permanent*
 allow, add the address to `config/crowdsec/whitelists.yaml` instead.)
 
+## Inspecting detection
+
+Three read-only commands answer the everyday "is it working?" questions
+without reaching for `docker compose exec`:
+
+```bash
+canasta crowdsec scenarios -i mysite   # what detection is loaded
+canasta crowdsec alerts    -i mysite   # what it has detected (history)
+canasta crowdsec metrics   -i mysite   # is the Caddy log being read
+```
+
+- **`scenarios`** lists the installed collections (e.g.
+  `crowdsecurity/caddy`, `crowdsecurity/http-cve`) and the individual
+  scenarios they provide — confirmation that behavioral detection is
+  active.
+- **`alerts`** shows the attacks CrowdSec has detected over time,
+  including community/console-sourced events. This is the *history* of
+  detections, as opposed to `status`, which shows only the bans in force
+  right now. Filter to one address with `--ip 203.0.113.50`.
+- **`metrics`** shows engine throughput — log lines read, scenarios
+  fired, decisions pulled per bouncer. A parsed-lines count of zero is
+  the unmistakable sign that the engine isn't seeing the Caddy access
+  log (an acquisition problem no other command surfaces).
+
 ## Tuning detection
 
 The bundled `crowdsecurity/caddy` and `crowdsecurity/http-cve`
 collections are installed at container start (via the `COLLECTIONS`
 environment variable) and cover common HTTP attacks and CVE probes.
+Confirm what's loaded with `canasta crowdsec scenarios`.
 
 Installing additional hub collections is an advanced, ad-hoc action — it
 writes to the engine's data volume rather than to version-controlled
