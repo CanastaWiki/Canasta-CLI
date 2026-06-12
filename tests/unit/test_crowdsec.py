@@ -672,19 +672,41 @@ class TestCrowdsecBlocklistBreakdown:
             "3,lists,Ip:3.3.3.3,firehol_dyndns_ponmocup,ban,,,0,1h,false,15",
         ])
         out = canasta_crowdsec_blocklist_breakdown(raw)
+        # leading newline + header, then one line per list (real newlines, not
+        # literal backslash-n — the caller can't add newlines in Jinja).
+        assert "\\n" not in out
+        assert out.startswith("\n  Subscribed blocklists:\n")
         lines = [ln for ln in out.splitlines() if ln.strip()]
-        assert len(lines) == 2
+        assert len(lines) == 3  # header + 2 lists
         # one line per list, sorted by name (firehol_... before otx-...)
-        assert ("firehol_dyndns_ponmocup" in lines[0]
-                and lines[0].rstrip().endswith("1"))
-        assert ("otx-webscanners" in lines[1]
-                and lines[1].rstrip().endswith("2"))
+        assert ("firehol_dyndns_ponmocup" in lines[1]
+                and lines[1].rstrip().endswith("1"))
+        assert ("otx-webscanners" in lines[2]
+                and lines[2].rstrip().endswith("2"))
 
     def test_empty_when_no_decisions(self):
         # cscli prints just the header (or nothing) when there are none.
         assert canasta_crowdsec_blocklist_breakdown(self._raw([])) == ""
         assert canasta_crowdsec_blocklist_breakdown("") == ""
         assert canasta_crowdsec_blocklist_breakdown(None) == ""
+
+    def test_renders_with_real_newlines_through_jinja(self):
+        """Regression for the literal-\\n bug: the console line concatenates
+        'enrolled' with the filter output in Jinja, so the result must contain
+        real newlines (not the backslash-n that a Jinja '\\n' literal yields)."""
+        import jinja2
+        raw = self._raw([
+            "1,lists,Ip:1.1.1.1,otx-webscanners,ban,,,0,1h,false,16",
+        ])
+        block = canasta_crowdsec_blocklist_breakdown(raw)
+        env = jinja2.Environment()
+        # Mirror status.yml: {{ 'enrolled' ~ _crowdsec_blocklist_lines }}
+        rendered = env.from_string(
+            "{{ 'enrolled' ~ block }}"
+        ).render(block=block)
+        assert "\\n" not in rendered
+        assert rendered.splitlines()[0] == "enrolled"
+        assert "  Subscribed blocklists:" in rendered.splitlines()[1]
 
 
 class TestCrowdsecStatusWiring:
