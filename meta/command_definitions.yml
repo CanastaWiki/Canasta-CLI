@@ -2057,7 +2057,9 @@ commands:
         description: >-
           Wipe local gitops state before joining. Use after a
           previous init or join died mid-run and left this instance
-          unable to retry.
+          unable to retry. Also re-attaches a host that is already
+          registered in the repo (the registration is updated in
+          place rather than rejected as a duplicate).
       - name: git_user_name
         type: string
         description: "Git user.name for commits on the target host (set if not already configured)"
