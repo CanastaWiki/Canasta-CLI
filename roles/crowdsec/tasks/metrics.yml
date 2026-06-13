@@ -1,0 +1,28 @@
+---
+# canasta crowdsec metrics - show the engine's acquisition/scenario/bouncer
+# metrics. The fastest check that detection is flowing: zero parsed lines
+# means the engine isn't reading the Caddy access log. Read-only.
+# Input: id (optional)
+
+- name: Preflight (resolve, Compose-only, crowdsec running)
+  ansible.builtin.include_tasks: _preflight.yml
+
+# Metrics come from the engine's prometheus endpoint (on by default). Don't
+# hard-fail on a non-zero rc — surface stderr so a disabled-prometheus
+# message is readable instead of an Ansible traceback.
+- name: Read engine metrics
+  ansible.builtin.command:
+    cmd: "docker compose exec -T crowdsec cscli metrics"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_metrics
+  changed_when: false
+  failed_when: false
+
+- name: Show metrics
+  ansible.builtin.debug:
+    msg: |-
+      CrowdSec metrics for instance '{{ instance_id }}'
+
+      {{ _crowdsec_metrics.stdout | default('') | trim
+         or _crowdsec_metrics.stderr | default('') | trim
+         or '(no metrics available)' }}

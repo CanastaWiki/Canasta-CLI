@@ -71,8 +71,11 @@ def canasta_crowdsec_blocklist_breakdown(raw):
     ``reason`` is the subscribed blocklist's name (e.g. ``otx-webscanners``).
     Console-blocklist decisions number in the thousands and are excluded from
     the default ``cscli decisions list``, so this groups them by list and
-    returns a ready-to-append block headed by ``Subscribed blocklists:`` —
-    or ``""`` when there are none.
+    returns a ready-to-append block headed by ``Console blocklists in effect
+    (cached locally):`` and tailed by a note on how to clear them — or ``""``
+    when there are none. The header avoids "subscribed" because, from inside
+    the engine, a still-subscribed list and one left over after a Console
+    unsubscribe/engine-deletion look identical.
 
     All newlines are produced here (Jinja string literals do not interpret
     ``\\n``), so the caller can concatenate the result directly.
@@ -97,7 +100,14 @@ def canasta_crowdsec_blocklist_breakdown(raw):
     width = max(len(name) for name in counts)
     lines = ["    %-*s  %d" % (width, name, counts[name])
              for name in sorted(counts)]
-    return "\n  Subscribed blocklists:\n" + "\n".join(lines)
+    note = (
+        "\n\n  These stay enforced even after you unsubscribe or remove the"
+        "\n  engine in the Console. Clear them with:"
+        "\n    canasta crowdsec reload --purge-blocklist <name>   (one list)"
+        "\n    canasta crowdsec reload --purge-blocklists         (all)"
+    )
+    return ("\n  Console blocklists in effect (cached locally):\n"
+            + "\n".join(lines) + note)
 
 
 class FilterModule(object):

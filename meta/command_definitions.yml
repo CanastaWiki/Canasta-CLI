@@ -223,6 +223,12 @@ command_groups:
         instance.
       * `status` shows the registered bouncers and the currently active
         IP decisions.
+      * `scenarios` lists the loaded collections and scenarios so you
+        can confirm behavioral detection is active.
+      * `alerts` shows the attacks CrowdSec has detected (the detection
+        history), complementing `status` (the bans in force right now).
+      * `metrics` shows engine throughput — the quickest check that the
+        Caddy access log is actually being read.
       * `ban` / `unban` add or remove a manual decision for an IP,
         independent of CrowdSec's automatic detection.
 
@@ -1390,15 +1396,35 @@ commands:
       brief restart. Note that community and console blocklists arrive on
       CrowdSec's own pull cycle (about every 2 hours), which a restart does
       not force. Compose only.
+
+      After you unsubscribe a list — or delete the engine — in the Console,
+      the engine keeps enforcing the IPs it already pulled from that list:
+      they stay in its local decision DB and the Caddy bouncer keeps blocking
+      them. It just stops receiving updates (a free-tier engine gets no
+      reconcile, since that is a paid PAPI order). That frozen snapshot is
+      usually fine to leave in place. Purge it only when you actually want to
+      STOP blocking those IPs: add `--purge-blocklist <name>` (one list, by the
+      name shown under "Console blocklists in effect" in `canasta crowdsec
+      status`) or `--purge-blocklists` (all). Lists you are still subscribed to
+      refill on the next pull cycle.
     examples:
       - "canasta crowdsec reload"
       - "canasta crowdsec reload -i mysite"
+      - "canasta crowdsec reload --purge-blocklist firehol_cruzit_web_attacks"
+      - "canasta crowdsec reload --purge-blocklists"
     playbook: crowdsec_reload.yml
     parameters:
       - name: id
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: purge_blocklist
+        type: string
+        description: "Stop blocking one console blocklist's cached IPs, by the name shown in status"
+      - name: purge_blocklists
+        type: bool
+        default: false
+        description: "Stop blocking all cached console-blocklist IPs"
 
   - name: crowdsec_status
     description: "Show CrowdSec bouncers and active decisions"
@@ -1459,6 +1485,70 @@ commands:
         positional: true
         required: true
         description: "IP address to unblock"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_scenarios
+    description: "List the loaded CrowdSec detection (collections and scenarios)"
+    long_description: |
+      Show the detection logic the CrowdSec engine has loaded: the
+      installed hub collections (e.g. `crowdsecurity/caddy`,
+      `crowdsecurity/http-cve`) and the individual scenarios they
+      provide. Use it to confirm behavioral detection is active — the
+      bundled `crowdsecurity/caddy` collection covers aggressive
+      crawling and known scraper/bot user-agents out of the box.
+      Replaces reaching for `docker compose exec crowdsec cscli
+      scenarios list`. Read-only. Compose only.
+    examples:
+      - "canasta crowdsec scenarios"
+      - "canasta crowdsec scenarios -i mysite"
+    playbook: crowdsec_scenarios.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_alerts
+    description: "Show recent CrowdSec alerts (detected attacks)"
+    long_description: |
+      List the alerts the CrowdSec engine has raised — the attacks and
+      probes its scenarios have detected over time. Unlike
+      `canasta crowdsec status`, which shows the IP decisions currently
+      being enforced, alerts include the detection history (and
+      community/console-sourced events), so this answers "is CrowdSec
+      actually catching anything?". Optionally filter by source IP.
+      Read-only. Compose only.
+    examples:
+      - "canasta crowdsec alerts"
+      - "canasta crowdsec alerts --ip 203.0.113.50"
+      - "canasta crowdsec alerts -i mysite"
+    playbook: crowdsec_alerts.yml
+    parameters:
+      - name: ip
+        type: string
+        description: "Show only alerts for this source IP"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_metrics
+    description: "Show CrowdSec engine throughput metrics"
+    long_description: |
+      Show the CrowdSec engine's metrics: log lines read from the Caddy
+      access log, how often each scenario has fired, and how many
+      decisions each bouncer has pulled. The quickest way to confirm
+      detection is flowing — a parsed-lines count of zero means the
+      engine isn't seeing the Caddy log, which no other command reveals.
+      Read-only. Compose only.
+    examples:
+      - "canasta crowdsec metrics"
+      - "canasta crowdsec metrics -i mysite"
+    playbook: crowdsec_metrics.yml
+    parameters:
       - name: id
         short: i
         type: string
