@@ -2,7 +2,7 @@
 # canasta crowdsec unban - remove decisions for an IP.
 # Input: id (optional), ip (str, required)
 
-- name: Preflight (resolve, Compose-only, crowdsec running)
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
   ansible.builtin.include_tasks: _preflight.yml
 
 - name: Require an IP address
@@ -12,18 +12,8 @@
 
 - name: Remove decisions for the IP
   ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - exec
-      - -T
-      - crowdsec
-      - cscli
-      - decisions
-      - delete
-      - --ip
-      - "{{ ip | string }}"
-    chdir: "{{ instance_path }}"
+    argv: "{{ _cscli_argv + ['cscli', 'decisions', 'delete', '--ip', ip | string] }}"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
   changed_when: true
 
 - name: Report

@@ -186,6 +186,42 @@
     _varnish_config_data:
       default.vcl: "{{ _sync_default_vcl.content | b64decode }}"
 
+# --- CrowdSec config ---
+# Mirror the Compose acquisition + whitelist files into a ConfigMap the
+# crowdsec sidecar mounts (see configmap-crowdsec.yaml). Backfill them first
+# for instances that enabled CrowdSec after create, the same materialization
+# concern ensure_crowdsec_config.yml handles for Compose.
+
+- name: Determine CrowdSec enablement
+  ansible.builtin.set_fact:
+    _crowdsec_enabled_k8s: "{{ _sync_env_dict.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
+
+- name: Default crowdsec config data to empty
+  ansible.builtin.set_fact:
+    _crowdsec_config_data: {}
+
+- name: Sync CrowdSec config when enabled
+  when: _crowdsec_enabled_k8s | bool
+  block:
+    - name: Backfill crowdsec acquisition + whitelist files
+      ansible.builtin.include_tasks: ensure_crowdsec_config.yml
+
+    - name: Read crowdsec acquisition file
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/config/crowdsec/acquis.yaml"
+      register: _sync_crowdsec_acquis
+
+    - name: Read crowdsec whitelist file
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/config/crowdsec/whitelists.yaml"
+      register: _sync_crowdsec_whitelists
+
+    - name: Build crowdsec config data
+      ansible.builtin.set_fact:
+        _crowdsec_config_data:
+          acquis.yaml: "{{ _sync_crowdsec_acquis.content | b64decode }}"
+          whitelists.yaml: "{{ _sync_crowdsec_whitelists.content | b64decode }}"
+
 # --- Backup environment Secret ---
 # The on-demand backup Job (k8s_run_backup.yml) and the scheduled
 # CronJob (roles/backup/tasks/schedule_set.yml) both need restic +
@@ -222,6 +258,36 @@
   when: _backup_env_data | length > 0
   no_log: true
 
+# --- CrowdSec bouncer-key Secret ---
+# The caddy container reads CROWDSEC_BOUNCER_API_KEY via secretKeyRef from
+# this Secret (deployment-caddy.yaml). It is created here — in the restart
+# path — rather than k8s_apply_secrets.yml (create-time only) so that a key
+# the bouncer enroll just minted reaches the running pod on the next start.
+# Absent until enrollment: the secretKeyRef is optional, so Caddy starts
+# key-less and only emits the crowdsec directive once a key exists.
+- name: Build crowdsec bouncer key data
+  ansible.builtin.set_fact:
+    _crowdsec_key_data: >-
+      {{ {'CROWDSEC_BOUNCER_API_KEY': _sync_env_dict.variables.CROWDSEC_BOUNCER_API_KEY}
+         if (_crowdsec_enabled_k8s | bool
+             and (_sync_env_dict.variables.CROWDSEC_BOUNCER_API_KEY | default('') | length) > 0)
+         else {} }}
+  no_log: true
+
+- name: Apply crowdsec bouncer key Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "canasta-{{ instance_id }}-crowdsec"
+        namespace: "{{ _k8s_namespace }}"
+      type: Opaque
+      stringData: "{{ _crowdsec_key_data }}"
+  when: _crowdsec_key_data | length > 0
+  no_log: true
+
 # --- Write configData into values.yaml ---
 # The Helm chart templates render ConfigMaps from configData values.
 # This allows both Ansible-driven and Argo CD-driven workflows to use
@@ -240,6 +306,7 @@
             'env': _env_config_data,
             'caddy': _caddy_config_data,
             'varnish': _varnish_config_data,
+            'crowdsec': _crowdsec_config_data,
           }} | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values-configdata.yaml"
     mode: "0644"

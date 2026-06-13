@@ -84,6 +84,13 @@ canasta_known_keys:
       Recover real client IPs when Caddy is behind a proxy/CDN. Set to
       "cloudflare" or "imperva", or a comma-separated CIDR list. Unset =
       Caddy is the edge (default).
+  - name: CADDY_TRUSTED_PROXY_CIDRS
+    group: Caddy / TLS
+    description: >-
+      Kubernetes only. Comma-separated CIDRs of the in-cluster ingress to
+      trust so Caddy reads the real client IP. Defaults to the standard
+      private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16); override
+      only for a non-default pod/service CIDR. Ignored on Compose.
 
   - name: CANASTA_IMAGE
     group: Docker Image

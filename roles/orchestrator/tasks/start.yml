@@ -255,6 +255,43 @@
           -n {{ _k8s_namespace }} --timeout=300s
       changed_when: false
 
+    # Auto-enroll the bouncer when CrowdSec is on but no key is stored yet.
+    # Mirrors the Compose flow (register CAPI for the community blocklist,
+    # then enroll the bouncer). bouncer_enroll stores the key before its
+    # restart, so the re-entrant start sees the key and skips — no recursion.
+    - name: Read CrowdSec enablement and bouncer key for auto-enroll
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _start_crowdsec_env
+
+    # The CrowdSec engine is a sidecar in the caddy pod; make sure that pod is
+    # Ready before exec-ing cscli into it (helm --wait usually covers this, but
+    # the scale-from-stopped path can outrun it).
+    - name: Wait for caddy (CrowdSec sidecar) readiness before enroll
+      ansible.builtin.command:
+        cmd: >-
+          kubectl rollout status deployment/canasta-{{ instance_id }}-caddy
+          -n {{ _k8s_namespace }} --timeout=300s
+      changed_when: false
+      when:
+        - _start_crowdsec_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true'
+
+    - name: Ensure CrowdSec is registered with the Central API
+      ansible.builtin.include_role:
+        name: crowdsec
+        tasks_from: ensure_capi.yml
+      when:
+        - _start_crowdsec_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true'
+
+    - name: Auto-enroll the CrowdSec bouncer when enabled but unenrolled
+      ansible.builtin.include_role:
+        name: crowdsec
+        tasks_from: bouncer_enroll.yml
+      when:
+        - _start_crowdsec_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true'
+        - (_start_crowdsec_env.variables.CROWDSEC_BOUNCER_API_KEY | default('') | length) == 0
+
     # Re-enable Argo CD auto-sync after start. The stop flow suspends
     # sync to prevent selfHeal from reverting the scale-to-zero. We
     # read the sync policy from the instance's values.yaml so we
