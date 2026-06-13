@@ -187,6 +187,27 @@ class TestReadWikis:
         wikis = direct_commands._read_wikis(str(tmp_path / "nodir"), "localhost")
         assert wikis == []
 
+class TestBuildUrls:
+    def test_url_with_https_protocol(self):
+        urls = direct_commands.wiki_check._build_urls("https://example-wiki.com")
+        assert urls == ["https://example-wiki.com/"]
+
+    def test_url_with_http_protocol(self):
+        urls = direct_commands.wiki_check._build_urls("http://example-wiki.com")
+        assert urls == ["http://example-wiki.com/"]
+
+    def test_url_without_protocol(self):
+        urls = direct_commands.wiki_check._build_urls("example-wiki.com")
+        assert urls == ["https://example-wiki.com/", "http://example-wiki.com/"]
+
+    def test_url_without_protocol_with_path(self):
+        urls = direct_commands.wiki_check._build_urls("example-wiki.com/wiki")
+        assert urls == ["https://example-wiki.com/wiki/", "http://example-wiki.com/wiki/"]
+
+    def test_url_without_protocol_with_port(self):
+        urls = direct_commands.wiki_check._build_urls("example-wiki.com:8080")
+        assert urls == ["https://example-wiki.com:8080/", "http://example-wiki.com:8080/"]
+
 
 class TestShellQuote:
     def test_simple(self):
