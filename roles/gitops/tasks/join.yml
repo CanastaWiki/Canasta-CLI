@@ -55,15 +55,16 @@
       Pass --git-user-name and --git-user-email to this command.
   when: _git_identity.rc != 0
 
-- name: Reinit — wipe partial gitops state before re-running join
-  ansible.builtin.include_tasks: _reinit_cleanup.yml
-  when: reinit | default(false) | bool
-
 - name: Check for existing .git directory
   ansible.builtin.stat:
     path: "{{ instance_path }}/.git"
   register: _join_existing_git
 
+# Without --reinit a pre-existing .git means the instance is already
+# connected, so we stop. Under --reinit we leave that .git in place and
+# wipe it only *after* the clone below succeeds (the cleanup step just
+# before the .git move), so a failed clone can't strand the instance
+# with no repo (#663).
 - name: Fail if git repo already exists
   ansible.builtin.fail:
     msg: >-
@@ -72,7 +73,9 @@
       Pass --reinit to wipe the local gitops state and re-clone
       from the remote (typical when a previous init or join died
       mid-run).
-  when: _join_existing_git.stat.exists
+  when: >-
+    _join_existing_git.stat.exists
+    and not (reinit | default(false) | bool)
 
 # --key is a controller-local path. The ansible.builtin.copy task
 # below reads src from the controller automatically (Ansible's
@@ -154,6 +157,14 @@
     - extensions/.gitignore
     - skins/.gitignore
     - config/.gitignore
+
+# Under --reinit the instance still holds the previous attempt's gitops
+# files (.git, hosts/, templates, ...). The clone has now succeeded, so
+# wipe them and move the fresh .git into a clean tree. Deferring the
+# cleanup until here keeps the old .git intact if the clone fails (#663).
+- name: Reinit — wipe previous gitops state now that the clone succeeded
+  ansible.builtin.include_tasks: _reinit_cleanup.yml
+  when: reinit | default(false) | bool
 
 - name: Move .git from temp clone to instance
   ansible.builtin.command:
