@@ -128,13 +128,20 @@
   ansible.builtin.set_fact:
     _join_hosts: "{{ _join_hosts_raw.content | b64decode | from_yaml }}"
 
+# A normal join onboards a new host, so a name already in the repo is a
+# conflict. Under --reinit it's the opposite: the host is already
+# registered and we're re-attaching it (its prior join died after the
+# push, or its local gitops state was lost), so the write below upserts
+# the existing entry instead. See #571.
 - name: Fail if host name already exists
   ansible.builtin.fail:
     msg: >-
       Host '{{ host_name }}' already exists in the gitops repository.
-      Choose a different name or remove the existing host first.
+      Choose a different name, remove the existing host first, or pass
+      --reinit to re-attach this host.
   when: >-
-    _join_hosts.hosts | default([])
+    not (reinit | default(false) | bool)
+    and _join_hosts.hosts | default([])
     | selectattr('name', 'equalto', host_name)
     | list | length > 0
 
@@ -304,11 +311,14 @@
   ignore_errors: true  # OK if some admin password files don't exist
 
 # --- Step 7: Add host to config and write vars ---
+# Upsert: drop any existing entry with this name before appending, so a
+# --reinit re-attach replaces the host in place rather than duplicating it.
 - name: Add host to hosts.yaml
   ansible.builtin.copy:
     content: |
       {{ _join_hosts
-         | combine({'hosts': _join_hosts.hosts | default([])
+         | combine({'hosts': (_join_hosts.hosts | default([])
+                    | rejectattr('name', 'equalto', host_name) | list)
                     + [{'name': host_name,
                         'role': role | default('both')}]},
                    recursive=True)
@@ -365,11 +375,24 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+# A clean --reinit re-attach can reproduce the exact tree already in the
+# repo, leaving nothing staged. Skip the commit in that case so the join
+# doesn't abort on git's "nothing to commit" exit status. (--quiet exits
+# non-zero when there *are* staged changes.)
+- name: Check for staged changes
+  ansible.builtin.command:
+    cmd: "git diff --cached --quiet"
+    chdir: "{{ instance_path }}"
+  register: _join_staged
+  changed_when: false
+  failed_when: false
+
 - name: Commit
   ansible.builtin.command:
     cmd: "git commit -m 'Add host {{ host_name }}'"
     chdir: "{{ instance_path }}"
   changed_when: true
+  when: _join_staged.rc != 0
 
 - name: Push to remote
   ansible.builtin.command:

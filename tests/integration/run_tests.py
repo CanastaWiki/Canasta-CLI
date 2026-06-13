@@ -709,6 +709,9 @@ def test_gitops_join(inst):
     tracked file that differs locally is replaced with the repo's version.
     Uses a host-owned settings file (not the container-managed Caddyfile)
     for the diverging case so the assertion is portable.
+
+    Then re-attaches the same (already-registered) host with --reinit and
+    asserts the host entry is upserted rather than rejected as a duplicate.
     """
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
@@ -801,6 +804,30 @@ def test_gitops_join(inst):
         assert os.path.isfile(
             os.path.join(b_path, "hosts", "hosta", "vars.yaml")
         ), "A's host entry was not materialized into B on join"
+
+        # --- Re-attach: join the already-registered host again with --reinit ---
+        # B now has a .git and 'hostb' is registered in the repo, so a plain
+        # re-join is refused twice over (".git exists" / "host already
+        # exists"). --reinit must wipe local state AND re-attach the existing
+        # host instead of erroring on the duplicate (#571), upserting the
+        # entry rather than appending a second 'hostb'.
+        print("Re-attaching B with --reinit (host 'hostb' already in repo)...")
+        inst_b.run_ok(
+            "gitops", "join", "-i", inst_b.id, "-n", "hostb",
+            "--repo", bare_repo, "--key", key_file, "--reinit",
+        )
+
+        print("Verifying re-attach did not duplicate the host entry...")
+        hosts_yaml = os.path.join(b_path, "hosts", "hosts.yaml")
+        with open(hosts_yaml) as f:
+            hosts_after = yaml.safe_load(f).get("hosts", [])
+        names = [h.get("name") for h in hosts_after]
+        assert names.count("hostb") == 1, (
+            "re-attach should upsert 'hostb', not duplicate it; got: %r" % names
+        )
+        assert "hosta" in names, (
+            "re-attach dropped the other host 'hosta'; got: %r" % names
+        )
     finally:
         inst_b.cleanup()
 
