@@ -1,0 +1,7 @@
+---
+# canasta crowdsec metrics
+
+- name: CrowdSec Metrics
+  ansible.builtin.include_role:
+    name: crowdsec
+    tasks_from: metrics.yml
