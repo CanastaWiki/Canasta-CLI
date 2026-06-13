@@ -746,14 +746,20 @@ class TestCrowdsecBlocklistBreakdown:
         # leading newline + header, then one line per list (real newlines, not
         # literal backslash-n — the caller can't add newlines in Jinja).
         assert "\\n" not in out
-        assert out.startswith("\n  Subscribed blocklists:\n")
+        assert out.startswith(
+            "\n  Console blocklists in effect (cached locally):\n")
         lines = [ln for ln in out.splitlines() if ln.strip()]
-        assert len(lines) == 3  # header + 2 lists
-        # one line per list, sorted by name (firehol_... before otx-...)
+        # header, then one line per list sorted by name (firehol_... before
+        # otx-...), then the "clear them" note.
+        assert "Console blocklists in effect" in lines[0]
         assert ("firehol_dyndns_ponmocup" in lines[1]
                 and lines[1].rstrip().endswith("1"))
         assert ("otx-webscanners" in lines[2]
                 and lines[2].rstrip().endswith("2"))
+        # the note points at the purge flags so status is self-explanatory
+        assert "Clear them with:" in out
+        assert "--purge-blocklist <name>" in out
+        assert "--purge-blocklists" in out
 
     def test_empty_when_no_decisions(self):
         # cscli prints just the header (or nothing) when there are none.
@@ -777,7 +783,8 @@ class TestCrowdsecBlocklistBreakdown:
         ).render(block=block)
         assert "\\n" not in rendered
         assert rendered.splitlines()[0] == "enrolled"
-        assert "  Subscribed blocklists:" in rendered.splitlines()[1]
+        assert ("  Console blocklists in effect (cached locally):"
+                in rendered.splitlines()[1])
 
 
 class TestCrowdsecStatusWiring:
