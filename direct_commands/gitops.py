@@ -12,12 +12,31 @@ from . import _helpers
 from ._helpers import register
 
 
-def _gitops_status_script(path):
+def _git_ssh_env_prefix(ssh_key):
+    """Shell `export GIT_SSH_COMMAND=...; ` prefix for a given SSH key.
+
+    Mirrors the Ansible gitops_git_env convention (accept-new host keys,
+    explicit known_hosts). Returns an empty string when no key is given,
+    leaving git's ambient SSH config (agent forwarding / deploy key)
+    untouched.
+    """
+    if not ssh_key:
+        return ""
+    return (
+        'export GIT_SSH_COMMAND="ssh -i %s '
+        '-o StrictHostKeyChecking=accept-new '
+        '-o UserKnownHostsFile=~/.ssh/known_hosts"; '
+        % _helpers._shell_quote(ssh_key)
+    )
+
+
+def _gitops_status_script(path, ssh_key=None):
     """Build a batched shell script that gathers all gitops status info."""
     d = _helpers._SENTINEL
     qp = _helpers._shell_quote(path)
     return (
         "cd %(p)s; "
+        "%(ssh)s"
         "cat .gitops-host 2>/dev/null || echo MISSING; "
         "echo '%(d)s'; "
         "cat hosts/hosts.yaml 2>/dev/null || echo MISSING; "
@@ -32,7 +51,7 @@ def _gitops_status_script(path):
         "echo '%(d)s'; "
         "git fetch 2>/dev/null; "
         "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'"
-    ) % {"p": qp, "d": d}
+    ) % {"p": qp, "d": d, "ssh": _git_ssh_env_prefix(ssh_key)}
 
 
 def _parse_gitops_status(stdout, instance_id):
@@ -185,7 +204,7 @@ def cmd_gitops_status(args):
     path = inst.get("path", "")
     orchestrator = inst.get("orchestrator", "compose")
 
-    script = _gitops_status_script(path)
+    script = _gitops_status_script(path, ssh_key=getattr(args, "ssh_key", None))
 
     if _helpers._is_localhost(host):
         try:
