@@ -1986,6 +1986,13 @@ commands:
           symmetric key for unlocking encrypted vars on other hosts.
           K8s does not use git-crypt; the parameter only affects
           the SSH key path there.
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: force
         type: bool
         default: false
@@ -2051,6 +2058,13 @@ commands:
           On Compose, `<key>` is the git-crypt symmetric key. On K8s,
           only `<key>.ssh` (the SSH deploy key) is used — git-crypt
           is not part of the K8s gitops flow.
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: reinit
         type: bool
         default: false
@@ -2125,6 +2139,13 @@ commands:
         short: m
         type: string
         description: "Commit message (defaults to 'Configuration update')"
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the staged deploy key on Kubernetes.
 
   - name: gitops_pull
     description: "Pull latest configuration from the git repository"
@@ -2141,6 +2162,13 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the staged deploy key on Kubernetes.
 
   - name: gitops_status
     description: "Show gitops status for the instance"
@@ -2155,6 +2183,13 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for the remote fetch. When set,
+          git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...". Omit
+          to keep the default: ssh-agent forwarding on Compose, or
+          the staged deploy key on Kubernetes.
 
   - name: gitops_diff
     description: "Show local and remote changes since the branches diverged"

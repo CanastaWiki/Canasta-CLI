@@ -94,8 +94,8 @@
     # to register a deploy key on the forge.
     _ssh_key_path: "{{ key }}.ssh"
     # Target-local path. git on the target reads this via
-    # GIT_SSH_COMMAND. .gitops-deploy-key is in .gitignore.default
-    # so it never gets committed.
+    # GIT_SSH_COMMAND unless --ssh-key overrides it. .gitops-deploy-key
+    # is in .gitignore.default so it never gets committed.
     _ssh_key_target_path: "{{ instance_path }}/.gitops-deploy-key"
 
 # Save/switch/restore the connection state around the controller-side
@@ -197,7 +197,7 @@
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_target_path }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
+    GIT_SSH_COMMAND: "ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
   register: _gitops_remote
   changed_when: false
   ignore_errors: true
@@ -440,7 +440,7 @@
     cmd: "git push -u origin main {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_target_path }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
+    GIT_SSH_COMMAND: "ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
   changed_when: true
 
 # --- Create Argo CD repo credential Secret ---
