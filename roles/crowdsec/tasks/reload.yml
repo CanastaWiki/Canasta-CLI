@@ -3,7 +3,26 @@
 # changes (accepted console enrollment, whitelist edits) without bouncing the
 # rest of the instance. Blocklists arrive on CrowdSec's own ~2h pull cycle,
 # which a restart does not force.
-# Input: id (optional)
+#
+# --purge-blocklist <name> / --purge-blocklists drop the console-blocklist
+# decisions (origin=lists) the engine has cached locally. After you unsubscribe
+# a list (or delete the engine) in the Console, the engine keeps enforcing the
+# IPs it already pulled — they stay in the local decision DB and the bouncer
+# keeps blocking them; it just stops getting updates (a free-tier engine gets
+# no reconcile, since that is a paid PAPI order). That frozen snapshot is
+# usually fine to leave; purge only when you want to STOP blocking those IPs.
+# The delete touches only the local DB — the Console subscription is untouched,
+# so lists you are still subscribed to refill on the next pull cycle.
+# Input: id (optional), purge_blocklist (str), purge_blocklists (bool)
+
+- name: Reject conflicting purge options
+  ansible.builtin.fail:
+    msg: >-
+      Pass either --purge-blocklist <name> (one list) or --purge-blocklists
+      (all), not both.
+  when:
+    - purge_blocklists | default(false) | bool
+    - purge_blocklist is defined and (purge_blocklist | string | length) > 0
 
 - name: Preflight (resolve, Compose-only, crowdsec running)
   ansible.builtin.include_tasks: _preflight.yml
@@ -14,8 +33,37 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+# --origin lists scopes the delete to console blocklists (never manual bans or
+# the CAPI community list); --scenario narrows it to one list by the name shown
+# under "Console blocklists in effect" in status. argv (not a shell string) so a
+# user-supplied list name needs no quoting and is not word-split.
+- name: Purge cached console-blocklist decisions
+  when: >-
+    (purge_blocklists | default(false) | bool)
+    or (purge_blocklist is defined and (purge_blocklist | string | length) > 0)
+  block:
+    - name: Delete the decisions
+      ansible.builtin.command:
+        argv: >-
+          {{ ['docker', 'compose', 'exec', '-T', 'crowdsec',
+              'cscli', 'decisions', 'delete', '--origin', 'lists']
+             + (['--scenario', purge_blocklist | string]
+                if (purge_blocklist is defined and (purge_blocklist | string | length) > 0)
+                else []) }}
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Note what was purged
+      ansible.builtin.set_fact:
+        _crowdsec_purge_line: >-
+          Purged {{ ("console blocklist '" ~ purge_blocklist ~ "'")
+                     if (purge_blocklist is defined and (purge_blocklist | string | length) > 0)
+                     else 'all console blocklists' }} from the local engine;
+          lists you are still subscribed to refill on the next pull cycle.
+
 - name: Report
   ansible.builtin.debug:
     msg: >-
       Reloaded the CrowdSec engine for instance '{{ instance_id }}'. The
       Caddy bouncer keeps enforcing cached decisions during the restart.
+      {{ _crowdsec_purge_line | default('') }}

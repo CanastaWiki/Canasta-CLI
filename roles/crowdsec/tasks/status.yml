@@ -87,10 +87,13 @@
          if _crowdsec_capi.rc == 0
          else 'not registered (no community blocklist; auto-registers on the next start)' }}
     # `cscli console status -o raw` is CSV (option,enabled); an enrolled engine
-    # has at least one forward option set to true. The breakdown filter returns
-    # a ready-to-append block (real newlines) or '' when no lists are pulled.
+    # has at least one forward option set to true. This is the engine's local
+    # view — it cannot confirm the Console still recognizes the engine (that
+    # needs PAPI, a paid feature), so we say "per local config" rather than
+    # imply a verified live link. The breakdown filter returns a ready-to-append
+    # block (real newlines) or '' when no lists are pulled.
     _crowdsec_console_line: >-
-      {{ ('enrolled' ~ _crowdsec_blocklist_lines)
+      {{ ('enrolled (per local config)' ~ _crowdsec_blocklist_lines)
          if (_crowdsec_console.rc == 0 and ',true' in (_crowdsec_console.stdout | default('')))
          else 'not enrolled — run: canasta crowdsec console-enroll <key> (optional, for the full blocklist)' }}
 
