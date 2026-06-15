@@ -110,10 +110,27 @@ NESTED_SUBCOMMAND_GROUPS = {
     },
 }
 
+
+def _hostname_hint(value):
+    """Extra guidance when a rejected hostname carries a scheme or a port —
+    the most common reason --domain-name validation fails (users expect to
+    pass a URL or host:port). Ports/schemes are configured elsewhere."""
+    text = str(value)
+    if "://" in text or re.search(r":[0-9]+$", text):
+        return (
+            " Do not include a scheme or port here: pass --domain-name as a "
+            "bare hostname (e.g. 'example.com') and set HTTP_PORT/HTTPS_PORT "
+            "(and CADDY_AUTO_HTTPS=off for HTTP-only) in your .env file."
+        )
+    return ""
+
+
 # Named regex validators for parameters tagged with `validator: <name>`
-# in meta/command_definitions.yml. Each entry is (compiled_regex,
-# error_template). The error template is appended after the offending
-# value, e.g. "Error: --domain-name 'foo' is not a valid hostname …".
+# in meta/command_definitions.yml. Each entry is
+# (compiled_regex, error_template[, hint_fn]). The error template is
+# appended after the offending value, e.g.
+# "Error: --domain-name 'foo' is not a valid hostname …". The optional
+# hint_fn(value) returns extra, value-specific guidance to append.
 #
 # Validation runs after argparse but before any Ansible invocation, so
 # bad values fail in milliseconds instead of after Argo CD/helm/image
@@ -130,6 +147,7 @@ _VALIDATORS = {
         "is not a valid hostname. Expected lowercase letters, digits, "
         "'-' and '.' only, with each label starting and ending with an "
         "alphanumeric character (e.g. 'example.com').",
+        _hostname_hint,
     ),
 }
 
@@ -1357,14 +1375,17 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(2)
-        regex, error_template = validator
+        regex, error_template = validator[0], validator[1]
+        hint_fn = validator[2] if len(validator) > 2 else None
         if not regex.match(str(value)):
+            hint = hint_fn(value) if hint_fn else ""
             print(
-                "Error: --%s %r %s"
+                "Error: --%s %r %s%s"
                 % (
                     param["name"].replace("_", "-"),
                     str(value),
                     error_template,
+                    hint,
                 ),
                 file=sys.stderr,
             )
