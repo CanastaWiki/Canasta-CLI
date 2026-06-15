@@ -976,3 +976,24 @@ class TestRequirementsCollectionsHelm4Compat:
                 "%r which lets pip install pre-Helm-4 versions; "
                 "must be >=6.4.0 (#525)" % pin
             )
+
+
+class TestK8sStartProgressMessages:
+    """The K8s start path runs a Helm upgrade + rollout waits that can take
+    minutes; without progress output `config set`/restart looks hung — a user
+    reported a long silent wait before an error when enabling CrowdSec on K8s.
+    Assert the curated progress lines are present, mirroring the Compose path's
+    'Starting containers...'."""
+
+    def _start(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "start.yml")) as f:
+            return f.read()
+
+    def test_helm_upgrade_has_progress_message(self):
+        assert "Applying Helm release" in self._start()
+
+    def test_rollout_wait_has_progress_message(self):
+        assert "Waiting for pods to become ready" in self._start()
+
+    def test_crowdsec_enroll_has_progress_message(self):
+        assert "enrolling the Caddy bouncer" in self._start()
