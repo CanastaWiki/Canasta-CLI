@@ -4,7 +4,7 @@
 # reaching for docker. Read-only.
 # Input: id (optional)
 
-- name: Preflight (resolve, Compose-only, crowdsec running)
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
   ansible.builtin.include_tasks: _preflight.yml
 
 # Collections are the umbrella (each bundles scenarios + parsers); scenarios
@@ -13,15 +13,15 @@
 # it verbatim rather than re-formatting.
 - name: List installed collections
   ansible.builtin.command:
-    cmd: "docker compose exec -T crowdsec cscli collections list"
-    chdir: "{{ instance_path }}"
+    cmd: "{{ _cscli_prefix }} cscli collections list"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
   register: _crowdsec_collections
   changed_when: false
 
 - name: List installed scenarios
   ansible.builtin.command:
-    cmd: "docker compose exec -T crowdsec cscli scenarios list"
-    chdir: "{{ instance_path }}"
+    cmd: "{{ _cscli_prefix }} cscli scenarios list"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
   register: _crowdsec_scenarios
   changed_when: false
 

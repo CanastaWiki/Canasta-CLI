@@ -1,0 +1,25 @@
+{{- if .Values.crowdsec.enabled }}
+# One PVC holds both the engine state dirs via subPaths (see the sidecar
+# in deployment-caddy.yaml): subPath `etc` -> /etc/crowdsec (LAPI machine
+# + bouncer + CAPI credentials), subPath `data` -> /var/lib/crowdsec/data
+# (the decisions DB). Persisting both is what lets the bouncer stay
+# enrolled and CAPI registration survive pod restarts. ReadWriteOnce is
+# correct: the engine is a single sidecar in the single-replica Caddy pod.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "canasta.fullname" . }}-crowdsec
+  namespace: {{ include "canasta.namespace" . }}
+  labels:
+    {{- include "canasta.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crowdsec
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.crowdsec.storageClass }}
+  storageClassName: {{ .Values.crowdsec.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.crowdsec.storage }}
+{{- end }}

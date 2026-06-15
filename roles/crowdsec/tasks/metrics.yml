@@ -4,7 +4,7 @@
 # means the engine isn't reading the Caddy access log. Read-only.
 # Input: id (optional)
 
-- name: Preflight (resolve, Compose-only, crowdsec running)
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
   ansible.builtin.include_tasks: _preflight.yml
 
 # Metrics come from the engine's prometheus endpoint (on by default). Don't
@@ -12,8 +12,8 @@
 # message is readable instead of an Ansible traceback.
 - name: Read engine metrics
   ansible.builtin.command:
-    cmd: "docker compose exec -T crowdsec cscli metrics"
-    chdir: "{{ instance_path }}"
+    cmd: "{{ _cscli_prefix }} cscli metrics"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
   register: _crowdsec_metrics
   changed_when: false
   failed_when: false
