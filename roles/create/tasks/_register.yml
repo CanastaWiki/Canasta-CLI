@@ -9,7 +9,10 @@
 
 - name: Build registry host string
   ansible.builtin.set_fact:
-    _registry_host: "{{ (ansible_user | default('') + '@') if (ansible_user | default('')) else '' }}{{ ansible_host | default(inventory_hostname) }}"
+    _registry_host: >-
+      {{ (ansible_user | default('') + '@')
+      if (ansible_user | default('')) else '' }}{{
+      ansible_host | default(inventory_hostname) }}
 
 - name: Register instance in controller config
   canasta_registry:

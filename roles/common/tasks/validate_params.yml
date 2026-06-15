@@ -7,18 +7,29 @@
     _cmd_def: >-
       {{ canasta_commands.commands | selectattr('name', 'equalto', command) | first }}
 
+# A required value that arrives present-but-blank (e.g. --repo="" from a
+# failed `$(...)` substitution) is rejected with a distinct "given but is
+# empty" message so the empty-substitution case is self-explanatory rather
+# than reading as a missing-argument fault (#669). An absent argument never
+# reaches Ansible, so the sentinel default tells the two cases apart.
 - name: Check required parameters
   ansible.builtin.fail:
     msg: >-
-      {{ 'Required argument ' ~ item.name | upper ~ ' is missing'
-         if item.positional | default(false)
-         else "Required parameter '--" ~ (item.name | replace('_', '-')) ~ "' is missing" }}
+      {{ ('Required argument ' ~ item.name | upper ~ ' is missing'
+          if item.positional | default(false)
+          else "Required parameter '--" ~ (item.name | replace('_', '-')) ~ "' is missing")
+         if lookup('vars', item.name, default='__canasta_undef__') == '__canasta_undef__'
+         else ('Argument ' ~ item.name | upper ~ " was given but is empty (got '"
+               ~ lookup('vars', item.name) ~ "')"
+               if item.positional | default(false)
+               else "Parameter '--" ~ (item.name | replace('_', '-'))
+                    ~ "' was given but is empty (got '" ~ lookup('vars', item.name) ~ "')") }}
   when:
     - (item.required | default(false)) or (item.required_unless is defined)
-    - lookup('vars', item.name, default='') == ''
+    - (lookup('vars', item.name, default='') | trim) == ''
     - >-
       item.required_unless is not defined or
-      lookup('vars', item.required_unless, default='') == ''
+      (lookup('vars', item.required_unless, default='') | trim) == ''
   loop: "{{ _cmd_def.parameters | default([]) }}"
   loop_control:
     label: "{{ item.name }}"
