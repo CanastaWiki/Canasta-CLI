@@ -43,7 +43,13 @@
     key: "{{ item.key }}"
     value: "{{ item.value }}"
   loop:
-    - { key: "MW_SITE_SERVER", value: "https://{{ _wiki_domain }}" }
+    # Scheme mirrors CADDY_AUTO_HTTPS: an HTTP-only instance must get an
+    # http:// server URL, otherwise MediaWiki canonical-redirects to https
+    # on a stack that serves no TLS (SSL_PROTOCOL_ERROR). _http_only is set
+    # in _envfile.yml, which runs earlier in create. Mirrors the scheme
+    # derivation in the config-set path (_side_effects.yml _active_scheme).
+    - { key: "MW_SITE_SERVER",
+        value: "{{ (_http_only | default(false) | bool) | ternary('http', 'https') }}://{{ _wiki_domain }}" }
     - { key: "MW_SITE_FQDN", value: "{{ _wiki_domain }}" }
     - { key: "MYSQL_PASSWORD", value: "{{ _rootdbpass }}" }
     - { key: "CANASTA_IMAGE", value: "{{ _base_image }}" }
