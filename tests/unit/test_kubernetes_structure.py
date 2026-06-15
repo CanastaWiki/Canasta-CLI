@@ -997,3 +997,20 @@ class TestK8sStartProgressMessages:
 
     def test_crowdsec_enroll_has_progress_message(self):
         assert "enrolling the Caddy bouncer" in self._start()
+
+
+class TestK8sDeleteWaitsForNamespace:
+    """`canasta delete` must wait for the namespace to fully terminate before
+    returning — otherwise an immediate re-create races the still-Terminating
+    namespace and fails the stale-namespace guard (#684)."""
+
+    def test_namespace_deletion_waits(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "helm_uninstall.yml")) as f:
+            tasks = yaml.safe_load(f)
+        ns = next(t for t in tasks if t.get("name") == "Delete namespace")
+        spec = ns["kubernetes.core.k8s"]
+        assert spec.get("kind") == "Namespace"
+        assert spec.get("state") == "absent"
+        assert spec.get("wait") is True, (
+            "namespace deletion must wait, so delete->create does not race"
+        )
