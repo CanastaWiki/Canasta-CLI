@@ -127,6 +127,7 @@ from .host import cmd_host_list, cmd_host_add, cmd_host_remove  # noqa: F401
 from .gitops import (  # noqa: F401
     cmd_gitops_status,
     cmd_gitops_diff,
+    _git_ssh_env_prefix,
     _gitops_argocd_status,
     _gitops_diff_script,
     _gitops_status_script,
