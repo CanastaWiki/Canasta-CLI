@@ -30,7 +30,7 @@ test: test-unit
 # --- Linting -----------------------------------------------------------------
 
 lint: venv
-	$(YAMLLINT) -d relaxed meta/ roles/ playbooks/ inventory/ canasta.yml || true
+	$(YAMLLINT) --strict meta/ roles/ playbooks/ inventory/ canasta.yml
 	$(PYTHON) scripts/validate_definitions.py
 
 # --- Documentation -----------------------------------------------------------
