@@ -51,6 +51,8 @@
 # the public side they registered as a deploy key on the forge.
 # The private key gets mirrored to the target so git operations
 # there can authenticate against the forge.
+# --ssh-key, when passed, overrides _ssh_key_target_path in the
+# GIT_SSH_COMMAND below; otherwise the staged deploy key is used.
 - name: Set SSH key paths
   ansible.builtin.set_fact:
     _ssh_key_path: "{{ key }}.ssh"
@@ -85,7 +87,10 @@
     cmd: "git clone -b main {{ repo }} ."
     chdir: "{{ _join_tmpdir.path }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_target_path }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
+      -o StrictHostKeyChecking=accept-new
+      -o UserKnownHostsFile=~/.ssh/known_hosts
   changed_when: true
 
 # --- Validate host name not already in config ---
@@ -320,7 +325,10 @@
     cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_target_path }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
+      -o StrictHostKeyChecking=accept-new
+      -o UserKnownHostsFile=~/.ssh/known_hosts
   changed_when: true
 
 # --- Clean up ---
