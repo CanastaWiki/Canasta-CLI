@@ -39,7 +39,8 @@
           -i {{ instance_id }} --tag scheduled
         _cron_purge: >-
           {{ (purge_older_than is defined and purge_older_than != '')
-             | ternary('&& ' + (_host_canasta.stdout | trim) + ' backup purge -i ' + instance_id + ' --keep-within ' + (purge_older_than | default('')), '') }}
+             | ternary('&& ' + (_host_canasta.stdout | trim)
+             + ' backup purge -i ' + instance_id + ' --keep-within ' + (purge_older_than | default('')), '') }}
         _cron_log: '>> "{{ instance_path }}/backup.log" 2>&1'
 
     - name: Assemble cron command
