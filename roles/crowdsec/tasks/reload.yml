@@ -61,8 +61,8 @@
       ansible.builtin.set_fact:
         _crowdsec_purge_line: >-
           Purged {{ ("console blocklist '" ~ purge_blocklist ~ "'")
-                     if (purge_blocklist is defined and (purge_blocklist | string | length) > 0)
-                     else 'all console blocklists' }} from the local engine;
+          if (purge_blocklist is defined and (purge_blocklist | string | length) > 0)
+          else 'all console blocklists' }} from the local engine;
           lists you are still subscribed to refill on the next pull cycle.
 
 # On Compose only the crowdsec service bounces, so Caddy keeps enforcing
@@ -73,6 +73,6 @@
     msg: >-
       Reloaded the CrowdSec engine for instance '{{ instance_id }}'.
       {{ 'The Caddy bouncer keeps enforcing cached decisions during the restart.'
-         if (instance_orchestrator | default('compose') == 'compose')
-         else 'The caddy pod rolls with it, so expect a brief blip; the bouncer resumes once the engine is back.' }}
+      if (instance_orchestrator | default('compose') == 'compose')
+      else 'The caddy pod rolls with it, so expect a brief blip; the bouncer resumes once the engine is back.' }}
       {{ _crowdsec_purge_line | default('') }}

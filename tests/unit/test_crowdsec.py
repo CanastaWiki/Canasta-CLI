@@ -989,6 +989,56 @@ class TestCrowdsecReloadRole:
         )
 
 
+class TestCrowdsecReportFormatting:
+    """Folded (>-) display messages must collapse to a single logical line.
+    A continuation line indented deeper than the first makes YAML preserve
+    the line break instead of folding it to a space, which prints as a
+    spurious blank line in the command output (regression: ban report)."""
+
+    def _strings(self, name):
+        tasks = yaml.safe_load(_read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", name)))
+        found = []
+
+        def walk(n):
+            if isinstance(n, dict):
+                for v in n.values():
+                    walk(v)
+            elif isinstance(n, list):
+                for v in n:
+                    walk(v)
+            elif isinstance(n, str):
+                found.append(n)
+        walk(tasks)
+        return found
+
+    def _stray_newlines(self, s):
+        # Newlines that survive YAML folding OUTSIDE a {{ }} expression are the
+        # ones that reach the rendered output as blank lines.
+        return re.sub(r"\{\{.*?\}\}", "", s, flags=re.S).count("\n")
+
+    def test_ban_report_renders_on_one_line(self):
+        msg = next(s for s in self._strings("ban.yml")
+                   if s.startswith("Blocked {{ ip }}"))
+        assert self._stray_newlines(msg) == 0, (
+            "ban report must fold to one line — no stray newline before "
+            "'on instance'"
+        )
+        # Render both branches to prove the visible output is single-line.
+        for dur in ("10m", ""):
+            out = jinja2.Environment().from_string(msg).render(
+                ip="203.0.113.5", duration=dur, instance_id="mysite")
+            assert "\n" not in out, f"ban report wrapped (duration={dur!r}): {out!r}"
+
+    def test_reload_report_and_purge_line_render_on_one_line(self):
+        strings = self._strings("reload.yml")
+        report = next(s for s in strings
+                      if s.startswith("Reloaded the CrowdSec engine"))
+        purge = next(s for s in strings if s.startswith("Purged {{"))
+        assert self._stray_newlines(report) == 0, "reload report must fold to one line"
+        assert self._stray_newlines(purge) == 0, "purge note must fold to one line"
+
+
 class TestCrowdsecAutoEnroll:
     def test_start_auto_enrolls_when_enabled_without_key(self):
         """Enabling CrowdSec should enroll the bouncer on the next start,

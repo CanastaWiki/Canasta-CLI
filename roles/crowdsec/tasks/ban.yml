@@ -29,5 +29,5 @@
   ansible.builtin.debug:
     msg: >-
       Blocked {{ ip }}{{ (' for ' ~ duration)
-        if (duration | default('') | string | length > 0) else '' }}
+      if (duration | default('') | string | length > 0) else '' }}
       on instance '{{ instance_id }}'.
