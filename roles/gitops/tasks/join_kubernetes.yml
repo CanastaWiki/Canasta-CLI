@@ -308,7 +308,9 @@
 
 - name: Commit
   ansible.builtin.command:
-    cmd: "git commit -m 'Add environment {{ host_name }}'"
+    cmd: >-
+      git -c commit.gpgsign=false
+      commit -m 'Add environment {{ host_name }}'
     chdir: "{{ instance_path }}"
   changed_when: true
   when: _join_staged.rc != 0
