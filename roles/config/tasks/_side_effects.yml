@@ -437,8 +437,21 @@
 
     - name: Compute desired caddy image and managed state
       vars:
-        _crowdsec_on: "{{ _k8s_img_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
-        _tp_mode: "{{ _k8s_img_env.variables.CADDY_TRUSTED_PROXIES | default('') | trim | lower }}"
+        # Side effects run BEFORE the .env write (see _set_single.yml), so the
+        # key currently being set is not yet in _k8s_img_env. Overlay
+        # _config_value for it — otherwise a fresh
+        # `config set CANASTA_ENABLE_CROWDSEC=true` reads the stale 'false',
+        # leaves the stock caddy image, and the pod crashloops on the crowdsec
+        # Caddyfile directive. (Compose self-heals via the start-time profile
+        # re-sync; the K8s start path has no equivalent, so fix it at source.)
+        _eff_crowdsec: >-
+          {{ _config_value if _config_key == 'CANASTA_ENABLE_CROWDSEC'
+             else (_k8s_img_env.variables.CANASTA_ENABLE_CROWDSEC | default('false')) }}
+        _eff_tp: >-
+          {{ _config_value if _config_key == 'CADDY_TRUSTED_PROXIES'
+             else (_k8s_img_env.variables.CADDY_TRUSTED_PROXIES | default('')) }}
+        _crowdsec_on: "{{ _eff_crowdsec | lower == 'true' }}"
+        _tp_mode: "{{ _eff_tp | trim | lower }}"
         _plugin_needed: "{{ _crowdsec_on or (_tp_mode in ['cloudflare', 'imperva']) }}"
       ansible.builtin.set_fact:
         _k8s_img_values: "{{ _k8s_img_values_raw.content | b64decode | from_yaml }}"

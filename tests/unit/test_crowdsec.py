@@ -1221,6 +1221,30 @@ class TestCrowdsecPreflightK8sReadiness:
         assert jp[0].endswith("{end}"), "the full jsonpath (incl. {end}) must be one token"
 
 
+class TestCrowdsecK8sCaddyImageReconcile:
+    """A fresh `config set CANASTA_ENABLE_CROWDSEC=true` on K8s must switch the
+    caddy image to the plugin build. The reconcile runs in _side_effects BEFORE
+    .env is written (_set_single.yml: validate -> side effects -> set), so it
+    must overlay _config_value for the key being set rather than read the stale
+    .env — otherwise caddy keeps the stock image and crashloops on the crowdsec
+    Caddyfile directive. (K8s, unlike Compose, has no start-time image re-sync.)"""
+
+    def _side_effects(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "config", "tasks", "_side_effects.yml"))
+
+    def test_reconcile_overlays_config_value_for_the_key_being_set(self):
+        content = self._side_effects()
+        assert "_config_value if _config_key == 'CANASTA_ENABLE_CROWDSEC'" in content, (
+            "K8s caddy-image reconcile must overlay _config_value for "
+            "CANASTA_ENABLE_CROWDSEC — .env is written after side effects, so "
+            "reading .env alone yields the stale value"
+        )
+        assert "_config_value if _config_key == 'CADDY_TRUSTED_PROXIES'" in content, (
+            "the trusted-proxy branch must overlay _config_value too"
+        )
+
+
 class TestCrowdsecK8sChart:
     def test_values_has_crowdsec_block(self):
         values = yaml.safe_load(_read(os.path.join(HELM_DIR, "values.yaml")))
