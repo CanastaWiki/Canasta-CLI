@@ -84,7 +84,10 @@
     cmd: "git clone -b main {{ repo }} ."
     chdir: "{{ _join_tmpdir.path }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
+      -o StrictHostKeyChecking=accept-new
+      -o UserKnownHostsFile=~/.ssh/known_hosts
   changed_when: true
 
 # --- Validate host name not already in config ---
@@ -243,7 +246,10 @@
     cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
+      -o StrictHostKeyChecking=accept-new
+      -o UserKnownHostsFile=~/.ssh/known_hosts
   changed_when: true
 
 # --- Clean up ---

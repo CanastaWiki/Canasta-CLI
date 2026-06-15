@@ -58,6 +58,7 @@ gitops_shared_keys:
 # `-i <key>`, so this default doesn't apply there.
 gitops_git_env:
   GIT_SSH_COMMAND: >-
-    ssh{{ (ssh_key | default('') | length > 0) | ternary(' -i ' ~ (ssh_key | default('')), '') }}
+    ssh{{ (ssh_key | default('') | length > 0)
+    | ternary(' -i ' ~ (ssh_key | default('')), '') }}
     -o StrictHostKeyChecking=accept-new
     -o UserKnownHostsFile=~/.ssh/known_hosts

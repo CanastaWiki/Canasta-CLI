@@ -197,7 +197,10 @@
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
+      -o StrictHostKeyChecking=accept-new
+      -o UserKnownHostsFile=~/.ssh/known_hosts
   register: _gitops_remote
   changed_when: false
   ignore_errors: true
@@ -440,7 +443,10 @@
     cmd: "git push -u origin main {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts"
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
+      -o StrictHostKeyChecking=accept-new
+      -o UserKnownHostsFile=~/.ssh/known_hosts
   changed_when: true
 
 # --- Create Argo CD repo credential Secret ---
