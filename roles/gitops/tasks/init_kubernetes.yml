@@ -428,7 +428,7 @@
 
 - name: Initial commit
   ansible.builtin.command:
-    cmd: "git commit -m 'Initial gitops configuration'"
+    cmd: "git -c commit.gpgsign=false commit -m 'Initial gitops configuration'"
     chdir: "{{ instance_path }}"
   changed_when: true
 

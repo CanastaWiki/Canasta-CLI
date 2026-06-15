@@ -173,7 +173,8 @@
     - name: Commit staged changes
       ansible.builtin.command:
         cmd: >-
-          git commit -m "{{ message | default('Configuration update') }}"
+          git -c commit.gpgsign=false
+          commit -m "{{ message | default('Configuration update') }}"
         chdir: "{{ instance_path }}"
       changed_when: true
 
@@ -205,7 +206,8 @@
     - name: Commit staged changes
       ansible.builtin.command:
         cmd: >-
-          git commit -m "{{ message | default('Configuration update') }}"
+          git -c commit.gpgsign=false
+          commit -m "{{ message | default('Configuration update') }}"
         chdir: "{{ instance_path }}"
       register: _pr_commit
       changed_when: true
