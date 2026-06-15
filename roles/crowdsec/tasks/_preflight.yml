@@ -40,7 +40,7 @@
           kubectl get pods -n canasta-{{ instance_id }}
           -l app.kubernetes.io/component=caddy
           --field-selector=status.phase=Running
-          -o jsonpath={range .items[0].status.containerStatuses[*]}{.name}={.ready} {end}
+          -o "jsonpath={range .items[0].status.containerStatuses[*]}{.name}={.ready} {end}"
       register: _crowdsec_k8s_ready
       changed_when: false
 

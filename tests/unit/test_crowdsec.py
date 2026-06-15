@@ -1183,6 +1183,44 @@ class TestCrowdsecResolveCscli:
         assert "_resolve_cscli.yml" in preflight
 
 
+class TestCrowdsecPreflightK8sReadiness:
+    """The K8s caddy-pod readiness probe in _preflight.yml uses a jsonpath
+    that contains a space (the 'name=ready ' separator). It must be quoted so
+    Ansible's command parser keeps it as one argument — otherwise the trailing
+    ' {end}' splits into its own token and kubectl reads it as a pod name,
+    failing with 'name cannot be provided when a selector is specified'."""
+
+    def _readiness_cmd(self):
+        tasks = yaml.safe_load(_read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "_preflight.yml")))
+        found = []
+
+        def walk(n):
+            if isinstance(n, dict):
+                cmd = n.get("ansible.builtin.command")
+                if isinstance(cmd, dict) and "containerStatuses" in str(cmd.get("cmd", "")):
+                    found.append(cmd["cmd"])
+                for v in n.values():
+                    walk(v)
+            elif isinstance(n, list):
+                for v in n:
+                    walk(v)
+        walk(tasks)
+        assert found, "expected the jsonpath readiness command in _preflight.yml"
+        return found[0]
+
+    def test_readiness_jsonpath_is_a_single_argument(self):
+        import shlex
+        tokens = shlex.split(self._readiness_cmd().replace("{{ instance_id }}", "big"))
+        assert "{end}" not in tokens, (
+            "jsonpath must be quoted — an unquoted ' {end}' splits into its own "
+            "token and kubectl reads it as a pod name"
+        )
+        jp = [t for t in tokens if t.startswith("jsonpath=")]
+        assert len(jp) == 1, f"expected exactly one jsonpath token, got {jp}"
+        assert jp[0].endswith("{end}"), "the full jsonpath (incl. {end}) must be one token"
+
+
 class TestCrowdsecK8sChart:
     def test_values_has_crowdsec_block(self):
         values = yaml.safe_load(_read(os.path.join(HELM_DIR, "values.yaml")))
