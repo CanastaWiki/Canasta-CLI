@@ -153,14 +153,10 @@
       ansible.builtin.fail:
         msg: >-
           Kubernetes namespace 'canasta-{{ id }}' already exists but
-          instance '{{ id }}' is not in the canasta registry. This
-          usually means a previous 'canasta create' failed mid-flight
-          and left state (PVCs, Secrets, helm release) behind.
-          Re-running would generate fresh DB passwords that do not
-          match the existing PVCs, producing an unrecoverable auth
-          mismatch. To recover, delete the stale namespace
-          ('kubectl delete namespace canasta-{{ id }}' — cascades
-          through the helm release, PVCs, and Secrets), then re-run.
+          instance '{{ id }}' is not in the registry — leftover from a
+          create that failed mid-flight. Re-running would orphan its
+          PVCs/Secrets, so delete it and re-run:
+          kubectl delete namespace canasta-{{ id }}
       when: _stale_ns.rc | default(1) == 0
 
     - name: Install Argo CD if not skipped

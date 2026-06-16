@@ -48,12 +48,9 @@
 - name: Require --cp-host for worker uninstalls
   ansible.builtin.fail:
     msg: >-
-      Uninstalling a k3s worker requires --cp-host <name>, where
-      <name> is the registered control-plane host. Canasta SSHs there
-      after stopping the agent and deletes this worker's Node entry
-      from the cluster. Without it, the Node lingers in 'kubectl get
-      nodes' and a worker rejoining with the same hostname reclaims
-      it.
+      --cp-host <name> is required when uninstalling a k3s worker
+      (the registered control-plane host, so the worker's Node is
+      removed from the cluster).
   when:
     - _k3s_role_label == 'worker'
     - not (cp_host is defined and (cp_host | length > 0))
