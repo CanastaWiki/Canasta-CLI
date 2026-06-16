@@ -41,18 +41,12 @@
 
 - name: Fail if cp-host has no active k3s control plane
   ansible.builtin.fail:
-    msg: |-
+    msg: >-
       Host '{{ cp_host }}' is not running a k3s control plane
-      (systemctl is-active k3s returned: {{ (_cp_k3s_active.stdout | default('') | trim) or 'no output (SSH or sudo failure)' }}).
-
-      Common causes:
-        - You haven't installed k3s on '{{ cp_host }}' yet. Run
-            canasta install k8s-cp --host {{ cp_host }}
-          first, then retry this worker install.
-        - The cp-host you specified is itself a worker, not a control plane.
-          The cp-host argument must point at the cluster's control-plane node.
-        - The k3s service is installed but stopped. Start it on '{{ cp_host }}'
-          (sudo systemctl start k3s) and retry.
+      (systemctl is-active k3s: {{ (_cp_k3s_active.stdout | default('') | trim) or 'no output (SSH or sudo failure)' }}).
+      Check that k3s is installed there ('canasta install k8s-cp --host
+      {{ cp_host }}'), that --cp-host points at the control plane (not a
+      worker), and that the k3s service is started.
   when: >-
     _cp_k3s_active.rc != 0
     or (_cp_k3s_active.stdout | default('') | trim) != 'active'
