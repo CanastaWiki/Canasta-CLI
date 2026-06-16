@@ -1035,6 +1035,18 @@ class TestK8sTraefikClientIP:
         values = yaml.safe_load(doc["spec"]["valuesContent"])
         assert values["service"]["spec"]["externalTrafficPolicy"] == "Local"
 
+    def test_traefik_runs_as_daemonset(self):
+        # Local only preserves the client IP on nodes with a local Traefik pod;
+        # on multi-node clusters Local without a DaemonSet would drop external
+        # traffic landing on Traefik-less nodes. DaemonSet guarantees a Traefik
+        # pod (local endpoint) on every node.
+        doc = yaml.safe_load(open(self.CONFIG))
+        values = yaml.safe_load(doc["spec"]["valuesContent"])
+        assert values["deployment"]["kind"] == "DaemonSet", (
+            "Traefik must run as a DaemonSet so externalTrafficPolicy=Local "
+            "preserves the client IP on every node (multi-node safe)"
+        )
+
     def test_install_drops_the_config_into_k3s_manifests(self):
         with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_install_k3s.yml")) as f:
             tasks = yaml.safe_load(f)

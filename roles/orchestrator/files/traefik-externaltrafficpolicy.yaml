@@ -6,14 +6,18 @@
 # real-client-IP behaviour on K8s: CrowdSec sees only private IPs and
 # whitelists all traffic (protecting nothing), and access logs are useless.
 #
-# Local preserves the client IP. k3s auto-applies manifests dropped in its
-# server/manifests dir and the helm-controller reconciles Traefik with these
-# merged values, so this is durable across k3s restarts/upgrades (a direct
-# `kubectl patch` would be reverted on the next Traefik chart redeploy).
+# externalTrafficPolicy: Local preserves the client IP, but a node only serves
+# the traffic if it has a LOCAL Traefik pod — so on a multi-node cluster Local
+# alone would drop external traffic that lands on any node without Traefik.
+# k3s deploys Traefik as a single-replica Deployment by default, so we also run
+# it as a DaemonSet: one Traefik pod per node, so every node that can receive
+# external traffic has a local endpoint and preserves the client IP. (Single-
+# node is unaffected — the DaemonSet schedules exactly one pod there.)
 #
-# Caveat: Local routes external traffic only to nodes running a Traefik pod —
-# correct for single-node; multi-node clusters must ensure the ingress runs
-# on the nodes that receive external traffic.
+# k3s auto-applies manifests dropped in its server/manifests dir and the
+# helm-controller reconciles Traefik with these merged values, so this is
+# durable across k3s restarts/upgrades (a direct `kubectl patch` would be
+# reverted on the next Traefik chart redeploy).
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:
@@ -21,6 +25,8 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
+    deployment:
+      kind: DaemonSet
     service:
       spec:
         externalTrafficPolicy: Local
