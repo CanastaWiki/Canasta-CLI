@@ -91,9 +91,22 @@
   register: _cp_internal_ip_raw
   changed_when: false
 
+# A dual-stack control-plane node reports both an IPv4 and an IPv6
+# InternalIP, and the jsonpath above returns them space-separated
+# (e.g. "10.0.0.5 2001:db8::5"). Building the server URL from the raw
+# string yields "https://10.0.0.5 2001:db8::5:6443", which k3s rejects
+# ("invalid character ' ' in host name") so the agent never joins. Pick a
+# single IPv4 address (k3s and the API-server cert SAN are IPv4-centric
+# here); fall back to the first address if somehow no IPv4 is present.
+- name: Select a single control-plane InternalIP (prefer IPv4)
+  ansible.builtin.set_fact:
+    _cp_internal_ip: >-
+      {{ ((_cp_internal_ip_raw.stdout | trim | split(' ') | select('match', '^[0-9.]+$') | list)
+          + (_cp_internal_ip_raw.stdout | trim | split(' ') | list)) | first | default('') }}
+
 - name: Set k3s join parameters
   ansible.builtin.set_fact:
-    _k3s_server_url: "https://{{ _cp_internal_ip_raw.stdout | trim }}:6443"
+    _k3s_server_url: "https://{{ _cp_internal_ip }}:6443"
     _k3s_join_token: "{{ _cp_token_raw.stdout | trim }}"
   no_log: true
 

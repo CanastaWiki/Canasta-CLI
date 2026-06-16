@@ -1059,3 +1059,46 @@ class TestK8sTraefikClientIP:
         # k3s auto-applies manifests dropped here; must be root-written.
         assert spec["dest"].startswith("/var/lib/rancher/k3s/server/manifests/")
         assert copy.get("become") is True
+
+
+class TestK8sWorkerJoinDualStackIP:
+    """A dual-stack control-plane node reports both an IPv4 and an IPv6
+    InternalIP. The worker join must build K3S_URL from a single IPv4 address,
+    not the raw space-separated pair — k3s rejects the latter with
+    'invalid character " " in host name' and the agent never joins (#687-era
+    multi-node e2e finding)."""
+
+    WORKER = os.path.join(REPO_ROOT, "roles", "install", "tasks", "k3s_worker.yml")
+
+    def _select_ip(self, raw):
+        import re
+        import jinja2
+        tasks = yaml.safe_load(open(self.WORKER))
+        task = next(
+            t for t in tasks
+            if isinstance(t, dict)
+            and str(t.get("name", "")).startswith("Select a single control-plane InternalIP")
+        )
+        expr = task["ansible.builtin.set_fact"]["_cp_internal_ip"]
+        env = jinja2.Environment()
+        env.filters["split"] = lambda s, sep=None: s.split(sep)
+        env.tests["match"] = lambda s, pat: re.match(pat, s) is not None
+        return env.from_string(expr).render(_cp_internal_ip_raw={"stdout": raw}).strip()
+
+    def test_dualstack_returns_only_ipv4(self):
+        assert self._select_ip("209.112.76.164 2607:29c0:3001:20::a") == "209.112.76.164"
+
+    def test_ipv4_only_unchanged(self):
+        assert self._select_ip("10.0.0.5") == "10.0.0.5"
+
+    def test_selected_ip_has_no_whitespace(self):
+        out = self._select_ip("209.112.76.164 2607:29c0:3001:20::a")
+        assert " " not in out and ":" not in out
+
+    def test_server_url_built_from_selected_ip(self):
+        tasks = yaml.safe_load(open(self.WORKER))
+        task = next(
+            t for t in tasks
+            if isinstance(t, dict) and "_k3s_server_url" in str(t.get("ansible.builtin.set_fact", {}))
+        )
+        assert task["ansible.builtin.set_fact"]["_k3s_server_url"] == "https://{{ _cp_internal_ip }}:6443"
