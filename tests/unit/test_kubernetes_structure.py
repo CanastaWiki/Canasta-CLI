@@ -1014,3 +1014,48 @@ class TestK8sDeleteWaitsForNamespace:
         assert spec.get("wait") is True, (
             "namespace deletion must wait, so delete->create does not race"
         )
+
+
+class TestK8sTraefikClientIP:
+    """The k3s-bundled Traefik LoadBalancer defaults to externalTrafficPolicy:
+    Cluster, which SNATs the client IP — breaking CrowdSec (all traffic looks
+    private) and access logs. install k8s-cp must drop a HelmChartConfig that
+    flips Traefik to Local so the real client IP is preserved (#687)."""
+
+    CONFIG = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "files",
+        "traefik-externaltrafficpolicy.yaml",
+    )
+
+    def test_helmchartconfig_sets_local_policy(self):
+        doc = yaml.safe_load(open(self.CONFIG))
+        assert doc["kind"] == "HelmChartConfig"
+        assert doc["metadata"]["name"] == "traefik"
+        assert doc["metadata"]["namespace"] == "kube-system"
+        values = yaml.safe_load(doc["spec"]["valuesContent"])
+        assert values["service"]["spec"]["externalTrafficPolicy"] == "Local"
+
+    def test_traefik_runs_as_daemonset(self):
+        # Local only preserves the client IP on nodes with a local Traefik pod;
+        # on multi-node clusters Local without a DaemonSet would drop external
+        # traffic landing on Traefik-less nodes. DaemonSet guarantees a Traefik
+        # pod (local endpoint) on every node.
+        doc = yaml.safe_load(open(self.CONFIG))
+        values = yaml.safe_load(doc["spec"]["valuesContent"])
+        assert values["deployment"]["kind"] == "DaemonSet", (
+            "Traefik must run as a DaemonSet so externalTrafficPolicy=Local "
+            "preserves the client IP on every node (multi-node safe)"
+        )
+
+    def test_install_drops_the_config_into_k3s_manifests(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_install_k3s.yml")) as f:
+            tasks = yaml.safe_load(f)
+        copy = next(
+            t for t in tasks
+            if isinstance(t.get("ansible.builtin.copy"), dict)
+            and t["ansible.builtin.copy"].get("src") == "traefik-externaltrafficpolicy.yaml"
+        )
+        spec = copy["ansible.builtin.copy"]
+        # k3s auto-applies manifests dropped here; must be root-written.
+        assert spec["dest"].startswith("/var/lib/rancher/k3s/server/manifests/")
+        assert copy.get("become") is True

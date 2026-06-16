@@ -70,6 +70,21 @@
       delay: 5
       changed_when: false
 
+# Preserve the real client IP at the ingress. The k3s-bundled Traefik
+# LoadBalancer defaults to externalTrafficPolicy: Cluster, which SNATs the
+# source IP before it reaches Traefik/Caddy — breaking CrowdSec (all traffic
+# looks private and is whitelisted) and accurate access logs. Dropping a k3s
+# HelmChartConfig flips it to Local durably; k3s auto-applies manifests from
+# this dir and the helm-controller reconciles Traefik (redeploys it on an
+# existing cluster). Runs for fresh and existing clusters (outside the
+# install-only block above).
+- name: Preserve client IP — set Traefik externalTrafficPolicy=Local
+  ansible.builtin.copy:
+    src: traefik-externaltrafficpolicy.yaml
+    dest: /var/lib/rancher/k3s/server/manifests/canasta-traefik-config.yaml
+    mode: "0644"
+  become: true
+
 # k3s bundles kubectl as 'k3s kubectl' but many tools (Helm, Ansible
 # k8s modules) expect a standalone 'kubectl' binary on the PATH.
 - name: Create kubectl symlink
