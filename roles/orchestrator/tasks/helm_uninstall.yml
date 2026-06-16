@@ -32,4 +32,11 @@
     api_version: v1
     kind: Namespace
     name: "{{ _k8s_namespace }}"
+    # Wait for the namespace to fully terminate before delete returns.
+    # Without this, deletion is async and an immediate `canasta create`
+    # races the still-Terminating namespace and fails its stale-namespace
+    # guard. Namespace teardown (finalizers, PVC/pod cleanup) can take a
+    # while, so allow generous time.
+    wait: true
+    wait_timeout: 300
   when: delete_namespace | default(true) | bool
