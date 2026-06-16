@@ -1,0 +1,26 @@
+# Preserve the real client IP at the ingress.
+#
+# The k3s-bundled Traefik LoadBalancer service defaults to
+# externalTrafficPolicy: Cluster, which SNATs the source IP to the node CNI
+# gateway before the request reaches Traefik/Caddy. That breaks every
+# real-client-IP behaviour on K8s: CrowdSec sees only private IPs and
+# whitelists all traffic (protecting nothing), and access logs are useless.
+#
+# Local preserves the client IP. k3s auto-applies manifests dropped in its
+# server/manifests dir and the helm-controller reconciles Traefik with these
+# merged values, so this is durable across k3s restarts/upgrades (a direct
+# `kubectl patch` would be reverted on the next Traefik chart redeploy).
+#
+# Caveat: Local routes external traffic only to nodes running a Traefik pod —
+# correct for single-node; multi-node clusters must ensure the ingress runs
+# on the nodes that receive external traffic.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      spec:
+        externalTrafficPolicy: Local
