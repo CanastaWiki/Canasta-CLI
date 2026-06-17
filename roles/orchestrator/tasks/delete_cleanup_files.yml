@@ -1,0 +1,39 @@
+---
+# Remove instance content files for the orchestrator before teardown.
+# Compose: `docker compose run` find-delete (works even when containers
+# are stopped/unhealthy). Kubernetes: exec find-delete inside the web
+# pod when one is running and the cluster API is reachable.
+# Input: instance_path, instance_orchestrator, _k8s_api_reachable
+
+# Clean up container-owned files (important on Linux where files are
+# owned by www-data). Uses 'docker compose run' instead of 'exec' so
+# it works even when containers are stopped or unhealthy.
+- name: Clean up container-owned files (Compose)
+  ansible.builtin.command:
+    cmd: >-
+      docker compose run --rm --no-deps -T web
+      find /mediawiki/images /mediawiki/config /mediawiki/public_assets
+      -mindepth 1 -delete
+    chdir: "{{ instance_path }}"
+  when: instance_orchestrator | default('compose') == 'compose'
+  changed_when: true
+  ignore_errors: true  # OK if containers already removed
+
+- name: Clean up container-owned files (Kubernetes)
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - _k8s_api_reachable | default(true)
+  block:
+    - name: Check if K8s pods are running
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: check_running.yml
+      ignore_errors: true  # OK if pods not running
+
+    - name: Remove files inside K8s pod
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: "find /mediawiki/images /mediawiki/config /mediawiki/public_assets -mindepth 1 -delete 2>/dev/null || true"
+      ignore_errors: true  # OK if dirs already empty or missing
+      when: _container_running | default(false) | bool
