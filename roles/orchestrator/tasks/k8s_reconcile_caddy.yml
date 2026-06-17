@@ -1,0 +1,66 @@
+---
+# Reconcile the K8s caddy image and crowdsec.enabled in values.yaml from
+# the instance .env, before every helm deploy (start + create). This is
+# the K8s analog of Compose's start-time sync_compose_profiles reconcile:
+# it keeps the deployed manifests in step with the feature flags in .env
+# no matter how they got there (create -e, config set, or a hand edit),
+# so there is a single reconcile point instead of one per entry path.
+#
+# The caddy deployment needs the plugin image (canasta-caddy) when a
+# plugin feature is on — CrowdSec (the bouncer) or a provider
+# trusted-proxy mode (cloudflare/imperva, which need caddy-cdn-ranges +
+# caddy-combine-ip-ranges). The image field is treated as managed when
+# empty, the stock default, or any managed tag — a custom operator image
+# is left untouched. crowdsec.enabled gates the engine sidecar in the
+# chart and is always reconciled from the flag.
+#
+# Runs on the target host (instance_path lives there), matching the
+# values.yaml slurp in start.yml. Input: instance_path.
+
+- name: Read feature flags from .env for values reconcile
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _reconcile_env
+
+- name: Read values.yaml for reconcile
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _reconcile_values_raw
+
+- name: Compute desired caddy image and crowdsec state
+  vars:
+    _crowdsec_on: "{{ _reconcile_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
+    _tp_mode: "{{ _reconcile_env.variables.CADDY_TRUSTED_PROXIES | default('') | trim | lower }}"
+    _plugin_needed: "{{ _crowdsec_on or (_tp_mode in ['cloudflare', 'imperva']) }}"
+    _values: "{{ _reconcile_values_raw.content | b64decode | from_yaml }}"
+    _current_image: "{{ (_reconcile_values_raw.content | b64decode | from_yaml).get('caddy', {}).get('image', '') }}"
+  ansible.builtin.set_fact:
+    _reconcile_values: "{{ _values }}"
+    _reconcile_crowdsec_on: "{{ _crowdsec_on }}"
+    _reconcile_current_crowdsec_on: "{{ _values.get('crowdsec', {}).get('enabled', false) | bool }}"
+    _reconcile_current_image: "{{ _current_image }}"
+    _reconcile_desired_image: "{{ 'ghcr.io/canastawiki/canasta-caddy:2.11.3' if _plugin_needed else 'caddy:2.10.2-alpine' }}"
+    _reconcile_image_managed: >-
+      {{ _current_image == ''
+         or _current_image == 'caddy:2.10.2-alpine'
+         or _current_image.startswith('ghcr.io/canastawiki/canasta-caddy:') }}
+
+- name: Build reconciled values overlay
+  ansible.builtin.set_fact:
+    _reconcile_overlay: >-
+      {{ {'crowdsec': {'enabled': _reconcile_crowdsec_on | bool}}
+         | combine({'caddy': {'image': _reconcile_desired_image}} if _reconcile_image_managed | bool else {},
+                   recursive=True) }}
+
+- name: Write reconciled values.yaml
+  ansible.builtin.copy:
+    content: >-
+      {{ _reconcile_values
+         | combine(_reconcile_overlay, recursive=True)
+         | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/values.yaml"
+    mode: "0644"
+  when: >-
+    _reconcile_current_crowdsec_on != (_reconcile_crowdsec_on | bool)
+    or (_reconcile_image_managed | bool and _reconcile_current_image != _reconcile_desired_image)

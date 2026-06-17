@@ -175,6 +175,17 @@
 - name: Register instance in controller and target host
   ansible.builtin.include_tasks: _register.yml
 
+# --- Step 13b: Enroll CrowdSec bouncer (after registration) ---
+# The first start defers CrowdSec enrollment (the crowdsec preflight
+# resolves the instance from the registry, not written until _register).
+# Enroll here for both orchestrators; the task self-gates on CrowdSec being
+# enabled and is idempotent (skips once the bouncer key is stored, so the
+# Compose step-14 restart's own enroll becomes a no-op).
+- name: Enroll CrowdSec bouncer
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: crowdsec_autoenroll.yml
+
 # --- Step 14: Restart with full config (Compose only) ---
 # Kubernetes pods are already running with the correct config from PVC.
 - name: Stop containers

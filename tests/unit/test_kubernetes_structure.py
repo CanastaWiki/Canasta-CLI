@@ -996,7 +996,11 @@ class TestK8sStartProgressMessages:
         assert "Waiting for pods to become ready" in self._start()
 
     def test_crowdsec_enroll_has_progress_message(self):
-        assert "enrolling the Caddy bouncer" in self._start()
+        # The enroll tail (with its progress line) is shared by start + create
+        # via crowdsec_autoenroll.yml, included from the start path.
+        assert "crowdsec_autoenroll.yml" in self._start()
+        with open(os.path.join(ORCHESTRATOR_TASKS, "crowdsec_autoenroll.yml")) as f:
+            assert "enrolling the Caddy bouncer" in f.read()
 
 
 class TestK8sDeleteWaitsForNamespace:

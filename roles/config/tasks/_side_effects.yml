@@ -362,7 +362,7 @@
   when:
     - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
     - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH',
-                      'CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_CROWDSEC',
+                      'CANASTA_ENABLE_ELASTICSEARCH',
                       'CANASTA_STAGING_CERTS']
   block:
     - name: Read current values.yaml
@@ -389,11 +389,6 @@
         _k8s_override: "{{ {'elasticsearch': {'enabled': _config_value | lower == 'true'}} }}"
       when: _config_key == 'CANASTA_ENABLE_ELASTICSEARCH'
 
-    - name: Build values.yaml override for CANASTA_ENABLE_CROWDSEC
-      ansible.builtin.set_fact:
-        _k8s_override: "{{ {'crowdsec': {'enabled': _config_value | lower == 'true'}} }}"
-      when: _config_key == 'CANASTA_ENABLE_CROWDSEC'
-
     - name: Build values.yaml override for CANASTA_STAGING_CERTS
       ansible.builtin.set_fact:
         _k8s_override:
@@ -411,67 +406,12 @@
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
 
-# K8s analog of sync_compose_profiles.yml's CANASTA_CADDY_IMAGE reconcile:
-# the caddy deployment needs the plugin image (canasta-caddy) when a plugin
-# feature is on — CrowdSec (the bouncer) or a provider trusted-proxy mode
-# (cloudflare/imperva, which need caddy-cdn-ranges + caddy-combine-ip-ranges).
-# Both flags are read from .env (already updated by the time this fires) so
-# toggling either one recomputes the image. The field is treated as managed
-# when empty, the stock default, or any managed tag — a custom operator image
-# is left untouched.
-- name: Reconcile K8s caddy plugin image
-  when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-    - _config_key in ['CANASTA_ENABLE_CROWDSEC', 'CADDY_TRUSTED_PROXIES']
-  block:
-    - name: Read feature flags from .env for image reconcile
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read_all
-      register: _k8s_img_env
-
-    - name: Read values.yaml for image reconcile
-      ansible.builtin.slurp:
-        src: "{{ instance_path }}/values.yaml"
-      register: _k8s_img_values_raw
-
-    - name: Compute desired caddy image and managed state
-      vars:
-        # Side effects run BEFORE the .env write (see _set_single.yml), so the
-        # key currently being set is not yet in _k8s_img_env. Overlay
-        # _config_value for it — otherwise a fresh
-        # `config set CANASTA_ENABLE_CROWDSEC=true` reads the stale 'false',
-        # leaves the stock caddy image, and the pod crashloops on the crowdsec
-        # Caddyfile directive. (Compose self-heals via the start-time profile
-        # re-sync; the K8s start path has no equivalent, so fix it at source.)
-        _eff_crowdsec: >-
-          {{ _config_value if _config_key == 'CANASTA_ENABLE_CROWDSEC'
-             else (_k8s_img_env.variables.CANASTA_ENABLE_CROWDSEC | default('false')) }}
-        _eff_tp: >-
-          {{ _config_value if _config_key == 'CADDY_TRUSTED_PROXIES'
-             else (_k8s_img_env.variables.CADDY_TRUSTED_PROXIES | default('')) }}
-        _crowdsec_on: "{{ _eff_crowdsec | lower == 'true' }}"
-        _tp_mode: "{{ _eff_tp | trim | lower }}"
-        _plugin_needed: "{{ _crowdsec_on or (_tp_mode in ['cloudflare', 'imperva']) }}"
-      ansible.builtin.set_fact:
-        _k8s_img_values: "{{ _k8s_img_values_raw.content | b64decode | from_yaml }}"
-        _k8s_current_caddy_image: "{{ (_k8s_img_values_raw.content | b64decode | from_yaml).get('caddy', {}).get('image', '') }}"
-        _k8s_desired_caddy_image: "{{ 'ghcr.io/canastawiki/canasta-caddy:2.11.3' if _plugin_needed else 'caddy:2.10.2-alpine' }}"
-
-    - name: Write reconciled caddy image to values.yaml
-      ansible.builtin.copy:
-        content: >-
-          {{ _k8s_img_values
-             | combine({'caddy': {'image': _k8s_desired_caddy_image}}, recursive=True)
-             | to_nice_yaml(indent=2) }}
-        dest: "{{ instance_path }}/values.yaml"
-        mode: "0644"
-      when:
-        - >-
-          _k8s_current_caddy_image == ''
-          or _k8s_current_caddy_image == 'caddy:2.10.2-alpine'
-          or _k8s_current_caddy_image.startswith('ghcr.io/canastawiki/canasta-caddy:')
-        - _k8s_current_caddy_image != _k8s_desired_caddy_image
+# CrowdSec enablement (crowdsec.enabled) and the caddy plugin image are
+# reconciled into values.yaml from .env at deploy time by the orchestrator
+# start path (roles/orchestrator/tasks/k8s_reconcile_caddy.yml), so the
+# config-set restart picks them up. CADDY_TRUSTED_PROXIES feeds that same
+# reconcile (cloudflare/imperva need the plugin image), so neither needs a
+# config-set-time values.yaml write here.
 
 # --- MW_SITE_SERVER domain change cascade ---
 # When the domain changes, update MW_SITE_FQDN, wikis.yaml URLs,
