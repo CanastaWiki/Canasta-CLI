@@ -15,6 +15,13 @@
     name: orchestrator
     tasks_from: stop.yml
 
+# Regenerate config before start so `canasta restart` picks up edits to
+# Caddyfile.global and wikis.yaml.
+- name: Regenerate config before start
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
 - name: Start containers
   ansible.builtin.include_role:
     name: orchestrator

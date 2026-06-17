@@ -34,6 +34,7 @@ from canasta_crowdsec import (  # noqa: E402
     canasta_crowdsec_status_bouncers,
     canasta_crowdsec_blocklist_breakdown,
 )
+from canasta_caddy import meld_caddy_global_blocks  # noqa: E402
 
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -184,9 +185,12 @@ class TestCaddyfileRendering:
         assert "api_key {env.CROWDSEC_BOUNCER_API_KEY}" in out
         # Faster-than-default streaming poll for quicker ban propagation.
         assert "ticker_interval 15s" in out
-        # Global block comes before the imported global file / site block.
+        # Caddyfile.global is now inlined + melded (not imported); the CLI
+        # global block must still precede the site block. Caddyfile.site
+        # stays a live import.
+        assert "import /etc/caddy/Caddyfile.global" not in out
         assert out.index("order crowdsec first") < out.index(
-            "import /etc/caddy/Caddyfile.global"
+            "import /etc/caddy/Caddyfile.site"
         )
 
     def test_crowdsec_per_site_directive_when_active(self):
@@ -217,6 +221,23 @@ class TestCaddyfileRendering:
             "staging + crowdsec must merge into a single global options "
             "block, got %d" % len(openers)
         )
+
+    def test_user_global_block_inlined_and_melded(self):
+        """A global options block in Caddyfile.global is inlined and melded
+        with the CLI global block — Caddy permits exactly one (#693)."""
+        user_global = "{\n    email admin@example.com\n}\n"
+        rendered = _render_caddyfile(
+            _crowdsec_active=True, _caddyfile_global_content=user_global
+        )
+        out = meld_caddy_global_blocks(rendered)
+        # Exactly one top-level global options opener after melding.
+        assert len(re.findall(r"(?m)^\{\s*$", out)) == 1
+        # Both CLI and user directives live inside it.
+        assert "order crowdsec first" in out
+        assert "email admin@example.com" in out
+        # Site block and its live import are preserved.
+        assert "import /etc/caddy/Caddyfile.site" in out
+        assert "example.com {" in out
 
     def test_key_optional_guard_documented_in_rewrite(self):
         """rewrite_caddy.yml must derive _crowdsec_active from BOTH the

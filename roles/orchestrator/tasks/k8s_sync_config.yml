@@ -6,7 +6,7 @@
 # ConfigMaps created:
 #   canasta-<id>-web-config     — wikis.yaml, .env, settings/*, composer.local.json
 #   canasta-<id>-env            — allowlisted runtime env vars parsed from .env
-#   canasta-<id>-caddy-config   — Caddyfile, Caddyfile.site, Caddyfile.global
+#   canasta-<id>-caddy-config   — Caddyfile, Caddyfile.site
 #   canasta-<id>-varnish-config — default.vcl
 #   canasta-<id>-db-config      — my.cnf
 
@@ -135,24 +135,16 @@
   register: _sync_optional_stats
   loop:
     - "{{ instance_path }}/config/Caddyfile.site"
-    - "{{ instance_path }}/config/Caddyfile.global"
 
 - name: Set optional file existence flags
   ansible.builtin.set_fact:
     _has_caddyfile_site: "{{ _sync_optional_stats.results[0].stat.exists }}"
-    _has_caddyfile_global: "{{ _sync_optional_stats.results[1].stat.exists }}"
 
 - name: Read Caddyfile.site
   ansible.builtin.slurp:
     src: "{{ instance_path }}/config/Caddyfile.site"
   register: _sync_caddyfile_site
   when: _has_caddyfile_site | bool
-
-- name: Read Caddyfile.global
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/config/Caddyfile.global"
-  register: _sync_caddyfile_global
-  when: _has_caddyfile_global | bool
 
 - name: Build caddy config data
   ansible.builtin.set_fact:
@@ -161,8 +153,6 @@
         {'Caddyfile': _sync_caddyfile.content | b64decode}
         | combine((_has_caddyfile_site | bool)
           | ternary({'Caddyfile.site': _sync_caddyfile_site.content | default('') | b64decode}, {}))
-        | combine((_has_caddyfile_global | bool)
-          | ternary({'Caddyfile.global': _sync_caddyfile_global.content | default('') | b64decode}, {}))
       }}
 
 # --- Varnish config ---
