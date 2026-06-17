@@ -15,14 +15,15 @@
     name: orchestrator
     tasks_from: stop.yml
 
-# Regenerate the Caddyfile so a plain `canasta restart` picks up edits to
+# Regenerate config before start so a plain `canasta restart` picks up edits to
 # Caddyfile.global (now inlined, not live-imported) and to wikis.yaml/domains.
-# Compose only: on k8s the Caddyfile is applied via helm on start.
-- name: Regenerate Caddyfile before start (Compose)
+# update_config is the orchestrator-level task and owns the compose-vs-k8s
+# difference (k8s applies via helm on start), so there's no orchestrator switch
+# here — the orchestrator decides.
+- name: Regenerate config before start
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: update_config.yml
-  when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Start containers
   ansible.builtin.include_role:
