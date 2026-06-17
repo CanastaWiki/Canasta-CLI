@@ -1,0 +1,33 @@
+---
+# Copy a file from the target host into a service container/pod.
+# Compose: docker compose cp. Kubernetes: kubectl cp into the running pod.
+# Input:
+#   instance_path, instance_orchestrator, instance_id
+#   copy_service - component/service to copy into (e.g. db)
+#   copy_src     - source path on the target host
+#   copy_dest    - destination path inside the container/pod
+
+- name: Copy file into container (Compose)
+  ansible.builtin.command:
+    cmd: >-
+      docker compose cp {{ copy_src | quote }}
+      {{ (copy_service + ':' + copy_dest) | quote }}
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Copy file into pod (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Get pod for copy target
+      ansible.builtin.include_tasks: k8s_get_pod.yml
+      vars:
+        _k8s_namespace: "canasta-{{ instance_id }}"
+        _k8s_component: "{{ copy_service }}"
+
+    - name: Copy file via kubectl cp
+      ansible.builtin.command:
+        cmd: >-
+          kubectl cp {{ copy_src }}
+          canasta-{{ instance_id }}/{{ _k8s_pod_name }}:{{ copy_dest }}
+      changed_when: true

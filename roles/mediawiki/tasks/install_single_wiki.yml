@@ -57,84 +57,30 @@
 - name: Extract MW_SECRET_KEY from first wiki
   when: _wiki_idx == 0
   block:
-    - name: Build extract command based on orchestrator
-      ansible.builtin.set_fact:
-        _extract_cmd: >-
-          docker compose exec -T web grep -oP
-          'wgSecretKey\s*=\s*"\K[0-9a-fA-F]+'
-          /tmp/canasta-install/LocalSettings.php
-        _extract_chdir: "{{ instance_path }}"
-      when: instance_orchestrator | default('compose') == 'compose'
-
-    - name: Get K8s pod for extraction
-      ansible.builtin.command:
-        cmd: >-
-          kubectl get pods
-          -n canasta-{{ instance_id }}
-          -l app.kubernetes.io/component=web
-          --field-selector=status.phase=Running
-          -o jsonpath={.items[0].metadata.name}
-      register: _k8s_pod
-      changed_when: false
-      when: >-
-        instance_orchestrator | default('compose')
-        in ['kubernetes', 'k8s']
-
-    - name: Fail if no running web pod found
-      ansible.builtin.fail:
-        msg: >-
-          No running web pod found in namespace canasta-{{ instance_id }}.
-          Check that the instance is started and the web pod is Ready.
-      when:
-        - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-        - _k8s_pod.stdout | default('') | trim == ''
-
-    - name: Build K8s extract command
-      ansible.builtin.set_fact:
-        _extract_cmd: >-
-          kubectl exec {{ _k8s_pod.stdout | trim }}
-          -n canasta-{{ instance_id }} --
-          grep -oP 'wgSecretKey\s*=\s*"\K[0-9a-fA-F]+'
-          /tmp/canasta-install/LocalSettings.php
-        _extract_chdir: null
-      when: >-
-        instance_orchestrator | default('compose')
-        in ['kubernetes', 'k8s']
-
+    # Exec in the web container/pod via the orchestrator's exec primitive,
+    # which dispatches Compose vs K8s (and resolves the running web pod).
     - name: Extract secret key from LocalSettings.php
-      ansible.builtin.command:
-        cmd: "{{ _extract_cmd }}"
-        chdir: "{{ _extract_chdir | default(omit) }}"
-      register: _secret_key_result
-      changed_when: false
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_no_log: true
+        exec_command: "grep -oP 'wgSecretKey\\s*=\\s*\"\\K[0-9a-fA-F]+' /tmp/canasta-install/LocalSettings.php"
 
     - name: Save MW_SECRET_KEY to .env
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: set
         key: MW_SECRET_KEY
-        value: "{{ _secret_key_result.stdout | trim }}"
+        value: "{{ exec_result.stdout | trim }}"
       no_log: true
 
-    - name: Delete LocalSettings.php (Compose)
-      ansible.builtin.command:
-        cmd: >-
-          docker compose exec -T web
-          rm -f /tmp/canasta-install/LocalSettings.php
-        chdir: "{{ instance_path }}"
-      changed_when: true
-      when: instance_orchestrator | default('compose') == 'compose'
-
-    - name: Delete LocalSettings.php (Kubernetes)
-      ansible.builtin.command:
-        cmd: >-
-          kubectl exec {{ _k8s_pod.stdout | default('') | trim }}
-          -n canasta-{{ instance_id }} --
-          rm -f /tmp/canasta-install/LocalSettings.php
-      changed_when: true
-      when: >-
-        instance_orchestrator | default('compose')
-        in ['kubernetes', 'k8s']
+    - name: Delete LocalSettings.php
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_command: "rm -f /tmp/canasta-install/LocalSettings.php"
 
 - name: Pause between wiki installations
   ansible.builtin.pause:
