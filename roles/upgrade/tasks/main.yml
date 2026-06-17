@@ -50,10 +50,10 @@
   loop_control:
     loop_var: _migration
 
-# --- MySQL to MariaDB migration (Compose only) ---
-- name: MySQL-to-MariaDB migration
-  ansible.builtin.include_tasks: migrations/mysql_to_mariadb.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+# --- DB migrations (orchestrator-specific; Compose runs MySQL->MariaDB) ---
+- name: Run orchestrator DB migrations
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/upgrade_db_migration.yml
 
 # --- Rebuild custom image if instance was built from source ---
 - name: Check for BuildFrom in registry
@@ -76,12 +76,9 @@
       vars:
         build_from: "{{ _upgrade_inst.instance.buildFrom }}"
 
-    - name: Push rebuilt image to registry (if K8s with build_from)
-      ansible.builtin.command:
-        cmd: "docker push {{ _built_image }}"
-      changed_when: true
-      when:
-        - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - name: Publish rebuilt image for the orchestrator
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/upgrade_publish_rebuilt_image.yml
 
 # --- Refresh config ---
 # Force-refresh the managed docker-compose.yml so compose changes (e.g. a
@@ -99,56 +96,11 @@
     name: orchestrator
     tasks_from: init_config.yml
 
-# --- Update K8s values.yaml image tag ---
-- name: Update Kubernetes image tag in values.yaml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-  block:
-    - name: Read current values.yaml
-      ansible.builtin.slurp:
-        src: "{{ instance_path }}/values.yaml"
-      register: _upgrade_values_raw
-
-    - name: Update image tag
-      ansible.builtin.set_fact:
-        _upgrade_values: "{{ _upgrade_values_raw.content | b64decode | from_yaml }}"
-
-    - name: Build updated values
-      ansible.builtin.set_fact:
-        _upgrade_new_values: >-
-          {{ _upgrade_values | combine({
-            'image': {
-              'repository': _upgrade_values.image.repository
-                | default('ghcr.io/canastawiki/canasta'),
-              'tag': canasta_default_image
-                | regex_replace('^[^:]+:', '')
-            }
-          }, recursive=True) }}
-
-    - name: Write updated values.yaml
-      ansible.builtin.copy:
-        content: "{{ _upgrade_new_values | to_nice_yaml }}"
-        dest: "{{ instance_path }}/values.yaml"
-        mode: "0644"
-
-# --- Update Compose CANASTA_IMAGE tag ---
-# Match Go CLI behavior: bump the tag if it's the default ghcr.io image,
-# leave it alone if user set a custom/local-build image.
-- name: Update Compose image tag
-  when:
-    - instance_orchestrator | default('compose') == 'compose'
-    - _upgrade_inst.instance.buildFrom | default('') == ''
-    # CANASTA_IMAGE was already read by the migration probe; reuse
-    # those values instead of re-reading .env.
-    - _mig.env_present.CANASTA_IMAGE
-    - _mig.env.CANASTA_IMAGE is match('^ghcr\\.io/canastawiki/canasta:')
-    - _mig.env.CANASTA_IMAGE != canasta_default_image
-  block:
-    - name: Update CANASTA_IMAGE to latest default tag
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: set
-        key: CANASTA_IMAGE
-        value: "{{ canasta_default_image }}"
+# --- Bump configured image tag (orchestrator-specific) ---
+# K8s updates values.yaml image.tag; Compose updates CANASTA_IMAGE in .env.
+- name: Update configured image tag
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/upgrade_image_tag.yml
 
 # --- Pull and restart ---
 - name: Report pulling images
@@ -166,117 +118,13 @@
   ansible.builtin.set_fact:
     _images_updated: "{{ _pull_changed | default(false) | bool }}"
 
-# Detect services that have a `build:` directive. The merged compose
-# config (main + override + dev) is what docker actually uses, so
-# query it directly rather than parsing the override file alone.
-# Covers operator overrides (custom Dockerfile) and devmode xdebug.
-- name: Enumerate buildable services from merged compose config (Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
-  block:
-    - name: Check for docker-compose.override.yml
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/docker-compose.override.yml"
-      register: _override_exists_upgrade
-
-    - name: Build compose file arguments
-      ansible.builtin.set_fact:
-        _upgrade_compose_files: >-
-          {{ ['-f', 'docker-compose.yml'] +
-             (_override_exists_upgrade.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
-             ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
-
-    - name: Render merged compose config as JSON
-      ansible.builtin.command:
-        cmd: "docker compose {{ _upgrade_compose_files | join(' ') }} config --format json"
-        chdir: "{{ instance_path }}"
-      register: _upgrade_compose_config
-      changed_when: false
-      failed_when: false
-
-    - name: Extract buildable service names
-      ansible.builtin.set_fact:
-        _buildable_services: >-
-          {{ ((_upgrade_compose_config.stdout | from_json).services
-              | default({})
-              | dict2items
-              | selectattr('value.build', 'defined')
-              | map(attribute='key')
-              | list) if (_upgrade_compose_config.rc | default(1)) == 0 else [] }}
-
-# Running-vs-configured check. Catches the case where pull skipped
-# the buildable web service (--ignore-buildable) but the configured
-# CANASTA_IMAGE is newer than what's running. Only meaningful when
-# at least one service has a build directive — otherwise the regular
-# pull-based detection is authoritative.
-- name: Check running container image vs configured (Compose)
-  when:
-    - instance_orchestrator | default('compose') == 'compose'
-    - (_buildable_services | default([]) | length) > 0
-    - not (_images_updated | bool)
-  block:
-    - name: Get running web container image ID
-      ansible.builtin.shell:
-        cmd: >-
-          docker compose ps web --format {% raw %}'{{.Image}}'{% endraw %}
-        chdir: "{{ instance_path }}"
-      register: _running_image
-      changed_when: false
-      ignore_errors: true
-
-    - name: Read configured CANASTA_IMAGE
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read
-        key: CANASTA_IMAGE
-      register: _configured_image
-
-    - name: Pull configured image if not on disk (handles buildable services skipped by docker compose pull)
-      ansible.builtin.command:
-        cmd: "docker pull {{ _configured_image.value }}"
-      register: _ensure_pull
-      changed_when: "'Downloaded newer image' in (_ensure_pull.stdout | default(''))"
-      ignore_errors: true
-      when: _configured_image.found
-
-    - name: Get configured image ID
-      ansible.builtin.command:
-        cmd: "docker image inspect {{ _configured_image.value }} --format {% raw %}{{.Id}}{% endraw %}"
-      register: _configured_id
-      changed_when: false
-      ignore_errors: true
-
-    - name: Get running image ID
-      ansible.builtin.command:
-        cmd: "docker image inspect {{ _running_image.stdout | trim }} --format {% raw %}{{.Id}}{% endraw %}"
-      register: _running_id
-      changed_when: false
-      ignore_errors: true
-      when: _running_image is succeeded
-
-    - name: Flag restart if running image differs from configured
-      ansible.builtin.set_fact:
-        _images_updated: true
-      when:
-        - _configured_id is succeeded
-        - _running_id is succeeded
-        - (_configured_id.stdout | default('')) != (_running_id.stdout | default(''))
-
-# Rebuild every service with a `build:` directive whenever any image
-# change is detected. This fires even when `_images_updated` was set
-# by the pull task (e.g., varnish/caddy updated) — the rebuild is
-# cheap thanks to Docker layer caching and avoids a stale buildable
-# image when other services updated.
-- name: Rebuild buildable services if image was bumped (Compose)
-  ansible.builtin.command:
-    cmd: "docker compose {{ _upgrade_compose_files | join(' ') }} build {{ item }}"
-    chdir: "{{ instance_path }}"
-  loop: "{{ _buildable_services | default([]) }}"
-  changed_when: true
-  ignore_errors: true
-  when:
-    - instance_orchestrator | default('compose') == 'compose'
-    - _images_updated | bool
-    - (_buildable_services | default([]) | length) > 0
+# --- Rebuild buildable services (orchestrator-specific; Compose only) ---
+# Compose detects services with a `build:` directive and rebuilds them
+# when an image change is detected; updates the shared _images_updated
+# fact. K8s builds + pushes custom images instead, so this is a no-op.
+- name: Rebuild buildable services if needed
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/upgrade_rebuild_buildable.yml
 
 # A compose-only change (e.g. gaining the crowdsec service) must also
 # trigger a recreate, not just an image bump.

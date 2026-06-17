@@ -10,13 +10,13 @@ import os
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-UPGRADE_MAIN = os.path.join(
-    REPO_ROOT, "roles", "upgrade", "tasks", "main.yml"
+REBUILD_TASKS = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "upgrade_rebuild_buildable.yml"
 )
 
 
 def _load_tasks():
-    with open(UPGRADE_MAIN) as f:
+    with open(REBUILD_TASKS) as f:
         return yaml.safe_load(f)
 
 
@@ -39,7 +39,7 @@ class TestDynamicBuildableServiceDetection:
         )
 
     def test_uses_merged_compose_config_json(self):
-        with open(UPGRADE_MAIN) as f:
+        with open(REBUILD_TASKS) as f:
             content = f.read()
         assert "config --format json" in content, (
             "Buildable-service detection must use `docker compose "
@@ -48,7 +48,7 @@ class TestDynamicBuildableServiceDetection:
         )
 
     def test_extract_uses_build_attribute(self):
-        with open(UPGRADE_MAIN) as f:
+        with open(REBUILD_TASKS) as f:
             content = f.read()
         assert "selectattr('value.build', 'defined')" in content, (
             "Must filter merged services by presence of a build: key"
