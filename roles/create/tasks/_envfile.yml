@@ -12,9 +12,15 @@
 - name: Merge custom env file if provided
   when: envfile is defined and envfile != ''
   block:
+    # envfile is a controller-side path (path_kind: local), so read it on
+    # the controller. Without delegation the slurp runs on the target host
+    # and looks for the controller's path on the remote filesystem.
     - name: Read custom env file
       ansible.builtin.slurp:
         src: "{{ envfile }}"
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
       register: _custom_env
 
     - name: Parse and apply custom env variables
