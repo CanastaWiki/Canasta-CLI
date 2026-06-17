@@ -124,7 +124,8 @@
         label: "{{ item.item }}"
 
     - name: Discover custom Docker build inputs for safety backup
-      ansible.builtin.include_tasks: discover_build_paths.yml
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/backup_discover_build_paths.yml
 
     - name: Add custom build inputs to safety staging
       ansible.builtin.set_fact:
@@ -172,7 +173,7 @@
 # The standard MediaWiki dirs are replaced wholesale (rm -rf then copy) so a
 # restore doesn't leave stale files behind. Everything else the snapshot holds
 # - .env, docker-compose.override.yml, my.cnf, and any custom build inputs
-# (Dockerfile, build context dirs) staged by discover_build_paths.yml - is
+# (Dockerfile, build context dirs) staged by backup_discover_build_paths.yml - is
 # copied back generically, so the restore round-trips whatever was captured.
 - name: Copy files from volume to host
   ansible.builtin.shell:
