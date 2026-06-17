@@ -15,11 +15,8 @@
     name: orchestrator
     tasks_from: stop.yml
 
-# Regenerate config before start so a plain `canasta restart` picks up edits to
-# Caddyfile.global (now inlined, not live-imported) and to wikis.yaml/domains.
-# update_config is the orchestrator-level task and owns the compose-vs-k8s
-# difference (k8s applies via helm on start), so there's no orchestrator switch
-# here — the orchestrator decides.
+# Regenerate config before start so `canasta restart` picks up edits to
+# Caddyfile.global and wikis.yaml.
 - name: Regenerate config before start
   ansible.builtin.include_role:
     name: orchestrator

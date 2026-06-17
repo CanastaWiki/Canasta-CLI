@@ -130,11 +130,9 @@
     _site_address: >-
       {{ _server_names | map('regex_replace', '^(.*)$', ((_http_only | bool) | ternary('http://\1', '\1'))) | join(', ') }}
 
-# The user-editable Caddyfile.global is inlined into the rendered Caddyfile
-# (rather than `import`ed) so its global options block — if any — can be melded
-# with the CLI-managed global block: Caddy permits exactly one. Caddyfile.site
-# stays a live `import` inside the site block, so editing it still takes effect
-# on a plain restart.
+# Caddyfile.global is inlined so its global options block (if any) can be melded
+# with the CLI-managed one — Caddy permits exactly one. Caddyfile.site is
+# imported live inside the site block.
 - name: Stat user Caddyfile.global
   ansible.builtin.stat:
     path: "{{ instance_path }}/config/Caddyfile.global"
