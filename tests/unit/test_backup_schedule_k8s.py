@@ -558,8 +558,8 @@ class TestOnDemandBackupCapturesDB:
     K8S_RUN_BACKUP = os.path.join(
         REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml",
     )
-    CREATE_YML = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "create.yml",
+    STAGE_DB_DUMPS = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "backup_stage_db_dumps.yml",
     )
 
     @staticmethod
@@ -666,11 +666,12 @@ class TestOnDemandBackupCapturesDB:
         )
 
     def test_create_dump_gated_on_compose(self):
-        """create.yml's mariadb-dump-via-kubectl-exec is a no-op on
-        K8s (the dump lands in the live web pod's emptyDir, invisible
-        to the restic Job). Must be gated on Compose so it doesn't
-        run uselessly on K8s."""
-        with open(self.CREATE_YML) as f:
+        """The mariadb-dump-via-kubectl-exec is a no-op on K8s (the
+        dump lands in the live web pod's emptyDir, invisible to the
+        restic Job). It lives in the orchestrator's
+        backup_stage_db_dumps.yml primitive and must be gated on
+        Compose so it doesn't run uselessly on K8s."""
+        with open(self.STAGE_DB_DUMPS) as f:
             tasks = yaml.safe_load(f)
         for task in self._walk(tasks):
             name = task.get("name", "")
@@ -678,14 +679,13 @@ class TestOnDemandBackupCapturesDB:
                 continue
             when = task.get("when", "")
             assert "compose" in str(when).lower(), (
-                "create.yml's 'Dump each wiki database' task must be "
-                "gated on the Compose orchestrator — running on K8s "
-                "writes to a transient emptyDir the restic Job can't "
-                "see (#513)"
+                "The 'Dump each wiki database' task must be gated on "
+                "the Compose orchestrator — running on K8s writes to a "
+                "transient emptyDir the restic Job can't see (#513)"
             )
             return
         raise AssertionError(
-            "create.yml has no 'Dump each wiki database' task"
+            "backup_stage_db_dumps.yml has no 'Dump each wiki database' task"
         )
 
 

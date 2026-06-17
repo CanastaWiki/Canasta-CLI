@@ -1,0 +1,16 @@
+---
+# Remove the backup staging directory after a snapshot.
+#
+# Compose-only work. The K8s path's dump-databases init container uses
+# an emptyDir that's torn down with the Job — nothing to clean up, so
+# this is a no-op on Kubernetes.
+#
+# Input: instance_path, instance_orchestrator
+
+- name: Clean up backup staging directory (Compose)
+  ansible.builtin.include_tasks: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "rm -rf /mediawiki/config/backup"
+  when: instance_orchestrator | default('compose') == 'compose'
+  ignore_errors: true  # OK if backup dir doesn't exist
