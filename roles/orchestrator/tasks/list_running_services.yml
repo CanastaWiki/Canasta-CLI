@@ -1,0 +1,29 @@
+---
+# List the running service/component names for an instance.
+# Compose: docker compose service names. K8s: pod component labels.
+# Input: instance_path, instance_id, instance_orchestrator
+# Output: _running_services (newline-separated names, may be empty)
+
+- name: Get service list (Compose)
+  ansible.builtin.command:
+    cmd: "docker compose ps --services --filter status=running"
+    chdir: "{{ instance_path }}"
+  register: _list_services_compose
+  changed_when: false
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Get service list (Kubernetes)
+  ansible.builtin.command:
+    cmd: >-
+      kubectl get pods -n canasta-{{ instance_id }}
+      -o jsonpath='{range .items[*]}{.metadata.labels.app\.kubernetes\.io/component}{"\n"}{end}'
+  register: _list_services_k8s
+  changed_when: false
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+- name: Set running services output
+  ansible.builtin.set_fact:
+    _running_services: >-
+      {{ (_list_services_compose.stdout | default(''))
+         if (instance_orchestrator | default('compose')) == 'compose'
+         else (_list_services_k8s.stdout | default('')) }}
