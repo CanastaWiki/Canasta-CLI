@@ -156,3 +156,21 @@ class TestMeld:
         )
         assert "# header" in out
         assert _count_global_blocks(out) == 1
+
+    def test_crlf_normalized_no_spurious_blank(self):
+        out = meld_caddy_global_blocks(
+            "{\r\n    debug\r\n}\r\nexample.com {\r\n    reverse_proxy x\r\n}\r\n"
+        )
+        assert "\r" not in out
+        assert _count_global_blocks(out) == 1
+        # no spurious blank line right after the merged opener
+        assert "{\n\n" not in out
+
+    def test_jinja_braces_passed_through(self):
+        # The melder is pure string work — a user's literal {{ … }} survives;
+        # render-time safety is the `| ansible.builtin.unsafe` in rewrite_caddy.
+        out = meld_caddy_global_blocks(
+            '{\n    debug\n}\nexample.com {\n    respond "{{ not_evaluated }}"\n}\n'
+        )
+        assert "{{ not_evaluated }}" in out
+        assert _count_global_blocks(out) == 1

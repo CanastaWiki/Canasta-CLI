@@ -85,10 +85,6 @@ spec:
               mountPath: /etc/caddy/Caddyfile.site
               subPath: Caddyfile.site
               readOnly: true
-            - name: caddy-config
-              mountPath: /etc/caddy/Caddyfile.global
-              subPath: Caddyfile.global
-              readOnly: true
             - name: caddy-data
               mountPath: /data
             {{- if .Values.crowdsec.enabled }}

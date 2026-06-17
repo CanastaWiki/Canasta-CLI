@@ -156,6 +156,7 @@ def meld_caddy_global_blocks(text):
     """Meld all top-level global options blocks into a single leading block."""
     if not isinstance(text, str):
         text = "" if text is None else str(text)
+    text = text.replace("\r\n", "\n")
 
     blocks, inter = _parse_top_level(text)
     global_bodies = [b["body"] for b in blocks if b["is_global"]]
