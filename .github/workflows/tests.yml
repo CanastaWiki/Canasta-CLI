@@ -234,6 +234,57 @@ jobs:
           k8s-lifecycle
         timeout-minutes: 20
 
+  # Separate job (own runner) so the CrowdSec enable — which drives several
+  # Helm rollouts — gets a fresh, unloaded node and its own time budget rather
+  # than serializing behind k8s-lifecycle on a shared 2-CPU runner.
+  integration-k8s-crowdsec:
+    name: "Integration: Kubernetes CrowdSec"
+    if: github.event_name != 'pull_request'  # See #67
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-crypt
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.20.1
+      - name: Install k3s
+        run: |
+          curl -sfL https://get.k3s.io | sudo sh -
+          mkdir -p ~/.kube
+          sudo k3s kubectl config view --raw > ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl cluster-info
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      - name: Run K8s CrowdSec test
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          k8s-crowdsec
+        timeout-minutes: 35
+
   remote-integration:
     name: Remote Host Integration Tests
     if: github.event_name != 'pull_request'  # See #67
