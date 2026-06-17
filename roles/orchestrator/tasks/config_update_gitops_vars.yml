@@ -1,0 +1,12 @@
+---
+# Propagate config-set changes into gitops vars for this orchestrator.
+# Compose: update vars.yaml (the compose-gitops source of truth) so the
+# change survives the next gitops pull. Kubernetes: no-op — K8s gitops
+# uses a different layout (values.template.yaml), not vars.yaml.
+# Input: instance_path, instance_orchestrator, _config_settings,
+#        _config_gitops_stat
+
+- name: Update gitops vars for changed keys (Compose)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/config/tasks/_update_gitops_vars.yml
+  when: instance_orchestrator | default('compose') == 'compose'

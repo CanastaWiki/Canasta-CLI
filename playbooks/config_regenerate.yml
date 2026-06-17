@@ -19,13 +19,12 @@
     path: "{{ instance_path }}/.gitops-host"
   register: _regen_gitops_stat
 
+# The orchestrator owns the compose-vs-K8s decision (K8s gitops uses a
+# different layout); dispatch.
 - name: Re-render gitops templates
-  ansible.builtin.include_role:
-    name: gitops
-    tasks_from: render_compose.yml
-  when:
-    - _regen_gitops_stat.stat.exists | default(false)
-    - instance_orchestrator | default('compose') == 'compose'
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/render_gitops_config.yml
+  when: _regen_gitops_stat.stat.exists | default(false)
 
 - name: Regenerate orchestrator config (e.g. Caddyfile)
   ansible.builtin.include_role:
