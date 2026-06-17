@@ -1,0 +1,58 @@
+---
+# Bump the instance's configured image to the new default for the
+# orchestrator. Kubernetes: update values.yaml image.tag. Compose:
+# update CANASTA_IMAGE in .env (only when it's the default ghcr.io
+# image and not a custom/local build).
+# Input: instance_path, instance_orchestrator, canasta_default_image,
+#        _upgrade_inst, _mig
+
+# --- Update K8s values.yaml image tag ---
+- name: Update Kubernetes image tag in values.yaml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Read current values.yaml
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/values.yaml"
+      register: _upgrade_values_raw
+
+    - name: Update image tag
+      ansible.builtin.set_fact:
+        _upgrade_values: "{{ _upgrade_values_raw.content | b64decode | from_yaml }}"
+
+    - name: Build updated values
+      ansible.builtin.set_fact:
+        _upgrade_new_values: >-
+          {{ _upgrade_values | combine({
+            'image': {
+              'repository': _upgrade_values.image.repository
+                | default('ghcr.io/canastawiki/canasta'),
+              'tag': canasta_default_image
+                | regex_replace('^[^:]+:', '')
+            }
+          }, recursive=True) }}
+
+    - name: Write updated values.yaml
+      ansible.builtin.copy:
+        content: "{{ _upgrade_new_values | to_nice_yaml }}"
+        dest: "{{ instance_path }}/values.yaml"
+        mode: "0644"
+
+# --- Update Compose CANASTA_IMAGE tag ---
+# Match Go CLI behavior: bump the tag if it's the default ghcr.io image,
+# leave it alone if user set a custom/local-build image.
+- name: Update Compose image tag
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - _upgrade_inst.instance.buildFrom | default('') == ''
+    # CANASTA_IMAGE was already read by the migration probe; reuse
+    # those values instead of re-reading .env.
+    - _mig.env_present.CANASTA_IMAGE
+    - _mig.env.CANASTA_IMAGE is match('^ghcr\\.io/canastawiki/canasta:')
+    - _mig.env.CANASTA_IMAGE != canasta_default_image
+  block:
+    - name: Update CANASTA_IMAGE to latest default tag
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: CANASTA_IMAGE
+        value: "{{ canasta_default_image }}"
