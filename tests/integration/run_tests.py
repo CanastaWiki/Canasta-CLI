@@ -2355,10 +2355,169 @@ def test_crowdsec(inst):
     )
 
 
+def _k8s_caddy_ready(inst, timeout=300):
+    """Wait until the caddy pod is Running with BOTH containers ready
+    (caddy + the crowdsec sidecar, i.e. 2/2). If caddy were left on the
+    stock image (#681) it would crashloop on the crowdsec Caddyfile
+    directive and never reach ready, so this doubles as that regression
+    guard."""
+    ns = "canasta-%s" % inst.id
+    deadline = time.time() + timeout
+    last = ""
+    print("  Waiting for caddy + crowdsec sidecar to be ready...", flush=True)
+    while time.time() < deadline:
+        result = subprocess.run(
+            ["kubectl", "get", "pods", "-n", ns,
+             "-l", "app.kubernetes.io/component=caddy",
+             "--field-selector=status.phase=Running",
+             "-o", "jsonpath={range .items[0].status.containerStatuses[*]}"
+             "{.name}={.ready} {end}"],
+            capture_output=True, text=True,
+        )
+        last = result.stdout.strip()
+        if "caddy=true" in last and "crowdsec=true" in last:
+            print("  caddy + crowdsec sidecar are ready (2/2)")
+            return
+        time.sleep(5)
+    raise AssertionError(
+        "caddy + crowdsec sidecar not ready within %ds (last: %s)"
+        % (timeout, last)
+    )
+
+
+def _k8s_caddy_image(inst):
+    """Return the image of the caddy container in the caddy deployment."""
+    ns = "canasta-%s" % inst.id
+    result = subprocess.run(
+        ["kubectl", "get", "deploy", "canasta-%s-caddy" % inst.id, "-n", ns,
+         "-o", "jsonpath={.spec.template.spec.containers[?(@.name=='caddy')]"
+         ".image}"],
+        capture_output=True, text=True,
+    )
+    return result.stdout.strip()
+
+
+def _wait_bouncer_active(inst, timeout=120):
+    """Poll `crowdsec status` until the canasta-caddy bouncer shows active.
+    The caddy bouncer's first LAPI pull (which flips it to 'active') can lag a
+    few seconds after a restart, so assert with a wait rather than once."""
+    deadline = time.time() + timeout
+    out = ""
+    while time.time() < deadline:
+        out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+        for line in out.splitlines():
+            if "canasta-caddy" in line and "active" in line:
+                return out
+        time.sleep(5)
+    raise AssertionError(
+        "bouncer canasta-caddy never became active within %ds:\n%s"
+        % (timeout, out)
+    )
+
+
+def test_k8s_crowdsec(inst):
+    """Kubernetes: enable CrowdSec on a live cluster and exercise the whole
+    command surface (#683). This is the coverage gap that let two blockers
+    reach main — #677 (unquoted preflight jsonpath broke every K8s crowdsec
+    command) and #681 (caddy stuck on the stock image -> crashloop) — because
+    the K8s integration job never *enabled* CrowdSec. Unit tests assert file
+    content, not runtime; only an enable-on-a-real-cluster test catches this.
+
+    The live 'banned IP gets a 403' assertion is intentionally omitted: in the
+    CI cluster the client IP Caddy sees is environment-dependent (same reasoning
+    as the Compose test_crowdsec). This pins the deterministic behavior: the
+    sidecar comes up on the plugin image, every command exits clean, and
+    ban/unban decisions plumb through the LAPI."""
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+
+    print("Creating Kubernetes instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "--orchestrator", "kubernetes",
+        "--skip-argocd-install",
+    )
+
+    print("Enabling CrowdSec via config set (restarts + auto-enrolls)...")
+    inst.run_ok("config", "set", "-i", inst.id, "CANASTA_ENABLE_CROWDSEC=true")
+
+    # #681: the caddy deployment must switch to the plugin image and the pod
+    # must reach 2/2 (caddy + crowdsec sidecar). Stock image -> crashloop.
+    _k8s_caddy_ready(inst)
+    image = _k8s_caddy_image(inst)
+    assert image == "ghcr.io/canastawiki/canasta-caddy:2.11.3", (
+        "caddy must run the plugin image when CrowdSec is on, got: %r" % image
+    )
+
+    # The reconcile must record both knobs in values.yaml.
+    import yaml as _yaml
+    with open(os.path.join(inst.instance_path(), "values.yaml")) as f:
+        values = _yaml.safe_load(f)
+    assert values.get("crowdsec", {}).get("enabled") is True, (
+        "values.yaml crowdsec.enabled must be true, got: %s"
+        % values.get("crowdsec")
+    )
+
+    # #677: every K8s crowdsec command must exec cleanly into the sidecar.
+    # run_quiet raises on a non-zero exit, so these calls ARE the assertion.
+    print("Exercising the crowdsec command surface...")
+    out = _wait_bouncer_active(inst)
+    assert "registered" in out, "status should show CAPI registered"
+
+    inst.run_quiet("crowdsec", "scenarios", "-i", inst.id)
+    inst.run_quiet("crowdsec", "alerts", "-i", inst.id)
+    inst.run_quiet("crowdsec", "metrics", "-i", inst.id)
+
+    # 203.0.113.0/24 is TEST-NET-3 (documentation range) — safe to ban.
+    print("Banning a test IP and verifying the decision appears...")
+    inst.run_ok("crowdsec", "ban", "203.0.113.7", "-i", inst.id)
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "203.0.113.7" in out, "banned IP should appear in decisions"
+
+    print("Unbanning and verifying the decision is gone...")
+    inst.run_ok("crowdsec", "unban", "203.0.113.7", "-i", inst.id)
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "203.0.113.7" not in out, "unbanned IP should be gone from decisions"
+
+    # reload / reload --purge-blocklists bounce the engine; on K8s the Recreate
+    # rollout renames the caddy pod, so this also exercises the post-restart
+    # cscli prefix re-resolve.
+    print("Reloading the engine...")
+    inst.run_ok("crowdsec", "reload", "-i", inst.id)
+    _k8s_caddy_ready(inst)
+    print("Reloading with --purge-blocklists...")
+    inst.run_ok("crowdsec", "reload", "--purge-blocklists", "-i", inst.id)
+    _k8s_caddy_ready(inst)
+
+    # Force re-enroll: revokes + re-issues the bouncer key and restarts.
+    print("Re-enrolling the bouncer with --force...")
+    inst.run_ok("crowdsec", "bouncer-enroll", "--force", "-i", inst.id)
+    _k8s_caddy_ready(inst)
+    _wait_bouncer_active(inst)
+
+    print("Deleting instance...")
+    inst.run_ok("delete", "-i", inst.id, "--yes")
+    for _ in range(12):
+        result = subprocess.run(
+            ["kubectl", "get", "namespace", "canasta-%s" % inst.id],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            break
+        time.sleep(5)
+    assert result.returncode != 0, "Namespace still exists after delete"
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
     "k8s-lifecycle": test_k8s_lifecycle,
+    "k8s-crowdsec": test_k8s_crowdsec,
     "lifecycle": test_lifecycle,
     "import": test_import_export,
     "upgrade": test_upgrade,

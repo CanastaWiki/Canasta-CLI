@@ -190,7 +190,7 @@ jobs:
     name: "Integration: Kubernetes"
     if: github.event_name != 'pull_request'  # See #67
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -232,7 +232,8 @@ jobs:
         run: >-
           .venv/bin/python tests/integration/run_tests.py
           k8s-lifecycle
-        timeout-minutes: 20
+          k8s-crowdsec
+        timeout-minutes: 35
 
   remote-integration:
     name: Remote Host Integration Tests
