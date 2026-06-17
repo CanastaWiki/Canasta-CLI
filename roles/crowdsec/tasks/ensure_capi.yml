@@ -27,16 +27,49 @@
           Registering the CrowdSec engine with the Central API so the
           community blocklist is active...
 
-    # cscli writes the credentials to stdout; redirect them into the
-    # credentials file. no_log so they never reach Ansible output.
-    - name: Register CAPI and write the credentials file
-      ansible.builtin.command:
-        cmd: >-
-          {{ _cscli_prefix }}
-          sh -c 'cscli capi register > /etc/crowdsec/online_api_credentials.yaml'
-        chdir: "{{ _cscli_chdir | default(omit) }}"
-      changed_when: true
-      no_log: true
+    # cscli capi register reaches CrowdSec's Central API over the
+    # network. Tolerate a transient outage: retry a few times, and if it
+    # still fails, fall through to the rescue rather than aborting the
+    # whole create. CAPI registration only enables the community
+    # blocklist — the instance is fully functional without it, and this
+    # task is idempotent (guarded by `cscli capi status`), so the next
+    # start/restart re-attempts it.
+    - name: Register CAPI (retry, tolerating a sustained outage)
+      block:
+        # cscli writes the credentials to stdout. Write to a temp file
+        # and only move it into place on success, so a failed attempt
+        # never leaves an empty/corrupt online_api_credentials.yaml.
+        # no_log so the credentials never reach Ansible output.
+        - name: Register CAPI and write the credentials file
+          ansible.builtin.command:
+            cmd: >-
+              {{ _cscli_prefix }}
+              sh -c 'cscli capi register
+              > /etc/crowdsec/online_api_credentials.yaml.tmp
+              && mv /etc/crowdsec/online_api_credentials.yaml.tmp
+              /etc/crowdsec/online_api_credentials.yaml'
+            chdir: "{{ _cscli_chdir | default(omit) }}"
+          register: _crowdsec_capi_register
+          changed_when: _crowdsec_capi_register.rc == 0
+          retries: 3
+          delay: 5
+          until: _crowdsec_capi_register.rc == 0
+          no_log: true
 
-    - name: Restart the engine so it loads the CAPI credentials
-      ansible.builtin.include_tasks: _restart_engine.yml
+        - name: Restart the engine so it loads the CAPI credentials
+          ansible.builtin.include_tasks: _restart_engine.yml
+      rescue:
+        - name: Warn that CAPI registration did not succeed
+          ansible.builtin.debug:
+            msg: >-
+              CrowdSec Central API registration did not succeed — the CAPI
+              service may be temporarily unavailable. Continuing without
+              the community blocklist; it will be retried on the next
+              start (or run 'canasta restart' to re-attempt).
+
+        - name: Remove leftover temp credentials file
+          ansible.builtin.command:
+            cmd: "{{ _cscli_prefix }} rm -f /etc/crowdsec/online_api_credentials.yaml.tmp"
+            chdir: "{{ _cscli_chdir | default(omit) }}"
+          changed_when: false
+          failed_when: false
