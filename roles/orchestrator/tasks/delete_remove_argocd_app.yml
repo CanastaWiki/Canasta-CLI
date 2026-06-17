@@ -1,0 +1,17 @@
+---
+# Remove the instance's Argo CD Application before teardown so it can't
+# re-sync and recreate what destroy removes. Kubernetes-only; skipped on
+# Compose and when the cluster API is unreachable.
+# Input: instance_id, instance_orchestrator, _k8s_api_reachable, argocd_namespace
+
+- name: Remove Argo CD Application if present
+  kubernetes.core.k8s:
+    state: absent
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: "canasta-{{ instance_id }}"
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  ignore_errors: true  # OK if Argo CD not installed
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - _k8s_api_reachable | default(true)

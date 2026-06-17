@@ -1,0 +1,44 @@
+---
+# Probe orchestrator API reachability for delete and record
+# _k8s_api_reachable.
+#
+# For registered K8s instances, the host can be reachable via SSH but
+# the cluster API behind it can be gone (operator ran `canasta uninstall
+# k8s` while instances were still registered, or k3s crashed). Without
+# this probe, the play falls through to helm/kubectl cleanup tasks that
+# emit ugly `Connection refused` errors for every cluster-side step. We
+# probe up front and gate the K8s cleanup on the result. No-op on
+# Compose (consumers read _k8s_api_reachable with default(true)).
+#
+# Input: instance_orchestrator, instance_id, _instance_host, _delete_query
+# Output: _k8s_api_reachable
+
+- name: Probe K8s API reachability
+  ansible.builtin.command:
+    cmd: kubectl version --request-timeout=5s
+  register: _k8s_reachable
+  changed_when: false
+  ignore_errors: true
+  when:
+    - _delete_query is succeeded
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+- name: Set K8s reachability fact
+  ansible.builtin.set_fact:
+    _k8s_api_reachable: >-
+      {{ (_k8s_reachable.rc | default(1)) == 0 }}
+  when:
+    - _delete_query is succeeded
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+- name: Warn when K8s API is unreachable
+  ansible.builtin.debug:
+    msg: >-
+      K8s API unreachable on host '{{ _instance_host }}' — the cluster
+      appears to be uninstalled or down. Deregistering
+      '{{ instance_id }}' from the registry; skipping cluster-side
+      cleanup (Argo CD Application, helm release, namespace).
+  when:
+    - _delete_query is succeeded
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - not _k8s_api_reachable
