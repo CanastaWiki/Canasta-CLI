@@ -16,6 +16,18 @@
 
 import re
 
+try:
+    from ansible.utils.unsafe_proxy import wrap_var
+except ImportError:  # pragma: no cover - unexpected on supported ansible-core
+    def wrap_var(value):
+        return value
+
+
+def caddy_unsafe(value):
+    """Mark a string unsafe so a literal {{ … }} in the user's Caddyfile.global
+    is never re-evaluated as a template when inlined into the Caddyfile."""
+    return wrap_var(value)
+
 
 def _skip_string(text, i, quote):
     """text[i] == quote (`"` or backtick). Return index just past the close."""
@@ -179,4 +191,7 @@ def meld_caddy_global_blocks(text):
 
 class FilterModule(object):
     def filters(self):
-        return {"meld_caddy_global_blocks": meld_caddy_global_blocks}
+        return {
+            "meld_caddy_global_blocks": meld_caddy_global_blocks,
+            "caddy_unsafe": caddy_unsafe,
+        }
