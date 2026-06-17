@@ -34,6 +34,9 @@
     - wikis.yaml.template
     - hosts
 
+# Intrinsically K8s: removes the K8s-only gitops files (Chart.yaml,
+# values.template.yaml, argocd, ...) that Compose instances never have.
+# Kept in place per #696 (no Compose-equivalent cleanup to dispatch to).
 - name: Reinit cleanup — Kubernetes-only gitops files
   ansible.builtin.file:
     path: "{{ instance_path }}/{{ item }}"
