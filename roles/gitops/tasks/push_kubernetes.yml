@@ -73,7 +73,7 @@
   block:
     - name: Commit changes
       ansible.builtin.command:
-        cmd: "git commit -m 'Configuration update'"
+        cmd: "git -c commit.gpgsign=false commit -m 'Configuration update'"
         chdir: "{{ instance_path }}"
       changed_when: true
 

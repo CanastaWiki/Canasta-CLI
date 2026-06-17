@@ -23,6 +23,13 @@
     _staging_certs: "{{ _env_caddy.variables.CANASTA_STAGING_CERTS | default('false') | lower == 'true' }}"
     _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
     _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') }}"
+    _is_k8s: "{{ instance_orchestrator | default('compose') in ['kubernetes', 'k8s'] }}"
+    # CrowdSec enabled (engine runs) vs. active (bouncer enforces). The
+    # engine parses the access log as soon as it's enabled, so the K8s
+    # real-client-IP trusted-proxy handling keys off _crowdsec_enabled —
+    # the engine must see the true attacker IP even before a bouncer key
+    # exists. Enforcement (the crowdsec directive) still waits for the key.
+    _crowdsec_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
     # CrowdSec is only "active" (directive rendered) when the feature is
     # enabled AND a bouncer API key is present. Enabling the flag without
     # a key leaves Caddy in a clean degraded state — the bouncer image
@@ -62,20 +69,44 @@
 - name: Determine trusted-proxy mode
   ansible.builtin.set_fact:
     _tp_raw: "{{ _env_caddy.variables.CADDY_TRUSTED_PROXIES | default('') | trim }}"
+    # On K8s Caddy always sits behind the in-cluster ingress, so it must
+    # trust the cluster's pod/service CIDRs to recover the real client IP
+    # from X-Forwarded-For. Default to the standard private ranges — safe
+    # because Caddy is ClusterIP-only and not reachable directly; operator
+    # override via CADDY_TRUSTED_PROXY_CIDRS. Empty on Compose.
+    _k8s_trusted_cidrs: >-
+      {{ ((_env_caddy.variables.CADDY_TRUSTED_PROXY_CIDRS
+           | default('10.0.0.0/8,172.16.0.0/12,192.168.0.0/16'))
+          | split(',') | map('trim') | reject('equalto', '') | list)
+         if (_is_k8s | bool) else [] }}
 
 - name: Normalize trusted-proxy mode
   ansible.builtin.set_fact:
     _tp_mode: "{{ _tp_raw | lower }}"
-    _trusted_proxies_enabled: "{{ (_tp_raw | length) > 0 }}"
+    # Activate trusted-proxy handling when the operator sets
+    # CADDY_TRUSTED_PROXIES, or — on K8s — whenever CrowdSec is enabled, so
+    # the engine attributes decisions to the real client IP instead of the
+    # ingress pod IP (true even before the bouncer is enrolled).
+    _trusted_proxies_enabled: >-
+      {{ (_tp_raw | length) > 0 or (_is_k8s | bool and _crowdsec_enabled | bool) }}
 
 - name: Resolve trusted-proxy rendering parameters
   ansible.builtin.set_fact:
     # cloudflare/imperva -> dynamic cdn_ranges source (needs the plugin
     # image); anything else -> built-in static source on stock Caddy.
     _tp_dynamic: "{{ _tp_mode in ['cloudflare', 'imperva'] }}"
+    # On K8s the CDN is NOT Caddy's immediate peer (the ingress is), so a
+    # provider mode must COMBINE the cluster CIDRs with the CDN ranges via
+    # caddy-combine-ip-ranges. On Compose Caddy is the edge, so cdn_ranges
+    # stands alone.
+    _tp_combine: "{{ (_is_k8s | bool) and _tp_mode in ['cloudflare', 'imperva'] }}"
+    # Static CIDR list = cluster CIDRs (K8s) + the operator's explicit list
+    # (non-provider modes only). Provider modes contribute no static CIDRs
+    # of their own; their ranges come from the cdn_ranges source.
     _trusted_proxies_cidrs: >-
-      {{ [] if _tp_mode in ['cloudflare', 'imperva']
-         else (_tp_raw | split(',') | map('trim') | reject('equalto', '') | list) }}
+      {{ _k8s_trusted_cidrs
+         + ([] if _tp_mode in ['cloudflare', 'imperva']
+            else (_tp_raw | split(',') | map('trim') | reject('equalto', '') | list)) }}
     _trusted_proxies_headers: >-
       {{ 'Cf-Connecting-Ip' if _tp_mode == 'cloudflare'
          else 'Incap-Client-IP' if _tp_mode == 'imperva'
@@ -99,19 +130,39 @@
     _site_address: >-
       {{ _server_names | map('regex_replace', '^(.*)$', ((_http_only | bool) | ternary('http://\1', '\1'))) | join(', ') }}
 
-- name: Write Caddyfile from template
-  ansible.builtin.template:
-    src: "{{ canasta_root }}/roles/orchestrator/templates/Caddyfile.j2"
+# Caddyfile.global is inlined so its global options block (if any) can be melded
+# with the CLI-managed one — Caddy permits exactly one. Caddyfile.site is
+# imported live inside the site block.
+- name: Stat user Caddyfile.global
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/Caddyfile.global"
+  register: _caddy_global_stat
+
+- name: Read user Caddyfile.global
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/Caddyfile.global"
+  register: _caddy_global_raw
+  when: _caddy_global_stat.stat.exists | default(false)
+
+- name: Resolve inlined user global content
+  ansible.builtin.set_fact:
+    # caddy_unsafe: the content is inlined into the template via
+    # lookup('template'), so a literal {{ … }} in the user's file must not be
+    # re-evaluated.
+    _caddyfile_global_content: "{{ _caddy_global_raw.content | default('') | b64decode | caddy_unsafe }}"
+
+# Render the template (CLI global block + inlined Caddyfile.global, which may
+# leave two global blocks) and meld them into one on the way out.
+- name: Write Caddyfile (rendered + global blocks melded)
+  ansible.builtin.copy:
+    content: >-
+      {{ lookup('template',
+                canasta_root + '/roles/orchestrator/templates/Caddyfile.j2')
+         | meld_caddy_global_blocks }}
     dest: "{{ instance_path }}/config/Caddyfile"
     mode: "0644"
-    # The Canasta web container's run-all.sh rsyncs $MW_ORIGIN_FILES
-    # over the bind-mounted instance_path with --chown=www-data:www-data,
-    # which leaves the host's config/ directory not writable by the
-    # host runner user (only the existing Caddyfile is). Ansible's
-    # default atomic write needs to create a temp file in the parent
-    # directory and would fail with "Destination ... not writable".
-    # unsafe_writes lets Ansible fall back to a direct overwrite of
-    # the existing Caddyfile, which the runner *can* do because it
-    # owns the file itself. The atomicity loss is fine — we're not
-    # racing any other writer here.
+    # run-all.sh rsyncs origin files over the bind-mounted instance_path with
+    # --chown=www-data, leaving config/ not writable by the runner (only the
+    # existing Caddyfile is). unsafe_writes overwrites in place instead of via a
+    # temp file in the parent dir. No concurrent writer here.
     unsafe_writes: true

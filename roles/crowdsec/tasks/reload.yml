@@ -3,19 +3,76 @@
 # changes (accepted console enrollment, whitelist edits) without bouncing the
 # rest of the instance. Blocklists arrive on CrowdSec's own ~2h pull cycle,
 # which a restart does not force.
-# Input: id (optional)
+#
+# --purge-blocklist <name> / --purge-blocklists drop the console-blocklist
+# decisions (origin=lists) the engine has cached locally. After you unsubscribe
+# a list (or delete the engine) in the Console, the engine keeps enforcing the
+# IPs it already pulled — they stay in the local decision DB and the bouncer
+# keeps blocking them; it just stops getting updates (a free-tier engine gets
+# no reconcile, since that is a paid PAPI order). That frozen snapshot is
+# usually fine to leave; purge only when you want to STOP blocking those IPs.
+# The delete touches only the local DB — the Console subscription is untouched,
+# so lists you are still subscribed to refill on the next pull cycle.
+# Input: id (optional), purge_blocklist (str), purge_blocklists (bool)
 
-- name: Preflight (resolve, Compose-only, crowdsec running)
+- name: Reject conflicting purge options
+  ansible.builtin.fail:
+    msg: >-
+      Pass either --purge-blocklist <name> (one list) or --purge-blocklists
+      (all), not both.
+  when:
+    - purge_blocklists | default(false) | bool
+    - purge_blocklist is defined and (purge_blocklist | string | length) > 0
+
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
   ansible.builtin.include_tasks: _preflight.yml
 
 - name: Restart the CrowdSec engine
-  ansible.builtin.command:
-    cmd: "docker compose restart crowdsec"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+  ansible.builtin.include_tasks: _restart_engine.yml
 
+# --origin lists scopes the delete to console blocklists (never manual bans or
+# the CAPI community list); --scenario narrows it to one list by the name shown
+# under "Console blocklists in effect" in status. argv (not a shell string) so a
+# user-supplied list name needs no quoting and is not word-split.
+- name: Purge cached console-blocklist decisions
+  when: >-
+    (purge_blocklists | default(false) | bool)
+    or (purge_blocklist is defined and (purge_blocklist | string | length) > 0)
+  block:
+    # The restart above rolled the engine. On K8s that recreates the caddy pod
+    # under a new name (Recreate strategy), so the cscli prefix built in
+    # preflight now points at a pod that no longer exists; rebuild it against
+    # the fresh pod before exec-ing the purge. No-op on Compose — the crowdsec
+    # service name is stable across a restart.
+    - name: Rebuild the cscli prefix after the restart
+      ansible.builtin.include_tasks: _resolve_cscli.yml
+
+    - name: Delete the decisions
+      ansible.builtin.command:
+        argv: >-
+          {{ _cscli_argv + ['cscli', 'decisions', 'delete', '--origin', 'lists']
+             + (['--scenario', purge_blocklist | string]
+                if (purge_blocklist is defined and (purge_blocklist | string | length) > 0)
+                else []) }}
+        chdir: "{{ _cscli_chdir | default(omit) }}"
+      changed_when: true
+
+    - name: Note what was purged
+      ansible.builtin.set_fact:
+        _crowdsec_purge_line: >-
+          Purged {{ ("console blocklist '" ~ purge_blocklist ~ "'")
+          if (purge_blocklist is defined and (purge_blocklist | string | length) > 0)
+          else 'all console blocklists' }} from the local engine;
+          lists you are still subscribed to refill on the next pull cycle.
+
+# On Compose only the crowdsec service bounces, so Caddy keeps enforcing
+# cached decisions throughout. On K8s the engine is a sidecar in the caddy
+# pod, so the whole pod rolls and Caddy blips briefly during the restart.
 - name: Report
   ansible.builtin.debug:
     msg: >-
-      Reloaded the CrowdSec engine for instance '{{ instance_id }}'. The
-      Caddy bouncer keeps enforcing cached decisions during the restart.
+      Reloaded the CrowdSec engine for instance '{{ instance_id }}'.
+      {{ 'The Caddy bouncer keeps enforcing cached decisions during the restart.'
+      if (instance_orchestrator | default('compose') == 'compose')
+      else 'The caddy pod rolls with it, so expect a brief blip; the bouncer resumes once the engine is back.' }}
+      {{ _crowdsec_purge_line | default('') }}

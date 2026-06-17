@@ -1944,6 +1944,38 @@ class TestCmdGitopsStatus:
         )
 
 
+class TestGitopsSshKey:
+    """--ssh-key builds GIT_SSH_COMMAND for the status fetch."""
+
+    def test_prefix_empty_without_key(self):
+        assert direct_commands._git_ssh_env_prefix(None) == ""
+        assert direct_commands._git_ssh_env_prefix("") == ""
+
+    def test_prefix_sets_git_ssh_command(self):
+        prefix = direct_commands._git_ssh_env_prefix("/home/u/.ssh/id_ed25519")
+        assert prefix.startswith("export GIT_SSH_COMMAND=")
+        assert "ssh -i '/home/u/.ssh/id_ed25519' " in prefix
+        assert "StrictHostKeyChecking=accept-new" in prefix
+        assert prefix.endswith("; ")
+
+    def test_prefix_quotes_key_path(self):
+        prefix = direct_commands._git_ssh_env_prefix("/tmp/my key")
+        assert "'/tmp/my key'" in prefix
+
+    def test_status_script_omits_prefix_without_key(self):
+        script = direct_commands._gitops_status_script("/srv/mysite")
+        assert "GIT_SSH_COMMAND" not in script
+        assert "git fetch" in script
+
+    def test_status_script_includes_prefix_with_key(self):
+        script = direct_commands._gitops_status_script(
+            "/srv/mysite", ssh_key="/home/u/.ssh/deploy"
+        )
+        # Prefix is exported before the git commands that follow.
+        assert script.index("GIT_SSH_COMMAND") < script.index("git fetch")
+        assert "ssh -i '/home/u/.ssh/deploy' " in script
+
+
 class TestDirectCommandRegistry:
     """Module-wide invariants on the direct-command registry."""
 

@@ -125,31 +125,13 @@
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim == 'has'
 
-    # Auto-enroll the bouncer when CrowdSec is on but no key is stored yet.
-    # bouncer_enroll stores the key before its restart, so the re-entrant
-    # start sees the key and skips — gated on key-absent, no recursion.
-    - name: Read CrowdSec enablement and bouncer key for auto-enroll
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read_all
-      register: _start_crowdsec_env
-
-    # Register CAPI before bouncer auto-enroll (console enrollment depends on
-    # it). Idempotent; restarts only the crowdsec container.
-    - name: Ensure CrowdSec is registered with the Central API
-      ansible.builtin.include_role:
-        name: crowdsec
-        tasks_from: ensure_capi.yml
-      when:
-        - _start_crowdsec_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true'
-
-    - name: Auto-enroll the CrowdSec bouncer when enabled but unenrolled
-      ansible.builtin.include_role:
-        name: crowdsec
-        tasks_from: bouncer_enroll.yml
-      when:
-        - _start_crowdsec_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true'
-        - (_start_crowdsec_env.variables.CROWDSEC_BOUNCER_API_KEY | default('') | length) == 0
+    # Register CAPI + auto-enroll the bouncer when CrowdSec is on. Shared
+    # with the K8s start path and create. crowdsec_autoenroll is false only
+    # for create's first start, which defers enrollment until after the
+    # instance is registered (the crowdsec preflight resolves it).
+    - name: Auto-enroll CrowdSec (register CAPI + enroll bouncer) when enabled
+      ansible.builtin.include_tasks: crowdsec_autoenroll.yml
+      when: crowdsec_autoenroll | default(true) | bool
 
 - name: Start (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
@@ -157,6 +139,12 @@
     - name: Set K8s namespace
       ansible.builtin.set_fact:
         _k8s_namespace: "canasta-{{ instance_id }}"
+
+    # Reconcile caddy image + crowdsec.enabled from .env before reading
+    # values.yaml, so the deployed manifests match the feature flags no
+    # matter how they were set (config set, create -e, or a hand edit).
+    - name: Reconcile caddy image and crowdsec.enabled in values.yaml
+      ansible.builtin.include_tasks: k8s_reconcile_caddy.yml
 
     # Slurp values.yaml from the target host once and parse it. All
     # three downstream reads (web.replicaCount, db.enabled,
@@ -185,6 +173,10 @@
       register: _current_replicas
       changed_when: false
       ignore_errors: true  # OK if deployment doesn't exist yet
+
+    - name: Report applying Helm release
+      ansible.builtin.debug:
+        msg: "Applying Helm release (pulling images and rolling out pods; this may take a few minutes)..."
 
     - name: Apply values and upgrade Helm release
       ansible.builtin.include_tasks: helm_deploy.yml
@@ -240,6 +232,10 @@
       ansible.builtin.set_fact:
         _db_enabled: "{{ _start_values.get('db', {}).get('enabled', true) }}"
 
+    - name: Report waiting for rollout
+      ansible.builtin.debug:
+        msg: "Waiting for pods to become ready..."
+
     - name: Wait for DB readiness
       ansible.builtin.command:
         cmd: >-
@@ -254,6 +250,12 @@
           kubectl rollout status deployment/canasta-{{ instance_id }}-web
           -n {{ _k8s_namespace }} --timeout=300s
       changed_when: false
+
+    # Register CAPI + auto-enroll the bouncer when CrowdSec is on but no
+    # key is stored yet. Shared with the Compose start path and create.
+    - name: Auto-enroll CrowdSec (register CAPI + enroll bouncer) when enabled
+      ansible.builtin.include_tasks: crowdsec_autoenroll.yml
+      when: crowdsec_autoenroll | default(true) | bool
 
     # Re-enable Argo CD auto-sync after start. The stop flow suspends
     # sync to prevent selfHeal from reverting the scale-to-zero. We

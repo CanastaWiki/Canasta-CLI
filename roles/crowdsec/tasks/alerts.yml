@@ -1,0 +1,35 @@
+---
+# canasta crowdsec alerts - list the alerts the engine has raised (detected
+# attacks/probes), optionally filtered to one source IP. Read-only.
+# Input: id (optional), ip (str, optional filter)
+
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
+  ansible.builtin.include_tasks: _preflight.yml
+
+# argv (not a shell string) so the optional --ip filter is appended cleanly
+# and nothing is word-split. The header suffix is derived here too so the
+# debug message below stays short.
+- name: Build cscli alerts list argv and header suffix
+  ansible.builtin.set_fact:
+    _crowdsec_has_ip: "{{ (ip | default('') | string | length) > 0 }}"
+    _crowdsec_alerts_argv: >-
+      {{ _cscli_argv + ['cscli', 'alerts', 'list']
+         + (['--ip', ip | string] if (ip | default('') | string | length > 0) else []) }}
+
+- name: Set the header IP suffix
+  ansible.builtin.set_fact:
+    _crowdsec_alerts_suffix: "{{ (' (source IP ' ~ ip ~ ')') if _crowdsec_has_ip else '' }}"
+
+- name: List alerts
+  ansible.builtin.command:
+    argv: "{{ _crowdsec_alerts_argv }}"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_alerts
+  changed_when: false
+
+- name: Show alerts
+  ansible.builtin.debug:
+    msg: |-
+      CrowdSec alerts for instance '{{ instance_id }}'{{ _crowdsec_alerts_suffix }}
+
+      {{ _crowdsec_alerts.stdout | default('') | trim or '(no alerts)' }}

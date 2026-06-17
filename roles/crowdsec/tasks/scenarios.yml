@@ -1,0 +1,37 @@
+---
+# canasta crowdsec scenarios - list the loaded detection (collections and
+# scenarios) so an admin can confirm behavioral detection is active without
+# reaching for docker. Read-only.
+# Input: id (optional)
+
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
+  ansible.builtin.include_tasks: _preflight.yml
+
+# Collections are the umbrella (each bundles scenarios + parsers); scenarios
+# are the individual detections. Show both so "is detection loaded?" is
+# answered at both levels. cscli's human table is already readable, so dump
+# it verbatim rather than re-formatting.
+- name: List installed collections
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} cscli collections list"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_collections
+  changed_when: false
+
+- name: List installed scenarios
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} cscli scenarios list"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_scenarios
+  changed_when: false
+
+- name: Show loaded detection
+  ansible.builtin.debug:
+    msg: |-
+      CrowdSec detection for instance '{{ instance_id }}'
+
+      Collections:
+      {{ _crowdsec_collections.stdout | default('(none)') }}
+
+      Scenarios:
+      {{ _crowdsec_scenarios.stdout | default('(none)') }}

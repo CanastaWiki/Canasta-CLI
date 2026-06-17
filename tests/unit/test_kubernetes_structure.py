@@ -976,3 +976,133 @@ class TestRequirementsCollectionsHelm4Compat:
                 "%r which lets pip install pre-Helm-4 versions; "
                 "must be >=6.4.0 (#525)" % pin
             )
+
+
+class TestK8sStartProgressMessages:
+    """The K8s start path runs a Helm upgrade + rollout waits that can take
+    minutes; without progress output `config set`/restart looks hung — a user
+    reported a long silent wait before an error when enabling CrowdSec on K8s.
+    Assert the curated progress lines are present, mirroring the Compose path's
+    'Starting containers...'."""
+
+    def _start(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "start.yml")) as f:
+            return f.read()
+
+    def test_helm_upgrade_has_progress_message(self):
+        assert "Applying Helm release" in self._start()
+
+    def test_rollout_wait_has_progress_message(self):
+        assert "Waiting for pods to become ready" in self._start()
+
+    def test_crowdsec_enroll_has_progress_message(self):
+        # The enroll tail (with its progress line) is shared by start + create
+        # via crowdsec_autoenroll.yml, included from the start path.
+        assert "crowdsec_autoenroll.yml" in self._start()
+        with open(os.path.join(ORCHESTRATOR_TASKS, "crowdsec_autoenroll.yml")) as f:
+            assert "enrolling the Caddy bouncer" in f.read()
+
+
+class TestK8sDeleteWaitsForNamespace:
+    """`canasta delete` must wait for the namespace to fully terminate before
+    returning — otherwise an immediate re-create races the still-Terminating
+    namespace and fails the stale-namespace guard (#684)."""
+
+    def test_namespace_deletion_waits(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "helm_uninstall.yml")) as f:
+            tasks = yaml.safe_load(f)
+        ns = next(t for t in tasks if t.get("name") == "Delete namespace")
+        spec = ns["kubernetes.core.k8s"]
+        assert spec.get("kind") == "Namespace"
+        assert spec.get("state") == "absent"
+        assert spec.get("wait") is True, (
+            "namespace deletion must wait, so delete->create does not race"
+        )
+
+
+class TestK8sTraefikClientIP:
+    """The k3s-bundled Traefik LoadBalancer defaults to externalTrafficPolicy:
+    Cluster, which SNATs the client IP — breaking CrowdSec (all traffic looks
+    private) and access logs. install k8s-cp must drop a HelmChartConfig that
+    flips Traefik to Local so the real client IP is preserved (#687)."""
+
+    CONFIG = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "files",
+        "traefik-externaltrafficpolicy.yaml",
+    )
+
+    def test_helmchartconfig_sets_local_policy(self):
+        doc = yaml.safe_load(open(self.CONFIG))
+        assert doc["kind"] == "HelmChartConfig"
+        assert doc["metadata"]["name"] == "traefik"
+        assert doc["metadata"]["namespace"] == "kube-system"
+        values = yaml.safe_load(doc["spec"]["valuesContent"])
+        assert values["service"]["spec"]["externalTrafficPolicy"] == "Local"
+
+    def test_traefik_runs_as_daemonset(self):
+        # Local only preserves the client IP on nodes with a local Traefik pod;
+        # on multi-node clusters Local without a DaemonSet would drop external
+        # traffic landing on Traefik-less nodes. DaemonSet guarantees a Traefik
+        # pod (local endpoint) on every node.
+        doc = yaml.safe_load(open(self.CONFIG))
+        values = yaml.safe_load(doc["spec"]["valuesContent"])
+        assert values["deployment"]["kind"] == "DaemonSet", (
+            "Traefik must run as a DaemonSet so externalTrafficPolicy=Local "
+            "preserves the client IP on every node (multi-node safe)"
+        )
+
+    def test_install_drops_the_config_into_k3s_manifests(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_install_k3s.yml")) as f:
+            tasks = yaml.safe_load(f)
+        copy = next(
+            t for t in tasks
+            if isinstance(t.get("ansible.builtin.copy"), dict)
+            and t["ansible.builtin.copy"].get("src") == "traefik-externaltrafficpolicy.yaml"
+        )
+        spec = copy["ansible.builtin.copy"]
+        # k3s auto-applies manifests dropped here; must be root-written.
+        assert spec["dest"].startswith("/var/lib/rancher/k3s/server/manifests/")
+        assert copy.get("become") is True
+
+
+class TestK8sWorkerJoinDualStackIP:
+    """A dual-stack control-plane node reports both an IPv4 and an IPv6
+    InternalIP. The worker join must build K3S_URL from a single IPv4 address,
+    not the raw space-separated pair — k3s rejects the latter with
+    'invalid character " " in host name' and the agent never joins (#687-era
+    multi-node e2e finding)."""
+
+    WORKER = os.path.join(REPO_ROOT, "roles", "install", "tasks", "k3s_worker.yml")
+
+    def _select_ip(self, raw):
+        import re
+        import jinja2
+        tasks = yaml.safe_load(open(self.WORKER))
+        task = next(
+            t for t in tasks
+            if isinstance(t, dict)
+            and str(t.get("name", "")).startswith("Select a single control-plane InternalIP")
+        )
+        expr = task["ansible.builtin.set_fact"]["_cp_internal_ip"]
+        env = jinja2.Environment()
+        env.filters["split"] = lambda s, sep=None: s.split(sep)
+        env.tests["match"] = lambda s, pat: re.match(pat, s) is not None
+        return env.from_string(expr).render(_cp_internal_ip_raw={"stdout": raw}).strip()
+
+    def test_dualstack_returns_only_ipv4(self):
+        assert self._select_ip("209.112.76.164 2607:29c0:3001:20::a") == "209.112.76.164"
+
+    def test_ipv4_only_unchanged(self):
+        assert self._select_ip("10.0.0.5") == "10.0.0.5"
+
+    def test_selected_ip_has_no_whitespace(self):
+        out = self._select_ip("209.112.76.164 2607:29c0:3001:20::a")
+        assert " " not in out and ":" not in out
+
+    def test_server_url_built_from_selected_ip(self):
+        tasks = yaml.safe_load(open(self.WORKER))
+        task = next(
+            t for t in tasks
+            if isinstance(t, dict) and "_k3s_server_url" in str(t.get("ansible.builtin.set_fact", {}))
+        )
+        assert task["ansible.builtin.set_fact"]["_k3s_server_url"] == "https://{{ _cp_internal_ip }}:6443"

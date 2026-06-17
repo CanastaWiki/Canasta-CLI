@@ -7,7 +7,7 @@
 # blocklist via the Central API. This upgrades that to the full list.
 # Input: id (optional), key (str, required), name (str, optional)
 
-- name: Preflight (resolve, Compose-only, crowdsec running)
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
   ansible.builtin.include_tasks: _preflight.yml
 
 - name: Require an enrollment key
@@ -23,25 +23,21 @@
 - name: Build cscli console enroll argv
   ansible.builtin.set_fact:
     _crowdsec_console_argv: >-
-      {{ ['docker', 'compose', 'exec', '-T', 'crowdsec',
-          'cscli', 'console', 'enroll']
+      {{ _cscli_argv + ['cscli', 'console', 'enroll']
          + (['--name', name | string] if (name | default('') | string | length > 0) else [])
          + [key | string] }}
 
 - name: Enroll the engine with the CrowdSec Console
   ansible.builtin.command:
     argv: "{{ _crowdsec_console_argv }}"
-    chdir: "{{ instance_path }}"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
   changed_when: true
   no_log: true
 
 # cscli writes the console credentials into the persisted /etc/crowdsec
 # volume; restart so the engine picks them up.
 - name: Restart the CrowdSec engine to apply the enrollment
-  ansible.builtin.command:
-    cmd: "docker compose restart crowdsec"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+  ansible.builtin.include_tasks: _restart_engine.yml
 
 - name: Report next steps
   ansible.builtin.debug:

@@ -127,8 +127,12 @@ class TestTrustedProxiesRendering:
 
     def test_proxy_block_is_inside_global_options(self):
         out = _render_proxy("cloudflare", "Cf-Connecting-Ip", dynamic=True)
+        # Caddyfile.global is now inlined + melded (not imported); the global
+        # block (with `servers {`) must precede the site block. Caddyfile.site
+        # stays a live import.
+        assert "import /etc/caddy/Caddyfile.global" not in out
         assert out.index("servers {") < out.index(
-            "import /etc/caddy/Caddyfile.global"
+            "import /etc/caddy/Caddyfile.site"
         )
 
 

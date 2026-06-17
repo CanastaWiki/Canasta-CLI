@@ -112,3 +112,28 @@ spec:
     {{- include "canasta.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: elasticsearch
 {{- end }}
+---
+{{- if .Values.crowdsec.enabled }}
+# The CrowdSec engine runs as a sidecar in the Caddy pod, so this Service
+# selects the caddy component and routes :8080 (the LAPI) back to that
+# pod. The shared Caddyfile hardcodes `api_url http://crowdsec:8080`, so
+# this name/port must match for the bouncer to reach the engine.
+apiVersion: v1
+kind: Service
+metadata:
+  name: crowdsec
+  namespace: {{ include "canasta.namespace" . }}
+  labels:
+    {{- include "canasta.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crowdsec
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: lapi
+      protocol: TCP
+      name: lapi
+  selector:
+    {{- include "canasta.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: caddy
+{{- end }}

@@ -85,6 +85,25 @@ elasticsearch:
       cpu: 500m
       memory: 1Gi
 
+# CrowdSec (optional). When enabled, the engine runs as a sidecar in the
+# Caddy pod sharing the access log, and the Caddy deployment uses the
+# plugin image (set by Ansible) so the bouncer can enforce decisions.
+# The Caddy deployment stays at one replica while this is on (the sidecar
+# holds a ReadWriteOnce PVC).
+crowdsec:
+  enabled: false
+  image: crowdsecurity/crowdsec:v1.6.11
+  collections: "crowdsecurity/caddy crowdsecurity/http-cve"
+  storage: 1Gi
+  storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
 # Job runner
 jobrunner:
   enabled: true
@@ -142,8 +161,9 @@ secrets:
 configData:
   web: {}       # .env, wikis.yaml, settings--*--*.php, composer.local.json
   env: {}       # allowlisted env vars extracted from .env, one per ConfigMap key
-  caddy: {}     # Caddyfile, Caddyfile.site, Caddyfile.global
+  caddy: {}     # Caddyfile, Caddyfile.site
   varnish: {}   # default.vcl
+  crowdsec: {}  # acquis.yaml, whitelists.yaml
   db: {}        # my.cnf
 
 # Argo CD

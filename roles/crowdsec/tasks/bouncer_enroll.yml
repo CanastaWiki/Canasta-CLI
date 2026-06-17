@@ -1,9 +1,11 @@
 ---
 # canasta crowdsec bouncer-enroll - register the Caddy bouncer with the
 # CrowdSec engine, persist its API key, and restart so it starts enforcing.
-# Input: id (optional), force (bool)
+# Input: id (optional), force (bool), bouncer_enroll_auto (bool — set by the
+# start/create auto-enroll path to suppress the interactive "already
+# enrolled" hint on steady-state starts).
 
-- name: Preflight (resolve, Compose-only, crowdsec running)
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
   ansible.builtin.include_tasks: _preflight.yml
 
 - name: Read current bouncer key from .env
@@ -17,8 +19,8 @@
 # is up (it may still be booting straight after a start).
 - name: Wait for the CrowdSec LAPI to be ready
   ansible.builtin.command:
-    cmd: "docker compose exec -T crowdsec cscli lapi status"
-    chdir: "{{ instance_path }}"
+    cmd: "{{ _cscli_prefix }} cscli lapi status"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
   register: _crowdsec_lapi
   until: _crowdsec_lapi.rc == 0
   retries: 30
@@ -27,8 +29,8 @@
 
 - name: List registered bouncers
   ansible.builtin.command:
-    cmd: "docker compose exec -T crowdsec cscli bouncers list -o json"
-    chdir: "{{ instance_path }}"
+    cmd: "{{ _cscli_prefix }} cscli bouncers list -o json"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
   register: _crowdsec_bouncers
   changed_when: false
 
@@ -55,6 +57,7 @@
     - _crowdsec_existing | bool
     - _crowdsec_have_key | bool
     - not (force | default(false) | bool)
+    - not (bouncer_enroll_auto | default(false) | bool)
 
 # Enroll when forced, when no bouncer is registered yet, or when one is
 # registered but we have no stored key (cscli can't reveal an existing
@@ -67,15 +70,15 @@
   block:
     - name: Revoke existing bouncer registration
       ansible.builtin.command:
-        cmd: "docker compose exec -T crowdsec cscli bouncers delete canasta-caddy --ignore-missing"
-        chdir: "{{ instance_path }}"
+        cmd: "{{ _cscli_prefix }} cscli bouncers delete canasta-caddy --ignore-missing"
+        chdir: "{{ _cscli_chdir | default(omit) }}"
       changed_when: true
       when: _crowdsec_existing | bool
 
     - name: Register the bouncer and capture its API key
       ansible.builtin.command:
-        cmd: "docker compose exec -T crowdsec cscli bouncers add canasta-caddy -o raw"
-        chdir: "{{ instance_path }}"
+        cmd: "{{ _cscli_prefix }} cscli bouncers add canasta-caddy -o raw"
+        chdir: "{{ _cscli_chdir | default(omit) }}"
       register: _crowdsec_add
       changed_when: true
       no_log: true

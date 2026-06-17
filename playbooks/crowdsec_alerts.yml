@@ -1,0 +1,7 @@
+---
+# canasta crowdsec alerts
+
+- name: CrowdSec Alerts
+  ansible.builtin.include_role:
+    name: crowdsec
+    tasks_from: alerts.yml

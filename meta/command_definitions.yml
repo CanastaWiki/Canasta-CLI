@@ -200,10 +200,10 @@ command_groups:
       controlling host. See [[Help:Multi-node Kubernetes]].
 
   - name: crowdsec
-    description: "Manage CrowdSec threat detection (Compose)"
+    description: "Manage CrowdSec threat detection"
     long_description: |
-      Manage the optional CrowdSec security profile on a Compose
-      instance. Enable or disable CrowdSec itself with
+      Manage the optional CrowdSec security feature on a Compose or
+      Kubernetes instance. Enable or disable CrowdSec itself with
       `canasta config set CANASTA_ENABLE_CROWDSEC=true|false` (the
       same pattern as the other optional features); this group covers
       the steps that don't reduce to a single config value:
@@ -223,13 +223,25 @@ command_groups:
         instance.
       * `status` shows the registered bouncers and the currently active
         IP decisions.
+      * `scenarios` lists the loaded collections and scenarios so you
+        can confirm behavioral detection is active.
+      * `alerts` shows the attacks CrowdSec has detected (the detection
+        history), complementing `status` (the bans in force right now).
+      * `metrics` shows engine throughput — the quickest check that the
+        Caddy access log is actually being read.
       * `ban` / `unban` add or remove a manual decision for an IP,
         independent of CrowdSec's automatic detection.
 
       Durable detection tuning (whitelisting trusted IPs, custom rules)
       is done by editing `config/crowdsec/whitelists.yaml` in the
       instance directory — a version-controlled file, like
-      `Caddyfile.global`. CrowdSec is a Compose-only feature.
+      `Caddyfile.global`.
+
+      On Kubernetes the engine runs as a sidecar in the Caddy pod and the
+      same subcommands work via `kubectl exec`. Because Caddy always sits
+      behind the in-cluster ingress there, CrowdSec auto-trusts the cluster
+      pod CIDRs (override with `CADDY_TRUSTED_PROXY_CIDRS`) so it attributes
+      decisions to the real client IP rather than the ingress.
 
 commands:
   # ---------------------------------------------------------------------------
@@ -1349,7 +1361,7 @@ commands:
       `--force` to revoke the existing bouncer and issue a fresh key
       (e.g. to rotate a key, or recover one that drifted out of sync).
       Distinct from `console-enroll`, which connects the engine to the
-      cloud CrowdSec Console. Compose only.
+      cloud CrowdSec Console.
     examples:
       - "canasta crowdsec bouncer-enroll"
       - "canasta crowdsec bouncer-enroll -i mysite"
@@ -1382,7 +1394,7 @@ commands:
       run this command, then return to the Console to accept the pending
       engine and subscribe it to the blocklists you want. Distinct from
       `canasta crowdsec bouncer-enroll`, which registers the local Caddy
-      bouncer with the engine. Compose only.
+      bouncer with the engine.
     examples:
       - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx"
       - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx --name prod1"
@@ -1405,29 +1417,50 @@ commands:
   - name: crowdsec_reload
     description: "Restart the CrowdSec engine to apply changes"
     long_description: |
-      Restart just the CrowdSec engine container to apply pending changes
-      without restarting the whole instance. Use it after accepting a
-      console enrollment or after editing `config/crowdsec/whitelists.yaml`.
-      The Caddy bouncer keeps enforcing its cached decisions during the
-      brief restart. Note that community and console blocklists arrive on
+      Restart the CrowdSec engine to apply pending changes without
+      restarting the whole instance. Use it after accepting a console
+      enrollment or after editing `config/crowdsec/whitelists.yaml`.
+      On Compose only the engine container bounces, so the Caddy bouncer
+      keeps enforcing its cached decisions throughout; on Kubernetes the
+      engine is a sidecar in the Caddy pod, so the pod rolls and Caddy
+      blips briefly. Note that community and console blocklists arrive on
       CrowdSec's own pull cycle (about every 2 hours), which a restart does
-      not force. Compose only.
+      not force.
+
+      After you unsubscribe a list — or delete the engine — in the Console,
+      the engine keeps enforcing the IPs it already pulled from that list:
+      they stay in its local decision DB and the Caddy bouncer keeps blocking
+      them. It just stops receiving updates (a free-tier engine gets no
+      reconcile, since that is a paid PAPI order). That frozen snapshot is
+      usually fine to leave in place. Purge it only when you actually want to
+      STOP blocking those IPs: add `--purge-blocklist <name>` (one list, by the
+      name shown under "Console blocklists in effect" in `canasta crowdsec
+      status`) or `--purge-blocklists` (all). Lists you are still subscribed to
+      refill on the next pull cycle.
     examples:
       - "canasta crowdsec reload"
       - "canasta crowdsec reload -i mysite"
+      - "canasta crowdsec reload --purge-blocklist firehol_cruzit_web_attacks"
+      - "canasta crowdsec reload --purge-blocklists"
     playbook: crowdsec_reload.yml
     parameters:
       - name: id
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: purge_blocklist
+        type: string
+        description: "Stop blocking one console blocklist's cached IPs, by the name shown in status"
+      - name: purge_blocklists
+        type: bool
+        default: false
+        description: "Stop blocking all cached console-blocklist IPs"
 
   - name: crowdsec_status
     description: "Show CrowdSec bouncers and active decisions"
     long_description: |
       Show the bouncers registered with the CrowdSec engine and the IP
       decisions (bans, captchas) currently in effect. Read-only.
-      Compose only.
     examples:
       - "canasta crowdsec status"
       - "canasta crowdsec status -i mysite"
@@ -1443,7 +1476,6 @@ commands:
     long_description: |
       Add a manual CrowdSec decision blocking an IP address, independent
       of the engine's automatic detection. Defaults to a 4-hour ban.
-      Compose only.
     examples:
       - "canasta crowdsec ban 203.0.113.50"
       - "canasta crowdsec ban 203.0.113.50 --duration 24h --reason scraper"
@@ -1470,7 +1502,7 @@ commands:
     description: "Remove a manual CrowdSec decision for an IP"
     long_description: |
       Remove CrowdSec decisions for an IP address (e.g. lift a ban added
-      by `canasta crowdsec ban` or by automatic detection). Compose only.
+      by `canasta crowdsec ban` or by automatic detection).
     examples:
       - "canasta crowdsec unban 203.0.113.50"
       - "canasta crowdsec unban 203.0.113.50 -i mysite"
@@ -1481,6 +1513,70 @@ commands:
         positional: true
         required: true
         description: "IP address to unblock"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_scenarios
+    description: "List the loaded CrowdSec detection (collections and scenarios)"
+    long_description: |
+      Show the detection logic the CrowdSec engine has loaded: the
+      installed hub collections (e.g. `crowdsecurity/caddy`,
+      `crowdsecurity/http-cve`) and the individual scenarios they
+      provide. Use it to confirm behavioral detection is active — the
+      bundled `crowdsecurity/caddy` collection covers aggressive
+      crawling and known scraper/bot user-agents out of the box.
+      Replaces reaching for `docker compose exec crowdsec cscli
+      scenarios list`. Read-only.
+    examples:
+      - "canasta crowdsec scenarios"
+      - "canasta crowdsec scenarios -i mysite"
+    playbook: crowdsec_scenarios.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_alerts
+    description: "Show recent CrowdSec alerts (detected attacks)"
+    long_description: |
+      List the alerts the CrowdSec engine has raised — the attacks and
+      probes its scenarios have detected over time. Unlike
+      `canasta crowdsec status`, which shows the IP decisions currently
+      being enforced, alerts include the detection history (and
+      community/console-sourced events), so this answers "is CrowdSec
+      actually catching anything?". Optionally filter by source IP.
+      Read-only.
+    examples:
+      - "canasta crowdsec alerts"
+      - "canasta crowdsec alerts --ip 203.0.113.50"
+      - "canasta crowdsec alerts -i mysite"
+    playbook: crowdsec_alerts.yml
+    parameters:
+      - name: ip
+        type: string
+        description: "Show only alerts for this source IP"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_metrics
+    description: "Show CrowdSec engine throughput metrics"
+    long_description: |
+      Show the CrowdSec engine's metrics: log lines read from the Caddy
+      access log, how often each scenario has fired, and how many
+      decisions each bouncer has pulled. The quickest way to confirm
+      detection is flowing — a parsed-lines count of zero means the
+      engine isn't seeing the Caddy log, which no other command reveals.
+      Read-only.
+    examples:
+      - "canasta crowdsec metrics"
+      - "canasta crowdsec metrics -i mysite"
+    playbook: crowdsec_metrics.yml
+    parameters:
       - name: id
         short: i
         type: string
@@ -1918,6 +2014,13 @@ commands:
           symmetric key for unlocking encrypted vars on other hosts.
           K8s does not use git-crypt; the parameter only affects
           the SSH key path there.
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: force
         type: bool
         default: false
@@ -1983,13 +2086,22 @@ commands:
           On Compose, `<key>` is the git-crypt symmetric key. On K8s,
           only `<key>.ssh` (the SSH deploy key) is used — git-crypt
           is not part of the K8s gitops flow.
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: reinit
         type: bool
         default: false
         description: >-
           Wipe local gitops state before joining. Use after a
           previous init or join died mid-run and left this instance
-          unable to retry.
+          unable to retry. Also re-attaches a host that is already
+          registered in the repo (the registration is updated in
+          place rather than rejected as a duplicate).
       - name: git_user_name
         type: string
         description: "Git user.name for commits on the target host (set if not already configured)"
@@ -2057,6 +2169,13 @@ commands:
         short: m
         type: string
         description: "Commit message (defaults to 'Configuration update')"
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the staged deploy key on Kubernetes.
 
   - name: gitops_pull
     description: "Pull latest configuration from the git repository"
@@ -2073,6 +2192,13 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the staged deploy key on Kubernetes.
 
   - name: gitops_status
     description: "Show gitops status for the instance"
@@ -2087,6 +2213,13 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for the remote fetch. When set,
+          git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...". Omit
+          to keep the default: ssh-agent forwarding on Compose, or
+          the staged deploy key on Kubernetes.
 
   - name: gitops_diff
     description: "Show local and remote changes since the branches diverged"

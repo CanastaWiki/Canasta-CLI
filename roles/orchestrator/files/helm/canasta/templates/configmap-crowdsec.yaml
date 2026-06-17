@@ -1,0 +1,15 @@
+{{- if .Values.crowdsec.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "canasta.fullname" . }}-crowdsec-config
+  namespace: {{ include "canasta.namespace" . }}
+  labels:
+    {{- include "canasta.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crowdsec
+data:
+  {{- range $key, $value := .Values.configData.crowdsec }}
+  {{ $key }}: |
+    {{- $value | nindent 4 }}
+  {{- end }}
+{{- end }}

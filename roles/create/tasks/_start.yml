@@ -20,11 +20,25 @@
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: start.yml
+  vars:
+    # Defer CrowdSec enrollment to after registration (main.yml): the
+    # crowdsec preflight resolves the instance from the registry, which
+    # this create has not written yet. The step-14 restart re-runs start
+    # too, but enrollment is idempotent (skips once the key is stored).
+    crowdsec_autoenroll: false
   when: (orchestrator | default('compose')) == 'compose'
 
 - name: Start containers (Kubernetes)
   when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
   block:
+    # Reconcile caddy image + crowdsec.enabled from .env before deploy, so
+    # a create-time `-e CANASTA_ENABLE_CROWDSEC=true` brings up the engine
+    # sidecar on the plugin image (the rendered values.yaml has neither).
+    - name: Reconcile caddy image and crowdsec.enabled in values.yaml
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_reconcile_caddy.yml
+
     - name: Sync config to Kubernetes ConfigMaps
       ansible.builtin.include_role:
         name: orchestrator
@@ -44,3 +58,7 @@
           kubectl rollout status deployment/canasta-{{ id }}-web
           -n canasta-{{ id }} --timeout=600s
       changed_when: false
+
+    # CrowdSec bouncer enrollment happens after registration (main.yml),
+    # because the crowdsec role's preflight resolves the instance from the
+    # registry — which this create has not written yet.

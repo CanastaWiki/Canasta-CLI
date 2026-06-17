@@ -1,0 +1,37 @@
+---
+# Build the orchestrator-appropriate command prefix for running cscli in the
+# CrowdSec engine, so the subcommand tasks stay orchestrator-agnostic:
+#   Compose -> `docker compose exec` into the crowdsec service.
+#   K8s     -> `kubectl exec -c crowdsec` into the caddy pod (the engine runs
+#              as a sidecar there).
+# Every cscli call uses `{{ _cscli_prefix }} cscli …` (cmd string) or
+# `{{ _cscli_argv }} + [...]` (argv list, for calls that pass an unquoted IP,
+# reason, or enrollment key), with `chdir: {{ _cscli_chdir | default(omit) }}`,
+# keeping each call's own failed_when / until / no_log control intact.
+# Input: instance_id, instance_path, instance_orchestrator
+# Output: _cscli_prefix (str), _cscli_argv (list), _cscli_chdir (str or null)
+
+- name: Build cscli prefix (Compose)
+  ansible.builtin.set_fact:
+    _cscli_prefix: "docker compose exec -T crowdsec"
+    _cscli_argv: ['docker', 'compose', 'exec', '-T', 'crowdsec']
+    _cscli_chdir: "{{ instance_path }}"
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Build cscli prefix (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: Set K8s namespace
+      ansible.builtin.set_fact:
+        _k8s_namespace: "canasta-{{ instance_id }}"
+
+    - name: Resolve the caddy pod (hosts the crowdsec sidecar)
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_get_pod.yml"
+      vars:
+        _k8s_component: caddy
+
+    - name: Build cscli prefix
+      ansible.builtin.set_fact:
+        _cscli_prefix: "kubectl exec {{ _k8s_pod_name }} -n {{ _k8s_namespace }} -c crowdsec --"
+        _cscli_argv: ['kubectl', 'exec', "{{ _k8s_pod_name }}", '-n', "{{ _k8s_namespace }}", '-c', 'crowdsec', '--']
+        _cscli_chdir: null

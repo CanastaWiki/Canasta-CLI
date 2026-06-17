@@ -34,6 +34,7 @@ from canasta_crowdsec import (  # noqa: E402
     canasta_crowdsec_status_bouncers,
     canasta_crowdsec_blocklist_breakdown,
 )
+from canasta_caddy import meld_caddy_global_blocks  # noqa: E402
 
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -184,9 +185,12 @@ class TestCaddyfileRendering:
         assert "api_key {env.CROWDSEC_BOUNCER_API_KEY}" in out
         # Faster-than-default streaming poll for quicker ban propagation.
         assert "ticker_interval 15s" in out
-        # Global block comes before the imported global file / site block.
+        # Caddyfile.global is now inlined + melded (not imported); the CLI
+        # global block must still precede the site block. Caddyfile.site
+        # stays a live import.
+        assert "import /etc/caddy/Caddyfile.global" not in out
         assert out.index("order crowdsec first") < out.index(
-            "import /etc/caddy/Caddyfile.global"
+            "import /etc/caddy/Caddyfile.site"
         )
 
     def test_crowdsec_per_site_directive_when_active(self):
@@ -217,6 +221,23 @@ class TestCaddyfileRendering:
             "staging + crowdsec must merge into a single global options "
             "block, got %d" % len(openers)
         )
+
+    def test_user_global_block_inlined_and_melded(self):
+        """A global options block in Caddyfile.global is inlined and melded
+        with the CLI global block — Caddy permits exactly one (#693)."""
+        user_global = "{\n    email admin@example.com\n}\n"
+        rendered = _render_caddyfile(
+            _crowdsec_active=True, _caddyfile_global_content=user_global
+        )
+        out = meld_caddy_global_blocks(rendered)
+        # Exactly one top-level global options opener after melding.
+        assert len(re.findall(r"(?m)^\{\s*$", out)) == 1
+        # Both CLI and user directives live inside it.
+        assert "order crowdsec first" in out
+        assert "email admin@example.com" in out
+        # Site block and its live import are preserved.
+        assert "import /etc/caddy/Caddyfile.site" in out
+        assert "example.com {" in out
 
     def test_key_optional_guard_documented_in_rewrite(self):
         """rewrite_caddy.yml must derive _crowdsec_active from BOTH the
@@ -252,6 +273,11 @@ class TestCrowdsecConfigKeys:
     def test_bouncer_key_is_known_key(self):
         keys = self._known_keys()
         assert "CROWDSEC_BOUNCER_API_KEY" in keys
+
+    def test_k8s_trusted_proxy_cidrs_is_known_key(self):
+        # The K8s cluster-CIDR override must be settable without --force.
+        keys = self._known_keys()
+        assert "CADDY_TRUSTED_PROXY_CIDRS" in keys
 
 
 class TestCrowdsecGitopsDurability:
@@ -396,6 +422,15 @@ class TestCrowdsecBundledFiles:
         assert "xcaddy build" in content
         assert "caddy-crowdsec-bouncer/http" in content
 
+    def test_xcaddy_dockerfile_builds_combine_ranges_module(self):
+        # K8s real-client-IP behind a CDN combines the cluster CIDR with the
+        # CDN ranges via caddy-combine-ip-ranges (issue #604).
+        content = _read(os.path.join(
+            REPO_ROOT, "images", "caddy", "Dockerfile",
+        ))
+        assert "caddy-combine-ip-ranges" in content
+        assert "caddy-cdn-ranges" in content
+
     def test_publish_workflow_targets_caddy_image(self):
         path = os.path.join(
             REPO_ROOT, ".github", "workflows", "docker-caddy.yml",
@@ -411,10 +446,11 @@ class TestCrowdsecCommands:
     def test_subcommand_group_registered(self):
         assert canasta_cli.SUBCOMMAND_GROUPS.get("crowdsec") == [
             "bouncer-enroll", "console-enroll", "reload",
-            "status", "ban", "unban",
+            "status", "scenarios", "alerts", "metrics",
+            "ban", "unban",
         ], (
-            "crowdsec subcommand group must expose "
-            "bouncer-enroll/console-enroll/reload/status/ban/unban"
+            "crowdsec subcommand group must expose bouncer-enroll/"
+            "console-enroll/reload/status/scenarios/alerts/metrics/ban/unban"
         )
 
     def test_group_umbrella_defined(self):
@@ -430,6 +466,9 @@ class TestCrowdsecCommands:
         ("crowdsec_console_enroll", "crowdsec_console_enroll.yml"),
         ("crowdsec_reload", "crowdsec_reload.yml"),
         ("crowdsec_status", "crowdsec_status.yml"),
+        ("crowdsec_scenarios", "crowdsec_scenarios.yml"),
+        ("crowdsec_alerts", "crowdsec_alerts.yml"),
+        ("crowdsec_metrics", "crowdsec_metrics.yml"),
         ("crowdsec_ban", "crowdsec_ban.yml"),
         ("crowdsec_unban", "crowdsec_unban.yml"),
     ])
@@ -529,13 +568,20 @@ class TestCrowdsecEnrollRole:
             "non-secret toggle must not be suppressed"
         )
 
-    def test_compose_only_guard(self):
-        # Guard lives in the shared preflight include.
+    def test_preflight_supports_both_orchestrators(self):
+        # CrowdSec now runs on K8s too (issue #604). The shared preflight must
+        # no longer hard-refuse non-Compose, and must branch its engine-running
+        # check: `docker compose ps` for Compose, a kubectl readiness probe of
+        # the crowdsec sidecar for K8s.
         preflight = _read(os.path.join(
             REPO_ROOT, "roles", "crowdsec", "tasks", "_preflight.yml",
         ))
-        assert "not in ['compose']" in preflight
-        assert "Kubernetes" in preflight
+        assert "not in ['compose']" not in preflight, (
+            "the Compose-only refusal must be gone — K8s is supported"
+        )
+        assert "docker compose ps" in preflight
+        assert "kubectl get pods" in preflight
+        assert "crowdsec=true" in preflight
 
 
 class TestCrowdsecStatusRole:
@@ -573,6 +619,66 @@ class TestCrowdsecBanUnban:
         assert "decisions" in content
         assert "delete" in content
         assert "--ip" in content
+
+
+class TestCrowdsecInspectionRoles:
+    """The read-only inspection commands (scenarios/alerts/metrics) that
+    replace reaching for `docker compose exec crowdsec cscli ...`. Each must
+    run the shared preflight (resolve, engine running) and be read-only
+    (changed_when: false), never mutating engine state."""
+
+    def _role(self, name):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", name,
+        ))
+
+    @pytest.mark.parametrize("name", ["scenarios.yml", "alerts.yml", "metrics.yml"])
+    def test_inspection_command_is_orchestrator_agnostic(self, name):
+        # These run on K8s too (issue #604), so they must route cscli through
+        # the resolved prefix — never the hardcoded Compose invocation, which
+        # lives only in _resolve_cscli.yml. Without this, the rewritten
+        # preflight (which no longer refuses K8s) would let them run
+        # `docker compose exec` on a Kubernetes instance and fail confusingly.
+        content = self._role(name)
+        assert "docker compose exec" not in content, (
+            f"{name} must use _cscli_prefix/_cscli_argv, not a hardcoded "
+            "'docker compose exec'"
+        )
+        assert "_cscli_prefix" in content or "_cscli_argv" in content
+        assert "_cscli_chdir" in content
+
+    def test_scenarios_lists_collections_and_scenarios(self):
+        content = self._role("scenarios.yml")
+        assert "_preflight.yml" in content
+        assert "cscli collections list" in content
+        assert "cscli scenarios list" in content, (
+            "scenarios must list scenarios — the docker command the wiki "
+            "tells users to run by hand"
+        )
+        assert "changed_when: false" in content, (
+            "scenarios must be read-only"
+        )
+
+    def test_alerts_lists_alerts_with_optional_ip_filter(self):
+        content = self._role("alerts.yml")
+        assert "_preflight.yml" in content
+        assert "'cscli', 'alerts', 'list'" in content
+        # The --ip filter is appended only when provided (argv, not a shell
+        # string), mirroring ban's optional-flag handling.
+        assert "'--ip', ip | string" in content
+        assert "changed_when: false" in content, "alerts must be read-only"
+
+    def test_metrics_reads_engine_metrics_resiliently(self):
+        content = self._role("metrics.yml")
+        assert "_preflight.yml" in content
+        assert "cscli metrics" in content
+        assert "changed_when: false" in content, "metrics must be read-only"
+        # Metrics depend on the (default-on) prometheus endpoint; a non-zero
+        # rc must surface stderr, not raise an Ansible traceback.
+        assert "failed_when: false" in content, (
+            "metrics must not hard-fail when prometheus is disabled"
+        )
+        assert "stderr" in content
 
 
 class TestCrowdsecWhitelist:
@@ -697,14 +803,20 @@ class TestCrowdsecBlocklistBreakdown:
         # leading newline + header, then one line per list (real newlines, not
         # literal backslash-n — the caller can't add newlines in Jinja).
         assert "\\n" not in out
-        assert out.startswith("\n  Subscribed blocklists:\n")
+        assert out.startswith(
+            "\n  Console blocklists in effect (cached locally):\n")
         lines = [ln for ln in out.splitlines() if ln.strip()]
-        assert len(lines) == 3  # header + 2 lists
-        # one line per list, sorted by name (firehol_... before otx-...)
+        # header, then one line per list sorted by name (firehol_... before
+        # otx-...), then the "clear them" note.
+        assert "Console blocklists in effect" in lines[0]
         assert ("firehol_dyndns_ponmocup" in lines[1]
                 and lines[1].rstrip().endswith("1"))
         assert ("otx-webscanners" in lines[2]
                 and lines[2].rstrip().endswith("2"))
+        # the note points at the purge flags so status is self-explanatory
+        assert "Clear them with:" in out
+        assert "--purge-blocklist <name>" in out
+        assert "--purge-blocklists" in out
 
     def test_empty_when_no_decisions(self):
         # cscli prints just the header (or nothing) when there are none.
@@ -728,7 +840,8 @@ class TestCrowdsecBlocklistBreakdown:
         ).render(block=block)
         assert "\\n" not in rendered
         assert rendered.splitlines()[0] == "enrolled"
-        assert "  Subscribed blocklists:" in rendered.splitlines()[1]
+        assert ("  Console blocklists in effect (cached locally):"
+                in rendered.splitlines()[1])
 
 
 class TestCrowdsecStatusWiring:
@@ -839,8 +952,9 @@ class TestCrowdsecConsoleEnrollRole:
 
     def test_restarts_engine_to_apply(self):
         content = self._console()
-        assert "docker compose restart crowdsec" in content, (
-            "the engine must restart so it picks up the console credentials"
+        assert "_restart_engine.yml" in content, (
+            "the engine must restart (via the shared, orchestrator-aware "
+            "_restart_engine include) so it picks up the console credentials"
         )
 
 
@@ -851,19 +965,99 @@ class TestCrowdsecReloadRole:
         ))
 
     def test_restarts_only_the_engine(self):
-        """reload must bounce just the crowdsec container, not the whole
-        instance."""
+        """reload must bounce just the engine (the crowdsec container on
+        Compose; the caddy pod that hosts the sidecar on K8s), via the shared
+        orchestrator-aware restart include — not the whole instance."""
         content = self._reload()
-        assert "docker compose restart crowdsec" in content, (
-            "reload must restart only the crowdsec engine container"
+        assert "_restart_engine.yml" in content, (
+            "reload must restart the engine via the shared _restart_engine "
+            "include"
         )
 
     def test_preflight_gated(self):
         content = self._reload()
         assert "_preflight.yml" in content, (
-            "reload must run the shared crowdsec preflight (Compose-only, "
-            "engine running)"
+            "reload must run the shared crowdsec preflight (engine running)"
         )
+
+    def test_purge_routes_through_resolved_prefix(self):
+        # The console-blocklist purge runs cscli too, so on K8s it must use the
+        # resolved prefix, not a hardcoded `docker compose exec` (issue #604) —
+        # the rewritten preflight no longer refuses K8s, so a hardcoded purge
+        # would otherwise run the Compose command on a cluster.
+        content = self._reload()
+        assert "docker compose exec" not in content, (
+            "reload's purge must use _cscli_argv, not a hardcoded "
+            "'docker compose exec'"
+        )
+        assert "_cscli_argv" in content
+        assert "'cscli', 'decisions', 'delete'" in content
+
+    def test_purge_rebuilds_prefix_after_restart(self):
+        # The restart rolls the engine. On K8s (Recreate strategy) that gives
+        # the caddy pod a new name, so the cscli prefix built in preflight then
+        # points at a dead pod. The purge must re-resolve the prefix AFTER
+        # _restart_engine and BEFORE exec-ing cscli, or the delete targets a
+        # pod that no longer exists (issue #604).
+        content = self._reload()
+        restart = content.index("_restart_engine.yml")
+        resolve = content.index("_resolve_cscli.yml")
+        delete = content.index("'cscli', 'decisions', 'delete'")
+        assert restart < resolve < delete, (
+            "reload must re-include _resolve_cscli.yml after the engine "
+            "restart and before the purge delete, so the K8s prefix targets "
+            "the post-rollout pod"
+        )
+
+
+class TestCrowdsecReportFormatting:
+    """Folded (>-) display messages must collapse to a single logical line.
+    A continuation line indented deeper than the first makes YAML preserve
+    the line break instead of folding it to a space, which prints as a
+    spurious blank line in the command output (regression: ban report)."""
+
+    def _strings(self, name):
+        tasks = yaml.safe_load(_read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", name)))
+        found = []
+
+        def walk(n):
+            if isinstance(n, dict):
+                for v in n.values():
+                    walk(v)
+            elif isinstance(n, list):
+                for v in n:
+                    walk(v)
+            elif isinstance(n, str):
+                found.append(n)
+        walk(tasks)
+        return found
+
+    def _stray_newlines(self, s):
+        # Newlines that survive YAML folding OUTSIDE a {{ }} expression are the
+        # ones that reach the rendered output as blank lines.
+        return re.sub(r"\{\{.*?\}\}", "", s, flags=re.S).count("\n")
+
+    def test_ban_report_renders_on_one_line(self):
+        msg = next(s for s in self._strings("ban.yml")
+                   if s.startswith("Blocked {{ ip }}"))
+        assert self._stray_newlines(msg) == 0, (
+            "ban report must fold to one line — no stray newline before "
+            "'on instance'"
+        )
+        # Render both branches to prove the visible output is single-line.
+        for dur in ("10m", ""):
+            out = jinja2.Environment().from_string(msg).render(
+                ip="203.0.113.5", duration=dur, instance_id="mysite")
+            assert "\n" not in out, f"ban report wrapped (duration={dur!r}): {out!r}"
+
+    def test_reload_report_and_purge_line_render_on_one_line(self):
+        strings = self._strings("reload.yml")
+        report = next(s for s in strings
+                      if s.startswith("Reloaded the CrowdSec engine"))
+        purge = next(s for s in strings if s.startswith("Purged {{"))
+        assert self._stray_newlines(report) == 0, "reload report must fold to one line"
+        assert self._stray_newlines(purge) == 0, "purge note must fold to one line"
 
 
 class TestCrowdsecAutoEnroll:
@@ -932,19 +1126,432 @@ class TestCrowdsecCapiRegistration:
 
     def test_restarts_engine_to_load_credentials(self):
         content = self._capi()
-        assert "docker compose restart crowdsec" in content, (
-            "the engine must restart to pick up the new CAPI credentials"
+        assert "_restart_engine.yml" in content, (
+            "the engine must restart (via the shared _restart_engine include) "
+            "to pick up the new CAPI credentials"
         )
 
     def test_start_ensures_capi_when_enabled(self):
-        """start.yml must register CAPI when CrowdSec is enabled, before the
-        bouncer auto-enroll (console enrollment depends on CAPI)."""
-        content = _read(os.path.join(
+        """The shared autoenroll task (used by start + create) must register
+        CAPI when CrowdSec is enabled, before the bouncer auto-enroll (console
+        enrollment depends on CAPI)."""
+        start = _read(os.path.join(
             REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml",
         ))
+        assert "crowdsec_autoenroll.yml" in start, (
+            "start.yml must run the shared CrowdSec autoenroll task"
+        )
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks",
+            "crowdsec_autoenroll.yml",
+        ))
         assert "tasks_from: ensure_capi.yml" in content, (
-            "start.yml must ensure CAPI registration via the crowdsec role"
+            "autoenroll must ensure CAPI registration via the crowdsec role"
         )
         assert content.index("tasks_from: ensure_capi.yml") < content.index(
             "tasks_from: bouncer_enroll.yml"
         ), "CAPI registration must run before bouncer auto-enroll"
+
+
+# ---------------------------------------------------------------------------
+# Kubernetes orchestrator support (issue #604)
+# ---------------------------------------------------------------------------
+
+HELM_DIR = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "files", "helm", "canasta",
+)
+
+
+def _read_helm(name):
+    return _read(os.path.join(HELM_DIR, "templates", name))
+
+
+class TestCrowdsecRestartEngine:
+    """The shared, orchestrator-aware engine restart."""
+
+    def _content(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "_restart_engine.yml",
+        ))
+
+    def test_compose_restarts_only_the_service(self):
+        content = self._content()
+        assert "docker compose restart crowdsec" in content
+
+    def test_k8s_rolls_the_caddy_deployment(self):
+        # The engine is a sidecar in the caddy pod, so the K8s equivalent is a
+        # rollout of the caddy deployment, waited on so callers can exec into
+        # the fresh pod.
+        content = self._content()
+        assert "kubectl rollout restart deployment/canasta-{{ instance_id }}-caddy" in content
+        assert "kubectl rollout status deployment/canasta-{{ instance_id }}-caddy" in content
+
+
+class TestCrowdsecResolveCscli:
+    """The cscli command-prefix resolver used by every crowdsec subcommand."""
+
+    def _content(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "_resolve_cscli.yml",
+        ))
+
+    def test_compose_prefix(self):
+        content = self._content()
+        assert "docker compose exec -T crowdsec" in content
+
+    def test_k8s_prefix_targets_the_sidecar_container(self):
+        # kubectl exec into the caddy pod, selecting the crowdsec sidecar.
+        content = self._content()
+        assert "kubectl exec" in content
+        assert "-c crowdsec --" in content
+
+    def test_preflight_builds_the_prefix(self):
+        preflight = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "_preflight.yml",
+        ))
+        assert "_resolve_cscli.yml" in preflight
+
+
+class TestCrowdsecPreflightK8sReadiness:
+    """The K8s caddy-pod readiness probe in _preflight.yml uses a jsonpath
+    that contains a space (the 'name=ready ' separator). It must be quoted so
+    Ansible's command parser keeps it as one argument — otherwise the trailing
+    ' {end}' splits into its own token and kubectl reads it as a pod name,
+    failing with 'name cannot be provided when a selector is specified'."""
+
+    def _readiness_cmd(self):
+        tasks = yaml.safe_load(_read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "_preflight.yml")))
+        found = []
+
+        def walk(n):
+            if isinstance(n, dict):
+                cmd = n.get("ansible.builtin.command")
+                if isinstance(cmd, dict) and "containerStatuses" in str(cmd.get("cmd", "")):
+                    found.append(cmd["cmd"])
+                for v in n.values():
+                    walk(v)
+            elif isinstance(n, list):
+                for v in n:
+                    walk(v)
+        walk(tasks)
+        assert found, "expected the jsonpath readiness command in _preflight.yml"
+        return found[0]
+
+    def test_readiness_jsonpath_is_a_single_argument(self):
+        import shlex
+        tokens = shlex.split(self._readiness_cmd().replace("{{ instance_id }}", "big"))
+        assert "{end}" not in tokens, (
+            "jsonpath must be quoted — an unquoted ' {end}' splits into its own "
+            "token and kubectl reads it as a pod name"
+        )
+        jp = [t for t in tokens if t.startswith("jsonpath=")]
+        assert len(jp) == 1, f"expected exactly one jsonpath token, got {jp}"
+        assert jp[0].endswith("{end}"), "the full jsonpath (incl. {end}) must be one token"
+
+
+class TestCrowdsecK8sCaddyImageReconcile:
+    """The K8s caddy image + crowdsec.enabled are reconciled into values.yaml
+    from .env at deploy time by k8s_reconcile_caddy.yml — the analog of
+    Compose's start-time sync_compose_profiles. A single reconcile point serves
+    every entry path (config set restart, create -e, hand edit), so the deployed
+    manifests always match the feature flags. Because it runs at deploy time
+    (.env already written), it reads .env directly with no overlay."""
+
+    def _reconcile(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks",
+            "k8s_reconcile_caddy.yml"))
+
+    def test_reconcile_reads_flags_and_picks_plugin_image(self):
+        content = self._reconcile()
+        assert "CANASTA_ENABLE_CROWDSEC" in content
+        assert "CADDY_TRUSTED_PROXIES" in content
+        assert "cloudflare" in content and "imperva" in content
+        assert PLUGIN_CADDY_IMAGE in content
+        assert "caddy:2.10.2-alpine" in content
+
+    def test_reconcile_sets_crowdsec_enabled_from_flag(self):
+        content = self._reconcile()
+        assert "'crowdsec': {'enabled':" in content, (
+            "reconcile must set crowdsec.enabled in values.yaml from the flag"
+        )
+
+    def test_reconcile_only_touches_managed_images(self):
+        # A custom operator image must be left untouched; managed = empty,
+        # stock default, or any managed-prefix tag.
+        content = self._reconcile()
+        assert "ghcr.io/canastawiki/canasta-caddy:" in content
+        assert ".startswith(" in content
+
+    def test_reconcile_wired_into_start_and_create(self):
+        start = _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml"))
+        create = _read(os.path.join(
+            REPO_ROOT, "roles", "create", "tasks", "_start.yml"))
+        assert "k8s_reconcile_caddy.yml" in start, (
+            "the start path must reconcile before reading values.yaml"
+        )
+        assert "k8s_reconcile_caddy.yml" in create, (
+            "create's K8s deploy bypasses start.yml, so it must reconcile too"
+        )
+
+    def test_side_effects_no_longer_reconciles_k8s_caddy(self):
+        # Superseded by the start-path reconcile; leaving a second copy here
+        # would re-introduce the create/config-set divergence #685 closed.
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "config", "tasks", "_side_effects.yml"))
+        assert "Reconcile K8s caddy plugin image" not in content
+        assert "_config_value if _config_key == 'CANASTA_ENABLE_CROWDSEC'" not in content
+
+
+class TestCrowdsecK8sChart:
+    def test_values_has_crowdsec_block(self):
+        values = yaml.safe_load(_read(os.path.join(HELM_DIR, "values.yaml")))
+        assert values["crowdsec"]["enabled"] is False, (
+            "crowdsec must default off so existing deployments are unaffected"
+        )
+        assert "crowdsec" in values["configData"]
+
+    def test_caddy_deployment_gates_sidecar_on_enabled(self):
+        content = _read_helm("deployment-caddy.yaml")
+        # Everything crowdsec is behind the enabled gate.
+        assert "{{- if .Values.crowdsec.enabled }}" in content
+        # Sidecar container, log sharing, seed init container, key env.
+        assert "name: crowdsec" in content
+        assert "/var/log/caddy" in content
+        assert "seed-crowdsec-config" in content
+        assert "CROWDSEC_BOUNCER_API_KEY" in content
+        assert "secretKeyRef" in content
+        assert "optional: true" in content
+        # RWO PVC sidecar forces a Recreate strategy.
+        assert "type: Recreate" in content
+
+    def test_crowdsec_service_routes_lapi_to_caddy_pod(self):
+        content = _read_helm("service-aliases.yaml")
+        assert "name: crowdsec" in content
+        assert "port: 8080" in content
+        # The Service selects the caddy pod (the sidecar lives there).
+        crowdsec_block = content[content.index("name: crowdsec"):]
+        assert "app.kubernetes.io/component: caddy" in crowdsec_block
+
+    def test_pvc_and_configmap_exist_and_are_gated(self):
+        pvc = _read_helm("pvc-crowdsec.yaml")
+        cm = _read_helm("configmap-crowdsec.yaml")
+        assert "{{- if .Values.crowdsec.enabled }}" in pvc
+        assert "{{- if .Values.crowdsec.enabled }}" in cm
+        assert "/var/lib/crowdsec/data" in pvc or "subPath" in pvc.lower()
+
+
+class TestCrowdsecK8sConfigSync:
+    def _content(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_sync_config.yml",
+        ))
+
+    def test_creates_bouncer_key_secret(self):
+        content = self._content()
+        assert "canasta-{{ instance_id }}-crowdsec" in content
+        assert "CROWDSEC_BOUNCER_API_KEY" in content
+        # The key Secret must be no_log so it never lands in output.
+        secret_block = content[content.index("crowdsec bouncer key data"):]
+        assert "no_log: true" in secret_block
+
+    def test_syncs_acquisition_and_whitelist_into_configdata(self):
+        content = self._content()
+        assert "_crowdsec_config_data" in content
+        assert "acquis.yaml" in content
+        assert "whitelists.yaml" in content
+        assert "'crowdsec': _crowdsec_config_data" in content
+
+
+class TestCrowdsecK8sValuesPropagation:
+    """crowdsec.enabled + the caddy plugin image reach the cluster via the
+    deploy-time reconcile (k8s_reconcile_caddy.yml), not a config-set-time
+    write in _side_effects (that path is superseded)."""
+
+    def _content(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks",
+            "k8s_reconcile_caddy.yml",
+        ))
+
+    def test_enable_flag_maps_to_chart_toggle(self):
+        content = self._content()
+        assert "'crowdsec': {'enabled':" in content
+
+    def test_reconciles_caddy_plugin_image_on_k8s(self):
+        content = self._content()
+        # CrowdSec or a provider trusted-proxy mode swaps caddy.image to the
+        # plugin image on K8s.
+        assert PLUGIN_CADDY_IMAGE in content
+        assert "CADDY_TRUSTED_PROXIES" in content
+
+
+class TestCrowdsecAutoEnroll:
+    """Create-time `-e CANASTA_ENABLE_CROWDSEC=true` must produce a working
+    CrowdSec on BOTH orchestrators, not an inert engine. One shared,
+    orchestrator-agnostic enroll task (crowdsec_autoenroll.yml) registers CAPI
+    and enrolls the bouncer when enabled-but-unenrolled; the crowdsec role
+    dispatches Compose vs k8s internally, so only the K8s sidecar-wait is
+    guarded in the task."""
+
+    def _autoenroll(self):
+        return _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks",
+            "crowdsec_autoenroll.yml"))
+
+    def test_autoenroll_registers_capi_and_enrolls_bouncer(self):
+        content = self._autoenroll()
+        assert "ensure_capi.yml" in content
+        assert "bouncer_enroll.yml" in content
+        # Self-gates on CrowdSec being enabled.
+        assert "CANASTA_ENABLE_CROWDSEC" in content
+
+    def test_autoenroll_calls_bouncer_unconditionally(self):
+        # bouncer_enroll must NOT be gated on a stored key: on K8s, disabling
+        # CrowdSec prunes the engine PVC (wipes the bouncer registration) while
+        # the key persists in .env, so re-enabling needs a re-enroll even with
+        # a key present. bouncer_enroll itself enrolls when the engine has no
+        # bouncer (idempotent), and bouncer_enroll_auto keeps it quiet.
+        auto = self._autoenroll()
+        assert "CROWDSEC_BOUNCER_API_KEY" not in auto, (
+            "the bouncer enroll must not be gated on a stored key"
+        )
+        assert "bouncer_enroll_auto: true" in auto
+        enroll = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "bouncer_enroll.yml"))
+        # bouncer_enroll re-enrolls when the engine has no bouncer registered.
+        assert "not (_crowdsec_existing | bool)" in enroll
+
+    def test_bouncer_enroll_auto_suppresses_already_enrolled_hint(self):
+        # In the auto path a steady-state start would otherwise print the
+        # interactive "already enrolled — use --force" hint on every start.
+        enroll = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "bouncer_enroll.yml"))
+        hint = enroll[enroll.index("already enrolled"):]
+        assert "not (bouncer_enroll_auto | default(false) | bool)" in hint
+
+    def test_autoenroll_sidecar_wait_is_k8s_guarded(self):
+        # The sidecar rollout wait is K8s-only; Compose starts the service
+        # synchronously. The guard lives inside the orchestrator task (allowed
+        # by the orchestrator-dispatch design), not in action code.
+        content = self._autoenroll()
+        assert "rollout status deployment/canasta-{{ instance_id }}-caddy" in content
+        wait = content[content.index("rollout status"):]
+        assert "instance_orchestrator | default('compose') in ['kubernetes', 'k8s']" in wait
+
+    def test_autoenroll_shared_by_start_and_create(self):
+        start = _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml"))
+        create = _read(os.path.join(
+            REPO_ROOT, "roles", "create", "tasks", "main.yml"))
+        assert "crowdsec_autoenroll.yml" in start
+        assert "crowdsec_autoenroll.yml" in create
+        assert "k8s_crowdsec_autoenroll.yml" not in start
+        assert "k8s_crowdsec_autoenroll.yml" not in create
+
+    def test_create_enroll_is_orchestrator_agnostic(self):
+        # The create-time enroll must NOT switch on the orchestrator in action
+        # code (#696) — it dispatches unconditionally; the task self-gates.
+        create = _read(os.path.join(
+            REPO_ROOT, "roles", "create", "tasks", "main.yml"))
+        start = create.index("Enroll CrowdSec bouncer")
+        step = create[start:create.index("Step 14", start)]
+        assert "crowdsec_autoenroll.yml" in step
+        assert "when:" not in step, (
+            "create-time enroll must dispatch unconditionally, not gate on the "
+            "orchestrator"
+        )
+
+    def test_create_enrolls_after_register(self):
+        # The crowdsec preflight resolves the instance from the registry, so
+        # the create-time enroll must run after _register, not in _start.
+        create = _read(os.path.join(
+            REPO_ROOT, "roles", "create", "tasks", "main.yml"))
+        assert create.index("_register.yml") < create.index(
+            "crowdsec_autoenroll.yml"), (
+            "create must enroll CrowdSec after registering the instance"
+        )
+        start = _read(os.path.join(
+            REPO_ROOT, "roles", "create", "tasks", "_start.yml"))
+        assert "crowdsec_autoenroll.yml" not in start, (
+            "enroll must not run in _start (instance not yet registered)"
+        )
+
+    def test_create_first_start_defers_compose_enroll(self):
+        # Compose's first start goes through orchestrator start.yml, which would
+        # enroll before _register and fail the registry resolve. create defers
+        # it with crowdsec_autoenroll: false; start.yml honors that flag.
+        cstart = _read(os.path.join(
+            REPO_ROOT, "roles", "create", "tasks", "_start.yml"))
+        assert "crowdsec_autoenroll: false" in cstart
+        start = _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml"))
+        assert "crowdsec_autoenroll | default(true)" in start
+
+    def test_autoenroll_is_self_contained(self):
+        # The task derives its namespace from instance_id (a global fact in
+        # both paths), so it must not depend on a caller-set _k8s_namespace.
+        content = self._autoenroll()
+        assert "-n canasta-{{ instance_id }}" in content
+        assert "_k8s_namespace" not in content
+
+
+class TestCrowdsecK8sTrustedProxy:
+    def test_rewrite_caddy_defaults_cluster_cidrs(self):
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks", "rewrite_caddy.yml",
+        ))
+        assert "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" in content
+        assert "CADDY_TRUSTED_PROXY_CIDRS" in content
+        assert "_tp_combine" in content
+
+    def test_k8s_no_cdn_renders_static_cluster_cidrs(self):
+        out = _render_caddyfile(
+            _crowdsec_active=True,
+            _trusted_proxies_enabled=True,
+            _tp_combine=False,
+            _tp_dynamic=False,
+            _tp_mode="",
+            _trusted_proxies_headers="X-Forwarded-For",
+            _trusted_proxies_strict=True,
+            _trusted_proxies_cidrs=["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+        )
+        assert "trusted_proxies static 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16" in out
+        assert "client_ip_headers X-Forwarded-For" in out
+        assert "combine" not in out
+
+    def test_k8s_cdn_renders_combine_of_static_and_cdn_ranges(self):
+        out = _render_caddyfile(
+            _crowdsec_active=True,
+            _trusted_proxies_enabled=True,
+            _tp_combine=True,
+            _tp_dynamic=True,
+            _tp_mode="cloudflare",
+            _trusted_proxies_headers="Cf-Connecting-Ip",
+            _trusted_proxies_strict=False,
+            _trusted_proxies_cidrs=["10.0.0.0/8"],
+        )
+        assert "trusted_proxies combine {" in out
+        assert "static 10.0.0.0/8" in out
+        assert "cdn_ranges {" in out
+        assert "provider cloudflare" in out
+        assert "client_ip_headers Cf-Connecting-Ip" in out
+
+    def test_compose_cdn_still_standalone(self):
+        # Regression: Compose (the edge) keeps cdn_ranges standalone, no combine.
+        out = _render_caddyfile(
+            _crowdsec_active=True,
+            _trusted_proxies_enabled=True,
+            _tp_combine=False,
+            _tp_dynamic=True,
+            _tp_mode="cloudflare",
+            _trusted_proxies_headers="Cf-Connecting-Ip",
+            _trusted_proxies_strict=False,
+            _trusted_proxies_cidrs=[],
+        )
+        assert "trusted_proxies cdn_ranges {" in out
+        assert "combine" not in out
+
+

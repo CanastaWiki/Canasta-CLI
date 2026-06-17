@@ -137,7 +137,6 @@ services:
       - caddy-data:/data
       - ./config/Caddyfile:/etc/caddy/Caddyfile
       - ./config/Caddyfile.site:/etc/caddy/Caddyfile.site
-      - ./config/Caddyfile.global:/etc/caddy/Caddyfile.global
       - caddy-logs:/var/log/caddy
 
   varnish:

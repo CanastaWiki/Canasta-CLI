@@ -5,10 +5,15 @@
 # Idempotent: skips once `cscli capi status` succeeds.
 # Input: instance_path (the crowdsec engine must already be running)
 
+# Called directly from start.yml (not via _preflight), so build the cscli
+# prefix here. Idempotent — safe to include on every start.
+- name: Build the cscli command prefix for this orchestrator
+  ansible.builtin.include_tasks: _resolve_cscli.yml
+
 - name: Check whether CrowdSec is registered with the Central API
   ansible.builtin.command:
-    cmd: "docker compose exec -T crowdsec cscli capi status"
-    chdir: "{{ instance_path }}"
+    cmd: "{{ _cscli_prefix }} cscli capi status"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
   register: _crowdsec_capi_status
   changed_when: false
   failed_when: false
@@ -27,14 +32,11 @@
     - name: Register CAPI and write the credentials file
       ansible.builtin.command:
         cmd: >-
-          docker compose exec -T crowdsec
+          {{ _cscli_prefix }}
           sh -c 'cscli capi register > /etc/crowdsec/online_api_credentials.yaml'
-        chdir: "{{ instance_path }}"
+        chdir: "{{ _cscli_chdir | default(omit) }}"
       changed_when: true
       no_log: true
 
     - name: Restart the engine so it loads the CAPI credentials
-      ansible.builtin.command:
-        cmd: "docker compose restart crowdsec"
-        chdir: "{{ instance_path }}"
-      changed_when: true
+      ansible.builtin.include_tasks: _restart_engine.yml

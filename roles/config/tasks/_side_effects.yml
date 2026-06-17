@@ -362,7 +362,8 @@
   when:
     - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
     - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH',
-                      'CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_STAGING_CERTS']
+                      'CANASTA_ENABLE_ELASTICSEARCH',
+                      'CANASTA_STAGING_CERTS']
   block:
     - name: Read current values.yaml
       ansible.builtin.slurp:
@@ -404,6 +405,13 @@
              | to_nice_yaml(indent=2) }}
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
+
+# CrowdSec enablement (crowdsec.enabled) and the caddy plugin image are
+# reconciled into values.yaml from .env at deploy time by the orchestrator
+# start path (roles/orchestrator/tasks/k8s_reconcile_caddy.yml), so the
+# config-set restart picks them up. CADDY_TRUSTED_PROXIES feeds that same
+# reconcile (cloudflare/imperva need the plugin image), so neither needs a
+# config-set-time values.yaml write here.
 
 # --- MW_SITE_SERVER domain change cascade ---
 # When the domain changes, update MW_SITE_FQDN, wikis.yaml URLs,
