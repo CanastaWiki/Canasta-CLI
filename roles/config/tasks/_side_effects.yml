@@ -296,8 +296,8 @@
 # Also reconciles CANASTA_CADDY_IMAGE, so CADDY_TRUSTED_PROXIES (which can
 # require the plugin image) belongs in this trigger list too.
 # Intrinsic config-apply side effect; the K8s equivalent is reconciled at
-# deploy time by k8s_reconcile_caddy.yml. Kept in place per #696 (justified,
-# not dispatched).
+# deploy time by k8s_reconcile_caddy.yml. Kept in place by design
+# (orchestrator-specific side effect, not dispatched).
 - name: Sync COMPOSE_PROFILES / caddy image when feature flags change
   when:
     - instance_orchestrator | default('compose') == 'compose'
@@ -311,7 +311,7 @@
 # registered. The restart this config-set triggers auto-enrolls the bouncer
 # (orchestrator start.yml), so the normal case just works; only flag the
 # manual fallback for --no-restart, where no start runs to enroll it.
-# Compose-only advisory side effect of a config change. Kept per #696.
+# Compose-only advisory side effect of a config change. Kept in place by design.
 - name: Note bouncer enrollment when CrowdSec is enabled without a key
   when:
     - instance_orchestrator | default('compose') == 'compose'
@@ -364,7 +364,7 @@
 # create. The values.yaml mapping is populated at create time only
 # (see roles/create/tasks/main.yml and templates/k8s_values.yaml.j2).
 # Intrinsically K8s config-apply (writes values.yaml); no Compose equivalent
-# (Compose reads .env directly). Kept per #696 (justified, not dispatched).
+# (Compose reads .env directly). Kept in place by design (not dispatched).
 - name: Propagate config key to K8s values.yaml
   when:
     - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
@@ -472,7 +472,7 @@
     # Let's Encrypt cert on the next restart. Without this, the user
     # would either serve Traefik's default self-signed cert or have
     # to delete and recreate the instance.
-    # Intrinsically K8s (cert-manager + values.yaml). Kept per #696.
+    # Intrinsically K8s (cert-manager + values.yaml). Kept in place by design.
     - name: Enable TLS for K8s instance on localhost→domain change
       when:
         - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
