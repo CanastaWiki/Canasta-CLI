@@ -353,6 +353,7 @@
 #   CANASTA_ENABLE_VARNISH → varnish.enabled: <bool>
 #   CANASTA_ENABLE_ELASTICSEARCH → elasticsearch.enabled: <bool>
 #   CANASTA_STAGING_CERTS  → ingress.certManager.issuer: letsencrypt-{staging,prod}
+#   CANASTA_IMAGE          → image.repository + image.tag
 #
 # External DB keys (USE_EXTERNAL_DB, MYSQL_*) are intentionally NOT
 # propagated here — _validate_key.yml blocks them as immutable after
@@ -363,7 +364,7 @@
     - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
     - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH',
                       'CANASTA_ENABLE_ELASTICSEARCH',
-                      'CANASTA_STAGING_CERTS']
+                      'CANASTA_STAGING_CERTS', 'CANASTA_IMAGE']
   block:
     - name: Read current values.yaml
       ansible.builtin.slurp:
@@ -396,6 +397,18 @@
             certManager:
               issuer: "{{ (_config_value | lower == 'true') | ternary('letsencrypt-staging', 'letsencrypt-prod') }}"
       when: _config_key == 'CANASTA_STAGING_CERTS'
+
+    # Split repository:tag the same way create does (k8s_values.yaml.j2):
+    # repository is everything before the last colon, tag is everything
+    # after it. config set + restart then redeploys the custom image,
+    # matching Compose's ${CANASTA_IMAGE} behavior.
+    - name: Build values.yaml override for CANASTA_IMAGE
+      ansible.builtin.set_fact:
+        _k8s_override:
+          image:
+            repository: "{{ _config_value | regex_replace(':[^:]+$', '') }}"
+            tag: "{{ _config_value | regex_replace('^[^:]+:', '') }}"
+      when: _config_key == 'CANASTA_IMAGE'
 
     - name: Write updated values.yaml
       ansible.builtin.copy:
