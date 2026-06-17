@@ -2416,12 +2416,21 @@ def _wait_bouncer_active(inst, timeout=120):
 
 
 def test_k8s_crowdsec(inst):
-    """Kubernetes: enable CrowdSec on a live cluster and exercise the whole
-    command surface (#683). This is the coverage gap that let two blockers
-    reach main — #677 (unquoted preflight jsonpath broke every K8s crowdsec
-    command) and #681 (caddy stuck on the stock image -> crashloop) — because
-    the K8s integration job never *enabled* CrowdSec. Unit tests assert file
-    content, not runtime; only an enable-on-a-real-cluster test catches this.
+    """Kubernetes: bring up CrowdSec on a live cluster and exercise the command
+    surface (#683). This is the coverage gap that let two blockers reach main —
+    #677 (unquoted preflight jsonpath broke every K8s crowdsec command) and
+    #681 (caddy stuck on the stock image -> crashloop) — because the K8s
+    integration job never *enabled* CrowdSec. Unit tests assert file content,
+    not runtime; only an enable-on-a-real-cluster test catches this.
+
+    CrowdSec is enabled at CREATE time (-e). That path otherwise has no CI
+    coverage (it was broken until #685/#700), and it does one fewer full-stack
+    restart than the config-set-enable path — config set enable bounces the
+    whole stack twice (enable + the bouncer-key store), and on a 2-CPU CI
+    runner the MediaWiki pod's healthcheck start-period makes a second full
+    restart blow helm's --wait. The restart-light command surface below
+    (reload only rolls the caddy deployment, not the stack) keeps this within
+    the runner's budget.
 
     The live 'banned IP gets a 403' assertion is intentionally omitted: in the
     CI cluster the client IP Caddy sees is environment-dependent (same reasoning
@@ -2435,26 +2444,28 @@ def test_k8s_crowdsec(inst):
     if result.returncode != 0:
         raise SkipTest("helm not installed")
 
-    print("Creating Kubernetes instance...")
+    # Enable CrowdSec at create time via the -e env file.
+    with open(inst.env_file, "a") as f:
+        f.write("CANASTA_ENABLE_CROWDSEC=true\n")
+
+    print("Creating Kubernetes instance with CrowdSec enabled...")
     inst.run_ok(
         "create", "-i", inst.id, "-w", "main",
         "-n", "localhost", "-p", inst.work_dir,
         "--orchestrator", "kubernetes",
         "--skip-argocd-install",
+        "-e", inst.env_file,
     )
 
-    print("Enabling CrowdSec via config set (restarts + auto-enrolls)...")
-    inst.run_ok("config", "set", "-i", inst.id, "CANASTA_ENABLE_CROWDSEC=true")
-
-    # #681: the caddy deployment must switch to the plugin image and the pod
-    # must reach 2/2 (caddy + crowdsec sidecar). Stock image -> crashloop.
+    # #681: the caddy deployment must run the plugin image and the pod must
+    # reach 2/2 (caddy + crowdsec sidecar). Stock image -> crashloop, never 2/2.
     _k8s_caddy_ready(inst)
     image = _k8s_caddy_image(inst)
     assert image == "ghcr.io/canastawiki/canasta-caddy:2.11.3", (
         "caddy must run the plugin image when CrowdSec is on, got: %r" % image
     )
 
-    # The reconcile must record both knobs in values.yaml.
+    # The deploy-time reconcile must record both knobs in values.yaml.
     import yaml as _yaml
     with open(os.path.join(inst.instance_path(), "values.yaml")) as f:
         values = _yaml.safe_load(f)
@@ -2465,10 +2476,11 @@ def test_k8s_crowdsec(inst):
 
     # #677: every K8s crowdsec command must exec cleanly into the sidecar.
     # run_quiet raises on a non-zero exit, so these calls ARE the assertion.
-    print("Exercising the crowdsec command surface...")
+    print("Verifying the bouncer enrolled at create time...")
     out = _wait_bouncer_active(inst)
     assert "registered" in out, "status should show CAPI registered"
 
+    print("Exercising the read command surface...")
     inst.run_quiet("crowdsec", "scenarios", "-i", inst.id)
     inst.run_quiet("crowdsec", "alerts", "-i", inst.id)
     inst.run_quiet("crowdsec", "metrics", "-i", inst.id)
@@ -2484,9 +2496,10 @@ def test_k8s_crowdsec(inst):
     out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
     assert "203.0.113.7" not in out, "unbanned IP should be gone from decisions"
 
-    # reload / reload --purge-blocklists bounce the engine; on K8s the Recreate
-    # rollout renames the caddy pod, so this also exercises the post-restart
-    # cscli prefix re-resolve.
+    # reload / reload --purge-blocklists roll ONLY the caddy deployment (the
+    # engine is a sidecar there), not the whole stack — light enough for CI.
+    # The Recreate rollout renames the caddy pod, so this also exercises the
+    # post-restart cscli prefix re-resolve.
     print("Reloading the engine...")
     inst.run_ok("crowdsec", "reload", "-i", inst.id)
     _k8s_caddy_ready(inst)
@@ -2494,11 +2507,14 @@ def test_k8s_crowdsec(inst):
     inst.run_ok("crowdsec", "reload", "--purge-blocklists", "-i", inst.id)
     _k8s_caddy_ready(inst)
 
-    # Force re-enroll: revokes + re-issues the bouncer key and restarts.
-    print("Re-enrolling the bouncer with --force...")
-    inst.run_ok("crowdsec", "bouncer-enroll", "--force", "-i", inst.id)
-    _k8s_caddy_ready(inst)
-    _wait_bouncer_active(inst)
+    # bouncer-enroll without --force is the idempotent path: the bouncer is
+    # already enrolled from create, so this is a no-op (no restart). --force
+    # is omitted here — it triggers a full-stack restart that overruns the CI
+    # runner; its revoke/re-issue path is covered by the unit + Compose tests.
+    print("Re-running bouncer-enroll (idempotent no-op)...")
+    inst.run_ok("crowdsec", "bouncer-enroll", "-i", inst.id)
+    out = _wait_bouncer_active(inst)
+    assert "canasta-caddy" in out, "bouncer should still be enrolled"
 
     print("Deleting instance...")
     inst.run_ok("delete", "-i", inst.id, "--yes")
