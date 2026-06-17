@@ -1,7 +1,9 @@
 ---
 # canasta crowdsec bouncer-enroll - register the Caddy bouncer with the
 # CrowdSec engine, persist its API key, and restart so it starts enforcing.
-# Input: id (optional), force (bool)
+# Input: id (optional), force (bool), bouncer_enroll_auto (bool — set by the
+# start/create auto-enroll path to suppress the interactive "already
+# enrolled" hint on steady-state starts).
 
 - name: Preflight (resolve, crowdsec running, build cscli prefix)
   ansible.builtin.include_tasks: _preflight.yml
@@ -55,6 +57,7 @@
     - _crowdsec_existing | bool
     - _crowdsec_have_key | bool
     - not (force | default(false) | bool)
+    - not (bouncer_enroll_auto | default(false) | bool)
 
 # Enroll when forced, when no bouncer is registered yet, or when one is
 # registered but we have no stored key (cscli can't reveal an existing
