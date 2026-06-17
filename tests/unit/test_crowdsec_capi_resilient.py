@@ -1,4 +1,4 @@
-"""Guards for CrowdSec CAPI registration resilience (#709).
+"""Guards for CrowdSec CAPI registration resilience.
 
 `cscli capi register` reaches CrowdSec's Central API over the network.
 A transient outage must NOT abort `canasta create`: the registration is
@@ -47,7 +47,7 @@ def test_register_task_retries():
     assert reg is not None, "register task must exist"
     assert int(reg.get("retries", 0)) >= 2, (
         "CAPI registration must set retries to survive a transient "
-        "Central API outage (#709)"
+        "Central API outage"
     )
     assert "rc == 0" in str(reg.get("until", "")), (
         "registration must retry until the command succeeds"
@@ -62,7 +62,7 @@ def test_register_is_in_a_rescued_block():
     )
     assert "rescue" in block_task, (
         "the register block must have a rescue: so a sustained CAPI "
-        "failure does not abort 'canasta create' (#709)"
+        "failure does not abort 'canasta create'"
     )
     # The rescue must not itself hard-fail.
     rescue_names = [t.get("name", "") for t in block_task["rescue"]]
@@ -78,7 +78,7 @@ def test_credentials_written_atomically():
     cmd = reg["ansible.builtin.command"]["cmd"]
     assert "online_api_credentials.yaml.tmp" in cmd, (
         "register must write to a temp file, not directly to the real "
-        "credentials file (#709)"
+        "credentials file"
     )
     assert "mv" in cmd and "&&" in cmd, (
         "the temp file must be moved into place only on success (&&)"
