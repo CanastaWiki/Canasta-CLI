@@ -17,7 +17,7 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 SCHEDULE_SET = os.path.join(
-    REPO_ROOT, "roles", "backup", "tasks", "schedule_set.yml",
+    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml",
 )
 
 
@@ -868,7 +868,7 @@ class TestDumpSecretsStripsEphemeralMetadata:
     fields with sed."""
 
     SCHEDULE_SET = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "schedule_set.yml",
+        REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml",
     )
     K8S_RUN_BACKUP = os.path.join(
         REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml",

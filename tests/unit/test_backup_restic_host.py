@@ -23,7 +23,7 @@ CREATE_YML = os.path.join(
     REPO_ROOT, "roles", "backup", "tasks", "create.yml",
 )
 SCHEDULE_SET = os.path.join(
-    REPO_ROOT, "roles", "backup", "tasks", "schedule_set.yml",
+    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml",
 )
 
 STABLE_HOST = "{{ instance_id }}"
