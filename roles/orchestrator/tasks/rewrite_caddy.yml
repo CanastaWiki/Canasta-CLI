@@ -146,9 +146,10 @@
 
 - name: Resolve inlined user global content
   ansible.builtin.set_fact:
-    # unsafe: the content is inlined into the template via lookup('template'),
-    # so a literal {{ … }} in the user's file must not be re-evaluated.
-    _caddyfile_global_content: "{{ _caddy_global_raw.content | default('') | b64decode | ansible.builtin.unsafe }}"
+    # caddy_unsafe: the content is inlined into the template via
+    # lookup('template'), so a literal {{ … }} in the user's file must not be
+    # re-evaluated.
+    _caddyfile_global_content: "{{ _caddy_global_raw.content | default('') | b64decode | caddy_unsafe }}"
 
 # Render the template (CLI global block + inlined Caddyfile.global, which may
 # leave two global blocks) and meld them into one on the way out.

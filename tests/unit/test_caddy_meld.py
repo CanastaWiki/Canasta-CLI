@@ -12,7 +12,11 @@ import sys
 sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", "..", "filter_plugins")
 )
-from canasta_caddy import meld_caddy_global_blocks, _parse_top_level  # noqa: E402
+from canasta_caddy import (  # noqa: E402
+    meld_caddy_global_blocks,
+    caddy_unsafe,
+    _parse_top_level,
+)
 
 
 def _count_global_blocks(text):
@@ -168,9 +172,18 @@ class TestMeld:
 
     def test_jinja_braces_passed_through(self):
         # The melder is pure string work — a user's literal {{ … }} survives;
-        # render-time safety is the `| ansible.builtin.unsafe` in rewrite_caddy.
+        # render-time safety is the `| caddy_unsafe` in rewrite_caddy.
         out = meld_caddy_global_blocks(
             '{\n    debug\n}\nexample.com {\n    respond "{{ not_evaluated }}"\n}\n'
         )
         assert "{{ not_evaluated }}" in out
         assert _count_global_blocks(out) == 1
+
+
+class TestCaddyUnsafe:
+    def test_preserves_value(self):
+        # caddy_unsafe wraps via ansible's wrap_var (unsafe-tagging on the older
+        # 2.15–2.18 engine; a no-op pass-through on 2.19+ where slurped values
+        # are not re-templated). Either way the string value is unchanged.
+        s = 'respond "{{ not_evaluated }}"'
+        assert str(caddy_unsafe(s)) == s
