@@ -58,98 +58,12 @@
     path: "{{ instance_path }}/.gitops-host"
   register: _config_gitops_stat
 
+# The orchestrator owns the compose-vs-K8s decision (K8s gitops uses a
+# different layout, values.template.yaml, not vars.yaml); dispatch.
 - name: Update gitops vars for changed keys
-  when:
-    - _config_gitops_stat.stat.exists | default(false)
-    - instance_orchestrator | default('compose') == 'compose'
-  block:
-    - name: Load gitops placeholder definitions
-      ansible.builtin.include_vars:
-        file: "{{ canasta_root }}/roles/gitops/vars/main.yml"
-
-    - name: Read .gitops-host
-      ansible.builtin.slurp:
-        src: "{{ instance_path }}/.gitops-host"
-      register: _config_host_raw
-
-    # If config set introduces a new credential key (SMTP_PASSWORD,
-    # AWS_*, etc.) that wasn't in .env at gitops init time, env.template
-    # won't have a placeholder for it. Add one so the map-building step
-    # below picks it up and the propagation to vars.yaml fires.
-    - name: Ensure env.template has placeholders for new credential keys
-      ansible.builtin.include_tasks: _ensure_env_template_placeholder.yml
-      loop: "{{ _config_settings.split() }}"
-      loop_control:
-        loop_var: _ep_setting
-        label: "{{ _ep_setting.split('=', 1)[0] }}"
-
-    - name: Build key-to-placeholder map from env.template
-      ansible.builtin.shell:
-        cmd: |
-          python3 -c "
-          import json, re
-          with open('{{ instance_path }}/env.template') as f:
-              lines = f.readlines()
-          m = {}
-          for line in lines:
-              match = re.match(r'^([A-Z][^=]*)=\{\{([^}]+)\}\}', line.strip())
-              if match:
-                  m[match.group(1)] = match.group(2)
-          print(json.dumps(m))
-          "
-      register: _config_map_raw
-      changed_when: false
-
-    - name: Parse placeholder map
-      ansible.builtin.set_fact:
-        _config_placeholder_map: "{{ _config_map_raw.stdout | from_json }}"
-
-    - name: Update vars.yaml for each changed key
-      ansible.builtin.include_tasks: _update_gitops_var.yml
-      loop: "{{ _config_settings.split() }}"
-      loop_control:
-        loop_var: _config_setting
-        label: "{{ _config_setting.split('=', 1)[0] }}"
-
-    # MW_SITE_FQDN / HTTP_PORT / HTTPS_PORT / CADDY_AUTO_HTTPS re-derive
-    # MW_SITE_FQDN/MW_SITE_SERVER and rewrite wiki URLs in the rendered
-    # .env and config/wikis.yaml via _side_effects.yml. Those derived
-    # values are not in the typed settings, so the loop above never
-    # propagates them; without this block the next 'config regenerate' /
-    # 'gitops pull' re-renders them back to the pre-change domain.
-    - name: Propagate domain side effects to gitops vars
-      when: >-
-        _config_settings.split() | map('regex_replace', '=.*$', '') | list
-        | intersect(['MW_SITE_FQDN', 'HTTP_PORT', 'HTTPS_PORT', 'CADDY_AUTO_HTTPS'])
-        | length > 0
-      block:
-        - name: Read final .env for derived domain keys
-          canasta_env:
-            path: "{{ instance_path }}/.env"
-            state: read_all
-          register: _config_env_final
-
-        - name: Propagate derived MW_SITE_FQDN/MW_SITE_SERVER to vars.yaml
-          ansible.builtin.include_tasks: _update_gitops_var.yml
-          loop:
-            - "MW_SITE_FQDN={{ _config_env_final.variables.MW_SITE_FQDN | default('') }}"
-            - "MW_SITE_SERVER={{ _config_env_final.variables.MW_SITE_SERVER | default('') }}"
-          loop_control:
-            loop_var: _config_setting
-            label: "{{ _config_setting.split('=', 1)[0] }}"
-
-        - name: Read final wikis.yaml for URL propagation
-          canasta_wikis_yaml:
-            instance_path: "{{ instance_path }}"
-            state: read
-          register: _config_wikis_final
-
-        - name: Propagate wiki URLs to vars.yaml
-          ansible.builtin.include_tasks: _update_gitops_wiki_url.yml
-          loop: "{{ _config_wikis_final.wikis }}"
-          loop_control:
-            loop_var: _gw_wiki
-            label: "wiki_url_{{ _gw_wiki.id }}"
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/config_update_gitops_vars.yml
+  when: _config_gitops_stat.stat.exists | default(false)
 
 - name: Regenerate Caddyfile after config change
   ansible.builtin.include_role:
