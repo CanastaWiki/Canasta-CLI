@@ -1515,6 +1515,102 @@ def test_k8s_lifecycle(inst):
     assert inst.id not in output, "Instance still in list after delete"
 
 
+def test_k8s_backup(inst):
+    """K8s backup end-to-end on a single-node cluster.
+
+    Exercises the runtime backup path that previously had only unit
+    coverage: a local (hostPath) restic repo, the on-demand backup Job
+    with its dump-databases init container, and the schedule CronJob
+    lifecycle. Restore is covered by the Compose backup test; here the
+    focus is that the K8s Job/CronJob machinery actually runs.
+    """
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+
+    ns = "canasta-%s" % inst.id
+    cronjob = "canasta-backup-%s" % inst.id
+    # Local restic repo as a hostPath on the node. k8s_run_backup mounts
+    # it with type DirectoryOrCreate, so the path is created on demand.
+    repo = "/var/lib/canasta-k8s-backup-test-%s" % inst.id
+
+    # Backup repo config has to be present before create so it lands in
+    # the backup-env Secret the Job reads.
+    with open(inst.env_file, "a") as f:
+        f.write("RESTIC_REPOSITORY=%s\n" % repo)
+        f.write("RESTIC_PASSWORD=testpass\n")
+
+    try:
+        print("Creating Kubernetes instance...")
+        inst.run_ok(
+            "create", "-i", inst.id, "-w", "main",
+            "-n", "localhost", "-p", inst.work_dir,
+            "--orchestrator", "kubernetes",
+            "--skip-argocd-install",
+            "-e", inst.env_file,
+        )
+
+        # The dump-databases init container connects to the db, so the
+        # db StatefulSet must be ready before a backup can succeed.
+        print("Waiting for the database to be ready...")
+        result = subprocess.run(
+            ["kubectl", "rollout", "status",
+             "statefulset/canasta-%s-db" % inst.id,
+             "-n", ns, "--timeout=300s"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            "db not ready: %s\n%s" % (result.stdout, result.stderr)
+        )
+
+        print("Initializing backup repository...")
+        inst.run_ok("backup", "init", "-i", inst.id)
+
+        print("Creating backup snapshot...")
+        inst.run_ok("backup", "create", "-i", inst.id, "-t", "k8s-test-snapshot")
+
+        print("Listing snapshots...")
+        output = inst.run_quiet("backup", "list", "-i", inst.id)
+        assert "k8s-test-snapshot" in output, (
+            "Snapshot tag not found in list output:\n%s" % output
+        )
+
+        print("Setting a backup schedule (CronJob)...")
+        inst.run_ok("backup", "schedule", "set", "-i", inst.id, "0 3 * * *")
+        result = subprocess.run(
+            ["kubectl", "get", "cronjob", cronjob, "-n", ns],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            "CronJob %s not created: %s" % (cronjob, result.stderr)
+        )
+
+        print("Listing the backup schedule...")
+        output = inst.run_quiet("backup", "schedule", "list", "-i", inst.id)
+        assert "0 3 * * *" in output, (
+            "Schedule not shown in list output:\n%s" % output
+        )
+
+        print("Removing the backup schedule...")
+        inst.run_ok("backup", "schedule", "remove", "-i", inst.id)
+        for _ in range(6):
+            result = subprocess.run(
+                ["kubectl", "get", "cronjob", cronjob, "-n", ns],
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                break
+            time.sleep(2)
+        assert result.returncode != 0, "CronJob still present after remove"
+    finally:
+        # The hostPath repo lives on the node (created by the Job as root);
+        # cleanup() removes the instance but not this path.
+        subprocess.run(["sudo", "rm", "-rf", repo], capture_output=True)
+
+
 def test_version(inst):
     """`canasta version` reports a version string and orchestrator info."""
     output = inst.run_quiet("version")
@@ -2534,6 +2630,7 @@ def test_k8s_crowdsec(inst):
 ALL_TESTS = {
     "k8s-lifecycle": test_k8s_lifecycle,
     "k8s-crowdsec": test_k8s_crowdsec,
+    "k8s-backup": test_k8s_backup,
     "lifecycle": test_lifecycle,
     "import": test_import_export,
     "upgrade": test_upgrade,

@@ -277,6 +277,53 @@ jobs:
           k8s-crowdsec
         timeout-minutes: 35
 
+  # Separate job (own runner) so the K8s backup Jobs/CronJob run against a
+  # fresh single-node cluster with their own time budget, in parallel with
+  # the other k8s jobs rather than serializing behind them.
+  integration-k8s-backup:
+    name: "Integration: Kubernetes Backup"
+    if: github.event_name != 'pull_request'  # See #67
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-crypt
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      # Bootstrap the cluster via the product's own install path so CI
+      # exercises 'canasta install k8s-cp' (which installs k3s + helm at the
+      # pinned canasta_k3s_version / canasta_helm_version, writing
+      # ~/.kube/config) instead of a separate, unpinned curl | sh that
+      # depended on update.k3s.io.
+      - name: Bootstrap k3s control plane via canasta
+        run: ./canasta-native install k8s-cp
+      - name: Run K8s backup test
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          k8s-backup
+        timeout-minutes: 20
+
   remote-integration:
     name: Remote Host Integration Tests
     if: github.event_name != 'pull_request'  # See #67
