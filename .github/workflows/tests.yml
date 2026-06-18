@@ -200,17 +200,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git-crypt
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.20.1
-      - name: Install k3s
-        run: |
-          curl -sfL https://get.k3s.io | sudo sh -
-          mkdir -p ~/.kube
-          sudo k3s kubectl config view --raw > ~/.kube/config
-          chmod 600 ~/.kube/config
-          kubectl cluster-info
       - name: Install Python dependencies
         run: |
           python -m venv .venv
@@ -228,6 +217,13 @@ jobs:
           done
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
+      # Bootstrap the cluster via the product's own install path so CI
+      # exercises 'canasta install k8s-cp' (which installs k3s + helm at the
+      # pinned canasta_k3s_version / canasta_helm_version, writing
+      # ~/.kube/config) instead of a separate, unpinned curl | sh that
+      # depended on update.k3s.io.
+      - name: Bootstrap k3s control plane via canasta
+        run: ./canasta-native install k8s-cp
       - name: Run K8s tests
         run: >-
           .venv/bin/python tests/integration/run_tests.py
@@ -251,17 +247,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git-crypt
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.20.1
-      - name: Install k3s
-        run: |
-          curl -sfL https://get.k3s.io | sudo sh -
-          mkdir -p ~/.kube
-          sudo k3s kubectl config view --raw > ~/.kube/config
-          chmod 600 ~/.kube/config
-          kubectl cluster-info
       - name: Install Python dependencies
         run: |
           python -m venv .venv
@@ -279,6 +264,13 @@ jobs:
           done
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
+      # Bootstrap the cluster via the product's own install path so CI
+      # exercises 'canasta install k8s-cp' (which installs k3s + helm at the
+      # pinned canasta_k3s_version / canasta_helm_version, writing
+      # ~/.kube/config) instead of a separate, unpinned curl | sh that
+      # depended on update.k3s.io.
+      - name: Bootstrap k3s control plane via canasta
+        run: ./canasta-native install k8s-cp
       - name: Run K8s CrowdSec test
         run: >-
           .venv/bin/python tests/integration/run_tests.py
