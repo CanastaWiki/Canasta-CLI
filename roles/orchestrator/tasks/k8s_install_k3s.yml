@@ -44,10 +44,15 @@
         msg: "Adding to k3s API server TLS cert: {{ public_ip | join(', ') }}"
       when: (public_ip | default([])) | length > 0
 
+    # INSTALL_K3S_VERSION pins the release so the installer downloads it
+    # directly from GitHub instead of asking update.k3s.io to resolve a
+    # channel — removing that single point of failure and keeping every
+    # node in the cluster on the same version (see canasta_k3s_version).
     - name: Download and install k3s
       ansible.builtin.shell:
         cmd: >-
-          curl -sfL https://get.k3s.io |
+          curl -sfL --retry 3 --retry-delay 5 https://get.k3s.io |
+          INSTALL_K3S_VERSION={{ canasta_k3s_version | quote }}
           INSTALL_K3S_EXEC={{ _k3s_install_exec | quote }} sh -
       changed_when: true
 
@@ -103,7 +108,10 @@
 
 - name: Install helm
   ansible.builtin.shell:
-    cmd: "curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+    cmd: >-
+      curl -fsSL --retry 3 --retry-delay 5
+      https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+      | DESIRED_VERSION={{ canasta_helm_version | quote }} bash
   changed_when: true
   when: _helm_installed.rc != 0
 

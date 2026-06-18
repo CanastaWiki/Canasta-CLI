@@ -33,10 +33,14 @@
     # K3S_URL pre-set on the install command flips the upstream
     # installer into agent mode (vs the default server install).
     # Both env vars are required.
+    # Pin the same k3s version as the control plane (canasta_k3s_version)
+    # so a later-joining worker can't outpace the cp, and so the install
+    # doesn't depend on update.k3s.io resolving a channel.
     - name: Download and install k3s agent
       ansible.builtin.shell:
         cmd: >-
-          curl -sfL https://get.k3s.io |
+          curl -sfL --retry 3 --retry-delay 5 https://get.k3s.io |
+          INSTALL_K3S_VERSION={{ canasta_k3s_version | quote }}
           K3S_URL={{ server | quote }}
           K3S_TOKEN={{ token | quote }}
           sh -
