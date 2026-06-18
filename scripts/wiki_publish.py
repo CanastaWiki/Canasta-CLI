@@ -39,6 +39,13 @@ DEFINITIONS_PATH = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
 PAGE_PREFIX = "CLI:"
 EDIT_DELAY = 2  # seconds between edits
+HTTP_TIMEOUT = 30  # seconds; a hung wiki API must not stall the publish
+
+
+class PermissionDeniedError(RuntimeError):
+    """The bot account lacks the right for an API action (e.g. delete
+    requires the Administrators group). Treated as a skip, not a
+    publish failure."""
 
 
 def load_definitions():
@@ -656,14 +663,14 @@ class MediaWikiClient:
     def _post(self, params):
         data = urllib.parse.urlencode(params).encode()
         req = urllib.request.Request(self.api_url, data=data)
-        with self.opener.open(req) as resp:
+        with self.opener.open(req, timeout=HTTP_TIMEOUT) as resp:
             return json.loads(resp.read())
 
     def _get_token(self, token_type):
         url = "%s?action=query&meta=tokens&type=%s&format=json" % (
             self.api_url, token_type,
         )
-        with self.opener.open(url) as resp:
+        with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
             data = json.loads(resp.read())
         return data["query"]["tokens"][token_type + "token"]
 
@@ -709,7 +716,7 @@ class MediaWikiClient:
             "%s?action=query&meta=siteinfo&siprop=namespaces&format=json"
             % self.api_url
         )
-        with self.opener.open(url) as resp:
+        with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
             data = json.loads(resp.read())
         for ns in data["query"]["namespaces"].values():
             if name in (ns.get("*"), ns.get("canonical")):
@@ -727,7 +734,7 @@ class MediaWikiClient:
             )
             if apcontinue:
                 url += "&apcontinue=" + urllib.parse.quote(apcontinue)
-            with self.opener.open(url) as resp:
+            with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
                 data = json.loads(resp.read())
             titles.extend(
                 p["title"] for p in data["query"]["allpages"]
@@ -748,10 +755,11 @@ class MediaWikiClient:
             "format": "json",
         })
         if "error" in result:
-            raise RuntimeError(
-                "API error: %s: %s"
-                % (result["error"]["code"], result["error"]["info"])
-            )
+            code = result["error"]["code"]
+            msg = "API error: %s: %s" % (code, result["error"]["info"])
+            if code == "permissiondenied":
+                raise PermissionDeniedError(msg)
+            raise RuntimeError(msg)
 
 
 def main():
@@ -827,6 +835,25 @@ def main():
     print("Done: %d pages published" % len(pages))
 
 
+def _normalize_title(title):
+    """Canonicalize a title the way MediaWiki does, so generated titles
+    compare equal to the titles the API returns. MediaWiki treats
+    underscores as spaces and (with the default $wgCapitalLinks) upper-
+    cases the first letter of the page name. The generator emits
+    'CLI:canasta ...' (lowercase) but the stored page is 'CLI:Canasta
+    ...'; without this normalization every page looks like an orphan."""
+    title = title.replace("_", " ").strip()
+    prefix, sep, name = title.partition(":")
+    if not sep:
+        prefix, name = "", title
+    else:
+        prefix = prefix + ":"
+    name = name.strip()
+    if name:
+        name = name[0].upper() + name[1:]
+    return prefix + name
+
+
 def prune_orphans(client, pages):
     """Delete CLI: pages on the wiki that the current run no longer
     generates. Returns the number of deletion errors."""
@@ -840,24 +867,53 @@ def prune_orphans(client, pages):
         )
         return 0
 
-    generated = {title for title, _ in pages}
+    generated = {_normalize_title(title) for title, _ in pages}
     existing = client.list_pages_in_namespace(ns_id)
-    orphans = [t for t in existing if t not in generated]
+    orphans = [t for t in existing if _normalize_title(t) not in generated]
+
+    if not orphans:
+        print("No orphaned %s pages to prune" % PAGE_PREFIX)
+        return 0
+
+    # Safety valve: real orphans (renamed/removed commands) are few. An
+    # implausibly large orphan set means the comparison is broken (e.g. a
+    # title-normalization regression), so refuse to delete rather than
+    # risk wiping the namespace. This is a hard failure to draw attention.
+    safety_limit = max(10, len(existing) // 4)
+    if len(orphans) > safety_limit:
+        print(
+            "ERROR: prune would delete %d of %d %s pages (safety limit "
+            "%d) — refusing. This indicates a title-matching bug, not "
+            "real orphans; no pages were deleted."
+            % (len(orphans), len(existing), PAGE_PREFIX, safety_limit),
+            file=sys.stderr,
+        )
+        return 1
 
     errors = 0
-    for title in orphans:
+    for i, title in enumerate(orphans):
         try:
             client.delete_page(
                 title, "Orphaned Canasta CLI reference (command removed)"
             )
             print("Deleted orphan %s" % title)
+        except PermissionDeniedError as e:
+            # The bot can't delete (needs Administrators). Every orphan
+            # would fail the same way, so warn once with the full list
+            # for manual cleanup and don't fail the publish job.
+            remaining = orphans[i:]
+            print(
+                "WARNING: cannot delete orphaned %s pages (%s). "
+                "%d page(s) need manual deletion by an administrator: %s"
+                % (PAGE_PREFIX, e, len(remaining), ", ".join(remaining)),
+                file=sys.stderr,
+            )
+            return errors
         except Exception as e:
             print(
                 "ERROR deleting %s: %s" % (title, e), file=sys.stderr
             )
             errors += 1
-    if not orphans:
-        print("No orphaned %s pages to prune" % PAGE_PREFIX)
     return errors
 
 

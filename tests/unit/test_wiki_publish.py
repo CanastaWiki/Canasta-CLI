@@ -522,10 +522,12 @@ class _StubClient:
     """Minimal stand-in for MediaWikiClient: no network, records the
     delete calls so tests can assert which orphans were pruned."""
 
-    def __init__(self, ns_id, existing):
+    def __init__(self, ns_id, existing, delete_exc=None):
         self._ns_id = ns_id
         self._existing = list(existing)
+        self._delete_exc = delete_exc
         self.deleted = []
+        self.delete_attempts = []
 
     def resolve_namespace_id(self, name):
         return self._ns_id
@@ -535,6 +537,9 @@ class _StubClient:
         return self._existing
 
     def delete_page(self, title, reason):
+        self.delete_attempts.append(title)
+        if self._delete_exc is not None:
+            raise self._delete_exc
         self.deleted.append(title)
 
 
@@ -544,21 +549,54 @@ class TestPruneOrphans:
     class, #723)."""
 
     def test_deletes_only_orphans(self):
+        # Generated titles are lowercase 'canasta'; the wiki stores them
+        # capitalized ('Canasta'). Only the genuinely renamed page is an
+        # orphan — capitalization alone must not flag a page.
         generated = [
             (wp.PAGE_PREFIX + "canasta crowdsec bouncer-enroll", "x"),
             (wp.PAGE_PREFIX + "canasta create", "x"),
         ]
         existing = [
-            wp.PAGE_PREFIX + "canasta crowdsec bouncer-enroll",
-            wp.PAGE_PREFIX + "canasta create",
-            wp.PAGE_PREFIX + "canasta crowdsec enroll",  # renamed -> orphan
+            wp.PAGE_PREFIX + "Canasta crowdsec bouncer-enroll",
+            wp.PAGE_PREFIX + "Canasta create",
+            wp.PAGE_PREFIX + "Canasta crowdsec enroll",  # renamed -> orphan
         ]
         client = _StubClient(100, existing)
         errors = wp.prune_orphans(client, generated)
         assert errors == 0
         assert client.deleted == [
-            wp.PAGE_PREFIX + "canasta crowdsec enroll"
+            wp.PAGE_PREFIX + "Canasta crowdsec enroll"
         ]
+
+    def test_capitalization_difference_is_not_an_orphan(self):
+        """Regression: the generator emits 'CLI:canasta ...' but the wiki
+        stores 'CLI:Canasta ...'. A raw string compare flags every page
+        as an orphan and (with delete rights) would wipe the namespace."""
+        generated = [
+            (wp.PAGE_PREFIX + "canasta", "x"),
+            (wp.PAGE_PREFIX + "canasta create", "x"),
+            (wp.PAGE_PREFIX + "canasta backup schedule set", "x"),
+        ]
+        existing = [
+            wp.PAGE_PREFIX + "Canasta",
+            wp.PAGE_PREFIX + "Canasta create",
+            wp.PAGE_PREFIX + "Canasta backup schedule set",
+        ]
+        client = _StubClient(100, existing)
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 0
+        assert client.deleted == []
+
+    def test_safety_valve_refuses_mass_deletion(self):
+        """If the orphan set is implausibly large (a comparison bug),
+        prune must refuse to delete anything and fail loudly."""
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        existing = [wp.PAGE_PREFIX + "Canasta page %d" % i
+                    for i in range(40)]
+        client = _StubClient(100, existing)
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 1
+        assert client.delete_attempts == []  # nothing deleted
 
     def test_no_orphans_deletes_nothing(self):
         generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
@@ -574,3 +612,37 @@ class TestPruneOrphans:
         errors = wp.prune_orphans(client, generated)
         assert errors == 0
         assert client.deleted == []
+
+    def test_permission_denied_warns_not_fails(self):
+        """If the bot lacks delete rights, prune must not fail the
+        publish job — warn and leave the orphans for an admin."""
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        existing = [
+            wp.PAGE_PREFIX + "canasta create",
+            wp.PAGE_PREFIX + "canasta crowdsec enroll",
+            wp.PAGE_PREFIX + "canasta old two",
+        ]
+        client = _StubClient(
+            100, existing,
+            delete_exc=wp.PermissionDeniedError(
+                "API error: permissiondenied: not an admin"
+            ),
+        )
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 0
+        # Stops after the first denial (all would fail identically).
+        assert len(client.delete_attempts) == 1
+        assert client.deleted == []
+
+    def test_non_permission_error_still_counts(self):
+        """A non-permission deletion failure is still a real error."""
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        existing = [
+            wp.PAGE_PREFIX + "canasta create",
+            wp.PAGE_PREFIX + "canasta crowdsec enroll",
+        ]
+        client = _StubClient(
+            100, existing, delete_exc=RuntimeError("API error: badtoken"),
+        )
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 1
