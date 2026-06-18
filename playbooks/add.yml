@@ -1,6 +1,6 @@
 ---
 # canasta add - Add a wiki to an existing Canasta instance.
-# Matches Go CLI: wikis.yaml is updated AFTER successful install.
+# wikis.yaml is updated AFTER successful install.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: >-

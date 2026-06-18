@@ -1,6 +1,6 @@
 ---
 # Delete a Canasta instance.
-# Matches Go delete command: cleans images inside container, removes backup schedule,
+# Cleans images inside container, removes backup schedule,
 # then destroys containers/volumes and removes directory.
 # Input: id, yes (bool - skip confirmation)
 #

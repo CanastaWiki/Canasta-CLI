@@ -3,9 +3,8 @@
 
 """Ansible module for managing the Canasta instance registry (conf.json).
 
-Replaces the Go internal/config package. Provides CRUD operations on the
-instance registry stored at conf.json, with the same directory resolution
-logic as the Go CLI.
+Provides CRUD operations on the instance registry stored at conf.json,
+including platform-specific config-directory resolution.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -18,7 +17,7 @@ short_description: Manage the Canasta instance registry
 description:
   - Read, add, update, and remove Canasta instances from the local registry (conf.json).
   - Also manages registry-level settings (key/value) via set_setting / get_setting states.
-  - Compatible with the Go CLI's registry format.
+  - Operates on the conf.json registry format.
 options:
   state:
     description: Desired state of the instance in the registry.
@@ -90,9 +89,8 @@ CONFIG_FILENAME = "conf.json"
 
 
 def get_config_dir(override=None):
-    """Determine the config directory using the same priority as the Go CLI.
-
-    Matches Go's os.UserConfigDir():
+    """Determine the config directory using the platform's conventional
+    per-user config location:
     - macOS: ~/Library/Application Support/canasta
     - Linux: $XDG_CONFIG_HOME/canasta or ~/.config/canasta
     """
@@ -156,7 +154,7 @@ def write_config(config_dir, data):
 
 
 def instance_to_dict(instance):
-    """Convert an instance dict to the JSON-serializable format (matching Go struct tags)."""
+    """Convert an instance dict to the JSON-serializable registry format."""
     result = {
         "id": instance.get("id", ""),
         "path": instance.get("path", ""),
@@ -180,7 +178,7 @@ def instance_to_dict(instance):
 
 
 def find_by_path(instances, search_path):
-    """Walk up from search_path to find a matching instance (mirrors Go GetCanastaID)."""
+    """Walk up from search_path to find a matching instance."""
     search_path = os.path.abspath(search_path)
     while True:
         for inst_id, inst in instances.items():

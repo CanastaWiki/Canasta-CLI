@@ -1,5 +1,5 @@
 ---
-# GitOps init (Compose) - Full 13-step workflow matching Go implementation.
+# GitOps init (Compose) - full 13-step workflow.
 # Input: id, host_name, role, repo, key, force, pull_requests
 # Requires: instance_path, instance_id (set by dispatcher)
 

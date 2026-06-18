@@ -1,5 +1,5 @@
 ---
-# Restore matching Go CLI's restoreFull():
+# Full restore flow:
 # 1. Restic restore into backup volume / K8s temporary pod
 # 2. Copy files from volume to host (Compose) or extract + sync (K8s)
 # 3. Preserve DB passwords in restored .env

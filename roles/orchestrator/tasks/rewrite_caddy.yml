@@ -1,6 +1,5 @@
 ---
 # Generate the main Caddyfile from wikis.yaml and .env settings.
-# Mirrors Go RewriteCaddy().
 # Input: instance_path
 
 - name: Read wikis.yaml for Caddyfile generation

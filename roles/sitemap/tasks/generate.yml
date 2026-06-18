@@ -1,6 +1,6 @@
 ---
 # canasta sitemap generate - Generate XML sitemaps.
-# Matches Go sitemap paths: /mediawiki/public_assets/<wiki>/sitemap
+# Sitemap paths: /mediawiki/public_assets/<wiki>/sitemap
 # Input: id (optional), wiki (optional)
 
 - name: Resolve instance

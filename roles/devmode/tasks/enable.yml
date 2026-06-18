@@ -1,5 +1,5 @@
 ---
-# canasta devmode enable - Full implementation matching Go devmode.EnableDevMode().
+# canasta devmode enable.
 # Extracts MediaWiki code, consolidates user extensions/skins, builds xdebug image.
 # Docker Compose only.
 # Input: id (optional)

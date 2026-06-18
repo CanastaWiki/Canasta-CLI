@@ -1,6 +1,6 @@
 ---
 # canasta remove - Remove a wiki from a Canasta instance.
-# Matches Go: cleans images/public_assets inside container, drops DB, removes config.
+# Cleans images/public_assets inside container, drops DB, removes config.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"

@@ -1,6 +1,5 @@
 ---
 # Run MediaWiki install.php for each wiki.
-# Mirrors Go mediawiki.Install().
 #
 # Input:
 #   instance_path, install_wiki_ids (list), install_wikis (list of dicts),

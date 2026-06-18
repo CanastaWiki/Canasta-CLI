@@ -1,6 +1,5 @@
 ---
 # Migration: Detect MySQL 8.0 data and migrate to MariaDB.
-# Matches Go upgrade.go mysql_to_mariadb.go logic.
 # Compose-only; the orchestrator guard is owned by the caller
 # (roles/orchestrator/tasks/upgrade_db_migration.yml), so no
 # instance_orchestrator switch is needed here.

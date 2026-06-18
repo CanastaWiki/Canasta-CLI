@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Integration tests for the Canasta CLI.
 
-Mirrors the Go CLI integration tests by calling ./canasta commands as
+Exercises the CLI end to end by calling ./canasta commands as
 subprocesses. Each test creates an isolated instance with unique ports
 and a separate config directory.
 

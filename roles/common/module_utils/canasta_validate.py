@@ -24,9 +24,7 @@ RESERVED_WIKI_IDS = ["settings", "images", "w", "wiki", "wikis"]
 
 def validate_wiki_id(value):
     """Return None if `value` is a valid wiki ID, otherwise an error
-    string suitable for `module.fail_json(msg=...)`.
-
-    Mirrors the Go CLI's ValidateWikiID."""
+    string suitable for `module.fail_json(msg=...)`."""
     if not value:
         return "wiki ID cannot be empty"
     if "-" in value:

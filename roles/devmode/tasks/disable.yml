@@ -1,5 +1,5 @@
 ---
-# canasta devmode disable - Full implementation matching Go devmode.DisableDevMode().
+# canasta devmode disable.
 # Restores extensions/skins from symlinks to real directories.
 # Input: id (optional)
 

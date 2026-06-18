@@ -1,5 +1,5 @@
 ---
-# GitOps pull (Compose) — full multi-host flow matching Go implementation.
+# GitOps pull (Compose) — full multi-host flow.
 # Pulls from remote, renders .env and wikis.yaml from templates + host
 # vars, writes admin passwords, detects what changed, and flags whether
 # a restart or maintenance update is needed.

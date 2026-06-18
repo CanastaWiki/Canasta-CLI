@@ -1,5 +1,5 @@
 ---
-# Backup create - matching Go CLI's full staging flow.
+# Backup create - full staging flow.
 # 1. Dump DBs via docker compose exec
 # 2. Stage host dirs into backup volume via alpine
 # 3. Run restic/restic container to create snapshot

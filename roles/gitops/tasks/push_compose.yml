@@ -1,6 +1,6 @@
 ---
 # GitOps push (Compose) — commit staged changes and push to remote.
-# Matches Go CLI's push flow: validates role, accepts message, supports
+# Push flow: validates role, accepts message, supports
 # the staged-changes-only model.
 # Requires: instance_path, instance_id (set by dispatcher)
 # Optional: message (commit message, defaults to 'Configuration update')

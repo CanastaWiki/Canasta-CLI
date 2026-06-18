@@ -1,6 +1,5 @@
 ---
 # Create a new Canasta instance.
-# Mirrors Go createCanasta() step by step.
 #
 # Input variables (from extra-vars):
 #   id, wiki, path, orchestrator, domain_name, admin, password,
