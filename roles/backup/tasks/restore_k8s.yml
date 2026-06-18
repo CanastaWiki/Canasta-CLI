@@ -86,11 +86,13 @@
               - sh
               - -c
               - |
-                # Don't gate the sentinel on restic's exit code: snapshots from
-                # EBS-backed PVCs include security.selinux xattrs that the
-                # restore pod's overlay fs can't accept, so restic exits 1 on
-                # the lost+found dirs even though all wiki content restored.
-                restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target /
+                # Capture restic's rc + output so the controller can tell a
+                # real failure (restic prints "Fatal:") from the benign exit 1
+                # on EBS-backed PVCs whose selinux xattrs the overlay fs
+                # rejects. Sentinel still fires unconditionally so the wait
+                # can't hang; the controller inspects the rc + log below.
+                restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target / > /tmp/restore-log 2>&1
+                echo $? > /tmp/restore-rc
                 touch /tmp/restore-done
                 sleep 3600
             # canasta-<id>-backup-env carries every cloud-backend
@@ -133,6 +135,46 @@
   retries: 300
   delay: 2
   until: _restore_done.rc == 0
+
+# Inspect restic's captured exit code and output. A non-zero rc is only
+# tolerated when it is the known xattr noise (no "Fatal:" line); anything
+# restic flagged as fatal — repo unreachable, wrong password, snapshot not
+# found — must abort loudly instead of being reported as a successful
+# restore that actually restored nothing.
+- name: Read restic restore exit code
+  ansible.builtin.command:
+    cmd: kubectl exec -n {{ _k8s_namespace }} restic-restore -- cat /tmp/restore-rc
+  register: _restore_rc
+  changed_when: false
+  failed_when: false
+
+- name: Read restic restore log
+  ansible.builtin.command:
+    cmd: kubectl exec -n {{ _k8s_namespace }} restic-restore -- cat /tmp/restore-log
+  register: _restore_log
+  changed_when: false
+  failed_when: false
+
+- name: Fail when restic restore reported a fatal error
+  ansible.builtin.fail:
+    msg: |-
+      restic restore failed (exit {{ _restore_rc.stdout | default('?') | trim }}).
+      The snapshot was NOT restored. restic output:
+      {{ _restore_log.stdout | default('(no log captured)') }}
+  when: >-
+    (_restore_rc.stdout | default('1') | trim) != '0'
+    and (_restore_log.stdout | default('') is search('Fatal'))
+
+- name: Warn about ignored non-fatal restore errors
+  ansible.builtin.debug:
+    msg: >-
+      restic exited {{ _restore_rc.stdout | default('?') | trim }} with
+      non-fatal errors (treated as the known xattr-on-overlay case); wiki
+      content was restored. Output:
+      {{ _restore_log.stdout | default('') | truncate(500) }}
+  when: >-
+    (_restore_rc.stdout | default('0') | trim) != '0'
+    and not (_restore_log.stdout | default('') is search('Fatal'))
 
 - name: Copy restored config to host
   ansible.builtin.shell:
