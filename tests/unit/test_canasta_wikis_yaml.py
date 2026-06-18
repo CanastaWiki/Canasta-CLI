@@ -328,6 +328,23 @@ class TestRunModuleUpdatePort:
         assert not failed
         assert result["wikis"][0]["url"] == "localhost"
 
+    def test_update_port_idempotent_when_unchanged(self, tmp_dir):
+        """Re-applying the same port must report changed=False so
+        Ansible idempotency / check-mode stay accurate."""
+        os.makedirs(os.path.join(tmp_dir, "config"), exist_ok=True)
+        canasta_wikis_yaml.write_wikis(tmp_dir, [
+            {"id": "main", "url": "localhost:8443", "name": "Main"},
+        ])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "update_port",
+            "wiki_id": None, "domain": None,
+            "wiki_path": None, "site_name": None,
+            "port": "8443",
+        })
+        assert not failed
+        assert result["changed"] is False
+        assert result["wikis"][0]["url"] == "localhost:8443"
+
     def test_update_port_requires_port(self, sample_wikis_yaml):
         result, failed, msg = run_module_with_params(canasta_wikis_yaml, {
             "instance_path": sample_wikis_yaml, "state": "update_port",

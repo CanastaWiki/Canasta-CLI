@@ -457,11 +457,12 @@
         key: MW_SITE_FQDN
         value: "{{ _new_fqdn }}"
 
-    - name: Update wikis.yaml URLs with new domain
-      ansible.builtin.replace:
-        path: "{{ instance_path }}/config/wikis.yaml"
-        regexp: "{{ _se_old_fqdn.value | regex_escape() }}"
-        replace: "{{ _new_fqdn }}"
+    - name: Update wikis.yaml URLs (only for wikis on the old FQDN)
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: update_domain
+        old_domain: "{{ _se_old_fqdn.value }}"
+        domain: "{{ _new_fqdn }}"
       when: _se_old_fqdn.found and _se_old_fqdn.value != _new_fqdn
 
     # Localhost → real-domain TLS cascade (K8s only).

@@ -63,7 +63,7 @@ def wikis_yaml_path(instance_path):
     path = os.path.join(instance_path, "config", "wikis.yaml")
     real_path = os.path.realpath(path)
     real_base = os.path.realpath(instance_path)
-    if not real_path.startswith(real_base + os.sep) and real_path != real_base:
+    if not real_path.startswith(real_base + os.sep):
         raise ValueError(
             "wikis.yaml path '%s' escapes instance directory '%s'"
             % (real_path, real_base)
@@ -298,13 +298,18 @@ def run_module():
             return
         wikis = read_wikis(instance_path)
         updated = []
+        changed = False
         for w in wikis:
             w = dict(w)
-            w["url"] = update_url_port(w.get("url", ""), port, default_port)
+            old_url = w.get("url", "")
+            new_url = update_url_port(old_url, port, default_port)
+            if new_url != old_url:
+                w["url"] = new_url
+                changed = True
             updated.append(w)
-        if not module.check_mode:
+        if changed and not module.check_mode:
             write_wikis(instance_path, updated)
-        result["changed"] = True
+        result["changed"] = changed
         result["wikis"] = updated
 
     elif state == "update_domain":
