@@ -169,6 +169,18 @@
   changed_when: false
   failed_when: false
 
+# If the exit code couldn't be read (e.g. the pod died after touching the
+# sentinel but before this read), we cannot confirm the restore — treat it
+# as failed rather than falling through and reporting a success that may not
+# have happened.
+- name: Fail when the restic restore exit code is unreadable
+  ansible.builtin.fail:
+    msg: >-
+      Could not read the restic restore exit code from the restore pod
+      (got '{{ _restore_rc.stdout | default('') | trim }}'). The restore
+      could not be confirmed and is treated as failed.
+  when: (_restore_rc.stdout | default('') | trim) is not match('^[0-9]+$')
+
 - name: Fail when restic restore reported a fatal error
   ansible.builtin.fail:
     msg: |-
@@ -176,7 +188,7 @@
       The snapshot was NOT restored. restic output:
       {{ _restore_log.stdout | default('(no log captured)') }}
   when: >-
-    (_restore_rc.stdout | default('1') | trim) != '0'
+    (_restore_rc.stdout | trim | int) != 0
     and (_restore_log.stdout | default('') is search('Fatal'))
 
 - name: Warn about ignored non-fatal restore errors

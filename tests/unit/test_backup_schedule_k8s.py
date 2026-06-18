@@ -584,6 +584,19 @@ class TestK8sRestoreFailsLoudlyOnResticError:
         )
         assert "_restore_rc" in content
 
+    def test_fails_when_exit_code_unreadable(self):
+        # If the rc can't be read (e.g. the pod died after the sentinel but
+        # before the read), the restore is unconfirmed and must abort, not
+        # fall through to a false success.
+        content = self._content()
+        assert "Fail when the restic restore exit code is unreadable" in content, (
+            "restore_k8s.yml must abort when the exit code can't be read, "
+            "closing the dead-pod-after-sentinel false-success window"
+        )
+        assert "is not match('^[0-9]+$')" in content, (
+            "the unreadable-rc guard must require the rc to be a clean integer"
+        )
+
 
 class TestOnDemandBackupCapturesDB:
     """Guard #513: on-demand 'canasta backup create' on K8s must
