@@ -1012,12 +1012,53 @@ class TestK8sDeleteWaitsForNamespace:
         with open(os.path.join(ORCHESTRATOR_TASKS, "helm_uninstall.yml")) as f:
             tasks = yaml.safe_load(f)
         ns = next(t for t in tasks if t.get("name") == "Delete namespace")
-        spec = ns["kubernetes.core.k8s"]
-        assert spec.get("kind") == "Namespace"
-        assert spec.get("state") == "absent"
-        assert spec.get("wait") is True, (
+        # Deletion runs via resilient_exec (launch detached + poll) so a
+        # controller-side SSH reset during the wait can't abort it, but the
+        # kubectl command still waits for the namespace to fully terminate.
+        assert "resilient_exec.yml" in ns["ansible.builtin.include_tasks"]
+        cmd = ns["vars"]["rx_cmd"]
+        assert "kubectl delete namespace" in cmd
+        assert "--wait=true" in cmd
+        assert "--timeout=300s" in cmd, (
             "namespace deletion must wait, so delete->create does not race"
         )
+
+
+class TestResilientExec:
+    """Long-running remote ops run detached and are polled (resilient_exec)
+    so a controller-side SSH reset doesn't abort work still progressing on
+    the target (#750)."""
+
+    PRIMITIVE = os.path.join(ORCHESTRATOR_TASKS, "resilient_exec.yml")
+
+    def test_primitive_launches_async_and_polls(self):
+        tasks = yaml.safe_load(open(self.PRIMITIVE))
+        # First task fires the command and returns immediately (poll: 0).
+        launch = tasks[0]
+        assert launch.get("poll") == 0
+        assert launch.get("async") is not None
+        assert "ansible.builtin.shell" in launch
+        # Completion is polled with async_status in an until-loop that
+        # tolerates transient unreachable polls.
+        poll = next(t for t in tasks if "ansible.builtin.async_status" in t)
+        assert "until" in poll
+        assert poll.get("ignore_unreachable") is True
+
+    def test_helm_deploy_uses_resilient_exec(self):
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "helm_deploy.yml")))
+        deploy = next(
+            t for t in tasks if t.get("name") == "Deploy Canasta Helm release")
+        assert "resilient_exec.yml" in deploy["ansible.builtin.include_tasks"]
+        assert "helm upgrade --install" in deploy["vars"]["rx_cmd"]
+
+    def test_argocd_install_uses_resilient_exec(self):
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "k8s_argocd_bootstrap.yml")))
+        install_block = next(t for t in tasks if t.get("name") == "Install Argo CD")
+        sub = install_block["block"]
+        helm = next(t for t in sub if t.get("name") == "Install Argo CD via Helm")
+        assert "resilient_exec.yml" in helm["ansible.builtin.include_tasks"]
 
 
 class TestK8sTraefikClientIP:

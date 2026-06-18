@@ -103,22 +103,36 @@
             volumeMounts: "{{ _restore_volume_mounts }}"
         volumes: "{{ _restore_volumes }}"
 
-- name: Wait for restore pod to be running
+# Poll readiness with short `kubectl get` calls rather than a single held
+# `kubectl wait`: a controller-side SSH reset during a held wait would abort
+# the restore, while the pod keeps running on the target. Each poll is a
+# brief connection, so transient resets are simply retried.
+- name: Wait for restore pod to be Ready
   ansible.builtin.command:
     cmd: >-
-      kubectl wait pod/restic-restore
-      -n {{ _k8s_namespace }}
-      --for=condition=Ready
-      --timeout=120s
+      kubectl get pod restic-restore -n {{ _k8s_namespace }}
+      -o jsonpath={.status.conditions[?(@.type=="Ready")].status}
+  register: _restore_pod_ready
   changed_when: false
+  failed_when: false
+  retries: 60
+  delay: 2
+  until: (_restore_pod_ready.stdout | trim) == 'True'
 
+# Poll for the restore sentinel with short `kubectl exec test -f` calls
+# instead of a single held exec that loops on the target for up to 10
+# minutes — same resilience rationale as the readiness poll above.
 - name: Wait for restore to complete
   ansible.builtin.command:
     cmd: >-
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      sh -c "while ! test -f /tmp/restore-done; do sleep 2; done"
+      test -f /tmp/restore-done
+  register: _restore_done
   changed_when: false
-  timeout: 600
+  failed_when: false
+  retries: 300
+  delay: 2
+  until: _restore_done.rc == 0
 
 - name: Copy restored config to host
   ansible.builtin.shell:

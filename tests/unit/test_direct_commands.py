@@ -3472,3 +3472,55 @@ class TestResolveInstanceByCwd:
         )
         assert iid == "siteB"
         assert inst is not None
+
+
+class TestRetryOnSshReset:
+    """Idempotent remote ops retry on ssh exit 255 (a connection-level
+    reset) so a transient controller-to-target drop doesn't fail a command
+    that was progressing (#750)."""
+
+    def test_retries_on_255_then_succeeds(self):
+        calls = []
+
+        def run():
+            calls.append(1)
+            return 255 if len(calls) < 2 else 0
+
+        rc = direct_commands._helpers._retry_on_ssh_reset(run, attempts=3)
+        assert rc == 0
+        assert len(calls) == 2
+
+    def test_gives_up_after_attempts(self):
+        calls = []
+
+        def run():
+            calls.append(1)
+            return 255
+
+        rc = direct_commands._helpers._retry_on_ssh_reset(run, attempts=3)
+        assert rc == 255
+        assert len(calls) == 3
+
+    def test_no_retry_on_non_connection_failure(self):
+        # A non-255 rc is the remote command's own exit code — a real
+        # failure, not a connection reset. It must not be retried.
+        calls = []
+
+        def run():
+            calls.append(1)
+            return 1
+
+        rc = direct_commands._helpers._retry_on_ssh_reset(run, attempts=3)
+        assert rc == 1
+        assert len(calls) == 1
+
+    def test_success_first_try_runs_once(self):
+        calls = []
+
+        def run():
+            calls.append(1)
+            return 0
+
+        rc = direct_commands._helpers._retry_on_ssh_reset(run, attempts=3)
+        assert rc == 0
+        assert len(calls) == 1

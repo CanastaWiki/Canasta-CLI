@@ -273,14 +273,21 @@ def _run_compose(inst_id, inst, action_args):
     else:
         file_str = " ".join(file_args)
         action_str = " ".join(action_args)
-        rc, stdout = _ssh_run(
-            host,
-            "cd %s && docker compose %s %s" % (
-                _shell_quote(path), file_str, action_str,
-            ),
+        remote_cmd = "cd %s && docker compose %s %s" % (
+            _shell_quote(path), file_str, action_str,
         )
-        if stdout.strip():
-            print(stdout.strip())
+        # The lifecycle actions routed here (up -d, down) are idempotent,
+        # so retry on a transient ssh connection reset.
+        _last = {}
+
+        def _attempt():
+            rc, stdout = _ssh_run(host, remote_cmd)
+            _last["stdout"] = stdout
+            return rc
+
+        rc = _retry_on_ssh_reset(_attempt)
+        if _last.get("stdout", "").strip():
+            print(_last["stdout"].strip())
         return rc
 
 
@@ -652,6 +659,31 @@ def _ssh_run(host, cmd):
     except OSError as e:
         print("Error: %s" % e, file=sys.stderr)
         return 1, ""
+
+
+# ssh exits 255 on a connection-level failure (reset / broken pipe /
+# unreachable) — distinct from any exit code the remote command itself
+# returns. Idempotent remote operations retry on this so a transient
+# controller-to-target reset doesn't abort a command that was progressing.
+_SSH_CONN_FAILURE_RC = 255
+
+
+def _retry_on_ssh_reset(run, attempts=3):
+    """Run `run` (a callable returning an int exit code) and retry while it
+    returns 255, the code ssh produces on a connection-level failure. `run`
+    MUST be idempotent. Returns the final exit code."""
+    rc = _SSH_CONN_FAILURE_RC
+    for attempt in range(1, attempts + 1):
+        rc = run()
+        if rc != _SSH_CONN_FAILURE_RC:
+            return rc
+        if attempt < attempts:
+            print(
+                "SSH connection to the target was reset; retrying "
+                "(attempt %d of %d)…" % (attempt + 1, attempts),
+                file=sys.stderr,
+            )
+    return rc
 
 
 def _is_localhost(host):
