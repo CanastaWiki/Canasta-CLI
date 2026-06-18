@@ -3524,3 +3524,48 @@ class TestRetryOnSshReset:
         rc = direct_commands._helpers._retry_on_ssh_reset(run, attempts=3)
         assert rc == 0
         assert len(calls) == 1
+
+
+class TestMaintenanceStreamRetriesOnSshReset:
+    """#750: maintenance update/script stream over SSH to a remote compose
+    host with no timeout (long runs are fine) but must retry on a
+    connection-level reset (ssh exit 255) — they are idempotent and
+    re-runnable. localhost / in-cluster exec must not retry."""
+
+    class _FakeStdout:
+        def readline(self):
+            return ""  # no streamed output in the test
+
+    class _FakeProc:
+        def __init__(self, rc):
+            self.stdout = TestMaintenanceStreamRetriesOnSshReset._FakeStdout()
+            self._rc = rc
+
+        def wait(self, timeout=None):
+            return self._rc
+
+    def _popen_factory(self, rcs, calls):
+        def factory(*args, **kwargs):
+            rc = rcs[calls["n"]]
+            calls["n"] += 1
+            return TestMaintenanceStreamRetriesOnSshReset._FakeProc(rc)
+        return factory
+
+    def test_remote_compose_retries_on_ssh_reset(self, monkeypatch):
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            subprocess, "Popen", self._popen_factory([255, 0], calls))
+        inst = {"host": "remote", "path": "/srv/x", "orchestrator": "compose"}
+        rc = direct_commands._helpers._stream_in_container(
+            "x", inst, "php maintenance/update.php")
+        assert rc == 0
+        assert calls["n"] == 2, "should re-stream once after the 255 reset"
+
+    def test_localhost_does_not_retry(self, monkeypatch):
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            subprocess, "Popen", self._popen_factory([255, 0], calls))
+        inst = {"host": "localhost", "path": "/srv/x", "orchestrator": "compose"}
+        rc = direct_commands._helpers._stream_in_container("x", inst, "cmd")
+        assert rc == 255
+        assert calls["n"] == 1, "localhost must not retry on 255"
