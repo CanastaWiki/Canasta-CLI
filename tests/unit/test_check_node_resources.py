@@ -12,7 +12,6 @@ import os
 import subprocess
 import sys
 
-import pytest
 
 SCRIPT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),

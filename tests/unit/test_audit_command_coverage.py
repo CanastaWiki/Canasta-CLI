@@ -4,7 +4,6 @@ import os
 import sys
 import tempfile
 
-import pytest
 
 
 SCRIPTS_DIR = os.path.abspath(

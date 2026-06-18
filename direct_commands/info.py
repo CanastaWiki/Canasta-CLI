@@ -6,7 +6,6 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import yaml
 
 from . import _helpers
 from ._helpers import register

@@ -1,16 +1,5 @@
 ---
 # Default values for the common role.
 
-# Password generation defaults (30 chars, 4 digits, 6 symbols)
-canasta_password_length: 30
-canasta_password_digits: 4
-canasta_password_symbols: 6
-
-# Instance ID regex: ^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$
-canasta_instance_id_pattern: "^[a-zA-Z0-9]([a-zA-Z0-9\\-_]*[a-zA-Z0-9])?$"
-
 # Default Canasta image (overridden by canasta.yml from CANASTA_VERSION)
 canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
-
-# Verbose output (set via -e verbose=true or the wrapper --verbose flag)
-canasta_verbose: false

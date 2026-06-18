@@ -12,7 +12,6 @@ that the canonical file still contains the security-critical entries.
 """
 
 import os
-import re
 
 import yaml
 

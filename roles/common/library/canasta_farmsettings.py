@@ -31,7 +31,6 @@ import re
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_validate import (
-    RESERVED_WIKI_IDS,
     validate_wiki_id,
 )
 

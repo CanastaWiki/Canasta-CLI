@@ -700,7 +700,6 @@ def handle_interactive_exec(args):
         command = ["/bin/bash"]
 
     if orchestrator in ("kubernetes", "k8s"):
-        import subprocess
         # Find the pod for this service
         ns = "canasta-%s" % inst["id"]
         result = subprocess.run(
