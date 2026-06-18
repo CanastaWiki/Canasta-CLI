@@ -94,8 +94,13 @@ def extract_test_invocations(test_file, subcommand_groups):
         func = node.func
         if not (isinstance(func, ast.Attribute) and func.attr in RUN_METHODS):
             continue
-        # Filter to inst.run* calls (the test instance method).
-        if not (isinstance(func.value, ast.Name) and func.value.id == "inst"):
+        # Filter to test-instance run* calls. The primary instance is
+        # `inst`; tests that need a second instance use `inst_b`, `inst_a`,
+        # etc. Match those too, but not unrelated receivers like
+        # `subprocess.run` or a TestInstance method's own `self.run`.
+        if not (isinstance(func.value, ast.Name)
+                and (func.value.id == "inst"
+                     or func.value.id.startswith("inst_"))):
             continue
 
         # First positional arg is the command name (or group name).
@@ -110,7 +115,11 @@ def extract_test_invocations(test_file, subcommand_groups):
         if first in subcommand_groups and len(node.args) >= 2:
             second = _string_const(node.args[1])
             if second is not None:
-                command = "%s_%s" % (first, second)
+                # command_definitions.yml names subcommands with
+                # underscores (crowdsec_bouncer_enroll), but the CLI and
+                # tests use the hyphenated user-facing form
+                # (crowdsec bouncer-enroll). Normalize so they match.
+                command = ("%s_%s" % (first, second)).replace("-", "_")
             else:
                 command = first
         else:
