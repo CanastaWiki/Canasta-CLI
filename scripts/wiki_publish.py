@@ -835,6 +835,25 @@ def main():
     print("Done: %d pages published" % len(pages))
 
 
+def _normalize_title(title):
+    """Canonicalize a title the way MediaWiki does, so generated titles
+    compare equal to the titles the API returns. MediaWiki treats
+    underscores as spaces and (with the default $wgCapitalLinks) upper-
+    cases the first letter of the page name. The generator emits
+    'CLI:canasta ...' (lowercase) but the stored page is 'CLI:Canasta
+    ...'; without this normalization every page looks like an orphan."""
+    title = title.replace("_", " ").strip()
+    prefix, sep, name = title.partition(":")
+    if not sep:
+        prefix, name = "", title
+    else:
+        prefix = prefix + ":"
+    name = name.strip()
+    if name:
+        name = name[0].upper() + name[1:]
+    return prefix + name
+
+
 def prune_orphans(client, pages):
     """Delete CLI: pages on the wiki that the current run no longer
     generates. Returns the number of deletion errors."""
@@ -848,13 +867,28 @@ def prune_orphans(client, pages):
         )
         return 0
 
-    generated = {title for title, _ in pages}
+    generated = {_normalize_title(title) for title, _ in pages}
     existing = client.list_pages_in_namespace(ns_id)
-    orphans = [t for t in existing if t not in generated]
+    orphans = [t for t in existing if _normalize_title(t) not in generated]
 
     if not orphans:
         print("No orphaned %s pages to prune" % PAGE_PREFIX)
         return 0
+
+    # Safety valve: real orphans (renamed/removed commands) are few. An
+    # implausibly large orphan set means the comparison is broken (e.g. a
+    # title-normalization regression), so refuse to delete rather than
+    # risk wiping the namespace. This is a hard failure to draw attention.
+    safety_limit = max(10, len(existing) // 4)
+    if len(orphans) > safety_limit:
+        print(
+            "ERROR: prune would delete %d of %d %s pages (safety limit "
+            "%d) — refusing. This indicates a title-matching bug, not "
+            "real orphans; no pages were deleted."
+            % (len(orphans), len(existing), PAGE_PREFIX, safety_limit),
+            file=sys.stderr,
+        )
+        return 1
 
     errors = 0
     for i, title in enumerate(orphans):
