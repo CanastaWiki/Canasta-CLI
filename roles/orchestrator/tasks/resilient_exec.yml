@@ -33,9 +33,15 @@
 # launch and the polls, so the async job files are written and read as the
 # same user.
 
+# Collapse whitespace to single spaces so a command runs as ONE shell line.
+# rx_cmd often comes from a `>-` folded scalar; a more-indented Jinja
+# continuation line preserves a newline in the folded result, and under
+# `ansible.builtin.shell` (/bin/sh -c) a bare newline is a command
+# separator — splitting e.g. `helm upgrade ... --reset-values` into two
+# commands. Callers pass single logical command lines, so normalizing is safe.
 - name: "Launch (async): {{ rx_name }}"
   ansible.builtin.shell:
-    cmd: "{{ rx_cmd }}"
+    cmd: "{{ rx_cmd.split() | join(' ') }}"
     chdir: "{{ rx_chdir | default(omit) }}"
   async: "{{ rx_async | default(1800) | int }}"
   poll: 0
