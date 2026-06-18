@@ -61,6 +61,7 @@
           vars:
             exec_service: db
             exec_no_log: true
+            exec_long: true
             exec_command: >-
               mysqldump -u root
               -p{{ _mig_dbpass.value | quote }}
@@ -107,6 +108,7 @@
           vars:
             exec_service: db
             exec_no_log: true
+            exec_long: true
             exec_command: >-
               mariadb -u root
               -p{{ _mig_dbpass.value | quote }}

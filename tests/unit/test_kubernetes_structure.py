@@ -1060,6 +1060,29 @@ class TestResilientExec:
         helm = next(t for t in sub if t.get("name") == "Install Argo CD via Helm")
         assert "resilient_exec.yml" in helm["ansible.builtin.include_tasks"]
 
+    def test_k3s_install_uses_resilient_exec(self):
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "k8s_install_k3s.yml")))
+        block = next(t for t in tasks if t.get("name") == "Install k3s")
+        install = next(
+            t for t in block["block"]
+            if t.get("name") == "Download and install k3s")
+        assert "resilient_exec.yml" in install["ansible.builtin.include_tasks"]
+
+    def test_exec_supports_opt_in_long_mode(self):
+        # The shared exec abstraction gains an opt-in long mode (detached +
+        # polled) used by update.php / mysqldump callers, while short callers
+        # keep the held single connection (gated by exec_long).
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "exec.yml")))
+        held = next(t for t in tasks if str(t.get("name", "")).startswith("Execute:"))
+        assert "not (exec_long" in str(held.get("when", ""))
+        long_task = next(
+            t for t in tasks
+            if "resilient_exec.yml" in str(
+                t.get("ansible.builtin.include_tasks", "")))
+        assert "exec_long" in str(long_task.get("when", ""))
+
 
 class TestK8sTraefikClientIP:
     """The k3s-bundled Traefik LoadBalancer defaults to externalTrafficPolicy:

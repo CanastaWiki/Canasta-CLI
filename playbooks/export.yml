@@ -38,6 +38,7 @@
   vars:
     exec_service: db
     exec_no_log: true
+    exec_long: true
     exec_command: >-
       mariadb-dump -u root
       -p{{ _export_db_password | quote }}

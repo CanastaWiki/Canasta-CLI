@@ -34,6 +34,7 @@
   vars:
     exec_service: web
     exec_command: "php maintenance/update.php --wiki={{ wiki | default('') | quote }}"
+    exec_long: true
 
 - name: "Report {{ _item_type }} enabled"
   ansible.builtin.debug:

@@ -29,6 +29,7 @@
   vars:
     exec_service: web
     exec_no_log: true
+    exec_long: true
     exec_command: >-
       env -u MW_SECRET_KEY php maintenance/install.php
       --skins='Vector'

@@ -24,6 +24,8 @@
 #   rx_retries  - number of completion polls (default: 180)
 #   rx_delay    - seconds between polls (default: 10)
 #   rx_fail     - fail the play on non-zero rc (default: true)
+#   rx_no_log   - hide the command and its output, for secrets in rx_cmd
+#                 (default: false)
 # Output:
 #   rx_result   - async_status result (.rc, .stdout, .stderr, .finished)
 #
@@ -39,6 +41,7 @@
   poll: 0
   register: _rx_job
   changed_when: true
+  no_log: "{{ rx_no_log | default(false) | bool }}"
 
 - name: "Wait for completion: {{ rx_name }}"
   ansible.builtin.async_status:
@@ -61,6 +64,7 @@
   when:
     - rx_fail | default(true) | bool
     - (rx_result.rc | default(1) | int) != 0
+  no_log: "{{ rx_no_log | default(false) | bool }}"
 
 - name: "Clean up async job file: {{ rx_name }}"
   ansible.builtin.async_status:

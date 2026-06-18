@@ -36,16 +36,22 @@
     # Pin the same k3s version as the control plane (canasta_k3s_version)
     # so a later-joining worker can't outpace the cp, and so the install
     # doesn't depend on update.k3s.io resolving a channel.
+    # Launched detached and polled (resilient_exec): the installer runs for
+    # a minute or more and a controller-side SSH reset mid-join would abort
+    # it. rx_no_log hides the command because it carries the join token. The
+    # k3s installer is idempotent, so a re-run after a reset is safe.
     - name: Download and install k3s agent
-      ansible.builtin.shell:
-        cmd: >-
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+      vars:
+        rx_name: "install k3s agent"
+        rx_async: 600
+        rx_no_log: true
+        rx_cmd: >-
           curl -sfL --retry 3 --retry-delay 5 https://get.k3s.io |
           INSTALL_K3S_VERSION={{ canasta_k3s_version | quote }}
           K3S_URL={{ server | quote }}
           K3S_TOKEN={{ token | quote }}
           sh -
-      changed_when: true
-      no_log: true  # token is sensitive
 
     - name: Wait for k3s-agent service to be active
       ansible.builtin.command:

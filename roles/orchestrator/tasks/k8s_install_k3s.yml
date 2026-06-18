@@ -48,13 +48,19 @@
     # directly from GitHub instead of asking update.k3s.io to resolve a
     # channel — removing that single point of failure and keeping every
     # node in the cluster on the same version (see canasta_k3s_version).
+    # Launched detached and polled (resilient_exec): the installer downloads
+    # and sets up k3s over a minute or more, and a controller-side SSH reset
+    # mid-install would otherwise abort it. The k3s installer is idempotent,
+    # so a re-run after a reset is safe.
     - name: Download and install k3s
-      ansible.builtin.shell:
-        cmd: >-
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+      vars:
+        rx_name: "install k3s"
+        rx_async: 600
+        rx_cmd: >-
           curl -sfL --retry 3 --retry-delay 5 https://get.k3s.io |
           INSTALL_K3S_VERSION={{ canasta_k3s_version | quote }}
           INSTALL_K3S_EXEC={{ _k3s_install_exec | quote }} sh -
-      changed_when: true
 
     - name: Make k3s kubeconfig readable (before verification)
       ansible.builtin.file:
@@ -106,13 +112,16 @@
   changed_when: false
   ignore_errors: true
 
+# Launched detached and polled (resilient_exec) like the k3s install above.
 - name: Install helm
-  ansible.builtin.shell:
-    cmd: >-
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "install helm"
+    rx_async: 300
+    rx_cmd: >-
       curl -fsSL --retry 3 --retry-delay 5
       https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
       | DESIRED_VERSION={{ canasta_helm_version | quote }} bash
-  changed_when: true
   when: _helm_installed.rc != 0
 
 # Ansible k8s modules require the Python kubernetes library.
