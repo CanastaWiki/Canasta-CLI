@@ -1007,9 +1007,12 @@ class TestK8sRestoreCloudBackendDoesNotMountHostPath:
         volumes/volumeMounts. Inline values would re-introduce the
         unconditional hostPath mount that #519 was about."""
         c = self._content()
-        # The Create restore pod block should reference the facts
-        idx = c.find("Create restore pod")
-        block = c[idx:idx + 1500]
+        # Scope to the Create-restore-pod task (up to the next task) rather
+        # than a fixed char window, so additions to the Pod spec don't push
+        # the volume facts out of range.
+        idx = c.find("- name: Create restore pod")
+        end = c.find("- name: Wait for restore pod", idx)
+        block = c[idx:end] if end != -1 else c[idx:]
         assert "_restore_volume_mounts" in block, (
             "Create restore pod must read volumeMounts from "
             "_restore_volume_mounts fact (built conditionally)"
@@ -1120,3 +1123,50 @@ class TestK8sRestoreUsesWebPodForDbImport:
             "ties auth to the controller-side .env read instead of the "
             "pod env vars that match the running cluster"
         )
+
+
+class TestK8sBackupLocalRepoNodeAffinity:
+    """#749: a local-path restic repo is a node-local hostPath, so the
+    backup Job, restore Pod, and scheduled CronJob must pin to one node
+    (the control-plane) — otherwise on a multi-node cluster they land on
+    different nodes and each DirectoryOrCreate makes a separate empty repo.
+    Cloud backends are node-agnostic and stay unpinned."""
+
+    RUN_BACKUP = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml")
+    RESTORE = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+    SCHEDULE = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml")
+
+    @staticmethod
+    def _read(path):
+        with open(path) as f:
+            return f.read()
+
+    def test_backup_job_pins_local_repo_to_control_plane(self):
+        c = self._read(self.RUN_BACKUP)
+        assert "_restic_node_selector" in c
+        assert 'nodeSelector: "{{ _restic_node_selector }}"' in c
+        assert "node-role.kubernetes.io/control-plane" in c
+
+    def test_restore_pod_pins_local_repo_to_control_plane(self):
+        c = self._read(self.RESTORE)
+        assert "_restore_node_selector" in c
+        assert 'nodeSelector: "{{ _restore_node_selector }}"' in c
+        assert "node-role.kubernetes.io/control-plane" in c
+
+    def test_scheduled_cronjob_pins_local_repo(self):
+        c = self._read(self.SCHEDULE)
+        patch_idx = c.find("Patch local-repo volume into CronJob")
+        assert patch_idx != -1
+        block = c[patch_idx:]
+        assert "nodeSelector" in block
+        assert "node-role.kubernetes.io/control-plane" in block
+
+    def test_cloud_backend_is_not_pinned(self):
+        # The selector resolves to {} (no constraint) for non-local repos.
+        c = self._read(self.RUN_BACKUP)
+        assert "if (_restic_local_repo | bool) else {}" in c
+        r = self._read(self.RESTORE)
+        assert "if (_restore_local_repo | bool) else {}" in r
