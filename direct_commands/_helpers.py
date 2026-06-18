@@ -530,31 +530,44 @@ def _stream_in_container(inst_id, inst, command, service="web"):
         ]
         cwd = None
 
-    try:
-        proc = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-    except OSError as e:
-        print("Error: %s" % e, file=sys.stderr)
-        return 1
-
-    try:
-        for line in iter(proc.stdout.readline, ""):
-            sys.stdout.write(line)
-            sys.stdout.flush()
-    except KeyboardInterrupt:
-        proc.terminate()
+    def _run():
         try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        return 130
-    return proc.wait()
+            proc = subprocess.Popen(
+                argv,
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        except OSError as e:
+            print("Error: %s" % e, file=sys.stderr)
+            return 1
+
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                sys.stdout.write(line)
+                sys.stdout.flush()
+        except KeyboardInterrupt:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            return 130
+        return proc.wait()
+
+    # update.php / runJobs.php / ad-hoc maintenance scripts are idempotent
+    # and re-runnable. When streaming over SSH to a remote host, retry on a
+    # connection-level reset (ssh exit 255) so a transient controller-to-
+    # target drop doesn't abort a long maintenance run — it re-streams from
+    # the start. localhost and in-cluster `kubectl exec` never return 255.
+    is_remote_ssh = (
+        orchestrator not in ("kubernetes", "k8s") and not _is_localhost(host)
+    )
+    if is_remote_ssh:
+        return _retry_on_ssh_reset(_run)
+    return _run()
 
 
 def _normalize_script_args(args):
