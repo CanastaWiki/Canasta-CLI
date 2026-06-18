@@ -186,12 +186,16 @@ def find_ansible_playbook():
 _RELEASE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
 
-def _pick_latest_release_tag(tags):
+def _pick_latest_release_tag(tags, max_major=None):
     """Return the highest strict vX.Y.Z tag from `tags`, or None.
 
     Pre-releases (e.g. v5.0.0-rc1) and non-version tags are ignored so we
     only ever move to a real release. Comparison is by numeric (major,
     minor, patch) tuple, not lexical, so v4.0.10 sorts above v4.0.9.
+
+    When `max_major` is set, tags whose major exceeds it are skipped, so
+    the result never crosses into a higher major version than the caller
+    permits (the default `canasta upgrade` stays within the current major).
     """
     best = None
     best_key = None
@@ -200,17 +204,30 @@ def _pick_latest_release_tag(tags):
         if not m:
             continue
         key = tuple(int(p) for p in m.groups())
+        if max_major is not None and key[0] > max_major:
+            continue
         if best_key is None or key > best_key:
             best, best_key = tag.strip(), key
     return best
 
 
-def self_update_cli(dev=False):
+def _version_major(version):
+    """Return the integer major component of a vX.Y.Z / X.Y.Z string, or None."""
+    m = re.match(r"^v?(\d+)\.", version.strip())
+    return int(m.group(1)) if m else None
+
+
+def self_update_cli(dev=False, allow_major=False):
     """Update the CLI code before invoking ansible-playbook.
 
-    By default the CLI moves to the latest released version — the highest
-    vX.Y.Z git tag, via a detached checkout. Pass ``dev=True`` to instead
-    track the head of main (``git checkout main && git pull --ff-only``).
+    By default the CLI moves to the latest released version that does not
+    cross into a higher major than the one currently installed — the
+    highest vX.Y.Z git tag whose major matches the current VERSION — via a
+    detached checkout. Pass ``allow_major=True`` to lift that cap and move
+    to the latest release overall (which may be a new major with breaking
+    changes). Pass ``dev=True`` to instead track the head of main
+    (``git checkout main && git pull --ff-only``); ``allow_major`` has no
+    effect with ``dev``.
     Release tags are used rather than the GitHub Releases API because the
     Releases API deliberately keeps v3.7.0 as 'latest' for legacy clients
     (see .github/workflows/docker.yml).
@@ -285,20 +302,45 @@ def self_update_cli(dev=False):
         return
 
     # Resolve the ref this run should move to: head of main for --dev, or
-    # the latest release tag otherwise.
+    # the latest release tag otherwise. The release pick is capped to the
+    # current major so 'canasta upgrade' never crosses a major boundary;
+    # --allow-major (allow_major=True) lifts the cap to the latest overall.
+    major_hint = ""
     if dev:
         target_ref = "origin/main"
     else:
         tags = _git(["tag", "-l", "v*"], timeout=10).stdout.split()
-        target_ref = _pick_latest_release_tag(tags)
+        max_major = None if allow_major else _version_major(current_version)
+        target_ref = _pick_latest_release_tag(tags, max_major=max_major)
+        latest_overall = _pick_latest_release_tag(tags)
         if target_ref is None:
-            print(
-                "WARNING: self-update skipped — no release tags found.\n"
-                "Use 'canasta upgrade --dev' to track the development "
-                "branch (head of main) instead.",
-                file=sys.stderr,
-            )
+            if latest_overall is not None:
+                # Tags exist but all sit above the current major and the cap
+                # is in effect — point the operator at --allow-major.
+                print(
+                    "WARNING: self-update skipped — no release found at or "
+                    "below the current major (v%s.x); the latest release is "
+                    "%s.\nRun 'canasta upgrade --allow-major' to move to it "
+                    "(may include breaking changes), or 'canasta upgrade "
+                    "--dev' to track the development branch."
+                    % (max_major, latest_overall),
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    "WARNING: self-update skipped — no release tags found.\n"
+                    "Use 'canasta upgrade --dev' to track the development "
+                    "branch (head of main) instead.",
+                    file=sys.stderr,
+                )
             return
+        if latest_overall and latest_overall != target_ref:
+            # A newer release exists beyond the current-major cap.
+            major_hint = (
+                "\nA newer major release (%s) is available. Run 'canasta "
+                "upgrade --allow-major' to move to it (may include breaking "
+                "changes)." % latest_overall
+            )
 
     target_commit = _git(
         ["rev-parse", "--short", target_ref], timeout=5,
@@ -335,8 +377,8 @@ def self_update_cli(dev=False):
             if target_commit == current_commit:
                 print(
                     "Canasta CLI is already up to date "
-                    "(version %s, commit %s, release %s)."
-                    % (current_version, current_commit, target_ref)
+                    "(version %s, commit %s, release %s).%s"
+                    % (current_version, current_commit, target_ref, major_hint)
                 )
             else:
                 print(
@@ -345,8 +387,8 @@ def self_update_cli(dev=False):
                     "rather than moving backward.\nUse 'canasta upgrade --dev' "
                     "to keep tracking development builds, or re-run the "
                     "installer at https://get.canasta.wiki to return to the "
-                    "latest release."
-                    % (target_ref, current_version, current_commit)
+                    "latest release.%s"
+                    % (target_ref, current_version, current_commit, major_hint)
                 )
             return
         # HEAD is behind the latest release (or on a divergent line that
@@ -427,8 +469,8 @@ def self_update_cli(dev=False):
     )
 
     print(
-        "Updated Canasta CLI from %s (%s) to %s (%s)."
-        % (current_version, current_commit, new_version, new_commit)
+        "Updated Canasta CLI from %s (%s) to %s (%s).%s"
+        % (current_version, current_commit, new_version, new_commit, major_hint)
     )
     if not (pip_ok and galaxy_ok):
         print(
@@ -1459,7 +1501,10 @@ def main():
     # but running it inside the playbook means ansible-playbook's
     # in-memory config goes stale on cfg changes — see #489.
     if command_name == "upgrade":
-        self_update_cli(dev=getattr(args, "dev", False))
+        self_update_cli(
+            dev=getattr(args, "dev", False),
+            allow_major=getattr(args, "allow_major", False),
+        )
 
     os.execvp(ansible_args[0], ansible_args)
 

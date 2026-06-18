@@ -772,10 +772,14 @@ commands:
       pulling latest images, running migrations, and restarting containers.
 
       By default the CLI itself updates to the latest released version
-      (the highest vX.Y.Z tag). Pass --dev to track the development branch
-      (head of main) instead.
+      within the current major (the highest vX.Y.Z tag whose major matches
+      the installed version), so an upgrade never crosses a major boundary
+      on its own. Pass --allow-major to move to the latest release overall,
+      including a new major version (which may include breaking changes).
+      Pass --dev to track the development branch (head of main) instead.
     examples:
       - "canasta upgrade"
+      - "canasta upgrade --allow-major"
       - "canasta upgrade --dev"
       - "canasta upgrade --dry-run"
     playbook: upgrade.yml
@@ -788,6 +792,10 @@ commands:
         type: bool
         default: false
         description: "Track the development branch (head of main) instead of the latest release"
+      - name: allow_major
+        type: bool
+        default: false
+        description: "Allow upgrading across a major version boundary to the latest release overall (may include breaking changes)"
 
   # ---------------------------------------------------------------------------
   # Wiki management
