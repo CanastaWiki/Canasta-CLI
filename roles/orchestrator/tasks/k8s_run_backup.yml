@@ -34,6 +34,18 @@
   ansible.builtin.set_fact:
     _restic_local_repo: "{{ _restic_repo is match('^/') }}"
 
+# A local-path repo is a node-local hostPath. With no node affinity the Job
+# could land on any node and DirectoryOrCreate would silently make an empty
+# repo there, so init / create / restore could each see a different
+# directory on a multi-node cluster. Pin local-path backups to the
+# control-plane node so every operation shares one repo. Cloud-backend
+# repos (s3:, b2:, ...) are node-agnostic and need no pin.
+- name: Pin local-path backups to the control-plane node
+  ansible.builtin.set_fact:
+    _restic_node_selector: >-
+      {{ {'node-role.kubernetes.io/control-plane': 'true'}
+         if (_restic_local_repo | bool) else {} }}
+
 # Detect 'backup' verb in backup_args. The on-demand Job is also used
 # for non-snapshot operations (forget, snapshots, init, unlock, etc.);
 # only true backup operations need the DB-dump and Secret-dump init
@@ -193,6 +205,10 @@
         template:
           spec:
             restartPolicy: Never
+            # Pin to the control-plane node for a local-path repo so the
+            # hostPath is the same directory every run; empty ({}) for
+            # cloud backends, which imposes no constraint.
+            nodeSelector: "{{ _restic_node_selector }}"
             # Both init containers (when present) and the restic
             # main container can use the dedicated backup SA. For
             # non-backup ops the SA is unused and harmless.

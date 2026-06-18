@@ -282,6 +282,13 @@
               spec:
                 template:
                   spec:
+                    # Pin to the control-plane node so every scheduled run
+                    # uses the same on-disk repo. A hostPath repo is
+                    # node-local; without this the CronJob could land on a
+                    # node with an empty DirectoryOrCreate repo and back up
+                    # nothing (or to an orphaned directory).
+                    nodeSelector:
+                      node-role.kubernetes.io/control-plane: "true"
                     volumes:
                       - name: local-repo
                         hostPath:

@@ -28,6 +28,16 @@
     _restore_local_repo: >-
       {{ (_restore_env.variables.RESTIC_REPOSITORY | default('')) is match('^/') }}
 
+# Pin a local-path restore to the control-plane node — the same node the
+# backup Job pins to — so the restore reads the repo that backup wrote.
+# Without this the restore pod could land on a node with no repo (an empty
+# DirectoryOrCreate hostPath) and find nothing. Cloud backends need no pin.
+- name: Pin local-path restore to the control-plane node
+  ansible.builtin.set_fact:
+    _restore_node_selector: >-
+      {{ {'node-role.kubernetes.io/control-plane': 'true'}
+         if (_restore_local_repo | bool) else {} }}
+
 - name: Build restore pod volume mounts
   ansible.builtin.set_fact:
     _restore_volume_mounts:
@@ -79,6 +89,10 @@
         namespace: "{{ _k8s_namespace }}"
       spec:
         restartPolicy: Never
+        # Pin to the control-plane node for a local-path repo so the restore
+        # reads the same hostPath the backup wrote; empty ({}) for cloud
+        # backends imposes no constraint.
+        nodeSelector: "{{ _restore_node_selector }}"
         containers:
           - name: restic
             image: restic/restic:latest
