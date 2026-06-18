@@ -516,3 +516,61 @@ class TestBacktickToCode:
         assert "<code>canasta start</code>" in page
         # And the literal backtick-wrapped form should not appear.
         assert "`canasta start`" not in page
+
+
+class _StubClient:
+    """Minimal stand-in for MediaWikiClient: no network, records the
+    delete calls so tests can assert which orphans were pruned."""
+
+    def __init__(self, ns_id, existing):
+        self._ns_id = ns_id
+        self._existing = list(existing)
+        self.deleted = []
+
+    def resolve_namespace_id(self, name):
+        return self._ns_id
+
+    def list_pages_in_namespace(self, ns_id):
+        assert ns_id == self._ns_id
+        return self._existing
+
+    def delete_page(self, title, reason):
+        self.deleted.append(title)
+
+
+class TestPruneOrphans:
+    """prune_orphans must delete exactly the CLI: pages the current run
+    no longer generates — and only those (the 'crowdsec enroll' orphan
+    class, #723)."""
+
+    def test_deletes_only_orphans(self):
+        generated = [
+            (wp.PAGE_PREFIX + "canasta crowdsec bouncer-enroll", "x"),
+            (wp.PAGE_PREFIX + "canasta create", "x"),
+        ]
+        existing = [
+            wp.PAGE_PREFIX + "canasta crowdsec bouncer-enroll",
+            wp.PAGE_PREFIX + "canasta create",
+            wp.PAGE_PREFIX + "canasta crowdsec enroll",  # renamed -> orphan
+        ]
+        client = _StubClient(100, existing)
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 0
+        assert client.deleted == [
+            wp.PAGE_PREFIX + "canasta crowdsec enroll"
+        ]
+
+    def test_no_orphans_deletes_nothing(self):
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        existing = [wp.PAGE_PREFIX + "canasta create"]
+        client = _StubClient(100, existing)
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 0
+        assert client.deleted == []
+
+    def test_missing_namespace_is_skipped_not_fatal(self):
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        client = _StubClient(None, [])
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 0
+        assert client.deleted == []
