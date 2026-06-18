@@ -9,6 +9,10 @@
 #   exec_service (str) - service name (default: web)
 #   exec_command (str) - command to run
 #   exec_no_log (bool, optional) - suppress command in output
+#   exec_long (bool, optional) - run detached + polled for long commands
+#     (update.php on a big wiki, a large mysqldump) so a controller-side
+#     SSH reset doesn't abort them. Default false (held single connection).
+#   exec_long_async (int, optional) - max seconds for a long exec (3600)
 # Output:
 #   exec_result (registered result with .stdout, .rc, etc.)
 
@@ -55,4 +59,25 @@
     chdir: "{{ _exec_chdir | default(omit) }}"
   register: exec_result
   changed_when: false
+  no_log: "{{ exec_no_log | default(false) }}"
+  when: not (exec_long | default(false) | bool)
+
+# Long commands (update.php on a big wiki, a large mysqldump) run detached
+# and polled so a controller-side SSH reset doesn't abort work still
+# progressing on the target. The result is mapped back to exec_result so
+# callers consume it the same way.
+- name: "Execute (long, detached + polled): {{ exec_command | truncate(60) }}"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "{{ exec_command | truncate(60) }}"
+    rx_cmd: "{{ _exec_full_cmd }}"
+    rx_chdir: "{{ _exec_chdir | default(omit) }}"
+    rx_async: "{{ exec_long_async | default(3600) }}"
+    rx_no_log: "{{ exec_no_log | default(false) }}"
+  when: exec_long | default(false) | bool
+
+- name: Map long-exec result to exec_result
+  ansible.builtin.set_fact:
+    exec_result: "{{ rx_result }}"
+  when: exec_long | default(false) | bool
   no_log: "{{ exec_no_log | default(false) }}"
