@@ -17,7 +17,6 @@ stdout so Ansible can include it in its failure message.
 """
 
 import os
-import re
 import sys
 
 

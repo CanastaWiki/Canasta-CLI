@@ -1,0 +1,7 @@
+# Focused lint gate: catch unused imports (F401) across the Python code.
+# Other rule families are intentionally left off for now to keep the gate
+# narrow and low-noise; expand deliberately if desired.
+extend-exclude = [".claude"]
+
+[lint]
+select = ["F401"]

@@ -11,7 +11,6 @@ issue #424).
 """
 
 import os
-import re
 
 import yaml
 

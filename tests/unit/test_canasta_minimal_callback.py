@@ -4,7 +4,6 @@ import os
 import sys
 from types import SimpleNamespace
 
-import pytest
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)

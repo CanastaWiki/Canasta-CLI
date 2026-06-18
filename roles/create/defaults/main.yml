@@ -1,9 +1,0 @@
----
-# Defaults for the create role.
-
-# Default values
-create_orchestrator: compose
-create_admin: WikiSysop
-create_domain_name: localhost
-create_wikidbuser: root
-create_registry: "localhost:5000"

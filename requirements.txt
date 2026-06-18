@@ -7,3 +7,4 @@ pytest-mock>=3.0
 pyyaml>=6.0
 ansible-lint>=6.0
 yamllint>=1.0
+ruff>=0.6

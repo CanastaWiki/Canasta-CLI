@@ -1,11 +1,9 @@
 """doctor command — dependency checks."""
 
 import os
-import re
 import subprocess
 import sys
 
-import yaml
 
 from . import _helpers
 from ._helpers import register
