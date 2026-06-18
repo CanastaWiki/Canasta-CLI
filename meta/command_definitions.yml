@@ -469,7 +469,7 @@ commands:
       Docker volumes.
     examples:
       - "canasta stop"
-    direct_only: true
+    playbook: stop.yml
     parameters:
       - name: id
         short: i
