@@ -2,9 +2,8 @@
 """Generate wikitext reference pages from Canasta command definitions
 and optionally publish them to a MediaWiki wiki.
 
-Reads meta/command_definitions.yml and generates wikitext pages in the
-same format as the Go CLI's wiki-publish tool. Pages use the Help:
-namespace prefix instead of CLI: to distinguish Ansible docs.
+Reads meta/command_definitions.yml and generates one wikitext page per
+command under the CLI: namespace prefix.
 
 Usage:
     # Dry run (print pages to stdout)
@@ -13,11 +12,13 @@ Usage:
     # Write to files
     python scripts/wiki_publish.py --out docs/wiki/
 
-    # Publish to wiki
+    # Publish to wiki (add --prune to delete orphaned CLI: pages left
+    # behind by renamed or removed commands)
     python scripts/wiki_publish.py \
         --api https://canasta.wiki/w/api.php \
         --user User@BotName \
-        --pass botpassword
+        --pass botpassword \
+        --prune
 """
 
 import argparse
@@ -700,6 +701,58 @@ class MediaWikiClient:
                 "Edit failed: %s" % result.get("edit", {}).get("result")
             )
 
+    def resolve_namespace_id(self, name):
+        """Return the namespace id whose canonical or localized name
+        matches `name` (e.g. 'CLI'), or None if the wiki has no such
+        namespace."""
+        url = (
+            "%s?action=query&meta=siteinfo&siprop=namespaces&format=json"
+            % self.api_url
+        )
+        with self.opener.open(url) as resp:
+            data = json.loads(resp.read())
+        for ns in data["query"]["namespaces"].values():
+            if name in (ns.get("*"), ns.get("canonical")):
+                return ns["id"]
+        return None
+
+    def list_pages_in_namespace(self, ns_id):
+        """Return all page titles in the given namespace (paginated)."""
+        titles = []
+        apcontinue = None
+        while True:
+            url = (
+                "%s?action=query&list=allpages&apnamespace=%d"
+                "&aplimit=500&format=json" % (self.api_url, ns_id)
+            )
+            if apcontinue:
+                url += "&apcontinue=" + urllib.parse.quote(apcontinue)
+            with self.opener.open(url) as resp:
+                data = json.loads(resp.read())
+            titles.extend(
+                p["title"] for p in data["query"]["allpages"]
+            )
+            cont = data.get("continue", {}).get("apcontinue")
+            if not cont:
+                break
+            apcontinue = cont
+        return titles
+
+    def delete_page(self, title, reason):
+        token = self._get_token("csrf")
+        result = self._post({
+            "action": "delete",
+            "title": title,
+            "reason": reason,
+            "token": token,
+            "format": "json",
+        })
+        if "error" in result:
+            raise RuntimeError(
+                "API error: %s: %s"
+                % (result["error"]["code"], result["error"]["info"])
+            )
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -712,6 +765,11 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Generate pages without uploading",
+    )
+    parser.add_argument(
+        "--prune", action="store_true",
+        help="Delete CLI: pages that are no longer generated "
+             "(orphans from renamed/removed commands)",
     )
     args = parser.parse_args()
 
@@ -757,6 +815,9 @@ def main():
             print("ERROR uploading %s: %s" % (title, e), file=sys.stderr)
             errors += 1
 
+    if args.prune:
+        errors += prune_orphans(client, pages)
+
     if errors:
         print(
             "Failed to publish %d of %d pages" % (errors, len(pages)),
@@ -764,6 +825,40 @@ def main():
         )
         sys.exit(1)
     print("Done: %d pages published" % len(pages))
+
+
+def prune_orphans(client, pages):
+    """Delete CLI: pages on the wiki that the current run no longer
+    generates. Returns the number of deletion errors."""
+    ns_name = PAGE_PREFIX.rstrip(":")
+    ns_id = client.resolve_namespace_id(ns_name)
+    if ns_id is None:
+        print(
+            "WARNING: no '%s' namespace on the wiki; skipping prune"
+            % ns_name,
+            file=sys.stderr,
+        )
+        return 0
+
+    generated = {title for title, _ in pages}
+    existing = client.list_pages_in_namespace(ns_id)
+    orphans = [t for t in existing if t not in generated]
+
+    errors = 0
+    for title in orphans:
+        try:
+            client.delete_page(
+                title, "Orphaned Canasta CLI reference (command removed)"
+            )
+            print("Deleted orphan %s" % title)
+        except Exception as e:
+            print(
+                "ERROR deleting %s: %s" % (title, e), file=sys.stderr
+            )
+            errors += 1
+    if not orphans:
+        print("No orphaned %s pages to prune" % PAGE_PREFIX)
+    return errors
 
 
 if __name__ == "__main__":
