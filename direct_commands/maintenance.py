@@ -1,8 +1,6 @@
 """maintenance script / extension / update commands."""
 
 import os
-import re
-import subprocess
 import sys
 
 import yaml

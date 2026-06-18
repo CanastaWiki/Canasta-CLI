@@ -409,5 +409,8 @@ jobs:
           .venv/bin/yamllint -c .yamllint.yml
           meta/ roles/ playbooks/ inventory/ canasta.yml
 
+      - name: Python unused-import check
+        run: .venv/bin/ruff check --select F401 .
+
       - name: Validate definitions
         run: .venv/bin/python scripts/validate_definitions.py
