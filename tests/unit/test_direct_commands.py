@@ -1278,11 +1278,11 @@ class TestLifecycleCommands:
     def test_start_runs_up(self, monkeypatch):
         captured_cmds = []
 
-        def mock_run(cmd, **kw):
+        def mock_call(cmd, **kw):
             captured_cmds.append(cmd)
-            return type("R", (), {"returncode": 0})()
+            return 0
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "call", mock_call)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1303,11 +1303,11 @@ class TestLifecycleCommands:
     def test_stop_runs_down(self, monkeypatch):
         captured_cmds = []
 
-        def mock_run(cmd, **kw):
+        def mock_call(cmd, **kw):
             captured_cmds.append(cmd)
-            return type("R", (), {"returncode": 0})()
+            return 0
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "call", mock_call)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1326,11 +1326,11 @@ class TestLifecycleCommands:
     def test_restart_runs_down_then_up(self, monkeypatch):
         captured_cmds = []
 
-        def mock_run(cmd, **kw):
+        def mock_call(cmd, **kw):
             captured_cmds.append(cmd)
-            return type("R", (), {"returncode": 0})()
+            return 0
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "call", mock_call)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1351,11 +1351,11 @@ class TestLifecycleCommands:
     def test_restart_stops_on_down_failure(self, monkeypatch):
         call_count = [0]
 
-        def mock_run(cmd, **kw):
+        def mock_call(cmd, **kw):
             call_count[0] += 1
-            return type("R", (), {"returncode": 1})()
+            return 1
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "call", mock_call)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1372,14 +1372,21 @@ class TestLifecycleCommands:
         assert call_count[0] == 1
 
     def test_remote_start_uses_ssh(self, monkeypatch):
-        ssh_cmds = []
-
+        # The sync-profiles .env read still goes through _ssh_run...
         def mock_ssh(host, cmd):
-            ssh_cmds.append((host, cmd))
-            # Return empty .env for the sync-profiles read
-            return 0, ""
+            return 0, ""  # empty .env → no write
 
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run", mock_ssh)
+
+        # ...but the long `up -d` runs via `ssh <target> <remote_cmd>` through
+        # subprocess.call (no 30s _ssh_run cap, which would kill image pulls).
+        call_argvs = []
+
+        def mock_call(argv, **kw):
+            call_argvs.append(argv)
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", mock_call)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1394,11 +1401,10 @@ class TestLifecycleCommands:
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_start(args)
         assert rc == 0
-        # The sync-profiles read + the up -d: 2 SSH calls total.
-        # Empty .env returned above → no write.
-        up_calls = [c for _, c in ssh_cmds if "up -d" in c]
-        assert len(up_calls) == 1
-        assert all(h == "admin@remote" for h, _ in ssh_cmds)
+        up_argv = [a for a in call_argvs if a and "up -d" in a[-1]]
+        assert len(up_argv) == 1
+        assert up_argv[0][0] == "ssh"
+        assert "admin@remote" in up_argv[0]
 
 
 class TestEnvFileWriter:
@@ -2831,7 +2837,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2856,7 +2863,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2871,7 +2879,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2886,7 +2895,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2903,7 +2913,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2920,7 +2931,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2954,7 +2966,8 @@ class TestMaintenanceExtension:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2968,7 +2981,8 @@ class TestMaintenanceExtension:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2985,7 +2999,8 @@ class TestMaintenanceExtension:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -3002,7 +3017,8 @@ class TestMaintenanceExtension:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -3019,7 +3035,8 @@ class TestMaintenanceExtension:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -3068,7 +3085,8 @@ class TestMaintenanceUpdate:
         )
         commands = []
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             commands.append(command)
             return 0
 
@@ -3093,7 +3111,8 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web": commands.append(c) or 0,
+            lambda iid, i, c, service="web", retry_on_reset=False:
+                commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(skip_jobs=True))
         assert any("update.php" in c for c in commands)
@@ -3106,7 +3125,8 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web": commands.append(c) or 0,
+            lambda iid, i, c, service="web", retry_on_reset=False:
+                commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args())
         assert any("rebuildData.php" in c for c in commands)
@@ -3120,7 +3140,8 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web": commands.append(c) or 0,
+            lambda iid, i, c, service="web", retry_on_reset=False:
+                commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(skip_smw=True))
         assert not any("rebuildData.php" in c for c in commands)
@@ -3132,7 +3153,8 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web": commands.append(c) or 0,
+            lambda iid, i, c, service="web", retry_on_reset=False:
+                commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(wiki="draft"))
         # Only the named wiki should appear in the commands.
@@ -3551,15 +3573,29 @@ class TestMaintenanceStreamRetriesOnSshReset:
             return TestMaintenanceStreamRetriesOnSshReset._FakeProc(rc)
         return factory
 
-    def test_remote_compose_retries_on_ssh_reset(self, monkeypatch):
+    def test_remote_retries_only_when_opted_in(self, monkeypatch):
+        # retry_on_reset=True (idempotent command, e.g. update.php): re-stream
+        # once after a 255 reset.
         calls = {"n": 0}
         monkeypatch.setattr(
             subprocess, "Popen", self._popen_factory([255, 0], calls))
         inst = {"host": "remote", "path": "/srv/x", "orchestrator": "compose"}
         rc = direct_commands._helpers._stream_in_container(
-            "x", inst, "php maintenance/update.php")
+            "x", inst, "php maintenance/update.php", retry_on_reset=True)
         assert rc == 0
         assert calls["n"] == 2, "should re-stream once after the 255 reset"
+
+    def test_remote_does_not_retry_by_default(self, monkeypatch):
+        # Default (arbitrary, possibly non-idempotent script): a 255 reset is
+        # NOT retried — re-running could double-apply destructive work.
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            subprocess, "Popen", self._popen_factory([255, 0], calls))
+        inst = {"host": "remote", "path": "/srv/x", "orchestrator": "compose"}
+        rc = direct_commands._helpers._stream_in_container(
+            "x", inst, "php maintenance/nukePage.php Foo")
+        assert rc == 255
+        assert calls["n"] == 1, "arbitrary scripts must not be retried"
 
     def test_localhost_does_not_retry(self, monkeypatch):
         calls = {"n": 0}

@@ -1044,29 +1044,44 @@ class TestResilientExec:
         assert "until" in poll
         assert poll.get("ignore_unreachable") is True
 
-    def test_launch_normalizes_command_whitespace(self):
+    def test_launch_collapses_only_newlines(self):
         # rx_cmd often comes from a `>-` folded scalar whose more-indented
-        # Jinja continuations preserve newlines. Under `shell` (/bin/sh -c)
-        # a bare newline is a command separator, so the launch must collapse
-        # whitespace to one line (regression for the helm `--reset-values`
-        # "not found" rc=127 break).
+        # Jinja continuations preserve newlines. Under `shell` (/bin/sh -c) a
+        # bare newline is a command separator, so the launch must fold the
+        # command onto one line (regression for the helm `--reset-values`
+        # rc=127 break) — but collapse ONLY newlines, not all whitespace, so
+        # a secret with a tab/double-space on the exec_long path isn't mangled.
         tasks = yaml.safe_load(open(self.PRIMITIVE))
         cmd = tasks[0]["ansible.builtin.shell"]["cmd"]
-        assert ".split()" in cmd and "join(' ')" in cmd, (
-            "resilient_exec launch must normalize rx_cmd whitespace so a "
-            "folded multi-line command runs as a single shell line"
+        assert "regex_replace" in cmd and r"\r\n" in cmd, (
+            "launch must collapse newline runs (regex_replace) not all "
+            "whitespace, so intra-line spacing in secrets is preserved"
+        )
+        assert ".split()" not in cmd, (
+            "split()|join collapses ALL whitespace and mangles secrets "
+            "containing tabs/double-spaces"
         )
 
     def test_folded_rx_cmds_have_no_newline_after_normalization(self):
         # Every resilient_exec caller's rx_cmd, once folded by YAML and
-        # whitespace-normalized, must be a single line.
+        # newline-collapsed, must be a single line.
+        import re
         for rel in ("helm_deploy.yml", "helm_uninstall.yml",
                     "k8s_argocd_bootstrap.yml"):
             tasks = yaml.safe_load(open(os.path.join(ORCHESTRATOR_TASKS, rel)))
             for t in self._walk(tasks):
                 rx = (t.get("vars") or {}).get("rx_cmd")
                 if rx:
-                    assert "\n" not in " ".join(rx.split()), rel
+                    assert "\n" not in re.sub(r"[\r\n]+", " ", rx).strip(), rel
+
+    def test_poll_and_cleanup_honor_no_log(self):
+        # async_status returns the job's `cmd`, so the poll + cleanup tasks
+        # must honor rx_no_log or a secret in rx_cmd (e.g. the k3s join
+        # token) leaks under -v.
+        tasks = yaml.safe_load(open(self.PRIMITIVE))
+        for name in ("Wait for completion", "Clean up async job file"):
+            t = next(x for x in tasks if str(x.get("name", "")).startswith(name))
+            assert "rx_no_log" in str(t.get("no_log", "")), name
 
     @staticmethod
     def _walk(tasks):

@@ -256,7 +256,15 @@ def _compose_file_args(path, host, devmode=False):
 
 
 def _run_compose(inst_id, inst, action_args):
-    """Run a docker compose command for an instance. Returns exit code."""
+    """Run a docker compose command for an instance. Returns exit code.
+
+    Output streams to the terminal and there is NO timeout: the actions
+    routed here (`up -d` with image pulls, `down`, `build` from rebuild)
+    legitimately run for minutes. (A prior 120s local / 30s remote cap
+    falsely reported failure on slow pulls/builds while the work kept
+    running.) On a remote host these actions are idempotent, so a
+    connection-level reset (ssh exit 255) is retried.
+    """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     devmode = inst.get("devMode", False)
@@ -265,30 +273,32 @@ def _run_compose(inst_id, inst, action_args):
     if _is_localhost(host):
         cmd = ["docker", "compose"] + file_args + action_args
         try:
-            result = subprocess.run(cmd, cwd=path, timeout=120)
-            return result.returncode
-        except (subprocess.TimeoutExpired, OSError) as e:
+            return subprocess.call(cmd, cwd=path)
+        except OSError as e:
             print("Error: %s" % e, file=sys.stderr)
             return 1
-    else:
-        file_str = " ".join(file_args)
-        action_str = " ".join(action_args)
-        remote_cmd = "cd %s && docker compose %s %s" % (
-            _shell_quote(path), file_str, action_str,
-        )
-        # The lifecycle actions routed here (up -d, down) are idempotent,
-        # so retry on a transient ssh connection reset.
-        _last = {}
 
-        def _attempt():
-            rc, stdout = _ssh_run(host, remote_cmd)
-            _last["stdout"] = stdout
-            return rc
+    file_str = " ".join(file_args)
+    action_str = " ".join(action_args)
+    remote_cmd = "cd %s && docker compose %s %s" % (
+        _shell_quote(path), file_str, action_str,
+    )
+    # SSH does not pass env; propagate DOCKER_HOST like _ssh_run does so a
+    # rootless socket on the target is honored.
+    docker_host = os.environ.get("DOCKER_HOST")
+    if docker_host:
+        remote_cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), remote_cmd)
+    target = _resolve_ssh_target(host)
+    argv = ["ssh"] + _ssh_args() + [target, remote_cmd]
 
-        rc = _retry_on_ssh_reset(_attempt)
-        if _last.get("stdout", "").strip():
-            print(_last["stdout"].strip())
-        return rc
+    def _attempt():
+        try:
+            return subprocess.call(argv)
+        except OSError as e:
+            print("Error: %s" % e, file=sys.stderr)
+            return 1
+
+    return _retry_on_ssh_reset(_attempt)
 
 
 # Profiles that Canasta derives from CANASTA_ENABLE_* feature flags.
@@ -480,7 +490,8 @@ def _exec_in_container(inst_id, inst, command, service="web"):
     return rc, stdout
 
 
-def _stream_in_container(inst_id, inst, command, service="web"):
+def _stream_in_container(inst_id, inst, command, service="web",
+                         retry_on_reset=False):
     """Run a command inside a container/pod, streaming combined
     stdout+stderr to the user's terminal as it arrives. Returns the
     process return code.
@@ -489,6 +500,13 @@ def _stream_in_container(inst_id, inst, command, service="web"):
     rebuildData.php, ad-hoc maintenance scripts) so the operator can
     distinguish 'still working' from 'stuck' without having to drop
     down to `docker compose exec` directly. See issue #433.
+
+    retry_on_reset re-streams from the start on an SSH connection reset
+    (ssh exit 255). Only pass it for IDEMPOTENT commands (update.php,
+    runJobs.php, rebuildData.php). It must stay false for arbitrary
+    operator-supplied scripts, which may be destructive and non-idempotent
+    (deleteBatch.php, nukePage.php, importDump.php) — re-running those
+    after a mid-run reset would double-apply the work.
 
     `stdbuf -oL` is prepended to force line-buffered stdout from any
     coreutils-style child the script spawns; PHP CLI is line-buffered
@@ -557,15 +575,14 @@ def _stream_in_container(inst_id, inst, command, service="web"):
             return 130
         return proc.wait()
 
-    # update.php / runJobs.php / ad-hoc maintenance scripts are idempotent
-    # and re-runnable. When streaming over SSH to a remote host, retry on a
-    # connection-level reset (ssh exit 255) so a transient controller-to-
-    # target drop doesn't abort a long maintenance run — it re-streams from
-    # the start. localhost and in-cluster `kubectl exec` never return 255.
+    # When streaming over SSH to a remote host, retry on a connection-level
+    # reset (ssh exit 255) ONLY when the caller opted in (idempotent command)
+    # — re-streaming a non-idempotent operator script would double-apply it.
+    # localhost and in-cluster `kubectl exec` never return 255.
     is_remote_ssh = (
         orchestrator not in ("kubernetes", "k8s") and not _is_localhost(host)
     )
-    if is_remote_ssh:
+    if is_remote_ssh and retry_on_reset:
         return _retry_on_ssh_reset(_run)
     return _run()
 
