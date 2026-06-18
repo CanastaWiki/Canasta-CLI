@@ -5,6 +5,7 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 YAMLLINT := $(VENV)/bin/yamllint
+RUFF := $(VENV)/bin/ruff
 
 # --- Setup -------------------------------------------------------------------
 
@@ -31,6 +32,7 @@ test: test-unit
 
 lint: venv
 	$(YAMLLINT) --strict meta/ roles/ playbooks/ inventory/ canasta.yml
+	$(RUFF) check --select F401 .
 	$(PYTHON) scripts/validate_definitions.py
 
 # --- Documentation -----------------------------------------------------------

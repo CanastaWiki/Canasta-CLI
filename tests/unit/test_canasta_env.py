@@ -1,6 +1,5 @@
 """Tests for the canasta_env Ansible module."""
 
-import os
 
 import canasta_env
 from mock_ansible import run_module_with_params
