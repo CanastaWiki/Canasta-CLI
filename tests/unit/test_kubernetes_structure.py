@@ -1008,20 +1008,31 @@ class TestK8sDeleteWaitsForNamespace:
     returning — otherwise an immediate re-create races the still-Terminating
     namespace and fails the stale-namespace guard (#684)."""
 
-    def test_namespace_deletion_waits(self):
+    def test_namespace_deletion_requests_then_polls_until_gone(self):
+        # #762: a single held `kubectl delete --wait` aborts the whole delete
+        # when termination is slow (NFS on multi-node), leaking the namespace.
+        # Issue the delete (--wait=false), then poll until it's gone — still
+        # waiting for full termination so delete->re-create doesn't race.
         with open(os.path.join(ORCHESTRATOR_TASKS, "helm_uninstall.yml")) as f:
             tasks = yaml.safe_load(f)
-        ns = next(t for t in tasks if t.get("name") == "Delete namespace")
-        # Deletion runs via resilient_exec (launch detached + poll) so a
-        # controller-side SSH reset during the wait can't abort it, but the
-        # kubectl command still waits for the namespace to fully terminate.
-        assert "resilient_exec.yml" in ns["ansible.builtin.include_tasks"]
-        cmd = ns["vars"]["rx_cmd"]
-        assert "kubectl delete namespace" in cmd
-        assert "--wait=true" in cmd
-        assert "--timeout=300s" in cmd, (
-            "namespace deletion must wait, so delete->create does not race"
-        )
+        req = next(t for t in tasks if t.get("name") == "Request namespace deletion")
+        assert "--wait=false" in req["ansible.builtin.command"]["cmd"]
+        assert "--ignore-not-found" in req["ansible.builtin.command"]["cmd"]
+
+        wait = next(t for t in tasks if t.get("name") == "Wait for namespace to be fully gone")
+        assert "kubectl get namespace" in wait["ansible.builtin.command"]["cmd"]
+        assert wait["until"] == "_ns_gone.rc != 0"  # NotFound == gone
+        assert int(wait["retries"]) * int(wait["delay"]) >= 300
+
+    def test_helm_uninstall_drops_wait(self):
+        # The helm uninstall must NOT use --wait: with --wait its async window
+        # could time out on slow multi-node NFS teardown and abort the delete
+        # before the namespace was removed (#762). Teardown is handled by the
+        # namespace delete + poll above.
+        with open(os.path.join(ORCHESTRATOR_TASKS, "helm_uninstall.yml")) as f:
+            tasks = yaml.safe_load(f)
+        un = next(t for t in tasks if t.get("name") == "Uninstall Canasta Helm release")
+        assert "--wait" not in un["vars"]["rx_cmd"]
 
 
 class TestResilientExec:
