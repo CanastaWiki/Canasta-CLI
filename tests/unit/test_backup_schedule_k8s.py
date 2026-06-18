@@ -546,6 +546,45 @@ class TestK8sRestorePreservesCurrentDBPassword:
         )
 
 
+class TestK8sRestoreFailsLoudlyOnResticError:
+    """#748: a restore must NOT report success when restic actually failed
+    (repo unreachable, wrong password, snapshot missing). The pod captures
+    restic's exit code + output, and the controller fails loudly on a fatal
+    error while still tolerating the benign xattr exit 1."""
+
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def _content(self):
+        with open(self.RESTORE_K8S) as f:
+            return f.read()
+
+    def test_pod_captures_restic_exit_code_and_log(self):
+        content = self._content()
+        assert "echo $? > /tmp/restore-rc" in content, (
+            "the restore pod must capture restic's exit code so the "
+            "controller can tell a real failure from benign xattr noise"
+        )
+        assert "/tmp/restore-log" in content, (
+            "the restore pod must capture restic's output for diagnosis"
+        )
+
+    def test_fails_loudly_on_fatal_restic_error(self):
+        content = self._content()
+        assert "Fail when restic restore reported a fatal error" in content, (
+            "restore_k8s.yml must have an explicit fail task for fatal "
+            "restic errors so a failed restore is not reported as success"
+        )
+        # Gated on a non-zero rc AND restic's 'Fatal:' marker, so the
+        # benign xattr exit 1 (no Fatal) is tolerated, not aborted.
+        assert "is search('Fatal')" in content, (
+            "the fail must key on restic's 'Fatal:' marker to distinguish "
+            "real failures from the xattr-on-overlay exit 1"
+        )
+        assert "_restore_rc" in content
+
+
 class TestOnDemandBackupCapturesDB:
     """Guard #513: on-demand 'canasta backup create' on K8s must
     capture the wiki database. Pre-fix the dump ran via 'kubectl

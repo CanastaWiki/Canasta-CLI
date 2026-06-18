@@ -1044,6 +1044,40 @@ class TestResilientExec:
         assert "until" in poll
         assert poll.get("ignore_unreachable") is True
 
+    def test_launch_normalizes_command_whitespace(self):
+        # rx_cmd often comes from a `>-` folded scalar whose more-indented
+        # Jinja continuations preserve newlines. Under `shell` (/bin/sh -c)
+        # a bare newline is a command separator, so the launch must collapse
+        # whitespace to one line (regression for the helm `--reset-values`
+        # "not found" rc=127 break).
+        tasks = yaml.safe_load(open(self.PRIMITIVE))
+        cmd = tasks[0]["ansible.builtin.shell"]["cmd"]
+        assert ".split()" in cmd and "join(' ')" in cmd, (
+            "resilient_exec launch must normalize rx_cmd whitespace so a "
+            "folded multi-line command runs as a single shell line"
+        )
+
+    def test_folded_rx_cmds_have_no_newline_after_normalization(self):
+        # Every resilient_exec caller's rx_cmd, once folded by YAML and
+        # whitespace-normalized, must be a single line.
+        for rel in ("helm_deploy.yml", "helm_uninstall.yml",
+                    "k8s_argocd_bootstrap.yml"):
+            tasks = yaml.safe_load(open(os.path.join(ORCHESTRATOR_TASKS, rel)))
+            for t in self._walk(tasks):
+                rx = (t.get("vars") or {}).get("rx_cmd")
+                if rx:
+                    assert "\n" not in " ".join(rx.split()), rel
+
+    @staticmethod
+    def _walk(tasks):
+        for t in tasks or []:
+            if not isinstance(t, dict):
+                continue
+            yield t
+            for nested in ("block", "rescue", "always"):
+                if nested in t:
+                    yield from TestResilientExec._walk(t[nested])
+
     def test_helm_deploy_uses_resilient_exec(self):
         tasks = yaml.safe_load(
             open(os.path.join(ORCHESTRATOR_TASKS, "helm_deploy.yml")))
