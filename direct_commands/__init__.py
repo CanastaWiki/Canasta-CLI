@@ -115,7 +115,6 @@ from .info import (  # noqa: F401
 )
 from .config import cmd_config_get  # noqa: F401
 from .lifecycle import cmd_start, cmd_stop, cmd_restart, cmd_scale  # noqa: F401
-from .lifecycle import _k8s_namespace, _k8s_stop, _run_kubectl  # noqa: F401
 from .maintenance import (  # noqa: F401
     cmd_maintenance_script,
     cmd_maintenance_extension,

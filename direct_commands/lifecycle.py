@@ -10,56 +10,6 @@ from . import _helpers
 from ._helpers import register
 
 
-# _k8s_namespace lives in _helpers.py — _exec_in_container (a shared
-# helper) needs it too, so it can't be lifecycle-only.
-_k8s_namespace = _helpers._k8s_namespace
-
-
-def _run_kubectl(kubectl_args, timeout=30):
-    """Run a kubectl command. Returns exit code."""
-    cmd = ["kubectl"] + kubectl_args
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        if result.stdout.strip():
-            print(result.stdout.strip())
-        if result.returncode != 0 and result.stderr.strip():
-            print(result.stderr.strip(), file=sys.stderr)
-        return result.returncode
-    except (subprocess.TimeoutExpired, OSError) as e:
-        print("Error: %s" % e, file=sys.stderr)
-        return 1
-
-
-def _k8s_stop(instance_id):
-    """Stop a K8s instance: suspend Argo CD sync, scale everything to 0."""
-    ns = _k8s_namespace(instance_id)
-
-    result = subprocess.run(
-        ["kubectl", "get", "application", "canasta-%s" % instance_id,
-         "-n", "argocd", "-o", "jsonpath={.metadata.name}"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if result.returncode == 0:
-        _run_kubectl([
-            "patch", "application", "canasta-%s" % instance_id,
-            "-n", "argocd", "--type", "merge",
-            "-p", '{"spec":{"syncPolicy":null}}',
-        ])
-
-    _run_kubectl(["scale", "deployment", "--all", "--replicas=0", "-n", ns])
-
-    # External-DB instances with Elasticsearch disabled have no
-    # StatefulSets; 'kubectl scale --all' errors with "no objects
-    # passed to scale". Check first and skip if none exist.
-    sts_check = subprocess.run(
-        ["kubectl", "get", "statefulset", "-n", ns, "-o", "name"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if sts_check.returncode == 0 and sts_check.stdout.strip():
-        _run_kubectl(["scale", "statefulset", "--all", "--replicas=0", "-n", ns])
-    return 0
-
-
 @register("start")
 def cmd_start(args):
     inst_id, inst = _helpers._resolve_instance(args)
@@ -79,7 +29,11 @@ def cmd_start(args):
 def cmd_stop(args):
     inst_id, inst = _helpers._resolve_instance(args)
     if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
-        return _k8s_stop(inst_id)
+        # K8s stop suspends Argo CD sync and scales the instance's
+        # workloads to 0 — kubectl must run on the instance's host
+        # (where the cluster kubeconfig lives), not the controller.
+        # Ansible resolves the host and switches the connection.
+        return _helpers.FALLBACK
     return _helpers._run_compose(inst_id, inst, ["down"])
 
 
