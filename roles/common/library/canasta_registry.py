@@ -244,7 +244,7 @@ def run_module():
         if inst_id not in instances:
             module.fail_json(msg="Instance '%s' not found in registry" % inst_id)
             return
-        result["instance"] = instances[inst_id]
+        result["instance"] = dict(instances[inst_id])
         result["instance"]["id"] = inst_id
 
     elif state == "query_all":
@@ -271,7 +271,7 @@ def run_module():
         if not found_id:
             module.fail_json(msg="No instance found for path '%s'" % inst_path)
             return
-        result["instance"] = found_inst
+        result["instance"] = dict(found_inst)
         result["instance"]["id"] = found_id
 
     elif state == "present":
