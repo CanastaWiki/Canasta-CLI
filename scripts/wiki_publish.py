@@ -94,14 +94,15 @@ def _group_subcommands(group_name):
     return []
 
 CMD_GROUPS = [
-    ("System", ["install", "doctor", "host", "storage", "uninstall"]),
+    ("System", ["install", "doctor", "host", "storage", "argocd", "uninstall"]),
     ("Instance Management", [
-        "create", "delete", "list", "upgrade", "version", "config",
+        "create", "delete", "list", "status", "upgrade", "version", "config",
     ]),
     ("Wiki Management", ["add", "remove", "import", "export"]),
-    ("Container Lifecycle", ["start", "stop", "restart"]),
+    ("Container Lifecycle", ["start", "stop", "restart", "rebuild", "scale"]),
     ("Extensions & Skins", ["extension", "skin"]),
     ("Maintenance", ["maintenance", "sitemap"]),
+    ("Security", ["crowdsec"]),
     ("Data Protection", ["backup", "gitops"]),
     ("Development", ["devmode"]),
 ]

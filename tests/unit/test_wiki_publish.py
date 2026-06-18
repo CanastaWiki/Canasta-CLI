@@ -646,3 +646,65 @@ class TestPruneOrphans:
         )
         errors = wp.prune_orphans(client, generated)
         assert errors == 1
+
+
+class TestEveryCommandLinkedFromIndex:
+    """Every top-level command and every subcommand group must appear in
+    CMD_GROUPS, which drives both the root CLI:canasta index page and the
+    MediaWiki:Menu-cli-reference menu. A command omitted here generates a
+    page that nothing links to — an orphan (Special:LonelyPages). This is
+    how CLI:Canasta rebuild (plus scale, status, crowdsec, argocd) ended
+    up orphaned."""
+
+    def _must_be_linked(self):
+        data = wp.load_definitions()
+        names = {c["name"] for c in data["commands"]}
+        groups = set(wp.SUBCOMMAND_GROUPS.keys())
+        # Leaf top-level commands have no underscore and aren't groups;
+        # group pages are the SUBCOMMAND_GROUPS keys. Nested groups
+        # (backup_schedule, storage_setup) are linked under their parent
+        # by the menu walk, so they don't need a direct CMD_GROUPS entry.
+        leaves = {n for n in names if "_" not in n and n not in groups}
+        return leaves | groups
+
+    def _listed_in_cmd_groups(self):
+        listed = set()
+        for _heading, cmds in wp.CMD_GROUPS:
+            listed.update(cmds)
+        return listed
+
+    def test_no_command_omitted_from_index(self):
+        missing = self._must_be_linked() - self._listed_in_cmd_groups()
+        assert not missing, (
+            "CMD_GROUPS omits %s — their CLI: pages would be orphaned. "
+            "Add each to the appropriate group." % sorted(missing)
+        )
+
+    def test_leaves_linked_from_root_and_everything_in_menu(self):
+        # Leaf commands appear directly on the root index page (a content
+        # page), giving them an incoming link so they can't be orphaned.
+        # Group pages are linked from the menu and from their own
+        # subcommand pages' breadcrumbs, so they only need the menu.
+        data = wp.load_definitions()
+        pages = dict(wp.generate_all_pages(data))
+        root = pages["CLI:canasta"]
+        menu = pages["MediaWiki:Menu-cli-reference"]
+        leaves = self._must_be_linked() - set(wp.SUBCOMMAND_GROUPS.keys())
+        for cmd in sorted(leaves):
+            assert ("canasta " + cmd) in root, "root page missing leaf %s" % cmd
+        for name in sorted(self._must_be_linked()):
+            assert ("canasta " + name) in menu, "menu missing %s" % name
+
+    def test_previously_orphaned_commands_now_linked(self):
+        # Regression: these five were omitted from CMD_GROUPS, leaving
+        # CLI:Canasta rebuild orphaned (the others were saved only by the
+        # hand-maintained Help:CLI overview linking them).
+        data = wp.load_definitions()
+        pages = dict(wp.generate_all_pages(data))
+        root = pages["CLI:canasta"]
+        menu = pages["MediaWiki:Menu-cli-reference"]
+        for cmd in ("rebuild", "scale", "status"):  # leaves -> root + menu
+            assert ("canasta " + cmd) in root
+            assert ("canasta " + cmd) in menu
+        for cmd in ("crowdsec", "argocd"):  # groups -> menu
+            assert ("canasta " + cmd) in menu
