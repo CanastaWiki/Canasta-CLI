@@ -42,6 +42,12 @@ EDIT_DELAY = 2  # seconds between edits
 HTTP_TIMEOUT = 30  # seconds; a hung wiki API must not stall the publish
 
 
+class PermissionDeniedError(RuntimeError):
+    """The bot account lacks the right for an API action (e.g. delete
+    requires the Administrators group). Treated as a skip, not a
+    publish failure."""
+
+
 def load_definitions():
     with open(DEFINITIONS_PATH) as f:
         return yaml.safe_load(f)
@@ -749,10 +755,11 @@ class MediaWikiClient:
             "format": "json",
         })
         if "error" in result:
-            raise RuntimeError(
-                "API error: %s: %s"
-                % (result["error"]["code"], result["error"]["info"])
-            )
+            code = result["error"]["code"]
+            msg = "API error: %s: %s" % (code, result["error"]["info"])
+            if code == "permissiondenied":
+                raise PermissionDeniedError(msg)
+            raise RuntimeError(msg)
 
 
 def main():
@@ -845,20 +852,34 @@ def prune_orphans(client, pages):
     existing = client.list_pages_in_namespace(ns_id)
     orphans = [t for t in existing if t not in generated]
 
+    if not orphans:
+        print("No orphaned %s pages to prune" % PAGE_PREFIX)
+        return 0
+
     errors = 0
-    for title in orphans:
+    for i, title in enumerate(orphans):
         try:
             client.delete_page(
                 title, "Orphaned Canasta CLI reference (command removed)"
             )
             print("Deleted orphan %s" % title)
+        except PermissionDeniedError as e:
+            # The bot can't delete (needs Administrators). Every orphan
+            # would fail the same way, so warn once with the full list
+            # for manual cleanup and don't fail the publish job.
+            remaining = orphans[i:]
+            print(
+                "WARNING: cannot delete orphaned %s pages (%s). "
+                "%d page(s) need manual deletion by an administrator: %s"
+                % (PAGE_PREFIX, e, len(remaining), ", ".join(remaining)),
+                file=sys.stderr,
+            )
+            return errors
         except Exception as e:
             print(
                 "ERROR deleting %s: %s" % (title, e), file=sys.stderr
             )
             errors += 1
-    if not orphans:
-        print("No orphaned %s pages to prune" % PAGE_PREFIX)
     return errors
 
 
