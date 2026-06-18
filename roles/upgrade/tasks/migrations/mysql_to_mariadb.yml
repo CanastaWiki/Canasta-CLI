@@ -1,16 +1,12 @@
 ---
 # Migration: Detect MySQL 8.0 data and migrate to MariaDB.
 # Matches Go upgrade.go mysql_to_mariadb.go logic.
-# Only runs for Docker Compose instances.
-# Input: instance_path, instance_orchestrator
-
-- name: Skip MySQL migration for non-Compose instances
-  ansible.builtin.debug:
-    msg: "MySQL-to-MariaDB migration only applies to Docker Compose instances."
-  when: instance_orchestrator | default('compose') != 'compose'
+# Compose-only; the orchestrator guard is owned by the caller
+# (roles/orchestrator/tasks/upgrade_db_migration.yml), so no
+# instance_orchestrator switch is needed here.
+# Input: instance_path
 
 - name: Check for MySQL 8.0 data
-  when: instance_orchestrator | default('compose') == 'compose'
   block:
     # Detection (and the migration itself) requires a live db container to
     # exec into. A stopped instance has no db service, so skip rather than

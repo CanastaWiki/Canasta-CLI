@@ -21,6 +21,8 @@
 # and point at the kubectl-based rotation flow. Compose reads .env
 # directly at container start, so the same keys are mutable there
 # (config set + canasta restart propagates).
+# Input validation, not action dispatch — there is no Compose-equivalent
+# action to dispatch to, so this orchestrator check stays here by design.
 - name: Block secret-bearing keys on Kubernetes (K8s Secret is the source of truth)
   ansible.builtin.fail:
     msg: |
@@ -52,6 +54,7 @@
 # guard, so on K8s they would rewrite MW_SITE_SERVER / MW_SITE_FQDN in
 # .env with a :port suffix nothing serves. Block the keys on K8s rather
 # than let the change silently mislead the operator.
+# Input validation, not action dispatch — kept here by design.
 - name: Block port keys on Kubernetes (Ingress serves 80/443)
   ansible.builtin.fail:
     msg: |

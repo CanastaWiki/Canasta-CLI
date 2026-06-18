@@ -1,0 +1,10 @@
+---
+# Run orchestrator-specific upgrade DB migrations.
+# Compose: the MySQL-to-MariaDB migration. Kubernetes: no-op — the K8s
+# DB image is set by the chart, not migrated in place.
+# Input: instance_path, instance_id, instance_orchestrator
+
+- name: MySQL-to-MariaDB migration (Compose only)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/upgrade/tasks/migrations/mysql_to_mariadb.yml
+  when: instance_orchestrator | default('compose') == 'compose'

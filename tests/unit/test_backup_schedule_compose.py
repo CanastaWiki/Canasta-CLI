@@ -20,7 +20,7 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 SCHEDULE_SET = os.path.join(
-    REPO_ROOT, "roles", "backup", "tasks", "schedule_set.yml",
+    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml",
 )
 COMMAND_DEFS = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 

@@ -1,0 +1,39 @@
+---
+# Stage each wiki's database dump for a backup snapshot.
+#
+# Compose: dump DBs into the live web container's
+# /mediawiki/config/backup, which is bind-mounted from the host's
+# instance_path/config — restic's container then mounts the same host
+# path and the dumps appear in the snapshot.
+#
+# Kubernetes: no-op here. Writing into the live web pod's emptyDir is
+# useless — the separately-spawned restic Job mounts the web-config
+# ConfigMap, not the live pod's emptyDir. Pre-#513 this dance ran on
+# K8s anyway and the dumps silently vanished from on-demand snapshots,
+# leaving wiki content unprotected. The K8s path now does the dump as
+# an init container inside the restic Job itself — see k8s_run_backup.yml.
+#
+# Input: instance_path, instance_orchestrator,
+#        _backup_wikis (wiki_ids), _backup_dbpass (DB password)
+
+- name: Create backup staging directory (Compose)
+  ansible.builtin.include_tasks: exec.yml
+  vars:
+    exec_service: web
+    exec_command: "mkdir -p /mediawiki/config/backup"
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Dump each wiki database (Compose)
+  ansible.builtin.include_tasks: exec.yml
+  vars:
+    exec_service: web
+    exec_no_log: true
+    exec_command: >-
+      mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
+      -p{{ _backup_dbpass.value | quote }}
+      --single-transaction
+      --databases {{ item | quote }}
+      > /mediawiki/config/backup/db_{{ item | quote }}.sql
+  loop: "{{ _backup_wikis.wiki_ids }}"
+  no_log: true
+  when: instance_orchestrator | default('compose') == 'compose'

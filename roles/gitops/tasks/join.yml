@@ -10,6 +10,11 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+# Early-dispatch to the K8s join, then end_play so the ~400-line Compose
+# join flow below does not run on K8s. Kept in place by design: a full
+# dispatch would extract the Compose flow into its own file, but the
+# end_play ends the whole play (not just this role), so the split needs a
+# dedicated, integration-tested change rather than a mechanical move.
 - name: Dispatch to K8s join
   ansible.builtin.include_tasks: join_kubernetes.yml
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
