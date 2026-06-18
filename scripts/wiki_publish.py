@@ -39,6 +39,7 @@ DEFINITIONS_PATH = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
 PAGE_PREFIX = "CLI:"
 EDIT_DELAY = 2  # seconds between edits
+HTTP_TIMEOUT = 30  # seconds; a hung wiki API must not stall the publish
 
 
 def load_definitions():
@@ -656,14 +657,14 @@ class MediaWikiClient:
     def _post(self, params):
         data = urllib.parse.urlencode(params).encode()
         req = urllib.request.Request(self.api_url, data=data)
-        with self.opener.open(req) as resp:
+        with self.opener.open(req, timeout=HTTP_TIMEOUT) as resp:
             return json.loads(resp.read())
 
     def _get_token(self, token_type):
         url = "%s?action=query&meta=tokens&type=%s&format=json" % (
             self.api_url, token_type,
         )
-        with self.opener.open(url) as resp:
+        with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
             data = json.loads(resp.read())
         return data["query"]["tokens"][token_type + "token"]
 
@@ -709,7 +710,7 @@ class MediaWikiClient:
             "%s?action=query&meta=siteinfo&siprop=namespaces&format=json"
             % self.api_url
         )
-        with self.opener.open(url) as resp:
+        with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
             data = json.loads(resp.read())
         for ns in data["query"]["namespaces"].values():
             if name in (ns.get("*"), ns.get("canonical")):
@@ -727,7 +728,7 @@ class MediaWikiClient:
             )
             if apcontinue:
                 url += "&apcontinue=" + urllib.parse.quote(apcontinue)
-            with self.opener.open(url) as resp:
+            with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
                 data = json.loads(resp.read())
             titles.extend(
                 p["title"] for p in data["query"]["allpages"]
