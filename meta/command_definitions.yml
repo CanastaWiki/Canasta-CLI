@@ -1307,9 +1307,15 @@ commands:
 
       With no arguments and no --service flag, lists the running services.
       The default service is "web" (the MediaWiki container).
+
+      Use --stdin-file to feed a file to the command's standard input — for
+      example, piping wikitext to `maintenance/run.php edit <page>`. The
+      file is read on the controller, so it works for local, remote, and
+      Kubernetes targets alike. Content is read as text (UTF-8).
     examples:
       - "canasta maintenance exec -- ls /var/www/mediawiki"
       - "canasta maintenance exec -s db -- mariadb-admin ping -h localhost"
+      - "canasta maintenance exec --stdin-file page.txt -- php run.php edit 'Main Page'"
     playbook: maintenance_exec.yml
     parameters:
       - name: id
@@ -1324,6 +1330,9 @@ commands:
         short: w
         type: string
         description: "Wiki ID"
+      - name: stdin_file
+        type: path
+        description: "File fed to the command's standard input (e.g. wikitext for an edit), read as UTF-8 on the controller."
       - name: exec_args
         type: string
         positional: true
