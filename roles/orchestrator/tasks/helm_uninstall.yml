@@ -2,13 +2,17 @@
 # Uninstall the Canasta Helm release and clean up.
 # Input: instance_id, _k8s_namespace
 
+# Launched detached and polled (resilient_exec) so a controller-side SSH
+# reset during the wait doesn't abort an uninstall still progressing on the
+# target. rx_fail is false because uninstalling an already-absent release
+# returns non-zero — harmless, matching the prior ignore_errors.
 - name: Uninstall Canasta Helm release
-  kubernetes.core.helm:
-    name: "canasta-{{ instance_id }}"
-    release_namespace: "{{ _k8s_namespace }}"
-    state: absent
-    wait: true
-  ignore_errors: true  # OK if release already uninstalled
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "uninstall Helm release canasta-{{ instance_id }}"
+    rx_async: 300
+    rx_fail: false
+    rx_cmd: "helm uninstall canasta-{{ instance_id }} -n {{ _k8s_namespace }} --wait"
 
 - name: Delete Ansible-managed resources
   kubernetes.core.k8s:
@@ -26,17 +30,19 @@
     - { kind: ConfigMap, name: "canasta-{{ instance_id }}-db-config" }
   ignore_errors: true  # OK if resources already deleted
 
+# Wait for the namespace to fully terminate before returning. Without
+# this, deletion is async and an immediate `canasta create` races the
+# still-Terminating namespace and fails its stale-namespace guard.
+# Namespace teardown (finalizers, PVC/pod cleanup) can take minutes, so
+# this is launched detached and polled (resilient_exec): a controller-side
+# reset during the wait must not leave the caller believing it failed while
+# k8s is still terminating it. --ignore-not-found keeps a re-run idempotent.
 - name: Delete namespace
-  kubernetes.core.k8s:
-    state: absent
-    api_version: v1
-    kind: Namespace
-    name: "{{ _k8s_namespace }}"
-    # Wait for the namespace to fully terminate before delete returns.
-    # Without this, deletion is async and an immediate `canasta create`
-    # races the still-Terminating namespace and fails its stale-namespace
-    # guard. Namespace teardown (finalizers, PVC/pod cleanup) can take a
-    # while, so allow generous time.
-    wait: true
-    wait_timeout: 300
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "delete namespace {{ _k8s_namespace }}"
+    rx_async: 360
+    rx_cmd: >-
+      kubectl delete namespace {{ _k8s_namespace }}
+      --ignore-not-found=true --wait=true --timeout=300s
   when: delete_namespace | default(true) | bool

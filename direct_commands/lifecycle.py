@@ -172,13 +172,17 @@ def cmd_scale(args):
     # 10m`, which would falsely report failure on a slow rollout.
     # Stream the helm output through to the operator so they can see
     # progress / diagnose stuck rollouts.
-    if _helpers._is_localhost(host):
-        argv = ["bash", "-c", helm_cmd]
-    else:
-        target = _helpers._resolve_ssh_target(host)
-        argv = ["ssh"] + _helpers._ssh_args() + [target, helm_cmd]
     try:
-        rc = subprocess.call(argv)
+        if _helpers._is_localhost(host):
+            rc = subprocess.call(["bash", "-c", helm_cmd])
+        else:
+            target = _helpers._resolve_ssh_target(host)
+            argv = ["ssh"] + _helpers._ssh_args() + [target, helm_cmd]
+            # helm upgrade --install is idempotent; retry on an ssh
+            # connection-level failure (exit 255) so a transient
+            # controller-to-target reset during the up-to-10m rollout
+            # doesn't abort a deploy that may still be progressing.
+            rc = _helpers._retry_on_ssh_reset(lambda: subprocess.call(argv))
     except OSError as e:
         print("Error running helm upgrade: %s" % e, file=sys.stderr)
         return 1

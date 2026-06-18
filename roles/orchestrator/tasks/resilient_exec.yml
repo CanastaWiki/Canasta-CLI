@@ -1,0 +1,68 @@
+---
+# Run a long-running remote command resiliently.
+#
+# The command is launched asynchronously (detached on the target) and its
+# completion is polled with short connections. A mid-operation SSH reset on
+# the controller cannot kill the work — it runs detached on the target — and
+# each poll is a brief connection, so transient drops during the wait are
+# retried instead of aborting the whole operation. This is the same
+# launch-then-poll shape the K8s backup Job already uses, generalized so any
+# held command (helm --wait, the k3s/docker installers, `docker compose
+# pull`, a long mariadb import) survives a flaky controller-to-target link.
+#
+# The launched command MUST be idempotent: a reset between launch and the
+# first successful poll leaves no way to tell whether it ran, so callers
+# re-run safely (helm upgrade --install, docker compose up -d, restic, the
+# installers all qualify).
+#
+# Input:
+#   rx_cmd      - shell command to run (string; pipes/redirects allowed)
+#   rx_name     - short label used in task names and the failure message
+# Optional:
+#   rx_chdir    - working directory for the command (default: none)
+#   rx_async    - max seconds the command may run (default: 1800)
+#   rx_retries  - number of completion polls (default: 180)
+#   rx_delay    - seconds between polls (default: 10)
+#   rx_fail     - fail the play on non-zero rc (default: true)
+# Output:
+#   rx_result   - async_status result (.rc, .stdout, .stderr, .finished)
+#
+# become is inherited from the caller's context and applies to both the
+# launch and the polls, so the async job files are written and read as the
+# same user.
+
+- name: "Launch (async): {{ rx_name }}"
+  ansible.builtin.shell:
+    cmd: "{{ rx_cmd }}"
+    chdir: "{{ rx_chdir | default(omit) }}"
+  async: "{{ rx_async | default(1800) | int }}"
+  poll: 0
+  register: _rx_job
+  changed_when: true
+
+- name: "Wait for completion: {{ rx_name }}"
+  ansible.builtin.async_status:
+    jid: "{{ _rx_job.ansible_job_id }}"
+  register: rx_result
+  until: rx_result.finished | default(false) | bool
+  retries: "{{ rx_retries | default(180) | int }}"
+  delay: "{{ rx_delay | default(10) | int }}"
+  # An unreachable poll registers a result with no `.finished`, so the
+  # until-loop simply retries — transient resets during the wait don't
+  # abort the operation, which keeps running on the target.
+  ignore_unreachable: true
+
+- name: "Report failure: {{ rx_name }}"
+  ansible.builtin.fail:
+    msg: >-
+      {{ rx_name }} failed (rc={{ rx_result.rc | default('unknown') }}):
+      {{ (rx_result.stderr | default('')) | trim
+         | default(rx_result.stdout | default(''), true) }}
+  when:
+    - rx_fail | default(true) | bool
+    - (rx_result.rc | default(1) | int) != 0
+
+- name: "Clean up async job file: {{ rx_name }}"
+  ansible.builtin.async_status:
+    jid: "{{ _rx_job.ansible_job_id }}"
+    mode: cleanup

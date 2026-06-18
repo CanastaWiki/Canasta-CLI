@@ -19,11 +19,16 @@
   ignore_errors: true
   when: instance_orchestrator | default('compose') == 'compose'
 
+# Launched detached and polled (resilient_exec): an image pull can run for
+# minutes, and a controller-side SSH reset mid-pull would otherwise abort it.
+# `docker compose pull` is idempotent, so a re-run after a reset is safe.
 - name: Pull images (Compose)
-  ansible.builtin.command:
-    cmd: "docker compose pull --ignore-buildable --ignore-pull-failures"
-    chdir: "{{ instance_path }}"
-  changed_when: false
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "pull Compose images"
+    rx_chdir: "{{ instance_path }}"
+    rx_async: 1800
+    rx_cmd: "docker compose pull --ignore-buildable --ignore-pull-failures"
   when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Get image ID after pull
