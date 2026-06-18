@@ -2,7 +2,7 @@
 
 The hostname validator rejects a value that carries a scheme or a port,
 but the bare "not a valid hostname" message left users (following older
-docs / the prior Go CLI) guessing. The validator now appends a hint that
+docs) guessing. The validator now appends a hint that
 points them at HTTP_PORT/HTTPS_PORT for ports and a bare hostname for
 --domain-name.
 """

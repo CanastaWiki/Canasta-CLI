@@ -2,8 +2,8 @@
 """Canasta CLI wrapper -- translates CLI invocations into ansible-playbook calls.
 
 Reads command definitions from meta/command_definitions.yml and builds
-argparse subcommands with proper type-aware flag parsing. This replaces
-the bash wrapper script with Cobra-equivalent argument handling.
+argparse subcommands with proper type-aware flag parsing, replacing the
+original bash wrapper script.
 """
 
 import argparse
@@ -674,7 +674,7 @@ def resolve_instance(instance_id=None):
 def handle_interactive_exec(args):
     """Handle maintenance exec by running docker/kubectl exec directly.
 
-    Matches Go CLI behavior:
+    Dispatch rules:
       - No -s, no command  -> list services (fall through to Ansible)
       - No -s, with command -> exec in web service
       - -s given, no command -> interactive /bin/bash in that service

@@ -1,6 +1,5 @@
 ---
 # Sync COMPOSE_PROFILES with feature flags in .env.
-# Mirrors Go syncComposeProfiles().
 # Input: instance_path
 
 - name: Read .env for profile sync

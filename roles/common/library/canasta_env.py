@@ -3,7 +3,6 @@
 
 """Ansible module for reading and writing Canasta .env files.
 
-Replaces the Go canasta.GetEnvVariable/SaveEnvVariable functions.
 Handles comments, quoted values, and values containing '=' characters.
 """
 
@@ -16,7 +15,7 @@ module: canasta_env
 short_description: Manage Canasta .env files
 description:
   - Read, set, and unset variables in a Canasta instance .env file.
-  - Compatible with the Go CLI's .env file format.
+  - Operates on the standard .env file format.
 options:
   path:
     description: Path to the .env file.
@@ -127,7 +126,7 @@ def entries_to_content(entries):
 def set_variable(entries, key, value):
     """Set a variable, updating in place if it exists or appending if not.
 
-    Matches Go behavior: updates first occurrence, skips duplicate lines for same key.
+    Updates the first occurrence, skips duplicate lines for the same key.
     """
     found = False
     new_entries = []

@@ -1,7 +1,7 @@
 ---
 # Display an instance's backup schedule.
 # Dispatches to Compose (host crontab) or Kubernetes (CronJob).
-# Matches Go output: "Instance 'X' is scheduled for backup at: M H D M W"
+# Output: "Instance 'X' is scheduled for backup at: M H D M W"
 # with optional "Auto-purge: snapshots older than ..."
 # Input: instance_id, instance_orchestrator
 

@@ -1,6 +1,5 @@
 ---
 # Wait for the database to be ready.
-# Mirrors Go mediawiki.WaitForDB().
 # Input: instance_path
 
 - name: Read DB connection from .env

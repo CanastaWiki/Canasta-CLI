@@ -3,8 +3,8 @@
 
 """Ansible module for managing Canasta wikis.yaml files.
 
-Replaces the Go internal/farmsettings package. Provides CRUD operations
-on the wikis.yaml file that defines wiki farm configurations.
+Provides CRUD operations on the wikis.yaml file that defines wiki farm
+configurations.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -16,7 +16,7 @@ module: canasta_wikis_yaml
 short_description: Manage Canasta wikis.yaml
 description:
   - Read, add, and remove wikis from the wikis.yaml farm configuration.
-  - Compatible with the Go CLI's wikis.yaml format.
+  - Operates on the wikis.yaml farm-configuration format.
 options:
   instance_path:
     description: Path to the Canasta instance directory.
@@ -100,7 +100,7 @@ def build_url(domain, wiki_path=None):
 def parse_url(url):
     """Parse a wiki URL into (server_name, path).
 
-    Matches Go behavior: splits on first '/' only.
+    Splits on the first '/' only.
     """
     parts = url.split("/", 1)
     server = parts[0]

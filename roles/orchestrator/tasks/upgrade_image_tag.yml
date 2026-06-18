@@ -38,7 +38,7 @@
         mode: "0644"
 
 # --- Update Compose CANASTA_IMAGE tag ---
-# Match Go CLI behavior: bump the tag if it's the default ghcr.io image,
+# Bump the tag if it's the default ghcr.io image,
 # leave it alone if user set a custom/local-build image.
 - name: Update Compose image tag
   when:
