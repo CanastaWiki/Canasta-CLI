@@ -1,0 +1,20 @@
+---
+# Stop a Canasta instance.
+# Input: id (optional)
+
+# Top-level callers (`playbooks/stop.yml`) need this; nested callers
+# already passed through resolve_instance.yml or have instance_path set.
+# Resolving here also switches the connection to the instance's host, so
+# the orchestrator stop runs there rather than on the controller.
+- name: Resolve instance (skip if caller already resolved it)
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  when: instance_path is not defined
+
+- name: Stop containers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: stop.yml
+
+- name: Report stopped
+  ansible.builtin.debug:
+    msg: "Instance '{{ instance_id }}' stopped."
