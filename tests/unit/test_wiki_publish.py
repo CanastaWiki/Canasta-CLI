@@ -152,6 +152,52 @@ class TestMenuCoverage:
                 )
 
 
+class TestRootPageCoverage:
+    """The root CLI:canasta page must link to every CMD_GROUPS entry,
+    including subcommand groups. The earlier bug was that the root
+    generator only rendered leaf commands found in cmd_index and
+    silently dropped every subcommand-group name, blanking whole
+    sections (Extensions & Skins, Maintenance, Security, Data
+    Protection, Development are all groups)."""
+
+    def _root_content(self):
+        data = wp.load_definitions()
+        for title, content in wp.generate_all_pages(data):
+            if title == wp.PAGE_PREFIX + "canasta":
+                return content
+        raise AssertionError("root page not emitted")
+
+    def test_every_cmd_group_entry_is_linked(self):
+        root = self._root_content()
+        missing = []
+        for _heading, names in wp.CMD_GROUPS:
+            for name in names:
+                if name in wp.SUBCOMMAND_GROUPS or _has_command(name):
+                    if "|canasta %s]]" % name not in root:
+                        missing.append(name)
+        assert not missing, (
+            "root page missing entries:\n  " + "\n  ".join(missing)
+        )
+
+    def test_no_section_is_empty(self):
+        root = self._root_content()
+        lines = root.splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith("=== ") and line.endswith(" ==="):
+                rest = [
+                    ln for ln in lines[i + 1:]
+                    if ln.strip() and not ln.startswith("{{")
+                ]
+                assert rest and rest[0].startswith("* "), (
+                    "section %r has no command entries" % line
+                )
+
+
+def _has_command(name):
+    data = wp.load_definitions()
+    return any(c["name"] == name for c in data["commands"])
+
+
 class TestCwdResolutionFootnote:
     """Non-required -i flags get a cwd-resolution footnote in the
     flags table. Required -i (create) does not, because there's no
