@@ -253,7 +253,7 @@ class TestGlobalFlagsSection:
                 continue
             if title == wp.PAGE_PREFIX + "canasta":
                 continue  # root page has no flag table
-            if "=== Global Flags ===" not in content:
+            if "=== Global flags ===" not in content:
                 missing.append(title)
         assert not missing, (
             "pages missing Global Flags section:\n  "
@@ -271,7 +271,7 @@ class TestGlobalFlagsSection:
                              "description": "Canasta instance ID"}]},
             global_flags=wp.load_definitions()["global_flags"],
         )
-        assert "=== Global Flags ===" in page
+        assert "=== Global flags ===" in page
         assert "--help" in page
         assert "--verbose" in page
 
@@ -284,7 +284,7 @@ class TestGlobalFlagsSection:
                              "type": "string",
                              "description": "Canasta instance ID"}]}
         )
-        assert "=== Global Flags ===" not in page
+        assert "=== Global flags ===" not in page
 
 
 class TestOrchestratorColumn:
@@ -334,8 +334,8 @@ class TestOrchestratorColumn:
         orchestrator, so they show 'Both' in the column."""
         page = self._create_page()
         # The Global Flags section is the tail of the page after
-        # '=== Global Flags ==='.
-        gf = page.split("=== Global Flags ===", 1)[1]
+        # '=== Global flags ==='.
+        gf = page.split("=== Global flags ===", 1)[1]
         assert "Orchestrator" in gf
         for line in gf.splitlines():
             if "<code>--help</code>" in line or "<code>--verbose</code>" in line:
@@ -403,7 +403,7 @@ class TestSubcommandGroupPages:
         pages = self._pages()
         for group in ("host", "gitops", "config"):
             page = pages[wp.PAGE_PREFIX + "canasta " + group]
-            assert "=== Global Flags ===" in page
+            assert "=== Global flags ===" in page
             assert "<code>--help</code>" in page
             assert "<code>--verbose</code>" in page
 
