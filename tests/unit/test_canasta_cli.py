@@ -333,6 +333,38 @@ class TestBuildAnsibleArgs:
         extra = self._get_vars(result)
         assert extra["id"] == "mysite"
 
+    def test_maintenance_exec_stdin_file_path_abspath(self, data):
+        """--stdin-file is a local path: resolved to an absolute path so the
+        controller-side lookup('file', ...) finds it regardless of cwd."""
+        import os
+        from argparse import Namespace
+        args = Namespace(
+            command="maintenance_exec", host=None, verbose=False,
+            id="mysite", service=None, wiki=None,
+            stdin_file="page.wikitext", exec_args=["php", "run.php", "edit"],
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "maintenance_exec", args, data
+        )
+        extra = self._get_vars(result)
+        assert extra["stdin_file"] == os.path.abspath(
+            os.path.expanduser("page.wikitext")
+        )
+
+    def test_maintenance_exec_stdin_file_omitted(self, data):
+        """No --stdin-file: the stdin_file var is absent (the play omits it)."""
+        from argparse import Namespace
+        args = Namespace(
+            command="maintenance_exec", host=None, verbose=False,
+            id="mysite", service=None, wiki=None,
+            stdin_file=None, exec_args=["ls", "/var/www/mediawiki"],
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "maintenance_exec", args, data
+        )
+        extra = self._get_vars(result)
+        assert "stdin_file" not in extra
+
     def test_host_name_param(self, data):
         """host_name parameter (with long: name) is passed correctly."""
         from argparse import Namespace

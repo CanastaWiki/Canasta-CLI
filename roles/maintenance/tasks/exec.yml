@@ -34,6 +34,7 @@
   vars:
     exec_service: "{{ service | default('web') }}"
     exec_command: "{{ exec_args }}"
+    exec_stdin: "{{ stdin_file | default('') }}"
   when: (exec_args | default('')) != ''
 
 - name: Display output
