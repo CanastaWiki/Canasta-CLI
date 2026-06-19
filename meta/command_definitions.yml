@@ -2147,10 +2147,12 @@ commands:
   - name: gitops_push
     description: "Push configuration changes to the git repository"
     long_description: |
-      Commit staged changes and push to the remote repository. Files
-      must be staged first using `canasta gitops add`. When
-      `pull_requests` is enabled in `hosts.yaml`, creates a branch
-      and opens a pull request instead of pushing directly to main.
+      Commit staged changes and push to the remote repository. Stage
+      changes first with `canasta gitops add`; commits already made by
+      other commands (such as `canasta gitops fix-submodules`) are also
+      pushed even when nothing is staged. When `pull_requests` is enabled
+      in `hosts.yaml`, creates a branch and opens a pull request instead
+      of pushing directly to main.
     examples:
       - "canasta gitops push"
       - "canasta gitops push -m 'Add docs wiki'"
