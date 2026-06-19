@@ -95,15 +95,15 @@ def _group_subcommands(group_name):
 
 CMD_GROUPS = [
     ("System", ["install", "doctor", "host", "storage", "argocd", "uninstall"]),
-    ("Instance Management", [
+    ("Instance management", [
         "create", "delete", "list", "status", "upgrade", "version", "config",
     ]),
-    ("Wiki Management", ["add", "remove", "import", "export"]),
-    ("Container Lifecycle", ["start", "stop", "restart", "rebuild", "scale"]),
-    ("Extensions & Skins", ["extension", "skin"]),
+    ("Wiki management", ["add", "remove", "import", "export"]),
+    ("Container lifecycle", ["start", "stop", "restart", "rebuild", "scale"]),
+    ("Extensions & skins", ["extension", "skin"]),
     ("Maintenance", ["maintenance", "sitemap"]),
     ("Security", ["crowdsec"]),
-    ("Data Protection", ["backup", "gitops"]),
+    ("Data protection", ["backup", "gitops"]),
     ("Development", ["devmode"]),
 ]
 
@@ -252,7 +252,7 @@ def _global_flags_section(global_flags):
     """
     if not global_flags:
         return []
-    lines = ["=== Global Flags ===", ""]
+    lines = ["=== Global flags ===", ""]
     lines.append('{| class="wikitable"')
     lines.append(
         "! Flag !! Shorthand !! Description "
@@ -544,7 +544,7 @@ def generate_all_pages(data):
 
     # Root page
     root_lines = [
-        "== Canasta CLI Reference ==",
+        "== Canasta CLI reference ==",
         "",
         "Ansible-based management tool for Canasta MediaWiki.",
         "",
@@ -557,7 +557,7 @@ def generate_all_pages(data):
             # or subcommand-group keys (in SUBCOMMAND_GROUPS). Render both:
             # leaf commands link their generated page; group keys link the
             # group landing page. Skipping groups blanks whole sections
-            # (Extensions & Skins, Maintenance, Security, Data Protection,
+            # (Extensions & skins, Maintenance, Security, Data protection,
             # Development are all groups).
             if name in cmd_index:
                 desc = cmd_index[name].get("description", "")
@@ -603,7 +603,7 @@ def generate_all_pages(data):
         ))
 
     # Menu page
-    menu_lines = ["* # | Canasta CLI Reference"]
+    menu_lines = ["* # | Canasta CLI reference"]
     for heading, names in CMD_GROUPS:
         menu_lines.append("** # | %s" % heading)
         for name in names:
