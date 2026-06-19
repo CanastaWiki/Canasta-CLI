@@ -164,6 +164,9 @@
     - name: Sync config to ConfigMaps
       ansible.builtin.include_tasks: k8s_sync_config.yml
 
+    - name: Sync user extensions/skins into their PVCs
+      ansible.builtin.include_tasks: k8s_sync_user_dirs.yml
+
     - name: Check if instance is scaled to zero
       ansible.builtin.command:
         cmd: >-
