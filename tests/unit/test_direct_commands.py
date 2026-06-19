@@ -1455,6 +1455,19 @@ class TestSyncComposeProfiles:
     def _inst(self, tmp_path):
         return {"path": str(tmp_path), "host": "localhost"}
 
+    @pytest.fixture(autouse=True)
+    def _stub_run_compose(self, monkeypatch):
+        """Record (don't execute) the teardown `docker compose` calls so the
+        sync tests never shell out to a real docker."""
+        self.compose_calls = []
+        monkeypatch.setattr(
+            direct_commands._helpers,
+            "_run_compose",
+            lambda inst_id, inst, action_args: (
+                self.compose_calls.append(action_args) or 0
+            ),
+        )
+
     def test_adds_elasticsearch_when_flag_true(self, tmp_path):
         # User toggled CANASTA_ENABLE_ELASTICSEARCH=true by hand-editing
         # .env. COMPOSE_PROFILES hasn't been updated. _sync should fix it.
@@ -1515,6 +1528,72 @@ class TestSyncComposeProfiles:
         # If _sync wrote the file, mtime would update. The guard in
         # _sync (sorted(desired) == sorted(current)) must prevent that.
         assert env_path.stat().st_mtime_ns == original_mtime
+
+    def test_deactivated_profile_tears_down_its_container(self, tmp_path):
+        # elasticsearch was active; the flag is now false. The profile is
+        # dropped AND its orphaned container must be stopped and removed.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "COMPOSE_PROFILES=elasticsearch,varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        assert len(self.compose_calls) == 1
+        argv = self.compose_calls[0]
+        assert argv[:2] == ["--profile", "elasticsearch"]
+        assert argv[2:4] == ["rm", "-sf"]
+        assert "elasticsearch" in argv[4:]
+        # varnish stays active, so it is never torn down.
+        assert "varnish" not in argv
+
+    def test_deactivated_observable_removes_all_its_services(self, tmp_path):
+        # The observable profile maps to four services; all must be named.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_OBSERVABILITY=false\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "COMPOSE_PROFILES=observable,varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        assert len(self.compose_calls) == 1
+        named = self.compose_calls[0][self.compose_calls[0].index("-sf") + 1:]
+        assert sorted(named) == sorted(
+            direct_commands._helpers._MANAGED_PROFILE_SERVICES["observable"]
+        )
+
+    def test_no_teardown_when_nothing_deactivated(self, tmp_path):
+        # Adding a profile (or steady state) must not tear anything down.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_ELASTICSEARCH=true\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "COMPOSE_PROFILES=varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        assert self.compose_calls == []
+
+    def test_profile_service_map_matches_bundled_compose(self):
+        # The teardown map must list exactly the services each managed
+        # profile owns in the bundled compose file; drift would orphan a
+        # container or name a non-existent service.
+        import yaml
+
+        compose_path = os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "files", "compose",
+            "docker-compose.yml",
+        )
+        with open(compose_path) as f:
+            services = yaml.safe_load(f)["services"]
+
+        expected = {}
+        for name, spec in services.items():
+            for profile in (spec.get("profiles") or []):
+                expected.setdefault(profile, []).append(name)
+
+        for profile, names in (
+            direct_commands._helpers._MANAGED_PROFILE_SERVICES.items()
+        ):
+            assert sorted(expected.get(profile, [])) == sorted(names), (
+                "profile %r services drifted from docker-compose.yml" % profile
+            )
 
     def test_no_env_file_is_a_noop(self, tmp_path):
         # Nothing to sync; must not create a file or raise.

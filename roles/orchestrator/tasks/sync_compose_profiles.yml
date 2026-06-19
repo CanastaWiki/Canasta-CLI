@@ -33,6 +33,48 @@
     value: "{{ _desired_profiles | join(',') }}"
   when: _desired_profiles | sort != _current_profiles | sort
 
+# A feature flag flipped off (e.g. CANASTA_ENABLE_ELASTICSEARCH=false) drops
+# its profile from COMPOSE_PROFILES, but `docker compose up`/`down` only act
+# on active profiles — a container already running under the now-inactive
+# profile is treated as an orphan and left running. Stop and remove those
+# containers so disabling a feature actually tears it down. Scoped to the
+# managed feature profiles; internal-db is intentionally excluded so a
+# database container is never auto-removed. The service lists must match the
+# `profiles:` keys in roles/orchestrator/files/compose/docker-compose.yml.
+- name: Tear down containers for deactivated feature profiles
+  vars:
+    _profile_services:
+      observable: [opensearch, logstash, opensearch-dashboards, observable-init]
+      elasticsearch: [elasticsearch]
+      varnish: [varnish]
+      crowdsec: [crowdsec]
+    _removed_profiles: >-
+      {{ _current_profiles | difference(_desired_profiles)
+         | select('in', _profile_services.keys() | list) | list }}
+  when: _removed_profiles | length > 0
+  block:
+    - name: Check for docker-compose.override.yml (profile teardown)
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.override.yml"
+      register: _teardown_override
+
+    - name: Build compose file arguments for profile teardown
+      ansible.builtin.set_fact:
+        _teardown_compose_files: >-
+          {{ ['-f', 'docker-compose.yml'] +
+             (_teardown_override.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
+             ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
+
+    - name: Stop and remove containers for deactivated profiles
+      ansible.builtin.command:
+        cmd: >-
+          docker compose {{ _teardown_compose_files | join(' ') }}
+          {{ _removed_profiles | map('regex_replace', '^', '--profile ') | join(' ') }}
+          rm -sf
+          {{ _removed_profiles | map('extract', _profile_services) | flatten | join(' ') }}
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
 # The caddy service runs the plugin image when a plugin feature is on:
 # CrowdSec (the bouncer), or a provider trusted-proxy mode
 # (cloudflare/imperva, which need caddy-cdn-ranges). An explicit CIDR list
