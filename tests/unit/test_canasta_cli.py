@@ -1601,6 +1601,32 @@ class TestHandleInteractiveExecStdin:
         assert "-i" in argv and "-it" not in argv
         assert calls["redirect"] == "/tmp/page.txt"
 
+    def test_k8s_pod_resolution_filters_running(self, monkeypatch):
+        """The pod lookup must select only Running pods, matching
+        roles/orchestrator/tasks/k8s_get_pod.yml. Without the phase filter,
+        items[0] during a rollout/scale/crash-loop can be a
+        Pending/Terminating/Failed pod and the exec targets the wrong
+        replica (or fails)."""
+        from argparse import Namespace
+        captured = {}
+
+        monkeypatch.setattr(canasta_cli, "resolve_instance", lambda _id: {
+            "id": "rsdev", "orchestrator": "k8s",
+            "host": "localhost", "path": "/tmp/inst"})
+        monkeypatch.setattr(
+            canasta_cli, "_redirect_stdin_from_file", lambda p: None)
+        monkeypatch.setattr(canasta_cli.os, "execvp", lambda f, argv: None)
+
+        def fake_run(cmd, *a, **k):
+            captured["cmd"] = cmd
+            return types.SimpleNamespace(returncode=0, stdout="pod-1")
+
+        monkeypatch.setattr(canasta_cli.subprocess, "run", fake_run)
+        args = Namespace(id="rsdev", service="web",
+                         exec_args=["php", "version"], stdin_file=None)
+        canasta_cli.handle_interactive_exec(args)
+        assert "--field-selector=status.phase=Running" in captured["cmd"]
+
     def test_string_exec_args_preserves_quoting(self, monkeypatch):
         """A `--` passthrough arrives as one string; quoted args (a spaced
         --summary, a page title with spaces) must survive as single argv

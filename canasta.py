@@ -866,10 +866,15 @@ def handle_interactive_exec(args):
     if orchestrator in ("kubernetes", "k8s"):
         # Find the pod for this service
         ns = "canasta-%s" % inst["id"]
+        # Select only a Running pod, matching roles/orchestrator/tasks/
+        # k8s_get_pod.yml. Without the phase filter, items[0] during a
+        # rollout/scale/crash-loop can be a Pending/Terminating/Failed pod,
+        # so the exec would target the wrong replica or fail outright.
         result = subprocess.run(
             [
                 "kubectl", "get", "pods", "-n", ns,
                 "-l", "app.kubernetes.io/component=%s" % service,
+                "--field-selector=status.phase=Running",
                 "-o", "jsonpath={.items[0].metadata.name}",
             ],
             capture_output=True, text=True,
