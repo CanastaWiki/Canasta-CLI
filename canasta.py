@@ -160,6 +160,114 @@ _VALIDATORS = {
 }
 
 
+# Parameter validation runs at two layers by design. These functions are
+# the CLI's fast-fail half: they run after argparse but before any Ansible
+# work, so a typo (comma-vs-period domain, a missing required_unless
+# partner) fails in milliseconds instead of after Argo CD/helm/image-pull
+# steps have already done work. The playbook re-validates the same
+# command_definitions.yml metadata in roles/common/tasks/validate_params.yml
+# so values that bypass the CLI (CANASTA_FORCE_ANSIBLE, Molecule, a raw
+# ansible-playbook run) are still caught. Both layers read the same
+# definition fields; neither is authoritative alone. Each function returns
+# a list of (exit_code, message) so the caller decides how to surface them.
+
+
+def _validate_required_unless(cmd_def, get_value):
+    """Flag params whose required_unless partner is also unset."""
+    errors = []
+    for param in cmd_def.get("parameters", []):
+        ru = param.get("required_unless")
+        if not ru:
+            continue
+        if not get_value(param["name"]) and not get_value(ru):
+            errors.append((
+                1,
+                "Error: --%s is required unless --%s is provided"
+                % (param["name"].replace("_", "-"), ru.replace("_", "-")),
+            ))
+    return errors
+
+
+def _validate_orchestrator_only(cmd_def, get_value):
+    """Flag params restricted to one orchestrator when another is selected."""
+    errors = []
+    orchestrator = get_value("orchestrator")
+    if not orchestrator:
+        return errors
+    for param in cmd_def.get("parameters", []):
+        orch_only = param.get("orchestrator_only")
+        if not orch_only:
+            continue
+        value = get_value(param["name"])
+        if value is None or value == param.get("default"):
+            continue
+        if orchestrator != orch_only:
+            errors.append((
+                1,
+                "Error: --%s can only be used with --orchestrator %s"
+                % (param["name"].replace("_", "-"), orch_only),
+            ))
+    return errors
+
+
+def _validate_named_validators(cmd_def, get_value, validators=None):
+    """Check params tagged `validator: <name>` against the named regex.
+
+    An unknown validator name is a bug in command_definitions.yml, not a
+    user error, so it surfaces as an internal error (exit 2).
+    """
+    if validators is None:
+        validators = _VALIDATORS
+    errors = []
+    for param in cmd_def.get("parameters", []):
+        validator_name = param.get("validator")
+        if not validator_name:
+            continue
+        value = get_value(param["name"])
+        if value is None or value == "":
+            continue
+        validator = validators.get(validator_name)
+        if validator is None:
+            errors.append((
+                2,
+                "Internal error: parameter '%s' references unknown "
+                "validator '%s'" % (param["name"], validator_name),
+            ))
+            continue
+        regex, error_template = validator[0], validator[1]
+        hint_fn = validator[2] if len(validator) > 2 else None
+        if not regex.match(str(value)):
+            hint = hint_fn(value) if hint_fn else ""
+            errors.append((
+                1,
+                "Error: --%s %r %s%s"
+                % (
+                    param["name"].replace("_", "-"),
+                    str(value),
+                    error_template,
+                    hint,
+                ),
+            ))
+    return errors
+
+
+def collect_cli_param_errors(cmd_def, args):
+    """Run the CLI-layer parameter validations and return a list of
+    (exit_code, message) tuples, in evaluation order. Empty when valid.
+
+    `args` is the parsed argparse Namespace; orchestrator-alias
+    normalization (k8s -> kubernetes) is expected to have run already.
+    """
+    def get_value(name):
+        return getattr(args, name, None)
+
+    return (
+        _validate_required_unless(cmd_def, get_value)
+        + _validate_orchestrator_only(cmd_def, get_value)
+        + _validate_named_validators(cmd_def, get_value)
+    )
+
+
 def load_definitions():
     """Load command definitions from YAML."""
     try:
@@ -1384,84 +1492,13 @@ def main():
     if getattr(args, "orchestrator", None) == "k8s":
         args.orchestrator = "kubernetes"
 
-    # Validate required_unless parameters early, before spinning up
-    # Ansible. Mirrors the check in roles/common/tasks/validate_params.yml
-    # so the user sees the same message at parse time instead of waiting
-    # for the playbook to load.
-    for param in cmd_def.get("parameters", []):
-        ru = param.get("required_unless")
-        if not ru:
-            continue
-        own_value = getattr(args, param["name"], None)
-        other_value = getattr(args, ru, None)
-        if not own_value and not other_value:
-            print(
-                "Error: --%s is required unless --%s is provided"
-                % (
-                    param["name"].replace("_", "-"),
-                    ru.replace("_", "-"),
-                ),
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-    # Validate orchestrator-specific parameters.
-    # If a parameter has orchestrator_only set, reject it when the user
-    # selected a different orchestrator.
-    orchestrator = getattr(args, "orchestrator", None)
-    if orchestrator:
-        for param in cmd_def.get("parameters", []):
-            orch_only = param.get("orchestrator_only")
-            if not orch_only:
-                continue
-            value = getattr(args, param["name"], None)
-            if value is None or value == param.get("default"):
-                continue
-            if orchestrator != orch_only:
-                print(
-                    "Error: --%s can only be used with "
-                    "--orchestrator %s"
-                    % (param["name"].replace("_", "-"), orch_only),
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-    # Validate parameters tagged with `validator: <name>` against a
-    # named regex. Catches typos (e.g. comma-vs-period in domain names)
-    # before any Ansible work is done — much cheaper than the same
-    # check failing at the end of the create pipeline.
-    for param in cmd_def.get("parameters", []):
-        validator_name = param.get("validator")
-        if not validator_name:
-            continue
-        value = getattr(args, param["name"], None)
-        if value is None or value == "":
-            continue
-        validator = _VALIDATORS.get(validator_name)
-        if validator is None:
-            # Unknown validator name in command_definitions.yml is a
-            # bug in the YAML, not a user error — surface loudly.
-            print(
-                "Internal error: parameter '%s' references unknown "
-                "validator '%s'" % (param["name"], validator_name),
-                file=sys.stderr,
-            )
-            sys.exit(2)
-        regex, error_template = validator[0], validator[1]
-        hint_fn = validator[2] if len(validator) > 2 else None
-        if not regex.match(str(value)):
-            hint = hint_fn(value) if hint_fn else ""
-            print(
-                "Error: --%s %r %s%s"
-                % (
-                    param["name"].replace("_", "-"),
-                    str(value),
-                    error_template,
-                    hint,
-                ),
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    # CLI-layer parameter validation (required_unless, orchestrator_only,
+    # named regex validators). Runs before Ansible so typos fail in
+    # milliseconds; the playbook re-validates the same metadata as a
+    # backstop. Exit on the first error in evaluation order.
+    for code, message in collect_cli_param_errors(cmd_def, args):
+        print(message, file=sys.stderr)
+        sys.exit(code)
 
     # Interactive exec: bypass Ansible for TTY support.
     if command_name == "maintenance_exec":
