@@ -23,6 +23,14 @@ DEFINITIONS_PATH = os.path.join(SCRIPT_DIR, "meta", "command_definitions.yml")
 CANASTA_YML = os.path.join(SCRIPT_DIR, "canasta.yml")
 ANSIBLE_CFG = os.path.join(SCRIPT_DIR, "ansible.cfg")
 
+# Registry-location and lookup helpers are shared with the
+# canasta_registry Ansible module (which reads/writes conf.json), so the
+# CLI and the module never disagree about where the registry lives. The
+# helpers live under the role's module_utils dir; append it to the path
+# so `import canasta_config` resolves the same file Ansible ships.
+sys.path.append(os.path.join(SCRIPT_DIR, "roles", "common", "module_utils"))
+import canasta_config  # noqa: E402
+
 # Ensure Ansible uses the repo's config regardless of working directory
 os.environ.setdefault("ANSIBLE_CONFIG", ANSIBLE_CFG)
 
@@ -644,29 +652,15 @@ def add_params_to_parser(parser, params):
 def get_config_dir():
     """Return the user config directory (where conf.json lives).
 
-    Mirrors canasta_registry.py logic.
+    Delegates to the shared helper so the CLI resolves the same location
+    the canasta_registry module writes to.
     """
-    override = os.environ.get("CANASTA_CONFIG_DIR")
-    if override:
-        return override
-    if os.geteuid() == 0:
-        return "/etc/canasta"
-    import platform
-    if platform.system() == "Darwin":
-        base = os.path.join(
-            os.path.expanduser("~"), "Library", "Application Support"
-        )
-    else:
-        base = os.environ.get(
-            "XDG_CONFIG_HOME",
-            os.path.join(os.path.expanduser("~"), ".config"),
-        )
-    return os.path.join(base, "canasta")
+    return canasta_config.get_config_dir()
 
 
 def get_config_file_path():
     """Return the path to conf.json."""
-    return os.path.join(get_config_dir(), "conf.json")
+    return canasta_config.config_path(get_config_dir())
 
 
 def resolve_instance(instance_id=None):
@@ -678,9 +672,7 @@ def resolve_instance(instance_id=None):
     if not os.path.isfile(conf_file):
         print("Error: no registry found at %s" % conf_file, file=sys.stderr)
         sys.exit(1)
-    with open(conf_file) as f:
-        data = json.load(f)
-    instances = data.get("Instances", {})
+    instances = canasta_config.read_config(get_config_dir()).get("Instances", {})
 
     if instance_id:
         if instance_id not in instances:
@@ -696,16 +688,11 @@ def resolve_instance(instance_id=None):
     # Walk up from cwd to find a matching instance path. Honor
     # CANASTA_HOST_PWD (the dockerized CLI passes the host's working
     # directory there) before falling back to the process cwd.
-    search = os.path.abspath(os.environ.get("CANASTA_HOST_PWD") or os.getcwd())
-    while True:
-        for iid, inst in instances.items():
-            if os.path.abspath(inst.get("path", "")) == search:
-                inst["id"] = iid
-                return inst
-        parent = os.path.dirname(search)
-        if parent == search:
-            break
-        search = parent
+    search = os.environ.get("CANASTA_HOST_PWD") or os.getcwd()
+    iid, inst = canasta_config.find_by_path(instances, search)
+    if iid is not None:
+        inst["id"] = iid
+        return inst
 
     print(
         "Error: no instance found for current directory", file=sys.stderr
