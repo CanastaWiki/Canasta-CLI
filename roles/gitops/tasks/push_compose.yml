@@ -155,16 +155,31 @@
     chdir: "{{ instance_path }}"
   register: _push_staged
   changed_when: false
-  ignore_errors: true  # rc=1 means there are changes
+  ignore_errors: true  # rc=1 means there are staged changes
+
+# Commits already made (e.g. by 'canasta gitops fix-submodules') must
+# still be pushed even when nothing is staged.
+- name: Count unpushed commits
+  ansible.builtin.command:
+    cmd: "git rev-list --count @{upstream}..HEAD"
+    chdir: "{{ instance_path }}"
+  register: _push_unpushed
+  changed_when: false
+  ignore_errors: true  # no upstream configured -> treat as none
+
+- name: Determine what there is to push
+  ansible.builtin.set_fact:
+    _push_has_staged: "{{ _push_staged.rc != 0 }}"
+    _push_has_unpushed: "{{ (_push_unpushed.stdout | default('0', true) | trim | int) > 0 }}"
 
 - name: Report no changes
   ansible.builtin.debug:
     msg: "No changes to push."
-  when: _push_staged.rc == 0
+  when: not _push_has_staged and not _push_has_unpushed
 
-- name: End play if nothing staged
+- name: End play if nothing to push
   ansible.builtin.meta: end_play
-  when: _push_staged.rc == 0
+  when: not _push_has_staged and not _push_has_unpushed
 
 # --- Direct push (default) ---
 - name: Direct push to main
@@ -177,6 +192,7 @@
           commit -m "{{ message | default('Configuration update') }}"
         chdir: "{{ instance_path }}"
       changed_when: true
+      when: _push_has_staged
 
     - name: Push to main
       ansible.builtin.command:
@@ -211,6 +227,7 @@
         chdir: "{{ instance_path }}"
       register: _pr_commit
       changed_when: true
+      when: _push_has_staged
 
     - name: Push feature branch
       ansible.builtin.command:
