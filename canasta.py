@@ -744,12 +744,17 @@ def handle_interactive_exec(args):
       - -s given, no command -> interactive /bin/bash in that service
       - -s given, with command -> exec in that service
     """
+    import shlex
     service = getattr(args, "service", None) or ""
     exec_args = getattr(args, "exec_args", None) or []
     if isinstance(exec_args, list):
         command = exec_args
     else:
-        command = exec_args.split() if exec_args else []
+        # exec_args arrives as a string when main() collected it from a `--`
+        # passthrough. Split it like a shell would so quoted arguments (a
+        # --summary with spaces, a page title with spaces) survive as single
+        # argv elements — a naive .split() would shred them on whitespace.
+        command = shlex.split(exec_args) if exec_args else []
 
     # No service flag AND no command -> list services (let Ansible handle it)
     if not service and not command:

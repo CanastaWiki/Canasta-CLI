@@ -1600,3 +1600,27 @@ class TestHandleInteractiveExecStdin:
         assert binary == "kubectl"
         assert "-i" in argv and "-it" not in argv
         assert calls["redirect"] == "/tmp/page.txt"
+
+    def test_string_exec_args_preserves_quoting(self, monkeypatch):
+        """A `--` passthrough arrives as one string; quoted args (a spaced
+        --summary, a page title with spaces) must survive as single argv
+        elements. Regression: a naive .split() shredded them on whitespace,
+        so edit.php wrote to a page titled "'--summary=Initial"."""
+        from argparse import Namespace
+        calls = {}
+        monkeypatch.setattr(canasta_cli, "resolve_instance", lambda _id: {
+            "id": "x", "orchestrator": "compose",
+            "host": "localhost", "path": "/tmp/i"})
+        monkeypatch.setattr(canasta_cli.os, "chdir", lambda p: None)
+        monkeypatch.setattr(
+            canasta_cli, "_redirect_stdin_from_file", lambda p: None)
+        monkeypatch.setattr(
+            canasta_cli.os, "execvp",
+            lambda f, argv: calls.__setitem__("argv", list(argv)))
+        args = Namespace(
+            id="x", service=None, stdin_file=None,
+            exec_args="php edit '--summary=a b' 'Template:Page Name'")
+        canasta_cli.handle_interactive_exec(args)
+        argv = calls["argv"]
+        assert "--summary=a b" in argv
+        assert "Template:Page Name" in argv
