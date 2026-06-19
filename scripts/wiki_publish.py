@@ -540,6 +540,7 @@ def generate_all_pages(data):
     """Generate all wiki pages from command definitions."""
     pages = []
     cmd_index = {c["name"]: c for c in data["commands"]}
+    group_index = {g["name"]: g for g in data.get("command_groups", [])}
 
     # Root page
     root_lines = [
@@ -552,13 +553,24 @@ def generate_all_pages(data):
         root_lines.append("=== %s ===" % heading)
         root_lines.append("")
         for name in names:
+            # CMD_GROUPS entries are either leaf commands (in cmd_index)
+            # or subcommand-group keys (in SUBCOMMAND_GROUPS). Render both:
+            # leaf commands link their generated page; group keys link the
+            # group landing page. Skipping groups blanks whole sections
+            # (Extensions & Skins, Maintenance, Security, Data Protection,
+            # Development are all groups).
             if name in cmd_index:
-                cmd = cmd_index[name]
+                desc = cmd_index[name].get("description", "")
                 link = cmd_page_title(name)
-                root_lines.append(
-                    "* [[%s|canasta %s]] — %s"
-                    % (link, name, cmd.get("description", ""))
-                )
+            elif name in SUBCOMMAND_GROUPS:
+                desc = group_index.get(name, {}).get("description", "")
+                link = cmd_page_title(name)
+            else:
+                continue
+            sep = " — " + _backticks_to_code(desc) if desc else ""
+            root_lines.append(
+                "* [[%s|canasta %s]]%s" % (link, name, sep)
+            )
         root_lines.append("")
     root_lines.append("{{Reference Manual}}")
     pages.append((PAGE_PREFIX + "canasta", "\n".join(root_lines)))
@@ -580,7 +592,6 @@ def generate_all_pages(data):
     # command set. Description and synopsis come from `command_groups:`
     # in command_definitions.yml; missing entries fall back to a generic
     # "Manage canasta <group>" stub.
-    group_index = {g["name"]: g for g in data.get("command_groups", [])}
     for group_name in _all_group_names():
         group_def = group_index.get(group_name, {})
         pages.append((
