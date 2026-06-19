@@ -311,6 +311,21 @@ _MANAGED_PROFILES = [
     ("crowdsec", "CANASTA_ENABLE_CROWDSEC", "false"),
 ]
 
+# Service names declared under each managed profile, used to tear down
+# containers left running when a feature flag is turned off. internal-db
+# (the db service) is intentionally absent so a database is never
+# auto-removed. Must match the `profiles:` keys in
+# roles/orchestrator/files/compose/docker-compose.yml and the
+# _profile_services map in sync_compose_profiles.yml.
+_MANAGED_PROFILE_SERVICES = {
+    "observable": [
+        "opensearch", "logstash", "opensearch-dashboards", "observable-init",
+    ],
+    "elasticsearch": ["elasticsearch"],
+    "varnish": ["varnish"],
+    "crowdsec": ["crowdsec"],
+}
+
 # Plugin-enabled Caddy image the caddy service runs when a feature needs
 # a Caddy plugin: CrowdSec (the bouncer) or a provider trusted-proxy mode
 # (caddy-cdn-ranges). Kept in sync with the literal in
@@ -386,6 +401,27 @@ def _sync_compose_profiles(inst):
             new_entries, "CANASTA_CADDY_IMAGE", desired_caddy_image,
         )
     _write_env_content(path, host, _entries_to_content(new_entries))
+
+    # A feature flag flipped off drops its profile from COMPOSE_PROFILES, but
+    # docker compose up/down only act on active profiles — a container still
+    # running under the now-inactive profile is an untouched orphan. Stop and
+    # remove those containers so disabling a feature tears it down. Mirrors
+    # the teardown in sync_compose_profiles.yml.
+    if profiles_changed:
+        removed = [
+            p for p in current if p in managed_names and p not in desired
+        ]
+        stale_services = [
+            svc for p in removed for svc in _MANAGED_PROFILE_SERVICES[p]
+        ]
+        if stale_services:
+            profile_flags = []
+            for p in removed:
+                profile_flags += ["--profile", p]
+            _run_compose(
+                inst.get("id"), inst,
+                profile_flags + ["rm", "-sf"] + stale_services,
+            )
 
 
 def _dump_compose_failure(inst):
