@@ -7,69 +7,16 @@ import canasta_registry
 from mock_ansible import run_module_with_params
 
 
-class TestGetConfigDir:
-    def test_override(self):
-        assert canasta_registry.get_config_dir("/custom/path") == "/custom/path"
+class TestSharedHelpersReExported:
+    """The registry-location helpers now live in the shared canasta_config
+    module_util; canasta_registry re-exports them. Their behavior is tested
+    in test_canasta_config; this just guards the re-export so existing
+    `canasta_registry.<helper>` references keep resolving."""
 
-    def test_env_variable(self, monkeypatch, tmp_dir):
-        monkeypatch.setenv("CANASTA_CONFIG_DIR", tmp_dir)
-        assert canasta_registry.get_config_dir() == tmp_dir
-
-    def test_default_non_root_linux(self, monkeypatch, tmp_dir):
-        monkeypatch.delenv("CANASTA_CONFIG_DIR", raising=False)
-        monkeypatch.setattr(canasta_registry, "is_root", lambda: False)
-        monkeypatch.setattr("platform.system", lambda: "Linux")
-        monkeypatch.setenv("XDG_CONFIG_HOME", tmp_dir)
-        assert canasta_registry.get_config_dir() == os.path.join(tmp_dir, "canasta")
-
-    def test_default_non_root_macos(self, monkeypatch):
-        monkeypatch.delenv("CANASTA_CONFIG_DIR", raising=False)
-        monkeypatch.setattr(canasta_registry, "is_root", lambda: False)
-        monkeypatch.setattr("platform.system", lambda: "Darwin")
-        expected = os.path.join(
-            os.path.expanduser("~"),
-            "Library", "Application Support", "canasta",
-        )
-        assert canasta_registry.get_config_dir() == expected
-
-    def test_default_root(self, monkeypatch):
-        monkeypatch.delenv("CANASTA_CONFIG_DIR", raising=False)
-        monkeypatch.setattr(canasta_registry, "is_root", lambda: True)
-        assert canasta_registry.get_config_dir() == "/etc/canasta"
-
-
-class TestReadConfig:
-    def test_missing_file_returns_empty(self, tmp_dir):
-        result = canasta_registry.read_config(tmp_dir)
-        assert result == {"Instances": {}}
-
-    def test_reads_existing_config(self, sample_config):
-        config_dir, expected = sample_config
-        result = canasta_registry.read_config(config_dir)
-        assert "mysite" in result["Instances"]
-        assert "devsite" in result["Instances"]
-
-    def test_migrates_legacy_installations_key(self, tmp_dir):
-        legacy = {"Installations": {"old": {"id": "old", "path": "/old", "orchestrator": "compose"}}}
-        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
-            json.dump(legacy, f)
-        result = canasta_registry.read_config(tmp_dir)
-        assert "old" in result["Instances"]
-        assert "Installations" not in result
-
-
-class TestWriteConfig:
-    def test_creates_directory_and_file(self, tmp_dir):
-        config_dir = os.path.join(tmp_dir, "new_dir")
-        canasta_registry.write_config(config_dir, {"Instances": {}})
-        assert os.path.exists(os.path.join(config_dir, "conf.json"))
-
-    def test_writes_valid_json(self, tmp_dir):
-        data = {"Instances": {"test": {"id": "test", "path": "/test", "orchestrator": "compose"}}}
-        canasta_registry.write_config(tmp_dir, data)
-        with open(os.path.join(tmp_dir, "conf.json")) as f:
-            loaded = json.load(f)
-        assert loaded["Instances"]["test"]["id"] == "test"
+    def test_helpers_importable_from_registry(self):
+        for name in ("get_config_dir", "is_root", "config_path",
+                     "read_config", "write_config", "find_by_path"):
+            assert callable(getattr(canasta_registry, name))
 
 
 class TestInstanceToDict:
