@@ -1551,3 +1551,76 @@ class TestNestedGroupHelp:
         assert "backup schedule" in out
         for sub in ("set", "list", "remove"):
             assert sub in out
+
+
+class TestHandleInteractiveExecStdin:
+    """maintenance exec --stdin-file must make the direct exec non-interactive
+    (so a piped payload survives) and redirect the file onto stdin. This path
+    bypasses Ansible, so the wiring lives in handle_interactive_exec."""
+
+    def _run(self, monkeypatch, stdin_file, orchestrator="compose"):
+        from argparse import Namespace
+        calls = {}
+        monkeypatch.setattr(canasta_cli, "resolve_instance", lambda _id: {
+            "id": "rsdev", "orchestrator": orchestrator,
+            "host": "localhost", "path": "/tmp/inst",
+        })
+        monkeypatch.setattr(canasta_cli.os, "chdir", lambda p: None)
+        monkeypatch.setattr(
+            canasta_cli, "_redirect_stdin_from_file",
+            lambda p: calls.__setitem__("redirect", p))
+        monkeypatch.setattr(
+            canasta_cli.os, "execvp",
+            lambda f, argv: calls.__setitem__("execvp", (f, list(argv))))
+        if orchestrator in ("kubernetes", "k8s"):
+            monkeypatch.setattr(
+                canasta_cli.subprocess, "run",
+                lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="pod-1"))
+        args = Namespace(id="rsdev", service=None,
+                         exec_args=["php", "edit"], stdin_file=stdin_file)
+        canasta_cli.handle_interactive_exec(args)
+        return calls
+
+    def test_compose_stdin_file_adds_T_and_redirects(self, monkeypatch):
+        calls = self._run(monkeypatch, "/tmp/page.txt")
+        binary, argv = calls["execvp"]
+        assert binary == "docker"
+        assert argv[:4] == ["docker", "compose", "exec", "-T"]
+        assert calls["redirect"] == "/tmp/page.txt"
+
+    def test_compose_without_stdin_file_stays_interactive(self, monkeypatch):
+        calls = self._run(monkeypatch, None)
+        _binary, argv = calls["execvp"]
+        assert "-T" not in argv
+        assert calls["redirect"] is None
+
+    def test_k8s_stdin_file_drops_tty(self, monkeypatch):
+        calls = self._run(monkeypatch, "/tmp/page.txt", orchestrator="k8s")
+        binary, argv = calls["execvp"]
+        assert binary == "kubectl"
+        assert "-i" in argv and "-it" not in argv
+        assert calls["redirect"] == "/tmp/page.txt"
+
+    def test_string_exec_args_preserves_quoting(self, monkeypatch):
+        """A `--` passthrough arrives as one string; quoted args (a spaced
+        --summary, a page title with spaces) must survive as single argv
+        elements. Regression: a naive .split() shredded them on whitespace,
+        so edit.php wrote to a page titled "'--summary=Initial"."""
+        from argparse import Namespace
+        calls = {}
+        monkeypatch.setattr(canasta_cli, "resolve_instance", lambda _id: {
+            "id": "x", "orchestrator": "compose",
+            "host": "localhost", "path": "/tmp/i"})
+        monkeypatch.setattr(canasta_cli.os, "chdir", lambda p: None)
+        monkeypatch.setattr(
+            canasta_cli, "_redirect_stdin_from_file", lambda p: None)
+        monkeypatch.setattr(
+            canasta_cli.os, "execvp",
+            lambda f, argv: calls.__setitem__("argv", list(argv)))
+        args = Namespace(
+            id="x", service=None, stdin_file=None,
+            exec_args="php edit '--summary=a b' 'Template:Page Name'")
+        canasta_cli.handle_interactive_exec(args)
+        argv = calls["argv"]
+        assert "--summary=a b" in argv
+        assert "Template:Page Name" in argv
