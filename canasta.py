@@ -713,6 +713,28 @@ def resolve_instance(instance_id=None):
     sys.exit(1)
 
 
+def _redirect_stdin_from_file(path):
+    """Point fd 0 at `path` so the about-to-be-exec'd command reads it as
+    stdin. Used by `maintenance exec --stdin-file`. No-op when path is unset.
+
+    This runs in the direct-exec path (handle_interactive_exec os.execvp's
+    docker/kubectl/ssh, replacing this process), so there is no shell to do
+    a `< file` redirect — we dup the file onto stdin ourselves.
+    """
+    if not path:
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError as exc:
+        print(
+            "Error: cannot read --stdin-file '%s': %s" % (path, exc),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    os.dup2(fd, 0)
+    os.close(fd)
+
+
 def handle_interactive_exec(args):
     """Handle maintenance exec by running docker/kubectl exec directly.
 
@@ -759,8 +781,14 @@ def handle_interactive_exec(args):
             )
             sys.exit(1)
         pod = result.stdout.strip()
-        exec_args = ["kubectl", "exec", "-it", pod, "-n", ns, "--"]
+        # With --stdin-file the exec is non-interactive: keep stdin open
+        # (-i) but drop the TTY (-t), which would otherwise mangle a piped
+        # payload. Without it, preserve the interactive -it behavior.
+        stdin_file = getattr(args, "stdin_file", None)
+        tty_flags = "-i" if stdin_file else "-it"
+        exec_args = ["kubectl", "exec", tty_flags, pod, "-n", ns, "--"]
         exec_args.extend(command)
+        _redirect_stdin_from_file(stdin_file)
         try:
             os.execvp("kubectl", exec_args)
         except FileNotFoundError:
@@ -768,23 +796,33 @@ def handle_interactive_exec(args):
             sys.exit(1)
     else:
         host = inst.get("host", "localhost")
-        docker_cmd = (
-            ["docker", "compose", "exec", service] + command
-        )
+        # With --stdin-file the exec must be non-interactive so the piped
+        # payload reaches the command: `docker compose exec -T` (no TTY).
+        # Without it, omit -T to preserve the interactive shell behavior.
+        stdin_file = getattr(args, "stdin_file", None)
+        docker_cmd = ["docker", "compose", "exec"]
+        if stdin_file:
+            docker_cmd.append("-T")
+        docker_cmd += [service] + command
         if host and host != "localhost":
-            # Run via SSH on the remote host
+            # Run via SSH on the remote host. ssh forwards our stdin to the
+            # remote command, so the --stdin-file payload (dup'd onto fd 0
+            # below) flows through to `docker compose exec -T`. Use -T (no
+            # remote TTY) when piping; -t for interactive sessions.
             import shlex
             remote_cmd = "cd %s && %s" % (
                 shlex.quote(inst["path"]),
                 " ".join(shlex.quote(a) for a in docker_cmd),
             )
             try:
-                ssh_args = ["ssh", "-t", "-o", "LogLevel=ERROR"]
+                ssh_args = ["ssh", "-T" if stdin_file else "-t",
+                            "-o", "LogLevel=ERROR"]
                 # Include any custom SSH args (e.g. from ANSIBLE_SSH_ARGS)
                 extra_ssh = os.environ.get("ANSIBLE_SSH_ARGS", "")
                 if extra_ssh:
                     ssh_args.extend(extra_ssh.split())
                 ssh_args.extend([host, remote_cmd])
+                _redirect_stdin_from_file(stdin_file)
                 os.execvp("ssh", ssh_args)
             except FileNotFoundError:
                 print("Error: ssh not found on PATH", file=sys.stderr)
@@ -799,6 +837,7 @@ def handle_interactive_exec(args):
                 )
                 sys.exit(1)
             try:
+                _redirect_stdin_from_file(stdin_file)
                 os.execvp("docker", docker_cmd)
             except FileNotFoundError:
                 print("Error: docker not found on PATH", file=sys.stderr)
