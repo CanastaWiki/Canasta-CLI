@@ -127,12 +127,15 @@
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_rebuild_buildable.yml
 
 # A compose-only change (e.g. gaining the crowdsec service) must also
-# trigger a recreate, not just an image bump.
+# trigger a recreate, not just an image bump. A build_from instance always
+# rebuilt its image above, so it must restart to redeploy the new build
+# (no registry pull happened, so _images_updated is false for it).
 - name: Decide whether a restart is needed
   ansible.builtin.set_fact:
     _restart_needed: >-
       {{ (_images_updated | bool)
-         or (_compose_stack_copy is defined and _compose_stack_copy is changed) }}
+         or (_compose_stack_copy is defined and _compose_stack_copy is changed)
+         or (_upgrade_inst.instance.buildFrom | default('') != '') }}
 
 - name: Restart containers
   when: _restart_needed | bool

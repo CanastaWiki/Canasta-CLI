@@ -1,11 +1,19 @@
 ---
 # Publish a rebuilt-from-source custom image for the orchestrator.
-# Kubernetes: push to the in-cluster registry so the deployment can pull
-# it. Compose: no-op — the locally built image is used directly.
+# Kubernetes: push to the in-cluster registry via the control plane's loopback
+# hostPort (localhost:5000, auto-insecure) so the deployment can pull it via
+# the registry's ClusterIP. Compose: no-op — the locally built image is used
+# directly.
 # Input: instance_orchestrator, _built_image
 
-- name: Push rebuilt image to registry (Kubernetes)
+- name: Tag rebuilt image for the in-cluster registry (Kubernetes)
   ansible.builtin.command:
-    cmd: "docker push {{ _built_image }}"
+    cmd: "docker tag {{ _built_image }} localhost:5000/{{ _built_image }}"
+  changed_when: true
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+- name: Push rebuilt image to the in-cluster registry (Kubernetes)
+  ansible.builtin.command:
+    cmd: "docker push localhost:5000/{{ _built_image }}"
   changed_when: true
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']

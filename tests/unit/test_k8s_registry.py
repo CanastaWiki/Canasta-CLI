@@ -120,3 +120,32 @@ def test_push_uses_loopback_hostport():
 
 def test_registry_default_is_the_clusterip():
     assert REGISTRY_ADDR in _text(CMD_DEFS)
+
+
+# --- upgrade path: build_from must work the same as create on k8s ---
+
+UPGRADE_PUBLISH = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "upgrade_publish_rebuilt_image.yml")
+UPGRADE_TAG = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "upgrade_image_tag.yml")
+UPGRADE_MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
+
+
+def test_upgrade_pushes_rebuilt_image_to_the_registry():
+    # Not the bare tag — must reach the registry via the loopback hostPort.
+    assert "localhost:5000/" in _text(UPGRADE_PUBLISH)
+
+
+def test_upgrade_keeps_the_registry_ref_for_build_from():
+    # The k8s tag-bump must skip build_from (else it points at a ghcr version
+    # tag the rebuilt local image doesn't have).
+    assert "buildFrom | default('') == ''" in _text(UPGRADE_TAG)
+
+
+def test_upgrade_restarts_build_from_instances():
+    assert "buildFrom | default('') != ''" in _text(UPGRADE_MAIN)
+
+
+def test_build_from_forces_a_repull():
+    text = _text(VALUES_TPL)
+    assert "pullPolicy" in text and "Always" in text

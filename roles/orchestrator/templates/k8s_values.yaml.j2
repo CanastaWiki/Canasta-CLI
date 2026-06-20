@@ -26,6 +26,9 @@ instance:
 image:
   repository: {{ _k8s_image | regex_replace(':[^:]+$', '') }}
   tag: "{{ _k8s_image | regex_replace('^.*:', '') }}"
+  # build_from re-pushes the same registry ref on each upgrade, so the rebuilt
+  # image must be re-pulled (mutable tag) rather than served from the node cache.
+  pullPolicy: {{ 'Always' if (build_from is defined and build_from != '') else 'IfNotPresent' }}
 
 domains:
   - {{ domain_name | default('localhost') }}
