@@ -1,0 +1,49 @@
+# Trust the in-cluster registry (10.43.0.2:5000) as a plain-HTTP endpoint on
+# EVERY node's containerd. A DaemonSet reaches all nodes — control plane,
+# current workers, and any worker that joins later — with no ssh, no
+# cluster-membership tracking, and (critically) no k3s restart: k3s containerd
+# uses `config_path = .../certs.d` and reads hosts.toml per-pull, so dropping
+# the file takes effect immediately. This is what makes a locally-built image
+# pullable cluster-wide.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: registry-trust
+  namespace: canasta-registry
+spec:
+  selector:
+    matchLabels:
+      app: canasta-registry-trust
+  template:
+    metadata:
+      labels:
+        app: canasta-registry-trust
+    spec:
+      # Run on every node, including the (possibly tainted) control plane.
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: trust
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              dir=/certs.d/10.43.0.2:5000
+              mkdir -p "$dir"
+              cat > "$dir/hosts.toml" <<EOF
+              [host."http://10.43.0.2:5000"]
+                capabilities = ["pull", "resolve"]
+                skip_verify = true
+              EOF
+              echo "registry trust written for 10.43.0.2:5000"
+              # Stay running so the DaemonSet pod is healthy; the file persists.
+              exec sleep infinity
+          volumeMounts:
+            - name: certsd
+              mountPath: /certs.d
+      volumes:
+        - name: certsd
+          hostPath:
+            path: /var/lib/rancher/k3s/agent/etc/containerd/certs.d
+            type: DirectoryOrCreate
