@@ -1,6 +1,6 @@
 ---
 # GitOps push (Compose) — commit staged changes and push to remote.
-# Matches Go CLI's push flow: validates role, accepts message, supports
+# Push flow: validates role, accepts message, supports
 # the staged-changes-only model.
 # Requires: instance_path, instance_id (set by dispatcher)
 # Optional: message (commit message, defaults to 'Configuration update')
@@ -44,12 +44,13 @@
   when: _push_role not in ['source', 'both']
 
 # --- Auto-migrate shared-category keys to _shared/vars.yaml ---
-# Keys matching backup/cloud/mail credential prefixes belong in the
+# Keys named in gitops_shared_keys (vars/main.yml) belong in the
 # shared file so all hosts inherit them. On every push, any such key
 # present in host vars.yaml is moved to _shared/vars.yaml (host's
-# value wins on merge) and removed from host vars.yaml. This also
-# keeps _shared in sync when 'canasta config set' updates a key
-# that already lived there.
+# value wins on merge) and removed from host vars.yaml. Keys not in
+# the list — including environment-identifying values like
+# RESTIC_REPOSITORY and AWS_BUCKET_NAME — stay per-host so dev /
+# staging / prod can address different infrastructure.
 - name: Read host vars
   ansible.builtin.slurp:
     src: "{{ instance_path }}/hosts/{{ _push_hostname }}/vars.yaml"
@@ -77,7 +78,7 @@
   ansible.builtin.set_fact:
     _push_keys_to_migrate: >-
       {{ _push_host_vars | dict2items
-         | selectattr('key', 'match', '(' + gitops_shared_credential_prefixes | join('|') + ')')
+         | selectattr('key', 'in', gitops_shared_keys)
          | list }}
 
 - name: Write migrated shared vars
@@ -107,7 +108,7 @@
       ansible.builtin.copy:
         content: >-
           {{ _push_host_vars | dict2items
-             | rejectattr('key', 'match', '(' + gitops_shared_credential_prefixes | join('|') + ')')
+             | rejectattr('key', 'in', gitops_shared_keys)
              | items2dict
              | to_nice_yaml(indent=2) }}
         dest: "{{ instance_path }}/hosts/{{ _push_hostname }}/vars.yaml"
@@ -154,16 +155,31 @@
     chdir: "{{ instance_path }}"
   register: _push_staged
   changed_when: false
-  ignore_errors: true  # rc=1 means there are changes
+  ignore_errors: true  # rc=1 means there are staged changes
+
+# Commits already made (e.g. by 'canasta gitops fix-submodules') must
+# still be pushed even when nothing is staged.
+- name: Count unpushed commits
+  ansible.builtin.command:
+    cmd: "git rev-list --count @{upstream}..HEAD"
+    chdir: "{{ instance_path }}"
+  register: _push_unpushed
+  changed_when: false
+  ignore_errors: true  # no upstream configured -> treat as none
+
+- name: Determine what there is to push
+  ansible.builtin.set_fact:
+    _push_has_staged: "{{ _push_staged.rc != 0 }}"
+    _push_has_unpushed: "{{ (_push_unpushed.stdout | default('0', true) | trim | int) > 0 }}"
 
 - name: Report no changes
   ansible.builtin.debug:
     msg: "No changes to push."
-  when: _push_staged.rc == 0
+  when: not _push_has_staged and not _push_has_unpushed
 
-- name: End play if nothing staged
+- name: End play if nothing to push
   ansible.builtin.meta: end_play
-  when: _push_staged.rc == 0
+  when: not _push_has_staged and not _push_has_unpushed
 
 # --- Direct push (default) ---
 - name: Direct push to main
@@ -172,14 +188,17 @@
     - name: Commit staged changes
       ansible.builtin.command:
         cmd: >-
-          git commit -m "{{ message | default('Configuration update') }}"
+          git -c commit.gpgsign=false
+          commit -m "{{ message | default('Configuration update') }}"
         chdir: "{{ instance_path }}"
       changed_when: true
+      when: _push_has_staged
 
     - name: Push to main
       ansible.builtin.command:
         cmd: "git push origin main"
         chdir: "{{ instance_path }}"
+      environment: "{{ gitops_git_env }}"
       changed_when: true
 
     - name: Report pushed
@@ -203,15 +222,18 @@
     - name: Commit staged changes
       ansible.builtin.command:
         cmd: >-
-          git commit -m "{{ message | default('Configuration update') }}"
+          git -c commit.gpgsign=false
+          commit -m "{{ message | default('Configuration update') }}"
         chdir: "{{ instance_path }}"
       register: _pr_commit
       changed_when: true
+      when: _push_has_staged
 
     - name: Push feature branch
       ansible.builtin.command:
         cmd: "git push origin {{ _push_branch }}"
         chdir: "{{ instance_path }}"
+      environment: "{{ gitops_git_env }}"
       changed_when: true
 
     - name: Create pull request

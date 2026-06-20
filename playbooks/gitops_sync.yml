@@ -5,11 +5,8 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Not applicable for Compose
-  ansible.builtin.debug:
-    msg: "'gitops sync' is only applicable for the kubernetes orchestrator. No action taken."
-  when: instance_orchestrator | default('compose') == 'compose'
-
-- name: Trigger Argo CD sync
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_argocd_sync.yml"
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+# The orchestrator owns what a sync means (K8s Argo CD sync vs Compose
+# no-op); dispatch.
+- name: Trigger gitops sync for this orchestrator
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/gitops_trigger_sync.yml

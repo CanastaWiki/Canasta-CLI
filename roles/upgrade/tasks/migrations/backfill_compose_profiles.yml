@@ -2,25 +2,14 @@
 # Migration: Ensure COMPOSE_PROFILES is set for existing instances.
 # New instances get this at create time. Existing instances need it
 # backfilled so the db service profile (internal-db) is active.
+#
+# Distinction matters: COMPOSE_PROFILES set to empty is intentional
+# on external-DB instances. Only backfill when the key is absent
+# entirely — env_present catches that.
 
 - name: Display a progress message
   ansible.builtin.debug:
     msg: "Checking COMPOSE_PROFILES..."
-
-- name: Check if COMPOSE_PROFILES is set
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read
-    key: COMPOSE_PROFILES
-  register: _profiles_check
-
-- name: Check USE_EXTERNAL_DB
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read
-    key: USE_EXTERNAL_DB
-  register: _ext_db_check
-  when: not _profiles_check.found
 
 - name: Set COMPOSE_PROFILES if missing
   canasta_env:
@@ -28,7 +17,6 @@
     state: set
     key: COMPOSE_PROFILES
     value: >-
-      {{ (_ext_db_check.found | default(false) and
-          (_ext_db_check.value | default('false')) | lower == 'true')
+      {{ ((_mig.env.USE_EXTERNAL_DB | default('false')) | lower == 'true')
          | ternary('', 'internal-db') }}
-  when: not _profiles_check.found
+  when: not _mig.env_present.COMPOSE_PROFILES

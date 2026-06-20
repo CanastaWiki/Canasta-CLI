@@ -4,9 +4,14 @@
 # Default Canasta image (overridden by canasta.yml from CANASTA_VERSION)
 canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
 
-# Docker Compose service names
-canasta_web_service: web
-canasta_db_service: db
-
 # Wait-for-it timeout (seconds)
 canasta_db_wait_timeout: 10
+
+# Pinned k3s and helm versions for Kubernetes installs. Pinning keeps the
+# control plane and any workers on the same version (a later-joining worker
+# must not outpace the cp — Kubernetes version-skew policy) and avoids
+# depending on update.k3s.io to resolve a channel at install time. Reviewed
+# and bumped per release. Override per-host if a specific version is required
+# (all nodes in a cluster must use the same one).
+canasta_k3s_version: "v1.34.8+k3s1"
+canasta_helm_version: "v3.20.1"

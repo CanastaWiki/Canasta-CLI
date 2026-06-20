@@ -3,6 +3,16 @@
 # Accepts one or more package names: docker, k8s-cp, k8s-worker,
 # git-crypt, canasta.
 
+# When --id is given without --host, resolve the instance's registered
+# host and switch the connection to it. This lets `canasta install
+# -i mysite git-crypt` install on whichever host the instance lives on
+# without the user having to recall it.
+- name: Resolve instance host from --id
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  when:
+    - id is defined and id != ''
+    - target_host is not defined or target_host == '' or target_host == 'localhost'
+
 - name: Normalize package names
   ansible.builtin.set_fact:
     _install_packages: >-

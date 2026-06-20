@@ -11,8 +11,29 @@ backend default {
     .between_bytes_timeout = 120s;
 }
 
+# Hosts allowed to send PURGE requests. Must cover the source IP of
+# MediaWiki's `$wgCdnServers` purge requests as Varnish sees them.
+#
+# The previous list was just `"web"`, which Varnish forward-resolves at
+# VCL load. On Docker Compose that resolves correctly to the web
+# container's bridge-network IP, so PURGEs from MediaWiki match. On
+# Kubernetes, `web` resolves to the web Service's ClusterIP, but
+# PURGEs from the web pod arrive with source = pod IP (intra-cluster
+# pod-to-Service traffic preserves the source pod IP — only the
+# destination is DNAT'd by kube-proxy). The old ACL therefore rejected
+# every PURGE on K8s with 405, MediaWiki swallowed the failure, and
+# anonymous users saw stale cached pages until natural TTL expiry.
+#
+# RFC 1918 covers Compose's bridge net (172.17.0.0/16 and similar),
+# k3s's pod CIDR (10.42.0.0/16), EKS / GKE / AKS pod and node CIDRs,
+# and any reasonable on-prem cluster. The Varnish PURGE port isn't
+# internet-reachable in either orchestrator (Compose: bridge-only;
+# K8s: ClusterIP-only), so allowing the full RFC 1918 range doesn't
+# expand the real attack surface. See #443.
 acl purge {
-    "web";
+    "10.0.0.0"/8;
+    "172.16.0.0"/12;
+    "192.168.0.0"/16;
 }
 
 # vcl_recv is called whenever a request is received

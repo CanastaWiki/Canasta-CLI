@@ -25,33 +25,21 @@
     mode: "0644"
   register: _import_transferred
 
-- name: Copy database dump to container (Compose)
-  ansible.builtin.command:
-    cmd: >-
-      docker compose cp /tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}
-      {{ ('db:' + _import_container_file) | quote }}
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  when: instance_orchestrator | default('compose') == 'compose'
+# The orchestrator owns how a file lands in the db container (docker
+# compose cp vs kubectl cp); dispatch. Runs before the host-side cleanup
+# below so the dump still exists when kubectl cp reads it on K8s.
+- name: Copy database dump into the db container
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml
+  vars:
+    copy_service: db
+    copy_src: "/tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
+    copy_dest: "{{ _import_container_file }}"
 
 - name: Clean up transferred dump from target host
   ansible.builtin.file:
     path: "/tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
     state: absent
-
-- name: Copy database dump to container (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-  block:
-    - name: Get DB pod name for import
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_get_pod.yml"
-      vars:
-        _k8s_namespace: "canasta-{{ instance_id }}"
-        _k8s_component: db
-
-    - name: Copy dump via kubectl cp
-      ansible.builtin.command:
-        cmd: "kubectl cp /tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }} canasta-{{ instance_id }}/{{ _k8s_pod_name }}:{{ _import_container_file }}"
-      changed_when: true
 
 - name: Import gzipped database
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
@@ -59,6 +47,7 @@
     exec_service: db
     exec_command: "gunzip -c /tmp/import.sql.gz | mariadb -u root -p'{{ import_db_password }}' '{{ import_wiki_id }}'"
     exec_no_log: true
+    exec_long: true
   when: _is_gzipped | bool
 
 - name: Import plain SQL database
@@ -67,6 +56,7 @@
     exec_service: db
     exec_command: "mariadb -u root -p'{{ import_db_password }}' '{{ import_wiki_id }}' < /tmp/import.sql"
     exec_no_log: true
+    exec_long: true
   when: not (_is_gzipped | bool)
 
 - name: Clean up temp dump file

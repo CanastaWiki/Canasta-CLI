@@ -1,24 +1,43 @@
 ---
 # Validate command parameters against the command definition.
 # Expects: command (str), canasta_commands (dict from command_definitions.yml)
+#
+# This is the playbook-layer half of a two-layer check. canasta.py runs
+# the same metadata-driven validations (required_unless etc.) at the CLI
+# so typos fail fast; this task re-validates so values that bypass the CLI
+# (CANASTA_FORCE_ANSIBLE, Molecule, a raw ansible-playbook run) are still
+# caught. Both read the same command_definitions.yml fields — keep the
+# rules (not the messages) in step. See collect_cli_param_errors in
+# canasta.py for the CLI side.
 
 - name: Look up command definition
   ansible.builtin.set_fact:
     _cmd_def: >-
       {{ canasta_commands.commands | selectattr('name', 'equalto', command) | first }}
 
+# A required value that arrives present-but-blank (e.g. --repo="" from a
+# failed `$(...)` substitution) is rejected with a distinct "given but is
+# empty" message so the empty-substitution case is self-explanatory rather
+# than reading as a missing-argument fault (#669). An absent argument never
+# reaches Ansible, so the sentinel default tells the two cases apart.
 - name: Check required parameters
   ansible.builtin.fail:
     msg: >-
-      {{ 'Required argument ' ~ item.name | upper ~ ' is missing'
-         if item.positional | default(false)
-         else "Required parameter '--" ~ (item.name | replace('_', '-')) ~ "' is missing" }}
+      {{ ('Required argument ' ~ item.name | upper ~ ' is missing'
+          if item.positional | default(false)
+          else "Required parameter '--" ~ (item.name | replace('_', '-')) ~ "' is missing")
+         if lookup('vars', item.name, default='__canasta_undef__') == '__canasta_undef__'
+         else ('Argument ' ~ item.name | upper ~ " was given but is empty (got '"
+               ~ lookup('vars', item.name) ~ "')"
+               if item.positional | default(false)
+               else "Parameter '--" ~ (item.name | replace('_', '-'))
+                    ~ "' was given but is empty (got '" ~ lookup('vars', item.name) ~ "')") }}
   when:
     - (item.required | default(false)) or (item.required_unless is defined)
-    - lookup('vars', item.name, default='') == ''
+    - (lookup('vars', item.name, default='') | trim) == ''
     - >-
       item.required_unless is not defined or
-      lookup('vars', item.required_unless, default='') == ''
+      (lookup('vars', item.required_unless, default='') | trim) == ''
   loop: "{{ _cmd_def.parameters | default([]) }}"
   loop_control:
     label: "{{ item.name }}"

@@ -1,0 +1,11 @@
+---
+# Publish a rebuilt-from-source custom image for the orchestrator.
+# Kubernetes: push to the in-cluster registry so the deployment can pull
+# it. Compose: no-op — the locally built image is used directly.
+# Input: instance_orchestrator, _built_image
+
+- name: Push rebuilt image to registry (Kubernetes)
+  ansible.builtin.command:
+    cmd: "docker push {{ _built_image }}"
+  changed_when: true
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']

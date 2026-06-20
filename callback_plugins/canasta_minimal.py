@@ -50,7 +50,7 @@ class CallbackModule(CallbackBase):
         # Show nothing on success; on failure the error was already printed
         pass
 
-    def v2_runner_on_start(self, host, task):
+    def v2_runner_on_start(self, host, task, *args, **kwargs):
         pass
 
     # Messages that should be displayed in green
@@ -58,33 +58,41 @@ class CallbackModule(CallbackBase):
         "Please note that mailing",
     )
 
-    def v2_runner_on_ok(self, result):
+    def v2_runner_on_ok(self, result, *args, **kwargs):
         # Only show output from debug tasks (filter Ansible internal messages)
-        if result._task.action in ("ansible.builtin.debug", "debug"):
-            msg = result._result.get("msg")
-            if msg and msg not in ("All items completed", "All items skipped"):
-                msg_str = str(msg)
-                if any(msg_str.startswith(p) for p in self._GREEN_PREFIXES):
-                    self._display.display(msg_str, color="green")
-                else:
-                    self._display.display(msg_str)
+        # result may be a CallbackTaskResult or a Task for implicit tasks
+        if hasattr(result, '_task'):
+            if result._task.action in ("ansible.builtin.debug", "debug"):
+                msg = result._result.get("msg")
+                if msg and msg not in ("All items completed", "All items skipped"):
+                    msg_str = str(msg)
+                    if any(msg_str.startswith(p) for p in self._GREEN_PREFIXES):
+                        self._display.display(msg_str, color="green")
+                    else:
+                        self._display.display(msg_str)
 
-    def v2_runner_on_skipped(self, result):
+    def v2_runner_on_skipped(self, *args, **kwargs):
+        # Ansible calls this with either (result) or (host, task, utr)
+        # depending on whether it's a regular task or a meta task.
+        # Accept any arguments and suppress all output.
         pass
 
-    def v2_runner_on_unreachable(self, result):
+    def v2_runner_on_unreachable(self, result, *args, **kwargs):
         self._display.display(
             "ERROR: Host unreachable: %s" % result._result.get("msg", ""),
             color="red",
             stderr=True,
         )
 
-    def v2_runner_on_failed(self, result, ignore_errors=False):
+    def v2_runner_on_failed(self, result, *args, **kwargs):
+        ignore_errors = kwargs.get("ignore_errors", False)
         if ignore_errors:
             return
         msg = result._result.get("msg", "")
         stderr = result._result.get("stderr", "")
         stdout = result._result.get("stdout", "")
+        cmd = result._result.get("cmd", "")
+        exc = result._result.get("exception", "")
         # Suppress the generic "One or more items failed" — the individual
         # item failures were already displayed via v2_runner_item_on_failed.
         if msg == "One or more items failed":
@@ -94,11 +102,68 @@ class CallbackModule(CallbackBase):
         if stdout and msg and "non-zero return code" in msg:
             self._display.display("Error: %s" % stdout.strip(), color="red", stderr=True)
         elif msg:
-            self._display.display("Error: %s" % msg, color="red", stderr=True)
+            # Surface the command line and the underlying exception for
+            # the OSError-on-spawn path (Ansible's command/shell module
+            # emits msg="Error executing command." with empty stdout/
+            # stderr when execve fails, e.g. binary not on PATH). Without
+            # this the user sees only the opaque generic message.
+            extra = self._format_cmd_diagnostics(cmd, exc)
+            if extra:
+                self._display.display(
+                    "Error: %s%s" % (msg, extra),
+                    color="red", stderr=True,
+                )
+            else:
+                self._display.display("Error: %s" % msg, color="red", stderr=True)
         if stderr:
             self._display.display(stderr, color="red", stderr=True)
 
-    def v2_runner_item_on_failed(self, result):
+    @staticmethod
+    def _format_cmd_diagnostics(cmd, exc):
+        """Render the cmd + last-line-of-exception suffix for command
+        module failures. Returns an empty string when neither is useful."""
+        parts = []
+        if cmd:
+            cmd_str = cmd if isinstance(cmd, str) else " ".join(str(c) for c in cmd)
+            cmd_str = cmd_str.strip()
+            if cmd_str:
+                parts.append("cmd: %s" % cmd_str)
+        if exc:
+            # Tracebacks are multi-line; the most actionable line is the
+            # final non-empty one (e.g. "FileNotFoundError: [Errno 2] No
+            # such file or directory: 'git-crypt'").
+            for line in reversed(str(exc).splitlines()):
+                line = line.strip()
+                if not line:
+                    continue
+                # Ansible sets exception="(traceback unavailable)" for
+                # task types that have no real traceback (notably
+                # ansible.builtin.fail). Skip — surfacing it as
+                # diagnostic text just produces "Error: real-msg
+                # ((traceback unavailable))" which adds noise without
+                # information.
+                if line == "(traceback unavailable)":
+                    continue
+                parts.append(line)
+                break
+        if not parts:
+            return ""
+        return " (%s)" % "; ".join(parts)
+
+    def v2_runner_item_on_failed(self, result, *args, **kwargs):
+        # Respect the task's ignore_errors. Unlike v2_runner_on_failed,
+        # item callbacks are not handed ignore_errors as a kwarg, and the
+        # per-item _ansible_ignore_errors marker is consumed during loop
+        # aggregation before the callback runs (it is absent from the item
+        # result). The reliable signal across ansible-core versions is the
+        # task's own ignore_errors. Without this check, a failed loop item
+        # in an ignore_errors task (e.g. the "OK if dir already moved" mv
+        # in the directory-structure migration) leaks a bare "Error: ..."
+        # into the upgrade output even though the failure is being ignored.
+        if (kwargs.get("ignore_errors")
+                or result._result.get("_ansible_ignore_errors")
+                or getattr(getattr(result, "_task", None), "ignore_errors", None)):
+            return
         # Display the specific item's failure message (e.g., missing
         # required parameter in a loop over param definitions).
         msg = result._result.get("msg", "")

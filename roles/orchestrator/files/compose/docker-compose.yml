@@ -45,6 +45,11 @@ services:
 
   web:
     image: ${CANASTA_IMAGE:-ghcr.io/canastawiki/canasta:latest}
+    # The image entrypoint chowns files and uses runuser to drop to
+    # www-data — both need root. Docker uses the image USER (root),
+    # but podman-compose runs as the calling host user unless this is
+    # set explicitly.
+    user: root
     restart: unless-stopped
     logging: *default-logging
     extra_hosts:
@@ -102,7 +107,14 @@ services:
       - elasticsearch:/usr/share/elasticsearch/data
 
   caddy:
-    image: docker.io/library/caddy:2.10.2-alpine
+    # Defaults to upstream Caddy. When a plugin feature is enabled —
+    # CrowdSec (CANASTA_ENABLE_CROWDSEC=true) or a provider trusted-proxy
+    # mode (CADDY_TRUSTED_PROXIES=cloudflare|imperva) — the profile sync
+    # points CANASTA_CADDY_IMAGE at ghcr.io/canastawiki/canasta-caddy,
+    # which bundles the bouncer and caddy-cdn-ranges plugins. The plugins
+    # are inert until the rendered Caddyfile uses them, so the image
+    # behaves identically to upstream Caddy otherwise.
+    image: ${CANASTA_CADDY_IMAGE:-docker.io/library/caddy:2.10.2-alpine}
     restart: unless-stopped
     logging: *default-logging
     ports:
@@ -110,22 +122,41 @@ services:
       - "${HTTPS_PORT:-443}:443"
     environment:
       - MW_SITE_FQDN=${MW_SITE_FQDN:-localhost}
+      # Consumed by the rendered Caddyfile's crowdsec directive via the
+      # {env.CROWDSEC_BOUNCER_API_KEY} placeholder. Empty by default;
+      # rewrite_caddy.yml only renders the directive when this is set,
+      # so an unset key never breaks Caddy startup.
+      #
+      # No depends_on the crowdsec service: it lives behind the optional
+      # `crowdsec` profile, and a profile-gated dependency isn't expressible
+      # in a single compose file. At boot with a key set, the bouncer's first
+      # LAPI call can race the engine, but the hslatman bouncer retries
+      # rather than crashing, so this is harmless startup log noise.
+      - CROWDSEC_BOUNCER_API_KEY=${CROWDSEC_BOUNCER_API_KEY:-}
     volumes:
       - caddy-data:/data
       - ./config/Caddyfile:/etc/caddy/Caddyfile
       - ./config/Caddyfile.site:/etc/caddy/Caddyfile.site
-      - ./config/Caddyfile.global:/etc/caddy/Caddyfile.global
       - caddy-logs:/var/log/caddy
 
   varnish:
     image: docker.io/library/varnish:7.0.2-alpine
+    # Same as `web`: needed so podman-compose doesn't run as the host
+    # user and lose read access to the bind-mounted default.vcl.
+    user: root
     profiles:
       - varnish
     restart: unless-stopped
     logging: *default-logging
+    # service_started, not service_healthy: the web image's HEALTHCHECK
+    # is declared in the CanastaBase Dockerfile, but podman-compose does
+    # not expose image-level healthchecks to compose dependency
+    # resolution. Asking compose to wait on a healthcheck it can't see
+    # makes 'docker compose up' fail on podman targets. Varnish has its
+    # own healthcheck and tolerates a brief 502 window while web is
+    # still booting.
     depends_on:
-      web:
-        condition: service_healthy
+      - web
     healthcheck:
       test: ["CMD", "varnishadm", "ping"]
       interval: 10s
@@ -203,6 +234,35 @@ services:
       - ./scripts/observable-init.sh:/observable-init.sh:ro
     entrypoint: /bin/sh /observable-init.sh
 
+  crowdsec:
+    # CrowdSec detection engine (LAPI on :8080). Opt-in: only runs when
+    # the `crowdsec` profile is active, which the profile sync derives
+    # from CANASTA_ENABLE_CROWDSEC. It parses the Caddy access log,
+    # correlates attack patterns, and publishes IP decisions that the
+    # caddy-crowdsec-bouncer enforces.
+    image: crowdsecurity/crowdsec:v1.6.11
+    profiles:
+      - crowdsec
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      # Installed at container start. The caddy collection ships the
+      # Caddy log parser plus base HTTP attack scenarios.
+      - COLLECTIONS=crowdsecurity/caddy crowdsecurity/http-cve
+    volumes:
+      - crowdsec-db:/var/lib/crowdsec/data
+      - crowdsec-config:/etc/crowdsec
+      # Tells CrowdSec which file to watch (labels.type: caddy). Present in
+      # the instance template for new instances, and backfilled for existing
+      # instances by ensure_crowdsec_config.yml (run from sync_compose_profiles
+      # before every start), so the bind mount never resolves to a directory
+      # when the profile is enabled.
+      - ./config/crowdsec/acquis.yaml:/etc/crowdsec/acquis.d/caddy.yaml:ro
+      # User-editable, version-controlled whitelist (trusted IPs/ranges).
+      # Loaded as a parser whitelist; takes effect on restart.
+      - ./config/crowdsec/whitelists.yaml:/etc/crowdsec/parsers/s02-enrich/canasta-whitelists.yaml:ro
+      - caddy-logs:/var/log/caddy:ro
+
 volumes:
   mysql-data-volume:
   elasticsearch:
@@ -212,3 +272,5 @@ volumes:
   caddy-logs:
   mysql-logs:
   logstash-sincedb:
+  crowdsec-db:
+  crowdsec-config:

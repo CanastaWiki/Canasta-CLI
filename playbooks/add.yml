@@ -1,6 +1,6 @@
 ---
 # canasta add - Add a wiki to an existing Canasta instance.
-# Matches Go CLI: wikis.yaml is updated AFTER successful install.
+# wikis.yaml is updated AFTER successful install.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: >-
@@ -189,6 +189,9 @@
     name: orchestrator
     tasks_from: update_config.yml
 
+# Intrinsically K8s: the served domains live in values.yaml (Compose
+# routes new wikis via the Caddyfile regenerated above). No Compose
+# equivalent to dispatch to; kept here by design.
 - name: Update Kubernetes values.yaml domains list
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:

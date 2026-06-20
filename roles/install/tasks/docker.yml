@@ -3,9 +3,20 @@
 # Supports Debian/Ubuntu (apt) and RHEL/CentOS/Fedora (dnf).
 # Idempotent — skips if Docker is already installed and running.
 
-- name: Capture real username before become
+# Capture the operator (SSH) user who will run docker — read with
+# `id -un` WITHOUT become so we get the connecting user on the target,
+# not root and not the controller's `$USER` (which would be wrong for a
+# remote `-H` install). ansible_user wins if set in inventory.
+- name: Determine operator (SSH) user
+  ansible.builtin.command: id -un
+  become: false
+  changed_when: false
+  register: _install_user_cmd
+
+- name: Set install user fact
   ansible.builtin.set_fact:
-    _install_user: "{{ ansible_user | default(lookup('env', 'USER')) }}"
+    _install_user: >-
+      {{ ansible_user | default(_install_user_cmd.stdout, true) }}
 
 - name: Warn on unsupported platforms
   ansible.builtin.fail:
@@ -75,6 +86,9 @@
             state: present
             filename: docker
 
+        # Launched detached and polled: the package download/install runs
+        # for minutes, and a controller-side SSH reset mid-install would
+        # otherwise abort it. apt is idempotent, so a re-run is safe.
         - name: Install Docker packages
           ansible.builtin.apt:
             name:
@@ -84,6 +98,18 @@
               - docker-compose-plugin
             state: present
             update_cache: true
+          async: 600
+          poll: 0
+          register: _docker_pkg_job
+
+        - name: Wait for Docker packages to install (apt)
+          ansible.builtin.async_status:
+            jid: "{{ _docker_pkg_job.ansible_job_id }}"
+          register: _docker_pkg
+          until: _docker_pkg.finished | default(false) | bool
+          retries: 60
+          delay: 10
+          ignore_unreachable: true
 
     - name: Install Docker (RHEL/CentOS/Fedora)
       when: ansible_os_family == 'RedHat'
@@ -101,6 +127,7 @@
               https://download.docker.com/linux/centos/docker-ce.repo
           changed_when: true
 
+        # Launched detached and polled, like the apt path above.
         - name: Install Docker packages
           ansible.builtin.dnf:
             name:
@@ -109,6 +136,18 @@
               - containerd.io
               - docker-compose-plugin
             state: present
+          async: 600
+          poll: 0
+          register: _docker_pkg_job
+
+        - name: Wait for Docker packages to install (dnf)
+          ansible.builtin.async_status:
+            jid: "{{ _docker_pkg_job.ansible_job_id }}"
+          register: _docker_pkg
+          until: _docker_pkg.finished | default(false) | bool
+          retries: 60
+          delay: 10
+          ignore_unreachable: true
 
     - name: Enable and start Docker
       ansible.builtin.systemd:

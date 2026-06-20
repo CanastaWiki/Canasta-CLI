@@ -2,8 +2,13 @@
 # Start a Canasta instance.
 # Input: id (optional)
 
-- name: Resolve instance
+# Top-level callers (`playbooks/start.yml`) need this; nested callers
+# already passed through resolve_instance.yml or canasta create's
+# explicit fact-setting and have instance_path set. Re-running it
+# would do a needless registry round-trip.
+- name: Resolve instance (skip if caller already resolved it)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  when: instance_path is not defined
 
 - name: Start containers
   ansible.builtin.include_role:

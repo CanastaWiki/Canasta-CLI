@@ -15,6 +15,42 @@
 - name: Resolve cp-host SSH target from hosts.yml
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_cp_host_ssh.yml"
 
+# --- Confirm cp-host actually has a running k3s server ---
+#
+# Without this, a misconfigured invocation (cp-host doesn't have k3s
+# installed yet, cp-host is a worker not a cp, k3s service stopped,
+# SSH key changed) hits the token-fetch task below and fails with a
+# generic "Module failed: non-zero return code" — which `no_log: true`
+# below then censors entirely, leaving the operator with `exit=2` and
+# no diagnostic. Catch the common misuse cases here, before the
+# sensitive task runs, so we can produce an actionable message.
+- name: Probe cp-host for active k3s server
+  ansible.builtin.command:
+    argv:
+      - ssh
+      - -o
+      - StrictHostKeyChecking=accept-new
+      - "{{ _cp_ssh_target }}"
+      - systemctl is-active k3s
+  delegate_to: localhost
+  vars:
+    ansible_connection: local
+  register: _cp_k3s_active
+  changed_when: false
+  failed_when: false
+
+- name: Fail if cp-host has no active k3s control plane
+  ansible.builtin.fail:
+    msg: >-
+      Host '{{ cp_host }}' is not running a k3s control plane
+      (systemctl is-active k3s: {{ (_cp_k3s_active.stdout | default('') | trim) or 'no output (SSH or sudo failure)' }}).
+      Check that k3s is installed there ('canasta install k8s-cp --host
+      {{ cp_host }}'), that --cp-host points at the control plane (not a
+      worker), and that the k3s service is started.
+  when: >-
+    _cp_k3s_active.rc != 0
+    or (_cp_k3s_active.stdout | default('') | trim) != 'active'
+
 # --- SSH to cp-host, fetch token + cluster-internal IP ---
 
 - name: Fetch k3s join token from cp-host
@@ -49,9 +85,22 @@
   register: _cp_internal_ip_raw
   changed_when: false
 
+# A dual-stack control-plane node reports both an IPv4 and an IPv6
+# InternalIP, and the jsonpath above returns them space-separated
+# (e.g. "10.0.0.5 2001:db8::5"). Building the server URL from the raw
+# string yields "https://10.0.0.5 2001:db8::5:6443", which k3s rejects
+# ("invalid character ' ' in host name") so the agent never joins. Pick a
+# single IPv4 address (k3s and the API-server cert SAN are IPv4-centric
+# here); fall back to the first address if somehow no IPv4 is present.
+- name: Select a single control-plane InternalIP (prefer IPv4)
+  ansible.builtin.set_fact:
+    _cp_internal_ip: >-
+      {{ ((_cp_internal_ip_raw.stdout | trim | split(' ') | select('match', '^[0-9.]+$') | list)
+          + (_cp_internal_ip_raw.stdout | trim | split(' ') | list)) | first | default('') }}
+
 - name: Set k3s join parameters
   ansible.builtin.set_fact:
-    _k3s_server_url: "https://{{ _cp_internal_ip_raw.stdout | trim }}:6443"
+    _k3s_server_url: "https://{{ _cp_internal_ip }}:6443"
     _k3s_join_token: "{{ _cp_token_raw.stdout | trim }}"
   no_log: true
 

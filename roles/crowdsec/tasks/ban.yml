@@ -1,0 +1,33 @@
+---
+# canasta crowdsec ban - add a manual decision (block an IP).
+# Input: id (optional), ip (str, required), duration (str), reason (str)
+
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
+  ansible.builtin.include_tasks: _preflight.yml
+
+- name: Require an IP address
+  ansible.builtin.fail:
+    msg: "An IP address is required: canasta crowdsec ban <ip>"
+  when: ip is not defined or (ip | string | length) == 0
+
+# argv (not a shell string) so a multi-word --reason needs no quoting and
+# nothing is word-split. Optional flags are appended only when provided.
+- name: Build cscli decisions add argv
+  ansible.builtin.set_fact:
+    _crowdsec_ban_argv: >-
+      {{ _cscli_argv + ['cscli', 'decisions', 'add', '--ip', ip | string]
+         + (['--duration', duration | string] if (duration | default('') | string | length > 0) else [])
+         + (['--reason', reason | string] if (reason | default('') | string | length > 0) else []) }}
+
+- name: Add the decision
+  ansible.builtin.command:
+    argv: "{{ _crowdsec_ban_argv }}"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  changed_when: true
+
+- name: Report
+  ansible.builtin.debug:
+    msg: >-
+      Blocked {{ ip }}{{ (' for ' ~ duration)
+      if (duration | default('') | string | length > 0) else '' }}
+      on instance '{{ instance_id }}'.

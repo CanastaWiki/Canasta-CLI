@@ -269,6 +269,275 @@ class TestExternalDatabase:
         )
 
 
+class TestK8sSyncConfigSecretsStripped:
+    """Guard the #507 regression class: secret-bearing keys must NOT
+    end up duplicated in the configData.web['.env'] blob — the chart
+    pulls MYSQL_PASSWORD / MW_SECRET_KEY from the canonical K8s
+    Secrets via secretKeyRef, and any plaintext copy in the
+    ConfigMap-backed .env file (a) duplicates the secret in the
+    cluster and (b) forces the gitops repo to encrypt
+    rendered-values.yaml, which Argo CD can't read."""
+
+    SYNC_PATH = os.path.join(ORCHESTRATOR_TASKS, "k8s_sync_config.yml")
+
+    def _load(self):
+        with open(self.SYNC_PATH) as f:
+            return yaml.safe_load(f)
+
+    @staticmethod
+    def _walk_tasks(tasks):
+        for t in tasks or []:
+            if not isinstance(t, dict):
+                continue
+            yield t
+            for nested in ("block", "rescue", "always"):
+                if nested in t:
+                    yield from TestK8sSyncConfigSecretsStripped._walk_tasks(
+                        t[nested],
+                    )
+
+    def test_sync_env_no_secrets_fact_is_set(self):
+        """A set_fact must define _sync_env_no_secrets — the filtered
+        version of .env that web ConfigMap embedding uses."""
+        for task in self._walk_tasks(self._load()):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if isinstance(sf, dict) and "_sync_env_no_secrets" in sf:
+                return
+        raise AssertionError(
+            "k8s_sync_config.yml does not define _sync_env_no_secrets — "
+            "without it, configData.web['.env'] would carry MYSQL_PASSWORD "
+            "and MW_SECRET_KEY duplicated from the K8s Secrets, which "
+            "forces git-crypt encryption of rendered-values.yaml and "
+            "breaks Argo CD reconciliation (#507)."
+        )
+
+    def test_sync_env_no_secrets_rejects_password_and_secret_key(self):
+        """The filter must specifically drop MYSQL_PASSWORD and
+        MW_SECRET_KEY — those are the keys the chart pulls via
+        secretKeyRef and therefore the keys that would be duplicated
+        if left in the .env content."""
+        for task in self._walk_tasks(self._load()):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if not (isinstance(sf, dict) and "_sync_env_no_secrets" in sf):
+                continue
+            expr = sf["_sync_env_no_secrets"]
+            assert "MYSQL_PASSWORD" in expr, (
+                "_sync_env_no_secrets filter must drop MYSQL_PASSWORD"
+            )
+            assert "MW_SECRET_KEY" in expr, (
+                "_sync_env_no_secrets filter must drop MW_SECRET_KEY"
+            )
+            return
+
+    def test_web_config_data_uses_filtered_env(self):
+        """configData.web['.env'] must come from the filtered
+        _sync_env_no_secrets, not from the raw _sync_env."""
+        for task in self._walk_tasks(self._load()):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if not (isinstance(sf, dict) and "_web_config_data" in sf):
+                continue
+            expr = sf["_web_config_data"]
+            assert "_sync_env_no_secrets" in expr, (
+                "_web_config_data must reference _sync_env_no_secrets — "
+                "raw _sync_env carries MYSQL_PASSWORD/MW_SECRET_KEY (#507)."
+            )
+            assert "_sync_env.content" not in expr, (
+                "_web_config_data must NOT reference _sync_env.content "
+                "directly — that's the unfiltered .env containing secrets "
+                "the chart already pulls via secretKeyRef (#507)."
+            )
+            return
+        raise AssertionError(
+            "k8s_sync_config.yml has no _web_config_data set_fact"
+        )
+
+
+class TestK8sGitopsNoEncryption:
+    """Guard the #507 regression class for the gitops side: K8s init
+    must not register hosts/** for git-crypt filtering. After the
+    fix, rendered-values.yaml carries no secrets so encryption is
+    unnecessary; the encryption rule was what broke Argo CD's ability
+    to parse the values file."""
+
+    INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
+
+    @staticmethod
+    def _walk_tasks(tasks):
+        for t in tasks or []:
+            if not isinstance(t, dict):
+                continue
+            yield t
+            for nested in ("block", "rescue", "always"):
+                if nested in t:
+                    yield from TestK8sGitopsNoEncryption._walk_tasks(
+                        t[nested],
+                    )
+
+    def test_gitattributes_does_not_filter_hosts(self):
+        """The .gitattributes that K8s gitops init writes must not
+        register `hosts/**` (or any pattern) for git-crypt filtering.
+        Argo CD reads hosts/<name>/rendered-values.yaml as Helm values
+        and has no git-crypt awareness — encrypted bytes break parsing
+        with a 'control characters not allowed' error (#507).
+
+        After #509 dropped the entire git-crypt scaffolding from K8s,
+        there's no .gitattributes-writing task at all, which trivially
+        satisfies the 'no encryption rules' invariant. This test
+        accepts either shape."""
+        with open(self.INIT_K8S) as f:
+            tasks = yaml.safe_load(f)
+        for task in self._walk_tasks(tasks):
+            copy = task.get("ansible.builtin.copy") or task.get("copy")
+            if not isinstance(copy, dict):
+                continue
+            dest = copy.get("dest", "")
+            if not dest.endswith("/.gitattributes"):
+                continue
+            content = copy.get("content")
+            src = copy.get("src", "")
+            if content is not None:
+                assert "filter=git-crypt" not in content, (
+                    "K8s gitops init writes a .gitattributes that "
+                    "registers files for git-crypt encryption. After "
+                    "#507, rendered-values.yaml is cleartext and Argo "
+                    "CD must be able to parse it — no encryption rules."
+                )
+                return
+            assert "gitattributes.default" not in src, (
+                "K8s gitops init still copies the canonical "
+                "gitattributes.default (which encrypts hosts/**). "
+                "After #507 the K8s path has no secrets in repo, so it "
+                "must write its own .gitattributes without the "
+                "encryption rule."
+            )
+            return
+        # No .gitattributes-writing task at all (#509 result) is fine —
+        # the absence of a filter rule is the same as an empty rule
+        # set as far as Argo CD is concerned.
+
+
+class TestK8sGitopsNoGitcryptScaffolding:
+    """Guard #509: K8s gitops init/join must not invoke any git-crypt
+    operations. After #508 nothing in the K8s repo is encrypted, so
+    `git-crypt --version` checks, `git-crypt init`, `git-crypt
+    export-key`, `git-crypt unlock`, and the controller-side write of
+    the exported key are all dead scaffolding. They were removed in
+    #509 to simplify the K8s gitops flow and to drop git-crypt as a
+    K8s prerequisite (Compose still uses it)."""
+
+    INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
+    JOIN_K8S = os.path.join(GITOPS_TASKS, "join_kubernetes.yml")
+
+    def _active_content(self, path):
+        """Concat non-comment lines so explanatory comments mentioning
+        git-crypt don't false-positive against the regression check."""
+        with open(path) as f:
+            return "\n".join(
+                line for line in f.read().splitlines()
+                if not line.lstrip().startswith("#")
+            )
+
+    def test_init_does_not_check_gitcrypt_installed(self):
+        c = self._active_content(self.INIT_K8S)
+        assert "git-crypt --version" not in c, (
+            "init_kubernetes.yml has a `git-crypt --version` "
+            "preflight check; that's dead scaffolding after #509 — "
+            "K8s gitops doesn't use git-crypt."
+        )
+
+    def test_init_does_not_run_gitcrypt_init(self):
+        c = self._active_content(self.INIT_K8S)
+        assert "git-crypt init" not in c, (
+            "init_kubernetes.yml runs `git-crypt init` but that's a "
+            "no-op now (no .gitattributes filter rule). Removed in "
+            "#509."
+        )
+
+    def test_init_does_not_export_gitcrypt_key(self):
+        c = self._active_content(self.INIT_K8S)
+        assert "git-crypt export-key" not in c, (
+            "init_kubernetes.yml exports a git-crypt key; with no "
+            "encryption applied, the key is dead bytes (#509)."
+        )
+
+    def test_join_does_not_check_gitcrypt_installed(self):
+        c = self._active_content(self.JOIN_K8S)
+        assert "git-crypt --version" not in c, (
+            "join_kubernetes.yml has a `git-crypt --version` check; "
+            "K8s gitops repos are cleartext after #509, no git-crypt "
+            "needed."
+        )
+
+    def test_join_does_not_unlock_gitcrypt(self):
+        c = self._active_content(self.JOIN_K8S)
+        assert "git-crypt unlock" not in c, (
+            "join_kubernetes.yml runs `git-crypt unlock`; nothing in "
+            "the K8s gitops repo is encrypted (#509). Compose still "
+            "uses unlock — that's in roles/gitops/tasks/join.yml."
+        )
+
+    def test_compose_join_still_uses_gitcrypt(self):
+        """Belt-and-suspenders: Compose's gitops join MUST still
+        unlock git-crypt — its repo encrypts hosts/<host>/vars.yaml.
+        Removing git-crypt from Compose would be a regression."""
+        compose_join = os.path.join(GITOPS_TASKS, "join.yml")
+        with open(compose_join) as f:
+            content = f.read()
+        assert "git-crypt unlock" in content, (
+            "join.yml (Compose) must still use git-crypt unlock — "
+            "Compose's repo encrypts hosts/<host>/vars.yaml. #509 "
+            "was K8s-only."
+        )
+
+
+class TestK8sStartReadsValuesFromTarget:
+    """Guard #514: lookup('file', ...) runs on the controller, but
+    instance_path is target-side. canasta start broke against any
+    remote K8s target because three set_fact tasks tried to read the
+    instance's values.yaml via lookup. Ban the anti-pattern here so
+    the same regression can't drift back in (PR #115 had to fix the
+    same shape in init_kubernetes.yml + push_kubernetes.yml; #265 and
+    earlier reintroduced it in start.yml)."""
+
+    START_YML = os.path.join(ORCHESTRATOR_TASKS, "start.yml")
+
+    def test_no_lookup_file_against_instance_path(self):
+        """No `lookup('file', instance_path ~ ...)` calls. They MUST
+        be slurp-based to read on the play target via SSH."""
+        with open(self.START_YML) as f:
+            content = f.read()
+        # Strip comments before checking — explanatory comments may
+        # mention the old pattern legitimately.
+        non_comment_lines = [
+            line for line in content.splitlines()
+            if not line.strip().startswith("#")
+        ]
+        active = "\n".join(non_comment_lines)
+        assert "lookup('file', instance_path" not in active, (
+            "start.yml has a lookup('file', instance_path ~ ...) call. "
+            "lookup runs on the controller but instance_path is the "
+            "target-side path; this breaks canasta start against any "
+            "remote K8s host. Use ansible.builtin.slurp + from_yaml. "
+            "See #514."
+        )
+
+    def test_values_yaml_slurped(self):
+        """The K8s start path must slurp values.yaml from the target
+        and parse it into a single fact (_start_values) so all three
+        downstream reads (web.replicaCount, db.enabled,
+        argocd.syncPolicy) share one source."""
+        with open(self.START_YML) as f:
+            content = f.read()
+        assert "ansible.builtin.slurp:" in content, (
+            "start.yml must slurp values.yaml from the target instead "
+            "of looking it up controller-side (#514)"
+        )
+        assert "_start_values" in content, (
+            "start.yml should parse the slurped values into a "
+            "_start_values fact and reuse it across the three reads"
+        )
+
+
 class TestGitopsDispatchers:
     """Verify that each dispatched gitops command has both variants."""
 
@@ -348,3 +617,616 @@ class TestOrchestratorTasks:
         with open(os.path.join(ORCHESTRATOR_TASKS, "destroy.yml")) as f:
             content = f.read()
         assert "helm_uninstall" in content
+
+
+class TestGitopsComposeGitEnv:
+    """Every git command in the Compose-side gitops flows must run with
+    `environment: "{{ gitops_git_env }}"` so the operator gets:
+
+    - ssh-agent forwarding (via ANSIBLE_SSH_ARGS' ForwardAgent=yes,
+      tested separately) chained with this env's GIT_SSH_COMMAND, so
+      `git push` on the remote authenticates against private forges.
+    - StrictHostKeyChecking=accept-new + UserKnownHostsFile=… so a
+      first contact with github.com etc. doesn't kill the play.
+
+    Drift here is invisible at runtime until someone tries to
+    onboard a private repo, so the structural check is worth its
+    weight in cheap-and-mechanical lines.
+
+    The Kubernetes-side flows generate their own deploy key and
+    set GIT_SSH_COMMAND with `-i <key>`; they're allowed to use a
+    different env (or no env reference at all).
+    """
+
+    # Files on the Compose path that contain at least one git command.
+    COMPOSE_FILES = [
+        "init_compose.yml",
+        "pull_compose.yml",
+        "push_compose.yml",
+        "join.yml",  # Compose join (k8s join is in join_kubernetes.yml)
+    ]
+
+    GIT_VERBS = (
+        "git push",
+        "git pull",
+        "git clone",
+        "git fetch",
+        "git ls-remote",
+    )
+
+    @pytest.mark.parametrize("filename", COMPOSE_FILES)
+    def test_every_git_command_has_gitops_git_env(self, filename):
+        path = os.path.join(GITOPS_TASKS, filename)
+        with open(path) as f:
+            tasks = yaml.safe_load(f) or []
+        # Recursive walk: gitops_*_compose files nest tasks inside
+        # block: structures, so we descend into block/rescue/always
+        # rather than just iterating the top level.
+        offending = []
+        for entry in self._walk_tasks(tasks):
+            cmd = self._extract_cmd(entry)
+            if not cmd:
+                continue
+            if not any(verb in cmd for verb in self.GIT_VERBS):
+                continue
+            env = entry.get("environment")
+            ok = (
+                isinstance(env, str)
+                and "gitops_git_env" in env
+            ) or (
+                isinstance(env, dict)
+                and any(
+                    "GIT_SSH_COMMAND" in str(v) for v in env.values()
+                )
+                # The k8s-style override (-i <_ssh_key_path>) doesn't
+                # apply on the Compose side; require gitops_git_env.
+                and "gitops_git_env" in str(env)
+            )
+            if not ok:
+                offending.append(
+                    "%s: task '%s' ran '%s' without gitops_git_env"
+                    % (filename, entry.get("name", "<unnamed>"), cmd)
+                )
+        assert not offending, "\n".join(offending)
+
+    @classmethod
+    def _walk_tasks(cls, items):
+        """Yield every task dict regardless of nesting depth."""
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            yield item
+            for child_key in ("block", "rescue", "always"):
+                if child_key in item:
+                    yield from cls._walk_tasks(item[child_key])
+
+    @staticmethod
+    def _extract_cmd(task):
+        """Pull the cmd string out of an ansible.builtin.command task."""
+        for key in ("ansible.builtin.command", "command"):
+            mod = task.get(key)
+            if isinstance(mod, dict):
+                cmd = mod.get("cmd")
+                return cmd if isinstance(cmd, str) else ""
+            if isinstance(mod, str):
+                return mod
+        return ""
+
+
+class TestGitopsReinit:
+    """Every init/join entry point must include _reinit_cleanup.yml
+    gated on the reinit flag, and surface --reinit in the
+    "already initialized" failure message. Drift is silent: the user
+    gets stuck with a partial init and no way out, which is exactly
+    the failure mode #462 reported. Cheap to gate against."""
+
+    INIT_JOIN_FILES = [
+        "init_compose.yml",
+        "init_kubernetes.yml",
+        "join.yml",
+        "join_kubernetes.yml",
+    ]
+
+    @pytest.mark.parametrize("filename", INIT_JOIN_FILES)
+    def test_includes_reinit_cleanup(self, filename):
+        with open(os.path.join(GITOPS_TASKS, filename)) as f:
+            content = f.read()
+        assert "_reinit_cleanup.yml" in content, (
+            "%s should include _reinit_cleanup.yml so --reinit can "
+            "wipe partial gitops state" % filename
+        )
+        assert "reinit | default(false) | bool" in content, (
+            "%s should gate the cleanup on the reinit flag" % filename
+        )
+
+    @pytest.mark.parametrize("filename", INIT_JOIN_FILES)
+    def test_already_initialized_message_mentions_reinit(self, filename):
+        with open(os.path.join(GITOPS_TASKS, filename)) as f:
+            content = f.read()
+        assert "already initialized" in content
+        # The error has to point users at the recovery flag, otherwise
+        # the message is the same brick wall #462 was reported about.
+        assert "--reinit" in content, (
+            "%s's 'already initialized' message must mention --reinit "
+            "so users have a documented recovery path" % filename
+        )
+
+    def test_cleanup_file_exists(self):
+        assert os.path.isfile(
+            os.path.join(GITOPS_TASKS, "_reinit_cleanup.yml")
+        )
+
+
+class TestResolvePasswordHelper:
+    """The audit asked for `_resolve_password.yml` to dedupe the
+    'use-provided-or-generate' pattern that was repeated three times
+    in roles/create/tasks/main.yml. These tests guard against:
+
+    1. The helper getting deleted or moved without updating the call
+       sites.
+    2. Future password-resolution code in main.yml drifting away from
+       the helper and bringing the duplication back.
+    """
+
+    HELPER_PATH = os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "roles", "create", "tasks", "_resolve_password.yml",
+    )
+    CREATE_TASKS_DIR = os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "roles", "create", "tasks",
+    )
+
+    def _read_create_tasks(self):
+        """Combined contents of all create-role task files (excluding
+        the helper itself). The three password resolutions used to
+        live in main.yml; after the #428 split they live in
+        _passwords.yml. The structural assertions don't care which
+        file holds them — they just guard against the helper pattern
+        being abandoned."""
+        combined = []
+        for fname in sorted(os.listdir(self.CREATE_TASKS_DIR)):
+            if not fname.endswith(".yml"):
+                continue
+            if fname == "_resolve_password.yml":
+                continue  # helper itself; calls generate_password.yml
+            with open(os.path.join(self.CREATE_TASKS_DIR, fname)) as f:
+                combined.append(f.read())
+        return "\n".join(combined)
+
+    def test_helper_exists(self):
+        assert os.path.isfile(self.HELPER_PATH)
+
+    def test_helper_sets_resolved_password(self):
+        with open(self.HELPER_PATH) as f:
+            tasks = yaml.safe_load(f)
+        # Walk every task (including those in `block:`) and make sure
+        # at least one set_fact targets `_resolved_password` — the
+        # contract the call sites depend on.
+        def walk(items):
+            for t in items or []:
+                if not isinstance(t, dict):
+                    continue
+                yield t
+                for k in ("block", "rescue", "always"):
+                    if k in t:
+                        yield from walk(t[k])
+        sets_resolved = []
+        for t in walk(tasks):
+            sf = t.get("ansible.builtin.set_fact") or t.get("set_fact")
+            if isinstance(sf, dict) and "_resolved_password" in sf:
+                sets_resolved.append(t.get("name", "<unnamed>"))
+        assert sets_resolved, (
+            "_resolve_password.yml must set _resolved_password "
+            "(both the use-provided and generate branches). Found: %r"
+            % sets_resolved
+        )
+
+    def test_main_uses_helper_for_each_password(self):
+        content = self._read_create_tasks()
+        # Three password resolutions: root DB, wiki DB (non-root user
+        # branch), admin. Each must include the helper.
+        helper_includes = content.count("include_tasks: _resolve_password.yml")
+        assert helper_includes >= 3, (
+            "Expected at least 3 includes of _resolve_password.yml "
+            "(rootdbpass, wikidbpass non-root branch, admin) across "
+            "roles/create/tasks/*.yml; found %d" % helper_includes
+        )
+
+    def test_main_no_inline_generate_password_for_create_passwords(self):
+        """Defensive: nobody should inline-call generate_password.yml
+        from the create role for the three passwords the helper now
+        owns. If someone adds a new password type that needs the same
+        pattern, they should call the helper instead of copy-pasting
+        the loop."""
+        content = self._read_create_tasks()
+        # The helper itself includes generate_password.yml; create-
+        # role task files should not directly include it.
+        assert "include_tasks:" in content
+        inline_generate = content.count("generate_password.yml")
+        # 0 is the win; tolerate if some other site legitimately
+        # includes it without the helper.
+        assert inline_generate <= 0, (
+            "Found %d inline generate_password.yml include(s) in "
+            "roles/create/tasks/*.yml — these should go through "
+            "_resolve_password.yml." % inline_generate
+        )
+
+
+class TestResolveInstanceSkipGate:
+    """`instance_lifecycle/start.yml` and `restart.yml` are entered
+    both top-level (`canasta start` / `canasta restart`) and from
+    nested callers (config set/unset, add, backup restore, devmode
+    enable/disable, upgrade) that already passed through
+    resolve_instance.yml. The include must be gated on
+    `instance_path is not defined` so nested callers skip the
+    redundant registry round-trip."""
+
+    LIFECYCLE_FILES = ["start.yml", "restart.yml"]
+
+    @pytest.mark.parametrize("filename", LIFECYCLE_FILES)
+    def test_resolve_instance_gated_on_instance_path(self, filename):
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "roles", "instance_lifecycle", "tasks", filename,
+        )
+        with open(path) as f:
+            tasks = yaml.safe_load(f)
+        for t in tasks:
+            if not isinstance(t, dict):
+                continue
+            inc = t.get("ansible.builtin.include_tasks") or t.get("include_tasks", "")
+            if "resolve_instance.yml" not in str(inc):
+                continue
+            when = t.get("when", "")
+            assert "instance_path is not defined" in when, (
+                "%s: resolve_instance.yml include must be gated on "
+                "`instance_path is not defined`; got when=%r"
+                % (filename, when)
+            )
+            return
+        # If we never found a resolve_instance include, the file
+        # changed shape — flag it so reviewers don't lose the test.
+        raise AssertionError(
+            "%s no longer includes resolve_instance.yml — the gate "
+            "test needs updating to reflect the new flow." % filename
+        )
+
+
+class TestPlayLevelDockerHost:
+    """canasta.yml's play-level `environment:` exposes DOCKER_HOST so
+    every Ansible-routed command's docker / docker compose calls
+    inherit it. Operators on rootless podman or rootless Docker
+    set this via `canasta create --docker-host=…` (see #479).
+
+    Drift here is invisible until someone tries the rootless setup,
+    so the structural check is cheap insurance."""
+
+    CANASTA_YML = os.path.join(
+        os.path.dirname(__file__), "..", "..", "canasta.yml",
+    )
+
+    def test_play_environment_exports_docker_host(self):
+        with open(self.CANASTA_YML) as f:
+            plays = yaml.safe_load(f)
+        # The file has one play.
+        play = plays[0]
+        env = play.get("environment", {})
+        assert "DOCKER_HOST" in env, (
+            "canasta.yml must declare a play-level "
+            "`environment: { DOCKER_HOST: … }` so docker tasks "
+            "honor --docker-host / registry dockerHost."
+        )
+
+    def test_docker_host_precedence_flag_then_registry(self):
+        # The expression has to:
+        #   - prefer the `docker_host` var (from --docker-host on the
+        #     current invocation) over the registry value
+        #   - fall back to `instance_docker_host` (set by
+        #     resolve_instance.yml from the registry) when the flag
+        #     wasn't passed
+        #   - omit the env var entirely when neither is set, so
+        #     Docker keeps using its compiled-in default socket
+        with open(self.CANASTA_YML) as f:
+            plays = yaml.safe_load(f)
+        expr = plays[0]["environment"]["DOCKER_HOST"]
+        assert "docker_host" in expr
+        assert "instance_docker_host" in expr
+        assert "omit" in expr
+
+
+class TestRequirementsCollectionsHelm4Compat:
+    """Guard #525: kubernetes.core must be pinned to a version that
+    supports Helm 4. Pre-fix `requirements.yml` had `>=3.0.0` which
+    let pip install collection 6.3.0 — which rejects Helm 4 with
+    'Helm version must be >=3.0.0,<4.0.0'. Helm 4 is now what
+    `brew install helm` provides on macOS by default, so any
+    operator on a fresh laptop hits this immediately. 6.4.0 added
+    Helm 4 support."""
+
+    REQUIREMENTS = os.path.join(REPO_ROOT, "requirements.yml")
+
+    def _kubernetes_core_pin(self):
+        with open(self.REQUIREMENTS) as f:
+            req = yaml.safe_load(f)
+        for c in req.get("collections", []):
+            if c.get("name") == "kubernetes.core":
+                return c.get("version")
+        raise AssertionError("kubernetes.core not pinned in requirements.yml")
+
+    def test_kubernetes_core_min_version_is_helm4_compatible(self):
+        pin = self._kubernetes_core_pin()
+        # The pin should require >= 6.4.0 (or any later version with
+        # known Helm 4 support).
+        assert ">=6.4" in pin or ">= 6.4" in pin or ">=6.5" in pin or ">=7" in pin or ">= 7" in pin, (
+            "requirements.yml pins kubernetes.core %r — must be "
+            ">=6.4.0 to support Helm 4 (#525). Earlier versions "
+            "reject Helm 4 at module load." % pin
+        )
+
+    def test_kubernetes_core_lower_bound_not_below_6_4(self):
+        """Belt-and-suspenders: catch a future regression where the
+        lower bound gets relaxed below 6.4.0 again."""
+        pin = self._kubernetes_core_pin()
+        for bad in (">=3.0", ">=4.", ">=5.", ">=6.0", ">=6.1", ">=6.2", ">=6.3"):
+            assert bad not in pin, (
+                "requirements.yml has kubernetes.core lower bound "
+                "%r which lets pip install pre-Helm-4 versions; "
+                "must be >=6.4.0 (#525)" % pin
+            )
+
+
+class TestK8sStartProgressMessages:
+    """The K8s start path runs a Helm upgrade + rollout waits that can take
+    minutes; without progress output `config set`/restart looks hung — a user
+    reported a long silent wait before an error when enabling CrowdSec on K8s.
+    Assert the curated progress lines are present, mirroring the Compose path's
+    'Starting containers...'."""
+
+    def _start(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "start.yml")) as f:
+            return f.read()
+
+    def test_helm_upgrade_has_progress_message(self):
+        assert "Applying Helm release" in self._start()
+
+    def test_rollout_wait_has_progress_message(self):
+        assert "Waiting for pods to become ready" in self._start()
+
+    def test_crowdsec_enroll_has_progress_message(self):
+        # The enroll tail (with its progress line) is shared by start + create
+        # via crowdsec_autoenroll.yml, included from the start path.
+        assert "crowdsec_autoenroll.yml" in self._start()
+        with open(os.path.join(ORCHESTRATOR_TASKS, "crowdsec_autoenroll.yml")) as f:
+            assert "enrolling the Caddy bouncer" in f.read()
+
+
+class TestK8sDeleteWaitsForNamespace:
+    """`canasta delete` must wait for the namespace to fully terminate before
+    returning — otherwise an immediate re-create races the still-Terminating
+    namespace and fails the stale-namespace guard (#684)."""
+
+    def test_namespace_deletion_requests_then_polls_until_gone(self):
+        # #762: a single held `kubectl delete --wait` aborts the whole delete
+        # when termination is slow (NFS on multi-node), leaking the namespace.
+        # Issue the delete (--wait=false), then poll until it's gone — still
+        # waiting for full termination so delete->re-create doesn't race.
+        with open(os.path.join(ORCHESTRATOR_TASKS, "helm_uninstall.yml")) as f:
+            tasks = yaml.safe_load(f)
+        req = next(t for t in tasks if t.get("name") == "Request namespace deletion")
+        assert "--wait=false" in req["ansible.builtin.command"]["cmd"]
+        assert "--ignore-not-found" in req["ansible.builtin.command"]["cmd"]
+
+        wait = next(t for t in tasks if t.get("name") == "Wait for namespace to be fully gone")
+        assert "kubectl get namespace" in wait["ansible.builtin.command"]["cmd"]
+        assert wait["until"] == "_ns_gone.rc != 0"  # NotFound == gone
+        assert int(wait["retries"]) * int(wait["delay"]) >= 300
+
+    def test_helm_uninstall_drops_wait(self):
+        # The helm uninstall must NOT use --wait: with --wait its async window
+        # could time out on slow multi-node NFS teardown and abort the delete
+        # before the namespace was removed (#762). Teardown is handled by the
+        # namespace delete + poll above.
+        with open(os.path.join(ORCHESTRATOR_TASKS, "helm_uninstall.yml")) as f:
+            tasks = yaml.safe_load(f)
+        un = next(t for t in tasks if t.get("name") == "Uninstall Canasta Helm release")
+        assert "--wait" not in un["vars"]["rx_cmd"]
+
+
+class TestResilientExec:
+    """Long-running remote ops run detached and are polled (resilient_exec)
+    so a controller-side SSH reset doesn't abort work still progressing on
+    the target (#750)."""
+
+    PRIMITIVE = os.path.join(ORCHESTRATOR_TASKS, "resilient_exec.yml")
+
+    def test_primitive_launches_async_and_polls(self):
+        tasks = yaml.safe_load(open(self.PRIMITIVE))
+        # First task fires the command and returns immediately (poll: 0).
+        launch = tasks[0]
+        assert launch.get("poll") == 0
+        assert launch.get("async") is not None
+        assert "ansible.builtin.shell" in launch
+        # Completion is polled with async_status in an until-loop that
+        # tolerates transient unreachable polls.
+        poll = next(t for t in tasks if "ansible.builtin.async_status" in t)
+        assert "until" in poll
+        assert poll.get("ignore_unreachable") is True
+
+    def test_launch_collapses_only_newlines(self):
+        # rx_cmd often comes from a `>-` folded scalar whose more-indented
+        # Jinja continuations preserve newlines. Under `shell` (/bin/sh -c) a
+        # bare newline is a command separator, so the launch must fold the
+        # command onto one line (regression for the helm `--reset-values`
+        # rc=127 break) — but collapse ONLY newlines, not all whitespace, so
+        # a secret with a tab/double-space on the exec_long path isn't mangled.
+        tasks = yaml.safe_load(open(self.PRIMITIVE))
+        cmd = tasks[0]["ansible.builtin.shell"]["cmd"]
+        assert "regex_replace" in cmd and r"\r\n" in cmd, (
+            "launch must collapse newline runs (regex_replace) not all "
+            "whitespace, so intra-line spacing in secrets is preserved"
+        )
+        assert ".split()" not in cmd, (
+            "split()|join collapses ALL whitespace and mangles secrets "
+            "containing tabs/double-spaces"
+        )
+
+    def test_folded_rx_cmds_have_no_newline_after_normalization(self):
+        # Every resilient_exec caller's rx_cmd, once folded by YAML and
+        # newline-collapsed, must be a single line.
+        import re
+        for rel in ("helm_deploy.yml", "helm_uninstall.yml",
+                    "k8s_argocd_bootstrap.yml"):
+            tasks = yaml.safe_load(open(os.path.join(ORCHESTRATOR_TASKS, rel)))
+            for t in self._walk(tasks):
+                rx = (t.get("vars") or {}).get("rx_cmd")
+                if rx:
+                    assert "\n" not in re.sub(r"[\r\n]+", " ", rx).strip(), rel
+
+    def test_poll_and_cleanup_honor_no_log(self):
+        # async_status returns the job's `cmd`, so the poll + cleanup tasks
+        # must honor rx_no_log or a secret in rx_cmd (e.g. the k3s join
+        # token) leaks under -v.
+        tasks = yaml.safe_load(open(self.PRIMITIVE))
+        for name in ("Wait for completion", "Clean up async job file"):
+            t = next(x for x in tasks if str(x.get("name", "")).startswith(name))
+            assert "rx_no_log" in str(t.get("no_log", "")), name
+
+    @staticmethod
+    def _walk(tasks):
+        for t in tasks or []:
+            if not isinstance(t, dict):
+                continue
+            yield t
+            for nested in ("block", "rescue", "always"):
+                if nested in t:
+                    yield from TestResilientExec._walk(t[nested])
+
+    def test_helm_deploy_uses_resilient_exec(self):
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "helm_deploy.yml")))
+        deploy = next(
+            t for t in tasks if t.get("name") == "Deploy Canasta Helm release")
+        assert "resilient_exec.yml" in deploy["ansible.builtin.include_tasks"]
+        assert "helm upgrade --install" in deploy["vars"]["rx_cmd"]
+
+    def test_argocd_install_uses_resilient_exec(self):
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "k8s_argocd_bootstrap.yml")))
+        install_block = next(t for t in tasks if t.get("name") == "Install Argo CD")
+        sub = install_block["block"]
+        helm = next(t for t in sub if t.get("name") == "Install Argo CD via Helm")
+        assert "resilient_exec.yml" in helm["ansible.builtin.include_tasks"]
+
+    def test_k3s_install_uses_resilient_exec(self):
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "k8s_install_k3s.yml")))
+        block = next(t for t in tasks if t.get("name") == "Install k3s")
+        install = next(
+            t for t in block["block"]
+            if t.get("name") == "Download and install k3s")
+        assert "resilient_exec.yml" in install["ansible.builtin.include_tasks"]
+
+    def test_exec_supports_opt_in_long_mode(self):
+        # The shared exec abstraction gains an opt-in long mode (detached +
+        # polled) used by update.php / mysqldump callers, while short callers
+        # keep the held single connection (gated by exec_long).
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "exec.yml")))
+        held = next(t for t in tasks if str(t.get("name", "")).startswith("Execute:"))
+        assert "not (exec_long" in str(held.get("when", ""))
+        long_task = next(
+            t for t in tasks
+            if "resilient_exec.yml" in str(
+                t.get("ansible.builtin.include_tasks", "")))
+        assert "exec_long" in str(long_task.get("when", ""))
+
+
+class TestK8sTraefikClientIP:
+    """The k3s-bundled Traefik LoadBalancer defaults to externalTrafficPolicy:
+    Cluster, which SNATs the client IP — breaking CrowdSec (all traffic looks
+    private) and access logs. install k8s-cp must drop a HelmChartConfig that
+    flips Traefik to Local so the real client IP is preserved (#687)."""
+
+    CONFIG = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "files",
+        "traefik-externaltrafficpolicy.yaml",
+    )
+
+    def test_helmchartconfig_sets_local_policy(self):
+        doc = yaml.safe_load(open(self.CONFIG))
+        assert doc["kind"] == "HelmChartConfig"
+        assert doc["metadata"]["name"] == "traefik"
+        assert doc["metadata"]["namespace"] == "kube-system"
+        values = yaml.safe_load(doc["spec"]["valuesContent"])
+        assert values["service"]["spec"]["externalTrafficPolicy"] == "Local"
+
+    def test_traefik_runs_as_daemonset(self):
+        # Local only preserves the client IP on nodes with a local Traefik pod;
+        # on multi-node clusters Local without a DaemonSet would drop external
+        # traffic landing on Traefik-less nodes. DaemonSet guarantees a Traefik
+        # pod (local endpoint) on every node.
+        doc = yaml.safe_load(open(self.CONFIG))
+        values = yaml.safe_load(doc["spec"]["valuesContent"])
+        assert values["deployment"]["kind"] == "DaemonSet", (
+            "Traefik must run as a DaemonSet so externalTrafficPolicy=Local "
+            "preserves the client IP on every node (multi-node safe)"
+        )
+
+    def test_install_drops_the_config_into_k3s_manifests(self):
+        with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_install_k3s.yml")) as f:
+            tasks = yaml.safe_load(f)
+        copy = next(
+            t for t in tasks
+            if isinstance(t.get("ansible.builtin.copy"), dict)
+            and t["ansible.builtin.copy"].get("src") == "traefik-externaltrafficpolicy.yaml"
+        )
+        spec = copy["ansible.builtin.copy"]
+        # k3s auto-applies manifests dropped here; must be root-written.
+        assert spec["dest"].startswith("/var/lib/rancher/k3s/server/manifests/")
+        assert copy.get("become") is True
+
+
+class TestK8sWorkerJoinDualStackIP:
+    """A dual-stack control-plane node reports both an IPv4 and an IPv6
+    InternalIP. The worker join must build K3S_URL from a single IPv4 address,
+    not the raw space-separated pair — k3s rejects the latter with
+    'invalid character " " in host name' and the agent never joins (#687-era
+    multi-node e2e finding)."""
+
+    WORKER = os.path.join(REPO_ROOT, "roles", "install", "tasks", "k3s_worker.yml")
+
+    def _select_ip(self, raw):
+        import re
+        import jinja2
+        tasks = yaml.safe_load(open(self.WORKER))
+        task = next(
+            t for t in tasks
+            if isinstance(t, dict)
+            and str(t.get("name", "")).startswith("Select a single control-plane InternalIP")
+        )
+        expr = task["ansible.builtin.set_fact"]["_cp_internal_ip"]
+        env = jinja2.Environment()
+        env.filters["split"] = lambda s, sep=None: s.split(sep)
+        env.tests["match"] = lambda s, pat: re.match(pat, s) is not None
+        return env.from_string(expr).render(_cp_internal_ip_raw={"stdout": raw}).strip()
+
+    def test_dualstack_returns_only_ipv4(self):
+        assert self._select_ip("209.112.76.164 2607:29c0:3001:20::a") == "209.112.76.164"
+
+    def test_ipv4_only_unchanged(self):
+        assert self._select_ip("10.0.0.5") == "10.0.0.5"
+
+    def test_selected_ip_has_no_whitespace(self):
+        out = self._select_ip("209.112.76.164 2607:29c0:3001:20::a")
+        assert " " not in out and ":" not in out
+
+    def test_server_url_built_from_selected_ip(self):
+        tasks = yaml.safe_load(open(self.WORKER))
+        task = next(
+            t for t in tasks
+            if isinstance(t, dict) and "_k3s_server_url" in str(t.get("ansible.builtin.set_fact", {}))
+        )
+        assert task["ansible.builtin.set_fact"]["_k3s_server_url"] == "https://{{ _cp_internal_ip }}:6443"

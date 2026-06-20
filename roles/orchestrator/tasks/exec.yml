@@ -8,7 +8,14 @@
 #   instance_orchestrator (str) - compose or kubernetes
 #   exec_service (str) - service name (default: web)
 #   exec_command (str) - command to run
+#   exec_stdin (str, optional) - path to a file (on the controller) whose
+#     contents are fed to the command's stdin. Read as UTF-8 text. Ignored
+#     on the long/detached path. Compose pipes via `exec -T`; K8s adds `-i`.
 #   exec_no_log (bool, optional) - suppress command in output
+#   exec_long (bool, optional) - run detached + polled for long commands
+#     (update.php on a big wiki, a large mysqldump) so a controller-side
+#     SSH reset doesn't abort them. Default false (held single connection).
+#   exec_long_async (int, optional) - max seconds for a long exec (3600)
 # Output:
 #   exec_result (registered result with .stdout, .rc, etc.)
 
@@ -39,7 +46,7 @@
     - name: Build K8s exec command
       ansible.builtin.set_fact:
         _exec_full_cmd: >-
-          kubectl exec {{ _k8s_pod_name }}
+          kubectl exec {{ '-i ' if (exec_stdin | default('')) | length > 0 else '' }}{{ _k8s_pod_name }}
           -n {{ _k8s_namespace }} --
           /bin/bash -c {{ exec_command | quote }}
         _exec_chdir: null
@@ -53,6 +60,34 @@
   ansible.builtin.shell:
     cmd: "{{ _exec_full_cmd }}"
     chdir: "{{ _exec_chdir | default(omit) }}"
+    # Read on the controller (lookup runs there), so the content travels
+    # with the task and reaches the command regardless of delegation.
+    # Gated on the current call's exec_stdin, not a persisted fact.
+    stdin: >-
+      {{ lookup('file', exec_stdin)
+         if (exec_stdin | default('')) | length > 0
+         else omit }}
   register: exec_result
   changed_when: false
+  no_log: "{{ exec_no_log | default(false) }}"
+  when: not (exec_long | default(false) | bool)
+
+# Long commands (update.php on a big wiki, a large mysqldump) run detached
+# and polled so a controller-side SSH reset doesn't abort work still
+# progressing on the target. The result is mapped back to exec_result so
+# callers consume it the same way.
+- name: "Execute (long, detached + polled): {{ exec_command | truncate(60) }}"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "{{ exec_command | truncate(60) }}"
+    rx_cmd: "{{ _exec_full_cmd }}"
+    rx_chdir: "{{ _exec_chdir | default(omit) }}"
+    rx_async: "{{ exec_long_async | default(3600) }}"
+    rx_no_log: "{{ exec_no_log | default(false) }}"
+  when: exec_long | default(false) | bool
+
+- name: Map long-exec result to exec_result
+  ansible.builtin.set_fact:
+    exec_result: "{{ rx_result }}"
+  when: exec_long | default(false) | bool
   no_log: "{{ exec_no_log | default(false) }}"

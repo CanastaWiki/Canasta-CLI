@@ -1,0 +1,51 @@
+---
+# canasta crowdsec console-enroll - connect this instance's CrowdSec engine
+# to the CrowdSec Console (app.crowdsec.net), which unlocks the full
+# community blocklist plus any console-managed third-party blocklists.
+#
+# Optional: without it the engine still pulls the smaller "Lite" community
+# blocklist via the Central API. This upgrades that to the full list.
+# Input: id (optional), key (str, required), name (str, optional)
+
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
+  ansible.builtin.include_tasks: _preflight.yml
+
+- name: Require an enrollment key
+  ansible.builtin.fail:
+    msg: >-
+      An enrollment key is required. Get one from
+      https://app.crowdsec.net (Security Engines -> Enroll), then run:
+      canasta crowdsec console-enroll <key>
+  when: key is not defined or (key | string | length) == 0
+
+# argv (not a shell string) so the key and optional --name are passed
+# without quoting. no_log keeps the enrollment key out of Ansible output.
+- name: Build cscli console enroll argv
+  ansible.builtin.set_fact:
+    _crowdsec_console_argv: >-
+      {{ _cscli_argv + ['cscli', 'console', 'enroll']
+         + (['--name', name | string] if (name | default('') | string | length > 0) else [])
+         + [key | string] }}
+
+- name: Enroll the engine with the CrowdSec Console
+  ansible.builtin.command:
+    argv: "{{ _crowdsec_console_argv }}"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  changed_when: true
+  no_log: true
+
+# cscli writes the console credentials into the persisted /etc/crowdsec
+# volume; restart so the engine picks them up.
+- name: Restart the CrowdSec engine to apply the enrollment
+  ansible.builtin.include_tasks: _restart_engine.yml
+
+- name: Report next steps
+  ansible.builtin.debug:
+    msg: |-
+      CrowdSec engine for instance '{{ instance_id }}' is enrolled with the
+      Console. Finish in the Console UI at https://app.crowdsec.net:
+        1. Accept the pending enrollment for this engine.
+        2. Under Blocklists, subscribe the engine to the CrowdSec
+           Community Blocklist (and any others you want).
+      Then run 'canasta crowdsec reload' to apply the acceptance. Subscribed
+      blocklists arrive on CrowdSec's own pull cycle (about every 2 hours).

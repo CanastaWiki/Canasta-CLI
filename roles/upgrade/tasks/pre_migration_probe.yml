@@ -1,0 +1,16 @@
+---
+# One-shot probe of migration-relevant state. Replaces the
+# per-migration stat / find / canasta_env-read calls with a single
+# script run that returns JSON. Each migration in the loop below
+# reads its own decision off `_mig` instead of paying its own SSH
+# round-trip just to check whether it has work to do.
+
+- name: Probe migration-relevant state
+  ansible.builtin.script:
+    cmd: "{{ canasta_root }}/roles/upgrade/files/probe_migration_state.py {{ instance_path | quote }}"
+  register: _mig_probe_raw
+  changed_when: false
+
+- name: Parse probe output
+  ansible.builtin.set_fact:
+    _mig: "{{ _mig_probe_raw.stdout | from_json }}"

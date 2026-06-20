@@ -1,6 +1,5 @@
 ---
 # Sync COMPOSE_PROFILES with feature flags in .env.
-# Mirrors Go syncComposeProfiles().
 # Input: instance_path
 
 - name: Read .env for profile sync
@@ -19,10 +18,11 @@
   ansible.builtin.set_fact:
     _desired_profiles: >-
       {{
-        (_current_profiles | reject('in', ['observable', 'elasticsearch', 'varnish']) | list) +
+        (_current_profiles | reject('in', ['observable', 'elasticsearch', 'varnish', 'crowdsec']) | list) +
         ((_env_profiles.variables.CANASTA_ENABLE_OBSERVABILITY | default('false') | lower == 'true') | ternary(['observable'], [])) +
         ((_env_profiles.variables.CANASTA_ENABLE_ELASTICSEARCH | default('false') | lower == 'true') | ternary(['elasticsearch'], [])) +
-        ((_env_profiles.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true') | ternary(['varnish'], []))
+        ((_env_profiles.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true') | ternary(['varnish'], [])) +
+        ((_env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true') | ternary(['crowdsec'], []))
       }}
 
 - name: Update COMPOSE_PROFILES in .env
@@ -32,3 +32,76 @@
     key: COMPOSE_PROFILES
     value: "{{ _desired_profiles | join(',') }}"
   when: _desired_profiles | sort != _current_profiles | sort
+
+# A feature flag flipped off (e.g. CANASTA_ENABLE_ELASTICSEARCH=false) drops
+# its profile from COMPOSE_PROFILES, but `docker compose up`/`down` only act
+# on active profiles — a container already running under the now-inactive
+# profile is treated as an orphan and left running. Stop and remove those
+# containers so disabling a feature actually tears it down. Scoped to the
+# managed feature profiles; internal-db is intentionally excluded so a
+# database container is never auto-removed. The service lists must match the
+# `profiles:` keys in roles/orchestrator/files/compose/docker-compose.yml.
+- name: Tear down containers for deactivated feature profiles
+  vars:
+    _profile_services:
+      observable: [opensearch, logstash, opensearch-dashboards, observable-init]
+      elasticsearch: [elasticsearch]
+      varnish: [varnish]
+      crowdsec: [crowdsec]
+    _removed_profiles: >-
+      {{ _current_profiles | difference(_desired_profiles)
+         | select('in', _profile_services.keys() | list) | list }}
+  when: _removed_profiles | length > 0
+  block:
+    - name: Check for docker-compose.override.yml (profile teardown)
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.override.yml"
+      register: _teardown_override
+
+    - name: Build compose file arguments for profile teardown
+      ansible.builtin.set_fact:
+        _teardown_compose_files: >-
+          {{ ['-f', 'docker-compose.yml'] +
+             (_teardown_override.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
+             ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
+
+    - name: Stop and remove containers for deactivated profiles
+      ansible.builtin.command:
+        cmd: >-
+          docker compose {{ _teardown_compose_files | join(' ') }}
+          {{ _removed_profiles | map('regex_replace', '^', '--profile ') | join(' ') }}
+          rm -sf
+          {{ _removed_profiles | map('extract', _profile_services) | flatten | join(' ') }}
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+# The caddy service runs the plugin image when a plugin feature is on:
+# CrowdSec (the bouncer), or a provider trusted-proxy mode
+# (cloudflare/imperva, which need caddy-cdn-ranges). An explicit CIDR list
+# uses Caddy's built-in 'static' source and runs on stock Caddy.
+# CANASTA_CADDY_IMAGE is treated as Canasta-managed when it is empty or
+# already holds the managed image — a custom value the operator set is
+# left untouched. Mirrors _CADDY_PLUGIN_IMAGE in direct_commands/_helpers.py.
+- name: Reconcile CANASTA_CADDY_IMAGE for plugin features
+  vars:
+    _crowdsec_on: "{{ _env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
+    _tp_mode: "{{ _env_profiles.variables.CADDY_TRUSTED_PROXIES | default('') | trim | lower }}"
+    _plugin_needed: "{{ _crowdsec_on or (_tp_mode in ['cloudflare', 'imperva']) }}"
+    _current_caddy_image: "{{ _env_profiles.variables.CANASTA_CADDY_IMAGE | default('') }}"
+    _plugin_caddy_image: "ghcr.io/canastawiki/canasta-caddy:2.11.3"
+    # Managed when empty or ANY tag of the managed repo — so an instance
+    # carrying an older managed tag is recognized as managed and bumped to
+    # the current one, rather than stranded. Match _helpers.py.
+    _managed_caddy_prefix: "ghcr.io/canastawiki/canasta-caddy:"
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: CANASTA_CADDY_IMAGE
+    value: "{{ _plugin_needed | ternary(_plugin_caddy_image, '') }}"
+  when:
+    - _current_caddy_image == '' or _current_caddy_image.startswith(_managed_caddy_prefix)
+    - _current_caddy_image != (_plugin_needed | ternary(_plugin_caddy_image, ''))
+
+- name: Ensure crowdsec config files exist when the profile is active
+  ansible.builtin.include_tasks: ensure_crowdsec_config.yml
+  when: "'crowdsec' in _desired_profiles"

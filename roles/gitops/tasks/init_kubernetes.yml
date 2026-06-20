@@ -1,20 +1,40 @@
 ---
 # GitOps init (Kubernetes) — multi-environment aware.
-# Uses git-crypt for secrets in per-host vars.yaml.
 # Repo structure:
 #   values.template.yaml    ← shared, with {{placeholder}} syntax
 #   hosts/hosts.yaml        ← host registry
-#   hosts/{name}/vars.yaml  ← per-host values (encrypted)
+#   hosts/{name}/vars.yaml  ← per-host values (cleartext, no secrets)
 #   hosts/{name}/rendered-values.yaml  ← rendered for Argo CD
 #   Chart.yaml, templates/  ← shared Helm chart
+#
+# No git-crypt: K8s secrets (MYSQL_PASSWORD, MW_SECRET_KEY) live in
+# K8s Secrets, not in the gitops repo. The repo is therefore safe
+# to be cleartext, which Argo CD requires anyway (it has no
+# git-crypt support and can't decrypt encrypted values files).
+# See #507 / #508 for the original switch and #509 for the
+# scaffolding cleanup.
+#
 # Input: host_name, role, repo, key, force, pull_requests
+#   key is the SSH deploy key path basename (private at <key>.ssh,
+#   public at <key>.ssh.pub). Despite the name, it has no git-crypt
+#   meaning on K8s.
 # Requires: instance_path, instance_id (set by dispatcher)
 
 # --- Validate prerequisites ---
 - name: Check git is installed
   ansible.builtin.command:
     cmd: git --version
+  register: _git_check
   changed_when: false
+  ignore_errors: true
+
+- name: Fail if git is not installed
+  ansible.builtin.fail:
+    msg: >-
+      git is not installed on the gitops target host.
+      Install it via your distro's package manager
+      (e.g. `apt install git` on Debian/Ubuntu).
+  when: _git_check.rc | default(1) != 0
 
 - name: Set git user.name on target host
   ansible.builtin.command:
@@ -42,18 +62,9 @@
       Pass --git-user-name and --git-user-email to this command.
   when: _git_identity.rc != 0
 
-- name: Check git-crypt is installed
-  ansible.builtin.command:
-    cmd: "git-crypt --version"
-  register: _gitcrypt_check
-  changed_when: false
-  ignore_errors: true
-
-- name: Fail if git-crypt not installed
-  ansible.builtin.fail:
-    msg: >-
-      git-crypt is not installed. Run 'canasta install git-crypt' first.
-  when: _gitcrypt_check.rc != 0
+- name: Reinit — wipe partial gitops state before re-running init
+  ansible.builtin.include_tasks: _reinit_cleanup.yml
+  when: reinit | default(false) | bool
 
 - name: Check for existing .git directory
   ansible.builtin.stat:
@@ -64,54 +75,103 @@
   ansible.builtin.fail:
     msg: >-
       GitOps already initialized ({{ instance_path }}/.git exists).
-      Use 'gitops join' to join an existing repo.
+      Use 'gitops join' to attach this host to an existing remote
+      repo, or pass --reinit to wipe the local gitops state and
+      retry (typical when a previous init died mid-run before the
+      git push succeeded).
   when: _gitops_existing.stat.exists
 
 # --- SSH deploy key ---
-# Saved to {{ key }}.ssh ({{ key }} is reserved for the git-crypt key,
-# consistent with the Compose gitops model).
-- name: Set SSH key path
+# The deploy key is generated on the controller (where {{ key }} is a
+# user-supplied controller-local path) and then mirrored to a fixed
+# spot inside the target's instance directory for git operations to
+# pick up. Earlier code assumed controller and target were the same
+# host: ssh-keygen ran on the play target against a controller path,
+# which usually did not exist there. See #474.
+- name: Set SSH key paths
   ansible.builtin.set_fact:
+    # Controller-local path. The user reads the public side of this
+    # to register a deploy key on the forge.
     _ssh_key_path: "{{ key }}.ssh"
+    # Target-local path. git on the target reads this via
+    # GIT_SSH_COMMAND unless --ssh-key overrides it. .gitops-deploy-key
+    # is in .gitignore.default so it never gets committed.
+    _ssh_key_target_path: "{{ instance_path }}/.gitops-deploy-key"
 
-- name: Check if SSH deploy key already exists
-  ansible.builtin.stat:
-    path: "{{ _ssh_key_path }}"
-  register: _gitops_key_exists
-
-- name: Read existing SSH deploy key
-  ansible.builtin.slurp:
-    src: "{{ _ssh_key_path }}"
-  register: _gitops_ssh_key_existing
-  when: _gitops_key_exists.stat.exists
-  no_log: true
-
-- name: Check if existing file is a real SSH key
+# Save/switch/restore the connection state around the controller-side
+# operations. delegate_to: localhost + vars: { ansible_connection:
+# local } does NOT reliably override the host-level set_fact that
+# switch_connection.yml plants — same failure mode 0d392a6 and
+# b7d3ed2 fixed for resolve_instance and delete deregistration. Use
+# the proven dance with `block`/`always:` so a failure between
+# switch and restore can't leave the play stuck on the controller.
+- name: Save connection state before controller-side key work
   ansible.builtin.set_fact:
-    _existing_is_ssh_key: >-
-      {{ _gitops_key_exists.stat.exists and
-         (_gitops_ssh_key_existing.content | default('') | b64decode)
-         is search('-----BEGIN') }}
+    _gki_saved:
+      host: "{{ ansible_host | default('localhost') }}"
+      conn: "{{ ansible_connection | default('local') }}"
+      user: "{{ ansible_user | default('') }}"
+      python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
 
-- name: Generate SSH deploy key pair
-  ansible.builtin.command:
-    cmd: >-
-      ssh-keygen -t ed25519
-      -f {{ _ssh_key_path }}
-      -N ''
-      -C 'canasta-{{ instance_id }}'
-  when: not (_existing_is_ssh_key | bool)
+- block:
+    - name: Switch to local for SSH key generation
+      ansible.builtin.set_fact:
+        ansible_host: "localhost"
+        ansible_connection: "local"
+        ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-- name: Read the SSH deploy key (generated or existing)
-  ansible.builtin.slurp:
-    src: "{{ _ssh_key_path }}"
-  register: _gitops_ssh_key
-  no_log: true
+    - name: Ensure SSH key parent directory exists on controller
+      ansible.builtin.file:
+        path: "{{ _ssh_key_path | dirname }}"
+        state: directory
+        mode: "0700"
 
-- name: Read the public key for display
-  ansible.builtin.slurp:
-    src: "{{ _ssh_key_path }}.pub"
-  register: _gitops_ssh_pubkey
+    - name: Check if SSH deploy key already exists on controller
+      ansible.builtin.stat:
+        path: "{{ _ssh_key_path }}"
+      register: _gitops_key_exists
+
+    - name: Read existing SSH deploy key from controller
+      ansible.builtin.slurp:
+        src: "{{ _ssh_key_path }}"
+      register: _gitops_ssh_key_existing
+      when: _gitops_key_exists.stat.exists
+      no_log: true
+
+    - name: Check if existing file is a real SSH key
+      ansible.builtin.set_fact:
+        _existing_is_ssh_key: >-
+          {{ _gitops_key_exists.stat.exists and
+             (_gitops_ssh_key_existing.content | default('') | b64decode)
+             is search('-----BEGIN') }}
+
+    - name: Generate SSH deploy key pair on controller
+      ansible.builtin.command:
+        cmd: >-
+          ssh-keygen -t ed25519
+          -f {{ _ssh_key_path }}
+          -N ''
+          -C 'canasta-{{ instance_id }}'
+      when: not (_existing_is_ssh_key | bool)
+
+    - name: Read the SSH deploy private key from controller
+      ansible.builtin.slurp:
+        src: "{{ _ssh_key_path }}"
+      register: _gitops_ssh_key
+      no_log: true
+
+    - name: Read the SSH deploy public key for display
+      ansible.builtin.slurp:
+        src: "{{ _ssh_key_path }}.pub"
+      register: _gitops_ssh_pubkey
+  always:
+    - name: Restore connection state after key generation
+      ansible.builtin.set_fact:
+        ansible_host: "{{ _gki_saved.host }}"
+        ansible_connection: "{{ _gki_saved.conn }}"
+        ansible_user: "{{ _gki_saved.user }}"
+        ansible_python_interpreter: "{{ _gki_saved.python }}"
 
 - name: Display public key for deploy key setup
   ansible.builtin.debug:
@@ -126,11 +186,21 @@
   ansible.builtin.pause:
     prompt: "Press Enter after you have added the deploy key to your repository (or Ctrl+C then A to abort)"
 
+- name: Stage SSH deploy private key on target for git operations
+  ansible.builtin.copy:
+    content: "{{ _gitops_ssh_key.content | b64decode }}"
+    dest: "{{ _ssh_key_target_path }}"
+    mode: "0600"
+  no_log: true
+
 - name: Check remote is empty
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_path }} -o StrictHostKeyChecking=no"
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
+      -o StrictHostKeyChecking=accept-new
+      -o UserKnownHostsFile=~/.ssh/known_hosts
   register: _gitops_remote
   changed_when: false
   ignore_errors: true
@@ -264,19 +334,22 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
-- name: Write .gitignore
+# Source the canonical gitignore.default so the security-critical
+# entries (.gitops-deploy-key, admin-password_*, config/wikis.yaml,
+# etc.) cannot drift out of the K8s path. K8s-only additions are
+# appended after — never replace the shared list. See #505 for the
+# regression this guards against.
+- name: Write .gitignore (canonical base + K8s additions)
   ansible.builtin.copy:
     content: |
-      .env
-      .gitops-host
-      .gitops-applied
+      {{ lookup('file', role_path + '/files/gitignore.default') }}
+
+      # K8s-specific additions
       _initdb/
       docker-compose*.yml
       my.cnf
       scripts/
-      admin-password_*
       values-configdata.yaml
-      images/
       extensions/
       skins/
       public_assets/
@@ -284,48 +357,15 @@
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 
-- name: Write .gitattributes for git-crypt
-  ansible.builtin.copy:
-    src: "{{ role_path }}/files/gitattributes.default"
-    dest: "{{ instance_path }}/.gitattributes"
-    mode: "0644"
-
-# --- Initialize git-crypt ---
-- name: Initialize git-crypt
-  ansible.builtin.command:
-    cmd: "git-crypt init"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-
-- name: Export git-crypt key on remote host
-  ansible.builtin.command:
-    cmd: "git-crypt export-key /tmp/canasta-gitcrypt-key"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-
-- name: Read git-crypt key from remote host
-  ansible.builtin.slurp:
-    src: /tmp/canasta-gitcrypt-key
-  register: _gitcrypt_key_data
-  no_log: true
-
-- name: Remove temporary key from remote
-  ansible.builtin.file:
-    path: /tmp/canasta-gitcrypt-key
-    state: absent
-
-- name: Write git-crypt key to controller
-  ansible.builtin.copy:
-    content: "{{ _gitcrypt_key_data.content | b64decode }}"
-    dest: "{{ key }}"
-    mode: "0600"
-  delegate_to: localhost
-  vars:
-    ansible_connection: local
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
-  no_log: true
-
-# --- Create hosts metadata ---
+# K8s gitops repo carries no secrets after #508 — MYSQL_PASSWORD
+# and MW_SECRET_KEY are pulled at deploy time from K8s Secrets
+# (<id>-db-credentials, <id>-mw-secrets) via secretKeyRef, and
+# k8s_sync_config.yml strips them out of the configData.web['.env']
+# blob before rendering. With no secret-bearing files left, no
+# git-crypt filter is needed and the entire git-crypt scaffolding
+# (init, export, key transfer to the controller, target-side
+# cleanup) was removed in #509. Compose's gitops path still uses
+# git-crypt — this is a K8s-specific simplification.
 - name: Create hosts.yaml
   ansible.builtin.copy:
     content: |
@@ -388,7 +428,7 @@
 
 - name: Initial commit
   ansible.builtin.command:
-    cmd: "git commit -m 'Initial gitops configuration'"
+    cmd: "git -c commit.gpgsign=false commit -m 'Initial gitops configuration'"
     chdir: "{{ instance_path }}"
   changed_when: true
 
@@ -403,7 +443,10 @@
     cmd: "git push -u origin main {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
   environment:
-    GIT_SSH_COMMAND: "ssh -i {{ _ssh_key_path }} -o StrictHostKeyChecking=no"
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
+      -o StrictHostKeyChecking=accept-new
+      -o UserKnownHostsFile=~/.ssh/known_hosts
   changed_when: true
 
 # --- Create Argo CD repo credential Secret ---

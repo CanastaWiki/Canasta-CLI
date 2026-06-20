@@ -5,24 +5,11 @@
   ansible.builtin.debug:
     msg: "Checking default skin..."
 
-- name: Check if Vector.php exists
-  ansible.builtin.stat:
+- name: Append wgDefaultSkin line to Vector.php
+  ansible.builtin.lineinfile:
     path: "{{ instance_path }}/config/settings/global/Vector.php"
-  register: _vector_php
-
-- name: Add default skin setting if missing
-  when: _vector_php.stat.exists
-  block:
-    - name: Check if wgDefaultSkin already set
-      ansible.builtin.command:
-        cmd: "grep -c 'wgDefaultSkin' {{ instance_path }}/config/settings/global/Vector.php"
-      register: _has_default_skin
-      changed_when: false
-      ignore_errors: true  # OK if grep finds no matches
-
-    - name: Append wgDefaultSkin line
-      ansible.builtin.lineinfile:
-        path: "{{ instance_path }}/config/settings/global/Vector.php"
-        line: '$wgDefaultSkin = "vector-2022";'
-        insertbefore: EOF
-      when: _has_default_skin.stdout | default('0') | trim == '0'
+    line: '$wgDefaultSkin = "vector-2022";'
+    insertbefore: EOF
+  when:
+    - _mig.files.vector_php
+    - not _mig.files.vector_php_has_default_skin

@@ -1,6 +1,6 @@
 ---
 # Delete a Canasta instance.
-# Matches Go delete command: cleans images inside container, removes backup schedule,
+# Cleans images inside container, removes backup schedule,
 # then destroys containers/volumes and removes directory.
 # Input: id, yes (bool - skip confirmation)
 #
@@ -115,41 +115,12 @@
     - name: End play for unreachable host
       ansible.builtin.meta: end_play
 
-# For registered K8s instances, the host can be reachable via SSH but
-# the cluster API behind it can be gone (operator ran `canasta uninstall
-# k8s` while instances were still registered, or k3s crashed). Without
-# this probe, the play falls through to helm/kubectl cleanup tasks that
-# emit ugly `Connection refused` errors for every cluster-side step.
-# We probe up front and gate the K8s cleanup on the result.
-- name: Probe K8s API reachability
-  ansible.builtin.command:
-    cmd: kubectl version --request-timeout=5s
-  register: _k8s_reachable
-  changed_when: false
-  ignore_errors: true
-  when:
-    - _delete_query is succeeded
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-
-- name: Set K8s reachability fact
-  ansible.builtin.set_fact:
-    _k8s_api_reachable: >-
-      {{ (_k8s_reachable.rc | default(1)) == 0 }}
-  when:
-    - _delete_query is succeeded
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-
-- name: Warn when K8s API is unreachable
-  ansible.builtin.debug:
-    msg: >-
-      K8s API unreachable on host '{{ _instance_host }}' — the cluster
-      appears to be uninstalled or down. Deregistering
-      '{{ instance_id }}' from the registry; skipping cluster-side
-      cleanup (Argo CD Application, helm release, namespace).
-  when:
-    - _delete_query is succeeded
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-    - not _k8s_api_reachable
+# Probe K8s API reachability up front and record _k8s_api_reachable so
+# downstream cluster-side cleanup can be skipped cleanly when the cluster
+# is gone. No-op on Compose.
+- name: Probe orchestrator API reachability
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/delete_probe_k8s_api.yml
 
 - name: Discover unregistered instance
   when: _delete_query is failed
@@ -223,28 +194,38 @@
     - not (_inst_dir.stat.exists | default(false))
     - _instance_registered | default(false) | bool
   block:
-    - name: Switch to local for controller deregistration
+    # Save inbound connection state into one dict, switch + deregister
+    # inside a block so an `always:` restore fires even if the registry
+    # write fails. See resolve_instance.yml for the full rationale and
+    # commits 0d392a6 / b7d3ed2 for why delegate_to: localhost is not a
+    # safe substitute here.
+    - name: Save connection state before controller deregistration
       ansible.builtin.set_fact:
-        _saved_host: "{{ ansible_host | default('localhost') }}"
-        _saved_conn: "{{ ansible_connection | default('local') }}"
-        _saved_user: "{{ ansible_user | default('') }}"
-        _saved_python: "{{ ansible_python_interpreter | default('auto') }}"
-        ansible_host: "localhost"
-        ansible_connection: "local"
-        ansible_user: ""
-        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+        _del_saved:
+          host: "{{ ansible_host | default('localhost') }}"
+          conn: "{{ ansible_connection | default('local') }}"
+          user: "{{ ansible_user | default('') }}"
+          python: "{{ ansible_python_interpreter | default('auto') }}"
 
-    - name: Deregister already-removed instance from controller
-      canasta_registry:
-        id: "{{ instance_id }}"
-        state: absent
+    - block:
+        - name: Switch to local for controller deregistration
+          ansible.builtin.set_fact:
+            ansible_host: "localhost"
+            ansible_connection: "local"
+            ansible_user: ""
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-    - name: Restore connection for target deregistration
-      ansible.builtin.set_fact:
-        ansible_host: "{{ _saved_host }}"
-        ansible_connection: "{{ _saved_conn }}"
-        ansible_user: "{{ _saved_user }}"
-        ansible_python_interpreter: "{{ _saved_python }}"
+        - name: Deregister already-removed instance from controller
+          canasta_registry:
+            id: "{{ instance_id }}"
+            state: absent
+      always:
+        - name: Restore connection for target deregistration
+          ansible.builtin.set_fact:
+            ansible_host: "{{ _del_saved.host }}"
+            ansible_connection: "{{ _del_saved.conn }}"
+            ansible_user: "{{ _del_saved.user }}"
+            ansible_python_interpreter: "{{ _del_saved.python }}"
 
     - name: Deregister already-removed instance from target host
       canasta_registry:
@@ -263,28 +244,33 @@
 # if subsequent cleanup steps fail (e.g., directory already gone from
 # a previous partial delete). Better to have an orphaned directory
 # than an orphaned registry entry.
-- name: Temporarily switch to local for controller deregistration
+- name: Save connection state before controller deregistration
   ansible.builtin.set_fact:
-    _saved_ansible_host: "{{ ansible_host | default('localhost') }}"
-    _saved_ansible_connection: "{{ ansible_connection | default('local') }}"
-    _saved_ansible_user: "{{ ansible_user | default('') }}"
-    _saved_ansible_python: "{{ ansible_python_interpreter | default('auto') }}"
-    ansible_host: "localhost"
-    ansible_connection: "local"
-    ansible_user: ""
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    _del_saved:
+      host: "{{ ansible_host | default('localhost') }}"
+      conn: "{{ ansible_connection | default('local') }}"
+      user: "{{ ansible_user | default('') }}"
+      python: "{{ ansible_python_interpreter | default('auto') }}"
 
-- name: Deregister instance from controller
-  canasta_registry:
-    id: "{{ instance_id }}"
-    state: absent
+- block:
+    - name: Switch to local for controller deregistration
+      ansible.builtin.set_fact:
+        ansible_host: "localhost"
+        ansible_connection: "local"
+        ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-- name: Restore connection after controller deregistration
-  ansible.builtin.set_fact:
-    ansible_host: "{{ _saved_ansible_host }}"
-    ansible_connection: "{{ _saved_ansible_connection }}"
-    ansible_user: "{{ _saved_ansible_user }}"
-    ansible_python_interpreter: "{{ _saved_ansible_python }}"
+    - name: Deregister instance from controller
+      canasta_registry:
+        id: "{{ instance_id }}"
+        state: absent
+  always:
+    - name: Restore connection after controller deregistration
+      ansible.builtin.set_fact:
+        ansible_host: "{{ _del_saved.host }}"
+        ansible_connection: "{{ _del_saved.conn }}"
+        ansible_user: "{{ _del_saved.user }}"
+        ansible_python_interpreter: "{{ _del_saved.python }}"
 
 - name: Deregister instance from target host
   canasta_registry:
@@ -292,38 +278,11 @@
     state: absent
   when: _instance_host | default('localhost') != 'localhost'
 
-# Clean up container-owned files (important on Linux where files are
-# owned by www-data). Uses 'docker compose run' instead of 'exec' so
-# it works even when containers are stopped or unhealthy.
-- name: Clean up container-owned files (Compose)
-  ansible.builtin.command:
-    cmd: >-
-      docker compose run --rm --no-deps -T web
-      find /mediawiki/images /mediawiki/config /mediawiki/public_assets
-      -mindepth 1 -delete
-    chdir: "{{ instance_path }}"
-  when: instance_orchestrator | default('compose') == 'compose'
-  changed_when: true
-  ignore_errors: true  # OK if containers already removed
-
-- name: Clean up container-owned files (Kubernetes)
-  when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-    - _k8s_api_reachable | default(true)
-  block:
-    - name: Check if K8s pods are running
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: check_running.yml
-      ignore_errors: true  # OK if pods not running
-
-    - name: Remove files inside K8s pod
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-      vars:
-        exec_service: web
-        exec_command: "find /mediawiki/images /mediawiki/config /mediawiki/public_assets -mindepth 1 -delete 2>/dev/null || true"
-      ignore_errors: true  # OK if dirs already empty or missing
-      when: _container_running | default(false) | bool
+# Remove instance content files via the orchestrator (Compose uses
+# `docker compose run`; K8s execs into the web pod when reachable).
+- name: Clean up container-owned files
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/delete_cleanup_files.yml
 
 # Remove backup schedule from crontab
 - name: Remove backup schedule
@@ -333,32 +292,31 @@
   ignore_errors: true  # OK if no crontab entry exists
 
 - name: Remove Argo CD Application if present
-  kubernetes.core.k8s:
-    state: absent
-    api_version: argoproj.io/v1alpha1
-    kind: Application
-    name: "canasta-{{ instance_id }}"
-    namespace: "{{ argocd_namespace | default('argocd') }}"
-  ignore_errors: true  # OK if Argo CD not installed
-  when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-    - _k8s_api_reachable | default(true)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/delete_remove_argocd_app.yml
 
 - name: Destroy containers and volumes
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: destroy.yml
   ignore_errors: true  # OK if already destroyed
-  when: >-
-    instance_orchestrator | default('compose') == 'compose'
-    or _k8s_api_reachable | default(true)
+  # Compose never sets _k8s_api_reachable, so default(true) runs destroy;
+  # K8s skips only when the cluster API was probed unreachable. destroy.yml
+  # itself dispatches Compose vs K8s.
+  when: _k8s_api_reachable | default(true)
 
+# Require a non-trivial absolute path before running 'find -delete'.
+# 'length > 5' rejects '/', '/a', '/ab', '/abc' — values short enough to
+# be plausibly the result of a corrupted registry or unset variable, and
+# 'find / -mindepth 1 -delete' is unrecoverable.
 - name: Remove instance directory contents
   ansible.builtin.command:
     cmd: "find {{ instance_path | quote }} -mindepth 1 -delete"
     chdir: "/"
   changed_when: true
-  when: instance_path | default('') | length > 0
+  when:
+    - instance_path | default('') | length > 5
+    - instance_path | default('') is match('^/')
   ignore_errors: true  # OK if some files can't be removed
   register: _rmdir_contents
 
@@ -367,7 +325,9 @@
     cmd: "rmdir {{ instance_path | quote }}"
     chdir: "/"
   changed_when: true
-  when: instance_path | default('') | length > 0
+  when:
+    - instance_path | default('') | length > 5
+    - instance_path | default('') is match('^/')
   ignore_errors: true  # OK if dir is cwd or already gone
   register: _rmdir
 

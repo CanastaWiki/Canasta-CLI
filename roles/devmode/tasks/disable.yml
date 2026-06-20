@@ -1,5 +1,5 @@
 ---
-# canasta devmode disable - Full implementation matching Go devmode.DisableDevMode().
+# canasta devmode disable.
 # Restores extensions/skins from symlinks to real directories.
 # Input: id (optional)
 
@@ -11,6 +11,8 @@
     msg: "Dev mode is only supported for local instances."
   when: _instance_host | default('localhost') != 'localhost'
 
+# Validation: devmode is Compose-only. No K8s-equivalent action to
+# dispatch to; kept here by design.
 - name: Not applicable for Kubernetes
   ansible.builtin.fail:
     msg: >-

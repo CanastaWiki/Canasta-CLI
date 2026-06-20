@@ -1,7 +1,0 @@
----
-# canasta maintenance script - Run a MediaWiki maintenance script.
-
-- name: Maintenance script
-  ansible.builtin.include_role:
-    name: maintenance
-    tasks_from: script.yml

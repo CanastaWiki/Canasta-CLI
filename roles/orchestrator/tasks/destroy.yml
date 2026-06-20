@@ -14,7 +14,7 @@
 
     - name: Remove backup staging volume
       ansible.builtin.command:
-        cmd: "docker volume rm {{ instance_path | basename }}-backup"
+        cmd: "docker volume rm canasta-backup-{{ instance_path | basename }}"
       changed_when: true
       ignore_errors: true  # OK if volume doesn't exist
 

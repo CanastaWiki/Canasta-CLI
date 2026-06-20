@@ -3,7 +3,6 @@
 
 """Ansible module for reading and writing Canasta .env files.
 
-Replaces the Go canasta.GetEnvVariable/SaveEnvVariable functions.
 Handles comments, quoted values, and values containing '=' characters.
 """
 
@@ -16,7 +15,7 @@ module: canasta_env
 short_description: Manage Canasta .env files
 description:
   - Read, set, and unset variables in a Canasta instance .env file.
-  - Compatible with the Go CLI's .env file format.
+  - Operates on the standard .env file format.
 options:
   path:
     description: Path to the .env file.
@@ -25,7 +24,7 @@ options:
   state:
     description: Action to perform.
     type: str
-    choices: [read, read_all, set, unset]
+    choices: [read, read_all, set, unset, lint]
     default: read_all
   key:
     description: Environment variable name.
@@ -71,6 +70,39 @@ def parse_env_file(content):
     return entries
 
 
+def lint_env_file(content):
+    """Find .env hygiene problems that survive read-time quote-stripping but
+    reach `docker --env-file` literally.
+
+    parse_env_file() strips surrounding quotes when reading, so a value like
+    RESTIC_PASSWORD="secret" looks correct via `canasta config get` — but
+    Docker's --env-file does NOT strip quotes, so the container sees the
+    quotes (and any trailing CR from CRLF endings) as part of the value. For
+    restic that surfaces as an opaque "wrong password" / auth failure.
+
+    Returns (quoted_keys, has_crlf): the keys whose values are wrapped in
+    matching quotes, and whether the file uses CRLF line endings.
+    """
+    has_crlf = "\r" in content
+    quoted_keys = []
+    for line in content.split("\n"):
+        # Tolerate a trailing CR so key detection still works on CRLF files.
+        stripped = line.rstrip("\r").strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split("=", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if len(value) >= 2 and (
+            (value.startswith('"') and value.endswith('"'))
+            or (value.startswith("'") and value.endswith("'"))
+        ):
+            quoted_keys.append(key)
+    return quoted_keys, has_crlf
+
+
 def entries_to_dict(entries):
     """Convert parsed entries to a dict (last value wins for duplicates)."""
     result = {}
@@ -94,7 +126,7 @@ def entries_to_content(entries):
 def set_variable(entries, key, value):
     """Set a variable, updating in place if it exists or appending if not.
 
-    Matches Go behavior: updates first occurrence, skips duplicate lines for same key.
+    Updates the first occurrence, skips duplicate lines for the same key.
     """
     found = False
     new_entries = []
@@ -119,7 +151,7 @@ def unset_variable(entries, key):
 def run_module():
     module_args = dict(
         path=dict(type="str", required=True),
-        state=dict(type="str", default="read_all", choices=["read", "read_all", "set", "unset"]),
+        state=dict(type="str", default="read_all", choices=["read", "read_all", "set", "unset", "lint"]),
         key=dict(type="str", required=False),
         value=dict(type="str", required=False),
         keys=dict(type="list", elements="str", required=False),
@@ -150,6 +182,11 @@ def run_module():
 
     if state == "read_all":
         result["variables"] = env_dict
+
+    elif state == "lint":
+        quoted_keys, has_crlf = lint_env_file(content)
+        result["quoted_keys"] = quoted_keys
+        result["has_crlf"] = has_crlf
 
     elif state == "read":
         if not key:

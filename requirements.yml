@@ -1,4 +1,8 @@
 ---
 collections:
+  # 6.4.0 added Helm 4 CLI support. Earlier versions reject
+  # Helm 4 with "Helm version must be >=3.0.0,<4.0.0", which
+  # blocks canasta create on K8s for any operator whose system
+  # helm is brew's default (now Helm 4). See #525.
   - name: kubernetes.core
-    version: ">=3.0.0"
+    version: ">=6.4.0"

@@ -1,18 +1,42 @@
 ---
-# GitOps init (Compose) - Full 13-step workflow matching Go implementation.
+# GitOps init (Compose) - full 13-step workflow.
 # Input: id, host_name, role, repo, key, force, pull_requests
 # Requires: instance_path, instance_id (set by dispatcher)
 
 # --- Step 1: Validate prerequisites ---
+# git-crypt's package depends on git, so checking git-crypt covers both;
+# the `canasta install ... git-crypt` recovery path also pulls in git
+# transitively.
 - name: Check git is installed
   ansible.builtin.command:
     cmd: "git --version"
+  register: _git_check
   changed_when: false
+  ignore_errors: true
+
+- name: Fail if git is not installed
+  ansible.builtin.fail:
+    msg: >-
+      git is not installed on the gitops target host.
+      Install it with: canasta install -i {{ instance_id }} git-crypt
+      (or `canasta install -H <host> git-crypt`) — the git-crypt
+      package pulls in git as a dependency.
+  when: _git_check.rc | default(1) != 0
 
 - name: Check git-crypt is installed
   ansible.builtin.command:
     cmd: "git-crypt --version"
+  register: _gitcrypt_check
   changed_when: false
+  ignore_errors: true
+
+- name: Fail if git-crypt is not installed
+  ansible.builtin.fail:
+    msg: >-
+      git-crypt is not installed on the gitops target host.
+      Install it with: canasta install -i {{ instance_id }} git-crypt
+      (or `canasta install -H <host> git-crypt`).
+  when: _gitcrypt_check.rc | default(1) != 0
 
 # --- Step 1b: Configure git identity if provided ---
 - name: Set git user.name on target host
@@ -42,6 +66,10 @@
   when: _git_identity.rc != 0
 
 # --- Step 2: Check no existing repo ---
+- name: Reinit — wipe partial gitops state before re-running init
+  ansible.builtin.include_tasks: _reinit_cleanup.yml
+  when: reinit | default(false) | bool
+
 - name: Check for existing .git directory
   ansible.builtin.stat:
     path: "{{ instance_path }}/.git"
@@ -49,7 +77,12 @@
 
 - name: Fail if git repo already exists
   ansible.builtin.fail:
-    msg: "GitOps already initialized ({{ instance_path }}/.git exists). Use 'gitops join' to join an existing repo."
+    msg: >-
+      GitOps already initialized ({{ instance_path }}/.git exists).
+      Use 'gitops join' to attach this host to an existing remote
+      repo, or pass --reinit to wipe the local gitops state and
+      retry (typical when a previous init died mid-run before the
+      git push succeeded).
   when: _existing_git.stat.exists
 
 # --- Step 3: Key file overwrite check skipped ---
@@ -60,6 +93,7 @@
 - name: Check remote is empty
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
+  environment: "{{ gitops_git_env }}"
   register: _remote_check
   changed_when: false
   ignore_errors: true  # OK if remote unreachable
@@ -333,7 +367,7 @@
 
 - name: Initial commit
   ansible.builtin.command:
-    cmd: "git commit -m 'Initial gitops configuration'"
+    cmd: "git -c commit.gpgsign=false commit -m 'Initial gitops configuration'"
     chdir: "{{ instance_path }}"
   changed_when: true
 
@@ -347,6 +381,7 @@
   ansible.builtin.command:
     cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }} -u origin main"
     chdir: "{{ instance_path }}"
+  environment: "{{ gitops_git_env }}"
   changed_when: true
 
 - name: Report gitops initialized

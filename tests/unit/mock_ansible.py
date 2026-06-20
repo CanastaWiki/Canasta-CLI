@@ -1,7 +1,6 @@
 """Mock AnsibleModule for testing run_module() functions."""
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class MockAnsibleModule:

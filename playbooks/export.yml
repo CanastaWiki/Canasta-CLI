@@ -1,6 +1,6 @@
 ---
 # canasta export - Export a wiki's database.
-# Uses container temp file + copy to host (matching Go behavior).
+# Uses container temp file + copy to host.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -24,7 +24,10 @@
 
 - name: Resolve output path
   ansible.builtin.set_fact:
-    _export_file: "{{ _export_raw if _export_raw.startswith('/') else (lookup('env', 'CANASTA_HOST_PWD') | default(lookup('env', 'PWD'), true)) + '/' + _export_raw }}"
+    _export_file: >-
+      {{ _export_raw if _export_raw.startswith('/')
+      else (lookup('env', 'CANASTA_HOST_PWD')
+      | default(lookup('env', 'PWD'), true)) + '/' + _export_raw }}
 
 - name: Check if gzip requested
   ansible.builtin.set_fact:
@@ -35,6 +38,7 @@
   vars:
     exec_service: db
     exec_no_log: true
+    exec_long: true
     exec_command: >-
       mariadb-dump -u root
       -p{{ _export_db_password | quote }}
@@ -53,26 +57,15 @@
   ansible.builtin.set_fact:
     _container_file: "/tmp/{{ wiki }}.sql{{ (_export_gzip | bool) | ternary('.gz', '') }}"
 
-- name: Copy dump from container to host (Compose)
-  ansible.builtin.command:
-    cmd: "docker compose cp {{ ('db:' + _container_file) | quote }} {{ _export_file | quote }}"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  when: instance_orchestrator | default('compose') == 'compose'
-
-- name: Copy dump from container to host (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-  block:
-    - name: Get DB pod name
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_get_pod.yml"
-      vars:
-        _k8s_namespace: "canasta-{{ instance_id }}"
-        _k8s_component: db
-
-    - name: Copy dump via kubectl cp
-      ansible.builtin.command:
-        cmd: "kubectl cp canasta-{{ instance_id }}/{{ _k8s_pod_name }}:{{ _container_file }} {{ _export_file }}"
-      changed_when: true
+# The orchestrator owns how a file is copied out of the db container
+# (docker compose cp vs kubectl cp); dispatch.
+- name: Copy dump from the db container to the host
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/copy_from_container.yml
+  vars:
+    copy_service: db
+    copy_src: "{{ _container_file }}"
+    copy_dest: "{{ _export_file }}"
 
 - name: Clean up temp files in container
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"

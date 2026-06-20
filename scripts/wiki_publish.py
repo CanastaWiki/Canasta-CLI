@@ -2,9 +2,8 @@
 """Generate wikitext reference pages from Canasta command definitions
 and optionally publish them to a MediaWiki wiki.
 
-Reads meta/command_definitions.yml and generates wikitext pages in the
-same format as the Go CLI's wiki-publish tool. Pages use the Help:
-namespace prefix instead of CLI: to distinguish Ansible docs.
+Reads meta/command_definitions.yml and generates one wikitext page per
+command under the CLI: namespace prefix.
 
 Usage:
     # Dry run (print pages to stdout)
@@ -13,11 +12,13 @@ Usage:
     # Write to files
     python scripts/wiki_publish.py --out docs/wiki/
 
-    # Publish to wiki
+    # Publish to wiki (add --prune to delete orphaned CLI: pages left
+    # behind by renamed or removed commands)
     python scripts/wiki_publish.py \
         --api https://canasta.wiki/w/api.php \
         --user User@BotName \
-        --pass botpassword
+        --pass botpassword \
+        --prune
 """
 
 import argparse
@@ -38,6 +39,13 @@ DEFINITIONS_PATH = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
 PAGE_PREFIX = "CLI:"
 EDIT_DELAY = 2  # seconds between edits
+HTTP_TIMEOUT = 30  # seconds; a hung wiki API must not stall the publish
+
+
+class PermissionDeniedError(RuntimeError):
+    """The bot account lacks the right for an API action (e.g. delete
+    requires the Administrators group). Treated as a skip, not a
+    publish failure."""
 
 
 def load_definitions():
@@ -86,15 +94,16 @@ def _group_subcommands(group_name):
     return []
 
 CMD_GROUPS = [
-    ("System", ["install", "doctor", "host", "storage", "uninstall"]),
-    ("Instance Management", [
-        "create", "delete", "list", "upgrade", "version", "config",
+    ("System", ["install", "doctor", "host", "storage", "argocd", "uninstall"]),
+    ("Instance management", [
+        "create", "delete", "list", "status", "upgrade", "version", "config",
     ]),
-    ("Wiki Management", ["add", "remove", "import", "export"]),
-    ("Container Lifecycle", ["start", "stop", "restart"]),
-    ("Extensions & Skins", ["extension", "skin"]),
+    ("Wiki management", ["add", "remove", "import", "export"]),
+    ("Container lifecycle", ["start", "stop", "restart", "rebuild", "scale"]),
+    ("Extensions & skins", ["extension", "skin"]),
     ("Maintenance", ["maintenance", "sitemap"]),
-    ("Data Protection", ["backup", "gitops"]),
+    ("Security", ["crowdsec"]),
+    ("Data protection", ["backup", "gitops"]),
     ("Development", ["devmode"]),
 ]
 
@@ -243,7 +252,7 @@ def _global_flags_section(global_flags):
     """
     if not global_flags:
         return []
-    lines = ["=== Global Flags ===", ""]
+    lines = ["=== Global flags ===", ""]
     lines.append('{| class="wikitable"')
     lines.append(
         "! Flag !! Shorthand !! Description "
@@ -531,10 +540,11 @@ def generate_all_pages(data):
     """Generate all wiki pages from command definitions."""
     pages = []
     cmd_index = {c["name"]: c for c in data["commands"]}
+    group_index = {g["name"]: g for g in data.get("command_groups", [])}
 
     # Root page
     root_lines = [
-        "== Canasta CLI Reference ==",
+        "== Canasta CLI reference ==",
         "",
         "Ansible-based management tool for Canasta MediaWiki.",
         "",
@@ -543,13 +553,24 @@ def generate_all_pages(data):
         root_lines.append("=== %s ===" % heading)
         root_lines.append("")
         for name in names:
+            # CMD_GROUPS entries are either leaf commands (in cmd_index)
+            # or subcommand-group keys (in SUBCOMMAND_GROUPS). Render both:
+            # leaf commands link their generated page; group keys link the
+            # group landing page. Skipping groups blanks whole sections
+            # (Extensions & skins, Maintenance, Security, Data protection,
+            # Development are all groups).
             if name in cmd_index:
-                cmd = cmd_index[name]
+                desc = cmd_index[name].get("description", "")
                 link = cmd_page_title(name)
-                root_lines.append(
-                    "* [[%s|canasta %s]] — %s"
-                    % (link, name, cmd.get("description", ""))
-                )
+            elif name in SUBCOMMAND_GROUPS:
+                desc = group_index.get(name, {}).get("description", "")
+                link = cmd_page_title(name)
+            else:
+                continue
+            sep = " — " + _backticks_to_code(desc) if desc else ""
+            root_lines.append(
+                "* [[%s|canasta %s]]%s" % (link, name, sep)
+            )
         root_lines.append("")
     root_lines.append("{{Reference Manual}}")
     pages.append((PAGE_PREFIX + "canasta", "\n".join(root_lines)))
@@ -571,7 +592,6 @@ def generate_all_pages(data):
     # command set. Description and synopsis come from `command_groups:`
     # in command_definitions.yml; missing entries fall back to a generic
     # "Manage canasta <group>" stub.
-    group_index = {g["name"]: g for g in data.get("command_groups", [])}
     for group_name in _all_group_names():
         group_def = group_index.get(group_name, {})
         pages.append((
@@ -583,7 +603,7 @@ def generate_all_pages(data):
         ))
 
     # Menu page
-    menu_lines = ["* # | Canasta CLI Reference"]
+    menu_lines = ["* # | Canasta CLI reference"]
     for heading, names in CMD_GROUPS:
         menu_lines.append("** # | %s" % heading)
         for name in names:
@@ -655,14 +675,14 @@ class MediaWikiClient:
     def _post(self, params):
         data = urllib.parse.urlencode(params).encode()
         req = urllib.request.Request(self.api_url, data=data)
-        with self.opener.open(req) as resp:
+        with self.opener.open(req, timeout=HTTP_TIMEOUT) as resp:
             return json.loads(resp.read())
 
     def _get_token(self, token_type):
         url = "%s?action=query&meta=tokens&type=%s&format=json" % (
             self.api_url, token_type,
         )
-        with self.opener.open(url) as resp:
+        with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
             data = json.loads(resp.read())
         return data["query"]["tokens"][token_type + "token"]
 
@@ -700,6 +720,59 @@ class MediaWikiClient:
                 "Edit failed: %s" % result.get("edit", {}).get("result")
             )
 
+    def resolve_namespace_id(self, name):
+        """Return the namespace id whose canonical or localized name
+        matches `name` (e.g. 'CLI'), or None if the wiki has no such
+        namespace."""
+        url = (
+            "%s?action=query&meta=siteinfo&siprop=namespaces&format=json"
+            % self.api_url
+        )
+        with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
+            data = json.loads(resp.read())
+        for ns in data["query"]["namespaces"].values():
+            if name in (ns.get("*"), ns.get("canonical")):
+                return ns["id"]
+        return None
+
+    def list_pages_in_namespace(self, ns_id):
+        """Return all page titles in the given namespace (paginated)."""
+        titles = []
+        apcontinue = None
+        while True:
+            url = (
+                "%s?action=query&list=allpages&apnamespace=%d"
+                "&aplimit=500&format=json" % (self.api_url, ns_id)
+            )
+            if apcontinue:
+                url += "&apcontinue=" + urllib.parse.quote(apcontinue)
+            with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
+                data = json.loads(resp.read())
+            titles.extend(
+                p["title"] for p in data["query"]["allpages"]
+            )
+            cont = data.get("continue", {}).get("apcontinue")
+            if not cont:
+                break
+            apcontinue = cont
+        return titles
+
+    def delete_page(self, title, reason):
+        token = self._get_token("csrf")
+        result = self._post({
+            "action": "delete",
+            "title": title,
+            "reason": reason,
+            "token": token,
+            "format": "json",
+        })
+        if "error" in result:
+            code = result["error"]["code"]
+            msg = "API error: %s: %s" % (code, result["error"]["info"])
+            if code == "permissiondenied":
+                raise PermissionDeniedError(msg)
+            raise RuntimeError(msg)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -712,6 +785,11 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Generate pages without uploading",
+    )
+    parser.add_argument(
+        "--prune", action="store_true",
+        help="Delete CLI: pages that are no longer generated "
+             "(orphans from renamed/removed commands)",
     )
     args = parser.parse_args()
 
@@ -757,6 +835,9 @@ def main():
             print("ERROR uploading %s: %s" % (title, e), file=sys.stderr)
             errors += 1
 
+    if args.prune:
+        errors += prune_orphans(client, pages)
+
     if errors:
         print(
             "Failed to publish %d of %d pages" % (errors, len(pages)),
@@ -764,6 +845,88 @@ def main():
         )
         sys.exit(1)
     print("Done: %d pages published" % len(pages))
+
+
+def _normalize_title(title):
+    """Canonicalize a title the way MediaWiki does, so generated titles
+    compare equal to the titles the API returns. MediaWiki treats
+    underscores as spaces and (with the default $wgCapitalLinks) upper-
+    cases the first letter of the page name. The generator emits
+    'CLI:canasta ...' (lowercase) but the stored page is 'CLI:Canasta
+    ...'; without this normalization every page looks like an orphan."""
+    title = title.replace("_", " ").strip()
+    prefix, sep, name = title.partition(":")
+    if not sep:
+        prefix, name = "", title
+    else:
+        prefix = prefix + ":"
+    name = name.strip()
+    if name:
+        name = name[0].upper() + name[1:]
+    return prefix + name
+
+
+def prune_orphans(client, pages):
+    """Delete CLI: pages on the wiki that the current run no longer
+    generates. Returns the number of deletion errors."""
+    ns_name = PAGE_PREFIX.rstrip(":")
+    ns_id = client.resolve_namespace_id(ns_name)
+    if ns_id is None:
+        print(
+            "WARNING: no '%s' namespace on the wiki; skipping prune"
+            % ns_name,
+            file=sys.stderr,
+        )
+        return 0
+
+    generated = {_normalize_title(title) for title, _ in pages}
+    existing = client.list_pages_in_namespace(ns_id)
+    orphans = [t for t in existing if _normalize_title(t) not in generated]
+
+    if not orphans:
+        print("No orphaned %s pages to prune" % PAGE_PREFIX)
+        return 0
+
+    # Safety valve: real orphans (renamed/removed commands) are few. An
+    # implausibly large orphan set means the comparison is broken (e.g. a
+    # title-normalization regression), so refuse to delete rather than
+    # risk wiping the namespace. This is a hard failure to draw attention.
+    safety_limit = max(10, len(existing) // 4)
+    if len(orphans) > safety_limit:
+        print(
+            "ERROR: prune would delete %d of %d %s pages (safety limit "
+            "%d) — refusing. This indicates a title-matching bug, not "
+            "real orphans; no pages were deleted."
+            % (len(orphans), len(existing), PAGE_PREFIX, safety_limit),
+            file=sys.stderr,
+        )
+        return 1
+
+    errors = 0
+    for i, title in enumerate(orphans):
+        try:
+            client.delete_page(
+                title, "Orphaned Canasta CLI reference (command removed)"
+            )
+            print("Deleted orphan %s" % title)
+        except PermissionDeniedError as e:
+            # The bot can't delete (needs Administrators). Every orphan
+            # would fail the same way, so warn once with the full list
+            # for manual cleanup and don't fail the publish job.
+            remaining = orphans[i:]
+            print(
+                "WARNING: cannot delete orphaned %s pages (%s). "
+                "%d page(s) need manual deletion by an administrator: %s"
+                % (PAGE_PREFIX, e, len(remaining), ", ".join(remaining)),
+                file=sys.stderr,
+            )
+            return errors
+        except Exception as e:
+            print(
+                "ERROR deleting %s: %s" % (title, e), file=sys.stderr
+            )
+            errors += 1
+    return errors
 
 
 if __name__ == "__main__":

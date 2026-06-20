@@ -1,7 +1,6 @@
 *.pyc
 __pycache__/
 *.retry
-.molecule/
 .cache/
 .pytest_cache/
 *.egg-info/

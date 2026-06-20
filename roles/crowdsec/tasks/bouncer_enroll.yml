@@ -1,0 +1,113 @@
+---
+# canasta crowdsec bouncer-enroll - register the Caddy bouncer with the
+# CrowdSec engine, persist its API key, and restart so it starts enforcing.
+# Input: id (optional), force (bool), bouncer_enroll_auto (bool — set by the
+# start/create auto-enroll path to suppress the interactive "already
+# enrolled" hint on steady-state starts).
+
+- name: Preflight (resolve, crowdsec running, build cscli prefix)
+  ansible.builtin.include_tasks: _preflight.yml
+
+- name: Read current bouncer key from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CROWDSEC_BOUNCER_API_KEY
+  register: _crowdsec_key
+
+# Poll until the LAPI answers; `cscli bouncers` calls fail until the engine
+# is up (it may still be booting straight after a start).
+- name: Wait for the CrowdSec LAPI to be ready
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} cscli lapi status"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_lapi
+  until: _crowdsec_lapi.rc == 0
+  retries: 30
+  delay: 2
+  changed_when: false
+
+- name: List registered bouncers
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} cscli bouncers list -o json"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_bouncers
+  changed_when: false
+
+# cscli prints "null" (not "[]") when no bouncers exist, so coalesce to
+# an empty list before parsing.
+- name: Parse bouncer list
+  ansible.builtin.set_fact:
+    _crowdsec_bouncer_list: "{{ ((_crowdsec_bouncers.stdout | trim) or '[]') | from_json }}"
+
+- name: Determine enrollment state
+  ansible.builtin.set_fact:
+    _crowdsec_existing: >-
+      {{ 'canasta-caddy' in
+         ((_crowdsec_bouncer_list or []) | map(attribute='name') | list) }}
+    _crowdsec_have_key: "{{ _crowdsec_key.value | default('') | length > 0 }}"
+
+- name: Report already enrolled (idempotent no-op)
+  ansible.builtin.debug:
+    msg: >-
+      CrowdSec bouncer 'canasta-caddy' is already enrolled and a key is
+      stored for instance '{{ instance_id }}'. Nothing to do — use
+      --force to revoke it and issue a fresh key.
+  when:
+    - _crowdsec_existing | bool
+    - _crowdsec_have_key | bool
+    - not (force | default(false) | bool)
+    - not (bouncer_enroll_auto | default(false) | bool)
+
+# Enroll when forced, when no bouncer is registered yet, or when one is
+# registered but we have no stored key (cscli can't reveal an existing
+# key, so the only way to recover is to revoke and re-issue).
+- name: Enroll the bouncer
+  when: >-
+    (force | default(false) | bool)
+    or (not (_crowdsec_existing | bool))
+    or (not (_crowdsec_have_key | bool))
+  block:
+    - name: Revoke existing bouncer registration
+      ansible.builtin.command:
+        cmd: "{{ _cscli_prefix }} cscli bouncers delete canasta-caddy --ignore-missing"
+        chdir: "{{ _cscli_chdir | default(omit) }}"
+      changed_when: true
+      when: _crowdsec_existing | bool
+
+    - name: Register the bouncer and capture its API key
+      ansible.builtin.command:
+        cmd: "{{ _cscli_prefix }} cscli bouncers add canasta-caddy -o raw"
+        chdir: "{{ _cscli_chdir | default(omit) }}"
+      register: _crowdsec_add
+      changed_when: true
+      no_log: true
+
+    - name: Announce key storage and restart
+      ansible.builtin.debug:
+        msg: >-
+          Registered bouncer 'canasta-caddy'. Storing its key and
+          restarting to activate it...
+
+    # config set carries the key into the .env / gitops-vars writes, which
+    # are no_log'd at the task level on a secret-key match. no_log here would
+    # not propagate into the included role anyway, and would also hide the
+    # restart output we want to surface.
+    #
+    # Pass the key via config_settings_override, NOT settings: this enroll
+    # runs inside the restart that the original `config set` triggered, where
+    # `settings` is an extra-var that include_role vars cannot override. Using
+    # `settings` here would silently re-apply the outer setting, never store
+    # the key, and loop the restart/auto-enroll cycle forever.
+    - name: Store the key, re-render the Caddyfile, and restart
+      ansible.builtin.include_role:
+        name: config
+        tasks_from: set.yml
+      vars:
+        config_settings_override: "CROWDSEC_BOUNCER_API_KEY={{ _crowdsec_add.stdout | trim }}"
+
+    - name: Report success
+      ansible.builtin.debug:
+        msg: >-
+          CrowdSec bouncer 'canasta-caddy' is enrolled and active for
+          instance '{{ instance_id }}'.

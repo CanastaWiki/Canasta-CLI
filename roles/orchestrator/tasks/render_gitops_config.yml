@@ -1,0 +1,13 @@
+---
+# Re-render a gitops instance's rendered files for this orchestrator.
+# Compose: re-render .env / wikis.yaml / admin password files from
+# env.template + host vars. Kubernetes: no-op — K8s gitops uses a
+# different layout (values.template.yaml + k8s_sync_config), so
+# render_compose does not apply.
+# Input: instance_path, instance_orchestrator
+
+- name: Re-render gitops templates (Compose)
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: render_compose.yml
+  when: instance_orchestrator | default('compose') == 'compose'

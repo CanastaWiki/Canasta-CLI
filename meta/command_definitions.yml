@@ -140,8 +140,32 @@ command_groups:
   - name: backup_schedule
     description: "Manage scheduled backups"
     long_description: |
-      Manage recurring backup schedules using crontab. Backup output
-      is logged to `backup.log` in the instance directory.
+      Manage recurring backup schedules. The implementation differs
+      by orchestrator:
+
+      **Compose** instances use a host crontab entry that runs
+      `canasta backup create -i <id> --tag scheduled` on the schedule.
+      Output goes to `backup.log` in the instance directory; failures
+      are visible there and via `tail -F`. Requires the `cron` package
+      on the host (Debian: `apt install cron`).
+
+      **Kubernetes** instances use a `CronJob` named
+      `canasta-backup-<id>` in the instance namespace. The Job pod
+      runs a `dump-databases` init container (mariadb-dump for every
+      DB on the configured `MYSQL_HOST`) followed by a `restic`
+      container that snapshots the instance's PVCs. Both containers
+      `envFrom` a `canasta-<id>-backup-env` Secret that's synced from
+      the instance's `.env` and contains restic + cloud-backend
+      credentials (`RESTIC_*`, `AWS_*`, `B2_*`, `AZURE_*`,
+      `GOOGLE_*`, `OS_*`, `ST_*`) plus `MYSQL_HOST` / `MYSQL_USER`
+      / `MYSQL_PASSWORD`. The CronJob keeps the last 3 successful
+      and 7 failed Jobs for post-mortem.
+
+      When a scheduled K8s backup fails, the operator finds it via
+      `kubectl get jobs -n canasta-<id>` (status `Failed`) and
+      `kubectl logs -n canasta-<id> job/<name>` for the dump or
+      restic error. Watch out for the failed-history limit cycling
+      old failures off the cluster after seven runs.
 
   - name: gitops
     description: "Git-based configuration management"
@@ -175,6 +199,50 @@ command_groups:
       All three accept `--host` to dispatch via SSH to the
       controlling host. See [[Help:Multi-node Kubernetes]].
 
+  - name: crowdsec
+    description: "Manage CrowdSec threat detection"
+    long_description: |
+      Manage the optional CrowdSec security feature on a Compose or
+      Kubernetes instance. Enable or disable CrowdSec itself with
+      `canasta config set CANASTA_ENABLE_CROWDSEC=true|false` (the
+      same pattern as the other optional features); this group covers
+      the steps that don't reduce to a single config value:
+
+      * `bouncer-enroll` registers the Caddy bouncer with the CrowdSec
+        engine, captures the generated API key, stores it as
+        `CROWDSEC_BOUNCER_API_KEY`, and restarts so the bouncer starts
+        enforcing decisions. This now happens automatically the first
+        time the instance starts after CrowdSec is enabled; run it by
+        hand only to force a fresh key (`--force`).
+      * `console-enroll` connects the engine to the CrowdSec Console
+        (app.crowdsec.net) for the full community blocklist. Optional —
+        the engine already pulls the smaller "Lite" community blocklist
+        via the Central API by default.
+      * `reload` restarts just the engine to apply changes (an accepted
+        console enrollment, whitelist edits) without restarting the whole
+        instance.
+      * `status` shows the registered bouncers and the currently active
+        IP decisions.
+      * `scenarios` lists the loaded collections and scenarios so you
+        can confirm behavioral detection is active.
+      * `alerts` shows the attacks CrowdSec has detected (the detection
+        history), complementing `status` (the bans in force right now).
+      * `metrics` shows engine throughput — the quickest check that the
+        Caddy access log is actually being read.
+      * `ban` / `unban` add or remove a manual decision for an IP,
+        independent of CrowdSec's automatic detection.
+
+      Durable detection tuning (whitelisting trusted IPs, custom rules)
+      is done by editing `config/crowdsec/whitelists.yaml` in the
+      instance directory — a version-controlled file, like
+      `Caddyfile.global`.
+
+      On Kubernetes the engine runs as a sidecar in the Caddy pod and the
+      same subcommands work via `kubectl exec`. Because Caddy always sits
+      behind the in-cluster ingress there, CrowdSec auto-trusts the cluster
+      pod CIDRs (override with `CADDY_TRUSTED_PROXY_CIDRS`) so it attributes
+      decisions to the real client IP rather than the ingress.
+
 commands:
   # ---------------------------------------------------------------------------
   # Instance lifecycle
@@ -194,6 +262,14 @@ commands:
         short: H
         type: string
         description: "Target host for the new instance (default: localhost)"
+      - name: docker_host
+        type: string
+        description: >-
+          Docker API socket on the target. Set this when the target
+          uses rootless podman (typically `unix:///run/user/<uid>/podman/podman.sock`)
+          or rootless Docker. Persisted to the instance registry so
+          subsequent `start`, `stop`, `config set`, etc. inherit it.
+          Leave unset for system Docker on `/var/run/docker.sock`.
       - name: path
         short: p
         type: path
@@ -393,7 +469,7 @@ commands:
       Docker volumes.
     examples:
       - "canasta stop"
-    direct_only: true
+    playbook: stop.yml
     parameters:
       - name: id
         short: i
@@ -416,6 +492,42 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+
+  - name: rebuild
+    description: "Rebuild custom images for a Canasta instance"
+    long_description: |
+      Rebuild every service that has a `build:` directive in the
+      merged compose config (docker-compose.override.yml or
+      docker-compose.dev.yml) and restart the instance to pick up
+      the rebuilt image.
+
+      Use this after editing a custom Dockerfile, or after changing
+      the base CANASTA_IMAGE when you want to refresh a layered
+      custom image. `canasta upgrade` also performs the same
+      rebuild automatically when the configured image changes;
+      `canasta rebuild` is the standalone form for cases where the
+      operator wants to rebuild without an upgrade.
+
+      Compose only. Kubernetes instances must build and push their
+      custom image to a registry manually.
+    examples:
+      - "canasta rebuild"
+      - "canasta rebuild -i mywiki --no-cache"
+      - "canasta rebuild --no-restart"
+    direct_only: true
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: no_cache
+        type: bool
+        default: false
+        description: "Pass --no-cache to docker compose build"
+      - name: no_restart
+        type: bool
+        default: false
+        description: "Build images but skip the restart afterward"
 
   - name: list
     description: "List all registered Canasta instances"
@@ -498,17 +610,32 @@ commands:
       Verify that the target host has the tools required for its
       orchestrator: Docker + Docker Compose for Compose installs,
       or kubectl + Helm for Kubernetes installs. Also reports
-      status of optional tools (git, git-crypt, rsync) and system
+      status of optional tools (git, git-crypt, crontab) and system
       resources (memory, disk space).
     examples:
       - "canasta doctor"
       - "canasta doctor --host prod1.example.com"
-    playbook: doctor.yml
+      - "canasta doctor -i mysite"
+    direct_only: true
     parameters:
       - name: host
         short: H
         type: string
         description: "Target host (default: localhost)"
+      - name: docker_host
+        type: string
+        description: >-
+          Docker API socket on the target. Set this when the target
+          uses rootless podman or rootless Docker (e.g.
+          `unix:///run/user/1000/podman/podman.sock`). Defaults to
+          system Docker's `/var/run/docker.sock`.
+      - name: id
+        short: i
+        type: string
+        description: >-
+          Canasta instance ID — check the host where this instance is
+          registered. Mutually exclusive with --host; --host wins if
+          both are given.
 
   - name: install
     description: "Install dependencies on the target host"
@@ -545,12 +672,28 @@ commands:
       - "canasta install k8s-cp --public-ip 203.0.113.10"
       - "canasta install --host node2 k8s-worker --cp-host node1"
       - "canasta install docker git-crypt"
+      - "canasta install -i mysite git-crypt"
     playbook: install.yml
     parameters:
       - name: host
         short: H
         type: string
         description: "Target host (default: localhost)"
+      - name: docker_host
+        type: string
+        description: >-
+          Docker API socket on the target. Set this when the target
+          uses rootless podman or rootless Docker (e.g.
+          `unix:///run/user/1000/podman/podman.sock`). Defaults to
+          system Docker's `/var/run/docker.sock`.
+      - name: id
+        short: i
+        type: string
+        description: >-
+          Canasta instance ID — install on the host where this instance
+          is registered. Mutually exclusive with --host; --host wins
+          if both are given. Useful after `canasta create` to add
+          dependencies (e.g. git-crypt) to the instance's host.
       - name: packages
         type: string
         positional: true
@@ -597,6 +740,12 @@ commands:
         short: H
         type: string
         description: "Target host (default: localhost)"
+      - name: docker_host
+        type: string
+        description: >-
+          Docker API socket on the target. Set this when the target
+          uses rootless podman or rootless Docker. Defaults to system
+          Docker's `/var/run/docker.sock`.
       - name: packages
         type: string
         positional: true
@@ -621,8 +770,17 @@ commands:
     long_description: |
       Upgrade all registered Canasta instances by refreshing configs,
       pulling latest images, running migrations, and restarting containers.
+
+      By default the CLI itself updates to the latest released version
+      within the current major (the highest vX.Y.Z tag whose major matches
+      the installed version), so an upgrade never crosses a major boundary
+      on its own. Pass --allow-major to move to the latest release overall,
+      including a new major version (which may include breaking changes).
+      Pass --dev to track the development branch (head of main) instead.
     examples:
       - "canasta upgrade"
+      - "canasta upgrade --allow-major"
+      - "canasta upgrade --dev"
       - "canasta upgrade --dry-run"
     playbook: upgrade.yml
     parameters:
@@ -630,6 +788,14 @@ commands:
         type: bool
         default: false
         description: "Preview changes without applying"
+      - name: dev
+        type: bool
+        default: false
+        description: "Track the development branch (head of main) instead of the latest release"
+      - name: allow_major
+        type: bool
+        default: false
+        description: "Allow upgrading across a major version boundary to the latest release overall (may include breaking changes)"
 
   # ---------------------------------------------------------------------------
   # Wiki management
@@ -1046,7 +1212,7 @@ commands:
     examples:
       - "canasta maintenance update"
       - "canasta maintenance update -w mywiki --skip-jobs"
-    playbook: maintenance_update.yml
+    direct_only: true
     parameters:
       - name: id
         short: i
@@ -1073,7 +1239,9 @@ commands:
 
       With no arguments, lists all available maintenance scripts.
       With one or more arguments, runs the specified script. The
-      script name is relative to the `maintenance/` directory.
+      script name is relative to the `maintenance/` directory. The
+      `.php` suffix is optional — `createAndPromote` and
+      `createAndPromote.php` are both valid.
 
       Flags (`-i`, `--wiki`) must come before the script name.
       Everything after the script name is treated as script
@@ -1082,8 +1250,9 @@ commands:
       In a wiki farm, runs on all wikis by default. Use `--wiki` to
       target a specific wiki.
     examples:
-      - "canasta maintenance script -- rebuildall.php"
-    playbook: maintenance_script.yml
+      - "canasta maintenance script rebuildall"
+      - "canasta maintenance script createAndPromote SomeUser --sysop"
+    direct_only: true
     parameters:
       - name: id
         short: i
@@ -1101,26 +1270,22 @@ commands:
   - name: maintenance_extension
     description: "Run extension maintenance scripts"
     long_description: |
-      Run maintenance scripts provided by loaded MediaWiki
-      extensions.
+      Run maintenance scripts provided by MediaWiki extensions.
 
-      With no arguments, lists all loaded extensions that have a
-      `maintenance/` directory. With one argument (extension name),
-      lists available maintenance scripts for that extension. With
-      two or more arguments (extension name, script name, and
-      optional script arguments), runs the specified script.
+      With no arguments, lists all installed extensions that have a
+      `maintenance/` directory. With arguments, runs the specified
+      script using MediaWiki's `run.php` wrapper with the extension-
+      prefix syntax `<ExtName>:<scriptName>`. The `.php` suffix is
+      optional. Anything after the script name is passed through as
+      script arguments — no quotes needed.
 
-      Flags (`-i`, `--wiki`) must come before the extension name.
-      Everything after the extension name is treated as the script
-      and its arguments — no quotes needed.
-
-      Only extensions that are currently loaded (enabled) for the
-      target wiki are shown and allowed to run. In a wiki farm, runs
-      on all wikis by default. Use `--wiki` to target a specific
-      wiki.
+      In a wiki farm, runs on all wikis by default. Use `--wiki` to
+      target a specific wiki.
     examples:
       - "canasta maintenance extension"
-    playbook: maintenance_extension.yml
+      - "canasta maintenance extension Cite:fixHTMLOutputForCite"
+      - "canasta maintenance extension SemanticMediaWiki:rebuildData -v"
+    direct_only: true
     parameters:
       - name: id
         short: i
@@ -1142,9 +1307,15 @@ commands:
 
       With no arguments and no --service flag, lists the running services.
       The default service is "web" (the MediaWiki container).
+
+      Use --stdin-file to feed a file to the command's standard input — for
+      example, piping wikitext to `maintenance/run.php edit <page>`. The
+      file is read on the controller, so it works for local, remote, and
+      Kubernetes targets alike. Content is read as text (UTF-8).
     examples:
       - "canasta maintenance exec -- ls /var/www/mediawiki"
       - "canasta maintenance exec -s db -- mariadb-admin ping -h localhost"
+      - "canasta maintenance exec --stdin-file page.txt -- php run.php edit 'Main Page'"
     playbook: maintenance_exec.yml
     parameters:
       - name: id
@@ -1159,10 +1330,252 @@ commands:
         short: w
         type: string
         description: "Wiki ID"
+      - name: stdin_file
+        type: path
+        description: "File fed to the command's standard input (e.g. wikitext for an edit), read as UTF-8 on the controller."
       - name: exec_args
         type: string
         positional: true
         description: "Command and arguments to execute"
+
+  # ---------------------------------------------------------------------------
+  # CrowdSec
+  # ---------------------------------------------------------------------------
+  - name: crowdsec_bouncer_enroll
+    description: "Register the Caddy bouncer with the CrowdSec engine"
+    long_description: |
+      Register the Caddy bouncer with the running CrowdSec engine,
+      store the generated API key as CROWDSEC_BOUNCER_API_KEY, and
+      restart so the bouncer begins enforcing decisions.
+
+      Enabling CrowdSec
+      (`canasta config set CANASTA_ENABLE_CROWDSEC=true`) now enrolls the
+      bouncer automatically on the next start, so you rarely need to run
+      this by hand. It is idempotent: if the bouncer is already enrolled
+      and a key is stored, it reports success and does nothing. Use
+      `--force` to revoke the existing bouncer and issue a fresh key
+      (e.g. to rotate a key, or recover one that drifted out of sync).
+      Distinct from `console-enroll`, which connects the engine to the
+      cloud CrowdSec Console.
+    examples:
+      - "canasta crowdsec bouncer-enroll"
+      - "canasta crowdsec bouncer-enroll -i mysite"
+      - "canasta crowdsec bouncer-enroll -i mysite --force"
+    playbook: crowdsec_bouncer_enroll.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: force
+        short: f
+        type: bool
+        default: false
+        description: "Revoke the existing bouncer and issue a fresh key"
+
+  - name: crowdsec_console_enroll
+    description: "Connect CrowdSec to the Console for the full community blocklist"
+    long_description: |
+      Enroll this instance's CrowdSec engine in the CrowdSec Console
+      (https://app.crowdsec.net) to unlock the full community blocklist
+      plus any console-managed third-party blocklists.
+
+      This is optional. Without it, the engine still pulls the smaller
+      "Lite" community blocklist automatically via the Central API — so
+      CrowdSec already blocks crowd-sourced IPs out of the box; console
+      enrollment just upgrades that to the full list.
+
+      Get an enrollment key from the Console (Security Engines → Enroll),
+      run this command, then return to the Console to accept the pending
+      engine and subscribe it to the blocklists you want. Distinct from
+      `canasta crowdsec bouncer-enroll`, which registers the local Caddy
+      bouncer with the engine.
+    examples:
+      - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx"
+      - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx --name prod1"
+      - "canasta crowdsec console-enroll cssde-xxxxxxxxxxxx -i mysite"
+    playbook: crowdsec_console_enroll.yml
+    parameters:
+      - name: key
+        type: string
+        positional: true
+        required: true
+        description: "Console enrollment key from app.crowdsec.net"
+      - name: name
+        type: string
+        description: "Instance name to show in the Console"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_reload
+    description: "Restart the CrowdSec engine to apply changes"
+    long_description: |
+      Restart the CrowdSec engine to apply pending changes without
+      restarting the whole instance. Use it after accepting a console
+      enrollment or after editing `config/crowdsec/whitelists.yaml`.
+      On Compose only the engine container bounces, so the Caddy bouncer
+      keeps enforcing its cached decisions throughout; on Kubernetes the
+      engine is a sidecar in the Caddy pod, so the pod rolls and Caddy
+      blips briefly. Note that community and console blocklists arrive on
+      CrowdSec's own pull cycle (about every 2 hours), which a restart does
+      not force.
+
+      After you unsubscribe a list — or delete the engine — in the Console,
+      the engine keeps enforcing the IPs it already pulled from that list:
+      they stay in its local decision DB and the Caddy bouncer keeps blocking
+      them. It just stops receiving updates (a free-tier engine gets no
+      reconcile, since that is a paid PAPI order). That frozen snapshot is
+      usually fine to leave in place. Purge it only when you actually want to
+      STOP blocking those IPs: add `--purge-blocklist <name>` (one list, by the
+      name shown under "Console blocklists in effect" in `canasta crowdsec
+      status`) or `--purge-blocklists` (all). Lists you are still subscribed to
+      refill on the next pull cycle.
+    examples:
+      - "canasta crowdsec reload"
+      - "canasta crowdsec reload -i mysite"
+      - "canasta crowdsec reload --purge-blocklist firehol_cruzit_web_attacks"
+      - "canasta crowdsec reload --purge-blocklists"
+    playbook: crowdsec_reload.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: purge_blocklist
+        type: string
+        description: "Stop blocking one console blocklist's cached IPs, by the name shown in status"
+      - name: purge_blocklists
+        type: bool
+        default: false
+        description: "Stop blocking all cached console-blocklist IPs"
+
+  - name: crowdsec_status
+    description: "Show CrowdSec bouncers and active decisions"
+    long_description: |
+      Show the bouncers registered with the CrowdSec engine and the IP
+      decisions (bans, captchas) currently in effect. Read-only.
+    examples:
+      - "canasta crowdsec status"
+      - "canasta crowdsec status -i mysite"
+    playbook: crowdsec_status.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_ban
+    description: "Block an IP via a manual CrowdSec decision"
+    long_description: |
+      Add a manual CrowdSec decision blocking an IP address, independent
+      of the engine's automatic detection. Defaults to a 4-hour ban.
+    examples:
+      - "canasta crowdsec ban 203.0.113.50"
+      - "canasta crowdsec ban 203.0.113.50 --duration 24h --reason scraper"
+      - "canasta crowdsec ban 203.0.113.50 -i mysite"
+    playbook: crowdsec_ban.yml
+    parameters:
+      - name: ip
+        type: string
+        positional: true
+        required: true
+        description: "IP address to block"
+      - name: duration
+        type: string
+        description: "Ban duration (e.g. 4h, 24h, 7d). Default: CrowdSec's 4h"
+      - name: reason
+        type: string
+        description: "Reason recorded with the decision"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_unban
+    description: "Remove a manual CrowdSec decision for an IP"
+    long_description: |
+      Remove CrowdSec decisions for an IP address (e.g. lift a ban added
+      by `canasta crowdsec ban` or by automatic detection).
+    examples:
+      - "canasta crowdsec unban 203.0.113.50"
+      - "canasta crowdsec unban 203.0.113.50 -i mysite"
+    playbook: crowdsec_unban.yml
+    parameters:
+      - name: ip
+        type: string
+        positional: true
+        required: true
+        description: "IP address to unblock"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_scenarios
+    description: "List the loaded CrowdSec detection (collections and scenarios)"
+    long_description: |
+      Show the detection logic the CrowdSec engine has loaded: the
+      installed hub collections (e.g. `crowdsecurity/caddy`,
+      `crowdsecurity/http-cve`) and the individual scenarios they
+      provide. Use it to confirm behavioral detection is active — the
+      bundled `crowdsecurity/caddy` collection covers aggressive
+      crawling and known scraper/bot user-agents out of the box.
+      Replaces reaching for `docker compose exec crowdsec cscli
+      scenarios list`. Read-only.
+    examples:
+      - "canasta crowdsec scenarios"
+      - "canasta crowdsec scenarios -i mysite"
+    playbook: crowdsec_scenarios.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_alerts
+    description: "Show recent CrowdSec alerts (detected attacks)"
+    long_description: |
+      List the alerts the CrowdSec engine has raised — the attacks and
+      probes its scenarios have detected over time. Unlike
+      `canasta crowdsec status`, which shows the IP decisions currently
+      being enforced, alerts include the detection history (and
+      community/console-sourced events), so this answers "is CrowdSec
+      actually catching anything?". Optionally filter by source IP.
+      Read-only.
+    examples:
+      - "canasta crowdsec alerts"
+      - "canasta crowdsec alerts --ip 203.0.113.50"
+      - "canasta crowdsec alerts -i mysite"
+    playbook: crowdsec_alerts.yml
+    parameters:
+      - name: ip
+        type: string
+        description: "Show only alerts for this source IP"
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: crowdsec_metrics
+    description: "Show CrowdSec engine throughput metrics"
+    long_description: |
+      Show the CrowdSec engine's metrics: log lines read from the Caddy
+      access log, how often each scenario has fired, and how many
+      decisions each bouncer has pulled. The quickest way to confirm
+      detection is flowing — a parsed-lines count of zero means the
+      engine isn't seeing the Caddy log, which no other command reveals.
+      Read-only.
+    examples:
+      - "canasta crowdsec metrics"
+      - "canasta crowdsec metrics -i mysite"
+    playbook: crowdsec_metrics.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
 
   # ---------------------------------------------------------------------------
   # DevMode
@@ -1426,10 +1839,11 @@ commands:
     long_description: |
       Remove backup snapshots that exceed the specified retention
       policy and reclaim disk space. At least one retention flag
-      (`--older-than` or `--keep-last`) is required.
+      (e.g. `--keep-within` or `--keep-last`) is required. The
+      retention flags mirror restic's `forget` options.
     examples:
       - "canasta backup purge --keep-last 5"
-      - "canasta backup purge --older-than 30d"
+      - "canasta backup purge --keep-within 30d"
     playbook: backup_purge.yml
     parameters:
       - name: id
@@ -1445,25 +1859,54 @@ commands:
       - name: keep_daily
         type: string
         description: "Number of daily backups to keep"
+      - name: keep_weekly
+        type: string
+        description: "Number of weekly backups to keep"
       - name: keep_monthly
         type: string
         description: "Number of monthly backups to keep"
-      - name: older_than
+      - name: keep_yearly
         type: string
-        description: "Purge backups older than this (e.g. 30d, 6m)"
+        description: "Number of yearly backups to keep"
+      - name: keep_within
+        type: string
+        description: "Keep all backups made within this duration (e.g. 30d, 6m)"
+      - name: keep_tag
+        type: string
+        description: "Keep backups that have this tag"
 
   - name: backup_schedule_set
     description: "Set a recurring backup schedule"
     long_description: |
-      Schedule recurring backups using a cron expression. This adds
-      or updates a crontab entry that runs `canasta backup create`
-      on the specified schedule. Backup output is logged to
-      `backup.log` in the instance directory.
+      Schedule recurring backups using a cron expression. The cron
+      expression follows the standard 5-field format
+      `minute hour day-of-month month day-of-week`.
 
-      Use `--purge-older-than` to automatically purge old backups
-      after each scheduled backup.
+      On **Compose**, this writes a host crontab entry that runs
+      `canasta backup create -i <id> --tag scheduled` on the
+      schedule. Output goes to `backup.log` in the instance
+      directory.
+
+      On **Kubernetes**, this creates a `CronJob` named
+      `canasta-backup-<id>` in the instance namespace. The Job pod
+      runs `mariadb-dump` per database followed by `restic backup`
+      against the configured `RESTIC_REPOSITORY`. Both steps consume
+      credentials via the `canasta-<id>-backup-env` Secret —
+      including any cloud-backend env (`AWS_*`, `B2_*`, `AZURE_*`,
+      `GOOGLE_*`) the user set in `.env`. To inspect the rendered
+      schedule and resources, use `kubectl get cronjob
+      canasta-backup-<id> -n canasta-<id> -o yaml`.
+
+      Use `--purge-older-than` to chain `restic forget --prune
+      --keep-within <duration>` after each backup, so old snapshots
+      are pruned without a separate maintenance run.
+
+      Setting a new schedule replaces the existing one in place
+      (same crontab entry name on Compose, same CronJob name on
+      Kubernetes); duplicates aren't created.
     examples:
       - "canasta backup schedule set '0 2 * * *'"
+      - "canasta backup schedule set '0 3 * * *' --purge-older-than 30d"
     playbook: backup_schedule_set.yml
     parameters:
       - name: id
@@ -1484,6 +1927,14 @@ commands:
     long_description: |
       Show the current backup schedule for this instance, if one
       exists.
+
+      On Compose, queries the host crontab and parses the
+      `canasta backup create -i <id>` entry. On Kubernetes, queries
+      the `canasta-backup-<id>` CronJob in the instance namespace.
+      Reports the schedule expression and whether a `--purge-older-
+      than` is wired in. "No backup schedule found" means no entry
+      exists for this instance on the orchestrator's native
+      scheduling surface.
     examples:
       - "canasta backup schedule list"
     playbook: backup_schedule_list.yml
@@ -1496,8 +1947,11 @@ commands:
   - name: backup_schedule_remove
     description: "Remove a scheduled backup"
     long_description: |
-      Remove the crontab entry for recurring backups of this
-      instance.
+      Remove the recurring backup schedule for this instance. On
+      Compose this deletes the host crontab entry; on Kubernetes
+      this deletes the `canasta-backup-<id>` CronJob. A Job that's
+      already running at the moment the schedule is removed
+      finishes naturally — only future firings stop.
     examples:
       - "canasta backup schedule remove"
     playbook: backup_schedule_remove.yml
@@ -1515,6 +1969,12 @@ commands:
     long_description: |
       Bootstrap git-based configuration management. Converts extensions
       and skins to submodules and pushes to a remote repository.
+
+      On Compose, per-host vars.yaml is encrypted with git-crypt so
+      secrets stay out of the repo at rest. On Kubernetes, secrets
+      live in K8s Secrets (created by `canasta create`) rather than
+      in the gitops repo, so the K8s repo is cleartext and Argo CD
+      can read rendered-values.yaml directly.
     examples:
       - "canasta gitops init -n prod --repo git@github.com:org/config.git --key /tmp/gc.key"
     playbook: gitops_init.yml
@@ -1541,11 +2001,35 @@ commands:
       - name: key
         type: path
         required: true
-        description: "Path to export the git-crypt key"
+        description: >-
+          Path basename for the gitops keys. The SSH deploy key is
+          derived as `<key>.ssh` (private) and `<key>.ssh.pub`
+          (public — register this as a deploy key on the forge).
+          On Compose, `<key>` itself also receives the git-crypt
+          symmetric key for unlocking encrypted vars on other hosts.
+          K8s does not use git-crypt; the parameter only affects
+          the SSH key path there.
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: force
         type: bool
         default: false
         description: "Force push to non-empty remote"
+      - name: reinit
+        type: bool
+        default: false
+        description: >-
+          Wipe local gitops state (.git, .gitops-host, env.template,
+          wikis.yaml.template, hosts/, plus K8s chart files) before
+          starting. Use after a previous init died mid-run, e.g.
+          before the git push succeeded. Submodule structure is not
+          fully restorable — extensions whose conversion finished
+          before the failure may end up tracked as flat directories.
       - name: pull_requests
         type: bool
         default: false
@@ -1562,10 +2046,11 @@ commands:
     long_description: |
       Join an existing gitops repository for a Canasta instance.
 
-      Clones the repo, unlocks git-crypt with the provided key,
-      adds this host to the host inventory, extracts host-specific
-      values into `vars.yaml`, and pushes the new host entry back
-      to the repo.
+      Clones the repo, adds this host to the host inventory, extracts
+      host-specific values into `vars.yaml`, and pushes the new host
+      entry back to the repo. On Compose this also unlocks git-crypt
+      so encrypted vars become readable; K8s repos are cleartext and
+      need no unlock step.
 
       The instance must already exist and have a working `.env`
       file. Use `canasta gitops init` to bootstrap a new gitops
@@ -1591,7 +2076,27 @@ commands:
       - name: key
         type: path
         required: true
-        description: "Path to git-crypt key"
+        description: >-
+          Path basename for the gitops keys, same as `gitops init`.
+          On Compose, `<key>` is the git-crypt symmetric key. On K8s,
+          only `<key>.ssh` (the SSH deploy key) is used — git-crypt
+          is not part of the K8s gitops flow.
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the generated `<key>.ssh` deploy key on Kubernetes.
+      - name: reinit
+        type: bool
+        default: false
+        description: >-
+          Wipe local gitops state before joining. Use after a
+          previous init or join died mid-run and left this instance
+          unable to retry. Also re-attaches a host that is already
+          registered in the repo (the registration is updated in
+          place rather than rejected as a duplicate).
       - name: git_user_name
         type: string
         description: "Git user.name for commits on the target host (set if not already configured)"
@@ -1642,10 +2147,12 @@ commands:
   - name: gitops_push
     description: "Push configuration changes to the git repository"
     long_description: |
-      Commit staged changes and push to the remote repository. Files
-      must be staged first using `canasta gitops add`. When
-      `pull_requests` is enabled in `hosts.yaml`, creates a branch
-      and opens a pull request instead of pushing directly to main.
+      Commit staged changes and push to the remote repository. Stage
+      changes first with `canasta gitops add`; commits already made by
+      other commands (such as `canasta gitops fix-submodules`) are also
+      pushed even when nothing is staged. When `pull_requests` is enabled
+      in `hosts.yaml`, creates a branch and opens a pull request instead
+      of pushing directly to main.
     examples:
       - "canasta gitops push"
       - "canasta gitops push -m 'Add docs wiki'"
@@ -1659,6 +2166,13 @@ commands:
         short: m
         type: string
         description: "Commit message (defaults to 'Configuration update')"
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the staged deploy key on Kubernetes.
 
   - name: gitops_pull
     description: "Pull latest configuration from the git repository"
@@ -1675,6 +2189,13 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for git network operations. When
+          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
+          Omit to keep the default: ssh-agent forwarding on Compose,
+          or the staged deploy key on Kubernetes.
 
   - name: gitops_status
     description: "Show gitops status for the instance"
@@ -1689,22 +2210,35 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: ssh_key
+        type: path
+        description: >-
+          Path to an SSH private key for the remote fetch. When set,
+          git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...". Omit
+          to keep the default: ssh-agent forwarding on Compose, or
+          the staged deploy key on Kubernetes.
 
   - name: gitops_diff
     description: "Show local and remote changes since the branches diverged"
     long_description: |
-      Show uncommitted working tree changes, then fetch the latest
-      from the remote and show what files have changed locally, what
-      files have changed on the remote, and which files have changed
-      in both (potential merge conflicts).
+      Show the actual patch for uncommitted working tree changes, for
+      local commits not yet pushed, and for remote commits that would
+      be applied on the next pull. Each section is headed by its file
+      count. Use --stat to show a diffstat summary instead of the full
+      patch.
     examples:
       - "canasta gitops diff"
+      - "canasta gitops diff --stat"
     playbook: gitops_diff.yml
     parameters:
       - name: id
         short: i
         type: string
         description: "Canasta instance ID"
+      - name: stat
+        type: bool
+        default: false
+        description: "Show a diffstat summary instead of the full patch"
 
   - name: gitops_fix_submodules
     description: "Convert extensions and skins to proper git submodules"
@@ -1898,6 +2432,52 @@ commands:
         short: H
         type: string
         description: "Target host (default: localhost)"
+
+  - name: scale
+    description: "Set the number of replicas for the web tier (Kubernetes)"
+    long_description: |
+      Set the number of replicas for the web tier of a Canasta
+      instance running on Kubernetes. The new count is persisted to
+      the instance's `values.yaml` and applied via `helm upgrade`,
+      so it survives a later `canasta upgrade` (which would
+      otherwise reset the chart's default).
+
+      Multi-replica web requires a ReadWriteMany storage class for
+      the config and images PVCs. With ReadWriteOnce, additional
+      pods will fail to start with `Multi-Attach` errors — see
+      `canasta storage list` and `canasta storage setup`.
+
+      Kubernetes-only by design. Compose runs all replicas on a
+      single host with no built-in load balancing between them, so
+      the multi-replica model that motivates this command (spread
+      across cluster nodes, fault tolerance, horizontal capacity)
+      doesn't apply. If you need more concurrency on a Compose
+      instance, raise PHP-FPM worker limits inside the web image
+      rather than running multiple replicas of the same container.
+
+      Only `web` is currently supported. The Helm chart's other
+      Deployments (jobrunner, caddy, varnish) run a single replica
+      and do not accept a replica-count override.
+    examples:
+      - "canasta scale -i mysite --replicas 3"
+    direct_only: true
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: replicas
+        short: r
+        type: integer
+        required: true
+        description: "Desired replica count (must be ≥ 1)"
+      - name: component
+        short: c
+        type: string
+        default: web
+        description: >-
+          Component to scale. Currently only `web` is supported;
+          other values are rejected.
 
   - name: status
     description: "Show pod/PVC/ingress/cert state for a single instance"

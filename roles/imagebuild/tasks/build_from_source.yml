@@ -1,6 +1,5 @@
 ---
 # Build Canasta image from local source.
-# Mirrors Go imagebuild.BuildFromSource().
 #
 # Input: build_from (path to workspace containing Canasta/ and optionally CanastaBase/)
 # Output fact: _built_image (str: "canasta:local")

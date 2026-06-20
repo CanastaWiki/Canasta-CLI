@@ -1,11 +1,10 @@
 ---
 # canasta upgrade - Upgrade all registered Canasta instances.
-# Auto-checks for playbook updates first (matching Go CLI's self-update behavior),
-# then upgrades all instances.
-
-# --- Auto-check for playbook updates ---
-- name: Pull latest playbooks before upgrading
-  ansible.builtin.include_tasks: _pull_latest_playbooks.yml
+# The CLI self-update (git pull on the install dir) happens in
+# canasta.py before this playbook runs — see canasta.self_update_cli.
+# That keeps the running ansible-playbook process from holding a
+# stale ansible.cfg / module_utils path in memory across a pull
+# (#489).
 
 # --- Upgrade instances ---
 - name: Get all instances

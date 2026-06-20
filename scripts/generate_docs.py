@@ -2,7 +2,7 @@
 """Generate documentation from Canasta command definitions.
 
 Reads meta/command_definitions.yml and generates Markdown documentation
-for each command (analogous to Cobra's doc.GenMarkdownTree).
+for each command.
 
 Usage:
     # Generate all docs to a directory

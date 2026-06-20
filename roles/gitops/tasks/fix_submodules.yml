@@ -2,6 +2,9 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+# Input validation rejecting an operation that does not apply on K8s
+# (extensions are image-bundled, not git submodules) — no Compose-
+# equivalent action to dispatch to. Kept in place by design.
 - name: Not applicable for Kubernetes
   ansible.builtin.fail:
     msg: >-
@@ -146,7 +149,9 @@
 
     - name: Commit recovered .gitmodules entries
       ansible.builtin.command:
-        cmd: "git commit -m 'Register orphan submodule gitlinks in .gitmodules'"
+        cmd: >-
+          git -c commit.gpgsign=false
+          commit -m 'Register orphan submodule gitlinks in .gitmodules'
         chdir: "{{ instance_path }}"
       changed_when: true
       register: _recover_commit

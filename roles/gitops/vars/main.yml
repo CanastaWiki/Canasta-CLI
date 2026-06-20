@@ -11,21 +11,54 @@ gitops_placeholder_keys:
   - MW_SITE_FQDN
   - HTTPS_PORT
   - HTTP_PORT
+  - CADDY_AUTO_HTTPS
+  # Optional edge-security features. These are per-host toggles and
+  # credentials, so a gitops render/pull must preserve them rather than
+  # reset them to the off state captured at init time. CANASTA_CADDY_IMAGE
+  # and COMPOSE_PROFILES are intentionally absent: both are re-derived from
+  # these flags by sync_compose_profiles on every start, so storing them
+  # would only freeze a value the start sequence already reconciles.
+  - CANASTA_ENABLE_CROWDSEC
+  - CROWDSEC_BOUNCER_API_KEY
+  - CADDY_TRUSTED_PROXIES
 
 # Keys whose name starts with any of these prefixes are treated as
 # credentials and get placeholders in env.template.
 gitops_secret_prefix_pattern: "^(AWS_|AZURE_|B2_|GOOGLE_|OS_|ST_|RCLONE_|SMTP_)"
 
-# Credential-class prefixes (lowercase) whose values belong in
-# hosts/_shared/vars.yaml rather than per-host vars.yaml. Auto-migrated
-# on gitops push.
-gitops_shared_credential_prefixes:
-  - restic_
-  - aws_
-  - azure_
-  - b2_
-  - google_
-  - os_
-  - st_
-  - rclone_
-  - smtp_
+# Keys (lowercase) whose values belong in hosts/_shared/vars.yaml
+# rather than per-host vars.yaml. Auto-migrated on gitops push.
+#
+# Default policy: per-host. A key only joins this list when sharing it
+# across hosts is the right default — the value is opaque secret
+# material that doesn't change between dev / staging / prod, like API
+# credentials and encryption passwords.
+#
+# Environment-identifying values — bucket names, repository URLs,
+# regions, endpoints, hostnames — stay per-host so dev / staging /
+# prod can address different infrastructure under one gitops repo.
+gitops_shared_keys:
+  - aws_access_key_id
+  - aws_secret_access_key
+  - restic_password
+  - smtp_password
+  - smtp_user
+
+# Environment applied to every git command in the Compose-side gitops
+# flows (init, push, pull, join). accept-new lets the first contact
+# with a forge (github.com etc.) silently add its host key instead of
+# failing with "Host key verification failed".
+#
+# When the operator passes --ssh-key, git authenticates with that
+# private key (`-i <ssh_key>`). Otherwise, pair with ForwardAgent=yes
+# in ANSIBLE_SSH_ARGS (set by canasta.py) so the operator's local
+# ssh-agent reaches the target host and authenticates against private
+# repos without per-host deploy keys. The Kubernetes gitops flows
+# generate their own deploy key and override GIT_SSH_COMMAND with
+# `-i <key>`, so this default doesn't apply there.
+gitops_git_env:
+  GIT_SSH_COMMAND: >-
+    ssh{{ (ssh_key | default('') | length > 0)
+    | ternary(' -i ' ~ (ssh_key | default('')), '') }}
+    -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile=~/.ssh/known_hosts

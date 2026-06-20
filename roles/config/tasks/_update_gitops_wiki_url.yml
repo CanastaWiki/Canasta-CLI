@@ -1,0 +1,35 @@
+---
+# Propagate a single wiki's URL to the gitops vars.yaml under the
+# wiki_url_<id> placeholder that wikis.yaml.template references. A
+# domain/port change made via 'config set' rewrites config/wikis.yaml
+# (rendered) but not the template source; without this the next
+# 'config regenerate' / 'gitops pull' re-renders the old URL.
+# Input: _gw_wiki (dict with 'id' and 'url'), _config_host_raw, instance_path
+
+- name: Determine vars file path
+  ansible.builtin.set_fact:
+    _gw_vars_file: >-
+      {{ instance_path }}/hosts/{{ _config_host_raw.content | b64decode | trim }}/vars.yaml
+
+- name: Read current vars
+  ansible.builtin.slurp:
+    src: "{{ _gw_vars_file }}"
+  register: _gw_vars_raw
+
+- name: Update wiki_url value
+  ansible.builtin.set_fact:
+    _gw_updated_vars: >-
+      {{ (_gw_vars_raw.content | b64decode | from_yaml)
+         | combine({'wiki_url_' + _gw_wiki.id: _gw_wiki.url}) }}
+
+- name: Write updated vars.yaml
+  ansible.builtin.copy:
+    content: "{{ _gw_updated_vars | to_nice_yaml(indent=2) }}"
+    dest: "{{ _gw_vars_file }}"
+    mode: "0644"
+
+- name: Stage updated vars.yaml
+  ansible.builtin.command:
+    cmd: "git add {{ _gw_vars_file }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true

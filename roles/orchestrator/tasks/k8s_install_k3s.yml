@@ -44,12 +44,23 @@
         msg: "Adding to k3s API server TLS cert: {{ public_ip | join(', ') }}"
       when: (public_ip | default([])) | length > 0
 
+    # INSTALL_K3S_VERSION pins the release so the installer downloads it
+    # directly from GitHub instead of asking update.k3s.io to resolve a
+    # channel — removing that single point of failure and keeping every
+    # node in the cluster on the same version (see canasta_k3s_version).
+    # Launched detached and polled (resilient_exec): the installer downloads
+    # and sets up k3s over a minute or more, and a controller-side SSH reset
+    # mid-install would otherwise abort it. The k3s installer is idempotent,
+    # so a re-run after a reset is safe.
     - name: Download and install k3s
-      ansible.builtin.shell:
-        cmd: >-
-          curl -sfL https://get.k3s.io |
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+      vars:
+        rx_name: "install k3s"
+        rx_async: 600
+        rx_cmd: >-
+          curl -sfL --retry 3 --retry-delay 5 https://get.k3s.io |
+          INSTALL_K3S_VERSION={{ canasta_k3s_version | quote }}
           INSTALL_K3S_EXEC={{ _k3s_install_exec | quote }} sh -
-      changed_when: true
 
     - name: Make k3s kubeconfig readable (before verification)
       ansible.builtin.file:
@@ -70,6 +81,21 @@
       delay: 5
       changed_when: false
 
+# Preserve the real client IP at the ingress. The k3s-bundled Traefik
+# LoadBalancer defaults to externalTrafficPolicy: Cluster, which SNATs the
+# source IP before it reaches Traefik/Caddy — breaking CrowdSec (all traffic
+# looks private and is whitelisted) and accurate access logs. Dropping a k3s
+# HelmChartConfig flips it to Local durably; k3s auto-applies manifests from
+# this dir and the helm-controller reconciles Traefik (redeploys it on an
+# existing cluster). Runs for fresh and existing clusters (outside the
+# install-only block above).
+- name: Preserve client IP — set Traefik externalTrafficPolicy=Local
+  ansible.builtin.copy:
+    src: traefik-externaltrafficpolicy.yaml
+    dest: /var/lib/rancher/k3s/server/manifests/canasta-traefik-config.yaml
+    mode: "0644"
+  become: true
+
 # k3s bundles kubectl as 'k3s kubectl' but many tools (Helm, Ansible
 # k8s modules) expect a standalone 'kubectl' binary on the PATH.
 - name: Create kubectl symlink
@@ -86,10 +112,16 @@
   changed_when: false
   ignore_errors: true
 
+# Launched detached and polled (resilient_exec) like the k3s install above.
 - name: Install helm
-  ansible.builtin.shell:
-    cmd: "curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
-  changed_when: true
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "install helm"
+    rx_async: 300
+    rx_cmd: >-
+      curl -fsSL --retry 3 --retry-delay 5
+      https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+      | DESIRED_VERSION={{ canasta_helm_version | quote }} bash
   when: _helm_installed.rc != 0
 
 # Ansible k8s modules require the Python kubernetes library.

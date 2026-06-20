@@ -1,28 +1,43 @@
 ---
 # Migration: Detect MySQL 8.0 data and migrate to MariaDB.
-# Matches Go upgrade.go mysql_to_mariadb.go logic.
-# Only runs for Docker Compose instances.
-# Input: instance_path, instance_orchestrator
-
-- name: Skip MySQL migration for non-Compose instances
-  ansible.builtin.debug:
-    msg: "MySQL-to-MariaDB migration only applies to Docker Compose instances."
-  when: instance_orchestrator | default('compose') != 'compose'
+# Compose-only; the orchestrator guard is owned by the caller
+# (roles/orchestrator/tasks/upgrade_db_migration.yml), so no
+# instance_orchestrator switch is needed here.
+# Input: instance_path
 
 - name: Check for MySQL 8.0 data
-  when: instance_orchestrator | default('compose') == 'compose'
   block:
-    - name: Check if MySQL data volume has read-only flag (MySQL 8.0 indicator)
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-      vars:
-        exec_service: db
-        exec_command: "test -f /var/lib/mysql/.rocksdb && echo mysql8 || echo mariadb"
-      register: _mysql_check
+    # Detection (and the migration itself) requires a live db container to
+    # exec into. A stopped instance has no db service, so skip rather than
+    # abort the upgrade. ignore_errors on the include_tasks below would not
+    # help: it does not propagate to the shell task inside exec.yml, so the
+    # running-state is guarded explicitly here instead.
+    - name: Default MySQL 8 detection flag
+      ansible.builtin.set_fact:
+        _is_mysql8: false
+
+    - name: Check whether the db service is running
+      ansible.builtin.command:
+        cmd: "docker compose ps -q db"
+        chdir: "{{ instance_path }}"
+      register: _db_ps
+      changed_when: false
       ignore_errors: true  # OK if db container not running
 
-    - name: Set MySQL 8 detection flag
-      ansible.builtin.set_fact:
-        _is_mysql8: "{{ exec_result.stdout | default('') | trim == 'mysql8' }}"
+    - name: Detect MySQL 8.0 data (db running only)
+      when:
+        - _db_ps.rc == 0
+        - _db_ps.stdout | default('') | trim | length > 0
+      block:
+        - name: Check if MySQL data volume has read-only flag (MySQL 8.0 indicator)
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+          vars:
+            exec_service: db
+            exec_command: "test -f /var/lib/mysql/.rocksdb && echo mysql8 || echo mariadb"
+
+        - name: Set MySQL 8 detection flag
+          ansible.builtin.set_fact:
+            _is_mysql8: "{{ exec_result.stdout | default('') | trim == 'mysql8' }}"
 
     - name: Migrate MySQL 8.0 to MariaDB
       when: _is_mysql8 | bool
@@ -46,6 +61,7 @@
           vars:
             exec_service: db
             exec_no_log: true
+            exec_long: true
             exec_command: >-
               mysqldump -u root
               -p{{ _mig_dbpass.value | quote }}
@@ -92,6 +108,7 @@
           vars:
             exec_service: db
             exec_no_log: true
+            exec_long: true
             exec_command: >-
               mariadb -u root
               -p{{ _mig_dbpass.value | quote }}

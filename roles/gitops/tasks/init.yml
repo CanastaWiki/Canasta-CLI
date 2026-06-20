@@ -1,8 +1,98 @@
 ---
 # GitOps init — dispatches to Compose or Kubernetes variant.
 
+# `gitops init` operates on an *existing* Canasta instance: it converts
+# the instance's extensions/skins into git submodules and pushes the
+# resulting tree to a remote. Bail out early with a gitops-specific
+# message if no instance exists yet, instead of letting resolve_instance
+# emit its generic "no instance for this directory" error.
+- name: Check that at least one Canasta instance exists
+  canasta_registry:
+    state: query_all
+  register: _gitops_init_registry
+  delegate_to: localhost
+
+- name: Fail with gitops-specific guidance if no instances exist
+  ansible.builtin.fail:
+    msg: |-
+      'canasta gitops init' bootstraps gitops for an existing Canasta instance.
+      No Canasta instances are registered yet. Create one first with:
+        canasta create -i <id> -w <wiki>
+      Then run 'canasta gitops init -i <id> ...' to enable gitops on it.
+  when: _gitops_init_registry.instances | length == 0
+
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Dispatch gitops init
-  ansible.builtin.include_tasks: "init_{{ instance_orchestrator | default('compose') }}.yml"
+# --- Non-destructive reinit (#663) ---
+# init --reinit wipes .git (via _reinit_cleanup) and re-creates the repo
+# in place. If the re-init then fails — e.g. the push is rejected — the
+# original .git, which may hold local gitops commits that were never
+# pushed, would already be gone. Move it aside first and restore it if
+# the dispatch fails. (Join takes the opposite tack: it clones before the
+# destructive cleanup, so it needs no backup.) Restore brings back the
+# repo and its history; the working tree can be rebuilt with
+# `git checkout -- .` after a restored failure.
+- name: Reinit — set .git backup path
+  ansible.builtin.set_fact:
+    _init_git_backup_dir: "{{ instance_path }}.reinit-git-bak"
+  when: reinit | default(false) | bool
+
+- name: Reinit — stat existing .git
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git"
+  register: _init_existing_git
+  when: reinit | default(false) | bool
+
+- name: Reinit — remove any stale .git backup
+  ansible.builtin.file:
+    path: "{{ _init_git_backup_dir }}"
+    state: absent
+  when:
+    - reinit | default(false) | bool
+    - _init_existing_git.stat.exists | default(false)
+
+- name: Reinit — move existing .git aside before re-init
+  ansible.builtin.command:
+    cmd: "mv {{ instance_path }}/.git {{ _init_git_backup_dir }}"
+  when:
+    - reinit | default(false) | bool
+    - _init_existing_git.stat.exists | default(false)
+  changed_when: true
+
+- name: Dispatch gitops init (restoring .git if it fails)
+  block:
+    - name: Dispatch gitops init
+      ansible.builtin.include_tasks: "init_{{ instance_orchestrator | default('compose') }}.yml"
+
+    - name: Reinit — discard the .git backup after a successful re-init
+      ansible.builtin.file:
+        path: "{{ _init_git_backup_dir }}"
+        state: absent
+      when:
+        - reinit | default(false) | bool
+        - _init_existing_git.stat.exists | default(false)
+  rescue:
+    - name: Reinit — remove the partial new .git before restoring
+      ansible.builtin.file:
+        path: "{{ instance_path }}/.git"
+        state: absent
+      when:
+        - reinit | default(false) | bool
+        - _init_existing_git.stat.exists | default(false)
+
+    - name: Reinit — restore the original .git after a failed re-init
+      ansible.builtin.command:
+        cmd: "mv {{ _init_git_backup_dir }} {{ instance_path }}/.git"
+      when:
+        - reinit | default(false) | bool
+        - _init_existing_git.stat.exists | default(false)
+      changed_when: true
+
+    - name: Re-raise the init failure
+      ansible.builtin.fail:
+        msg: >-
+          gitops init failed:
+          {{ ansible_failed_result.msg | default('see the error above') }}{{
+          (reinit | default(false) | bool and _init_existing_git.stat.exists | default(false))
+          | ternary(' (the previous .git was restored, so the instance gitops link is unchanged)', '') }}

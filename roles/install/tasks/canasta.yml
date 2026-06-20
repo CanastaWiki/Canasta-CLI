@@ -131,9 +131,66 @@
         dest: /usr/local/bin/canasta
         state: link
 
-    - name: Report canasta installed
+    # Determine the operator (SSH) user who will invoke canasta on the
+    # target — they're the one who needs canasta-group membership.
+    # ansible_user (if set in inventory) wins; otherwise read it with
+    # `id -un` run WITHOUT become, so we capture the connecting SSH user
+    # rather than root. The dispatcher play is gather_facts: false (so
+    # ansible_user_id is unavailable here) and this block is become: true
+    # (so the fact would resolve to 'root' anyway) — hence the explicit
+    # pre-become lookup.
+    - name: Determine operator (SSH) user
+      ansible.builtin.command: id -un
+      become: false
+      changed_when: false
+      register: _operator_user_cmd
+
+    - name: Set operator user fact
+      ansible.builtin.set_fact:
+        _operator_user: >-
+          {{ ansible_user | default(_operator_user_cmd.stdout, true) }}
+
+    # Operator resolution should not normally fail (id -un above), but if
+    # it does, warn loudly instead of silently skipping — an empty
+    # 'canasta' group means 'canasta upgrade' self-update is skipped and
+    # the CLI silently stays on the old version.
+    - name: Warn loudly if the operator user could not be resolved
       ansible.builtin.debug:
         msg: >-
-          canasta-native installed at /opt/canasta-ansible.
-          Add users to the 'canasta' group to let them run
-          'canasta upgrade' and 'canasta install' without sudo.
+          WARNING: could not determine the operator (SSH) user, so nobody
+          was added to the 'canasta' group. Whoever runs 'canasta' on this
+          host MUST be a member, or 'canasta upgrade' self-update is
+          silently skipped. Add them manually: sudo usermod -aG canasta
+          <user> (then log out and back in, or run 'newgrp canasta').
+      when: _operator_user | length == 0
+
+    - name: Add operator to the canasta group
+      ansible.builtin.user:
+        name: "{{ _operator_user }}"
+        groups: canasta
+        append: true
+      register: _operator_group_add
+      when: _operator_user | length > 0
+
+    - name: Report canasta installed
+      ansible.builtin.debug:
+        msg: "canasta-native installed at /opt/canasta-ansible."
+
+    # Always report the membership outcome (not only when changed), so a
+    # no-op never looks like a silent failure.
+    - name: Report operator added to canasta group
+      ansible.builtin.debug:
+        msg: >-
+          Added '{{ _operator_user }}' to the 'canasta' group. New SSH
+          sessions on this host pick this up automatically. For an existing
+          shell, log out and back in (or run 'newgrp canasta') before
+          invoking 'canasta upgrade' or 'canasta install'.
+      when: _operator_group_add is changed
+
+    - name: Report operator already in canasta group
+      ansible.builtin.debug:
+        msg: >-
+          Operator '{{ _operator_user }}' is already in the 'canasta' group.
+      when:
+        - _operator_user | length > 0
+        - _operator_group_add is not changed

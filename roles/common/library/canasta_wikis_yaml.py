@@ -3,8 +3,8 @@
 
 """Ansible module for managing Canasta wikis.yaml files.
 
-Replaces the Go internal/farmsettings package. Provides CRUD operations
-on the wikis.yaml file that defines wiki farm configurations.
+Provides CRUD operations on the wikis.yaml file that defines wiki farm
+configurations.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -16,7 +16,7 @@ module: canasta_wikis_yaml
 short_description: Manage Canasta wikis.yaml
 description:
   - Read, add, and remove wikis from the wikis.yaml farm configuration.
-  - Compatible with the Go CLI's wikis.yaml format.
+  - Operates on the wikis.yaml farm-configuration format.
 options:
   instance_path:
     description: Path to the Canasta instance directory.
@@ -52,9 +52,9 @@ import os
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
-
-
-RESERVED_WIKI_IDS = ["settings", "images", "w", "wiki", "wikis"]
+from ansible.module_utils.canasta_validate import (
+    validate_wiki_id,
+)
 
 
 def wikis_yaml_path(instance_path):
@@ -62,28 +62,12 @@ def wikis_yaml_path(instance_path):
     path = os.path.join(instance_path, "config", "wikis.yaml")
     real_path = os.path.realpath(path)
     real_base = os.path.realpath(instance_path)
-    if not real_path.startswith(real_base + os.sep) and real_path != real_base:
+    if not real_path.startswith(real_base + os.sep):
         raise ValueError(
             "wikis.yaml path '%s' escapes instance directory '%s'"
             % (real_path, real_base)
         )
     return path
-
-
-def validate_wiki_id(wiki_id):
-    """Validate a wiki ID (matching Go ValidateWikiID).
-
-    NOTE: This validation is intentionally duplicated from canasta_farmsettings.py
-    because Ansible modules in different role library/ directories cannot import
-    each other. Keep both copies in sync.
-    """
-    if not wiki_id:
-        return "wiki ID cannot be empty"
-    if "-" in wiki_id:
-        return "wiki ID '%s' cannot contain hyphens" % wiki_id
-    if wiki_id in RESERVED_WIKI_IDS:
-        return "wiki ID '%s' is reserved (cannot be: %s)" % (wiki_id, ", ".join(RESERVED_WIKI_IDS))
-    return None
 
 
 def read_wikis(instance_path):
@@ -115,7 +99,7 @@ def build_url(domain, wiki_path=None):
 def parse_url(url):
     """Parse a wiki URL into (server_name, path).
 
-    Matches Go behavior: splits on first '/' only.
+    Splits on the first '/' only.
     """
     parts = url.split("/", 1)
     server = parts[0]
@@ -313,13 +297,18 @@ def run_module():
             return
         wikis = read_wikis(instance_path)
         updated = []
+        changed = False
         for w in wikis:
             w = dict(w)
-            w["url"] = update_url_port(w.get("url", ""), port, default_port)
+            old_url = w.get("url", "")
+            new_url = update_url_port(old_url, port, default_port)
+            if new_url != old_url:
+                w["url"] = new_url
+                changed = True
             updated.append(w)
-        if not module.check_mode:
+        if changed and not module.check_mode:
             write_wikis(instance_path, updated)
-        result["changed"] = True
+        result["changed"] = changed
         result["wikis"] = updated
 
     elif state == "update_domain":

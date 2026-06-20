@@ -6,7 +6,7 @@
 # ConfigMaps created:
 #   canasta-<id>-web-config     — wikis.yaml, .env, settings/*, composer.local.json
 #   canasta-<id>-env            — allowlisted runtime env vars parsed from .env
-#   canasta-<id>-caddy-config   — Caddyfile, Caddyfile.site, Caddyfile.global
+#   canasta-<id>-caddy-config   — Caddyfile, Caddyfile.site
 #   canasta-<id>-varnish-config — default.vcl
 #   canasta-<id>-db-config      — my.cnf
 
@@ -75,11 +75,26 @@
   loop_control:
     label: "{{ item.path | regex_replace('^.*/config/settings/', 'settings/') }}"
 
+# Strip secret-bearing keys from the .env content before embedding
+# it in the web ConfigMap. The chart's web/jobrunner deployments read
+# MYSQL_PASSWORD / MW_SECRET_KEY exclusively via secretKeyRef from the
+# canonical K8s Secrets (<id>-db-credentials, <id>-mw-secrets); the
+# .env file at /mediawiki/config/.env is never sourced. Leaving the
+# secrets in the ConfigMap-backed file duplicated them in plaintext
+# and forced the gitops repo to encrypt rendered-values.yaml, which
+# Argo CD couldn't read. See #507.
+- name: Filter secret-bearing keys out of .env for ConfigMap embedding
+  ansible.builtin.set_fact:
+    _sync_env_no_secrets: >-
+      {{ (_sync_env.content | b64decode).splitlines()
+         | reject('match', '^(MYSQL_PASSWORD|MW_SECRET_KEY)=')
+         | join('\n') + '\n' }}
+
 - name: Build web config data
   ansible.builtin.set_fact:
     _web_config_data: >-
       {{
-        {'.env': _sync_env.content | b64decode,
+        {'.env': _sync_env_no_secrets,
          'wikis.yaml': _sync_wikis.content | b64decode}
         | combine(
           (_sync_composer_stat.stat.exists | default(false))
@@ -120,24 +135,16 @@
   register: _sync_optional_stats
   loop:
     - "{{ instance_path }}/config/Caddyfile.site"
-    - "{{ instance_path }}/config/Caddyfile.global"
 
 - name: Set optional file existence flags
   ansible.builtin.set_fact:
     _has_caddyfile_site: "{{ _sync_optional_stats.results[0].stat.exists }}"
-    _has_caddyfile_global: "{{ _sync_optional_stats.results[1].stat.exists }}"
 
 - name: Read Caddyfile.site
   ansible.builtin.slurp:
     src: "{{ instance_path }}/config/Caddyfile.site"
   register: _sync_caddyfile_site
   when: _has_caddyfile_site | bool
-
-- name: Read Caddyfile.global
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/config/Caddyfile.global"
-  register: _sync_caddyfile_global
-  when: _has_caddyfile_global | bool
 
 - name: Build caddy config data
   ansible.builtin.set_fact:
@@ -146,19 +153,140 @@
         {'Caddyfile': _sync_caddyfile.content | b64decode}
         | combine((_has_caddyfile_site | bool)
           | ternary({'Caddyfile.site': _sync_caddyfile_site.content | default('') | b64decode}, {}))
-        | combine((_has_caddyfile_global | bool)
-          | ternary({'Caddyfile.global': _sync_caddyfile_global.content | default('') | b64decode}, {}))
       }}
+
+# --- Varnish config ---
+#
+# default.vcl is the per-instance Varnish config — same file Compose
+# uses, mounted from the operator's instance directory. Reading it
+# here (instead of the Helm chart's bundled files/default.vcl) means:
+#   - one canonical default.vcl in the repo
+#     (instance_template/config/default.vcl)
+#   - K8s operators get the same per-instance VCL customization
+#     story as Compose: edit ~/canasta/<id>/config/default.vcl,
+#     run canasta restart, the new VCL lands.
+
+- name: Read default.vcl
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/default.vcl"
+  register: _sync_default_vcl
+
+- name: Build varnish config data
+  ansible.builtin.set_fact:
+    _varnish_config_data:
+      default.vcl: "{{ _sync_default_vcl.content | b64decode }}"
+
+# --- CrowdSec config ---
+# Mirror the Compose acquisition + whitelist files into a ConfigMap the
+# crowdsec sidecar mounts (see configmap-crowdsec.yaml). Backfill them first
+# for instances that enabled CrowdSec after create, the same materialization
+# concern ensure_crowdsec_config.yml handles for Compose.
+
+- name: Determine CrowdSec enablement
+  ansible.builtin.set_fact:
+    _crowdsec_enabled_k8s: "{{ _sync_env_dict.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
+
+- name: Default crowdsec config data to empty
+  ansible.builtin.set_fact:
+    _crowdsec_config_data: {}
+
+- name: Sync CrowdSec config when enabled
+  when: _crowdsec_enabled_k8s | bool
+  block:
+    - name: Backfill crowdsec acquisition + whitelist files
+      ansible.builtin.include_tasks: ensure_crowdsec_config.yml
+
+    - name: Read crowdsec acquisition file
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/config/crowdsec/acquis.yaml"
+      register: _sync_crowdsec_acquis
+
+    - name: Read crowdsec whitelist file
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/config/crowdsec/whitelists.yaml"
+      register: _sync_crowdsec_whitelists
+
+    - name: Build crowdsec config data
+      ansible.builtin.set_fact:
+        _crowdsec_config_data:
+          acquis.yaml: "{{ _sync_crowdsec_acquis.content | b64decode }}"
+          whitelists.yaml: "{{ _sync_crowdsec_whitelists.content | b64decode }}"
+
+# --- Backup environment Secret ---
+# The on-demand backup Job (k8s_run_backup.yml) and the scheduled
+# CronJob (roles/backup/tasks/schedule_set.yml) both need restic +
+# DB env to land on the backup containers. Build a single Secret
+# from .env so envFrom: secretRef gives both flows everything they
+# need — including cloud-backend creds (#497) and external-DB
+# host/user (#498) — without per-task plumbing.
+#
+# Filter to backup-relevant prefixes plus the explicit MYSQL_HOST/
+# USER/PASSWORD that the dump-databases init container uses. Other
+# .env entries (MW_SITE_FQDN, CANASTA_ENABLE_*, …) stay out of this
+# Secret — they're not relevant to backup, and a leaner Secret is
+# easier to inspect with kubectl describe.
+- name: Build backup env data
+  ansible.builtin.set_fact:
+    _backup_env_data: >-
+      {{ _sync_env_dict.variables | default({}) | dict2items
+         | selectattr('key', 'match',
+             '^(RESTIC_|AWS_|B2_|AZURE_|GOOGLE_|OS_|ST_|MYSQL_HOST$|MYSQL_USER$|MYSQL_PASSWORD$)')
+         | items2dict }}
+  no_log: true
+
+- name: Apply backup env Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "canasta-{{ instance_id }}-backup-env"
+        namespace: "{{ _k8s_namespace }}"
+      type: Opaque
+      stringData: "{{ _backup_env_data }}"
+  when: _backup_env_data | length > 0
+  no_log: true
+
+# --- CrowdSec bouncer-key Secret ---
+# The caddy container reads CROWDSEC_BOUNCER_API_KEY via secretKeyRef from
+# this Secret (deployment-caddy.yaml). It is created here — in the restart
+# path — rather than k8s_apply_secrets.yml (create-time only) so that a key
+# the bouncer enroll just minted reaches the running pod on the next start.
+# Absent until enrollment: the secretKeyRef is optional, so Caddy starts
+# key-less and only emits the crowdsec directive once a key exists.
+- name: Build crowdsec bouncer key data
+  ansible.builtin.set_fact:
+    _crowdsec_key_data: >-
+      {{ {'CROWDSEC_BOUNCER_API_KEY': _sync_env_dict.variables.CROWDSEC_BOUNCER_API_KEY}
+         if (_crowdsec_enabled_k8s | bool
+             and (_sync_env_dict.variables.CROWDSEC_BOUNCER_API_KEY | default('') | length) > 0)
+         else {} }}
+  no_log: true
+
+- name: Apply crowdsec bouncer key Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "canasta-{{ instance_id }}-crowdsec"
+        namespace: "{{ _k8s_namespace }}"
+      type: Opaque
+      stringData: "{{ _crowdsec_key_data }}"
+  when: _crowdsec_key_data | length > 0
+  no_log: true
 
 # --- Write configData into values.yaml ---
 # The Helm chart templates render ConfigMaps from configData values.
 # This allows both Ansible-driven and Argo CD-driven workflows to use
 # the same mechanism.
 #
-# default.vcl and my.cnf are NOT synced here — the Helm chart ships
-# built-in defaults via .Files.Get (files/default.vcl, files/my.cnf).
-# configData.varnish and configData.db are only populated if the user
-# has custom overrides, which is handled by gitops push (not here).
+# my.cnf is still NOT synced here — it ships as the chart's
+# files/my.cnf and is small enough that operator customization
+# isn't a real use case yet. If that changes, mirror the varnish
+# pattern above.
 
 - name: Write configData to separate values file
   ansible.builtin.copy:
@@ -167,6 +295,8 @@
             'web': _web_config_data,
             'env': _env_config_data,
             'caddy': _caddy_config_data,
+            'varnish': _varnish_config_data,
+            'crowdsec': _crowdsec_config_data,
           }} | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values-configdata.yaml"
     mode: "0644"

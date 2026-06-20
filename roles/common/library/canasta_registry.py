@@ -3,9 +3,8 @@
 
 """Ansible module for managing the Canasta instance registry (conf.json).
 
-Replaces the Go internal/config package. Provides CRUD operations on the
-instance registry stored at conf.json, with the same directory resolution
-logic as the Go CLI.
+Provides CRUD operations on the instance registry stored at conf.json,
+including platform-specific config-directory resolution.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -18,7 +17,7 @@ short_description: Manage the Canasta instance registry
 description:
   - Read, add, update, and remove Canasta instances from the local registry (conf.json).
   - Also manages registry-level settings (key/value) via set_setting / get_setting states.
-  - Compatible with the Go CLI's registry format.
+  - Operates on the conf.json registry format.
 options:
   state:
     description: Desired state of the instance in the registry.
@@ -80,83 +79,30 @@ options:
 
 import json
 import os
-import platform
-import pwd
 
 from ansible.module_utils.basic import AnsibleModule
 
+# Registry location and lookup helpers are shared with the canasta.py CLI
+# wrapper so the two never disagree about where conf.json lives.
+from ansible.module_utils.canasta_config import (
+    config_path,
+    find_by_path,
+    get_config_dir,
+    is_root,
+    read_config,
+    write_config,
+)
 
-CONFIG_FILENAME = "conf.json"
-
-
-def get_config_dir(override=None):
-    """Determine the config directory using the same priority as the Go CLI.
-
-    Matches Go's os.UserConfigDir():
-    - macOS: ~/Library/Application Support/canasta
-    - Linux: $XDG_CONFIG_HOME/canasta or ~/.config/canasta
-    """
-    if override:
-        return override
-    env_dir = os.environ.get("CANASTA_CONFIG_DIR")
-    if env_dir:
-        return env_dir
-    if is_root():
-        return "/etc/canasta"
-    if platform.system() == "Darwin":
-        config_home = os.path.join(
-            os.path.expanduser("~"), "Library", "Application Support"
-        )
-    else:
-        config_home = os.environ.get(
-            "XDG_CONFIG_HOME",
-            os.path.join(os.path.expanduser("~"), ".config"),
-        )
-    return os.path.join(config_home, "canasta")
-
-
-def is_root():
-    """Check if running as root."""
-    try:
-        return pwd.getpwuid(os.getuid()).pw_name == "root"
-    except (KeyError, AttributeError):
-        return os.getuid() == 0
-
-
-def config_path(config_dir):
-    """Return the full path to conf.json."""
-    return os.path.join(config_dir, CONFIG_FILENAME)
-
-
-def read_config(config_dir):
-    """Read and return the registry config, creating it if needed."""
-    path = config_path(config_dir)
-    if not os.path.exists(path):
-        return {"Instances": {}}
-    with open(path, "r") as f:
-        content = f.read().strip()
-    if not content:
-        return {"Instances": {}}
-    data = json.loads(content)
-    # Migrate legacy "Installations" key
-    if "Installations" in data and "Instances" not in data:
-        data["Instances"] = data.pop("Installations")
-    if "Instances" not in data:
-        data["Instances"] = {}
-    return data
-
-
-def write_config(config_dir, data):
-    """Write the registry config to conf.json."""
-    os.makedirs(config_dir, mode=0o755, exist_ok=True)
-    path = config_path(config_dir)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=4)
-        f.write("\n")
+# Re-exported for backwards compatibility with importers/tests that
+# referenced canasta_registry.* before the helpers were extracted.
+__all__ = [
+    "config_path", "find_by_path", "get_config_dir", "is_root",
+    "read_config", "write_config", "instance_to_dict", "run_module",
+]
 
 
 def instance_to_dict(instance):
-    """Convert an instance dict to the JSON-serializable format (matching Go struct tags)."""
+    """Convert an instance dict to the JSON-serializable registry format."""
     result = {
         "id": instance.get("id", ""),
         "path": instance.get("path", ""),
@@ -174,21 +120,9 @@ def instance_to_dict(instance):
         result["kindCluster"] = instance["kindCluster"]
     if instance.get("buildFrom"):
         result["buildFrom"] = instance["buildFrom"]
+    if instance.get("dockerHost"):
+        result["dockerHost"] = instance["dockerHost"]
     return result
-
-
-def find_by_path(instances, search_path):
-    """Walk up from search_path to find a matching instance (mirrors Go GetCanastaID)."""
-    search_path = os.path.abspath(search_path)
-    while True:
-        for inst_id, inst in instances.items():
-            if os.path.abspath(inst.get("path", "")) == search_path:
-                return inst_id, inst
-        parent = os.path.dirname(search_path)
-        if parent == search_path:
-            break
-        search_path = parent
-    return None, None
 
 
 def run_module():
@@ -208,6 +142,7 @@ def run_module():
         kind_cluster=dict(type="str", required=False),
         build_from=dict(type="str", required=False),
         host=dict(type="str", required=False),
+        docker_host=dict(type="str", required=False),
         filter_host=dict(type="str", required=False),
         config_dir=dict(type="str", required=False),
     )
@@ -241,7 +176,7 @@ def run_module():
         if inst_id not in instances:
             module.fail_json(msg="Instance '%s' not found in registry" % inst_id)
             return
-        result["instance"] = instances[inst_id]
+        result["instance"] = dict(instances[inst_id])
         result["instance"]["id"] = inst_id
 
     elif state == "query_all":
@@ -268,7 +203,7 @@ def run_module():
         if not found_id:
             module.fail_json(msg="No instance found for path '%s'" % inst_path)
             return
-        result["instance"] = found_inst
+        result["instance"] = dict(found_inst)
         result["instance"]["id"] = found_id
 
     elif state == "present":
@@ -289,6 +224,7 @@ def run_module():
             "registry": module.params.get("registry"),
             "kindCluster": module.params.get("kind_cluster"),
             "buildFrom": module.params.get("build_from"),
+            "dockerHost": module.params.get("docker_host"),
         })
 
         if inst_id in instances:

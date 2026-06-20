@@ -17,6 +17,67 @@
   register: _restore_env
   no_log: true
 
+# Cloud-backend RESTIC_REPOSITORY values are URIs (s3:..., b2:...,
+# azure:..., gs:...), not filesystem paths. Mounting them as a
+# hostPath fails container init with 'no such file or directory'.
+# Only local-path repos (RESTIC_REPOSITORY beginning with /) need
+# the hostPath bind. Mirrors the same detection in schedule_set.yml
+# and k8s_run_backup.yml for the backup direction. See #519.
+- name: Detect local restic repository
+  ansible.builtin.set_fact:
+    _restore_local_repo: >-
+      {{ (_restore_env.variables.RESTIC_REPOSITORY | default('')) is match('^/') }}
+
+# Pin a local-path restore to the control-plane node — the same node the
+# backup Job pins to — so the restore reads the repo that backup wrote.
+# Without this the restore pod could land on a node with no repo (an empty
+# DirectoryOrCreate hostPath) and find nothing. Cloud backends need no pin.
+- name: Pin local-path restore to the control-plane node
+  ansible.builtin.set_fact:
+    _restore_node_selector: >-
+      {{ {'node-role.kubernetes.io/control-plane': 'true'}
+         if (_restore_local_repo | bool) else {} }}
+
+- name: Build restore pod volume mounts
+  ansible.builtin.set_fact:
+    _restore_volume_mounts:
+      - { name: restore-data, mountPath: /currentsnapshot }
+
+- name: Add local-repo mount when RESTIC_REPOSITORY is a path
+  ansible.builtin.set_fact:
+    _restore_volume_mounts: >-
+      {{ _restore_volume_mounts + [{'name': 'local-repo',
+         'mountPath': _restore_env.variables.RESTIC_REPOSITORY}] }}
+  when: _restore_local_repo | bool
+
+- name: Build restore pod volumes
+  ansible.builtin.set_fact:
+    _restore_volumes:
+      - name: restore-data
+        emptyDir: {}
+
+- name: Add local-repo hostPath volume when RESTIC_REPOSITORY is a path
+  ansible.builtin.set_fact:
+    _restore_volumes: >-
+      {{ _restore_volumes + [{'name': 'local-repo',
+         'hostPath': {'path': _restore_env.variables.RESTIC_REPOSITORY,
+                      'type': 'DirectoryOrCreate'}}] }}
+  when: _restore_local_repo | bool
+
+# If a previous restore failed mid-run, the restic-restore pod may
+# still exist. kubernetes.core.k8s state: present then refuses to
+# update it because Pod spec changes are forbidden post-creation
+# (immutable fields). Delete first to make this idempotent.
+- name: Clean up any stale restic-restore pod from a prior failed run
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Pod
+    name: restic-restore
+    namespace: "{{ _k8s_namespace }}"
+    wait: true
+    wait_timeout: 60
+
 - name: Create restore pod
   kubernetes.core.k8s:
     state: present
@@ -28,6 +89,10 @@
         namespace: "{{ _k8s_namespace }}"
       spec:
         restartPolicy: Never
+        # Pin to the control-plane node for a local-path repo so the restore
+        # reads the same hostPath the backup wrote; empty ({}) for cloud
+        # backends imposes no constraint.
+        nodeSelector: "{{ _restore_node_selector }}"
         containers:
           - name: restic
             image: restic/restic:latest
@@ -35,43 +100,107 @@
               - sh
               - -c
               - |
-                restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target / && \
-                touch /tmp/restore-done && \
+                # Capture restic's rc + output so the controller can tell a
+                # real failure (restic prints "Fatal:") from the benign exit 1
+                # on EBS-backed PVCs whose selinux xattrs the overlay fs
+                # rejects. Sentinel still fires unconditionally so the wait
+                # can't hang; the controller inspects the rc + log below.
+                restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target / > /tmp/restore-log 2>&1
+                echo $? > /tmp/restore-rc
+                touch /tmp/restore-done
                 sleep 3600
-            env:
-              - name: RESTIC_REPOSITORY
-                value: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
-              - name: RESTIC_PASSWORD
-                value: "{{ _restore_env.variables.RESTIC_PASSWORD }}"
-            volumeMounts:
-              - name: restore-data
-                mountPath: /currentsnapshot
-              - name: local-repo
-                mountPath: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
-        volumes:
-          - name: restore-data
-            emptyDir: {}
-          - name: local-repo
-            hostPath:
-              path: "{{ _restore_env.variables.RESTIC_REPOSITORY }}"
-              type: DirectoryOrCreate
+            # canasta-<id>-backup-env carries every cloud-backend
+            # credential restic might need (RESTIC_*, AWS_*, B2_*,
+            # AZURE_*, GOOGLE_*, OS_*, ST_*) — same Secret the on-
+            # demand backup Job and scheduled CronJob use (#497).
+            envFrom:
+              - secretRef:
+                  name: "canasta-{{ instance_id }}-backup-env"
+            volumeMounts: "{{ _restore_volume_mounts }}"
+        volumes: "{{ _restore_volumes }}"
 
-- name: Wait for restore pod to be running
+# Poll readiness with short `kubectl get` calls rather than a single held
+# `kubectl wait`: a controller-side SSH reset during a held wait would abort
+# the restore, while the pod keeps running on the target. Each poll is a
+# brief connection, so transient resets are simply retried.
+- name: Wait for restore pod to be Ready
   ansible.builtin.command:
     cmd: >-
-      kubectl wait pod/restic-restore
-      -n {{ _k8s_namespace }}
-      --for=condition=Ready
-      --timeout=120s
+      kubectl get pod restic-restore -n {{ _k8s_namespace }}
+      -o jsonpath={.status.conditions[?(@.type=="Ready")].status}
+  register: _restore_pod_ready
   changed_when: false
+  failed_when: false
+  retries: 60
+  delay: 2
+  until: (_restore_pod_ready.stdout | trim) == 'True'
 
+# Poll for the restore sentinel with short `kubectl exec test -f` calls
+# instead of a single held exec that loops on the target for up to 10
+# minutes — same resilience rationale as the readiness poll above.
 - name: Wait for restore to complete
   ansible.builtin.command:
     cmd: >-
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      sh -c "while ! test -f /tmp/restore-done; do sleep 2; done"
+      test -f /tmp/restore-done
+  register: _restore_done
   changed_when: false
-  timeout: 600
+  failed_when: false
+  retries: 300
+  delay: 2
+  until: _restore_done.rc == 0
+
+# Inspect restic's captured exit code and output. A non-zero rc is only
+# tolerated when it is the known xattr noise (no "Fatal:" line); anything
+# restic flagged as fatal — repo unreachable, wrong password, snapshot not
+# found — must abort loudly instead of being reported as a successful
+# restore that actually restored nothing.
+- name: Read restic restore exit code
+  ansible.builtin.command:
+    cmd: kubectl exec -n {{ _k8s_namespace }} restic-restore -- cat /tmp/restore-rc
+  register: _restore_rc
+  changed_when: false
+  failed_when: false
+
+- name: Read restic restore log
+  ansible.builtin.command:
+    cmd: kubectl exec -n {{ _k8s_namespace }} restic-restore -- cat /tmp/restore-log
+  register: _restore_log
+  changed_when: false
+  failed_when: false
+
+# If the exit code couldn't be read (e.g. the pod died after touching the
+# sentinel but before this read), we cannot confirm the restore — treat it
+# as failed rather than falling through and reporting a success that may not
+# have happened.
+- name: Fail when the restic restore exit code is unreadable
+  ansible.builtin.fail:
+    msg: >-
+      Could not read the restic restore exit code from the restore pod
+      (got '{{ _restore_rc.stdout | default('') | trim }}'). The restore
+      could not be confirmed and is treated as failed.
+  when: (_restore_rc.stdout | default('') | trim) is not match('^[0-9]+$')
+
+- name: Fail when restic restore reported a fatal error
+  ansible.builtin.fail:
+    msg: |-
+      restic restore failed (exit {{ _restore_rc.stdout | default('?') | trim }}).
+      The snapshot was NOT restored. restic output:
+      {{ _restore_log.stdout | default('(no log captured)') }}
+  when: >-
+    (_restore_rc.stdout | trim | int) != 0
+    and (_restore_log.stdout | default('') is search('Fatal'))
+
+- name: Warn about ignored non-fatal restore errors
+  ansible.builtin.debug:
+    msg: >-
+      restic exited {{ _restore_rc.stdout | default('?') | trim }} with
+      non-fatal errors (treated as the known xattr-on-overlay case); wiki
+      content was restored. Output:
+      {{ _restore_log.stdout | default('') | truncate(500) }}
+  when: >-
+    (_restore_rc.stdout | default('0') | trim) != '0'
+    and not (_restore_log.stdout | default('') is search('Fatal'))
 
 - name: Copy restored config to host
   ansible.builtin.shell:
@@ -90,11 +219,31 @@
   changed_when: true
   ignore_errors: true
 
-- name: Get DB pod name
+# Use the WEB pod (not a DB pod) as the import target. Reasons:
+#
+#   - External-DB instances have no in-cluster DB pod. The previous
+#     code looked up component=db, got an empty list, and crashed
+#     with `array index out of bounds` (#520). Restore was unusable
+#     for any external-DB K8s install.
+#   - The web pod always exists. It has the canasta image (mariadb-
+#     client included) and env vars MYSQL_HOST / MYSQL_USER /
+#     MYSQL_PASSWORD already wired up to whichever DB the chart is
+#     configured against:
+#       internal: MYSQL_HOST=db, MYSQL_USER=root, MYSQL_PASSWORD via
+#                 secretKeyRef from <id>-db-credentials
+#       external: MYSQL_HOST/USER from values.externalDatabase,
+#                 MYSQL_PASSWORD via the same secretKeyRef
+#   - One unified path replaces the two cases — simpler than
+#     branching on db.enabled.
+#
+# Performance note: import goes via TCP to the DB rather than via a
+# local socket inside the DB pod (the previous shape). Negligible
+# for a one-shot restore.
+- name: Get web pod name (DB import target — works for internal and external DB)
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_get_pod.yml
   vars:
-    _k8s_component: db
+    _k8s_component: web
 
 - name: Find DB dump files in restore pod
   ansible.builtin.command:
@@ -112,10 +261,93 @@
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
       cat /currentsnapshot/config/backup/{{ item }} |
       kubectl exec -i -n {{ _k8s_namespace }} {{ _k8s_pod_name }} --
-      mariadb -u root -p"{{ _restore_dbpass.value }}"
+      bash -c 'mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" -p"$MYSQL_PASSWORD"'
   loop: >-
     {{ _restore_db_files.stdout_lines | default([])
-       | select('match', '^db_.*\\.sql$') | list }}
+       | select('match', '^db_.*\.sql$') | list }}
+  no_log: true
+
+# Restore the canasta-managed K8s Secrets if the snapshot includes
+# them (#510). Older snapshots taken before #510 don't have the
+# secrets file — that's the 'select match secrets-*.yaml' filter,
+# which evaluates to empty for those.
+#
+# Two-step restore mirrors Compose's restore.yml policy
+# (clone-friendly):
+#
+#   1. Apply the snapshot's secrets file blanket — so MW_SECRET_KEY
+#      lands at the snapshot's value. MediaWiki uses MW_SECRET_KEY to
+#      derive HMACs for sessions, password-reset tokens, etc.; the
+#      restored wiki content was encrypted with that key, so the new
+#      pod must use the same key to decrypt.
+#   2. Patch MYSQL_PASSWORD and MYSQL_ROOT_PASSWORD back to the values
+#      they had on the running cluster BEFORE the restore. The
+#      running DB pod's mysql.user table has password hashes set when
+#      the pod first started (canasta create) — those hashes match
+#      the cluster's CURRENT plaintext password, not the snapshot's.
+#      Without this preservation step, a clone-into-fresh-cluster
+#      restore would auth-mismatch on the next web pod restart.
+#
+# Compose handles this in restore.yml via 'Save current DB password
+# before restore' + 'Preserve DB password in restored .env'. The K8s
+# equivalent is below.
+- name: Find canasta-managed Secret manifest in snapshot
+  ansible.builtin.set_fact:
+    _restore_secrets_filename: >-
+      {{ (_restore_db_files.stdout_lines | default([])
+          | select('match', '^secrets-.+\.yaml$') | list | first) | default('') }}
+
+- name: Save current DB credentials before secret restore (clone-friendly)
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "{{ instance_id }}-db-credentials"
+    namespace: "{{ _k8s_namespace }}"
+  register: _restore_current_db_secret
+  when: _restore_secrets_filename != ''
+  no_log: true
+
+- name: Capture current DB password values
+  ansible.builtin.set_fact:
+    _restore_current_mysql_pwd: >-
+      {{ ((_restore_current_db_secret.resources | default([]) | first | default({}))
+          .data.MYSQL_PASSWORD | default('')) | b64decode }}
+    _restore_current_mysql_root_pwd: >-
+      {{ ((_restore_current_db_secret.resources | default([]) | first | default({}))
+          .data.MYSQL_ROOT_PASSWORD | default('')) | b64decode }}
+  when: _restore_secrets_filename != ''
+  no_log: true
+
+- name: Restore canasta-managed K8s Secrets from snapshot
+  when: _restore_secrets_filename != ''
+  ansible.builtin.shell:
+    cmd: >-
+      kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      cat /currentsnapshot/config/backup/{{ _restore_secrets_filename }} |
+      kubectl apply -n {{ _k8s_namespace }} -f -
+  changed_when: true
+  no_log: true
+
+# Preserve the running cluster's DB credentials over the snapshot's
+# values. The strategic-merge patch updates only MYSQL_PASSWORD and
+# MYSQL_ROOT_PASSWORD; everything else from the snapshot's Secret
+# (notably no other keys exist in db-credentials by design) is
+# unchanged. We re-set BOTH because the wiki user account in
+# mysql.user was hashed against the current root password during
+# pod init.
+- name: Preserve current DB password in restored Secret
+  kubernetes.core.k8s:
+    state: patched
+    api_version: v1
+    kind: Secret
+    name: "{{ instance_id }}-db-credentials"
+    namespace: "{{ _k8s_namespace }}"
+    definition:
+      stringData:
+        MYSQL_PASSWORD: "{{ _restore_current_mysql_pwd }}"
+        MYSQL_ROOT_PASSWORD: "{{ _restore_current_mysql_root_pwd }}"
+  when: _restore_secrets_filename != ''
+        and _restore_current_mysql_pwd != ''
   no_log: true
 
 - name: Delete restore pod
@@ -126,20 +358,17 @@
     name: restic-restore
     namespace: "{{ _k8s_namespace }}"
 
-# Re-render gitops templates after restore. The snapshot contains the
-# SOURCE host's rendered .env and config. On this host those need to
-# be re-rendered from templates + current host vars.
-- name: Detect gitops instance
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.gitops-host"
-  register: _restore_k8s_gitops_stat
-
-- name: Re-render gitops templates against this host's vars
-  ansible.builtin.include_role:
-    name: gitops
-    tasks_from: render_compose.yml
-  when: _restore_k8s_gitops_stat.stat.exists | default(false)
-
+# NOTE: Compose's restore.yml re-renders env.template + host vars
+# here via render_compose.yml. K8s gitops uses a different layout
+# (values.template.yaml + hosts/<name>/vars.yaml + rendered-values.yaml,
+# none of which are produced by render_compose.yml), so invoking
+# render_compose for K8s gitops crashed with "File not found:
+# env.template" and aborted the restore. For K8s we skip the
+# re-render entirely — k8s_sync_config below rebuilds the ConfigMaps
+# from the restored .env and config files, and Argo CD reconciles
+# from the gitops repo on next sync. Cross-host gitops clones that
+# need a fresh render should run `canasta gitops pull` or its K8s
+# equivalent after restore.
 - name: Sync config to ConfigMaps
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml

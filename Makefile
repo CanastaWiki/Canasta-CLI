@@ -5,6 +5,7 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 YAMLLINT := $(VENV)/bin/yamllint
+RUFF := $(VENV)/bin/ruff
 
 # --- Setup -------------------------------------------------------------------
 
@@ -19,15 +20,19 @@ venv: $(VENV)/bin/activate
 test-unit: venv
 	$(PYTEST) tests/unit/ -v
 
+# Integration tests call ./canasta commands as subprocesses. Requires
+# Docker and git-crypt. Pass a test name to run a single test, e.g.
+# 'python tests/integration/run_tests.py lifecycle'.
 test-integration: venv
-	$(VENV)/bin/molecule test -s default
+	$(PYTHON) tests/integration/run_tests.py
 
 test: test-unit
 
 # --- Linting -----------------------------------------------------------------
 
 lint: venv
-	$(YAMLLINT) -d relaxed meta/ roles/ playbooks/ inventory/ canasta.yml || true
+	$(YAMLLINT) --strict meta/ roles/ playbooks/ inventory/ canasta.yml
+	$(RUFF) check --select F401 .
 	$(PYTHON) scripts/validate_definitions.py
 
 # --- Documentation -----------------------------------------------------------
@@ -59,5 +64,5 @@ build-info:
 # --- Clean -------------------------------------------------------------------
 
 clean:
-	rm -rf $(VENV) .pytest_cache .molecule docs/commands/*.md
+	rm -rf $(VENV) .pytest_cache docs/commands/*.md
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

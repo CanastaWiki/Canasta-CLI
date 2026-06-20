@@ -1,0 +1,7 @@
+---
+# canasta crowdsec unban
+
+- name: CrowdSec Unban
+  ansible.builtin.include_role:
+    name: crowdsec
+    tasks_from: unban.yml

@@ -1,5 +1,5 @@
 ---
-# GitOps pull (Compose) — full multi-host flow matching Go implementation.
+# GitOps pull (Compose) — full multi-host flow.
 # Pulls from remote, renders .env and wikis.yaml from templates + host
 # vars, writes admin passwords, detects what changed, and flags whether
 # a restart or maintenance update is needed.
@@ -46,6 +46,7 @@
   ansible.builtin.command:
     cmd: "git pull"
     chdir: "{{ instance_path }}"
+  environment: "{{ gitops_git_env }}"
   register: _pull_result
   changed_when: "'Already up to date' not in _pull_result.stdout"
 

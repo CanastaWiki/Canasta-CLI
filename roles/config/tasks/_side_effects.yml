@@ -24,6 +24,23 @@
     - _config_key == 'CADDY_AUTO_HTTPS'
     - _config_value | lower not in ['on', 'off']
 
+# Catch typos like 'cloudfalre' at set time rather than letting an
+# unparseable trusted_proxies directive crash Caddy on next start.
+- name: Validate CADDY_TRUSTED_PROXIES value
+  ansible.builtin.fail:
+    msg: >-
+      CADDY_TRUSTED_PROXIES must be 'cloudflare', 'imperva', or a
+      comma-separated list of IP/CIDR ranges
+      (e.g. 10.0.0.0/8,192.0.2.0/24). Got '{{ _config_value }}'.
+  when:
+    - _config_key == 'CADDY_TRUSTED_PROXIES'
+    - (_config_value | trim | length) > 0
+    - _config_value | trim | lower not in ['cloudflare', 'imperva']
+    - >-
+      (_config_value | split(',') | map('trim') | reject('equalto', '') | list
+       | select('match', '^[0-9A-Fa-f:.]+(/[0-9]+)?$') | list | length)
+      != (_config_value | split(',') | map('trim') | reject('equalto', '') | list | length)
+
 # Two incompatible-feature combinations are caught here at config-set
 # time, before the misconfiguration can land in .env. The runtime
 # FarmConfigLoader.php in the canasta image catches the same conditions
@@ -276,12 +293,48 @@
         key: MW_SITE_SERVER
         value: "{{ _server_scheme }}{{ _config_value }}"
 
-- name: Sync COMPOSE_PROFILES when feature flags change
+# Also reconciles CANASTA_CADDY_IMAGE, so CADDY_TRUSTED_PROXIES (which can
+# require the plugin image) belongs in this trigger list too.
+# Intrinsic config-apply side effect; the K8s equivalent is reconciled at
+# deploy time by k8s_reconcile_caddy.yml. Kept in place by design
+# (orchestrator-specific side effect, not dispatched).
+- name: Sync COMPOSE_PROFILES / caddy image when feature flags change
   when:
     - instance_orchestrator | default('compose') == 'compose'
-    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH', 'CANASTA_ENABLE_OBSERVABILITY']
+    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH',
+                      'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CROWDSEC',
+                      'CADDY_TRUSTED_PROXIES']
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
+
+# CrowdSec without a bouncer key enforces nothing until the bouncer is
+# registered. The restart this config-set triggers auto-enrolls the bouncer
+# (orchestrator start.yml), so the normal case just works; only flag the
+# manual fallback for --no-restart, where no start runs to enroll it.
+# Compose-only advisory side effect of a config change. Kept in place by design.
+- name: Note bouncer enrollment when CrowdSec is enabled without a key
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - _config_key == 'CANASTA_ENABLE_CROWDSEC'
+    - _config_value | lower == 'true'
+  block:
+    - name: Read CROWDSEC_BOUNCER_API_KEY from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CROWDSEC_BOUNCER_API_KEY
+      register: _se_crowdsec_key
+
+    - name: Advise on bouncer enrollment
+      ansible.builtin.debug:
+        msg: >-
+          CrowdSec is enabled. The Caddy bouncer is enrolled automatically
+          when the instance starts.
+          {{ '' if not (no_restart | default(false) | bool)
+             else ("Because --no-restart was used, run 'canasta start -i "
+                   ~ instance_id ~ "' (or 'canasta crowdsec bouncer-enroll -i "
+                   ~ instance_id ~ "') to activate enforcement.") }}
+      when: _se_crowdsec_key.value | default('') | length == 0
 
 - name: Apply CANASTA_ENABLE_OBSERVABILITY side effects
   when: _config_key == 'CANASTA_ENABLE_OBSERVABILITY' and _config_value | lower == 'true'
@@ -304,16 +357,20 @@
 #   CANASTA_ENABLE_VARNISH → varnish.enabled: <bool>
 #   CANASTA_ENABLE_ELASTICSEARCH → elasticsearch.enabled: <bool>
 #   CANASTA_STAGING_CERTS  → ingress.certManager.issuer: letsencrypt-{staging,prod}
+#   CANASTA_IMAGE          → image.repository + image.tag
 #
 # External DB keys (USE_EXTERNAL_DB, MYSQL_*) are intentionally NOT
 # propagated here — _validate_key.yml blocks them as immutable after
 # create. The values.yaml mapping is populated at create time only
 # (see roles/create/tasks/main.yml and templates/k8s_values.yaml.j2).
+# Intrinsically K8s config-apply (writes values.yaml); no Compose equivalent
+# (Compose reads .env directly). Kept in place by design (not dispatched).
 - name: Propagate config key to K8s values.yaml
   when:
     - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
     - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH',
-                      'CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_STAGING_CERTS']
+                      'CANASTA_ENABLE_ELASTICSEARCH',
+                      'CANASTA_STAGING_CERTS', 'CANASTA_IMAGE']
   block:
     - name: Read current values.yaml
       ansible.builtin.slurp:
@@ -347,6 +404,18 @@
               issuer: "{{ (_config_value | lower == 'true') | ternary('letsencrypt-staging', 'letsencrypt-prod') }}"
       when: _config_key == 'CANASTA_STAGING_CERTS'
 
+    # Split repository:tag the same way create does (k8s_values.yaml.j2):
+    # repository is everything before the last colon, tag is everything
+    # after it. config set + restart then redeploys the custom image,
+    # matching Compose's ${CANASTA_IMAGE} behavior.
+    - name: Build values.yaml override for CANASTA_IMAGE
+      ansible.builtin.set_fact:
+        _k8s_override:
+          image:
+            repository: "{{ _config_value | regex_replace(':[^:]+$', '') }}"
+            tag: "{{ _config_value | regex_replace('^[^:]+:', '') }}"
+      when: _config_key == 'CANASTA_IMAGE'
+
     - name: Write updated values.yaml
       ansible.builtin.copy:
         content: >-
@@ -355,6 +424,13 @@
              | to_nice_yaml(indent=2) }}
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
+
+# CrowdSec enablement (crowdsec.enabled) and the caddy plugin image are
+# reconciled into values.yaml from .env at deploy time by the orchestrator
+# start path (roles/orchestrator/tasks/k8s_reconcile_caddy.yml), so the
+# config-set restart picks them up. CADDY_TRUSTED_PROXIES feeds that same
+# reconcile (cloudflare/imperva need the plugin image), so neither needs a
+# config-set-time values.yaml write here.
 
 # --- MW_SITE_SERVER domain change cascade ---
 # When the domain changes, update MW_SITE_FQDN, wikis.yaml URLs,
@@ -381,11 +457,12 @@
         key: MW_SITE_FQDN
         value: "{{ _new_fqdn }}"
 
-    - name: Update wikis.yaml URLs with new domain
-      ansible.builtin.replace:
-        path: "{{ instance_path }}/config/wikis.yaml"
-        regexp: "{{ _se_old_fqdn.value | regex_escape() }}"
-        replace: "{{ _new_fqdn }}"
+    - name: Update wikis.yaml URLs (only for wikis on the old FQDN)
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: update_domain
+        old_domain: "{{ _se_old_fqdn.value }}"
+        domain: "{{ _new_fqdn }}"
       when: _se_old_fqdn.found and _se_old_fqdn.value != _new_fqdn
 
     # Localhost → real-domain TLS cascade (K8s only).
@@ -396,6 +473,7 @@
     # Let's Encrypt cert on the next restart. Without this, the user
     # would either serve Traefik's default self-signed cert or have
     # to delete and recreate the instance.
+    # Intrinsically K8s (cert-manager + values.yaml). Kept in place by design.
     - name: Enable TLS for K8s instance on localhost→domain change
       when:
         - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']

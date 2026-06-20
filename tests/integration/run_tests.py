@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Integration tests for the Canasta CLI.
 
-Mirrors the Go CLI integration tests by calling ./canasta commands as
+Exercises the CLI end to end by calling ./canasta commands as
 subprocesses. Each test creates an isolated instance with unique ports
 and a separate config directory.
 
@@ -461,6 +461,167 @@ def test_backup(inst):
     shutil.rmtree(backup_dir, ignore_errors=True)
 
 
+def test_backup_custom_dockerfile(inst):
+    """A custom Dockerfile + override are captured by backup and restored.
+
+    Regression: backup staged docker-compose.override.yml but not the
+    Dockerfile / build context it references, so a restore onto a fresh host
+    had an override pointing at a missing build and could not start.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)  # Brief wait for containers to stabilize
+
+    inst_path = inst.instance_path()
+    override_path = os.path.join(inst_path, "docker-compose.override.yml")
+    dockerfile_path = os.path.join(inst_path, "Dockerfile.custom")
+
+    # Reuse the instance's own base image so the build is a no-op single FROM
+    # layer (instant, no network) rather than pulling a fresh image.
+    canasta_image = "ghcr.io/canastawiki/canasta:latest"
+    with open(inst.env_path()) as f:
+        for line in f:
+            if line.startswith("CANASTA_IMAGE="):
+                canasta_image = line.split("=", 1)[1].strip()
+                break
+
+    print("Adding a custom web build (override + Dockerfile.custom)...")
+    with open(override_path, "w") as f:
+        f.write(
+            "services:\n"
+            "  web:\n"
+            "    image: %s:custom\n"
+            "    build:\n"
+            "      context: .\n"
+            "      dockerfile: Dockerfile.custom\n"
+            % inst.id
+        )
+    with open(dockerfile_path, "w") as f:
+        f.write("FROM %s\n" % canasta_image)
+
+    print("Configuring backup repository...")
+    backup_dir = tempfile.mkdtemp(prefix="canasta-int-backup-")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_REPOSITORY=%s" % backup_dir, "--no-restart",
+    )
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_PASSWORD=testpass", "--no-restart",
+    )
+
+    print("Initializing backup repository...")
+    inst.run_ok("backup", "init", "-i", inst.id)
+
+    print("Creating backup snapshot...")
+    inst.run_ok("backup", "create", "-i", inst.id, "-t", "custom-build")
+
+    print("Verifying the Dockerfile is inside the snapshot...")
+    output = inst.run_quiet("backup", "list", "-i", inst.id)
+    snapshot_id = None
+    for line in output.split("\n"):
+        if "custom-build" in line:
+            match = re.search(r'\b([0-9a-f]{8,})\b', line)
+            if match:
+                snapshot_id = match.group(1)
+                break
+    assert snapshot_id, "Could not extract snapshot ID from:\n%s" % output
+    files = inst.run_quiet(
+        "backup", "files", "-i", inst.id, "-s", snapshot_id,
+    )
+    assert "Dockerfile.custom" in files, (
+        "Dockerfile.custom not captured in snapshot:\n%s" % files
+    )
+
+    print("Deleting build inputs to simulate loss...")
+    os.remove(override_path)
+    os.remove(dockerfile_path)
+
+    print("Restoring from backup...")
+    inst.run_ok(
+        "backup", "restore", "-i", inst.id,
+        "-s", snapshot_id, "--skip-safety-backup",
+    )
+
+    print("Verifying build inputs are back on disk...")
+    assert os.path.isfile(dockerfile_path), "Dockerfile.custom was not restored"
+    assert os.path.isfile(override_path), (
+        "docker-compose.override.yml was not restored"
+    )
+
+    print("Restarting after restore...")
+    inst.run_ok("restart", "-i", inst.id)
+
+    print("Verifying wiki accessible after restore...")
+    wait_for_wiki(inst.http_port, timeout=300)
+    shutil.rmtree(backup_dir, ignore_errors=True)
+
+
+def test_backup_missing_dockerfile(inst):
+    """A backup of an override that references a missing Dockerfile is clean.
+
+    Regression: discovery trusts `docker compose config`, which emits the
+    build: section even when the Dockerfile is absent. Staging that missing
+    path would bind-mount it, and on Linux Docker creates a root-owned junk
+    directory there. Discovery must stat each path and stage only existing
+    ones, so the backup leaves the instance directory untouched.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)  # Brief wait for containers to stabilize
+
+    inst_path = inst.instance_path()
+    override_path = os.path.join(inst_path, "docker-compose.override.yml")
+    dockerfile_path = os.path.join(inst_path, "Dockerfile.custom")
+
+    print("Adding an override that references a NON-EXISTENT Dockerfile...")
+    with open(override_path, "w") as f:
+        f.write(
+            "services:\n"
+            "  web:\n"
+            "    image: %s:custom\n"
+            "    build:\n"
+            "      context: .\n"
+            "      dockerfile: Dockerfile.custom\n"
+            % inst.id
+        )
+    assert not os.path.exists(dockerfile_path), "precondition: Dockerfile absent"
+
+    print("Configuring backup repository...")
+    backup_dir = tempfile.mkdtemp(prefix="canasta-int-backup-")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_REPOSITORY=%s" % backup_dir, "--no-restart",
+    )
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_PASSWORD=testpass", "--no-restart",
+    )
+
+    print("Initializing backup repository...")
+    inst.run_ok("backup", "init", "-i", inst.id)
+
+    print("Creating backup snapshot (must not create a junk Dockerfile dir)...")
+    inst.run_ok("backup", "create", "-i", inst.id, "-t", "missing-df")
+
+    print("Verifying no junk Dockerfile.custom was created...")
+    assert not os.path.isdir(dockerfile_path), (
+        "backup created a junk directory at Dockerfile.custom"
+    )
+    assert not os.path.exists(dockerfile_path), (
+        "backup created an unexpected Dockerfile.custom entry"
+    )
+    shutil.rmtree(backup_dir, ignore_errors=True)
+
+
 def test_gitops(inst):
     """Init gitops, verify templates, push, verify remote."""
     # Check prerequisites
@@ -538,6 +699,137 @@ def test_gitops(inst):
     assert "wgTestSetting" in result.stdout, (
         "File content not in repo: %s" % result.stdout
     )
+
+
+def test_gitops_join(inst):
+    """Join a second instance to an existing gitops repo.
+
+    Exercises the join working-tree checkout (#571/#582): files present in
+    the repo but not yet in the joining instance are materialized, and a
+    tracked file that differs locally is replaced with the repo's version.
+    Uses a host-owned settings file (not the container-managed Caddyfile)
+    for the diverging case so the assertion is portable.
+
+    Then re-attaches the same (already-registered) host with --reinit and
+    asserts the host entry is upserted rather than rejected as a duplicate.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    import yaml
+
+    # --- Instance A: create, init gitops, push a tracked settings file ---
+    print("Creating instance A...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    # Deliberately default the bare repo's HEAD to 'master' while gitops
+    # pushes content to 'main'. This is the adversarial case: the join must
+    # clone 'main' explicitly (git clone -b main) rather than follow the
+    # remote's default HEAD, or it checks out an empty master and fails
+    # reading hosts/hosts.yaml. Forcing master here exercises that on every
+    # runner regardless of its git init.defaultBranch.
+    subprocess.run(
+        ["git", "init", "--bare", "--initial-branch=master", bare_repo],
+        capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops on A (host 'hosta')...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "hosta",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    print("Adding a tracked settings file on A and pushing...")
+    rel_settings = os.path.join("config", "settings", "global", "JoinTest.php")
+    a_settings = os.path.join(inst.instance_path(), rel_settings)
+    repo_content = "<?php\n$wgJoinTest = 'from-repo';\n"
+    os.makedirs(os.path.dirname(a_settings), exist_ok=True)
+    with open(a_settings, "w") as f:
+        f.write(repo_content)
+    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok("gitops", "push", "-i", inst.id)
+
+    # --- Instance B: create, seed a diverging copy, join ---
+    inst_b = TestInstance("inttest-gitops-join-b")
+    try:
+        print("Creating instance B...")
+        inst_b.run_ok(
+            "create", "-i", inst_b.id, "-w", "main",
+            "-n", "localhost", "-p", inst_b.work_dir,
+            "-e", inst_b.env_file,
+        )
+        b_path = inst_b.instance_path()
+
+        # Seed B with a stale copy of the tracked settings file so the join
+        # must overwrite it (the per-file checkout-of-differing path).
+        b_settings = os.path.join(b_path, rel_settings)
+        os.makedirs(os.path.dirname(b_settings), exist_ok=True)
+        with open(b_settings, "w") as f:
+            f.write("<?php\n$wgJoinTest = 'local-stale';\n")
+
+        print("Joining B to A's gitops repo (host 'hostb')...")
+        inst_b.run_ok(
+            "gitops", "join", "-i", inst_b.id, "-n", "hostb",
+            "--repo", bare_repo, "--key", key_file,
+        )
+
+        print("Verifying B picked up the gitops structure...")
+        assert os.path.isfile(os.path.join(b_path, ".gitops-host")), (
+            ".gitops-host not created on join"
+        )
+        b_vars = os.path.join(b_path, "hosts", "hostb", "vars.yaml")
+        assert os.path.isfile(b_vars), (
+            "hosts/hostb/vars.yaml not created on join"
+        )
+        with open(b_vars) as f:
+            assert isinstance(yaml.safe_load(f), dict), (
+                "hosts/hostb/vars.yaml is not a valid vars mapping"
+            )
+
+        print("Verifying the diverging settings file was replaced...")
+        with open(b_settings) as f:
+            b_after = f.read()
+        assert b_after == repo_content, (
+            "join did not replace B's diverging settings file with the "
+            "repo version; got: %r" % b_after
+        )
+
+        print("Verifying A's host vars survived B's join...")
+        assert os.path.isfile(
+            os.path.join(b_path, "hosts", "hosta", "vars.yaml")
+        ), "A's host entry was not materialized into B on join"
+
+        # --- Re-attach: join the already-registered host again with --reinit ---
+        # B now has a .git and 'hostb' is registered in the repo, so a plain
+        # re-join is refused twice over (".git exists" / "host already
+        # exists"). --reinit must wipe local state AND re-attach the existing
+        # host instead of erroring on the duplicate (#571), upserting the
+        # entry rather than appending a second 'hostb'.
+        print("Re-attaching B with --reinit (host 'hostb' already in repo)...")
+        inst_b.run_ok(
+            "gitops", "join", "-i", inst_b.id, "-n", "hostb",
+            "--repo", bare_repo, "--key", key_file, "--reinit",
+        )
+
+        print("Verifying re-attach did not duplicate the host entry...")
+        hosts_yaml = os.path.join(b_path, "hosts", "hosts.yaml")
+        with open(hosts_yaml) as f:
+            hosts_after = yaml.safe_load(f).get("hosts", [])
+        names = [h.get("name") for h in hosts_after]
+        assert names.count("hostb") == 1, (
+            "re-attach should upsert 'hostb', not duplicate it; got: %r" % names
+        )
+        assert "hosta" in names, (
+            "re-attach dropped the other host 'hosta'; got: %r" % names
+        )
+    finally:
+        inst_b.cleanup()
 
 
 def test_extension_skin(inst):
@@ -873,7 +1165,7 @@ def test_backup_advanced(inst):
     print("Purging older snapshots (keep last 1)...")
     inst.run_ok(
         "backup", "purge", "-i", inst.id,
-        "--older-than", "1h",
+        "--keep-within", "1h",
     )
 
     print("Verifying at least one snapshot remains after purge...")
@@ -1223,6 +1515,102 @@ def test_k8s_lifecycle(inst):
     assert inst.id not in output, "Instance still in list after delete"
 
 
+def test_k8s_backup(inst):
+    """K8s backup end-to-end on a single-node cluster.
+
+    Exercises the runtime backup path that previously had only unit
+    coverage: a local (hostPath) restic repo, the on-demand backup Job
+    with its dump-databases init container, and the schedule CronJob
+    lifecycle. Restore is covered by the Compose backup test; here the
+    focus is that the K8s Job/CronJob machinery actually runs.
+    """
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+
+    ns = "canasta-%s" % inst.id
+    cronjob = "canasta-backup-%s" % inst.id
+    # Local restic repo as a hostPath on the node. k8s_run_backup mounts
+    # it with type DirectoryOrCreate, so the path is created on demand.
+    repo = "/var/lib/canasta-k8s-backup-test-%s" % inst.id
+
+    # Backup repo config has to be present before create so it lands in
+    # the backup-env Secret the Job reads.
+    with open(inst.env_file, "a") as f:
+        f.write("RESTIC_REPOSITORY=%s\n" % repo)
+        f.write("RESTIC_PASSWORD=testpass\n")
+
+    try:
+        print("Creating Kubernetes instance...")
+        inst.run_ok(
+            "create", "-i", inst.id, "-w", "main",
+            "-n", "localhost", "-p", inst.work_dir,
+            "--orchestrator", "kubernetes",
+            "--skip-argocd-install",
+            "-e", inst.env_file,
+        )
+
+        # The dump-databases init container connects to the db, so the
+        # db StatefulSet must be ready before a backup can succeed.
+        print("Waiting for the database to be ready...")
+        result = subprocess.run(
+            ["kubectl", "rollout", "status",
+             "statefulset/canasta-%s-db" % inst.id,
+             "-n", ns, "--timeout=300s"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            "db not ready: %s\n%s" % (result.stdout, result.stderr)
+        )
+
+        print("Initializing backup repository...")
+        inst.run_ok("backup", "init", "-i", inst.id)
+
+        print("Creating backup snapshot...")
+        inst.run_ok("backup", "create", "-i", inst.id, "-t", "k8s-test-snapshot")
+
+        print("Listing snapshots...")
+        output = inst.run_quiet("backup", "list", "-i", inst.id)
+        assert "k8s-test-snapshot" in output, (
+            "Snapshot tag not found in list output:\n%s" % output
+        )
+
+        print("Setting a backup schedule (CronJob)...")
+        inst.run_ok("backup", "schedule", "set", "-i", inst.id, "0 3 * * *")
+        result = subprocess.run(
+            ["kubectl", "get", "cronjob", cronjob, "-n", ns],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            "CronJob %s not created: %s" % (cronjob, result.stderr)
+        )
+
+        print("Listing the backup schedule...")
+        output = inst.run_quiet("backup", "schedule", "list", "-i", inst.id)
+        assert "0 3 * * *" in output, (
+            "Schedule not shown in list output:\n%s" % output
+        )
+
+        print("Removing the backup schedule...")
+        inst.run_ok("backup", "schedule", "remove", "-i", inst.id)
+        for _ in range(6):
+            result = subprocess.run(
+                ["kubectl", "get", "cronjob", cronjob, "-n", ns],
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                break
+            time.sleep(2)
+        assert result.returncode != 0, "CronJob still present after remove"
+    finally:
+        # The hostPath repo lives on the node (created by the Job as root);
+        # cleanup() removes the instance but not this path.
+        subprocess.run(["sudo", "rm", "-rf", repo], capture_output=True)
+
+
 def test_version(inst):
     """`canasta version` reports a version string and orchestrator info."""
     output = inst.run_quiet("version")
@@ -1359,6 +1747,184 @@ def test_config_set_gitops(inst):
     )
 
 
+def test_config_set_gitops_domain(inst):
+    """config set MW_SITE_FQDN must survive config regenerate under gitops.
+
+    The side effects of a domain change derive MW_SITE_FQDN/MW_SITE_SERVER
+    and rewrite wiki URLs in the rendered .env/config/wikis.yaml. Those
+    derived values must also be propagated to hosts/<host>/vars.yaml, or
+    the next 'config regenerate' re-renders the files from the templates
+    and silently reverts the change.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    import yaml
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    new_domain = "wiki3.example.com"
+    print("Changing primary domain via config set...")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "MW_SITE_FQDN=%s" % new_domain, "--no-restart",
+    )
+
+    print("Regenerating config from gitops source of truth...")
+    inst.run_ok("config", "regenerate", "-i", inst.id)
+
+    # After regenerate the rendered files are re-derived from vars.yaml /
+    # templates. If the config set change reached the gitops source of
+    # truth the new domain survives; otherwise it reverts to localhost.
+    inst_path = inst.instance_path()
+
+    print("Verifying config/wikis.yaml kept the new domain...")
+    with open(os.path.join(inst_path, "config", "wikis.yaml")) as f:
+        wikis = yaml.safe_load(f)["wikis"]
+    primary_url = wikis[0]["url"]
+    assert primary_url.startswith(new_domain), (
+        "wikis.yaml primary url reverted after regenerate: %s" % primary_url
+    )
+
+    print("Verifying Caddyfile kept the new domain...")
+    with open(os.path.join(inst_path, "config", "Caddyfile")) as f:
+        caddyfile = f.read()
+    assert new_domain in caddyfile, (
+        "Caddyfile reverted after regenerate (no %s):\n%s"
+        % (new_domain, caddyfile)
+    )
+
+    print("Verifying vars.yaml recorded the new domain...")
+    vars_file = os.path.join(inst_path, "hosts", "testhost", "vars.yaml")
+    with open(vars_file) as f:
+        vars_data = yaml.safe_load(f)
+    assert vars_data.get("mw_site_fqdn") == new_domain, (
+        "mw_site_fqdn not propagated to vars.yaml: %s" % vars_data
+    )
+    assert new_domain in (vars_data.get("mw_site_server") or ""), (
+        "mw_site_server not propagated to vars.yaml: %s" % vars_data
+    )
+    assert new_domain in (vars_data.get("wiki_url_main") or ""), (
+        "wiki_url_main not propagated to vars.yaml: %s" % vars_data
+    )
+
+
+def test_config_set_gitops_port(inst):
+    """config set HTTP_PORT must survive config regenerate under gitops.
+
+    Mirrors test_config_set_gitops_domain for a port change. Changing the
+    active port (HTTP_PORT here, since the test env runs CADDY_AUTO_HTTPS=off)
+    derives MW_SITE_FQDN/MW_SITE_SERVER and rewrites wiki URLs in the rendered
+    .env/config/wikis.yaml with the new port suffix. Those derived values plus
+    the raw http_port must reach hosts/<host>/vars.yaml, or the next
+    'config regenerate' re-renders the files from the templates and silently
+    drops the port.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    import yaml
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", key_file,
+    )
+
+    new_port = "18080"
+    print("Changing active port (HTTP_PORT) via config set...")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "HTTP_PORT=%s" % new_port, "--no-restart",
+    )
+
+    print("Regenerating config from gitops source of truth...")
+    inst.run_ok("config", "regenerate", "-i", inst.id)
+
+    # After regenerate the rendered files are re-derived from vars.yaml /
+    # templates. If the port change reached the gitops source of truth the
+    # new port survives; otherwise it reverts to the original port.
+    inst_path = inst.instance_path()
+    port_suffix = ":%s" % new_port
+
+    print("Verifying config/wikis.yaml kept the new port...")
+    with open(os.path.join(inst_path, "config", "wikis.yaml")) as f:
+        wikis = yaml.safe_load(f)["wikis"]
+    primary_url = wikis[0]["url"]
+    assert port_suffix in primary_url, (
+        "wikis.yaml primary url dropped the port after regenerate: %s"
+        % primary_url
+    )
+
+    print("Verifying .env kept the new port in MW_SITE_*...")
+    env = read_env(inst.env_path())
+    assert port_suffix in env.get("MW_SITE_FQDN", ""), (
+        "MW_SITE_FQDN dropped the port after regenerate: %s"
+        % env.get("MW_SITE_FQDN")
+    )
+    assert port_suffix in env.get("MW_SITE_SERVER", ""), (
+        "MW_SITE_SERVER dropped the port after regenerate: %s"
+        % env.get("MW_SITE_SERVER")
+    )
+
+    print("Verifying vars.yaml recorded the new port...")
+    vars_file = os.path.join(inst_path, "hosts", "testhost", "vars.yaml")
+    with open(vars_file) as f:
+        vars_data = yaml.safe_load(f)
+    assert str(vars_data.get("http_port")) == new_port, (
+        "http_port not propagated to vars.yaml: %s" % vars_data
+    )
+    assert port_suffix in (vars_data.get("mw_site_fqdn") or ""), (
+        "mw_site_fqdn missing port in vars.yaml: %s" % vars_data
+    )
+    assert port_suffix in (vars_data.get("mw_site_server") or ""), (
+        "mw_site_server missing port in vars.yaml: %s" % vars_data
+    )
+    assert port_suffix in (vars_data.get("wiki_url_main") or ""), (
+        "wiki_url_main missing port in vars.yaml: %s" % vars_data
+    )
+
+
 def test_gitops_push_shared_vars(inst):
     """Verify gitops push auto-migrates shared credential keys (#206)."""
     if shutil.which("git-crypt") is None:
@@ -1389,16 +1955,20 @@ def test_gitops_push_shared_vars(inst):
         "--key", key_file,
     )
 
-    print("Adding shared-category keys to host vars...")
+    print("Adding mixed shared and host-specific keys to host vars...")
     vars_file = os.path.join(
         inst.instance_path(), "hosts", "testhost", "vars.yaml",
     )
     import yaml
     with open(vars_file) as f:
         vars_data = yaml.safe_load(f) or {}
-    vars_data["restic_repository"] = "s3:s3.example.com/test-backup"
+    # Should migrate to shared (in gitops_shared_keys):
     vars_data["restic_password"] = "test-password"
     vars_data["aws_access_key_id"] = "AKIATEST"
+    vars_data["aws_secret_access_key"] = "secrettest"
+    # Should stay per-host (environment-specific identifiers):
+    vars_data["restic_repository"] = "s3:s3.example.com/test-backup"
+    vars_data["aws_bucket_name"] = "test-bucket"
     with open(vars_file, "w") as f:
         yaml.dump(vars_data, f)
 
@@ -1406,7 +1976,7 @@ def test_gitops_push_shared_vars(inst):
     inst.run_ok("gitops", "add", "-i", inst.id)
     inst.run_ok("gitops", "push", "-i", inst.id)
 
-    print("Checking _shared/vars.yaml was created with migrated keys...")
+    print("Checking shared-list keys migrated to _shared/vars.yaml...")
     shared_file = os.path.join(
         inst.instance_path(), "hosts", "_shared", "vars.yaml",
     )
@@ -1415,19 +1985,42 @@ def test_gitops_push_shared_vars(inst):
     )
     with open(shared_file) as f:
         shared_data = yaml.safe_load(f) or {}
-    assert shared_data.get("restic_repository") == "s3:s3.example.com/test-backup", (
-        "restic_repository not in shared vars: %s" % shared_data
+    assert shared_data.get("restic_password") == "test-password", (
+        "restic_password not in shared vars: %s" % shared_data
     )
     assert shared_data.get("aws_access_key_id") == "AKIATEST", (
         "aws_access_key_id not in shared vars: %s" % shared_data
     )
+    assert shared_data.get("aws_secret_access_key") == "secrettest", (
+        "aws_secret_access_key not in shared vars: %s" % shared_data
+    )
 
-    print("Checking keys were removed from host vars...")
+    print("Checking environment-specific keys stayed per-host...")
+    assert "restic_repository" not in shared_data, (
+        "restic_repository should NOT be in shared (per-host): %s"
+        % shared_data
+    )
+    assert "aws_bucket_name" not in shared_data, (
+        "aws_bucket_name should NOT be in shared (per-host): %s"
+        % shared_data
+    )
+
+    print("Checking host vars: shared-list keys removed, host-specific kept...")
     with open(vars_file) as f:
         host_data = yaml.safe_load(f) or {}
-    assert "restic_repository" not in host_data, (
-        "restic_repository should have been removed from host vars: %s"
+    assert "restic_password" not in host_data, (
+        "restic_password should have moved to shared, still in host: %s"
         % host_data
+    )
+    assert "aws_access_key_id" not in host_data, (
+        "aws_access_key_id should have moved to shared, still in host: %s"
+        % host_data
+    )
+    assert host_data.get("restic_repository") == "s3:s3.example.com/test-backup", (
+        "restic_repository should remain per-host: %s" % host_data
+    )
+    assert host_data.get("aws_bucket_name") == "test-bucket", (
+        "aws_bucket_name should remain per-host: %s" % host_data
     )
 
 
@@ -1731,17 +2324,323 @@ def test_gitops_fix_submodules_orphan(inst):
     )
 
 
+def _wait_for_crowdsec_lapi(inst, timeout=120):
+    """Poll until the crowdsec LAPI answers cscli, so enroll doesn't race
+    container startup (collection install + sqlite init take a few seconds)."""
+    deadline = time.time() + timeout
+    last = ""
+    print("  Waiting for crowdsec LAPI...", flush=True)
+    while time.time() < deadline:
+        result = subprocess.run(
+            ["docker", "compose", "exec", "-T", "crowdsec",
+             "cscli", "lapi", "status"],
+            capture_output=True, text=True, cwd=inst.instance_path(),
+        )
+        if result.returncode == 0:
+            print("  crowdsec LAPI is ready")
+            return
+        last = (result.stderr or result.stdout or "").strip()
+        time.sleep(5)
+    raise AssertionError(
+        "crowdsec LAPI not ready within %ds (last: %s)" % (timeout, last)
+    )
+
+
+def _cscli(inst, *args):
+    """Run a cscli command inside the instance's crowdsec container."""
+    result = subprocess.run(
+        ["docker", "compose", "exec", "-T", "crowdsec", "cscli"] + list(args),
+        capture_output=True, text=True, cwd=inst.instance_path(),
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            "cscli %s failed (rc=%d): %s"
+            % (" ".join(args), result.returncode,
+               (result.stderr or result.stdout).strip())
+        )
+    return result.stdout
+
+
+def test_crowdsec(inst):
+    """Enable CrowdSec on an instance created BEFORE the feature existed,
+    verify the acquisition/whitelist files are backfilled (not left as empty
+    bind-mount directories), and exercise enroll -> status -> ban -> unban.
+
+    The live 'banned IP gets a 403' path is validated against a real
+    deployment rather than here: in the port-mapped test environment Caddy
+    sees the Docker bridge gateway as the client, which makes a 403 assertion
+    environment-fragile. This pins the deterministic behavior (backfill +
+    command/decision plumbing)."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    crowdsec_dir = os.path.join(inst.instance_path(), "config", "crowdsec")
+
+    print("Enabling CrowdSec (config set restarts the instance)...")
+    inst.run_ok("config", "set", "-i", inst.id, "CANASTA_ENABLE_CROWDSEC=true")
+
+    # The instance was created before the feature was enabled, so nothing
+    # but the backfill materializes these. They must be FILES — a directory
+    # here means the engine gets a dir where its acquisition file should be.
+    print("Verifying crowdsec config files were backfilled as files...")
+    for name in ("acquis.yaml", "whitelists.yaml"):
+        path = os.path.join(crowdsec_dir, name)
+        assert os.path.isfile(path), (
+            "%s should be backfilled as a file, not a directory" % path
+        )
+
+    # COMPOSE_PROFILES self-heals from the flag on start.
+    env = read_env(inst.env_path())
+    assert "crowdsec" in env.get("COMPOSE_PROFILES", ""), (
+        "crowdsec profile should be active: %s" % env.get("COMPOSE_PROFILES")
+    )
+
+    _wait_for_crowdsec_lapi(inst)
+
+    # Enabling CrowdSec above auto-enrolls the bouncer on the restart, so the
+    # key is already stored; this exercises bouncer-enroll's idempotent path.
+    print("Re-running bouncer-enroll (idempotent)...")
+    inst.run_ok("crowdsec", "bouncer-enroll", "-i", inst.id)
+    env = read_env(inst.env_path())
+    assert env.get("CROWDSEC_BOUNCER_API_KEY", ""), (
+        "bouncer-enroll must store CROWDSEC_BOUNCER_API_KEY"
+    )
+
+    print("Checking status lists the bouncer...")
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "canasta-caddy" in out, "status should list the canasta-caddy bouncer"
+    assert "active" in out, "status should mark the live bouncer active"
+
+    # 203.0.113.0/24 is TEST-NET-3 (documentation range) — safe to ban.
+    print("Banning a test IP and verifying the decision appears...")
+    inst.run_ok("crowdsec", "ban", "203.0.113.7", "-i", inst.id)
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "203.0.113.7" in out, "banned IP should appear in decisions"
+
+    print("Unbanning and verifying the decision is gone...")
+    inst.run_ok("crowdsec", "unban", "203.0.113.7", "-i", inst.id)
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "203.0.113.7" not in out, "unbanned IP should be gone from decisions"
+
+    # Recreating the caddy container makes CrowdSec auto-create an undeletable
+    # 'canasta-caddy@<ip>' child each time it reconnects from a new IP,
+    # accumulating stale 'valid' rows (issue #619). They cannot be pruned
+    # (deleting the parent cascades and revokes the shared key), so status
+    # collapses the family for display instead. Simulate two duplicates and
+    # verify status shows one active bouncer plus a stale-count note rather
+    # than listing each row.
+    print("Simulating stale IP-suffixed bouncer duplicates...")
+    for ip in ("172.18.0.250", "172.18.0.251"):
+        _cscli(inst, "bouncers", "add", "canasta-caddy@%s" % ip, "-o", "raw")
+
+    print("Verifying status collapses the duplicates for display...")
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert out.count("— active") == 1, (
+        "status should show exactly one active canasta-caddy registration"
+    )
+    assert "2 stale auto-created duplicate" in out, (
+        "status should summarize the two duplicates as a stale count"
+    )
+    assert "172.18.0.250" not in out and "172.18.0.251" not in out, (
+        "individual stale duplicate rows must not be listed"
+    )
+
+
+def _k8s_caddy_ready(inst, timeout=300):
+    """Wait until the caddy pod is Running with BOTH containers ready
+    (caddy + the crowdsec sidecar, i.e. 2/2). If caddy were left on the
+    stock image (#681) it would crashloop on the crowdsec Caddyfile
+    directive and never reach ready, so this doubles as that regression
+    guard."""
+    ns = "canasta-%s" % inst.id
+    deadline = time.time() + timeout
+    last = ""
+    print("  Waiting for caddy + crowdsec sidecar to be ready...", flush=True)
+    while time.time() < deadline:
+        result = subprocess.run(
+            ["kubectl", "get", "pods", "-n", ns,
+             "-l", "app.kubernetes.io/component=caddy",
+             "--field-selector=status.phase=Running",
+             "-o", "jsonpath={range .items[0].status.containerStatuses[*]}"
+             "{.name}={.ready} {end}"],
+            capture_output=True, text=True,
+        )
+        last = result.stdout.strip()
+        if "caddy=true" in last and "crowdsec=true" in last:
+            print("  caddy + crowdsec sidecar are ready (2/2)")
+            return
+        time.sleep(5)
+    raise AssertionError(
+        "caddy + crowdsec sidecar not ready within %ds (last: %s)"
+        % (timeout, last)
+    )
+
+
+def _k8s_caddy_image(inst):
+    """Return the image of the caddy container in the caddy deployment."""
+    ns = "canasta-%s" % inst.id
+    result = subprocess.run(
+        ["kubectl", "get", "deploy", "canasta-%s-caddy" % inst.id, "-n", ns,
+         "-o", "jsonpath={.spec.template.spec.containers[?(@.name=='caddy')]"
+         ".image}"],
+        capture_output=True, text=True,
+    )
+    return result.stdout.strip()
+
+
+def _wait_bouncer_active(inst, timeout=120):
+    """Poll `crowdsec status` until the canasta-caddy bouncer shows active.
+    The caddy bouncer's first LAPI pull (which flips it to 'active') can lag a
+    few seconds after a restart, so assert with a wait rather than once."""
+    deadline = time.time() + timeout
+    out = ""
+    while time.time() < deadline:
+        out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+        for line in out.splitlines():
+            if "canasta-caddy" in line and "active" in line:
+                return out
+        time.sleep(5)
+    raise AssertionError(
+        "bouncer canasta-caddy never became active within %ds:\n%s"
+        % (timeout, out)
+    )
+
+
+def test_k8s_crowdsec(inst):
+    """Kubernetes: bring up CrowdSec on a live cluster and exercise the command
+    surface (#683). This is the coverage gap that let two blockers reach main —
+    #677 (unquoted preflight jsonpath broke every K8s crowdsec command) and
+    #681 (caddy stuck on the stock image -> crashloop) — because the K8s
+    integration job never *enabled* CrowdSec. Unit tests assert file content,
+    not runtime; only an enable-on-a-real-cluster test catches this.
+
+    CrowdSec is enabled at CREATE time (-e). That path otherwise has no CI
+    coverage (it was broken until #685/#700), and it does one fewer full-stack
+    restart than the config-set-enable path — config set enable bounces the
+    whole stack twice (enable + the bouncer-key store), and on a 2-CPU CI
+    runner the MediaWiki pod's healthcheck start-period makes a second full
+    restart blow helm's --wait. The restart-light command surface below
+    (reload only rolls the caddy deployment, not the stack) keeps this within
+    the runner's budget.
+
+    The live 'banned IP gets a 403' assertion is intentionally omitted: in the
+    CI cluster the client IP Caddy sees is environment-dependent (same reasoning
+    as the Compose test_crowdsec). This pins the deterministic behavior: the
+    sidecar comes up on the plugin image, every command exits clean, and
+    ban/unban decisions plumb through the LAPI."""
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+
+    # Enable CrowdSec at create time via the -e env file.
+    with open(inst.env_file, "a") as f:
+        f.write("CANASTA_ENABLE_CROWDSEC=true\n")
+
+    print("Creating Kubernetes instance with CrowdSec enabled...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "--orchestrator", "kubernetes",
+        "--skip-argocd-install",
+        "-e", inst.env_file,
+    )
+
+    # #681: the caddy deployment must run the plugin image and the pod must
+    # reach 2/2 (caddy + crowdsec sidecar). Stock image -> crashloop, never 2/2.
+    _k8s_caddy_ready(inst)
+    image = _k8s_caddy_image(inst)
+    assert image == "ghcr.io/canastawiki/canasta-caddy:2.11.3", (
+        "caddy must run the plugin image when CrowdSec is on, got: %r" % image
+    )
+
+    # The deploy-time reconcile must record both knobs in values.yaml.
+    import yaml as _yaml
+    with open(os.path.join(inst.instance_path(), "values.yaml")) as f:
+        values = _yaml.safe_load(f)
+    assert values.get("crowdsec", {}).get("enabled") is True, (
+        "values.yaml crowdsec.enabled must be true, got: %s"
+        % values.get("crowdsec")
+    )
+
+    # #677: every K8s crowdsec command must exec cleanly into the sidecar.
+    # run_quiet raises on a non-zero exit, so these calls ARE the assertion.
+    print("Verifying the bouncer enrolled at create time...")
+    out = _wait_bouncer_active(inst)
+    assert "registered" in out, "status should show CAPI registered"
+
+    print("Exercising the read command surface...")
+    inst.run_quiet("crowdsec", "scenarios", "-i", inst.id)
+    inst.run_quiet("crowdsec", "alerts", "-i", inst.id)
+    inst.run_quiet("crowdsec", "metrics", "-i", inst.id)
+
+    # 203.0.113.0/24 is TEST-NET-3 (documentation range) — safe to ban.
+    print("Banning a test IP and verifying the decision appears...")
+    inst.run_ok("crowdsec", "ban", "203.0.113.7", "-i", inst.id)
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "203.0.113.7" in out, "banned IP should appear in decisions"
+
+    print("Unbanning and verifying the decision is gone...")
+    inst.run_ok("crowdsec", "unban", "203.0.113.7", "-i", inst.id)
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "203.0.113.7" not in out, "unbanned IP should be gone from decisions"
+
+    # reload / reload --purge-blocklists roll ONLY the caddy deployment (the
+    # engine is a sidecar there), not the whole stack — light enough for CI.
+    # The Recreate rollout renames the caddy pod, so this also exercises the
+    # post-restart cscli prefix re-resolve.
+    print("Reloading the engine...")
+    inst.run_ok("crowdsec", "reload", "-i", inst.id)
+    _k8s_caddy_ready(inst)
+    print("Reloading with --purge-blocklists...")
+    inst.run_ok("crowdsec", "reload", "--purge-blocklists", "-i", inst.id)
+    _k8s_caddy_ready(inst)
+
+    # bouncer-enroll without --force is the idempotent path: the bouncer is
+    # already enrolled from create, so this is a no-op (no restart). --force
+    # is omitted here — it triggers a full-stack restart that overruns the CI
+    # runner; its revoke/re-issue path is covered by the unit + Compose tests.
+    print("Re-running bouncer-enroll (idempotent no-op)...")
+    inst.run_ok("crowdsec", "bouncer-enroll", "-i", inst.id)
+    out = _wait_bouncer_active(inst)
+    assert "canasta-caddy" in out, "bouncer should still be enrolled"
+
+    print("Deleting instance...")
+    inst.run_ok("delete", "-i", inst.id, "--yes")
+    for _ in range(12):
+        result = subprocess.run(
+            ["kubectl", "get", "namespace", "canasta-%s" % inst.id],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            break
+        time.sleep(5)
+    assert result.returncode != 0, "Namespace still exists after delete"
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
     "k8s-lifecycle": test_k8s_lifecycle,
+    "k8s-crowdsec": test_k8s_crowdsec,
+    "k8s-backup": test_k8s_backup,
     "lifecycle": test_lifecycle,
     "import": test_import_export,
     "upgrade": test_upgrade,
     "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
+    "backup-custom-dockerfile": test_backup_custom_dockerfile,
+    "backup-missing-dockerfile": test_backup_missing_dockerfile,
     "gitops": test_gitops,
+    "gitops-join": test_gitops_join,
     "gitops-pull-diff": test_gitops_pull_diff,
     "extension-skin": test_extension_skin,
     "wiki-farm": test_wiki_farm,
@@ -1752,11 +2651,14 @@ ALL_TESTS = {
     "sitemap": test_sitemap,
     "maintenance": test_maintenance,
     "config-set-gitops": test_config_set_gitops,
+    "config-set-gitops-domain": test_config_set_gitops_domain,
+    "config-set-gitops-port": test_config_set_gitops_port,
     "gitops-push-shared": test_gitops_push_shared_vars,
     "gitops-push-reporting": test_gitops_push_reporting,
     "backup-restore-safety": test_backup_restore_excludes_safety,
     "gitops-status-fetch": test_gitops_status_fetch,
     "gitops-fix-submodules": test_gitops_fix_submodules_orphan,
+    "crowdsec": test_crowdsec,
 }
 
 

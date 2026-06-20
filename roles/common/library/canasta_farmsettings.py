@@ -3,8 +3,7 @@
 
 """Ansible module for Canasta input validation.
 
-Replaces validation functions from Go packages: instance ID validation
-from internal/canasta and wiki ID validation from internal/farmsettings.
+Validates instance IDs and wiki IDs.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -31,13 +30,13 @@ options:
 import re
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_validate import (
+    validate_wiki_id,
+)
 
 
 # From internal/canasta: ^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$
 INSTANCE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-_]*[a-zA-Z0-9])?$")
-
-# From internal/farmsettings: no hyphens, not in reserved list
-RESERVED_WIKI_IDS = ["settings", "images", "w", "wiki", "wikis"]
 
 # From internal/extensionsskins: ^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$
 EXTENSION_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$")
@@ -50,17 +49,6 @@ def validate_instance_id(value):
     if not INSTANCE_ID_PATTERN.match(value):
         return ("instance ID '%s' is invalid: must start and end with alphanumeric, "
                 "may contain letters, digits, hyphens, underscores" % value)
-    return None
-
-
-def validate_wiki_id(value):
-    """Validate a wiki ID."""
-    if not value:
-        return "wiki ID cannot be empty"
-    if "-" in value:
-        return "wiki ID '%s' cannot contain hyphens" % value
-    if value in RESERVED_WIKI_IDS:
-        return "wiki ID '%s' is reserved (cannot be: %s)" % (value, ", ".join(RESERVED_WIKI_IDS))
     return None
 
 

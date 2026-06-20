@@ -1,5 +1,5 @@
 ---
-# Backup create - matching Go CLI's full staging flow.
+# Backup create - full staging flow.
 # 1. Dump DBs via docker compose exec
 # 2. Stage host dirs into backup volume via alpine
 # 3. Run restic/restic container to create snapshot
@@ -22,27 +22,13 @@
   register: _backup_dbpass
   no_log: true
 
-- name: Create backup staging directory
+# The orchestrator owns how DB dumps are staged into the snapshot:
+# Compose dumps into the live web container's bind-mounted
+# /mediawiki/config/backup; K8s does it in the restic Job's init
+# container instead (a no-op here). Dispatch unconditionally.
+- name: Stage database dumps for backup
   ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
-  vars:
-    exec_service: web
-    exec_command: "mkdir -p /mediawiki/config/backup"
-
-- name: Dump each wiki database
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
-  vars:
-    exec_service: web
-    exec_no_log: true
-    exec_command: >-
-      mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-      -p{{ _backup_dbpass.value | quote }}
-      --single-transaction
-      --databases {{ item | quote }}
-      > /mediawiki/config/backup/db_{{ item | quote }}.sql
-  loop: "{{ _backup_wikis.wiki_ids }}"
-  no_log: true
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_stage_db_dumps.yml
 
 - name: Get hostname for tag
   ansible.builtin.command:
@@ -86,11 +72,27 @@
   loop_control:
     label: "{{ item.item }}"
 
+- name: Discover custom Docker build inputs
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_discover_build_paths.yml
+
+- name: Add custom build inputs to staging
+  ansible.builtin.set_fact:
+    _backup_volumes: "{{ _backup_volumes | combine(_build_staging_map) }}"
+
+# --host pins restic's host to the instance id, so every snapshot of this
+# instance shares a stable host. Without it, restic records the host as the
+# ephemeral restic container's random id (different every run), so it never
+# finds a parent ("no parent snapshot found, will read all files") and
+# `forget --group-by host,paths` puts each snapshot in its own group. A
+# stable host restores incremental backups and correct retention grouping.
 - name: Create backup snapshot
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
   vars:
     backup_args:
+      - "--host"
+      - "{{ instance_id }}"
       - "--tag"
       - "{{ _backup_tag }}"
       - "backup"
@@ -101,10 +103,6 @@
   ansible.builtin.debug:
     msg: "{{ _restic_result.stdout }}"
 
-- name: Clean up backup staging directory (from inside container)
+- name: Clean up backup staging directory
   ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
-  vars:
-    exec_service: web
-    exec_command: "rm -rf /mediawiki/config/backup"
-  ignore_errors: true  # OK if backup dir doesn't exist
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_cleanup_db_dumps.yml

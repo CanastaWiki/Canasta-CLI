@@ -5,53 +5,36 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-# No args: list running services (matches Go CLI behavior)
+# No args: list running services
 - name: List running services
   when: (exec_args | default('')) == ''
   block:
-    - name: Get service list (Compose)
-      ansible.builtin.command:
-        cmd: "docker compose ps --services --filter status=running"
-        chdir: "{{ instance_path }}"
-      register: _exec_services_compose
-      changed_when: false
-      when: instance_orchestrator | default('compose') == 'compose'
-
-    - name: Get service list (Kubernetes)
-      ansible.builtin.command:
-        cmd: >-
-          kubectl get pods -n canasta-{{ instance_id }}
-          -o jsonpath='{range .items[*]}{.metadata.labels.app\.kubernetes\.io/component}{"\n"}{end}'
-      register: _exec_services_k8s
-      changed_when: false
-      when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-
-    - name: Set service list
-      ansible.builtin.set_fact:
-        _exec_services_stdout: >-
-          {{ (_exec_services_compose.stdout | default(''))
-             if (instance_orchestrator | default('compose')) == 'compose'
-             else (_exec_services_k8s.stdout | default('')) }}
+    # The orchestrator owns how running services are listed (compose
+    # service names vs k8s pod component labels); dispatch.
+    - name: Get running services for this orchestrator
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/list_running_services.yml
 
     - name: Display running services
       ansible.builtin.debug:
         msg: |
           Running services:
-          {% for svc in (_exec_services_stdout | trim).split('\n') | sort %}
+          {% for svc in (_running_services | trim).split('\n') | sort %}
             {{ svc }}
           {% endfor %}
-      when: (_exec_services_stdout | trim) != ''
+      when: (_running_services | trim) != ''
 
     - name: No services running
       ansible.builtin.debug:
         msg: "No running services found."
-      when: (_exec_services_stdout | trim) == ''
+      when: (_running_services | trim) == ''
 
 - name: Execute command in container
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: "{{ service | default('web') }}"
     exec_command: "{{ exec_args }}"
+    exec_stdin: "{{ stdin_file | default('') }}"
   when: (exec_args | default('')) != ''
 
 - name: Display output

@@ -430,3 +430,103 @@ class TestHostPWDEnvVar:
         assert val and os.path.isabs(val), (
             "CANASTA_HOST_PWD should be an absolute path, got: %s" % val
         )
+
+
+class TestPodmanDetection:
+    """Verify canasta-docker injects --userns=keep-id when `docker` is a
+    podman wrapper (the rootless-podman UID-namespace fix)."""
+
+    def _shim_docker(self, tmpdir, version_output):
+        """Write a shell script named `docker` into tmpdir that reproduces
+        the podman or docker --version output, then prepend tmpdir to PATH."""
+        docker_path = os.path.join(tmpdir, "docker")
+        with open(docker_path, "w") as f:
+            f.write(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"$1\" == \"--version\" ]]; then\n"
+                "    echo %s\n"
+                "    exit 0\n"
+                "fi\n"
+                # No other docker subcommand should be invoked in dry-run
+                # mode; fail loudly if one is.
+                "echo 'unexpected docker invocation: '\"$@\" >&2\n"
+                "exit 99\n" % _shell_quote(version_output)
+            )
+        os.chmod(docker_path, 0o755)
+
+    def test_podman_wrapper_adds_userns_keep_id(self, short_tmp):
+        self._shim_docker(short_tmp, "podman version 4.9.3")
+        argv, _ = run_dry(
+            ["version"],
+            env={"PATH": "%s:%s" % (short_tmp, os.environ.get("PATH", ""))},
+        )
+        assert "--userns=keep-id" in argv, (
+            "expected --userns=keep-id when docker is a podman shim:\n%s"
+            % "\n".join(argv)
+        )
+
+    def test_real_docker_omits_userns_keep_id(self, short_tmp):
+        self._shim_docker(short_tmp, "Docker version 27.5.1, build abc123")
+        argv, _ = run_dry(
+            ["version"],
+            env={"PATH": "%s:%s" % (short_tmp, os.environ.get("PATH", ""))},
+        )
+        assert "--userns=keep-id" not in argv, (
+            "did not expect --userns=keep-id with real docker:\n%s"
+            % "\n".join(argv)
+        )
+
+
+def _shell_quote(s):
+    """Single-quote a string for safe embedding in a bash heredoc/echo."""
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+class TestPasswdEntryUsesHostUsername:
+    """The /etc/passwd that canasta-docker bind-mounts into the
+    container has to carry the host operator's actual login name as
+    the in-container username — NOT a literal "canasta". Otherwise
+    Ansible plays that SSH from the container to a remote host
+    without an explicit -u override default to `canasta@<host>`,
+    which the remote sshd rejects with "Too many authentication
+    failures" because no `canasta` user exists there. See #478.
+    """
+
+    def test_passwd_entry_uses_host_username_not_literal_canasta(self):
+        argv, _ = run_dry(["version"])
+        config_dir = next(
+            a.split("=", 1)[1]
+            for a in argv
+            if a.startswith("CANASTA_CONFIG_DIR=")
+        )
+        passwd_path = os.path.join(config_dir, ".canasta-passwd")
+        assert os.path.isfile(passwd_path), (
+            "canasta-docker should have written %s" % passwd_path
+        )
+        with open(passwd_path) as f:
+            entries = [
+                line.strip() for line in f
+                if line.strip() and not line.startswith("#")
+            ]
+        my_uid = str(os.getuid())
+        host_username = os.environ.get("USER") or os.getlogin()
+        my_entry = next(
+            (e for e in entries if e.split(":")[2] == my_uid),
+            None,
+        )
+        assert my_entry, (
+            "no /etc/passwd entry for UID %s in:\n%s"
+            % (my_uid, "\n".join(entries))
+        )
+        username = my_entry.split(":", 1)[0]
+        assert username != "canasta", (
+            "canasta-docker should not write a literal 'canasta' "
+            "username — outbound SSH then defaults to "
+            "'canasta@<host>' and trips sshd's auth-failure limit "
+            "(#478). entry=%r" % my_entry
+        )
+        assert username == host_username, (
+            "in-container username should match host operator's "
+            "(%r) — got %r in entry %r"
+            % (host_username, username, my_entry)
+        )

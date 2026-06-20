@@ -1,30 +1,59 @@
 ---
-# GitOps diff (Compose). Matches Go CLI categorized output.
+# GitOps diff (Compose). Matches the direct command in
+# direct_commands/gitops.py — shows the actual patch for each
+# boundary, headed by its file count.
 # Requires: instance_path (set by dispatcher)
 
-# Uncommitted changes (working tree vs index)
-- name: Get uncommitted changes
+- name: Set diff format
+  ansible.builtin.set_fact:
+    _gdiff_fmt: "{{ '--stat' if (stat is defined and stat | bool) else '-p' }}"
+
+# Uncommitted changes (working tree vs HEAD: staged + unstaged)
+- name: Get uncommitted file list
   ansible.builtin.command:
-    cmd: git diff --name-only
+    cmd: git diff --name-only HEAD
     chdir: "{{ instance_path }}"
   register: _gdiff_uncommitted
   changed_when: false
 
-# Local changes (committed but not pushed)
-- name: Get local unpushed changes
+- name: Get uncommitted patch
   ansible.builtin.command:
-    cmd: git diff --name-only HEAD @{upstream}
+    cmd: "git diff {{ _gdiff_fmt }} HEAD"
+    chdir: "{{ instance_path }}"
+  register: _gdiff_uncommitted_patch
+  changed_when: false
+
+# Local changes (committed but not pushed)
+- name: Get local unpushed file list
+  ansible.builtin.command:
+    cmd: git diff --name-only @{upstream}...HEAD
     chdir: "{{ instance_path }}"
   register: _gdiff_local
   changed_when: false
   ignore_errors: true  # OK if no upstream configured
 
-# Remote changes (on remote but not pulled)
-- name: Get remote changes
+- name: Get local unpushed patch
   ansible.builtin.command:
-    cmd: git diff --name-only @{upstream} HEAD
+    cmd: "git diff {{ _gdiff_fmt }} @{upstream}...HEAD"
+    chdir: "{{ instance_path }}"
+  register: _gdiff_local_patch
+  changed_when: false
+  ignore_errors: true  # OK if no upstream configured
+
+# Remote changes (on remote but not pulled)
+- name: Get remote file list
+  ansible.builtin.command:
+    cmd: git diff --name-only HEAD...@{upstream}
     chdir: "{{ instance_path }}"
   register: _gdiff_remote
+  changed_when: false
+  ignore_errors: true  # OK if no upstream configured
+
+- name: Get remote patch
+  ansible.builtin.command:
+    cmd: "git diff {{ _gdiff_fmt }} HEAD...@{upstream}"
+    chdir: "{{ instance_path }}"
+  register: _gdiff_remote_patch
   changed_when: false
   ignore_errors: true  # OK if no upstream configured
 
@@ -53,19 +82,13 @@
       {% set rc_files = rc.split('\n')
          if rc else [] %}
       Uncommitted changes: {{ uc_files | length }} file(s)
-      {% for f in uc_files | sort %}
-        {{ f }}
-      {% endfor %}
+      {{ _gdiff_uncommitted_patch.stdout | default('') }}
 
       Local changes (not yet pushed): {{ lc_files | length }} file(s)
-      {% for f in lc_files | sort %}
-        {{ f }}
-      {% endfor %}
+      {{ _gdiff_local_patch.stdout | default('') }}
 
       Remote changes (would be applied on pull): {{ rc_files | length }} file(s)
-      {% for f in rc_files | sort %}
-        {{ f }}
-      {% endfor %}
+      {{ _gdiff_remote_patch.stdout | default('') }}
 
       {% set subs = _gdiff_submodules.stdout_lines
          | default([])
@@ -79,10 +102,10 @@
 
       {% endif %}
       {% set needs_restart = (lc_files + rc_files)
-         | select('match', '.*\\.(env|yml|yaml)$')
+         | select('match', '.*\.(env|yml|yaml)$')
          | list | length > 0 %}
       {% set needs_update = (lc_files + rc_files)
-         | select('match', '.*\\.php$')
+         | select('match', '.*\.php$')
          | list | length > 0 %}
       {% if needs_restart %}
       A restart would be needed after pulling.

@@ -10,10 +10,13 @@
   changed_when: _git_add_path.rc == 0
   when: path is defined and path != ''
 
+# Scope with an explicit pathspec: since Git 2.0 `git add -A` ignores
+# the working directory and stages the whole tree, so chdir alone does
+# not limit it to config/.
 - name: Stage all changes under config/
   ansible.builtin.command:
-    cmd: "git add -A"
-    chdir: "{{ instance_path }}/config"
+    cmd: "git add -A -- config"
+    chdir: "{{ instance_path }}"
   register: _git_add
   changed_when: _git_add.rc == 0
   when: path is not defined or path == ''

@@ -1,0 +1,14 @@
+---
+# Trigger an immediate gitops sync for this orchestrator.
+# Kubernetes: trigger an Argo CD sync. Compose: no-op — Compose gitops
+# has no continuous reconciler, so there is nothing to sync.
+# Input: instance_id, instance_orchestrator
+
+- name: Not applicable for Compose
+  ansible.builtin.debug:
+    msg: "'gitops sync' is only applicable for the kubernetes orchestrator. No action taken."
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Trigger Argo CD sync
+  ansible.builtin.include_tasks: k8s_argocd_sync.yml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
