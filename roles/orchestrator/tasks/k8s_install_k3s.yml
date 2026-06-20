@@ -106,21 +106,10 @@
   become: true
 
 # In-cluster image registry (registry:2 at the fixed ClusterIP 10.43.0.2:5000)
-# holding locally built images (canasta create --build-from, custom service/
-# sidecar images), plus a DaemonSet that trusts it on every node via certs.d
-# (hot-reloaded, no k3s restart). Idempotent — runs for fresh and existing
-# clusters, and the DaemonSet also trusts any worker that joins later.
-- name: Deploy the in-cluster image registry and per-node trust
-  ansible.builtin.command:
-    cmd: >-
-      kubectl apply
-      -f {{ canasta_root }}/roles/orchestrator/files/k8s_registry.yaml
-      -f {{ canasta_root }}/roles/orchestrator/files/k8s_registry_trust.yaml
-  register: _registry_apply
-  changed_when: "'created' in _registry_apply.stdout or 'configured' in _registry_apply.stdout"
-  until: _registry_apply.rc == 0
-  retries: 4
-  delay: 5
+# + the per-node certs.d trust DaemonSet, for locally built images (canasta
+# create --build-from, custom service/sidecar images).
+- name: Ensure the in-cluster image registry and per-node trust
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml"
 
 - name: Check if helm is installed
   ansible.builtin.command:

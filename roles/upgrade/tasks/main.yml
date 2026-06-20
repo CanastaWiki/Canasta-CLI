@@ -55,6 +55,16 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_db_migration.yml
 
+# Self-heal the cluster: deploy the in-cluster registry + per-node trust if a
+# cluster installed before this support lacks them. Idempotent (a no-op once
+# present), no k3s restart. Runs for every k8s instance so the registry is
+# guaranteed present after upgrading — both for build_from below and going
+# forward — without a separate `canasta install k8s-cp` step.
+- name: Ensure the in-cluster image registry (Kubernetes)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
 # --- Rebuild custom image if instance was built from source ---
 - name: Check for BuildFrom in registry
   canasta_registry:

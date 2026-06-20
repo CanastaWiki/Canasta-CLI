@@ -23,6 +23,8 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 CP = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_install_k3s.yml")
+ENSURE = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_ensure_registry.yml")
 AGENT = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_install_k3s_agent.yml")
 REGISTRY_MANIFEST = os.path.join(
@@ -84,11 +86,19 @@ def test_trust_daemonset_writes_certsd_on_every_node():
     assert REGISTRY_ADDR in body and "skip_verify = true" in body
 
 
-def test_cp_deploys_registry_and_trust():
+def test_ensure_task_applies_registry_and_trust():
     cmds = [(t.get("ansible.builtin.command", {}) or {}).get("cmd", "")
-            for t in _walk(yaml.safe_load(open(CP)))]
-    deploy = next(c for c in cmds if "k8s_registry.yaml" in c)
-    assert "k8s_registry_trust.yaml" in deploy
+            for t in _walk(yaml.safe_load(open(ENSURE)))]
+    apply = next(c for c in cmds if "k8s_registry.yaml" in c)
+    assert "k8s_registry_trust.yaml" in apply
+
+
+def test_registry_is_ensured_from_install_upgrade_and_create():
+    # Install, upgrade (self-heal existing clusters), and create --build-from
+    # all ensure the registry, so build-from never dead-ends on a missing one.
+    upgrade_main = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
+    for path in (CP, upgrade_main, PUSH):
+        assert "k8s_ensure_registry.yml" in _text(path)
 
 
 def test_no_nodeport_lockdown_or_restart_machinery():

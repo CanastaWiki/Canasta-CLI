@@ -82,6 +82,12 @@
 - name: Push image to registry (if built from source)
   when: build_from is defined and build_from != ''
   block:
+    # Guarantee the registry exists even on a cluster that predates it and
+    # hasn't been upgraded yet (idempotent, no restart) — so --build-from never
+    # dead-ends on a missing registry.
+    - name: Ensure the in-cluster image registry
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml"
+
     - name: Tag and push image to registry
       ansible.builtin.command:
         cmd: "docker tag {{ _base_image }} localhost:5000/{{ _base_image }}"
