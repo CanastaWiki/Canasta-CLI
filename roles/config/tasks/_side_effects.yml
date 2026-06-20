@@ -413,7 +413,7 @@
         _k8s_override:
           image:
             repository: "{{ _config_value | regex_replace(':[^:]+$', '') }}"
-            tag: "{{ _config_value | regex_replace('^[^:]+:', '') }}"
+            tag: "{{ _config_value | regex_replace('^.*:', '') }}"
       when: _config_key == 'CANASTA_IMAGE'
 
     - name: Write updated values.yaml

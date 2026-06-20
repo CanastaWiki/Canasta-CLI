@@ -117,10 +117,10 @@ def test_worker_has_no_per_node_registry_config():
 
 def test_build_from_image_points_at_the_registry():
     text = _text(VALUES_TPL)
-    # build_from selects {{ registry }}/{{ _built_image }} (the ClusterIP),
-    # not the bare canasta_image default; tag split must be last-colon so a
-    # host:port/repo:tag address parses.
-    assert "_built_image" in text and "registry" in text
+    # build_from selects the registry ClusterIP (not the bare canasta_image
+    # default); tag split must be last-colon so a host:port/repo:tag address
+    # parses. The address is a literal here — see the consistency test below.
+    assert "_built_image" in text and REGISTRY_ADDR in text
     assert "regex_replace('^.*:', '')" in text
 
 
@@ -128,8 +128,25 @@ def test_push_uses_loopback_hostport():
     assert "localhost:5000/" in _text(PUSH)
 
 
-def test_registry_default_is_the_clusterip():
-    assert REGISTRY_ADDR in _text(CMD_DEFS)
+def test_registry_address_is_consistent_everywhere():
+    # The pull address (10.43.0.2:5000) is hardcoded in three places that must
+    # agree: the Service ClusterIP, the certs.d trust, and the pod image ref.
+    # There is no --registry flag (overriding it would not be honored by the
+    # Service/trust, so it was removed).
+    assert "10.43.0.2" in _text(REGISTRY_MANIFEST)
+    assert REGISTRY_ADDR in _text(TRUST_MANIFEST)
+    assert REGISTRY_ADDR in _text(VALUES_TPL)
+    assert "name: registry" not in _text(CMD_DEFS)
+
+
+def test_image_ref_tag_split_parses_a_port_address():
+    # Lock the parsing contract: host:port/repo:tag must split on the LAST colon.
+    import re
+    img = "10.43.0.2:5000/canasta:local"
+    assert re.sub(r":[^:]+$", "", img) == "10.43.0.2:5000/canasta"   # repository
+    assert re.sub(r"^.*:", "", img) == "local"                       # tag
+    # and the default ghcr image (single colon) still parses
+    assert re.sub(r"^.*:", "", "ghcr.io/canastawiki/canasta:3.5.10") == "3.5.10"
 
 
 # --- upgrade path: build_from must work the same as create on k8s ---

@@ -42,6 +42,13 @@ spec:
           volumeMounts:
             - name: certsd
               mountPath: /certs.d
+          # Ready only once the trust file is actually on disk, so a deploy that
+          # waits on this DaemonSet's rollout can rely on every node trusting
+          # the registry before it pushes/pulls.
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/certs.d/10.43.0.2:5000/hosts.toml"]
+            periodSeconds: 5
       volumes:
         - name: certsd
           hostPath:

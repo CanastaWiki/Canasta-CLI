@@ -17,9 +17,24 @@
       -f {{ canasta_root }}/roles/orchestrator/files/k8s_registry_trust.yaml
   register: _registry_apply
   changed_when: "'created' in _registry_apply.stdout or 'configured' in _registry_apply.stdout"
-  until: _registry_apply.rc == 0
+  failed_when: false
+  # Retry transient API errors, but stop immediately on a permanent fixed-
+  # ClusterIP error (don't hammer it); the next task reports it clearly.
+  until: >-
+    _registry_apply.rc == 0
+    or 'already allocated' in _registry_apply.stderr
+    or 'Invalid value' in _registry_apply.stderr
   retries: 4
   delay: 5
+
+- name: Explain a registry deploy failure (often a fixed-ClusterIP conflict)
+  ansible.builtin.fail:
+    msg: >-
+      Could not deploy the in-cluster image registry. Its fixed ClusterIP
+      10.43.0.2 is unavailable if the cluster uses a non-default Kubernetes
+      service CIDR (not 10.43.0.0/16) or 10.43.0.2 is already in use.
+      kubectl: {{ _registry_apply.stderr | default('') }}
+  when: _registry_apply.rc != 0
 
 - name: Wait for the registry to be ready
   ansible.builtin.command:
