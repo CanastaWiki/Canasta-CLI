@@ -372,9 +372,9 @@ commands:
         description: "Path to custom composer.local.json"
       - name: registry
         type: string
-        default: "localhost:5000"
+        default: "10.43.0.2:5000"
         orchestrator_only: kubernetes
-        description: "Container registry for pushing locally built images"
+        description: "Address pods pull locally built images from (the in-cluster registry's ClusterIP)"
       - name: skip_argocd_install
         type: bool
         default: false

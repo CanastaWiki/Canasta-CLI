@@ -16,9 +16,16 @@
 instance:
   id: {{ id }}
 
+{# build_from: the image was pushed to the in-cluster registry, so the pod must
+   pull the registry-qualified ref ({{ registry }}/{{ _built_image }}); otherwise
+   use --canasta-image / the default. Split on the LAST colon so a registry
+   address with a port (host:port/repo:tag) parses correctly. #}
+{% set _k8s_image = (build_from is defined and build_from != '')
+   | ternary((registry | default('10.43.0.2:5000')) ~ '/' ~ (_built_image | default('canasta:local')),
+             canasta_image | default(canasta_default_image)) %}
 image:
-  repository: {{ canasta_image | default(canasta_default_image) | regex_replace(':[^:]+$', '') }}
-  tag: "{{ canasta_image | default(canasta_default_image) | regex_replace('^[^:]+:', '') }}"
+  repository: {{ _k8s_image | regex_replace(':[^:]+$', '') }}
+  tag: "{{ _k8s_image | regex_replace('^.*:', '') }}"
 
 domains:
   - {{ domain_name | default('localhost') }}
