@@ -57,8 +57,8 @@
 
 # Pin the literal bridge-gateway IP for podman < 4.4, which can't resolve
 # the "host-gateway" magic value in docker-compose.yml's extra_hosts. The
-# fact is only set (non-empty) by _preflight.yml on such hosts, so this
-# is naturally a no-op for Docker and podman >= 4.4.
+# fact is only set (non-empty) by the orchestrator create_preflight on
+# such hosts, so this is naturally a no-op for Docker and podman >= 4.4.
 - name: Pin HOST_GATEWAY for podman < 4.4
   canasta_env:
     path: "{{ instance_path }}/.env"
