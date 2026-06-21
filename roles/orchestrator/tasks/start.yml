@@ -186,6 +186,9 @@
         instance_path: "{{ instance_path }}"
         orchestrator: kubernetes
 
+    - name: Build + push locally-built sidecar images
+      ansible.builtin.include_tasks: k8s_build_sidecars.yml
+
     - name: Check if instance is scaled to zero
       ansible.builtin.command:
         cmd: >-

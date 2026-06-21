@@ -40,6 +40,7 @@ import yaml
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_sidecar_render import (
     render_compose,
+    render_env_bridge,
     render_k8s_values,
 )
 
@@ -105,6 +106,7 @@ def run_module():
     instance_path = module.params["instance_path"]
     orchestrator = module.params["orchestrator"]
     sidecars = read_sidecars(instance_path)
+    env = read_env(instance_path)
 
     if orchestrator == "compose":
         override = render_compose(sidecars)
@@ -118,14 +120,33 @@ def run_module():
             with open(os.path.join(instance_path, source)) as handle:
                 return handle.read()
 
-        values = {"sidecars": render_k8s_values(
-            sidecars, read_env(instance_path), file_reader)}
+        values = {"sidecars": render_k8s_values(sidecars, env, file_reader)}
         dest = os.path.join(instance_path, "values-sidecars.yaml")
         content = _HEADER + yaml.dump(
             values, default_flow_style=False, sort_keys=False)
 
     changed = write_or_remove(dest, content, module.check_mode)
-    module.exit_json(changed=changed, count=len(sidecars), path=dest)
+
+    # Bridge referenced .env vars into the web tier's getenv() (both
+    # orchestrators sync config/settings/global/*.php to the web container).
+    bridge = render_env_bridge(sidecars, env)
+    bridge_dest = os.path.join(
+        instance_path, "config", "settings", "global",
+        "00-canasta-sidecar-env.php")
+    if bridge is not None and not module.check_mode:
+        bridge_dir = os.path.dirname(bridge_dest)
+        if not os.path.exists(bridge_dir):
+            os.makedirs(bridge_dir)
+    bridge_changed = write_or_remove(bridge_dest, bridge, module.check_mode)
+    if bridge_changed and bridge is not None:
+        module.warn(
+            "Sidecar env bridge written to "
+            "config/settings/global/00-canasta-sidecar-env.php with cleartext "
+            "values; on k8s this is committed to the gitops repo. Use a real "
+            "secret store for highly sensitive values.")
+
+    module.exit_json(changed=changed or bridge_changed,
+                     count=len(sidecars), path=dest, bridge=bridge_dest)
 
 
 def main():
