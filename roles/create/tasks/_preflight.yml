@@ -173,3 +173,33 @@
   when:
     - orchestrator | default('compose') == 'compose'
     - _mem_check.rc | default(0) != 0
+
+# Compose-only host-gateway compatibility probe. The web service maps
+# gateway.docker.internal to the magic "host-gateway" value, which
+# podman only learned in 4.4 — on podman < 4.4, `compose up` aborts with
+# "invalid IP address in add-host: host-gateway". When the target runs an
+# older podman, resolve the bridge gateway IP ourselves so _env_update.yml
+# can pin HOST_GATEWAY in .env. The probe stays empty (and HOST_GATEWAY
+# unset, so the magic value is used) for Docker and podman >= 4.4.
+- name: Probe podman version for host-gateway support (Compose only)
+  ansible.builtin.shell:
+    cmd: |
+      {% raw %}set -o pipefail
+      command -v podman >/dev/null 2>&1 || exit 0
+      ver=$(podman --version 2>/dev/null | awk '{print $3}')
+      [ -n "$ver" ] || exit 0
+      # Emit the bridge gateway only when podman is older than 4.4.0.
+      if [ "$(printf '%s\n4.4.0\n' "$ver" | sort -V | head -n1)" = "$ver" ] \
+         && [ "$ver" != "4.4.0" ]; then
+          podman network inspect podman \
+              --format '{{range .Subnets}}{{.Gateway}}{{end}}' 2>/dev/null
+      fi{% endraw %}
+  register: _host_gateway_probe
+  changed_when: false
+  failed_when: false
+  when: orchestrator | default('compose') == 'compose'
+
+- name: Record host-gateway fallback IP (Compose only)
+  ansible.builtin.set_fact:
+    _host_gateway_fallback: "{{ _host_gateway_probe.stdout | default('') | trim }}"
+  when: orchestrator | default('compose') == 'compose'

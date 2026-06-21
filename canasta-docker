@@ -229,7 +229,21 @@ with open(dst, 'w') as f:
 PYEOF
         fi
         if [[ -f "$CANASTA_KUBE_CONFIG" ]]; then
-            MOUNTS+=(--add-host=host.docker.internal:host-gateway)
+            # "host-gateway" is understood by Docker and podman >= 4.4 but
+            # rejected by podman < 4.4; fall back to the bridge gateway IP
+            # there so `--add-host` doesn't abort the run.
+            host_gw="host-gateway"
+            if command -v podman &>/dev/null; then
+                pv="$(podman --version 2>/dev/null | awk '{print $3}')"
+                if [[ -n "$pv" \
+                    && "$(printf '%s\n4.4.0\n' "$pv" | sort -V | head -n1)" == "$pv" \
+                    && "$pv" != "4.4.0" ]]; then
+                    gw="$(podman network inspect podman \
+                        --format '{{range .Subnets}}{{.Gateway}}{{end}}' 2>/dev/null)"
+                    [[ -n "$gw" ]] && host_gw="$gw"
+                fi
+            fi
+            MOUNTS+=(--add-host=host.docker.internal:"$host_gw")
         fi
     fi
     if [[ -f "$CANASTA_KUBE_CONFIG" ]]; then
