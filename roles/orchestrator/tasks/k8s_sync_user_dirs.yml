@@ -1,18 +1,27 @@
 ---
-# Populate the user-extensions / user-skins PVCs from the instance's
-# extensions/ and skins/ directories (Kubernetes).
+# Mirror the instance's extensions/ and skins/ directories into the
+# user-extensions / user-skins PVCs (Kubernetes).
 #
 # On Compose the ./extensions and ./skins bind-mounts make custom
-# extensions/skins live in the container. On K8s those paths are PVCs
-# that nothing else populates from the instance dir, so custom
-# extensions/skins would never reach the web pod (the entrypoint's
-# create-symlinks.sh then has nothing to symlink into extensions/). #784
+# extensions/skins live in the container, and monitor-directories.sh's
+# inotify events add AND remove the symlink as entries appear/disappear.
+# On K8s those paths are PVCs that nothing else populates, so this task
+# mirrors the instance dirs into them: entries present in the instance
+# dir are (re)copied, and entries no longer present are pruned. Without
+# the prune a removed extension/skin would linger in the PVC and the
+# entrypoint's create-symlinks.sh would re-link it into the new pod.
 #
-# Runs BEFORE the Helm rollout so the new web pod starts with the code
-# already in the PVC — avoids a CrashLoopBackOff when a settings fragment
-# wfLoadExtension()s a not-yet-present extension. A short-lived helper pod
-# mounts the PVCs, so this is independent of the web pod's lifecycle (works
-# on first create when no web pod exists yet, and on restart).
+# The mirror runs unconditionally (not only when the dirs have content)
+# so removals are pruned even after the last custom entry is deleted and
+# the instance dir is now empty. A short-lived helper pod mounts the
+# PVCs, independent of the web pod's lifecycle. The PVCs always exist
+# here: this task only runs from start.yml, which acts on an
+# already-deployed Helm release (the chart's pvc-extensions/pvc-skins
+# are unconditional).
+#
+# Runs BEFORE the Helm rollout so the new web pod starts with the PVC
+# already reconciled — avoids a CrashLoopBackOff when a settings fragment
+# wfLoadExtension()s a not-yet-present extension.
 #
 # Input: instance_path, instance_id (or id), _k8s_namespace (optional)
 
@@ -23,103 +32,118 @@
 
 # extensions -> <release>-extensions PVC @ /sync/extensions
 # skins      -> <release>-skins PVC      @ /sync/skins
-- name: Scan instance user dirs for content
+- name: Render user-dir sync helper pod
+  ansible.builtin.copy:
+    dest: "{{ instance_path }}/.user-dir-sync-pod.yaml"
+    mode: "0644"
+    content: |
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: user-dir-sync
+        namespace: {{ _ud_namespace }}
+        labels: { app.kubernetes.io/managed-by: canasta }
+      spec:
+        restartPolicy: Never
+        containers:
+          - name: sync
+            image: busybox:1.36
+            command: ["sh", "-c", "sleep 600"]
+            volumeMounts:
+              - { name: extensions, mountPath: /sync/extensions }
+              - { name: skins, mountPath: /sync/skins }
+        volumes:
+          - name: extensions
+            persistentVolumeClaim: { claimName: {{ _ud_release }}-extensions }
+          - name: skins
+            persistentVolumeClaim: { claimName: {{ _ud_release }}-skins }
+
+- name: Replace any prior helper pod
+  ansible.builtin.command:
+    cmd: >-
+      kubectl delete pod user-dir-sync -n {{ _ud_namespace }}
+      --ignore-not-found --wait=true
+  changed_when: false
+
+- name: Create the helper pod
+  ansible.builtin.command:
+    cmd: "kubectl apply -n {{ _ud_namespace }} -f {{ instance_path }}/.user-dir-sync-pod.yaml"
+  changed_when: true
+
+- name: Wait for the helper pod to be Ready
+  ansible.builtin.command:
+    cmd: >-
+      kubectl wait -n {{ _ud_namespace }}
+      --for=condition=Ready pod/user-dir-sync --timeout=120s
+  changed_when: false
+
+# Source of truth: the top-level entries that SHOULD be in each PVC.
+- name: Find instance top-level entries per dir
   ansible.builtin.find:
     paths: "{{ instance_path }}/{{ item }}"
     file_type: any
     depth: 1
     excludes: ['.gitignore', '.gitkeep', '.git']
     hidden: false
-  register: _ud_scan
+  register: _ud_entries
   loop: ['extensions', 'skins']
 
-- name: Build the list of dirs that actually have content
+# Current PVC contents, to diff against the instance dir. `|| true` so an
+# empty dir doesn't fail the command.
+- name: List current PVC entries per dir
+  ansible.builtin.command:
+    cmd: >-
+      kubectl exec -n {{ _ud_namespace }} user-dir-sync -c sync --
+      sh -c "ls -1 /sync/{{ item }} 2>/dev/null || true"
+  register: _ud_pvc_ls
+  changed_when: false
+  loop: ['extensions', 'skins']
+
+# Stale = present in the PVC but no longer in the instance dir. lost+found
+# (ext-family RWO volumes) is never a managed entry, so never prune it.
+# results[0] is extensions, results[1] is skins (loop order above).
+- name: Compute stale PVC entries to prune
   ansible.builtin.set_fact:
-    _ud_dirs: >-
-      {{ _ud_scan.results
-         | selectattr('matched', 'defined')
-         | selectattr('matched', 'gt', 0)
-         | map(attribute='item') | list }}
+    _ud_prune: >-
+      {{ (_ud_pvc_ls.results[0].stdout_lines | difference(['lost+found'])
+          | difference(_ud_entries.results[0].files | map(attribute='path') | map('basename') | list)
+          | map('regex_replace', '^', 'extensions/') | list)
+         +
+         (_ud_pvc_ls.results[1].stdout_lines | difference(['lost+found'])
+          | difference(_ud_entries.results[1].files | map(attribute='path') | map('basename') | list)
+          | map('regex_replace', '^', 'skins/') | list) }}
 
-- name: Sync user dirs into their PVCs (only when there is content)
-  when: _ud_dirs | length > 0
-  block:
-    - name: Render user-dir sync helper pod
-      ansible.builtin.copy:
-        dest: "{{ instance_path }}/.user-dir-sync-pod.yaml"
-        mode: "0644"
-        content: |
-          apiVersion: v1
-          kind: Pod
-          metadata:
-            name: user-dir-sync
-            namespace: {{ _ud_namespace }}
-            labels: { app.kubernetes.io/managed-by: canasta }
-          spec:
-            restartPolicy: Never
-            containers:
-              - name: sync
-                image: busybox:1.36
-                command: ["sh", "-c", "sleep 600"]
-                volumeMounts:
-                  - { name: extensions, mountPath: /sync/extensions }
-                  - { name: skins, mountPath: /sync/skins }
-            volumes:
-              - name: extensions
-                persistentVolumeClaim: { claimName: {{ _ud_release }}-extensions }
-              - name: skins
-                persistentVolumeClaim: { claimName: {{ _ud_release }}-skins }
+- name: Prune removed entries from the PVCs
+  ansible.builtin.command:
+    cmd: >-
+      kubectl exec -n {{ _ud_namespace }} user-dir-sync -c sync --
+      rm -rf /sync/{{ item }}
+  changed_when: true
+  loop: "{{ _ud_prune }}"
+  loop_control:
+    label: "{{ item }}"
 
-    - name: Replace any prior helper pod
-      ansible.builtin.command:
-        cmd: >-
-          kubectl delete pod user-dir-sync -n {{ _ud_namespace }}
-          --ignore-not-found --wait=true
-      changed_when: false
+# item.0 is the per-dir find result (item.0.item = 'extensions'|'skins');
+# item.1 is a top-level entry under it. kubectl cp copies the dir/file as
+# /sync/<dir>/<name> (i.e. user-extensions/<name>). Existing entries are
+# overwritten; the prune step above handles removals.
+- name: kubectl cp each entry into its PVC
+  ansible.builtin.command:
+    cmd: >-
+      kubectl cp {{ item.1.path | quote }}
+      {{ _ud_namespace }}/user-dir-sync:/sync/{{ item.0.item }}/{{ item.1.path | basename }}
+      -c sync
+  changed_when: true
+  loop: "{{ _ud_entries.results | subelements('files', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.item }}/{{ item.1.path | basename }}"
 
-    - name: Create the helper pod
-      ansible.builtin.command:
-        cmd: "kubectl apply -n {{ _ud_namespace }} -f {{ instance_path }}/.user-dir-sync-pod.yaml"
-      changed_when: true
+- name: Remove the helper pod
+  ansible.builtin.command:
+    cmd: "kubectl delete pod user-dir-sync -n {{ _ud_namespace }} --ignore-not-found --wait=false"
+  changed_when: false
 
-    - name: Wait for the helper pod to be Ready
-      ansible.builtin.command:
-        cmd: >-
-          kubectl wait -n {{ _ud_namespace }}
-          --for=condition=Ready pod/user-dir-sync --timeout=120s
-      changed_when: false
-
-    # Copy each top-level entry (extension/skin) into the PVC. Additive:
-    # existing entries are overwritten, new ones added (no prune in v1).
-    - name: Find top-level entries to copy
-      ansible.builtin.find:
-        paths: "{{ instance_path }}/{{ item }}"
-        file_type: any
-        depth: 1
-        excludes: ['.gitignore', '.gitkeep', '.git']
-      register: _ud_entries
-      loop: "{{ _ud_dirs }}"
-
-    # item.0 is the per-dir find result (item.0.item = 'extensions'|'skins');
-    # item.1 is a top-level entry under it. kubectl cp copies the dir/file as
-    # /sync/<dir>/<name> (i.e. user-extensions/<name>).
-    - name: kubectl cp each entry into its PVC
-      ansible.builtin.command:
-        cmd: >-
-          kubectl cp {{ item.1.path | quote }}
-          {{ _ud_namespace }}/user-dir-sync:/sync/{{ item.0.item }}/{{ item.1.path | basename }}
-          -c sync
-      changed_when: true
-      loop: "{{ _ud_entries.results | subelements('files', skip_missing=True) }}"
-      loop_control:
-        label: "{{ item.0.item }}/{{ item.1.path | basename }}"
-
-    - name: Remove the helper pod
-      ansible.builtin.command:
-        cmd: "kubectl delete pod user-dir-sync -n {{ _ud_namespace }} --ignore-not-found --wait=false"
-      changed_when: false
-
-    - name: Remove the rendered helper manifest
-      ansible.builtin.file:
-        path: "{{ instance_path }}/.user-dir-sync-pod.yaml"
-        state: absent
+- name: Remove the rendered helper manifest
+  ansible.builtin.file:
+    path: "{{ instance_path }}/.user-dir-sync-pod.yaml"
+    state: absent
