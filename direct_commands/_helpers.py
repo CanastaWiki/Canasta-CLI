@@ -110,6 +110,35 @@ def _read_env_content(path, host):
     return content if rc == 0 else ""
 
 
+def _instance_has_sidecars(inst):
+    """True if the instance declares app sidecars in config/sidecars.yaml.
+
+    The Ansible start/stop path renders the sidecar override layer and
+    includes it in the compose -f list; this fast direct path does not, so
+    the lifecycle commands fall back to Ansible when sidecars exist."""
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    sidecars_path = os.path.join(path, "config", "sidecars.yaml")
+    if _is_localhost(host):
+        try:
+            with open(sidecars_path) as f:
+                content = f.read()
+        except OSError:
+            return False
+    else:
+        rc, content = _ssh_run(
+            host, "cat %s 2>/dev/null" % _shell_quote(sidecars_path))
+        if rc != 0:
+            return False
+    if not (content or "").strip():
+        return False
+    try:
+        data = yaml.safe_load(content) or {}
+    except yaml.YAMLError:
+        return False
+    return bool(data.get("sidecars"))
+
+
 def _lint_env_content(content):
     """Find .env hygiene problems that survive read-time quote-stripping but
     reach `docker --env-file` literally: quoted values and CRLF endings.
