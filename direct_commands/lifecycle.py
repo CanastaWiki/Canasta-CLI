@@ -18,6 +18,8 @@ def cmd_start(args):
         # these are multi-step controller-to-remote operations that
         # need Ansible.
         return _helpers.FALLBACK
+    if _helpers._instance_has_sidecars(inst):
+        return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
     _helpers._sync_compose_profiles(inst)
     rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
     if rc != 0:
@@ -34,6 +36,8 @@ def cmd_stop(args):
         # (where the cluster kubeconfig lives), not the controller.
         # Ansible resolves the host and switches the connection.
         return _helpers.FALLBACK
+    if _helpers._instance_has_sidecars(inst):
+        return _helpers.FALLBACK  # Ansible includes the sidecar -f layer.
     return _helpers._run_compose(inst_id, inst, ["down"])
 
 
@@ -43,6 +47,8 @@ def cmd_restart(args):
     if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
         # K8s restart needs Ansible for the start half (helm deploy).
         return _helpers.FALLBACK
+    if _helpers._instance_has_sidecars(inst):
+        return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
     rc = _helpers._run_compose(inst_id, inst, ["down"])
     if rc != 0:
         return rc

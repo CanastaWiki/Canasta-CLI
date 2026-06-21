@@ -1275,6 +1275,40 @@ class TestLifecycleCommands:
         args = type("Args", (), {"id": "k8s-site"})()
         assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
 
+    def _compose_inst(self, tmp_path, sidecars_yaml):
+        site = tmp_path / "scsite"
+        (site / "config").mkdir(parents=True)
+        (site / "config" / "sidecars.yaml").write_text(sidecars_yaml)
+        return str(site)
+
+    def test_lifecycle_falls_back_when_sidecars_declared(
+            self, tmp_path, monkeypatch):
+        # A compose instance with sidecars must defer start/stop/restart to
+        # Ansible, which renders the sidecar override layer; the fast direct
+        # path doesn't render it.
+        path = self._compose_inst(
+            tmp_path, "sidecars:\n  - name: cache\n    image: redis:7\n")
+        monkeypatch.setattr(
+            direct_commands._helpers, "_resolve_instance",
+            lambda args: ("scsite", {"path": path, "orchestrator": "compose"}))
+        args = type("Args", (), {"id": "scsite"})()
+        assert direct_commands.cmd_start(args) is direct_commands.FALLBACK
+        assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
+        assert direct_commands.cmd_restart(args) is direct_commands.FALLBACK
+
+    def test_no_fallback_when_sidecars_empty(self, tmp_path, monkeypatch):
+        # An empty sidecars list keeps the fast direct path.
+        path = self._compose_inst(tmp_path, "sidecars: []\n")
+        monkeypatch.setattr(
+            direct_commands._helpers, "_resolve_instance",
+            lambda args: ("scsite", {"path": path, "orchestrator": "compose"}))
+        monkeypatch.setattr(
+            direct_commands._helpers, "_sync_compose_profiles", lambda inst: None)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_run_compose", lambda *a, **kw: 0)
+        args = type("Args", (), {"id": "scsite"})()
+        assert direct_commands.cmd_start(args) == 0
+
     def test_start_runs_up(self, monkeypatch):
         captured_cmds = []
 

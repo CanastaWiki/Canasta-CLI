@@ -101,6 +101,7 @@ CMD_GROUPS = [
     ("Wiki management", ["add", "remove", "import", "export"]),
     ("Container lifecycle", ["start", "stop", "restart", "rebuild", "scale"]),
     ("Extensions & skins", ["extension", "skin"]),
+    ("App sidecars", ["sidecar"]),
     ("Maintenance", ["maintenance", "sitemap"]),
     ("Security", ["crowdsec"]),
     ("Data protection", ["backup", "gitops"]),

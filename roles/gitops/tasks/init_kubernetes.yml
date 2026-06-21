@@ -253,6 +253,11 @@
 - name: Sync config files
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
+- name: Render sidecars to Helm values
+  canasta_render_sidecars:
+    instance_path: "{{ instance_path }}"
+    orchestrator: kubernetes
+
 - name: Read values.yaml after config sync
   ansible.builtin.slurp:
     src: "{{ instance_path }}/values.yaml"
@@ -263,11 +268,17 @@
     src: "{{ instance_path }}/values-configdata.yaml"
   register: _gitops_configdata
 
-- name: Merge configData into values
+- name: Read values-sidecars.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values-sidecars.yaml"
+  register: _gitops_sidecars
+
+- name: Merge configData + sidecars into values
   ansible.builtin.set_fact:
     _final_values: >-
       {{ _gitops_values_synced.content | b64decode | from_yaml
-         | combine(_gitops_configdata.content | b64decode | from_yaml, recursive=True) }}
+         | combine(_gitops_configdata.content | b64decode | from_yaml, recursive=True)
+         | combine(_gitops_sidecars.content | b64decode | from_yaml, recursive=True) }}
 
 # --- Extract per-environment values into template + vars ---
 - name: Define K8s placeholder keys
@@ -350,6 +361,7 @@
       my.cnf
       scripts/
       values-configdata.yaml
+      values-sidecars.yaml
       extensions/
       skins/
       public_assets/

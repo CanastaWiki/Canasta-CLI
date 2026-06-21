@@ -5,6 +5,13 @@
 - name: Stop (Docker Compose)
   when: instance_orchestrator | default('compose') == 'compose'
   block:
+    # Include the sidecar layer (if present) so `down` tears down the
+    # sidecar containers; the start path regenerates it. No render here.
+    - name: Check for docker-compose.sidecars.yml
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.sidecars.yml"
+      register: _sidecars_exists
+
     - name: Check for docker-compose.override.yml
       ansible.builtin.stat:
         path: "{{ instance_path }}/docker-compose.override.yml"
@@ -14,6 +21,7 @@
       ansible.builtin.set_fact:
         _compose_files: >-
           {{ ['-f', 'docker-compose.yml'] +
+             ((_sidecars_exists.stat.exists) | ternary(['-f', 'docker-compose.sidecars.yml'], [])) +
              ((_override_exists.stat.exists) | ternary(['-f', 'docker-compose.override.yml'], [])) +
              ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
 

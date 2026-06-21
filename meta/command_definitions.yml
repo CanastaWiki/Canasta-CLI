@@ -243,6 +243,17 @@ command_groups:
       pod CIDRs (override with `CADDY_TRUSTED_PROXY_CIDRS`) so it attributes
       decisions to the real client IP rather than the ingress.
 
+  - name: sidecar
+    description: "Manage app sidecars for a Canasta instance"
+    long_description: |
+      Declare and manage app sidecars — companion services the wiki talks
+      to (e.g. a cache or a parsing service) — in `config/sidecars.yaml`.
+      Sidecars are declared once and deploy the same way on Docker Compose
+      and Kubernetes. Subcommands add, list, and remove sidecar
+      declarations; run `canasta restart` to apply. For richer sidecars
+      (mounted config files, dependencies, healthchecks), edit
+      `config/sidecars.yaml` directly.
+
 commands:
   # ---------------------------------------------------------------------------
   # Instance lifecycle
@@ -2552,3 +2563,78 @@ commands:
         short: H
         type: string
         description: "Target host (default: localhost)"
+
+  - name: sidecar_add
+    description: "Add app sidecar(s) to config/sidecars.yaml from a YAML file"
+    long_description: |
+      Declare app sidecar(s) in `config/sidecars.yaml` from a YAML file of
+      full definitions — a single sidecar mapping, a list, or a `sidecars:`
+      list — then run `canasta restart` to deploy them. The file uses the
+      orchestrator-agnostic sidecar schema (name, image/build, ports, command,
+      env, volumes, files, depends_on, healthcheck, resources), so it renders
+      identically on Compose and Kubernetes.
+
+      To migrate an existing `docker-compose.override.yml`, use
+      `canasta sidecar migrate` instead, which translates its sidecar
+      services into this schema.
+    examples:
+      - "canasta sidecar add -i mywiki --file sidecars.yaml"
+    playbook: sidecar_add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+      - name: file
+        short: f
+        type: string
+        required: true
+        description: >-
+          Path to a YAML file of full sidecar definition(s) (the
+          orchestrator-agnostic sidecar schema)
+
+  - name: sidecar_list
+    description: "List app sidecars declared for a Canasta instance"
+    long_description: |
+      List the sidecars declared in `config/sidecars.yaml`, with their
+      image (or build context) and ports.
+    examples:
+      - "canasta sidecar list -i mywiki"
+    playbook: sidecar_list.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+
+  - name: sidecar_remove
+    description: "Remove an app sidecar from config/sidecars.yaml"
+    long_description: |
+      Remove a sidecar declaration from `config/sidecars.yaml`, then run
+      `canasta restart` to tear it down.
+    examples:
+      - "canasta sidecar remove -i mywiki --name cache"
+    playbook: sidecar_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+      - name: sidecar_name
+        long: name
+        short: n
+        type: string
+        required: true
+        description: "Name of the sidecar to remove"

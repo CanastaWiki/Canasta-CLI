@@ -1,0 +1,27 @@
+---
+# canasta sidecar list - List app sidecars declared for an instance.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Read sidecars from config/sidecars.yaml
+  canasta_sidecars_yaml:
+    instance_path: "{{ instance_path }}"
+    state: list
+  register: _sidecar_list
+
+- name: Report when no sidecars are declared
+  ansible.builtin.debug:
+    msg: "No sidecars declared for this instance."
+  when: _sidecar_list.sidecars | length == 0
+
+- name: List declared sidecars
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.name }} — {{ item.image | default('build: ' ~ (item.build | default('?'))) }}{{
+        (' — ports ' ~ (item.ports | join(','))) if (item.ports is defined) else '' }}
+  loop: "{{ _sidecar_list.sidecars }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: _sidecar_list.sidecars | length > 0
