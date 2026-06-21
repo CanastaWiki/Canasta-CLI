@@ -192,14 +192,16 @@
     # operator can free space or move container storage to a larger
     # volume without re-provisioning the host.
     #
-    # The Docker Root Dir is parsed from the `docker info` output already
-    # captured by the availability check above, so no extra docker call
-    # is needed.
-    - name: Resolve Docker root directory
+    # The storage root is parsed from the `docker info` output already
+    # captured by the availability check above, so no extra runtime call
+    # is needed. Docker CE reports it as `Docker Root Dir`; the
+    # podman-docker shim (rootless Podman) reports `graphRoot` instead,
+    # so match either.
+    - name: Resolve container storage root
       ansible.builtin.set_fact:
         _docker_root_dir: >-
           {{ (_docker_check.stdout | default('')
-             | regex_findall('Docker Root Dir:\s*(.+)') | first | default('')) | trim }}
+             | regex_findall('(?:Docker Root Dir|graphRoot):\s*(.+)') | first | default('')) | trim }}
 
     # `df --output=avail` is GNU coreutils only (BusyBox/BSD lack it);
     # `failed_when: false` keeps the check best-effort so it silently
