@@ -71,6 +71,8 @@ The publisher writes pages under the `CLI:` namespace plus `MediaWiki:Menu-cli-r
 - Run `make test-unit && make validate` before opening a PR.
 - Follow the existing commit-message style (`git log` for examples).
 
-## Design documents
+## Documentation
 
-Design docs live in `docs/`; user-facing guides live on canasta.wiki — e.g. [Help:Multi-node Kubernetes](https://canasta.wiki/wiki/Help:Multi-node_Kubernetes) for multi-node K8s deployments.
+Narrative documentation — user-facing guides, conceptual pages, and design notes — lives on canasta.wiki, not in this repository. See [Help:About the user guide](https://canasta.wiki/wiki/Help:About_the_user_guide) for the structure, and e.g. [Help:Multi-node Kubernetes](https://canasta.wiki/wiki/Help:Multi-node_Kubernetes) for multi-node K8s deployments.
+
+The `docs/` directory holds only the auto-generated CLI command reference (`docs/commands/*.md`, produced by `make docs` from `meta/command_definitions.yml` and git-ignored). Do not add hand-written Markdown there — see [docs/README.md](docs/README.md).
