@@ -216,6 +216,17 @@
     dest: "{{ instance_path }}/.gitops-applied"
     mode: "0644"
 
+# Re-materialize the crontab when the pulled config changed the schedule
+# (added / edited / removed config/backup-schedule.yml). The rematerialize
+# task applies the file's schedule, or removes the crontab entry if the
+# file is now gone.
+- name: Re-materialize the backup schedule if it changed
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_rematerialize.yml
+  when: >-
+    _pull_changed_files.stdout_lines | default([])
+    | select('search', 'config/backup-schedule.yml') | list | length > 0
+
 # --- Step 11: Report results ---
 - name: Report pull results
   ansible.builtin.debug:

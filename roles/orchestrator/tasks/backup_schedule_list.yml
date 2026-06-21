@@ -1,139 +1,95 @@
 ---
 # Display an instance's backup schedule.
-# Dispatches to Compose (host crontab) or Kubernetes (CronJob).
+#
+# Scheduling is orchestrator-agnostic — the schedule is a crontab entry on
+# the host where the instance runs (Compose: the instance's host; K8s: the
+# control-plane node, to which resolve_instance switched the connection).
 # Output: "Instance 'X' is scheduled for backup at: M H D M W"
 # with optional "Auto-purge: snapshots older than ..."
-# Input: instance_id, instance_orchestrator
+# Input: instance_id
 
-# --- Compose: host crontab ---
-- name: List schedule (Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+# A local containerized run reads the host crontab file the wrapper
+# mounted (CANASTA_HOST_CRONTAB); native and remote read the live crontab
+# (remote over the connection resolve_instance switched to).
+- name: Select crontab source
+  ansible.builtin.set_fact:
+    _sched_use_file: >-
+      {{ (lookup('env', 'CANASTA_HOST_CRONTAB') != '')
+         and (target_host is not defined)
+         and (_instance_host | default('localhost') == 'localhost') }}
+
+- name: List cron jobs for this instance (native / remote)
+  ansible.builtin.command:
+    cmd: "crontab -l"
+  register: _cron_list
+  changed_when: false
+  failed_when: false  # rc=1 when crontab is empty; we handle missing binary below
+  when: not _sched_use_file
+
+- name: Fail if crontab command is missing
+  ansible.builtin.fail:
+    msg: >-
+      The 'crontab' command is not available on this host. Install the
+      cron package (e.g. 'apt install cron') to use backup schedules.
+  when:
+    - not _sched_use_file
+    - _cron_list.rc is not defined
+
+- name: Read the host crontab file (containerized CLI)
+  ansible.builtin.slurp:
+    src: "{{ lookup('env', 'CANASTA_HOST_CRONTAB') }}"
+  register: _cron_slurp
+  when: _sched_use_file
+
+- name: Normalize crontab lines
+  ansible.builtin.set_fact:
+    _crontab_lines: >-
+      {{ (_cron_slurp.content | b64decode).splitlines()
+         if _sched_use_file
+         else (_cron_list.stdout_lines | default([])) }}
+
+# Both the cron module ('#Ansible: <name>' + entry) and the containerized
+# blockinfile path ('# BEGIN/END <name>' + entry) write the same job line.
+# Match that line by the ' backup create -i <id> ' command fragment — with
+# a LEADING space so it matches whatever binary the entry invokes
+# (canasta, canasta-native, canasta-docker, or an absolute path) but never
+# the '#...canasta-backup-<id>' marker comment. The trailing space anchors
+# the id so 'foo' doesn't match 'foo2'.
+- name: Filter backup schedule
+  ansible.builtin.set_fact:
+    _schedule_lines: >-
+      {{ _crontab_lines | default([])
+         | select('search', ' backup create -i ' + instance_id + ' ')
+         | list }}
+
+- name: No schedule found
+  ansible.builtin.debug:
+    msg: "No backup schedule found for instance '{{ instance_id }}'."
+  when: _schedule_lines | length == 0
+
+- name: Parse and display schedule
+  when: _schedule_lines | length > 0
   block:
-    # A local containerized run reads the host crontab file the wrapper
-    # mounted (CANASTA_HOST_CRONTAB); native and remote read the live
-    # crontab (remote over the connection resolve_instance switched to).
-    - name: Select crontab source
+    - name: Extract cron expression
       ansible.builtin.set_fact:
-        _sched_use_file: >-
-          {{ (lookup('env', 'CANASTA_HOST_CRONTAB') != '')
-             and (target_host is not defined)
-             and (_instance_host | default('localhost') == 'localhost') }}
+        _sched_cron: >-
+          {{ _schedule_lines[0].split()[0:5] | join(' ') }}
+        _sched_cmd: >-
+          {{ _schedule_lines[0].split(None, 5)[5] | default('') }}
 
-    - name: List cron jobs for this instance (native / remote)
-      ansible.builtin.command:
-        cmd: "crontab -l"
-      register: _cron_list
-      changed_when: false
-      failed_when: false  # rc=1 when crontab is empty; we handle missing binary below
-      when: not _sched_use_file
-
-    - name: Fail if crontab command is missing
-      ansible.builtin.fail:
-        msg: >-
-          The 'crontab' command is not available on this host. Install
-          the cron package (e.g. 'apt install cron') to use backup
-          schedules.
-      when:
-        - not _sched_use_file
-        - _cron_list.rc is not defined
-
-    - name: Read the host crontab file (containerized CLI)
-      ansible.builtin.slurp:
-        src: "{{ lookup('env', 'CANASTA_HOST_CRONTAB') }}"
-      register: _cron_slurp
-      when: _sched_use_file
-
-    - name: Normalize crontab lines
+    - name: Check for purge flag
       ansible.builtin.set_fact:
-        _crontab_lines: >-
-          {{ (_cron_slurp.content | b64decode).splitlines()
-             if _sched_use_file
-             else (_cron_list.stdout_lines | default([])) }}
+        _sched_purge: >-
+          {{ (_sched_cmd
+             | regex_search('keep-within\s+(\S+)', '\1')
+             | default([], true)) | first | default('') }}
 
-    # Both the cron module ('#Ansible: <name>' + entry) and the
-    # containerized blockinfile path ('# BEGIN/END <name>' + entry) write
-    # the same job line. Match that line (it contains 'canasta backup
-    # create -i <id> '), not the marker comment. The trailing space
-    # anchors the match so 'foo' doesn't match 'foo2'.
-    - name: Filter backup schedule
-      ansible.builtin.set_fact:
-        _schedule_lines: >-
-          {{ _crontab_lines | default([])
-             | select('search', 'canasta backup create -i ' + instance_id + ' ')
-             | list }}
-
-    - name: No schedule found
+    - name: Display schedule
       ansible.builtin.debug:
-        msg: "No backup schedule found for instance '{{ instance_id }}'."
-      when: _schedule_lines | length == 0
-
-    - name: Parse and display schedule
-      when: _schedule_lines | length > 0
-      block:
-        - name: Extract cron expression
-          ansible.builtin.set_fact:
-            _sched_cron: >-
-              {{ _schedule_lines[0].split()[0:5] | join(' ') }}
-            _sched_cmd: >-
-              {{ _schedule_lines[0].split(None, 5)[5] | default('') }}
-
-        - name: Check for purge flag
-          ansible.builtin.set_fact:
-            _sched_purge: >-
-              {{ (_sched_cmd
-                 | regex_search('keep-within\s+(\S+)', '\1')
-                 | default([], true)) | first | default('') }}
-
-        - name: Display schedule
-          ansible.builtin.debug:
-            msg: |-
-              Instance '{{ instance_id }}' is scheduled for backup at: {{ _sched_cron }}
-              {% if _sched_purge %}
-              Auto-purge: snapshots older than {{ _sched_purge }}
-              {% else %}
-              Auto-purge: not configured (snapshots will accumulate)
-              {% endif %}
-
-# --- Kubernetes: CronJob ---
-- name: List schedule (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-  block:
-    - name: Get backup CronJob
-      kubernetes.core.k8s_info:
-        api_version: batch/v1
-        kind: CronJob
-        name: "canasta-backup-{{ instance_id }}"
-        namespace: "canasta-{{ instance_id }}"
-      register: _k8s_cronjob
-
-    - name: No schedule found
-      ansible.builtin.debug:
-        msg: "No backup schedule found for instance '{{ instance_id }}'."
-      when: _k8s_cronjob.resources | length == 0
-
-    - name: Parse and display schedule
-      when: _k8s_cronjob.resources | length > 0
-      block:
-        - name: Extract restic command
-          ansible.builtin.set_fact:
-            _k8s_restic_cmd: >-
-              {{ ((_k8s_cronjob.resources[0].spec.jobTemplate.spec.template.spec.containers
-                  | selectattr('name', 'equalto', 'restic') | list | first
-                  | default({})).command | default([])) | last | default('') }}
-
-        - name: Check for purge flag
-          ansible.builtin.set_fact:
-            _k8s_sched_purge: >-
-              {{ (_k8s_restic_cmd
-                 | regex_search('keep-within\s+(\S+)', '\1')
-                 | default([], true)) | first | default('') }}
-
-        - name: Display schedule
-          ansible.builtin.debug:
-            msg: |-
-              Instance '{{ instance_id }}' is scheduled for backup at: {{ _k8s_cronjob.resources[0].spec.schedule }}
-              {% if _k8s_sched_purge %}
-              Auto-purge: snapshots older than {{ _k8s_sched_purge }}
-              {% else %}
-              Auto-purge: not configured (snapshots will accumulate)
-              {% endif %}
+        msg: |-
+          Instance '{{ instance_id }}' is scheduled for backup at: {{ _sched_cron }}
+          {% if _sched_purge %}
+          Auto-purge: snapshots older than {{ _sched_purge }}
+          {% else %}
+          Auto-purge: not configured (snapshots will accumulate)
+          {% endif %}
