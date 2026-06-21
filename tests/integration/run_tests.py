@@ -2625,10 +2625,95 @@ def test_k8s_crowdsec(inst):
     assert result.returncode != 0, "Namespace still exists after delete"
 
 
+def test_k8s_build_from(inst):
+    """`create -o kubernetes --build-from`: the custom image is built, pushed to
+    the in-cluster registry, and the web pod runs it from the registry ref.
+
+    Guards the #790 fix end to end: without it the pod silently ran the stock
+    ghcr image (wrong image ref) or never pulled (no registry). The build is a
+    single FROM-stock layer plus a marker file, so the test exercises the
+    build -> push -> pull delivery path without a heavyweight image build.
+    """
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+
+    # Trivial build-from source: a Canasta image identical to stock plus a marker
+    # layer. canasta create --build-from runs `docker build` on <src>/Canasta.
+    src_root = os.path.join(inst.work_dir, "bfsrc")
+    src = os.path.join(src_root, "Canasta")
+    os.makedirs(src, exist_ok=True)
+    with open(os.path.join(src, "Dockerfile"), "w") as f:
+        f.write(
+            "FROM ghcr.io/canastawiki/canasta:latest\n"
+            "RUN echo build-from-ci > /tmp/canasta-build-from-ci\n"
+        )
+
+    print("Creating Kubernetes instance from source (--build-from)...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "--orchestrator", "kubernetes",
+        "--build-from", src_root,
+        "--skip-argocd-install",
+    )
+
+    print("Verifying instance registered...")
+    output = inst.run_ok("list")
+    assert inst.id in output, "instance not in list: %s" % output
+    assert "KUBERNETES" in output, "instance not K8s: %s" % output
+
+    namespace = "canasta-%s" % inst.id
+
+    print("Verifying the web deployment runs the in-cluster registry image...")
+    image = subprocess.run(
+        ["kubectl", "-n", namespace, "get",
+         "deployment/canasta-%s-web" % inst.id,
+         "-o", "jsonpath={.spec.template.spec.containers[0].image}"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    assert image == "10.43.0.2:5000/canasta:local", (
+        "web image is %r, expected the in-cluster registry ref "
+        "(build_from image-ref fix)" % image
+    )
+
+    print("Verifying the web pod pulled the image and is running...")
+    result = subprocess.run(
+        ["kubectl", "get", "pods", "-n", namespace,
+         "-l", "app.kubernetes.io/component=web",
+         "-o", "jsonpath={.items[0].metadata.name}"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0 and result.stdout, (
+        "could not find web pod (pull/registry failure?): %s" % result.stderr
+    )
+    web_pod = result.stdout.strip()
+    phase = subprocess.run(
+        ["kubectl", "get", "pod", web_pod, "-n", namespace,
+         "-o", "jsonpath={.status.phase}"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    assert phase == "Running", "web pod not Running (phase=%s)" % phase
+
+    print("Confirming the running pod is the built image (marker layer)...")
+    marker = subprocess.run(
+        ["kubectl", "exec", "-n", namespace, web_pod, "--",
+         "cat", "/tmp/canasta-build-from-ci"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    assert marker == "build-from-ci", (
+        "marker missing; pod is not the built image: %r" % marker
+    )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
     "k8s-lifecycle": test_k8s_lifecycle,
+    "k8s-build-from": test_k8s_build_from,
     "k8s-crowdsec": test_k8s_crowdsec,
     "k8s-backup": test_k8s_backup,
     "lifecycle": test_lifecycle,
