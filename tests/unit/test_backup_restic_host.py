@@ -22,9 +22,6 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 CREATE_YML = os.path.join(
     REPO_ROOT, "roles", "backup", "tasks", "create.yml",
 )
-SCHEDULE_SET = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml",
-)
 
 STABLE_HOST = "{{ instance_id }}"
 
@@ -49,17 +46,6 @@ def _create_backup_args():
     raise AssertionError("create.yml has no 'Create backup snapshot' task")
 
 
-def _k8s_backup_cmd():
-    with open(SCHEDULE_SET) as f:
-        tasks = yaml.safe_load(f)
-    for task in _walk_tasks(tasks):
-        sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
-        if isinstance(sf, dict) and "_k8s_backup_cmd" in sf:
-            # Normalize folded-scalar whitespace.
-            return " ".join(sf["_k8s_backup_cmd"].split())
-    raise AssertionError("schedule_set.yml has no _k8s_backup_cmd set_fact")
-
-
 class TestCreateBackupHost:
     def test_passes_host(self):
         args = _create_backup_args()
@@ -75,16 +61,3 @@ class TestCreateBackupHost:
     def test_host_precedes_backup_subcommand(self):
         args = _create_backup_args()
         assert args.index("--host") < args.index("backup")
-
-
-class TestK8sScheduledBackupHost:
-    def test_passes_host(self):
-        cmd = _k8s_backup_cmd()
-        assert "--host %s" % STABLE_HOST in cmd, (
-            "K8s scheduled restic backup must pass --host %s; got %r"
-            % (STABLE_HOST, cmd)
-        )
-
-    def test_host_precedes_backup_subcommand(self):
-        cmd = _k8s_backup_cmd()
-        assert cmd.index("--host") < cmd.index(" backup ")

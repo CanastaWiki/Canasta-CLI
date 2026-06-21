@@ -76,14 +76,12 @@ class TestComposeSchedulePurgeFlag:
 
 
 def _compose_tasks():
-    """Every task in the Compose branch of schedule_set.yml."""
+    """Every task in schedule_set.yml. Scheduling is now orchestrator-
+    agnostic host-crontab logic (no Compose/K8s branch), so this is just
+    the whole file."""
     with open(SCHEDULE_SET) as f:
         tasks = yaml.safe_load(f)
-    for task in _walk_tasks(tasks):
-        name = (task.get("name") or "").lower()
-        if "compose" in name and "block" in task:
-            return list(_walk_tasks(task["block"]))
-    raise AssertionError("no Compose block found in schedule_set.yml")
+    return list(_walk_tasks(tasks))
 
 
 class TestComposeScheduleCanastaResolution:
