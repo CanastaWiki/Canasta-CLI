@@ -75,7 +75,10 @@ class TestComposeRender:
     def test_depends_on_and_resources(self):
         svc, _ = render.render_compose_service(CITATION)
         assert svc["depends_on"] == ["translator"]
-        assert svc["deploy"]["resources"]["limits"]["memory"] == "512Mi"
+        # k8s '512Mi' becomes a string byte count — Compose rejects the 'Mi'
+        # suffix and a bare integer.
+        assert svc["deploy"]["resources"]["limits"]["memory"] == str(
+            512 * 1024 ** 2)
 
     def test_healthcheck_http(self):
         svc, _ = render.render_compose_service(CITATION)
@@ -92,6 +95,33 @@ class TestComposeRender:
         assert set(out["services"]) == {"cache", "citation"}
         assert "cache-data" in out["volumes"]
         assert render.render_compose([]) is None
+
+
+class TestMemoryConversion:
+    def test_binary_suffixes(self):
+        b = render.k8s_memory_to_bytes
+        assert b("256Mi") == 256 * 1024 ** 2
+        assert b("1Gi") == 1024 ** 3
+        assert b("512Ki") == 512 * 1024
+
+    def test_decimal_suffixes(self):
+        b = render.k8s_memory_to_bytes
+        assert b("500M") == 500 * 1000 ** 2
+        assert b("2G") == 2 * 1000 ** 3
+
+    def test_bare_and_numeric(self):
+        b = render.k8s_memory_to_bytes
+        assert b("1048576") == 1048576
+        assert b(1048576) == 1048576
+
+    def test_unrecognized_passthrough(self):
+        # An already-Compose value or junk is left as-is, not corrupted.
+        assert render.k8s_memory_to_bytes("256m") == "256m"
+
+    def test_k8s_render_keeps_k8s_notation(self):
+        # Only the Compose path converts; k8s/Helm wants the original quantity.
+        out = render.render_k8s_values([CITATION], {}, lambda s: "")
+        assert out[0]["resources"]["memory"] == "512Mi"
 
 
 class TestK8sValues:
