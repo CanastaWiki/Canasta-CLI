@@ -17,7 +17,7 @@ DOCUMENTATION = r"""
 module: canasta_sidecars_yaml
 short_description: Manage Canasta sidecars.yaml
 description:
-  - Read, add, remove, and validate app sidecars in config/sidecars.yaml.
+  - Read, import, remove, and validate app sidecars in config/sidecars.yaml.
 options:
   instance_path:
     description: Path to the Canasta instance directory.
@@ -26,34 +26,16 @@ options:
   state:
     description: Action to perform.
     type: str
-    choices: [read, list, add, remove, query, validate]
+    choices: [read, list, remove, query, validate, import]
     default: read
   name:
-    description: Sidecar name (a DNS label; becomes a service + hostname).
+    description: Sidecar name (a DNS label); for query/remove.
     type: str
-  image:
-    description: Image reference (mutually exclusive with build).
-    type: str
-  build:
-    description: Build context path (mutually exclusive with image).
-    type: str
-  ports:
-    description: Container ports the sidecar listens on.
-    type: list
-    elements: int
-  command:
-    description: Override command (a string; ${VAR} resolved at render time).
-    type: str
-  env:
-    description: Environment entries as 'KEY=VALUE' strings.
-    type: list
-    elements: str
-  volumes:
+  definitions:
     description: >-
-      Volume specs as 'NAME:MOUNTPATH' (ephemeral) or 'NAME:MOUNTPATH:SIZE'
-      (persistent).
-    type: list
-    elements: str
+      YAML document of full sidecar definition(s) for import — a single
+      sidecar mapping, a list, or a 'sidecars:' list.
+    type: str
 """
 
 import os
@@ -106,55 +88,21 @@ def sidecar_exists(sidecars, name):
     return name in sidecar_names(sidecars)
 
 
-def parse_env(items):
-    """['KEY=VALUE', ...] -> {'KEY': 'VALUE', ...}."""
-    out = {}
-    for item in items or []:
-        if "=" not in item:
-            raise ValueError("env '%s' must be KEY=VALUE" % item)
-        key, value = item.split("=", 1)
-        out[key] = value
-    return out
-
-
-def parse_volumes(items):
-    """'NAME:MOUNTPATH' -> ephemeral; 'NAME:MOUNTPATH:SIZE' -> persistent."""
-    out = []
-    for item in items or []:
-        parts = item.split(":")
-        if len(parts) == 2:
-            out.append({"name": parts[0], "mountPath": parts[1],
-                        "persistent": False})
-        elif len(parts) == 3:
-            out.append({"name": parts[0], "mountPath": parts[1],
-                        "persistent": True, "size": parts[2]})
-        else:
-            raise ValueError(
-                "volume '%s' must be NAME:MOUNTPATH or NAME:MOUNTPATH:SIZE"
-                % item
-            )
-    return out
-
-
-def build_sidecar(name, image=None, build=None, ports=None,
-                  command=None, env=None, volumes=None):
-    """Construct a sidecar dict from CLI params, omitting unset fields."""
-    sidecar = {"name": name}
-    if build:
-        sidecar["build"] = build
-    else:
-        sidecar["image"] = image
-    if ports:
-        sidecar["ports"] = [int(p) for p in ports]
-    if command:
-        sidecar["command"] = command
-    env_dict = parse_env(env)
-    if env_dict:
-        sidecar["env"] = env_dict
-    volume_list = parse_volumes(volumes)
-    if volume_list:
-        sidecar["volumes"] = volume_list
-    return sidecar
+def parse_sidecar_definitions(content):
+    """Parse a YAML document of sidecar definition(s) into a list. Accepts a
+    `sidecars:` mapping, a bare list, or a single sidecar mapping."""
+    data = yaml.safe_load(content)
+    if data is None:
+        return []
+    if isinstance(data, dict) and "sidecars" in data:
+        data = data["sidecars"]
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        raise ValueError(
+            "sidecar file must be a sidecar mapping, a list of sidecars, "
+            "or a 'sidecars:' list")
+    return data
 
 
 def validate_sidecars(sidecars):
@@ -183,15 +131,10 @@ def run_module():
     module_args = dict(
         instance_path=dict(type="str", required=True),
         state=dict(type="str", default="read",
-                   choices=["read", "list", "add", "remove", "query",
-                            "validate"]),
+                   choices=["read", "list", "remove", "query",
+                            "validate", "import"]),
         name=dict(type="str", required=False),
-        image=dict(type="str", required=False),
-        build=dict(type="str", required=False),
-        ports=dict(type="list", elements="int", required=False),
-        command=dict(type="str", required=False),
-        env=dict(type="list", elements="str", required=False),
-        volumes=dict(type="list", elements="str", required=False),
+        definitions=dict(type="str", required=False),
     )
 
     module = AnsibleModule(
@@ -221,40 +164,41 @@ def run_module():
                 result["sidecar"] = sidecar
                 break
 
-    elif state == "add":
-        if not name:
-            module.fail_json(msg="name is required for add")
+    elif state == "import":
+        content = module.params.get("definitions")
+        if not content:
+            module.fail_json(msg="definitions is required for import")
             return
-        err = validate_sidecar_name(name)
+        try:
+            incoming = parse_sidecar_definitions(content)
+        except (yaml.YAMLError, ValueError) as exc:
+            module.fail_json(msg="invalid sidecar file: %s" % exc)
+            return
+        for sidecar in incoming:
+            if isinstance(sidecar, dict) and sidecar.get("ports"):
+                try:
+                    sidecar["ports"] = [int(p) for p in sidecar["ports"]]
+                except (TypeError, ValueError):
+                    module.fail_json(
+                        msg="sidecar '%s' has non-numeric ports"
+                        % sidecar.get("name"))
+                    return
+        err = validate_sidecars(incoming)
         if err:
             module.fail_json(msg=err)
             return
-        image = module.params.get("image")
-        build = module.params.get("build")
-        if not image and not build:
-            module.fail_json(msg="one of image or build is required for add")
-            return
-        if image and build:
-            module.fail_json(msg="image and build are mutually exclusive")
-            return
         sidecars = read_sidecars(instance_path)
-        if sidecar_exists(sidecars, name):
-            module.fail_json(msg="sidecar '%s' already exists" % name)
+        existing = set(sidecar_names(sidecars))
+        dupes = [s["name"] for s in incoming if s["name"] in existing]
+        if dupes:
+            module.fail_json(
+                msg="sidecar(s) already exist: %s" % ", ".join(dupes))
             return
-        try:
-            sidecar = build_sidecar(
-                name, image, build,
-                module.params.get("ports"), module.params.get("command"),
-                module.params.get("env"), module.params.get("volumes"),
-            )
-        except ValueError as exc:
-            module.fail_json(msg=str(exc))
-            return
-        sidecars.append(sidecar)
-        if not module.check_mode:
+        sidecars.extend(incoming)
+        if incoming and not module.check_mode:
             write_sidecars(instance_path, sidecars)
-        result["changed"] = True
-        result["sidecar"] = sidecar
+        result["changed"] = bool(incoming)
+        result["names"] = [s["name"] for s in incoming]
 
     elif state == "remove":
         if not name:
