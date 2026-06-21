@@ -1,0 +1,31 @@
+---
+# canasta sidecar remove - Remove an app sidecar from config/sidecars.yaml.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Check the sidecar exists
+  canasta_sidecars_yaml:
+    instance_path: "{{ instance_path }}"
+    state: query
+    name: "{{ sidecar_name }}"
+  register: _sidecar_check
+
+- name: Fail if the sidecar does not exist
+  ansible.builtin.fail:
+    msg: "No sidecar named '{{ sidecar_name }}' in config/sidecars.yaml."
+  when: not _sidecar_check.exists
+
+- name: Remove sidecar from config/sidecars.yaml
+  canasta_sidecars_yaml:
+    instance_path: "{{ instance_path }}"
+    state: remove
+    name: "{{ sidecar_name }}"
+  register: _sidecar_remove
+
+- name: Report
+  ansible.builtin.debug:
+    msg: >-
+      Sidecar '{{ sidecar_name }}' removed from config/sidecars.yaml.
+      Run 'canasta restart' to tear it down.

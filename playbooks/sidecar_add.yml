@@ -1,0 +1,25 @@
+---
+# canasta sidecar add - Add an app sidecar to config/sidecars.yaml.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Add sidecar to config/sidecars.yaml
+  canasta_sidecars_yaml:
+    instance_path: "{{ instance_path }}"
+    state: add
+    name: "{{ sidecar_name }}"
+    image: "{{ image | default(omit) }}"
+    build: "{{ build | default(omit) }}"
+    ports: "{{ port | default(omit) }}"
+    command: "{{ sidecar_command | default(omit) }}"
+    env: "{{ env | default(omit) }}"
+    volumes: "{{ volume | default(omit) }}"
+  register: _sidecar_add
+
+- name: Report
+  ansible.builtin.debug:
+    msg: >-
+      Sidecar '{{ sidecar_name }}' added to config/sidecars.yaml.
+      Run 'canasta restart' to deploy it.

@@ -243,6 +243,17 @@ command_groups:
       pod CIDRs (override with `CADDY_TRUSTED_PROXY_CIDRS`) so it attributes
       decisions to the real client IP rather than the ingress.
 
+  - name: sidecar
+    description: "Manage app sidecars for a Canasta instance"
+    long_description: |
+      Declare and manage app sidecars — companion services the wiki talks
+      to (e.g. a cache or a parsing service) — in `config/sidecars.yaml`.
+      Sidecars are declared once and deploy the same way on Docker Compose
+      and Kubernetes. Subcommands add, list, and remove sidecar
+      declarations; run `canasta restart` to apply. For richer sidecars
+      (mounted config files, dependencies, healthchecks), edit
+      `config/sidecars.yaml` directly.
+
 commands:
   # ---------------------------------------------------------------------------
   # Instance lifecycle
@@ -2552,3 +2563,96 @@ commands:
         short: H
         type: string
         description: "Target host (default: localhost)"
+
+  - name: sidecar_add
+    description: "Add an app sidecar to config/sidecars.yaml"
+    long_description: |
+      Declare an app sidecar in `config/sidecars.yaml`, then run
+      `canasta restart` to deploy it. Covers the common fields; for
+      richer sidecars (mounted config files, dependencies, healthchecks)
+      edit `config/sidecars.yaml` directly.
+    examples:
+      - "canasta sidecar add -i mywiki --name cache --image redis:7-alpine --port 6379"
+      - "canasta sidecar add -i mywiki --name cache --image redis:7-alpine --volume data:/data:1Gi"
+    playbook: sidecar_add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+      - name: sidecar_name
+        long: name
+        short: n
+        type: string
+        required: true
+        description: "Sidecar name (a DNS label; becomes a service + hostname)"
+      - name: image
+        type: string
+        description: "Image reference (mutually exclusive with --build)"
+      - name: build
+        type: string
+        description: "Build context path (mutually exclusive with --image)"
+      - name: port
+        type: string
+        multi: true
+        description: "Container port the sidecar listens on (repeatable)"
+      - name: sidecar_command
+        long: command
+        type: string
+        description: "Override command (a string)"
+      - name: env
+        type: string
+        multi: true
+        description: "Environment entry as KEY=VALUE (repeatable)"
+      - name: volume
+        type: string
+        multi: true
+        description: >-
+          Volume as NAME:MOUNTPATH (ephemeral) or NAME:MOUNTPATH:SIZE
+          (persistent); repeatable
+
+  - name: sidecar_list
+    description: "List app sidecars declared for a Canasta instance"
+    long_description: |
+      List the sidecars declared in `config/sidecars.yaml`, with their
+      image (or build context) and ports.
+    examples:
+      - "canasta sidecar list -i mywiki"
+    playbook: sidecar_list.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+
+  - name: sidecar_remove
+    description: "Remove an app sidecar from config/sidecars.yaml"
+    long_description: |
+      Remove a sidecar declaration from `config/sidecars.yaml`, then run
+      `canasta restart` to tear it down.
+    examples:
+      - "canasta sidecar remove -i mywiki --name cache"
+    playbook: sidecar_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+      - name: sidecar_name
+        long: name
+        short: n
+        type: string
+        required: true
+        description: "Name of the sidecar to remove"
