@@ -16,6 +16,11 @@ while [[ -L "$SOURCE" ]]; do
 done
 SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 
+# Record this wrapper's absolute path so downstream tooling (e.g. the
+# crontab entry written by 'backup schedule set') can re-invoke the CLI
+# with a fully-qualified path, independent of cron's minimal PATH.
+export CANASTA_CLI_BIN="${SCRIPT_DIR}/$(basename "$SOURCE")"
+
 if [[ -x "${SCRIPT_DIR}/.venv/bin/python" ]]; then
     exec "${SCRIPT_DIR}/.venv/bin/python" "${SCRIPT_DIR}/canasta.py" "$@"
 else
