@@ -1,0 +1,41 @@
+---
+# canasta sidecar migrate - Convert legacy docker-compose.override.yml sidecar
+# services into config/sidecars.yaml (and remove them from the override).
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Migrate override sidecars to config/sidecars.yaml
+  canasta_sidecar_migrate:
+    instance_path: "{{ instance_path }}"
+    dry_run: "{{ dry_run | default(false) }}"
+  register: _migrate
+
+- name: Report migrated sidecars
+  ansible.builtin.debug:
+    msg: >-
+      {{ _migrate.dry_run | ternary('Would migrate', 'Migrated') }}
+      sidecar(s): {{ _migrate.migrated | join(', ') }}.
+      {{ _migrate.dry_run | ternary('', "Run 'canasta restart' to deploy them.") }}
+  when: _migrate.migrated | length > 0
+
+- name: Report assumptions made during migration
+  ansible.builtin.debug:
+    msg: "{{ _migrate.assumptions }}"
+  when: _migrate.assumptions | length > 0
+
+- name: Report services left in the override
+  ansible.builtin.debug:
+    msg: "{{ _skipped_lines }}"
+  vars:
+    _skipped_lines: "{{ ['Left in docker-compose.override.yml (could not fully model):']
+      + [_s.name ~ ' — ' ~ (_s.reasons | join(', ')) for _s in _migrate.skipped] }}"
+  when: _migrate.skipped | length > 0
+
+- name: Report nothing to migrate
+  ansible.builtin.debug:
+    msg: "{{ _migrate.message | default('Nothing to migrate.') }}"
+  when:
+    - _migrate.migrated | length == 0
+    - _migrate.skipped | length == 0
