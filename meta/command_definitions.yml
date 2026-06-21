@@ -370,11 +370,6 @@ commands:
       - name: composer
         type: path
         description: "Path to custom composer.local.json"
-      - name: registry
-        type: string
-        default: "localhost:5000"
-        orchestrator_only: kubernetes
-        description: "Container registry for pushing locally built images"
       - name: skip_argocd_install
         type: bool
         default: false

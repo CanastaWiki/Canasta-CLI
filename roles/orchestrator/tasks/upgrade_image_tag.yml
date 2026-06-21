@@ -7,8 +7,14 @@
 #        _upgrade_inst, _mig
 
 # --- Update K8s values.yaml image tag ---
+# Skip for build_from instances: their image is the registry-qualified local
+# build (set at create), not a ghcr.io version tag — bumping it would point the
+# pod at a non-existent tag. The rebuilt image is re-pushed under the same ref
+# and re-pulled on restart (image.pullPolicy: Always for build_from).
 - name: Update Kubernetes image tag in values.yaml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - _upgrade_inst.instance.buildFrom | default('') == ''
   block:
     - name: Read current values.yaml
       ansible.builtin.slurp:

@@ -55,6 +55,16 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_db_migration.yml
 
+# Self-heal the cluster: deploy the in-cluster registry + per-node trust if a
+# cluster installed before this support lacks them. Idempotent (a no-op once
+# present), no k3s restart. Runs for every k8s instance so the registry is
+# guaranteed present after upgrading — both for build_from below and going
+# forward — without a separate `canasta install k8s-cp` step.
+- name: Ensure the in-cluster image registry (Kubernetes)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
 # --- Rebuild custom image if instance was built from source ---
 - name: Check for BuildFrom in registry
   canasta_registry:
@@ -127,12 +137,15 @@
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_rebuild_buildable.yml
 
 # A compose-only change (e.g. gaining the crowdsec service) must also
-# trigger a recreate, not just an image bump.
+# trigger a recreate, not just an image bump. A build_from instance always
+# rebuilt its image above, so it must restart to redeploy the new build
+# (no registry pull happened, so _images_updated is false for it).
 - name: Decide whether a restart is needed
   ansible.builtin.set_fact:
     _restart_needed: >-
       {{ (_images_updated | bool)
-         or (_compose_stack_copy is defined and _compose_stack_copy is changed) }}
+         or (_compose_stack_copy is defined and _compose_stack_copy is changed)
+         or (_upgrade_inst.instance.buildFrom | default('') != '') }}
 
 - name: Restart containers
   when: _restart_needed | bool

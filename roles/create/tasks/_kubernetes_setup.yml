@@ -75,15 +75,25 @@
     _k8s_namespace: "canasta-{{ id }}"
     _mw_secret_key: "{{ lookup('password', '/dev/null length=64 chars=hexdigits') }}"
 
+# Push to the registry's loopback hostPort on this (control-plane) node:
+# localhost is auto-insecure for docker (no daemon.json) and not exposed. The
+# registry stores by repo path, so pods pull the same image via the registry's
+# ClusterIP ({{ registry }}) — see the image ref in k8s_values.yaml.j2.
 - name: Push image to registry (if built from source)
   when: build_from is defined and build_from != ''
   block:
+    # Guarantee the registry exists even on a cluster that predates it and
+    # hasn't been upgraded yet (idempotent, no restart) — so --build-from never
+    # dead-ends on a missing registry.
+    - name: Ensure the in-cluster image registry
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml"
+
     - name: Tag and push image to registry
       ansible.builtin.command:
-        cmd: "docker tag {{ _base_image }} {{ registry | default('localhost:5000') }}/{{ _base_image }}"
+        cmd: "docker tag {{ _base_image }} localhost:5000/{{ _base_image }}"
       changed_when: true
 
     - name: Push image
       ansible.builtin.command:
-        cmd: "docker push {{ registry | default('localhost:5000') }}/{{ _base_image }}"
+        cmd: "docker push localhost:5000/{{ _base_image }}"
       changed_when: true

@@ -40,6 +40,8 @@
     # a minute or more and a controller-side SSH reset mid-join would abort
     # it. rx_no_log hides the command because it carries the join token. The
     # k3s installer is idempotent, so a re-run after a reset is safe.
+    # (Registry trust is applied cluster-wide by the registry-trust DaemonSet,
+    # which lands on this worker once it joins — no per-worker config here.)
     - name: Download and install k3s agent
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
       vars:
