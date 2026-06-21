@@ -93,6 +93,18 @@ def test_ensure_task_applies_registry_and_trust():
     assert "k8s_registry_trust.yaml" in apply
 
 
+def test_ensure_stages_manifests_on_host_before_apply():
+    # kubectl runs on the instance's host, where the controller's canasta_root
+    # path doesn't exist — copy the manifests to the host first, then apply the
+    # host-local copies, so a remote (-H) host works.
+    body = _text(ENSURE)
+    assert "ansible.builtin.copy" in body
+    assert body.index("ansible.builtin.copy") < body.index("kubectl apply")
+    assert "-f /tmp/k8s_registry.yaml" in body
+    assert "{{ canasta_root }}/roles/orchestrator/files/k8s_registry.yaml" \
+        not in body
+
+
 def test_registry_is_ensured_from_install_upgrade_and_create():
     # Install, upgrade (self-heal existing clusters), and create --build-from
     # all ensure the registry, so build-from never dead-ends on a missing one.

@@ -9,12 +9,25 @@
 # create --build-from (so build-from works even before an upgrade). This makes
 # the registry guaranteed present whenever a locally-built image is used.
 
+# kubectl runs on the instance's host, so the manifests must be there — the
+# canasta_root path is the controller's and doesn't exist on a remote host.
+# Stage them on the host first (copy reads the controller src, writes the host
+# dest, local or remote).
+- name: Stage the registry manifests on the host
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/{{ item }}"
+    dest: "/tmp/{{ item }}"
+    mode: "0644"
+  loop:
+    - k8s_registry.yaml
+    - k8s_registry_trust.yaml
+
 - name: Deploy the in-cluster image registry and per-node trust
   ansible.builtin.command:
     cmd: >-
       kubectl apply
-      -f {{ canasta_root }}/roles/orchestrator/files/k8s_registry.yaml
-      -f {{ canasta_root }}/roles/orchestrator/files/k8s_registry_trust.yaml
+      -f /tmp/k8s_registry.yaml
+      -f /tmp/k8s_registry_trust.yaml
   register: _registry_apply
   changed_when: "'created' in _registry_apply.stdout or 'configured' in _registry_apply.stdout"
   failed_when: false
