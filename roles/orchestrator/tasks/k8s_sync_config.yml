@@ -21,6 +21,17 @@
     # CANASTA_ENABLE_VARNISH also stay out because they're sourced from
     # values.yaml fields that double-duty as K8s-level config (Ingress
     # hostnames, Varnish deployment gate).
+    #
+    # This is an allowlist by design, not a gap: Compose likewise passes
+    # only a curated `environment:` block, so an arbitrary app-defined
+    # key (e.g. `config set --force MY_APP_KEY=...`) is NOT exported to
+    # the web container's getenv() on either orchestrator. The full .env
+    # (minus the secrets above) is still written to the web ConfigMap and
+    # mounted at /mediawiki/config/.env, so app config and shared secrets
+    # reach the web tier via a settings fragment under
+    # config/settings/global/ (all wikis) or
+    # config/settings/wikis/<wiki id>/ (one wiki) — synced to both
+    # orchestrators — rather than pod env.
     _k8s_pod_env_allowlist:
       - PHP_UPLOAD_MAX_FILESIZE
       - PHP_POST_MAX_SIZE
