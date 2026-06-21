@@ -13,7 +13,7 @@
     image: "{{ image | default(omit) }}"
     build: "{{ build | default(omit) }}"
     ports: "{{ port | default(omit) }}"
-    command: "{{ command | default(omit) }}"
+    command: "{{ sidecar_command | default(omit) }}"
     env: "{{ env | default(omit) }}"
     volumes: "{{ volume | default(omit) }}"
   register: _sidecar_add

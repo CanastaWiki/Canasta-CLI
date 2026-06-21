@@ -200,6 +200,18 @@ class TestCommandWiring:
         with open(os.path.join(REPO, "canasta.py")) as f:
             assert '"sidecar": ["add", "list", "remove"]' in f.read()
 
+    def test_no_param_dest_collides_with_dispatch_var(self):
+        # A param internally named 'command' clobbers canasta.py's top-level
+        # subparser dest='command' (the dispatch variable), breaking the
+        # whole subcommand. The override-command flag must use a distinct
+        # internal name (sidecar_command) with `long: command`.
+        with open(os.path.join(REPO, "meta", "command_definitions.yml")) as f:
+            defs = yaml.safe_load(f)
+        add = next(c for c in defs["commands"] if c["name"] == "sidecar_add")
+        dests = {p["name"] for p in add["parameters"]}
+        assert "command" not in dests
+        assert "sidecar_command" in dests
+
     def test_command_defs_and_playbooks_exist(self):
         with open(os.path.join(REPO, "meta", "command_definitions.yml")) as f:
             defs = yaml.safe_load(f)

@@ -2600,7 +2600,8 @@ commands:
         type: string
         multi: true
         description: "Container port the sidecar listens on (repeatable)"
-      - name: command
+      - name: sidecar_command
+        long: command
         type: string
         description: "Override command (a string)"
       - name: env
