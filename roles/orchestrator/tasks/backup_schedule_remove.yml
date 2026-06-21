@@ -4,10 +4,30 @@
 # Input: instance_id, instance_orchestrator
 
 - name: Remove backup schedule (Compose)
-  ansible.builtin.cron:
-    name: "canasta-backup-{{ instance_id }}"
-    state: absent
   when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    # A local containerized run edits the host crontab file the wrapper
+    # mounted (CANASTA_HOST_CRONTAB); native and remote edit the live
+    # crontab (remote over the connection resolve_instance switched to).
+    - name: Select crontab target
+      ansible.builtin.set_fact:
+        _sched_use_file: >-
+          {{ (lookup('env', 'CANASTA_HOST_CRONTAB') != '')
+             and (target_host is not defined)
+             and (_instance_host | default('localhost') == 'localhost') }}
+
+    - name: Remove cron schedule (native / remote)
+      ansible.builtin.cron:
+        name: "canasta-backup-{{ instance_id }}"
+        state: absent
+      when: not _sched_use_file
+
+    - name: Remove cron schedule from the host crontab file
+      ansible.builtin.blockinfile:
+        path: "{{ lookup('env', 'CANASTA_HOST_CRONTAB') }}"
+        marker: "# {mark} canasta-backup-{{ instance_id }}"
+        state: absent
+      when: _sched_use_file
 
 - name: Remove backup schedule (Kubernetes)
   kubernetes.core.k8s:

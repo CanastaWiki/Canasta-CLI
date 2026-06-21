@@ -8,35 +8,69 @@
 - name: Set backup schedule (Compose)
   when: instance_orchestrator | default('compose') == 'compose'
   block:
-    # The host crontab runs 'canasta backup create' on this host, so a
-    # runnable 'canasta' must exist here. Any flavor satisfies it
-    # (canasta-native or canasta-docker) — we only check that the command
-    # runs. Also, cron's PATH is minimal (typically /usr/bin:/bin) and
-    # usually excludes /usr/local/bin where canasta lives, so we resolve
-    # the absolute path now and bake it into the crontab.
-    - name: Resolve canasta executable on the host
+    # Cron runs 'canasta backup create' on the target host. cron's PATH
+    # is minimal (often /usr/bin:/bin) and usually excludes
+    # /usr/local/bin, so the entry needs an absolute path to canasta.
+    #
+    # Three layouts, by how the crontab is reached:
+    #  - Local native: Ansible runs on the host, so edit the live crontab
+    #    directly (cron module) using the absolute path the wrapper
+    #    recorded in canasta_cli_bin.
+    #  - Local containerized (canasta-docker): Ansible runs in a throwaway
+    #    container that can't touch the host crontab, so the wrapper dumps
+    #    it to the host-mounted file named by CANASTA_HOST_CRONTAB before
+    #    the run and re-installs it after. Here we just edit that file.
+    #  - Remote (--host, or an instance the registry pins to another host):
+    #    the crontab lives on the remote, where resolve_instance has
+    #    already switched the connection, so resolve canasta there and
+    #    fail if it isn't installed.
+    - name: Classify the schedule target
+      ansible.builtin.set_fact:
+        # Local only when neither --host nor a registry-pinned host sends
+        # the connection to another machine.
+        _sched_is_local: >-
+          {{ (target_host is not defined)
+             and (_instance_host | default('localhost') == 'localhost') }}
+        _host_crontab_file: "{{ lookup('env', 'CANASTA_HOST_CRONTAB') }}"
+
+    - name: Resolve canasta on the target host
       ansible.builtin.shell: command -v canasta
-      register: _host_canasta
+      register: _remote_canasta
       changed_when: false
       failed_when: false
+      when: not _sched_is_local
 
-    - name: Require a runnable canasta on the host for scheduled backups
+    - name: Require canasta on the target host for scheduled backups
       ansible.builtin.fail:
         msg: >-
-          Scheduled backups run 'canasta backup create' on this host via
-          crontab, but no 'canasta' executable was found here. Install it
-          first — 'canasta install canasta -H <host>' (or install
-          canasta-docker) — then re-run 'canasta backup schedule set'.
-      when: _host_canasta.rc != 0 or (_host_canasta.stdout | trim) == ''
+          No 'canasta' executable found on
+          {{ target_host | default(_instance_host) }}. Install it there
+          first, then re-run 'canasta backup schedule set'.
+      when:
+        - not _sched_is_local
+        - _remote_canasta.rc != 0 or (_remote_canasta.stdout | trim) == ''
+
+    # Local uses the wrapper's recorded path; remote uses what we just
+    # resolved over SSH. Falls back to a bare 'canasta' only when the
+    # CLI was run directly without the wrapper — rare, and local-only.
+    - name: Select the canasta command for cron
+      ansible.builtin.set_fact:
+        _canasta_bin: >-
+          {{ (canasta_cli_bin | default('canasta'))
+             if _sched_is_local
+             else (_remote_canasta.stdout | default('') | trim) }}
+        # Edit the mounted host crontab file only for a local
+        # containerized run; everything else edits the live crontab.
+        _sched_use_file: "{{ _sched_is_local and _host_crontab_file != '' }}"
 
     - name: Build backup command for cron
       ansible.builtin.set_fact:
         _cron_base: >-
-          {{ _host_canasta.stdout | trim }} backup create
+          {{ _canasta_bin }} backup create
           -i {{ instance_id }} --tag scheduled
         _cron_purge: >-
           {{ (purge_older_than is defined and purge_older_than != '')
-             | ternary('&& ' + (_host_canasta.stdout | trim)
+             | ternary('&& ' + _canasta_bin
              + ' backup purge -i ' + instance_id + ' --keep-within ' + (purge_older_than | default('')), '') }}
         _cron_log: '>> "{{ instance_path }}/backup.log" 2>&1'
 
@@ -44,6 +78,7 @@
       ansible.builtin.set_fact:
         _cron_cmd: "{{ (_cron_base + ' ' + _cron_purge + ' ' + _cron_log) | regex_replace('\\s+', ' ') | trim }}"
 
+    # Native / remote: edit the live crontab via the cron module.
     - name: Set cron schedule
       ansible.builtin.cron:
         name: "canasta-backup-{{ instance_id }}"
@@ -53,6 +88,19 @@
         day: "{{ cron_expression.split()[2] }}"
         month: "{{ cron_expression.split()[3] }}"
         weekday: "{{ cron_expression.split()[4] }}"
+      when: not _sched_use_file
+
+    # Containerized CLI: edit the host crontab file the wrapper mounted;
+    # the wrapper installs it on the host after this container exits. The
+    # BEGIN/END marker block replaces any prior entry for this instance,
+    # mirroring the cron module's replace-by-name behavior.
+    - name: Set cron schedule in the host crontab file
+      ansible.builtin.blockinfile:
+        path: "{{ _host_crontab_file }}"
+        create: true
+        marker: "# {mark} canasta-backup-{{ instance_id }}"
+        block: "{{ cron_expression }} {{ _cron_cmd }}"
+      when: _sched_use_file
 
 # --- Kubernetes: CronJob ---
 - name: Set backup schedule (Kubernetes)
