@@ -12,6 +12,7 @@ import os
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 START = os.path.join(ROOT, "roles", "orchestrator", "tasks", "start.yml")
 STOP = os.path.join(ROOT, "roles", "orchestrator", "tasks", "stop.yml")
+DESTROY = os.path.join(ROOT, "roles", "orchestrator", "tasks", "destroy.yml")
 HELM = os.path.join(ROOT, "roles", "orchestrator", "tasks", "helm_deploy.yml")
 CHART = os.path.join(ROOT, "roles", "orchestrator", "files", "helm", "canasta")
 TPL = os.path.join(CHART, "templates", "sidecars.yaml")
@@ -42,6 +43,13 @@ def test_compose_layer_added_before_user_override():
 def test_stop_includes_sidecar_layer_for_teardown():
     body = _text(STOP)
     assert "docker-compose.sidecars.yml" in body
+
+
+def test_destroy_removes_sidecar_orphans():
+    # delete uses a bare `down` (no sidecar -f layer), so it must pass
+    # --remove-orphans or the sidecar container survives deletion.
+    body = _text(DESTROY)
+    assert "down -v --remove-orphans" in body
 
 
 def test_scale_up_is_generalized_to_all():
