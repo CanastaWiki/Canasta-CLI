@@ -29,8 +29,9 @@
     # (minus the secrets above) is still written to the web ConfigMap and
     # mounted at /mediawiki/config/.env, so app config and shared secrets
     # reach the web tier via a settings fragment under
-    # config/settings/global/ (all wikis) or config/settings/wikis/<wiki
-    # id>/ (one wiki) — synced to both orchestrators — rather than pod env.
+    # config/settings/global/ (all wikis) or
+    # config/settings/wikis/<wiki id>/ (one wiki) — synced to both
+    # orchestrators — rather than pod env.
     _k8s_pod_env_allowlist:
       - PHP_UPLOAD_MAX_FILESIZE
       - PHP_POST_MAX_SIZE
