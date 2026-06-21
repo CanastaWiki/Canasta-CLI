@@ -75,7 +75,14 @@
 - name: Build volume mounts list
   ansible.builtin.set_fact:
     _restic_volume_mounts:
-      - { name: instance-config, mountPath: /currentsnapshot/config, readOnly: true }
+      # instance-config is writable, NOT read-only: the backup ops mount a
+      # 'dumps' emptyDir at the /currentsnapshot/config/backup subpath, and
+      # the container runtime must create that mountpoint inside the
+      # hostPath. A read-only hostPath makes mkdir of the mountpoint fail
+      # ('read-only file system' → pod StartError). restic only reads the
+      # tree, and the init containers write solely to the dumps overlay, so
+      # the live host config dir is never modified.
+      - { name: instance-config, mountPath: /currentsnapshot/config }
       - { name: instance-env, mountPath: /currentsnapshot/.env, readOnly: true }
       - { name: images, mountPath: /currentsnapshot/images, readOnly: true }
       - { name: extensions, mountPath: /currentsnapshot/extensions, readOnly: true }

@@ -50,14 +50,16 @@
 
 # Both the cron module ('#Ansible: <name>' + entry) and the containerized
 # blockinfile path ('# BEGIN/END <name>' + entry) write the same job line.
-# Match that line (it contains 'canasta backup create -i <id> '), not the
-# marker comment. The trailing space anchors the match so 'foo' doesn't
-# match 'foo2'.
+# Match that line by the ' backup create -i <id> ' command fragment — with
+# a LEADING space so it matches whatever binary the entry invokes
+# (canasta, canasta-native, canasta-docker, or an absolute path) but never
+# the '#...canasta-backup-<id>' marker comment. The trailing space anchors
+# the id so 'foo' doesn't match 'foo2'.
 - name: Filter backup schedule
   ansible.builtin.set_fact:
     _schedule_lines: >-
       {{ _crontab_lines | default([])
-         | select('search', 'canasta backup create -i ' + instance_id + ' ')
+         | select('search', ' backup create -i ' + instance_id + ' ')
          | list }}
 
 - name: No schedule found
