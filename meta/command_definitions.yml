@@ -2565,15 +2565,20 @@ commands:
         description: "Target host (default: localhost)"
 
   - name: sidecar_add
-    description: "Add an app sidecar to config/sidecars.yaml"
+    description: "Add app sidecar(s) to config/sidecars.yaml from a YAML file"
     long_description: |
-      Declare an app sidecar in `config/sidecars.yaml`, then run
-      `canasta restart` to deploy it. Covers the common fields; for
-      richer sidecars (mounted config files, dependencies, healthchecks)
-      edit `config/sidecars.yaml` directly.
+      Declare app sidecar(s) in `config/sidecars.yaml` from a YAML file of
+      full definitions — a single sidecar mapping, a list, or a `sidecars:`
+      list — then run `canasta restart` to deploy them. The file uses the
+      orchestrator-agnostic sidecar schema (name, image/build, ports, command,
+      env, volumes, files, depends_on, healthcheck, resources), so it renders
+      identically on Compose and Kubernetes.
+
+      To migrate an existing `docker-compose.override.yml`, use
+      `canasta sidecar migrate` instead, which translates its sidecar
+      services into this schema.
     examples:
-      - "canasta sidecar add -i mywiki --name cache --image redis:7-alpine --port 6379"
-      - "canasta sidecar add -i mywiki --name cache --image redis:7-alpine --volume data:/data:1Gi"
+      - "canasta sidecar add -i mywiki --file sidecars.yaml"
     playbook: sidecar_add.yml
     parameters:
       - name: id
@@ -2584,36 +2589,13 @@ commands:
         short: p
         type: string
         description: "Path to the Canasta instance directory"
-      - name: sidecar_name
-        long: name
-        short: n
+      - name: file
+        short: f
         type: string
         required: true
-        description: "Sidecar name (a DNS label; becomes a service + hostname)"
-      - name: image
-        type: string
-        description: "Image reference (mutually exclusive with --build)"
-      - name: build
-        type: string
-        description: "Build context path (mutually exclusive with --image)"
-      - name: port
-        type: string
-        multi: true
-        description: "Container port the sidecar listens on (repeatable)"
-      - name: sidecar_command
-        long: command
-        type: string
-        description: "Override command (a string)"
-      - name: env
-        type: string
-        multi: true
-        description: "Environment entry as KEY=VALUE (repeatable)"
-      - name: volume
-        type: string
-        multi: true
         description: >-
-          Volume as NAME:MOUNTPATH (ephemeral) or NAME:MOUNTPATH:SIZE
-          (persistent); repeatable
+          Path to a YAML file of full sidecar definition(s) (the
+          orchestrator-agnostic sidecar schema)
 
   - name: sidecar_list
     description: "List app sidecars declared for a Canasta instance"
