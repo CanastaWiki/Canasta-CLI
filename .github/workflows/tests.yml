@@ -190,7 +190,7 @@ jobs:
     name: "Integration: Kubernetes"
     if: github.event_name != 'pull_request'  # See #67
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -229,6 +229,14 @@ jobs:
           .venv/bin/python tests/integration/run_tests.py
           k8s-lifecycle
         timeout-minutes: 20
+      # Reuse the same bootstrapped cluster (k8s-lifecycle deletes its instance
+      # on cleanup, and the in-cluster registry was deployed at install) so this
+      # adds only the build/push/pull path, not a second k3s bootstrap.
+      - name: Run K8s build-from test
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          k8s-build-from
+        timeout-minutes: 18
 
   # Separate job (own runner) so the CrowdSec enable — which drives several
   # Helm rollouts — gets a fresh, unloaded node and its own time budget rather
