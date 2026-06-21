@@ -185,38 +185,45 @@
       ansible.builtin.set_fact:
         _host_gateway_fallback: "{{ _host_gateway_probe.stdout | default('') | trim }}"
 
-    # --- Compose-only storage preflight ---
-    # Canasta images are ~2.3 GB; with database volumes, logs, and build
-    # cache, container storage can exhaust a small root partition. Warn
-    # early so the operator can configure storage on a larger volume.
-    - name: Get Docker root directory
-      ansible.builtin.shell:
-        cmd: "set -o pipefail && docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/{print $2}'"
-      register: _docker_root_dir
-      changed_when: false
-      failed_when: false
+    # Compose-only storage preflight. Canasta images are ~2.3 GiB; with
+    # database volumes, logs, and build cache, container storage can
+    # exhaust a small root partition. This warns (rather than fails like
+    # the memory check) because disk is recoverable mid-flight — the
+    # operator can free space or move container storage to a larger
+    # volume without re-provisioning the host.
+    #
+    # The Docker Root Dir is parsed from the `docker info` output already
+    # captured by the availability check above, so no extra docker call
+    # is needed.
+    - name: Resolve Docker root directory
+      ansible.builtin.set_fact:
+        _docker_root_dir: >-
+          {{ (_docker_check.stdout | default('')
+             | regex_findall('Docker Root Dir:\s*(.+)') | first | default('')) | trim }}
 
+    # `df --output=avail` is GNU coreutils only (BusyBox/BSD lack it);
+    # `failed_when: false` keeps the check best-effort so it silently
+    # no-ops on those targets rather than aborting create. Output is in
+    # 1K blocks; tail -1 drops the header row.
     - name: Check available disk space on Docker storage
       ansible.builtin.shell:
         cmd: >-
-          set -o pipefail && df --output=avail
-          "$(docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/{print $2}')"
+          set -o pipefail && df --output=avail {{ _docker_root_dir | quote }}
           2>/dev/null | tail -1
       register: _docker_storage_avail
       changed_when: false
       failed_when: false
-      when: _docker_root_dir.stdout | trim | length > 0
+      when: _docker_root_dir | length > 0
 
-    - name: Warn if Docker storage has less than 20 GB free
+    - name: Warn if Docker storage has less than 20 GiB free
       ansible.builtin.debug:
         msg: >-
-          WARNING: Container storage at {{ _docker_root_dir.stdout }}
+          WARNING: Container storage at {{ _docker_root_dir }}
           has only {{ (_docker_storage_avail.stdout | trim | int / (1024 * 1024)) | round(1) }}
-          GB free (recommended minimum: 20 GB). Canasta images are ~2.3 GB
-          and database/migration operations need additional space. Configure
-          container storage on a larger volume; see the setup guide for
-          storage configuration options.
+          GiB free (recommended minimum: 20 GiB). Canasta images are ~2.3 GiB
+          and database/migration operations need additional space. Move
+          container storage to a larger volume, or free space, before this
+          instance grows.
       when:
-        - _docker_storage_avail.stdout is defined
-        - _docker_storage_avail.stdout | trim | length > 0
+        - _docker_storage_avail.stdout | default('') | trim | length > 0
         - (_docker_storage_avail.stdout | trim | int) < 20 * 1024 * 1024
