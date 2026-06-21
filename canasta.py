@@ -1213,6 +1213,15 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     if host_value:
         extra_vars["target_host"] = host_value
 
+    # The wrapper records its own absolute path in CANASTA_CLI_BIN so
+    # playbooks that re-invoke the CLI (e.g. the crontab entry written by
+    # 'backup schedule set') can use a fully-qualified path rather than
+    # relying on a minimal cron PATH. Absent when canasta.py is run
+    # directly without a wrapper.
+    cli_bin = os.environ.get("CANASTA_CLI_BIN")
+    if cli_bin:
+        extra_vars["canasta_cli_bin"] = cli_bin
+
     if args.verbose:
         extra_vars["verbose"] = "true"
     else:

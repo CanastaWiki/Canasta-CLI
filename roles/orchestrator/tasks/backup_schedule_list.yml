@@ -9,12 +9,23 @@
 - name: List schedule (Compose)
   when: instance_orchestrator | default('compose') == 'compose'
   block:
-    - name: List cron jobs for this instance
+    # A local containerized run reads the host crontab file the wrapper
+    # mounted (CANASTA_HOST_CRONTAB); native and remote read the live
+    # crontab (remote over the connection resolve_instance switched to).
+    - name: Select crontab source
+      ansible.builtin.set_fact:
+        _sched_use_file: >-
+          {{ (lookup('env', 'CANASTA_HOST_CRONTAB') != '')
+             and (target_host is not defined)
+             and (_instance_host | default('localhost') == 'localhost') }}
+
+    - name: List cron jobs for this instance (native / remote)
       ansible.builtin.command:
         cmd: "crontab -l"
       register: _cron_list
       changed_when: false
       failed_when: false  # rc=1 when crontab is empty; we handle missing binary below
+      when: not _sched_use_file
 
     - name: Fail if crontab command is missing
       ansible.builtin.fail:
@@ -22,17 +33,32 @@
           The 'crontab' command is not available on this host. Install
           the cron package (e.g. 'apt install cron') to use backup
           schedules.
-      when: _cron_list.rc is not defined
+      when:
+        - not _sched_use_file
+        - _cron_list.rc is not defined
 
-    # Ansible's cron module writes two lines to the crontab: a
-    # '#Ansible: <name>' comment and the actual cron entry. Match the
-    # command line (which contains 'canasta backup create -i <id> '),
-    # not the comment (which contains 'canasta-backup-<id>'). The
-    # trailing space anchors the match so 'foo' doesn't match 'foo2'.
+    - name: Read the host crontab file (containerized CLI)
+      ansible.builtin.slurp:
+        src: "{{ lookup('env', 'CANASTA_HOST_CRONTAB') }}"
+      register: _cron_slurp
+      when: _sched_use_file
+
+    - name: Normalize crontab lines
+      ansible.builtin.set_fact:
+        _crontab_lines: >-
+          {{ (_cron_slurp.content | b64decode).splitlines()
+             if _sched_use_file
+             else (_cron_list.stdout_lines | default([])) }}
+
+    # Both the cron module ('#Ansible: <name>' + entry) and the
+    # containerized blockinfile path ('# BEGIN/END <name>' + entry) write
+    # the same job line. Match that line (it contains 'canasta backup
+    # create -i <id> '), not the marker comment. The trailing space
+    # anchors the match so 'foo' doesn't match 'foo2'.
     - name: Filter backup schedule
       ansible.builtin.set_fact:
         _schedule_lines: >-
-          {{ _cron_list.stdout_lines | default([])
+          {{ _crontab_lines | default([])
              | select('search', 'canasta backup create -i ' + instance_id + ' ')
              | list }}
 
