@@ -585,3 +585,33 @@ class TestBackupScheduleCrontabWiring:
     def test_host_crontab_not_passed_for_non_schedule_commands(self):
         argv, _ = run_dry(["backup", "create", "-i", "x"])
         assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+
+class TestRestoreAndGitopsCrontabMediation:
+    """backup restore and gitops pull can re-materialize the host crontab
+    (from the persisted schedule), so a local run of either must get the
+    CANASTA_HOST_CRONTAB mediation, exactly like 'backup schedule'."""
+
+    def test_host_crontab_passed_for_local_backup_restore(self):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        argv, _ = run_dry(["backup", "restore", "-i", "x", "-s", "latest"],
+                          env={"CANASTA_CONFIG_DIR": config_dir})
+        assert_env_var(argv, "CANASTA_HOST_CRONTAB", config_dir + "/.host-crontab")
+
+    def test_host_crontab_passed_for_local_gitops_pull(self):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        argv, _ = run_dry(["gitops", "pull", "-i", "x"],
+                          env={"CANASTA_CONFIG_DIR": config_dir})
+        assert_env_var(argv, "CANASTA_HOST_CRONTAB", config_dir + "/.host-crontab")
+
+    def test_host_crontab_not_passed_for_remote_restore(self):
+        argv, _ = run_dry(["--host", "prod1", "backup", "restore",
+                           "-i", "x", "-s", "latest"])
+        assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+    def test_host_crontab_not_passed_for_backup_create(self):
+        # create doesn't touch the crontab; no mediation needed.
+        argv, _ = run_dry(["backup", "create", "-i", "x"])
+        assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")

@@ -1,43 +1,16 @@
 ---
-# Remove an instance's backup schedule.
+# canasta backup schedule remove.
 #
-# Scheduling is orchestrator-agnostic — the schedule is a crontab entry on
-# the host where the instance runs (Compose: the instance's host; K8s: the
-# control-plane node). We also tear down any legacy in-cluster CronJob from
-# before scheduling was unified on the crontab.
-# Input: instance_id, instance_orchestrator
+# Drops the durable schedule state (config/backup-schedule.yml) so it is no
+# longer re-materialized after restore / gitops pull, then removes the
+# crontab entry.
+# Input: instance_id, instance_path, instance_orchestrator
 
-# A local containerized run edits the host crontab file the wrapper
-# mounted (CANASTA_HOST_CRONTAB); native and remote edit the live crontab
-# (remote over the connection resolve_instance switched to).
-- name: Select crontab target
-  ansible.builtin.set_fact:
-    _sched_use_file: >-
-      {{ (lookup('env', 'CANASTA_HOST_CRONTAB') != '')
-         and (target_host is not defined)
-         and (_instance_host | default('localhost') == 'localhost') }}
-
-- name: Remove cron schedule (native / remote)
-  ansible.builtin.cron:
-    name: "canasta-backup-{{ instance_id }}"
+- name: Drop the persisted backup schedule from instance config
+  ansible.builtin.file:
+    path: "{{ instance_path }}/config/backup-schedule.yml"
     state: absent
-  when: not _sched_use_file
 
-- name: Remove cron schedule from the host crontab file
-  ansible.builtin.blockinfile:
-    path: "{{ lookup('env', 'CANASTA_HOST_CRONTAB') }}"
-    marker: "# {mark} canasta-backup-{{ instance_id }}"
-    state: absent
-  when: _sched_use_file
-
-# Migration: remove any legacy in-cluster CronJob from before scheduling
-# moved to the crontab. Best-effort — connection is on the cp node.
-- name: Remove legacy backup CronJob (Kubernetes)
-  kubernetes.core.k8s:
-    state: absent
-    api_version: batch/v1
-    kind: CronJob
-    name: "canasta-backup-{{ instance_id }}"
-    namespace: "canasta-{{ instance_id }}"
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-  ignore_errors: true  # OK if no CronJob / no cluster access
+- name: Remove the schedule's crontab entry
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_unapply.yml
