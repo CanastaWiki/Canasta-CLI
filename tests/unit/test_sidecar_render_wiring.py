@@ -54,6 +54,22 @@ def test_scale_up_is_generalized_to_all():
     assert "canasta-{{ instance_id }}-caddy\n" not in body
 
 
+def test_k8s_builds_sidecar_images_before_rollout():
+    body = _text(START)
+    # build: sidecars are built + pushed before the Helm rollout (k8s-only).
+    assert "k8s_build_sidecars.yml" in body
+    assert body.index("k8s_build_sidecars.yml") < body.index("helm_deploy.yml")
+
+
+def test_build_task_pushes_to_in_cluster_registry():
+    path = os.path.join(ROOT, "roles", "orchestrator", "tasks",
+                        "k8s_build_sidecars.yml")
+    body = _text(path)
+    assert "k8s_ensure_registry.yml" in body
+    assert "docker build" in body and "docker push" in body
+    assert "localhost:5000/canasta-{{ instance_id }}-{{ item.name }}:local" in body
+
+
 def test_helm_deploy_passes_sidecar_values():
     body = _text(HELM)
     assert "values-sidecars.yaml" in body

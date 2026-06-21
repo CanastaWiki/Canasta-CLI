@@ -112,6 +112,55 @@ class TestK8sValues:
         assert render.render_k8s_values([], {}, lambda s: "") == []
 
 
+class TestEnvBridge:
+    def test_collect_refs_from_env_and_command(self):
+        refs = render.collect_env_refs([CACHE, CITATION])
+        # CACHE.command refs REDIS_MAX_MEMORY; CITATION.env refs the secret.
+        assert refs == ["CITATION_SHARED_SECRET", "REDIS_MAX_MEMORY"]
+
+    def test_bridge_emits_putenv_for_present_vars(self):
+        php = render.render_env_bridge(
+            [CITATION], {"CITATION_SHARED_SECRET": "s3cr3t"})
+        assert "putenv('CITATION_SHARED_SECRET=s3cr3t');" in php
+
+    def test_bridge_skips_absent_vars(self):
+        # Referenced but not in .env -> nothing to bridge (web app's own default).
+        assert render.render_env_bridge([CITATION], {}) is None
+
+    def test_bridge_php_escaping(self):
+        php = render.render_env_bridge([CITATION], {"CITATION_SHARED_SECRET":
+                                                    "a'b\\c"})
+        assert "putenv('CITATION_SHARED_SECRET=a\\'b\\\\c');" in php
+
+
+class TestModuleBridge:
+    def test_writes_bridge_fragment(self, tmp_dir):
+        with open(os.path.join(tmp_dir, ".env"), "w") as handle:
+            handle.write("CITATION_SHARED_SECRET=s3cr3t\n")
+        _write_sidecars(tmp_dir, [{"name": "citation",
+                                   "image": "example/citoid:1.0",
+                                   "env": {"SHARED_SECRET":
+                                           "${CITATION_SHARED_SECRET:-}"}}])
+        result, failed, _ = run_module_with_params(canasta_render_sidecars, {
+            "instance_path": tmp_dir, "orchestrator": "kubernetes"})
+        assert not failed and result["changed"] is True
+        bridge = os.path.join(tmp_dir, "config", "settings", "global",
+                              "00-canasta-sidecar-env.php")
+        with open(bridge) as handle:
+            assert "putenv('CITATION_SHARED_SECRET=s3cr3t');" in handle.read()
+
+    def test_bridge_removed_when_no_refs(self, tmp_dir):
+        bridge = os.path.join(tmp_dir, "config", "settings", "global",
+                              "00-canasta-sidecar-env.php")
+        os.makedirs(os.path.dirname(bridge))
+        with open(bridge, "w") as handle:
+            handle.write("<?php putenv('X=1');\n")
+        _write_sidecars(tmp_dir, [])
+        run_module_with_params(canasta_render_sidecars, {
+            "instance_path": tmp_dir, "orchestrator": "compose"})
+        assert not os.path.exists(bridge)
+
+
 def _write_sidecars(inst, sidecars):
     cfg = os.path.join(inst, "config")
     os.makedirs(cfg, exist_ok=True)
