@@ -17,6 +17,13 @@
 
 set -euo pipefail
 
+# Absolute path of this wrapper on the host, passed into the container as
+# CANASTA_CLI_BIN so playbooks that schedule work via cron (e.g. 'backup
+# schedule set') bake a fully-qualified host command — cron's PATH is
+# minimal and won't find a bare 'canasta'.
+CANASTA_CLI_BIN="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+export CANASTA_CLI_BIN
+
 # `canasta install` provisions software ON THE HOST — k3s as a systemd
 # unit, the docker engine package, etc. That work can't run inside the
 # canasta-ansible container, which has no systemd and no privilege over
@@ -675,6 +682,30 @@ if [[ "$HAS_CREATE" == "true" ]] && [[ "$HAS_PATH" == "false" ]] && [[ "$HAS_HOS
     EXTRA_ARGS=(-p "$(pwd)")
 fi
 
+# Scheduled backups (Compose) live in the host crontab, which a throwaway
+# container can't write. For a local 'backup schedule set/list/remove',
+# dump the host crontab to a host-mounted file the container edits, then
+# install it back after the run (see the dispatch at the end). K8s
+# schedules (CronJobs) and remote (-H) instances leave this file untouched
+# and run through the container/ansible unchanged.
+SCHEDULE_CRONTAB_FILE=""
+_sched_pprev=""
+_sched_prev=""
+for _arg in "$@"; do
+    case "$_arg" in -*) continue ;; esac
+    if [[ "$_sched_pprev" == "backup" && "$_sched_prev" == "schedule" ]]; then
+        case "$_arg" in
+            set|list|remove)
+                [[ "$HAS_HOST" == "false" ]] \
+                    && SCHEDULE_CRONTAB_FILE="$CONFIG_DIR/.host-crontab"
+                ;;
+        esac
+        break
+    fi
+    _sched_pprev="$_sched_prev"
+    _sched_prev="$_arg"
+done
+
 # Allocate a TTY when stdin is a terminal (needed for interactive exec).
 DOCKER_RUN_FLAGS=(-i)
 if [[ -t 0 ]]; then
@@ -687,6 +718,12 @@ fi
 # release (semver tag) from a dev build (':latest').
 DOCKER_RUN_FLAGS+=(-e CANASTA_RUN_MODE=docker)
 DOCKER_RUN_FLAGS+=(-e "CANASTA_CLI_IMAGE_TAG=${IMAGE##*:}")
+DOCKER_RUN_FLAGS+=(-e "CANASTA_CLI_BIN=$CANASTA_CLI_BIN")
+# Tell the playbook to edit this mounted file instead of the (unreachable)
+# host crontab; the dispatch below installs it on the host afterward.
+if [[ -n "$SCHEDULE_CRONTAB_FILE" ]]; then
+    DOCKER_RUN_FLAGS+=(-e "CANASTA_HOST_CRONTAB=$SCHEDULE_CRONTAB_FILE")
+fi
 
 # Detect if `docker` is actually a podman shim (e.g. the podman-docker
 # package on Debian/Fedora installs /usr/bin/docker as a wrapper that
@@ -711,6 +748,32 @@ if [[ -n "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
         printf '%s\n' "$a"
     done
     exit 0
+fi
+
+# Local 'backup schedule' commands: hand the container a snapshot of the
+# host crontab to edit, then install whatever it wrote back. Bypasses
+# 'exec' so we regain control after the container exits. A run that
+# leaves the file unchanged (K8s schedule, or 'list') installs nothing.
+if [[ -n "$SCHEDULE_CRONTAB_FILE" ]]; then
+    crontab -l > "$SCHEDULE_CRONTAB_FILE" 2>/dev/null || : > "$SCHEDULE_CRONTAB_FILE"
+    _crontab_before="$(cksum < "$SCHEDULE_CRONTAB_FILE")"
+    _sched_rc=0
+    docker run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" \
+        "${MOUNTS[@]}" \
+        "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} || _sched_rc=$?
+    _crontab_after="$(cksum < "$SCHEDULE_CRONTAB_FILE")"
+    if [[ "$_sched_rc" -eq 0 && "$_crontab_before" != "$_crontab_after" ]]; then
+        if command -v crontab >/dev/null 2>&1; then
+            crontab "$SCHEDULE_CRONTAB_FILE"
+        else
+            echo "Error: scheduled backups need the 'crontab' command on" \
+                 "this host. Install the cron package (e.g. 'apt install" \
+                 "cron')." >&2
+            _sched_rc=1
+        fi
+    fi
+    rm -f "$SCHEDULE_CRONTAB_FILE"
+    exit "$_sched_rc"
 fi
 
 exec docker run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" \
