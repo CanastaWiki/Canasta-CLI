@@ -19,8 +19,11 @@ import re
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
+# The crontab-writing logic lives in the shared apply task (reused by
+# schedule set and the restore / gitops-pull rematerialize); schedule set
+# itself just persists config/backup-schedule.yml and includes apply.
 SCHEDULE_SET = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml",
+    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_apply.yml",
 )
 COMMAND_DEFS = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
@@ -76,14 +79,12 @@ class TestComposeSchedulePurgeFlag:
 
 
 def _compose_tasks():
-    """Every task in the Compose branch of schedule_set.yml."""
+    """Every task in schedule_set.yml. Scheduling is now orchestrator-
+    agnostic host-crontab logic (no Compose/K8s branch), so this is just
+    the whole file."""
     with open(SCHEDULE_SET) as f:
         tasks = yaml.safe_load(f)
-    for task in _walk_tasks(tasks):
-        name = (task.get("name") or "").lower()
-        if "compose" in name and "block" in task:
-            return list(_walk_tasks(task["block"]))
-    raise AssertionError("no Compose block found in schedule_set.yml")
+    return list(_walk_tasks(tasks))
 
 
 class TestComposeScheduleCanastaResolution:
@@ -153,3 +154,64 @@ class TestComposeScheduleCanastaResolution:
                 )
                 return
         raise AssertionError("no _sched_is_local classification found")
+
+
+def _tasks_of(path):
+    with open(path) as f:
+        return list(_walk_tasks(yaml.safe_load(f)))
+
+
+def _inc(t):
+    return str(t.get("ansible.builtin.include_tasks") or t.get("include_tasks") or "")
+
+
+class TestSchedulePersistence:
+    """The schedule is durable instance state: set persists
+    config/backup-schedule.yml then applies; remove drops it then unapplies;
+    restore and gitops pull re-materialize the crontab from the file."""
+
+    ROLES = os.path.join(REPO_ROOT, "roles")
+    SET = os.path.join(ROLES, "orchestrator", "tasks", "backup_schedule_set.yml")
+    REMOVE = os.path.join(ROLES, "orchestrator", "tasks", "backup_schedule_remove.yml")
+    REMAT = os.path.join(
+        ROLES, "orchestrator", "tasks", "backup_schedule_rematerialize.yml")
+    RESTORE = os.path.join(ROLES, "backup", "tasks", "restore.yml")
+    PULL_COMPOSE = os.path.join(ROLES, "gitops", "tasks", "pull_compose.yml")
+
+    def test_set_persists_file_then_applies(self):
+        tasks = _tasks_of(self.SET)
+        copies = [(t.get("ansible.builtin.copy") or t.get("copy")) for t in tasks
+                  if (t.get("ansible.builtin.copy") or t.get("copy"))]
+        assert any("config/backup-schedule.yml" in str(c.get("dest")) for c in copies), \
+            "set must persist config/backup-schedule.yml"
+        assert any("backup_schedule_apply.yml" in _inc(t) for t in tasks), \
+            "set must include the apply task"
+
+    def test_remove_drops_file_then_unapplies(self):
+        tasks = _tasks_of(self.REMOVE)
+        files = [(t.get("ansible.builtin.file") or t.get("file")) for t in tasks
+                 if (t.get("ansible.builtin.file") or t.get("file"))]
+        assert any("config/backup-schedule.yml" in str(f.get("path"))
+                   and f.get("state") == "absent" for f in files), \
+            "remove must delete config/backup-schedule.yml"
+        assert any("backup_schedule_unapply.yml" in _inc(t) for t in tasks)
+
+    def test_rematerialize_reads_file_and_branches(self):
+        tasks = _tasks_of(self.REMAT)
+        assert any((t.get("ansible.builtin.slurp") or t.get("slurp")) for t in tasks), \
+            "rematerialize must read the persisted file"
+        incs = [_inc(t) for t in tasks]
+        assert any("backup_schedule_apply.yml" in i for i in incs), "apply when present"
+        assert any("backup_schedule_unapply.yml" in i for i in incs), "unapply when absent"
+
+    def test_restore_rematerializes(self):
+        assert any("backup_schedule_rematerialize.yml" in _inc(t)
+                   for t in _tasks_of(self.RESTORE)), \
+            "restore must re-materialize the schedule from restored state"
+
+    def test_gitops_pull_compose_rematerializes_when_schedule_changed(self):
+        remat = [t for t in _tasks_of(self.PULL_COMPOSE)
+                 if "backup_schedule_rematerialize.yml" in _inc(t)]
+        assert remat, "pull_compose must re-materialize the schedule"
+        assert "config/backup-schedule.yml" in str(remat[0].get("when")), \
+            "rematerialize must be gated on the schedule file changing"

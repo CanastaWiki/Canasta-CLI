@@ -34,17 +34,15 @@
   ansible.builtin.set_fact:
     _restic_local_repo: "{{ _restic_repo is match('^/') }}"
 
-# A local-path repo is a node-local hostPath. With no node affinity the Job
-# could land on any node and DirectoryOrCreate would silently make an empty
-# repo there, so init / create / restore could each see a different
-# directory on a multi-node cluster. Pin local-path backups to the
-# control-plane node so every operation shares one repo. Cloud-backend
-# repos (s3:, b2:, ...) are node-agnostic and need no pin.
-- name: Pin local-path backups to the control-plane node
+# The backup snapshots the instance's on-disk config/ and .env from the
+# control-plane node via hostPath (parity with Compose, which stages the
+# host config dir), so every backup must land on the cp node where those
+# files live. A local-path restic repo is likewise a cp-node hostPath.
+# Pinning to the control-plane node covers both.
+- name: Pin backups to the control-plane node
   ansible.builtin.set_fact:
-    _restic_node_selector: >-
-      {{ {'node-role.kubernetes.io/control-plane': 'true'}
-         if (_restic_local_repo | bool) else {} }}
+    _restic_node_selector:
+      node-role.kubernetes.io/control-plane: "true"
 
 # Detect 'backup' verb in backup_args. The on-demand Job is also used
 # for non-snapshot operations (forget, snapshots, init, unlock, etc.);
@@ -77,7 +75,15 @@
 - name: Build volume mounts list
   ansible.builtin.set_fact:
     _restic_volume_mounts:
-      - { name: web-config, mountPath: /currentsnapshot/config, readOnly: true }
+      # instance-config is writable, NOT read-only: the backup ops mount a
+      # 'dumps' emptyDir at the /currentsnapshot/config/backup subpath, and
+      # the container runtime must create that mountpoint inside the
+      # hostPath. A read-only hostPath makes mkdir of the mountpoint fail
+      # ('read-only file system' → pod StartError). restic only reads the
+      # tree, and the init containers write solely to the dumps overlay, so
+      # the live host config dir is never modified.
+      - { name: instance-config, mountPath: /currentsnapshot/config }
+      - { name: instance-env, mountPath: /currentsnapshot/.env, readOnly: true }
       - { name: images, mountPath: /currentsnapshot/images, readOnly: true }
       - { name: extensions, mountPath: /currentsnapshot/extensions, readOnly: true }
       - { name: skins, mountPath: /currentsnapshot/skins, readOnly: true }
@@ -93,10 +99,19 @@
 - name: Build volumes list
   ansible.builtin.set_fact:
     _restic_volumes:
-      - name: web-config
-        configMap:
-          name: "canasta-{{ instance_id }}-web-config"
-          optional: true
+      # Snapshot the real on-disk config tree and .env from the cp node
+      # (full Caddyfile.site / default.vcl / crowdsec / settings subtree,
+      # not the curated web-config ConfigMap subset with flattened
+      # settings--* keys) so a restore to a fresh host gets the complete,
+      # correctly-structured config — parity with the Compose backup.
+      - name: instance-config
+        hostPath:
+          path: "{{ instance_path }}/config"
+          type: Directory
+      - name: instance-env
+        hostPath:
+          path: "{{ instance_path }}/.env"
+          type: File
       - name: images
         persistentVolumeClaim:
           claimName: "canasta-{{ instance_id }}-images"
@@ -117,11 +132,12 @@
          'hostPath': {'path': _restic_repo, 'type': 'DirectoryOrCreate'}}] }}
   when: _restic_local_repo | bool
 
-# Backup ops add a 'dumps' emptyDir + mount-on-mount over the
-# web-config ConfigMap subdir at /currentsnapshot/config/backup. The
-# init containers write SQL dumps and the Secret manifest there;
-# restic captures the merged tree. Same mount-on-mount pattern the
-# scheduled CronJob uses (see roles/backup/tasks/schedule_set.yml).
+# Backup ops add a 'dumps' emptyDir mounted on top of the config
+# hostPath at /currentsnapshot/config/backup. The init containers write
+# SQL dumps and the Secret manifest into that writable overlay (the
+# hostPath config mount itself is read-only); restic captures the merged
+# tree. The overlay also shadows any transient config/backup dir on the
+# host so stale dumps aren't picked up.
 - name: Add dumps volume + mount-on-mount for backup ops
   when: _is_backup_op | bool
   ansible.builtin.set_fact:

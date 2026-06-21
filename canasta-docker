@@ -682,24 +682,29 @@ if [[ "$HAS_CREATE" == "true" ]] && [[ "$HAS_PATH" == "false" ]] && [[ "$HAS_HOS
     EXTRA_ARGS=(-p "$(pwd)")
 fi
 
-# Scheduled backups (Compose) live in the host crontab, which a throwaway
-# container can't write. For a local 'backup schedule set/list/remove',
-# dump the host crontab to a host-mounted file the container edits, then
-# install it back after the run (see the dispatch at the end). K8s
-# schedules (CronJobs) and remote (-H) instances leave this file untouched
-# and run through the container/ansible unchanged.
+# The backup schedule lives in the host crontab, which a throwaway
+# container can't write. For local commands that touch it, dump the host
+# crontab to a host-mounted file the container edits, then install it back
+# after the run (see the dispatch at the end). Three such commands:
+#   - backup schedule set|list|remove  (manage the schedule directly)
+#   - backup restore                   (re-materializes from restored state)
+#   - gitops pull                      (re-materializes if the schedule changed)
+# Remote (-H) instances leave this file untouched and run through the
+# container/ansible unchanged (the crontab lives on the remote host).
 SCHEDULE_CRONTAB_FILE=""
 _sched_pprev=""
 _sched_prev=""
 for _arg in "$@"; do
     case "$_arg" in -*) continue ;; esac
+    _sched_hit=false
     if [[ "$_sched_pprev" == "backup" && "$_sched_prev" == "schedule" ]]; then
-        case "$_arg" in
-            set|list|remove)
-                [[ "$HAS_HOST" == "false" ]] \
-                    && SCHEDULE_CRONTAB_FILE="$CONFIG_DIR/.host-crontab"
-                ;;
-        esac
+        case "$_arg" in set|list|remove) _sched_hit=true ;; esac
+    fi
+    [[ "$_sched_prev" == "backup" && "$_arg" == "restore" ]] && _sched_hit=true
+    [[ "$_sched_prev" == "gitops" && "$_arg" == "pull" ]] && _sched_hit=true
+    if [[ "$_sched_hit" == "true" ]]; then
+        [[ "$HAS_HOST" == "false" ]] \
+            && SCHEDULE_CRONTAB_FILE="$CONFIG_DIR/.host-crontab"
         break
     fi
     _sched_pprev="$_sched_prev"

@@ -71,6 +71,13 @@
     name: instance_lifecycle
     tasks_from: restart.yml
 
+# The snapshot restored config/backup-schedule.yml (if the instance had a
+# schedule); re-materialize the crontab on the instance's host so the
+# schedule is active again after a restore — including onto a fresh host.
+- name: Re-materialize the backup schedule from restored state
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_rematerialize.yml
+
 - name: Display result
   ansible.builtin.debug:
     msg: "Restored from snapshot {{ _resolved_snapshot }}."
