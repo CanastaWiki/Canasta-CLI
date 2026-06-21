@@ -55,6 +55,18 @@
     - { key: "CANASTA_IMAGE", value: "{{ _base_image }}" }
   no_log: true
 
+# Pin the literal bridge-gateway IP for podman < 4.4, which can't resolve
+# the "host-gateway" magic value in docker-compose.yml's extra_hosts. The
+# fact is only set (non-empty) by the orchestrator create_preflight on
+# such hosts, so this is naturally a no-op for Docker and podman >= 4.4.
+- name: Pin HOST_GATEWAY for podman < 4.4
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: HOST_GATEWAY
+    value: "{{ _host_gateway_fallback }}"
+  when: _host_gateway_fallback | default('') | length > 0
+
 - name: Set WIKI_DB_PASSWORD for non-root user
   canasta_env:
     path: "{{ instance_path }}/.env"

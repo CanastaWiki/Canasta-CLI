@@ -53,7 +53,12 @@ services:
     restart: unless-stopped
     logging: *default-logging
     extra_hosts:
-      - "gateway.docker.internal:host-gateway"
+      # "host-gateway" is a magic value resolved by the container engine.
+      # Docker and podman >= 4.4 understand it; podman < 4.4 rejects it.
+      # create's preflight sets HOST_GATEWAY to a literal bridge-gateway
+      # IP on those older podman hosts; everywhere else it is unset and
+      # the magic value is used.
+      - "gateway.docker.internal:${HOST_GATEWAY:-host-gateway}"
     depends_on:
       db:
         condition: service_healthy
