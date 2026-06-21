@@ -250,7 +250,8 @@ command_groups:
       to (e.g. a cache or a parsing service) — in `config/sidecars.yaml`.
       Sidecars are declared once and deploy the same way on Docker Compose
       and Kubernetes. Subcommands add, list, and remove sidecar
-      declarations; run `canasta restart` to apply. For richer sidecars
+      declarations, and migrate legacy `docker-compose.override.yml` sidecars
+      into the schema; run `canasta restart` to apply. For richer sidecars
       (mounted config files, dependencies, healthchecks), edit
       `config/sidecars.yaml` directly.
 
@@ -2656,3 +2657,31 @@ commands:
         type: string
         required: true
         description: "Name of the sidecar to remove"
+
+  - name: sidecar_migrate
+    description: "Migrate docker-compose.override.yml sidecars to config/sidecars.yaml"
+    long_description: |
+      Translate sidecar services in an instance's `docker-compose.override.yml`
+      into `config/sidecars.yaml` (the orchestrator-agnostic schema) and remove
+      them from the override, so they gain Kubernetes support and managed
+      lifecycle. Core-stack overrides (web/db/caddy/...) and any service that
+      can't be fully modelled are left in the override and reported. Run
+      `canasta restart` afterward to deploy the migrated sidecars.
+    examples:
+      - "canasta sidecar migrate -i mywiki"
+      - "canasta sidecar migrate -i mywiki --dry-run"
+    playbook: sidecar_migrate.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+      - name: dry_run
+        long: dry-run
+        type: bool
+        default: false
+        description: "Show the migration plan without writing any files"
