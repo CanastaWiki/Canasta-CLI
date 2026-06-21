@@ -88,6 +88,34 @@ def render_env_bridge(sidecars, env):
 
 # --- Docker Compose -------------------------------------------------------- #
 
+_MEM_UNITS = {
+    "Ki": 1024, "Mi": 1024 ** 2, "Gi": 1024 ** 3, "Ti": 1024 ** 4,
+    "k": 1000, "K": 1000, "M": 1000 ** 2, "G": 1000 ** 3, "T": 1000 ** 4,
+}
+
+
+def k8s_memory_to_bytes(value):
+    """Convert a Kubernetes memory quantity ('256Mi', '1Gi', '512M') to an
+    integer byte count, which Docker Compose accepts verbatim — Compose rejects
+    the k8s 'Mi'/'Gi' suffixes. A bare number is bytes; an unrecognized value
+    is returned unchanged. (The k8s render keeps the original notation.)"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip()
+    if text.isdigit():
+        return int(text)
+    # Two-char binary suffixes (Mi) before single-char decimal (M).
+    for suffix in ("Ki", "Mi", "Gi", "Ti", "K", "M", "G", "T", "k"):
+        if text.endswith(suffix):
+            try:
+                return int(float(text[:-len(suffix)]) * _MEM_UNITS[suffix])
+            except ValueError:
+                return value
+    return value
+
+
 def _compose_healthcheck(healthcheck):
     if healthcheck.get("command"):
         test = ["CMD"] + list(healthcheck["command"])
@@ -140,7 +168,10 @@ def render_compose_service(sidecar):
     if sidecar.get("resources"):
         limits = {}
         if sidecar["resources"].get("memory"):
-            limits["memory"] = sidecar["resources"]["memory"]
+            # Compose wants memory as a string byte count (it rejects both the
+            # k8s 'Mi'/'Gi' suffix and a bare integer).
+            limits["memory"] = str(k8s_memory_to_bytes(
+                sidecar["resources"]["memory"]))
         if sidecar["resources"].get("cpu"):
             limits["cpus"] = str(sidecar["resources"]["cpu"])
         if limits:
