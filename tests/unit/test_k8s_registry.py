@@ -101,6 +101,12 @@ def test_registry_is_ensured_from_install_upgrade_and_create():
         assert "k8s_ensure_registry.yml" in _text(path)
 
 
+def test_install_deploys_registry_best_effort():
+    # Cluster bootstrap must NOT hard-fail on the registry being slow to become
+    # ready (it's only needed for a later build-from push).
+    assert "registry_wait: false" in _text(CP)
+
+
 def test_no_nodeport_lockdown_or_restart_machinery():
     # The ClusterIP design must not reintroduce NodePort exposure handling.
     cp = _text(CP)

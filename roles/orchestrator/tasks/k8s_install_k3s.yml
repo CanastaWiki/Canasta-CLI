@@ -110,6 +110,11 @@
 # create --build-from, custom service/sidecar images).
 - name: Ensure the in-cluster image registry and per-node trust
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml"
+  vars:
+    # Deploy best-effort at install — don't block cluster bootstrap on the
+    # registry becoming ready (it's only needed for a later build-from push,
+    # where create/upgrade wait for it).
+    registry_wait: false
 
 - name: Check if helm is installed
   ansible.builtin.command:

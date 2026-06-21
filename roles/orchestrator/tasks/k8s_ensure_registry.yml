@@ -36,12 +36,19 @@
       kubectl: {{ _registry_apply.stderr | default('') }}
   when: _registry_apply.rc != 0
 
+# registry_wait=false (install) deploys best-effort and returns immediately, so
+# bootstrapping a cluster never hard-fails on the registry being slow to come up
+# (it's not needed until a build-from push). The build-from paths (create /
+# upgrade) leave it at the default true and block until it's ready before they
+# push/pull.
 - name: Wait for the registry to be ready
   ansible.builtin.command:
-    cmd: kubectl -n canasta-registry rollout status deploy/registry --timeout=120s
+    cmd: kubectl -n canasta-registry rollout status deploy/registry --timeout=180s
   changed_when: false
+  when: registry_wait | default(true)
 
 - name: Wait for every node to trust the registry (trust DaemonSet ready)
   ansible.builtin.command:
-    cmd: kubectl -n canasta-registry rollout status ds/registry-trust --timeout=120s
+    cmd: kubectl -n canasta-registry rollout status ds/registry-trust --timeout=180s
   changed_when: false
+  when: registry_wait | default(true)
