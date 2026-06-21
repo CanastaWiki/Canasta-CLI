@@ -184,3 +184,39 @@
     - name: Record host-gateway fallback IP
       ansible.builtin.set_fact:
         _host_gateway_fallback: "{{ _host_gateway_probe.stdout | default('') | trim }}"
+
+    # --- Compose-only storage preflight ---
+    # Canasta images are ~2.3 GB; with database volumes, logs, and build
+    # cache, container storage can exhaust a small root partition. Warn
+    # early so the operator can configure storage on a larger volume.
+    - name: Get Docker root directory
+      ansible.builtin.shell:
+        cmd: "set -o pipefail && docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/{print $2}'"
+      register: _docker_root_dir
+      changed_when: false
+      failed_when: false
+
+    - name: Check available disk space on Docker storage
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail && df --output=avail
+          "$(docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/{print $2}')"
+          2>/dev/null | tail -1
+      register: _docker_storage_avail
+      changed_when: false
+      failed_when: false
+      when: _docker_root_dir.stdout | trim | length > 0
+
+    - name: Warn if Docker storage has less than 20 GB free
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Container storage at {{ _docker_root_dir.stdout }}
+          has only {{ (_docker_storage_avail.stdout | trim | int / (1024 * 1024)) | round(1) }}
+          GB free (recommended minimum: 20 GB). Canasta images are ~2.3 GB
+          and database/migration operations need additional space. Configure
+          container storage on a larger volume; see the setup guide for
+          storage configuration options.
+      when:
+        - _docker_storage_avail.stdout is defined
+        - _docker_storage_avail.stdout | trim | length > 0
+        - (_docker_storage_avail.stdout | trim | int) < 20 * 1024 * 1024
