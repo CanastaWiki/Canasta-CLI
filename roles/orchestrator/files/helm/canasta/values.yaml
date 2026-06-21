@@ -175,3 +175,8 @@ argocd:
     automated: true
     selfHeal: true
     prune: true
+
+# App sidecars (companion services). Rendered from config/sidecars.yaml
+# into values-sidecars.yaml at start; empty here so a release with no
+# sidecars renders nothing (and helm prunes a removed one).
+sidecars: []

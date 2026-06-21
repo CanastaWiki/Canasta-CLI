@@ -74,3 +74,28 @@ varnish:80
 web:80
 {{- end -}}
 {{- end }}
+
+{{/*
+A sidecar readiness/liveness probe from a healthcheck spec
+(command | tcp | path+port | bare port).
+*/}}
+{{- define "canasta.sidecarProbe" -}}
+{{- if .command }}
+exec:
+  command:
+    {{- toYaml .command | nindent 4 }}
+{{- else if .tcp }}
+tcpSocket:
+  port: {{ .tcp }}
+{{- else if .path }}
+httpGet:
+  path: {{ .path }}
+  port: {{ .port | default 80 }}
+{{- else }}
+tcpSocket:
+  port: {{ .port }}
+{{- end }}
+periodSeconds: 30
+timeoutSeconds: 5
+failureThreshold: 3
+{{- end }}
