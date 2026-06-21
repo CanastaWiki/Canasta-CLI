@@ -1,0 +1,42 @@
+---
+# Re-materialize the backup schedule from the durable instance state at
+# config/backup-schedule.yml, so the crontab on the instance's host matches
+# the declared schedule. Run after a restore (the snapshot brought the file
+# back) and after a gitops pull (the repo may have changed it).
+#
+# - file present with a cron_expression  -> apply that schedule
+# - file absent                          -> remove any schedule crontab entry
+#
+# Input: instance_id, instance_path, instance_orchestrator
+
+- name: Check for a persisted backup schedule
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/backup-schedule.yml"
+  register: _sched_state
+
+- name: Read the persisted backup schedule
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/backup-schedule.yml"
+  register: _sched_state_content
+  when: _sched_state.stat.exists
+
+- name: Parse the persisted backup schedule
+  ansible.builtin.set_fact:
+    _sched_state_data: >-
+      {{ (_sched_state_content.content | b64decode | from_yaml)
+         if _sched_state.stat.exists else {} }}
+
+- name: Re-apply the schedule from instance state
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_apply.yml
+  vars:
+    cron_expression: "{{ _sched_state_data.cron_expression }}"
+    purge_older_than: "{{ _sched_state_data.purge_older_than | default('') }}"
+  when:
+    - _sched_state.stat.exists
+    - (_sched_state_data.cron_expression | default('')) != ''
+
+- name: Remove the schedule crontab entry when none is persisted
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_unapply.yml
+  when: not _sched_state.stat.exists
