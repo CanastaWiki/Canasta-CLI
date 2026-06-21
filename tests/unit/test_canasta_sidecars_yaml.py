@@ -53,45 +53,6 @@ class TestValidateSidecarName:
         assert _v("caddy") is not None
 
 
-class TestParseHelpers:
-    def test_parse_env(self):
-        assert canasta_sidecars_yaml.parse_env(["A=1", "B=x=y"]) == {
-            "A": "1", "B": "x=y"}
-
-    def test_parse_env_bad(self):
-        with pytest.raises(ValueError):
-            canasta_sidecars_yaml.parse_env(["NOEQUALS"])
-
-    def test_parse_volumes_ephemeral(self):
-        assert canasta_sidecars_yaml.parse_volumes(["t:/tmp"]) == [
-            {"name": "t", "mountPath": "/tmp", "persistent": False}]
-
-    def test_parse_volumes_persistent(self):
-        assert canasta_sidecars_yaml.parse_volumes(["data:/data:1Gi"]) == [
-            {"name": "data", "mountPath": "/data",
-             "persistent": True, "size": "1Gi"}]
-
-    def test_parse_volumes_bad(self):
-        with pytest.raises(ValueError):
-            canasta_sidecars_yaml.parse_volumes(["justone"])
-
-    def test_build_sidecar_image_omits_empty(self):
-        assert canasta_sidecars_yaml.build_sidecar("cache", image="redis:7") == {
-            "name": "cache", "image": "redis:7"}
-
-    def test_build_sidecar_build_excludes_image(self):
-        sidecar = canasta_sidecars_yaml.build_sidecar("c", build="./c")
-        assert sidecar == {"name": "c", "build": "./c"}
-
-    def test_build_sidecar_full(self):
-        sidecar = canasta_sidecars_yaml.build_sidecar(
-            "cache", image="redis:7", ports=["6379"], command="redis-server",
-            env=["A=1"], volumes=["data:/data:1Gi"])
-        assert sidecar["ports"] == [6379]
-        assert sidecar["env"] == {"A": "1"}
-        assert sidecar["volumes"][0]["persistent"] is True
-
-
 class TestValidateSidecars:
     def test_ok(self):
         assert canasta_sidecars_yaml.validate_sidecars(
@@ -118,43 +79,13 @@ class TestValidateSidecars:
 
 
 def _add(inst, **extra):
-    params = {"instance_path": inst, "state": "add", "name": "cache",
-              "image": "redis:7-alpine"}
-    params.update(extra)
-    return run_module_with_params(canasta_sidecars_yaml, params)
+    """Seed a 'cache' sidecar via import (used by list/query/remove tests)."""
+    return run_module_with_params(canasta_sidecars_yaml, {
+        "instance_path": inst, "state": "import",
+        "definitions": "name: cache\nimage: redis:7-alpine\n"})
 
 
 class TestModuleStates:
-    def test_add_writes_file(self, tmp_dir):
-        result, failed, _ = _add(tmp_dir)
-        assert not failed and result["changed"] is True
-        path = os.path.join(tmp_dir, "config", "sidecars.yaml")
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        assert data["sidecars"][0]["name"] == "cache"
-
-    def test_add_duplicate_fails(self, tmp_dir):
-        _add(tmp_dir)
-        _, failed, msg = _add(tmp_dir)
-        assert failed and "already exists" in msg
-
-    def test_add_reserved_fails(self, tmp_dir):
-        _, failed, msg = run_module_with_params(canasta_sidecars_yaml, {
-            "instance_path": tmp_dir, "state": "add",
-            "name": "web", "image": "i"})
-        assert failed and "reserved" in msg
-
-    def test_add_requires_image_or_build(self, tmp_dir):
-        _, failed, msg = run_module_with_params(canasta_sidecars_yaml, {
-            "instance_path": tmp_dir, "state": "add", "name": "cache"})
-        assert failed and "image or build" in msg
-
-    def test_add_image_and_build_mutually_exclusive(self, tmp_dir):
-        _, failed, msg = run_module_with_params(canasta_sidecars_yaml, {
-            "instance_path": tmp_dir, "state": "add", "name": "cache",
-            "image": "i", "build": "./c"})
-        assert failed and "mutually exclusive" in msg
-
     def test_list_after_add(self, tmp_dir):
         _add(tmp_dir, ports=["6379"])
         result, failed, _ = run_module_with_params(canasta_sidecars_yaml, {
@@ -195,6 +126,73 @@ class TestModuleStates:
         assert not failed and result["sidecars"] == []
 
 
+class TestParseSidecarDefinitions:
+    _p = staticmethod(canasta_sidecars_yaml.parse_sidecar_definitions)
+
+    def test_single_mapping(self):
+        assert self._p("name: cache\nimage: redis:7\n") == [
+            {"name": "cache", "image": "redis:7"}]
+
+    def test_bare_list(self):
+        out = self._p("- {name: a, image: i}\n- {name: b, image: j}\n")
+        assert [s["name"] for s in out] == ["a", "b"]
+
+    def test_sidecars_key(self):
+        out = self._p("sidecars:\n  - {name: a, image: i}\n")
+        assert out == [{"name": "a", "image": "i"}]
+
+    def test_empty(self):
+        assert self._p("") == []
+
+    def test_scalar_rejected(self):
+        with pytest.raises(ValueError):
+            self._p("just-a-string")
+
+
+class TestImportState:
+    def _import(self, inst, text):
+        return run_module_with_params(canasta_sidecars_yaml, {
+            "instance_path": inst, "state": "import", "definitions": text})
+
+    def test_import_full_sidecar(self, tmp_dir):
+        text = ("sidecars:\n"
+                "  - name: citation\n"
+                "    image: example/citoid:1.0\n"
+                "    ports: [1970]\n"
+                "    healthcheck: {path: /_info, port: 1970}\n"
+                "    depends_on: [translator]\n")
+        result, failed, _ = self._import(tmp_dir, text)
+        assert not failed and result["changed"] is True
+        assert result["names"] == ["citation"]
+        sc = canasta_sidecars_yaml.read_sidecars(tmp_dir)[0]
+        # Rich fields the flag-based add can't express survive the round-trip.
+        assert sc["healthcheck"] == {"path": "/_info", "port": 1970}
+        assert sc["depends_on"] == ["translator"]
+        assert sc["ports"] == [1970]
+
+    def test_import_multiple(self, tmp_dir):
+        text = "- {name: a, image: i}\n- {name: b, image: j}\n"
+        result, failed, _ = self._import(tmp_dir, text)
+        assert not failed and result["names"] == ["a", "b"]
+
+    def test_import_dup_with_existing_fails(self, tmp_dir):
+        _add(tmp_dir)  # adds 'cache'
+        _, failed, msg = self._import(tmp_dir, "name: cache\nimage: redis:7\n")
+        assert failed and "already exist" in msg
+
+    def test_import_reserved_name_fails(self, tmp_dir):
+        _, failed, msg = self._import(tmp_dir, "name: web\nimage: i\n")
+        assert failed and "reserved" in msg
+
+    def test_import_missing_image_and_build_fails(self, tmp_dir):
+        _, failed, msg = self._import(tmp_dir, "name: c\n")
+        assert failed and "image or build" in msg
+
+    def test_import_invalid_yaml_fails(self, tmp_dir):
+        _, failed, msg = self._import(tmp_dir, "name: c\n  bad: [unclosed")
+        assert failed and "invalid sidecar file" in msg
+
+
 class TestCommandWiring:
     def test_group_registered_in_cli(self):
         with open(os.path.join(REPO, "canasta.py")) as f:
@@ -203,14 +201,13 @@ class TestCommandWiring:
     def test_no_param_dest_collides_with_dispatch_var(self):
         # A param internally named 'command' clobbers canasta.py's top-level
         # subparser dest='command' (the dispatch variable), breaking the
-        # whole subcommand. The override-command flag must use a distinct
-        # internal name (sidecar_command) with `long: command`.
+        # whole subcommand. No sidecar param may use that internal name.
         with open(os.path.join(REPO, "meta", "command_definitions.yml")) as f:
             defs = yaml.safe_load(f)
-        add = next(c for c in defs["commands"] if c["name"] == "sidecar_add")
-        dests = {p["name"] for p in add["parameters"]}
-        assert "command" not in dests
-        assert "sidecar_command" in dests
+        for cmd in ("sidecar_add", "sidecar_list", "sidecar_remove"):
+            entry = next(c for c in defs["commands"] if c["name"] == cmd)
+            dests = {p["name"] for p in entry.get("parameters", [])}
+            assert "command" not in dests
 
     def test_command_defs_and_playbooks_exist(self):
         with open(os.path.join(REPO, "meta", "command_definitions.yml")) as f:
