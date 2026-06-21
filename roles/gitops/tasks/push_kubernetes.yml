@@ -14,6 +14,11 @@
 - name: Sync config files
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
+- name: Render sidecars to Helm values
+  canasta_render_sidecars:
+    instance_path: "{{ instance_path }}"
+    orchestrator: kubernetes
+
 - name: Read values.yaml from remote
   ansible.builtin.slurp:
     src: "{{ instance_path }}/values.yaml"
@@ -24,11 +29,17 @@
     src: "{{ instance_path }}/values-configdata.yaml"
   register: _push_configdata
 
-- name: Merge configData into values.yaml for git
+- name: Read values-sidecars.yaml from remote
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values-sidecars.yaml"
+  register: _push_sidecars
+
+- name: Merge configData + sidecars into values.yaml for git
   ansible.builtin.copy:
     content: >-
       {{ _push_values.content | b64decode | from_yaml
          | combine(_push_configdata.content | b64decode | from_yaml, recursive=True)
+         | combine(_push_sidecars.content | b64decode | from_yaml, recursive=True)
          | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values.yaml"
     mode: "0644"
@@ -45,6 +56,7 @@
     content: >-
       {{ _push_values.content | b64decode | from_yaml
          | combine(_push_configdata.content | b64decode | from_yaml, recursive=True)
+         | combine(_push_sidecars.content | b64decode | from_yaml, recursive=True)
          | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values.template.yaml"
     mode: "0644"

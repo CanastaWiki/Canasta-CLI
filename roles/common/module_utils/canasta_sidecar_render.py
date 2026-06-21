@@ -1,0 +1,154 @@
+# -*- coding: utf-8 -*-
+"""Render an instance's sidecars (config/sidecars.yaml) to runtime artifacts.
+
+Pure functions shared by the canasta_render_sidecars module and its unit
+tests. One declaration renders to either a Docker Compose override layer
+(`docker-compose.sidecars.yml`) or Helm values (`values-sidecars.yaml`).
+
+`${VAR:-default}` interpolation: Compose interpolates these itself from the
+instance `.env`, so the Compose render passes them through unchanged. k8s
+has no interpolation, so the k8s render resolves them at render time against
+the same `.env`, keeping the value identical on both orchestrators.
+"""
+
+from __future__ import absolute_import, division, print_function
+
+__metaclass__ = type
+
+import re
+
+_ENV_REF = re.compile(r"\$\{([A-Za-z_]\w*)(:-|-)?([^}]*)\}")
+
+
+def resolve_env_value(value, env):
+    """Resolve ${VAR}, ${VAR:-default}, ${VAR-default} against an env dict."""
+    if not isinstance(value, str):
+        return value
+
+    def repl(match):
+        name, op, default = match.group(1), match.group(2), match.group(3)
+        val = env.get(name)
+        if op == ":-":          # unset OR empty -> default
+            return val if val else default
+        if op == "-":           # unset -> default (empty kept)
+            return val if val is not None else default
+        return val if val is not None else ""
+
+    return _ENV_REF.sub(repl, value)
+
+
+# --- Docker Compose -------------------------------------------------------- #
+
+def _compose_healthcheck(healthcheck):
+    if healthcheck.get("command"):
+        test = ["CMD"] + list(healthcheck["command"])
+    elif healthcheck.get("tcp"):
+        test = ["CMD-SHELL", "nc -z localhost %s || exit 1" % healthcheck["tcp"]]
+    elif healthcheck.get("path"):
+        port = healthcheck.get("port", 80)
+        test = ["CMD", "curl", "-f",
+                "http://localhost:%s%s" % (port, healthcheck["path"])]
+    else:  # bare port -> TCP
+        test = ["CMD-SHELL",
+                "nc -z localhost %s || exit 1" % healthcheck.get("port")]
+    return {"test": test, "interval": "30s", "timeout": "5s", "retries": 3}
+
+
+def render_compose_service(sidecar):
+    """One sidecar -> (compose service dict, {named_volume: None})."""
+    service = {}
+    if sidecar.get("build"):
+        service["build"] = sidecar["build"]
+    else:
+        service["image"] = sidecar["image"]
+    if sidecar.get("command"):
+        # Compose accepts a string or list and interpolates ${VAR} itself.
+        service["command"] = sidecar["command"]
+    service["restart"] = "unless-stopped"
+    if sidecar.get("env"):
+        service["environment"] = dict(sidecar["env"])
+    if sidecar.get("ports"):
+        service["expose"] = [str(p) for p in sidecar["ports"]]
+    named_volumes = {}
+    mounts = []
+    for volume in sidecar.get("volumes", []) or []:
+        if volume.get("persistent"):
+            vol = "%s-%s" % (sidecar["name"], volume["name"])
+            mounts.append("%s:%s" % (vol, volume["mountPath"]))
+            named_volumes[vol] = None
+        else:
+            mounts.append(volume["mountPath"])  # anonymous ephemeral
+    for fileref in sidecar.get("files", []) or []:
+        suffix = ":ro" if fileref.get("readOnly", True) else ""
+        mounts.append("./%s:%s%s"
+                      % (fileref["source"], fileref["mountPath"], suffix))
+    if mounts:
+        service["volumes"] = mounts
+    if sidecar.get("depends_on"):
+        service["depends_on"] = list(sidecar["depends_on"])
+    if sidecar.get("healthcheck"):
+        service["healthcheck"] = _compose_healthcheck(sidecar["healthcheck"])
+    if sidecar.get("resources"):
+        limits = {}
+        if sidecar["resources"].get("memory"):
+            limits["memory"] = sidecar["resources"]["memory"]
+        if sidecar["resources"].get("cpu"):
+            limits["cpus"] = str(sidecar["resources"]["cpu"])
+        if limits:
+            service["deploy"] = {"resources": {"limits": limits}}
+    return service, named_volumes
+
+
+def render_compose(sidecars):
+    """Sidecars -> a docker-compose override dict, or None when there are none."""
+    if not sidecars:
+        return None
+    services = {}
+    volumes = {}
+    for sidecar in sidecars:
+        service, named = render_compose_service(sidecar)
+        services[sidecar["name"]] = service
+        volumes.update(named)
+    override = {"services": services}
+    if volumes:
+        override["volumes"] = volumes
+    return override
+
+
+# --- Kubernetes ------------------------------------------------------------ #
+
+def render_k8s_values(sidecars, env, file_reader):
+    """Sidecars -> the list for `.Values.sidecars` (env resolved, file
+    contents inlined for ConfigMaps). `file_reader(source)` returns the text
+    of an instance file. Returns [] when there are no sidecars."""
+    out = []
+    for sidecar in sidecars or []:
+        item = {"name": sidecar["name"]}
+        if sidecar.get("build"):
+            item["build"] = sidecar["build"]
+        else:
+            item["image"] = sidecar["image"]
+        if sidecar.get("command"):
+            item["command"] = resolve_env_value(sidecar["command"], env)
+        if sidecar.get("env"):
+            item["env"] = {k: resolve_env_value(v, env)
+                           for k, v in sidecar["env"].items()}
+        if sidecar.get("ports"):
+            item["ports"] = [int(p) for p in sidecar["ports"]]
+        if sidecar.get("volumes"):
+            item["volumes"] = sidecar["volumes"]
+        if sidecar.get("files"):
+            item["files"] = [
+                {"mountPath": fileref["mountPath"],
+                 "readOnly": fileref.get("readOnly", True),
+                 "content": file_reader(fileref["source"])}
+                for fileref in sidecar["files"]
+            ]
+        if sidecar.get("depends_on"):
+            item["depends_on"] = list(sidecar["depends_on"])
+        if sidecar.get("healthcheck"):
+            item["healthcheck"] = sidecar["healthcheck"]
+        if sidecar.get("resources"):
+            item["resources"] = sidecar["resources"]
+        out.append(item)
+    return out

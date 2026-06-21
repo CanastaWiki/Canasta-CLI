@@ -16,6 +16,11 @@
     path: "{{ instance_path }}/values-configdata.yaml"
   register: _configdata_file
 
+- name: Check for sidecars values file
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/values-sidecars.yaml"
+  register: _sidecars_file
+
 # Launched detached and polled (resilient_exec) so a controller-side SSH
 # reset during the up-to-10m `--wait` doesn't abort a deploy that is still
 # progressing on the target. helm upgrade --install is idempotent, so a
@@ -32,6 +37,8 @@
       -f {{ instance_path }}/values.yaml
       {{ (_configdata_file.stat.exists | default(false))
          | ternary('-f ' ~ instance_path ~ '/values-configdata.yaml', '') }}
+      {{ (_sidecars_file.stat.exists | default(false))
+         | ternary('-f ' ~ instance_path ~ '/values-sidecars.yaml', '') }}
       {{ (helm_reset_values | default(true) | bool)
          | ternary('--reset-values', '') }}
       {{ (helm_wait | default(true) | bool)

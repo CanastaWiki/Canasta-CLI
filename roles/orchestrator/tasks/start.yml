@@ -9,15 +9,29 @@
     - name: Sync compose profiles
       ansible.builtin.include_tasks: sync_compose_profiles.yml
 
+    - name: Render sidecars to a compose override layer
+      canasta_render_sidecars:
+        instance_path: "{{ instance_path }}"
+        orchestrator: compose
+
+    - name: Check for docker-compose.sidecars.yml
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.sidecars.yml"
+      register: _sidecars_exists
+
     - name: Check for docker-compose.override.yml
       ansible.builtin.stat:
         path: "{{ instance_path }}/docker-compose.override.yml"
       register: _override_exists
 
+    # Layer order: base, then generated sidecars, then the user override
+    # (so a service-name clash lets the operator's raw override win), then
+    # devmode last.
     - name: Build compose file arguments
       ansible.builtin.set_fact:
         _compose_files: >-
           {{ ['-f', 'docker-compose.yml'] +
+             (_sidecars_exists.stat.exists | ternary(['-f', 'docker-compose.sidecars.yml'], [])) +
              (_override_exists.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
              ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
 
@@ -167,6 +181,11 @@
     - name: Sync user extensions/skins into their PVCs
       ansible.builtin.include_tasks: k8s_sync_user_dirs.yml
 
+    - name: Render sidecars to Helm values
+      canasta_render_sidecars:
+        instance_path: "{{ instance_path }}"
+        orchestrator: kubernetes
+
     - name: Check if instance is scaled to zero
       ansible.builtin.command:
         cmd: >-
@@ -208,25 +227,27 @@
           changed_when: true
           when: _start_sts_list.stdout_lines | length > 0
 
-        - name: Scale up web deployment
+        # Scale every deployment back up — core components AND any app
+        # sidecars. Helm won't restore them on its own: its 3-way merge
+        # leaves the kubectl scale-to-0 in place when the manifest's
+        # replicas didn't change. Using --all (rather than a fixed list)
+        # is what makes a Helm-managed sidecar survive a stop/restart.
+        - name: Scale up all deployments
+          ansible.builtin.command:
+            cmd: >-
+              kubectl scale deployment --all --replicas=1
+              -n {{ _k8s_namespace }}
+          changed_when: true
+
+        # Restore the web count afterward (it may be > 1); --all set it to 1.
+        - name: Restore web replica count
           ansible.builtin.command:
             cmd: >-
               kubectl scale deployment canasta-{{ instance_id }}-web
               --replicas={{ _web_replicas }}
               -n {{ _k8s_namespace }}
           changed_when: true
-
-        - name: Scale up remaining deployments
-          ansible.builtin.command:
-            cmd: >-
-              kubectl scale deployment
-              canasta-{{ instance_id }}-caddy
-              canasta-{{ instance_id }}-jobrunner
-              canasta-{{ instance_id }}-varnish
-              --replicas=1
-              -n {{ _k8s_namespace }}
-          changed_when: true
-          ignore_errors: true  # OK if some deployments don't exist
+          when: _web_replicas | int != 1
 
     # Skip the DB readiness wait when the instance uses an external
     # database (db.enabled: false). In that case there's no bundled
