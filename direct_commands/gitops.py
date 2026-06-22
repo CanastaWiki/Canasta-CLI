@@ -49,8 +49,49 @@ def _gitops_status_script(path, ssh_key=None):
         "git diff --name-only 2>/dev/null; "
         "echo '%(d)s'; "
         "git fetch 2>/dev/null; "
-        "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'"
+        "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'; "
+        "echo '%(d)s'; "
+        "cat config/wikis.yaml 2>/dev/null; "
+        "echo '%(d)s'; "
+        "cat wikis.yaml.template 2>/dev/null"
     ) % {"p": qp, "d": d, "ssh": _git_ssh_env_prefix(ssh_key)}
+
+
+_URL_LINE_RE = re.compile(r"^[ \t]*url:.*$", re.MULTILINE)
+
+
+def _wikis_uncaptured_edit(live_raw, tmpl_raw):
+    """True if config/wikis.yaml has literal edits not yet in the template.
+
+    config/wikis.yaml is rendered from wikis.yaml.template, so a direct
+    edit to a literal field (e.g. a wiki's display name) is gitignored and
+    invisible to git status until 'gitops add' reconciles it. Compare the
+    two per wiki id, ignoring the host-specific url (a {{placeholder}} in
+    the template), so the advisory fires only on a genuine uncaptured edit.
+    Returns False when either file is absent or unparseable (e.g. non-gitops
+    or K8s gitops, which has no wikis.yaml.template).
+    """
+    if not (live_raw or "").strip() or not (tmpl_raw or "").strip():
+        return False
+    # The template's `url:` lines hold {{placeholder}} values that are not
+    # valid YAML, so strip url lines from both before parsing. url is
+    # host-specific and excluded from the comparison anyway.
+    live_clean = _URL_LINE_RE.sub("", live_raw)
+    tmpl_clean = _URL_LINE_RE.sub("", tmpl_raw)
+    try:
+        live = yaml.safe_load(live_clean) or {}
+        tmpl = yaml.safe_load(tmpl_clean) or {}
+    except yaml.YAMLError:
+        return False
+
+    def _by_id(doc):
+        out = {}
+        for w in (doc.get("wikis") or []) if isinstance(doc, dict) else []:
+            if isinstance(w, dict) and "id" in w:
+                out[w["id"]] = {k: v for k, v in w.items() if k != "url"}
+        return out
+
+    return _by_id(live) != _by_id(tmpl)
 
 
 def _parse_gitops_status(stdout, instance_id):
@@ -82,6 +123,10 @@ def _parse_gitops_status(stdout, instance_id):
     staged = staged_raw.split("\n") if staged_raw else []
     unstaged = unstaged_raw.split("\n") if unstaged_raw else []
 
+    live_wikis_raw = parts[7] if len(parts) > 7 else ""
+    tmpl_wikis_raw = parts[8] if len(parts) > 8 else ""
+    wikis_drift = _wikis_uncaptured_edit(live_wikis_raw, tmpl_wikis_raw)
+
     try:
         revcount_parts = revcount_raw.split("\t")
         ahead = int(revcount_parts[0])
@@ -111,7 +156,12 @@ def _parse_gitops_status(stdout, instance_id):
             lines.append("  %s" % f)
         lines.append("")
 
-    if not staged and not unstaged:
+    if wikis_drift:
+        lines.append("Uncaptured config/wikis.yaml edits (e.g. wiki display name):")
+        lines.append("  run 'canasta gitops add' to capture and stage them.")
+        lines.append("")
+
+    if not staged and not unstaged and not wikis_drift:
         lines.append("No changes.")
         lines.append("")
 

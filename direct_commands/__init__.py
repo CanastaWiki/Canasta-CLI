@@ -133,6 +133,7 @@ from .gitops import (  # noqa: F401
     _parse_gitops_diff,
     _parse_gitops_status,
     _parse_gitops_status_k8s,
+    _wikis_uncaptured_edit,
 )
 from .extension_skin import cmd_extension_list, cmd_skin_list  # noqa: F401
 from .backup import cmd_backup_list  # noqa: F401
