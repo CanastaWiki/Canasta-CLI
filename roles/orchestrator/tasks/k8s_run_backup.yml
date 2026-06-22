@@ -225,6 +225,12 @@
           - name: dumps
             mountPath: /currentsnapshot/config/backup
 
+# Refresh the backup-env Secret from .env so the Job's restic + DB creds
+# are current even after `config set --no-restart` (which skips the sync
+# that normally rebuilds it).
+- name: Apply backup-env Secret before the backup Job
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_apply_backup_env_secret.yml"
+
 - name: Create restic Job
   kubernetes.core.k8s:
     state: present
