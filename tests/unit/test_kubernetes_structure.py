@@ -1245,3 +1245,54 @@ class TestK8sWorkerJoinDualStackIP:
             if isinstance(t, dict) and "_k3s_server_url" in str(t.get("ansible.builtin.set_fact", {}))
         )
         assert task["ansible.builtin.set_fact"]["_k3s_server_url"] == "https://{{ _cp_internal_ip }}:6443"
+
+
+class TestGitopsInitNonInteractive:
+    """K8s `gitops init` pauses for the operator to register the deploy
+    key on the forge. That pause reads the TTY, so it hangs any
+    unattended/CI run. The init must (a) probe whether the key already
+    works and skip the pause when it does, and (b) honor --non-interactive
+    by failing fast instead of hanging when the key is not yet
+    authorized."""
+
+    INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
+
+    def _content(self):
+        with open(self.INIT_K8S) as f:
+            return f.read()
+
+    def test_probes_key_before_pausing(self):
+        c = self._content()
+        i = c.find("git ls-remote")
+        j = c.find("Pause for user to add deploy key")
+        assert 0 <= i < j, (
+            "init_kubernetes.yml must probe the deploy key (git ls-remote) "
+            "before the pause, to decide whether the pause is needed"
+        )
+        assert "_deploy_key_authorized" in c, (
+            "init must record whether the deploy key already works"
+        )
+
+    def test_pause_is_gated_on_unauthorized_and_interactive(self):
+        tasks = yaml.safe_load(open(self.INIT_K8S))
+        pause = next(
+            t for t in tasks
+            if isinstance(t, dict) and t.get("name", "").startswith("Pause for user")
+        )
+        when = " ".join(str(x) for x in pause.get("when", []))
+        assert "_deploy_key_authorized" in when, (
+            "the pause must be skipped when the deploy key already works"
+        )
+        assert "non_interactive" in when, (
+            "the pause must be skipped in --non-interactive mode"
+        )
+
+    def test_non_interactive_fails_fast(self):
+        c = self._content()
+        assert "non_interactive | default(false) | bool" in c, (
+            "init must check the non_interactive flag"
+        )
+        assert "Fail fast when the deploy key is not yet authorized" in c, (
+            "init must fail fast (not hang) in --non-interactive mode when "
+            "the deploy key is not yet authorized"
+        )
