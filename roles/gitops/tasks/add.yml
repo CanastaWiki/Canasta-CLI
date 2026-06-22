@@ -31,8 +31,10 @@
   when: path is not defined or path == ''
 
 # wikis.yaml.template lives at the instance root, outside config/, so
-# the pathspec above does not reach it.
-- name: Stage reconciled wikis.yaml.template
+# the pathspec above does not reach it. Stage it whenever it exists (a
+# no-op when unchanged) so a template edit captured by an earlier
+# 'config regenerate' is not left behind on push.
+- name: Stage wikis.yaml.template
   ansible.builtin.command:
     cmd: "git add -- wikis.yaml.template"
     chdir: "{{ instance_path }}"
@@ -40,8 +42,7 @@
   changed_when: _git_add_tmpl.rc == 0
   when:
     - path is not defined or path == ''
-    - _reconcile_wikis_write is defined
-    - _reconcile_wikis_write.changed | default(false)
+    - _reconcile_wikis_tmpl.stat.exists | default(false)
 
 - name: Report captured wikis.yaml edits
   ansible.builtin.debug:
