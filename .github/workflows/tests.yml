@@ -285,7 +285,7 @@ jobs:
           k8s-crowdsec
         timeout-minutes: 35
 
-  # Separate job (own runner) so the K8s backup Jobs/CronJob run against a
+  # Separate job (own runner) so the K8s backup Jobs run against a
   # fresh single-node cluster with their own time budget, in parallel with
   # the other k8s jobs rather than serializing behind them.
   integration-k8s-backup:

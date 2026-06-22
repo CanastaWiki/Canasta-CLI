@@ -112,7 +112,7 @@
             # canasta-<id>-backup-env carries every cloud-backend
             # credential restic might need (RESTIC_*, AWS_*, B2_*,
             # AZURE_*, GOOGLE_*, OS_*, ST_*) — same Secret the on-
-            # demand backup Job and scheduled CronJob use (#497).
+            # demand and scheduled backup Jobs use (#497).
             envFrom:
               - secretRef:
                   name: "canasta-{{ instance_id }}-backup-env"

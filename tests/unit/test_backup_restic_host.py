@@ -6,10 +6,10 @@ parent ("no parent snapshot found, will read all files") and
 `forget --group-by host,paths` puts each snapshot in its own group,
 defeating incremental backups and retention grouping.
 
-create.yml feeds both the Compose and K8s on-demand backups (and the
-Compose scheduled backup, which runs `canasta backup create`); the K8s
-CronJob builds its own restic command in schedule_set.yml. Both must pin
---host to the instance id (stable within each instance's own repo).
+create.yml feeds the Compose and K8s on-demand backups; scheduled backups
+(both orchestrators) run `canasta backup create` via the host crontab, so
+they share this path. It must pin --host to the instance id (stable within
+each instance's own repo).
 
 Pure YAML-structure parsing, mirroring test_backup_schedule_compose.py.
 """

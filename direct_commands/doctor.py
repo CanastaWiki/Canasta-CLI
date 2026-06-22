@@ -133,14 +133,15 @@ def _parse_doctor(stdout, hostname):
         "OK" if gitcrypt == "OK" else "not installed"))
 
     lines.append("")
-    # Host crontab is only relevant for Compose `canasta backup schedule`.
-    # On Kubernetes, scheduled backups run as a CronJob in-cluster and
-    # don't depend on host crontab.
-    lines.append("Scheduled backups, Compose only (optional):")
+    # Backup scheduling writes a host crontab entry on the host where the
+    # instance runs — the local/remote host for Compose, the control-plane
+    # node for Kubernetes — so crontab is needed there for both orchestrators.
+    lines.append("Scheduled backups (optional):")
     lines.append("  crontab:         %s" % (
         "OK" if crontab == "OK"
-        else "not installed (install cron to use canasta backup schedule "
-             "on Compose; K8s uses an in-cluster CronJob instead)"))
+        else "not installed (install cron to use 'canasta backup schedule'; "
+             "the schedule is a host crontab entry on the instance's host, "
+             "including the control-plane node for Kubernetes)"))
     # Scheduled backups run `canasta backup create` on the host via the
     # crontab, so a runnable canasta must exist there (any flavor —
     # native or docker). BROKEN = the command exists but doesn't run.
