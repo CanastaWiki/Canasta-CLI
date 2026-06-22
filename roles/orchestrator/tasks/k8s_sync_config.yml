@@ -224,9 +224,9 @@
           whitelists.yaml: "{{ _sync_crowdsec_whitelists.content | b64decode }}"
 
 # --- Backup environment Secret ---
-# The on-demand backup Job (k8s_run_backup.yml) and the scheduled
-# CronJob (roles/backup/tasks/schedule_set.yml) both need restic +
-# DB env to land on the backup containers. Build a single Secret
+# The backup Job (k8s_run_backup.yml) needs restic + DB env to land on
+# the backup containers (scheduled runs go through the same Job via the
+# host crontab). Build a single Secret
 # from .env so envFrom: secretRef gives both flows everything they
 # need — including cloud-backend creds (#497) and external-DB
 # host/user (#498) — without per-task plumbing.

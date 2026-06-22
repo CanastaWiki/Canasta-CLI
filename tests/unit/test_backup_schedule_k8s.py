@@ -1,9 +1,9 @@
 """Structural tests for K8s backup-scheduling tasks.
 
-These exercise YAML structure rather than runtime behavior — the
-playbook file is parsed, the CronJob block is located, and we
-assert that field-name conventions and K8s-side defaults are in
-place. They guard against regressions that show up only in
+These exercise YAML structure rather than runtime behavior — the K8s
+backup task files (k8s_run_backup.yml, restore_k8s.yml, the shared RBAC)
+are parsed and we assert that field-name conventions and K8s-side defaults
+are in place. They guard against regressions that show up only in
 production (slow failure feedback, missing history, etc.).
 
 End-to-end behavior is covered separately on a real cluster (see
@@ -15,14 +15,6 @@ import os
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-SCHEDULE_SET = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml",
-)
-
-
-def _load_tasks():
-    with open(SCHEDULE_SET) as f:
-        return yaml.safe_load(f)
 
 
 def _walk_tasks(tasks):
@@ -88,9 +80,9 @@ class TestK8sSecretBackupRBAC:
     only the two Secret names we dump, only `get` verb, namespace-
     local. Least-privilege RBAC.
 
-    Source of truth is roles/backup/tasks/_k8s_backup_rbac.yml — both
-    the CronJob path (schedule_set.yml) and the on-demand path
-    (k8s_run_backup.yml) include this file (#513 refactor)."""
+    Source of truth is roles/backup/tasks/_k8s_backup_rbac.yml — the
+    on-demand backup path (k8s_run_backup.yml) includes this file
+    (#513 refactor)."""
 
     SHARED_RBAC_PATH = os.path.join(
         REPO_ROOT, "roles", "backup", "tasks", "_k8s_backup_rbac.yml",
@@ -110,14 +102,14 @@ class TestK8sSecretBackupRBAC:
     def test_serviceaccount_created(self):
         sas = list(self._find_resources("ServiceAccount"))
         assert len(sas) >= 1, (
-            "schedule_set.yml must create a ServiceAccount for the "
+            "the shared RBAC file must create a ServiceAccount for the "
             "backup Pod (#510)"
         )
 
     def test_role_grants_only_get_on_named_secrets(self):
         roles = list(self._find_resources("Role"))
         assert len(roles) >= 1, (
-            "schedule_set.yml must create a Role granting Secret read "
+            "the shared RBAC file must create a Role granting Secret read "
             "to the backup ServiceAccount (#510)"
         )
         rules = roles[0]["rules"]
@@ -400,8 +392,7 @@ class TestOnDemandBackupCapturesDB:
                     )
                     assert "dump-secrets" in names, (
                         "Backup-op init containers must include "
-                        "dump-secrets (matches scheduled CronJob, "
-                        "consolidates with #510)"
+                        "dump-secrets (#510)"
                     )
                     found_backup_op_conditional = True
         assert found_default_empty, (
@@ -418,7 +409,7 @@ class TestOnDemandBackupCapturesDB:
     def test_dumps_volume_added_for_backup_ops(self):
         """The dumps emptyDir + mount-on-mount under
         /currentsnapshot/config/backup must exist when backup-op,
-        matching the schedule_set.yml CronJob's pattern."""
+        matching the on-demand backup Job's pattern."""
         with open(self.K8S_RUN_BACKUP) as f:
             content = f.read()
         # Both the volume and the mount point must be added together
@@ -471,9 +462,8 @@ class TestOnDemandBackupCapturesDB:
 
 class TestSharedBackupRBAC:
     """The SA + Role + RoleBinding live in roles/backup/tasks/
-    _k8s_backup_rbac.yml so the CronJob (schedule_set.yml) and the
-    on-demand Job (k8s_run_backup.yml) stay in lockstep. Schedule_set
-    must include the shared file (refactored per #513)."""
+    _k8s_backup_rbac.yml so the on-demand backup Job (k8s_run_backup.yml)
+    gets least-privilege RBAC (refactored per #513)."""
 
     SHARED_RBAC = os.path.join(
         REPO_ROOT, "roles", "backup", "tasks", "_k8s_backup_rbac.yml",
@@ -632,13 +622,9 @@ class TestDiffComposeMatchRegex:
 class TestDumpSecretsStripsEphemeralMetadata:
     """`kubectl get secret -o yaml` emits resourceVersion, uid, and
     creationTimestamp. `kubectl apply -f` then refuses to apply,
-    erroring with 'object has been modified'. Both dump-secrets init
-    containers (scheduled CronJob + on-demand Job) must strip those
-    fields with sed."""
+    erroring with 'object has been modified'. The dump-secrets init
+    container (on-demand backup Job) must strip those fields with sed."""
 
-    SCHEDULE_SET = os.path.join(
-        REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml",
-    )
     K8S_RUN_BACKUP = os.path.join(
         REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml",
     )
@@ -850,8 +836,8 @@ class TestK8sRestoreUsesWebPodForDbImport:
 
 class TestK8sBackupLocalRepoNodeAffinity:
     """#749: a local-path restic repo is a node-local hostPath, so the
-    restore Pod and scheduled CronJob must pin to one node (the
-    control-plane). The backup Job additionally hostPath-mounts the cp
+    restore Pod must pin to one node (the control-plane). The backup Job
+    additionally hostPath-mounts the cp
     node's config/ and .env (so it captures the full on-disk config, not
     the web-config ConfigMap subset), so it pins to the control-plane
     unconditionally — there's no cloud-unpinned exception for it. The

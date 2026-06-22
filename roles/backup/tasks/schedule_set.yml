@@ -7,8 +7,8 @@
     msg: "Cron expression must have exactly 5 fields (minute hour day month weekday), got: '{{ cron_expression }}'"
   when: cron_expression.split() | length != 5
 
-# The orchestrator owns how a schedule is installed (host crontab vs
-# Kubernetes CronJob); dispatch unconditionally.
+# Scheduling is a host crontab entry on the host where the instance runs
+# (the cp node for K8s); the orchestrator task installs it uniformly.
 - name: Install backup schedule
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_set.yml
