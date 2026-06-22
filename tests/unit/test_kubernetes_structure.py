@@ -1346,12 +1346,66 @@ class TestGitopsJoinK8sWorks:
             "the join commit must set an inline git identity"
         )
 
-    def test_creates_argocd_repo_credential_secret(self):
+    def test_applies_argocd_repo_credential_secret(self):
         """Argo CD on the new host needs the deploy key to clone the repo;
-        the join must create the repository Secret (like init)."""
+        the join must apply the repository Secret via the shared task."""
         c = self._content()
-        assert "argocd.argoproj.io/secret-type: repository" in c, (
-            "join must create the Argo CD repo-credential Secret so the "
-            "new host's Argo can authenticate to the repo"
+        assert "_apply_argo_repo_secret.yml" in c, (
+            "join must apply the Argo CD repo-credential Secret (shared "
+            "task) so the new host's Argo can authenticate to the repo"
         )
+
+
+class TestGitopsArgoRepoSecretShared:
+    """The Argo CD repo-credential Secret + host-key trust is created by one
+    shared task included by both gitops init and join, and it seeds Argo's
+    known-hosts for self-hosted (non-forge) repos so they can sync."""
+
+    SHARED = os.path.join(GITOPS_TASKS, "_apply_argo_repo_secret.yml")
+    INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
+    JOIN_K8S = os.path.join(GITOPS_TASKS, "join_kubernetes.yml")
+
+    def _read(self, p):
+        with open(p) as f:
+            return f.read()
+
+    def test_shared_task_creates_repo_secret(self):
+        c = self._read(self.SHARED)
+        assert "argocd.argoproj.io/secret-type: repository" in c
         assert "sshPrivateKey:" in c
+
+    def test_init_and_join_both_include_shared_task(self):
+        for p in (self.INIT_K8S, self.JOIN_K8S):
+            assert "_apply_argo_repo_secret.yml" in self._read(p), (
+                "%s must include the shared repo-Secret task" % p
+            )
+        # And neither should still inline the Secret definition.
+        for p in (self.INIT_K8S, self.JOIN_K8S):
+            assert "argocd.argoproj.io/secret-type: repository" not in \
+                self._read(p), (
+                "%s should apply the Secret via the shared task, not "
+                "inline it" % p
+            )
+
+    def test_seeds_known_hosts_for_non_forge_only(self):
+        c = self._read(self.SHARED)
+        assert "ssh-keyscan" in c, (
+            "must scan a self-hosted repo host's SSH key"
+        )
+        assert "argocd-ssh-known-hosts-cm" in c, (
+            "must seed Argo CD's known-hosts ConfigMap"
+        )
+        assert "_repo_is_known_forge" in c and "github.com" in c, (
+            "must skip the seeding for known forges (their keys ship "
+            "with Argo CD)"
+        )
+        # Idempotent merge — only add lines not already present.
+        assert "difference(_existing)" in c, (
+            "the known-hosts merge must be idempotent (don't duplicate "
+            "or clobber other repos' keys)"
+        )
+        assert "rollout restart deployment argocd-repo-server" in c, (
+            "must restart the repo-server so it loads the newly-seeded "
+            "known-host (it reads known-hosts at startup; without this the "
+            "first sync fails 'knownhosts: key is unknown')"
+        )
