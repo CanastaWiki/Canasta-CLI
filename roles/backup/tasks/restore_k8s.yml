@@ -78,6 +78,13 @@
     wait: true
     wait_timeout: 60
 
+# Refresh the backup-env Secret from .env so the restore pod's restic +
+# DB creds are current even after `config set --no-restart`. The full
+# k8s_sync_config runs later in this file, but the restore pod needs the
+# Secret now.
+- name: Apply backup-env Secret before the restore pod
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_apply_backup_env_secret.yml"
+
 - name: Create restore pod
   kubernetes.core.k8s:
     state: present

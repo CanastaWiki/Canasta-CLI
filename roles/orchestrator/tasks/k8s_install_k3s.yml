@@ -32,9 +32,15 @@
     # k3s API server's cert via INSTALL_K3S_EXEC="--tls-san <addr>".
     # Empty string when not provided (k3s uses its default cert SANs:
     # 127.0.0.1, the node's internal IP, kubernetes.default.*).
+    # --write-kubeconfig-mode 0644 persists a readable kubeconfig in the
+    # k3s unit, so a k3s restart doesn't revert /etc/rancher/k3s/k3s.yaml
+    # to root-only 0600 — which breaks every kubectl/helm task that runs
+    # as the non-root SSH user (the one-time chmod below only covers the
+    # fresh-install window, not subsequent restarts).
     - name: Build k3s install exec args
       ansible.builtin.set_fact:
         _k3s_install_exec: >-
+          --write-kubeconfig-mode 0644
           {{ (public_ip | default([]))
              | map('regex_replace', '^(.*)$', '--tls-san \1')
              | join(' ') }}
