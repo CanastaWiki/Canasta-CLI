@@ -2040,6 +2040,15 @@ commands:
       - name: git_user_email
         type: string
         description: "Git user.email for commits on the target host (set if not already configured)"
+      - name: non_interactive
+        type: bool
+        default: false
+        description: >-
+          Don't pause to prompt for registering the deploy key. The pause
+          is skipped automatically when the deploy key already works; this
+          flag additionally makes init fail fast (instead of hanging) when
+          the key is not yet authorized — for unattended/CI runs where the
+          key was pre-installed on the remote.
 
   - name: gitops_join
     description: "Join an existing gitops repository"
