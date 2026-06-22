@@ -58,15 +58,41 @@
     _ssh_key_path: "{{ key }}.ssh"
     _ssh_key_target_path: "{{ instance_path }}/.gitops-deploy-key"
 
-- name: Read SSH deploy key from controller
-  ansible.builtin.slurp:
-    src: "{{ _ssh_key_path }}"
-  register: _gitops_ssh_key
-  delegate_to: localhost
-  vars:
-    ansible_connection: local
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
-  no_log: true
+# The deploy key lives on the controller, but by this point resolve_instance
+# has switched the play's connection to the instance host. delegate_to:
+# localhost + vars: ansible_connection: local does NOT reliably override that
+# host-level switch, so the slurp would run on the target and fail to find the
+# controller path (silently — no_log + the minimal stdout callback hide it).
+# Use the save/switch-to-local/restore dance instead, the same shape
+# init_kubernetes.yml uses for its controller-side key work.
+- name: Save connection state before controller-side key read
+  ansible.builtin.set_fact:
+    _gjk_saved:
+      host: "{{ ansible_host | default('localhost') }}"
+      conn: "{{ ansible_connection | default('local') }}"
+      user: "{{ ansible_user | default('') }}"
+      python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
+
+- block:
+    - name: Switch to local for SSH key read
+      ansible.builtin.set_fact:
+        ansible_host: "localhost"
+        ansible_connection: "local"
+        ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Read SSH deploy key from controller
+      ansible.builtin.slurp:
+        src: "{{ _ssh_key_path }}"
+      register: _gitops_ssh_key
+      no_log: true
+  always:
+    - name: Restore connection state after key read
+      ansible.builtin.set_fact:
+        ansible_host: "{{ _gjk_saved.host }}"
+        ansible_connection: "{{ _gjk_saved.conn }}"
+        ansible_user: "{{ _gjk_saved.user }}"
+        ansible_python_interpreter: "{{ _gjk_saved.python }}"
 
 - name: Stage SSH deploy private key on target for git operations
   ansible.builtin.copy:
@@ -139,11 +165,16 @@
 # owned files (#571). Materialize .gitattributes first so git-crypt
 # decrypts hosts/** on checkout, then rewrite only the files that differ
 # and surface a permission failure as an actionable message.
+# Compose gitops repos carry a .gitattributes that drives git-crypt
+# decryption on checkout. K8s gitops repos are cleartext (secrets live in
+# K8s Secrets, not the repo), so they have no .gitattributes — make this a
+# no-op there rather than a hard failure on a missing pathspec.
 - name: Materialize .gitattributes so git-crypt filters apply on checkout
   ansible.builtin.command:
     cmd: "git checkout HEAD -- .gitattributes"
     chdir: "{{ instance_path }}"
   changed_when: true
+  failed_when: false
 
 - name: Find tracked files whose content differs from the repo
   ansible.builtin.command:
@@ -287,6 +318,29 @@
     dest: "{{ instance_path }}/argocd/application.yaml"
     mode: "0644"
 
+# Argo CD on the new host needs the deploy key to clone the repo, just as
+# init creates it on the first host. Without this, the Application can't
+# authenticate (it falls back to a non-existent SSH agent) and never syncs.
+- name: Create or update Argo CD repo credential Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "canasta-{{ instance_id }}-repo"
+        namespace: "{{ argocd_namespace | default('argocd') }}"
+        labels:
+          argocd.argoproj.io/secret-type: repository
+          app.kubernetes.io/managed-by: canasta-cli
+          app.kubernetes.io/instance: "{{ instance_id }}"
+      type: Opaque
+      stringData:
+        type: git
+        url: "{{ repo }}"
+        sshPrivateKey: "{{ _gitops_ssh_key.content | b64decode }}"
+  no_log: true
+
 - name: Apply Argo CD Application to cluster
   kubernetes.core.k8s:
     state: present
@@ -311,10 +365,16 @@
   changed_when: false
   failed_when: false
 
+# The commit runs on the target host, which usually has no git identity
+# configured (unlike init, which commits on the controller). Set the
+# identity inline so the commit never aborts with "Author identity
+# unknown" — overridable by --git-user-name / --git-user-email.
 - name: Commit
   ansible.builtin.command:
     cmd: >-
       git -c commit.gpgsign=false
+      -c user.name={{ (git_user_name | default('Canasta GitOps', true)) | quote }}
+      -c user.email={{ (git_user_email | default('canasta-gitops@' ~ host_name, true)) | quote }}
       commit -m 'Add environment {{ host_name }}'
     chdir: "{{ instance_path }}"
   changed_when: true
