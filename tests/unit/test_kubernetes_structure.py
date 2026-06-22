@@ -1296,3 +1296,62 @@ class TestGitopsInitNonInteractive:
             "init must fail fast (not hang) in --non-interactive mode when "
             "the deploy key is not yet authorized"
         )
+
+
+class TestGitopsJoinK8sWorks:
+    """gitops join was broken on Kubernetes (it assumed Compose/git-crypt
+    and committed on the controller). These guard the four fixes that make
+    a cross-host re-attach actually work end-to-end."""
+
+    JOIN_K8S = os.path.join(GITOPS_TASKS, "join_kubernetes.yml")
+
+    def _content(self):
+        with open(self.JOIN_K8S) as f:
+            return f.read()
+
+    def test_reads_deploy_key_via_connection_switch(self):
+        """The controller-local key read must use the save/switch-to-local/
+        restore dance, not delegate_to+vars (which doesn't override the
+        connection switch to the instance host, so the slurp runs on the
+        target and fails)."""
+        c = self._content()
+        assert "Switch to local for SSH key read" in c, (
+            "the key read must switch the connection to local"
+        )
+        i = c.find("Read SSH deploy key from controller")
+        seg = c[i:i + 400]
+        assert "delegate_to: localhost" not in seg, (
+            "the key read must not rely on delegate_to+vars (unreliable "
+            "after the connection switch); use the switch-to-local dance"
+        )
+
+    def test_gitattributes_materialize_is_non_fatal(self):
+        """K8s gitops repos are cleartext (no git-crypt / no .gitattributes),
+        so the .gitattributes checkout must not hard-fail."""
+        c = self._content()
+        i = c.find("git checkout HEAD -- .gitattributes")
+        assert i >= 0, "join still materializes .gitattributes"
+        assert "failed_when: false" in c[i:i + 200], (
+            ".gitattributes materialize must be non-fatal (absent on K8s)"
+        )
+
+    def test_commit_sets_inline_identity(self):
+        """The commit runs on the target host (no git identity); it must set
+        user.name/user.email inline so it doesn't abort 'Author identity
+        unknown'."""
+        c = self._content()
+        i = c.find("commit -m 'Add environment")
+        seg = c[max(0, i - 200):i]
+        assert "user.name=" in seg and "user.email=" in seg, (
+            "the join commit must set an inline git identity"
+        )
+
+    def test_creates_argocd_repo_credential_secret(self):
+        """Argo CD on the new host needs the deploy key to clone the repo;
+        the join must create the repository Secret (like init)."""
+        c = self._content()
+        assert "argocd.argoproj.io/secret-type: repository" in c, (
+            "join must create the Argo CD repo-credential Secret so the "
+            "new host's Argo can authenticate to the repo"
+        )
+        assert "sshPrivateKey:" in c
