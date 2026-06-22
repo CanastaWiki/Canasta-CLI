@@ -1397,6 +1397,23 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     return ansible_args
 
 
+def should_prompt_confirmation(cmd_def, yes_passed):
+    """Whether to show the generic destructive-confirmation prompt.
+
+    The net fires for a command that declares a "yes" parameter and was
+    invoked without --yes. A command that is read-only unless an explicit
+    write flag is given (so prompting before it has done anything is
+    wrong) opts out with 'self_confirm: true' and does its own gating in
+    the playbook.
+    """
+    if cmd_def.get("self_confirm"):
+        return False
+    has_yes_param = any(
+        p["name"] == "yes" for p in cmd_def.get("parameters", [])
+    )
+    return has_yes_param and not yes_passed
+
+
 def main():
     data = load_definitions()
     parser = build_parser(data)
@@ -1546,10 +1563,8 @@ def main():
     # Interactive confirmation for destructive commands.
     # If the command defines a "yes" parameter and the user did not pass it,
     # prompt interactively rather than making them re-run with --yes.
-    has_yes_param = any(
-        p["name"] == "yes" for p in cmd_def.get("parameters", [])
-    )
-    if has_yes_param and not getattr(args, "yes", False):
+    # Commands that are read-only by default opt out with 'self_confirm'.
+    if should_prompt_confirmation(cmd_def, getattr(args, "yes", False)):
         description = cmd_def.get("description", command_name)
         instance_id = getattr(args, "id", None)
         host = getattr(args, "host", None)

@@ -72,7 +72,7 @@
               )
           }}
 
-# --- File mode: diff each requested file and overwrite when --yes ---------
+# --- File mode: diff each requested file and overwrite when --yes -------
 - name: Refresh requested files
   when: _refresh_requested | length > 0
   block:

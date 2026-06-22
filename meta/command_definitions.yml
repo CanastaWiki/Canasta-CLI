@@ -1017,7 +1017,7 @@ commands:
         description: "Canasta instance ID"
 
   - name: config_refresh_template
-    description: "Adopt the current template version of a seeded config file"
+    description: "List, diff, or adopt template versions of seeded config files"
     long_description: |
       Overwrite an instance's copy of a template-seeded config file
       (e.g. config/default.vcl, config/settings/global/Vector.php) with
@@ -1026,17 +1026,22 @@ commands:
       upgrade never changes them; use this to adopt an improved shipped
       version, or to restore a seed file you deleted.
 
-      With no file argument, lists the seed files whose instance copy
-      differs from the current template. With one or more files, shows
-      the diff and overwrites only when --yes is passed, so review the
-      diff first (your local edits to that file are replaced). Rendered
-      files (.env, wikis.yaml, Caddyfile) belong to 'config regenerate'
-      and per-wiki Settings.php is user-owned; neither is touched here.
+      This command is read-only unless --yes is given. With no file
+      argument it lists the seed files whose instance copy differs from
+      the current template. With one or more files it shows the diff but
+      changes nothing; add --yes to overwrite, so review the diff first
+      (your local edits to that file are replaced). Rendered files (.env,
+      wikis.yaml, Caddyfile) belong to 'config regenerate' and per-wiki
+      Settings.php is user-owned; neither is touched here.
     examples:
       - "canasta config refresh-template"
       - "canasta config refresh-template config/default.vcl"
       - "canasta config refresh-template config/default.vcl --yes"
     playbook: config_refresh_template.yml
+    # Read-only by default (lists drift / previews a diff); only --yes
+    # writes. Opt out of the generic destructive-confirmation prompt so
+    # the no-arg and preview invocations don't ask before doing nothing.
+    self_confirm: true
     parameters:
       - name: id
         short: i
@@ -1053,7 +1058,7 @@ commands:
         short: "y"
         type: bool
         default: false
-        description: "Overwrite the instance copy without confirmation"
+        description: "Overwrite the instance copy (without this, only previews the diff)"
 
   - name: config_unset
     description: "Remove a configuration setting"
