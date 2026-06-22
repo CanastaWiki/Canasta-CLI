@@ -1,0 +1,20 @@
+---
+# canasta config refresh-template - Adopt the current template version of a
+# template-seeded config file, overwriting the instance's copy.
+#
+# Seed files (config/default.vcl, config/settings/global/*.php, the settings
+# READMEs, the crowdsec configs) are copied from instance_template once at
+# create and then owned by the user, so upgrade never changes them. This
+# adopts the current shipped version for a named file, or restores one that
+# was deleted. Rendered files (.env, wikis.yaml, Caddyfile) belong to
+# 'config regenerate' and per-wiki Settings.php is user-owned; neither is
+# touched here.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Refresh template-seeded config files
+  ansible.builtin.include_role:
+    name: config
+    tasks_from: refresh_template.yml

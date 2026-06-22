@@ -1016,6 +1016,45 @@ commands:
         type: string
         description: "Canasta instance ID"
 
+  - name: config_refresh_template
+    description: "Adopt the current template version of a seeded config file"
+    long_description: |
+      Overwrite an instance's copy of a template-seeded config file
+      (e.g. config/default.vcl, config/settings/global/Vector.php) with
+      the version shipped in the current CLI. These files are copied
+      once when the instance is created and then owned by you, so an
+      upgrade never changes them; use this to adopt an improved shipped
+      version, or to restore a seed file you deleted.
+
+      With no file argument, lists the seed files whose instance copy
+      differs from the current template. With one or more files, shows
+      the diff and overwrites only when --yes is passed, so review the
+      diff first (your local edits to that file are replaced). Rendered
+      files (.env, wikis.yaml, Caddyfile) belong to 'config regenerate'
+      and per-wiki Settings.php is user-owned; neither is touched here.
+    examples:
+      - "canasta config refresh-template"
+      - "canasta config refresh-template config/default.vcl"
+      - "canasta config refresh-template config/default.vcl --yes"
+    playbook: config_refresh_template.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: files
+        type: string
+        positional: true
+        multi: true
+        description: >-
+          Template-seeded file path(s) to refresh, relative to the
+          instance root (e.g. config/default.vcl)
+      - name: "yes"
+        short: "y"
+        type: bool
+        default: false
+        description: "Overwrite the instance copy without confirmation"
+
   - name: config_unset
     description: "Remove a configuration setting"
     long_description: |

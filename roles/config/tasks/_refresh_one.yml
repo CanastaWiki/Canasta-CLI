@@ -1,0 +1,89 @@
+---
+# Refresh a single template-seeded file: show the template-vs-instance diff
+# and overwrite the instance copy when --yes was given. A missing instance
+# copy (a deleted seed) diffs as a full addition and is restored.
+#
+# Input: _refresh_file (path relative to the instance root), instance_path,
+#        canasta_root, yes (bool).
+
+- name: Read the instance copy of {{ _refresh_file }}
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/{{ _refresh_file }}"
+  register: _refresh_cur
+  failed_when: false
+
+- name: Read the template copy of {{ _refresh_file }}
+  ansible.builtin.slurp:
+    src: "{{ canasta_root }}/instance_template/{{ _refresh_file }}"
+  delegate_to: localhost
+  register: _refresh_new
+
+- name: Note when {{ _refresh_file }} already matches the template
+  ansible.builtin.debug:
+    msg: "{{ _refresh_file }} already matches the current template; nothing to do."
+  when:
+    - not (_refresh_cur.failed | default(false))
+    - (_refresh_cur.content | default('')) == (_refresh_new.content | default(''))
+
+- name: Diff and apply {{ _refresh_file }} when it differs
+  when: >-
+    (_refresh_cur.failed | default(false)) or
+    ((_refresh_cur.content | default('')) != (_refresh_new.content | default('')))
+  block:
+    - name: Stage the current instance copy on the controller
+      ansible.builtin.tempfile:
+        state: file
+      delegate_to: localhost
+      register: _refresh_tmp
+
+    - name: Write the current instance copy for diffing
+      ansible.builtin.copy:
+        content: "{{ (_refresh_cur.content | default('')) | b64decode }}"
+        dest: "{{ _refresh_tmp.path }}"
+        mode: "0644"
+      delegate_to: localhost
+
+    - name: Compute the diff (current -> template)
+      ansible.builtin.command:
+        argv:
+          - diff
+          - -u
+          - --label
+          - "{{ _refresh_file }} (current)"
+          - --label
+          - "{{ _refresh_file }} (template)"
+          - "{{ _refresh_tmp.path }}"
+          - "{{ canasta_root }}/instance_template/{{ _refresh_file }}"
+      delegate_to: localhost
+      register: _refresh_diff
+      changed_when: false
+      failed_when: false
+
+    - name: Show the diff for {{ _refresh_file }}
+      ansible.builtin.debug:
+        msg: "{{ [_refresh_file + ' (current --> template):', ''] + (_refresh_diff.stdout_lines | default([])) }}"
+
+    - name: Overwrite the instance copy with the template
+      ansible.builtin.copy:
+        src: "{{ canasta_root }}/instance_template/{{ _refresh_file }}"
+        dest: "{{ instance_path }}/{{ _refresh_file }}"
+        mode: "0644"
+      when: yes | default(false) | bool
+
+    - name: Report {{ _refresh_file }} refreshed
+      ansible.builtin.debug:
+        msg: "Refreshed {{ _refresh_file }} from the current template."
+      when: yes | default(false) | bool
+
+    - name: Report {{ _refresh_file }} previewed
+      ansible.builtin.debug:
+        msg: >-
+          Previewed {{ _refresh_file }}. Re-run with --yes to overwrite the
+          instance copy with the current template.
+      when: not (yes | default(false) | bool)
+
+    - name: Remove the staged copy
+      ansible.builtin.file:
+        path: "{{ _refresh_tmp.path }}"
+        state: absent
+      delegate_to: localhost

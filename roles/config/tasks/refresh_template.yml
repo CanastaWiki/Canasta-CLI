@@ -1,0 +1,100 @@
+---
+# Adopt the current template version of template-seeded config files.
+#
+# The set of refreshable files is whatever ships under
+# instance_template/config on the controller. With no requested files we
+# report drift; with requested files we diff each and overwrite when --yes
+# was given.
+#
+# Input: instance_path, instance_id, canasta_root, files (str:
+#        space-separated paths, optional), yes (bool).
+
+- name: Enumerate shipped template seed files
+  ansible.builtin.find:
+    paths: "{{ canasta_root }}/instance_template/config"
+    recurse: true
+    file_type: file
+  delegate_to: localhost
+  register: _refresh_find
+
+- name: Build the set of refreshable seed paths
+  ansible.builtin.set_fact:
+    _refresh_seed_paths: >-
+      {{ _refresh_find.files
+         | map(attribute='path')
+         | map('regex_replace',
+               '^' ~ ((canasta_root ~ '/instance_template/') | regex_escape), '')
+         | sort }}
+    _refresh_requested: "{{ (files | default('', true)).split() }}"
+
+# --- List mode: report which seed files differ from the template ---------
+- name: Report drift
+  when: _refresh_requested | length == 0
+  block:
+    - name: Read instance copies of the seed files
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/{{ item }}"
+      loop: "{{ _refresh_seed_paths }}"
+      register: _refresh_inst
+      failed_when: false
+
+    - name: Read template copies of the seed files
+      ansible.builtin.slurp:
+        src: "{{ canasta_root }}/instance_template/{{ item }}"
+      loop: "{{ _refresh_seed_paths }}"
+      delegate_to: localhost
+      register: _refresh_tmpl
+
+    - name: Compute the drifted seed files
+      ansible.builtin.set_fact:
+        _refresh_drift: "{{ _refresh_drift | default([]) + [item.0] }}"
+      loop: >-
+        {{ _refresh_seed_paths
+           | zip(_refresh_inst.results, _refresh_tmpl.results) | list }}
+      loop_control:
+        label: "{{ item.0 }}"
+      when: >-
+        (item.1.failed | default(false)) or
+        ((item.1.content | default('')) != (item.2.content | default('')))
+
+    - name: Report the drifted seed files
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            (_refresh_drift | default([]) | length == 0)
+            | ternary(
+                ['All template-seeded files match the current template.'],
+                ['Seed files that differ from the current template:']
+                + (_refresh_drift | default([]) | map('regex_replace', '^', '  ') | list)
+                + ['',
+                   "Review and adopt one with: "
+                   ~ "canasta config refresh-template <file> --yes"]
+              )
+          }}
+
+# --- File mode: diff each requested file and overwrite when --yes ---------
+- name: Refresh requested files
+  when: _refresh_requested | length > 0
+  block:
+    - name: Validate requested files are template-seeded
+      ansible.builtin.fail:
+        msg: >-
+          '{{ item }}' is not a template-seeded file. Refreshable files:
+          {{ _refresh_seed_paths | join(', ') }}
+      loop: "{{ _refresh_requested }}"
+      when: item not in _refresh_seed_paths
+
+    - name: Refresh each requested seed file
+      ansible.builtin.include_tasks: _refresh_one.yml
+      loop: "{{ _refresh_requested }}"
+      loop_control:
+        loop_var: _refresh_file
+
+    - name: Remind to apply and capture the changes
+      ansible.builtin.debug:
+        msg:
+          - "Restart the instance to apply: canasta restart -i {{ instance_id }}"
+          - >-
+            Capture into gitops (if used):
+            canasta gitops add && canasta gitops push
+      when: yes | default(false) | bool
