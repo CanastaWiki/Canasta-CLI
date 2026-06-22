@@ -196,7 +196,7 @@ class TestImportState:
 class TestCommandWiring:
     def test_group_registered_in_cli(self):
         with open(os.path.join(REPO, "canasta.py")) as f:
-            assert '"sidecar": ["add", "list", "remove"]' in f.read()
+            assert '"sidecar": ["add", "list", "remove", "migrate"]' in f.read()
 
     def test_no_param_dest_collides_with_dispatch_var(self):
         # A param internally named 'command' clobbers canasta.py's top-level
@@ -215,8 +215,9 @@ class TestCommandWiring:
         names = {c["name"] for c in defs["commands"]}
         groups = {g["name"] for g in defs["command_groups"]}
         assert "sidecar" in groups
-        for cmd in ("sidecar_add", "sidecar_list", "sidecar_remove"):
+        for cmd in ("sidecar_add", "sidecar_list", "sidecar_remove",
+                    "sidecar_migrate"):
             assert cmd in names
         for playbook in ("sidecar_add.yml", "sidecar_list.yml",
-                         "sidecar_remove.yml"):
+                         "sidecar_remove.yml", "sidecar_migrate.yml"):
             assert os.path.exists(os.path.join(REPO, "playbooks", playbook))
