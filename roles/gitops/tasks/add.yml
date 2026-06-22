@@ -10,6 +10,15 @@
   changed_when: _git_add_path.rc == 0
   when: path is defined and path != ''
 
+# config/wikis.yaml is not tracked (it is rendered from
+# wikis.yaml.template). Capture any literal edits (e.g. a wiki's
+# display name) back into the template so they are staged and shared
+# rather than dropped on the next render.
+- name: Capture wikis.yaml edits into the gitops template
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/_reconcile_wikis_template.yml
+  when: path is not defined or path == ''
+
 # Scope with an explicit pathspec: since Git 2.0 `git add -A` ignores
 # the working directory and stages the whole tree, so chdir alone does
 # not limit it to config/.
@@ -20,3 +29,26 @@
   register: _git_add
   changed_when: _git_add.rc == 0
   when: path is not defined or path == ''
+
+# wikis.yaml.template lives at the instance root, outside config/, so
+# the pathspec above does not reach it.
+- name: Stage reconciled wikis.yaml.template
+  ansible.builtin.command:
+    cmd: "git add -- wikis.yaml.template"
+    chdir: "{{ instance_path }}"
+  register: _git_add_tmpl
+  changed_when: _git_add_tmpl.rc == 0
+  when:
+    - path is not defined or path == ''
+    - _reconcile_wikis_write is defined
+    - _reconcile_wikis_write.changed | default(false)
+
+- name: Report captured wikis.yaml edits
+  ansible.builtin.debug:
+    msg: >-
+      Captured config/wikis.yaml edits into wikis.yaml.template
+      (e.g. wiki display names). Staged for push.
+  when:
+    - path is not defined or path == ''
+    - _reconcile_wikis_write is defined
+    - _reconcile_wikis_write.changed | default(false)

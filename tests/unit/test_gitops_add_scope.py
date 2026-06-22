@@ -44,10 +44,13 @@ class TestGitopsAddScope:
         """The no-path staging command must name `config` as a pathspec,
         not rely on chdir + bare `git add -A` (which is whole-tree)."""
         tasks = _load_tasks()
+        # Only the whole-tree-capable `git add -A` form is at risk of the
+        # chdir-ignored bug. Explicit single-file stages (e.g.
+        # `git add -- wikis.yaml.template`) are intentionally scoped.
         no_path = [
             t for t in tasks
             if "path is not defined" in str(t.get("when", ""))
-            and ("git add" in _cmd(t))
+            and ("git add -A" in _cmd(t))
         ]
         assert no_path, "add.yml lost its no-path staging task"
         for t in no_path:
