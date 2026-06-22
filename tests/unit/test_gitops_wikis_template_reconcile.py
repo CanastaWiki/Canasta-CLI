@@ -97,6 +97,24 @@ class TestWiring:
         )
         assert recon_idx < stage_idx, "reconcile must run before staging config/"
 
+    def test_template_staged_whenever_it_exists_not_only_on_capture(self):
+        """A template edit captured by an earlier 'config regenerate' is
+        left unstaged unless 'gitops add' stages the template whenever it
+        exists — not only when this reconcile run changed it."""
+        raw = _flat_text(ADD_YML)
+        stage = next(
+            t for t in _walk(raw)
+            if "git add -- wikis.yaml.template" in str(
+                (t.get("ansible.builtin.command") or t.get("command") or {})
+            )
+        )
+        when = str(stage.get("when", ""))
+        assert "stat.exists" in when, "template stage must be gated on existence"
+        assert "_reconcile_wikis_write" not in when, (
+            "template stage must not be gated on whether this reconcile run "
+            "changed it, or a regenerate-then-add leaves the edit unstaged"
+        )
+
     def test_regenerate_captures_before_rerender(self):
         raw = _flat_text(REGENERATE)
         recon_idx = next(
