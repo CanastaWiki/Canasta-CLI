@@ -27,8 +27,17 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# Create testuser with sudo (no password)
-RUN useradd -m -s /bin/bash testuser \
+# Create testuser as a faithful canasta account — a member of every group
+# 'canasta doctor' expects: www-data (Canasta containers write files as
+# www-data) and canasta (upgrade self-update), plus docker. www-data MUST
+# be gid 33 to match the Canasta web image's www-data, which chowns the
+# bind-mounted config/; otherwise testuser can't write the group-writable
+# config files (e.g. config/backup-schedule.yml written by 'backup
+# schedule set'). Passwordless sudo for install steps.
+RUN groupadd -f -g 33 www-data \
+    && groupadd -f canasta \
+    && groupadd -f docker \
+    && useradd -m -s /bin/bash -G www-data,canasta,docker testuser \
     && echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Prepare SSH

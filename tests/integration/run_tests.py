@@ -1578,14 +1578,25 @@ def test_k8s_backup(inst):
             "Snapshot tag not found in list output:\n%s" % output
         )
 
-        print("Setting a backup schedule (CronJob)...")
+        print("Setting a backup schedule (host crontab on the cp node)...")
         inst.run_ok("backup", "schedule", "set", "-i", inst.id, "0 3 * * *")
-        result = subprocess.run(
-            ["kubectl", "get", "cronjob", cronjob, "-n", ns],
-            capture_output=True, text=True,
+        # Scheduling is a host crontab entry now, not an in-cluster CronJob.
+        # The CI runner is the single-node control plane, so the entry lands
+        # in its crontab.
+        marker = "canasta-backup-%s" % inst.id
+        crontab = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True,
         )
-        assert result.returncode == 0, (
-            "CronJob %s not created: %s" % (cronjob, result.stderr)
+        assert marker in crontab.stdout, (
+            "crontab entry %s not written:\n%s" % (marker, crontab.stdout)
+        )
+        no_cronjob = subprocess.run(
+            ["kubectl", "get", "cronjob", cronjob, "-n", ns],
+            capture_output=True,
+        )
+        assert no_cronjob.returncode != 0, (
+            "an in-cluster CronJob was created; scheduling should use the "
+            "host crontab"
         )
 
         print("Listing the backup schedule...")
@@ -1596,15 +1607,12 @@ def test_k8s_backup(inst):
 
         print("Removing the backup schedule...")
         inst.run_ok("backup", "schedule", "remove", "-i", inst.id)
-        for _ in range(6):
-            result = subprocess.run(
-                ["kubectl", "get", "cronjob", cronjob, "-n", ns],
-                capture_output=True,
-            )
-            if result.returncode != 0:
-                break
-            time.sleep(2)
-        assert result.returncode != 0, "CronJob still present after remove"
+        crontab = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True,
+        )
+        assert marker not in crontab.stdout, (
+            "crontab entry still present after remove:\n%s" % crontab.stdout
+        )
     finally:
         # The hostPath repo lives on the node (created by the Job as root);
         # cleanup() removes the instance but not this path.
