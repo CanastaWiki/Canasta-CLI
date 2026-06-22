@@ -459,6 +459,46 @@ class TestOnDemandBackupCapturesDB:
             "backup_stage_db_dumps.yml has no 'Dump each wiki database' task"
         )
 
+    def _dump_databases_script(self):
+        """The shell script of the dump-databases init container."""
+        for task in self._walk(self._load_run_backup()):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if not (isinstance(sf, dict) and "_backup_init_containers" in sf):
+                continue
+            value = sf["_backup_init_containers"]
+            if not isinstance(value, list):
+                continue
+            for c in value:
+                if isinstance(c, dict) and c.get("name") == "dump-databases":
+                    cmd = c.get("command", [])
+                    return cmd[-1] if cmd else ""
+        return ""
+
+    def test_dump_databases_fails_loudly_on_db_error(self):
+        """A DB connection/auth failure must FAIL the backup, not
+        silently snapshot without the database. The original
+        'for db in $(mariadb ... SHOW DATABASES)' form swallowed the
+        failure: an empty command substitution ran the loop zero times,
+        wrote no dump, and exited 0 — producing a 'successful' snapshot
+        with no database (silent data loss)."""
+        script = self._dump_databases_script()
+        assert script, "dump-databases init container command not found"
+        assert "SHOW DATABASES" in script
+        assert "exit 1" in script, (
+            "dump-databases must exit non-zero when it cannot list or "
+            "dump the database, so the backup Job fails instead of "
+            "silently saving a snapshot without the database"
+        )
+        # Guard against the original silent-failure shape: looping
+        # directly over the command substitution runs zero times (and
+        # exits 0) when SHOW DATABASES fails.
+        normalized = " ".join(script.split())
+        assert "for db in $(mariadb" not in normalized, (
+            "dump-databases must not loop directly over "
+            "$(mariadb ... SHOW DATABASES) — a failed substitution "
+            "silently skips the dump; capture the list first and check it"
+        )
+
 
 class TestSharedBackupRBAC:
     """The SA + Role + RoleBinding live in roles/backup/tasks/

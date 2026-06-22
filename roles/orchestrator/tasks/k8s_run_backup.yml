@@ -167,12 +167,31 @@
           - sh
           - -c
           - |
+            set -u
             EXCLUDE='^(information_schema|performance_schema|mysql|sys)$'
-            for db in $(mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" -p"$MYSQL_PASSWORD" \
-              -N -e "SHOW DATABASES" | grep -vE "$EXCLUDE"); do
-              mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" -p"$MYSQL_PASSWORD" \
-                --single-transaction --databases "$db" \
-                > "/currentsnapshot/config/backup/db_${db}.sql"
+            # List databases first so a connection/auth failure aborts the
+            # backup loudly instead of silently saving a DB-less snapshot.
+            if ! DBLIST=$(mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
+                -p"$MYSQL_PASSWORD" -N -e "SHOW DATABASES"); then
+              echo "FATAL: could not list databases (DB connection or auth failed)" >&2
+              exit 1
+            fi
+            DBS=$(printf '%s\n' "$DBLIST" | grep -vE "$EXCLUDE" || true)
+            if [ -z "$DBS" ]; then
+              echo "FATAL: no user databases found to back up" >&2
+              exit 1
+            fi
+            for db in $DBS; do
+              if ! mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
+                  -p"$MYSQL_PASSWORD" --single-transaction --databases "$db" \
+                  > "/currentsnapshot/config/backup/db_${db}.sql"; then
+                echo "FATAL: mariadb-dump failed for database '$db'" >&2
+                exit 1
+              fi
+              if [ ! -s "/currentsnapshot/config/backup/db_${db}.sql" ]; then
+                echo "FATAL: dump for database '$db' is empty" >&2
+                exit 1
+              fi
             done
         envFrom:
           - secretRef:
