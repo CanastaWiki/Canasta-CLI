@@ -1520,9 +1520,10 @@ def test_k8s_backup(inst):
 
     Exercises the runtime backup path that previously had only unit
     coverage: a local (hostPath) restic repo, the on-demand backup Job
-    with its dump-databases init container, and the schedule CronJob
+    with its dump-databases init container, and the host-crontab schedule
     lifecycle. Restore is covered by the Compose backup test; here the
-    focus is that the K8s Job/CronJob machinery actually runs.
+    focus is that the K8s backup Job machinery and host-crontab scheduling
+    actually run.
     """
     result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
     if result.returncode != 0:

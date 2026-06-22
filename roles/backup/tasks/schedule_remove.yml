@@ -2,8 +2,8 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-# The orchestrator owns how a schedule is removed (host crontab vs
-# Kubernetes CronJob); dispatch unconditionally.
+# Scheduling is a host crontab entry on the host where the instance runs
+# (the cp node for K8s); the orchestrator task removes it uniformly.
 - name: Remove backup schedule
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_remove.yml
