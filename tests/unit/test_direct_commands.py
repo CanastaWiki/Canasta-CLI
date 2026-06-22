@@ -1909,9 +1909,10 @@ class TestHostRemove:
 class TestParseGitopsStatus:
     def _make_output(self, hostname="myhost", hosts_yaml="MISSING",
                      commit="abc1234", applied="abc1234",
-                     staged="", unstaged="", revcount="0\t0"):
+                     staged="", unstaged="", revcount="0\t0",
+                     wikis=None, template=None):
         d = direct_commands._SENTINEL
-        return (
+        out = (
             hostname + "\n" + d + "\n"
             + hosts_yaml + "\n" + d + "\n"
             + commit + "\n" + d + "\n"
@@ -1920,6 +1921,12 @@ class TestParseGitopsStatus:
             + unstaged + "\n" + d + "\n"
             + revcount + "\n"
         )
+        if wikis is not None or template is not None:
+            out += (
+                d + "\n" + (wikis or "") + "\n"
+                + d + "\n" + (template or "")
+            )
+        return out
 
     def test_basic_status(self):
         out = self._make_output()
@@ -1963,6 +1970,50 @@ class TestParseGitopsStatus:
         out = self._make_output(hostname="MISSING")
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Host:           unknown" in result
+
+    # Uncaptured config/wikis.yaml edits (e.g. a display name edited
+    # directly in the gitignored rendered file) are invisible to git
+    # status; status must flag them with a hint to run 'gitops add'.
+    _LIVE = "wikis:\n- id: main\n  url: localhost:8090\n  name: Conservation Wiki\n"
+    _TMPL_STALE = (
+        "wikis:\n  - id: main\n    url: {{wiki_url_main}}\n    name: \"main\"\n"
+    )
+    _TMPL_OK = (
+        "wikis:\n  - id: main\n    url: {{wiki_url_main}}\n"
+        "    name: \"Conservation Wiki\"\n"
+    )
+
+    def test_uncaptured_wikis_edit_flagged(self):
+        out = self._make_output(wikis=self._LIVE, template=self._TMPL_STALE)
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Uncaptured config/wikis.yaml edits" in result
+        assert "canasta gitops add" in result
+        # Must not also claim there is nothing to do.
+        assert "No changes." not in result
+
+    def test_captured_wikis_no_advisory(self):
+        out = self._make_output(wikis=self._LIVE, template=self._TMPL_OK)
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Uncaptured config/wikis.yaml edits" not in result
+        assert "No changes." in result
+
+    def test_no_template_no_advisory(self):
+        """Non-gitops / K8s gitops has no wikis.yaml.template — never flag."""
+        out = self._make_output(wikis=self._LIVE, template="")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Uncaptured config/wikis.yaml edits" not in result
+
+    def test_legacy_output_without_wikis_sections(self):
+        """Output predating the wikis sections must parse unchanged."""
+        out = self._make_output()
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "No changes." in result
+        assert "Uncaptured config/wikis.yaml edits" not in result
+
+    def test_script_reads_wikis_and_template(self):
+        script = direct_commands._gitops_status_script("/srv/mysite")
+        assert "cat config/wikis.yaml" in script
+        assert "cat wikis.yaml.template" in script
 
 
 class TestCmdGitopsStatus:
