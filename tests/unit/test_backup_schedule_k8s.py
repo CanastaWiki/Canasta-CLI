@@ -926,3 +926,51 @@ class TestK8sBackupLocalRepoNodeAffinity:
         # cloud-backend restore stays node-agnostic.
         r = self._read(self.RESTORE)
         assert "if (_restore_local_repo | bool) else {}" in r
+
+
+class TestBackupEnvSecretAppliedBeforeJob:
+    """`config set RESTIC_* --no-restart` updates .env but skips the
+    k8s_sync_config that rebuilds the canasta-<id>-backup-env Secret. So
+    backup/restore must re-apply that Secret from .env right before
+    launching their Job/pod — otherwise restic fails with 'Please specify
+    repository location'."""
+
+    APPLY_SECRET = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks",
+        "k8s_apply_backup_env_secret.yml",
+    )
+    RUN_BACKUP = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml",
+    )
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def test_apply_secret_task_exists_and_builds_secret(self):
+        assert os.path.isfile(self.APPLY_SECRET), (
+            "k8s_apply_backup_env_secret.yml must exist"
+        )
+        with open(self.APPLY_SECRET) as f:
+            content = f.read()
+        assert "-backup-env" in content, "must apply the backup-env Secret"
+        assert "RESTIC_" in content, "must filter RESTIC_* (and friends)"
+
+    def test_backup_applies_secret_before_job(self):
+        with open(self.RUN_BACKUP) as f:
+            content = f.read()
+        i = content.find("k8s_apply_backup_env_secret.yml")
+        j = content.find("Create restic Job")
+        assert 0 <= i < j, (
+            "k8s_run_backup.yml must apply the backup-env Secret before "
+            "creating the restic Job"
+        )
+
+    def test_restore_applies_secret_before_pod(self):
+        with open(self.RESTORE_K8S) as f:
+            content = f.read()
+        i = content.find("k8s_apply_backup_env_secret.yml")
+        j = content.find("Create restore pod")
+        assert 0 <= i < j, (
+            "restore_k8s.yml must apply the backup-env Secret before "
+            "creating the restore pod"
+        )
