@@ -209,6 +209,15 @@ class TestCommandWiring:
             dests = {p["name"] for p in entry.get("parameters", [])}
             assert "command" not in dests
 
+    def test_add_file_read_on_controller_not_target(self):
+        # `--file` is a controller-side path. A delegated slurp can read the
+        # wrong host after resolve_instance switches the connection for a
+        # remote (-H) instance; a lookup always runs on the controller.
+        with open(os.path.join(REPO, "playbooks", "sidecar_add.yml")) as f:
+            body = f.read()
+        assert "lookup('file', file)" in body
+        assert "ansible.builtin.slurp" not in body
+
     def test_command_defs_and_playbooks_exist(self):
         with open(os.path.join(REPO, "meta", "command_definitions.yml")) as f:
             defs = yaml.safe_load(f)
