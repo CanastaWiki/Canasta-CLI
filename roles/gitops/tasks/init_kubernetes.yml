@@ -501,25 +501,8 @@
   changed_when: true
 
 # --- Create Argo CD repo credential Secret ---
-- name: Create or update Argo CD repo credential Secret
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: "canasta-{{ instance_id }}-repo"
-        namespace: "{{ argocd_namespace | default('argocd') }}"
-        labels:
-          argocd.argoproj.io/secret-type: repository
-          app.kubernetes.io/managed-by: canasta-cli
-          app.kubernetes.io/instance: "{{ instance_id }}"
-      type: Opaque
-      stringData:
-        type: git
-        url: "{{ repo }}"
-        sshPrivateKey: "{{ _gitops_ssh_key.content | b64decode }}"
-  no_log: true
+- name: Apply Argo CD repo credential Secret + known-hosts trust
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_apply_argo_repo_secret.yml"
 
 # --- Register Argo CD Application ---
 - name: Apply Argo CD Application to cluster

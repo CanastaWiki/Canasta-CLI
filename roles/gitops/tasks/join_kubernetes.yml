@@ -318,28 +318,11 @@
     dest: "{{ instance_path }}/argocd/application.yaml"
     mode: "0644"
 
-# Argo CD on the new host needs the deploy key to clone the repo, just as
-# init creates it on the first host. Without this, the Application can't
-# authenticate (it falls back to a non-existent SSH agent) and never syncs.
-- name: Create or update Argo CD repo credential Secret
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: "canasta-{{ instance_id }}-repo"
-        namespace: "{{ argocd_namespace | default('argocd') }}"
-        labels:
-          argocd.argoproj.io/secret-type: repository
-          app.kubernetes.io/managed-by: canasta-cli
-          app.kubernetes.io/instance: "{{ instance_id }}"
-      type: Opaque
-      stringData:
-        type: git
-        url: "{{ repo }}"
-        sshPrivateKey: "{{ _gitops_ssh_key.content | b64decode }}"
-  no_log: true
+# Argo CD on the new host needs the deploy key to clone the repo (and, for
+# a self-hosted host, its key trusted), just as init sets up on the first
+# host. Without this the Application can't authenticate and never syncs.
+- name: Apply Argo CD repo credential Secret + known-hosts trust
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_apply_argo_repo_secret.yml"
 
 - name: Apply Argo CD Application to cluster
   kubernetes.core.k8s:
