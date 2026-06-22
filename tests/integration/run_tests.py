@@ -2718,6 +2718,85 @@ def test_k8s_build_from(inst):
     )
 
 
+def test_config_refresh_template(inst):
+    """Verify 'config refresh-template' lists drift, previews, and adopts
+    the shipped template for a seeded file (and restores a deleted one)."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    vcl = os.path.join(inst.instance_path(), "config", "default.vcl")
+    vector = os.path.join(
+        inst.instance_path(), "config", "settings", "global", "Vector.php",
+    )
+    tmpl_vcl = os.path.join(
+        REPO_ROOT, "instance_template", "config", "default.vcl",
+    )
+    tmpl_vector = os.path.join(
+        REPO_ROOT, "instance_template", "config", "settings", "global",
+        "Vector.php",
+    )
+
+    # Drift one seed file (local edit) and delete another.
+    marker = "# CANASTA_TEST_REFRESH_MARKER"
+    print("Drifting default.vcl and deleting Vector.php...")
+    with open(vcl, "a") as f:
+        f.write("\n%s\n" % marker)
+    os.remove(vector)
+
+    print("Listing drift (no file argument)...")
+    out = inst.run_ok("config", "refresh-template", "-i", inst.id)
+    assert "config/default.vcl" in out, (
+        "drift list should flag default.vcl:\n%s" % out
+    )
+    assert "config/settings/global/Vector.php" in out, (
+        "drift list should flag the deleted Vector.php:\n%s" % out
+    )
+
+    print("Previewing default.vcl (no --yes must not change it)...")
+    out = inst.run_ok(
+        "config", "refresh-template", "-i", inst.id, "config/default.vcl",
+    )
+    assert "--yes" in out, (
+        "preview should tell the user to re-run with --yes:\n%s" % out
+    )
+    with open(vcl) as f:
+        assert marker in f.read(), "preview must not modify the instance copy"
+
+    print("Adopting the template for both files with --yes...")
+    inst.run_ok(
+        "config", "refresh-template", "-i", inst.id,
+        "config/default.vcl", "config/settings/global/Vector.php", "--yes",
+    )
+    with open(vcl) as f, open(tmpl_vcl) as t:
+        assert f.read() == t.read(), "default.vcl should match the template"
+    assert os.path.isfile(vector), "deleted Vector.php should be restored"
+    with open(vector) as f, open(tmpl_vector) as t:
+        assert f.read() == t.read(), "restored Vector.php should match template"
+
+    print("A second --yes run is a no-op (already matches)...")
+    out = inst.run_ok(
+        "config", "refresh-template", "-i", inst.id,
+        "config/default.vcl", "--yes",
+    )
+    assert "already matches" in out, (
+        "an unchanged file should report already matching:\n%s" % out
+    )
+
+    print("A non-template path is rejected...")
+    out, rc = inst.run(
+        "config", "refresh-template", "-i", inst.id, "config/../.env",
+    )
+    assert rc != 0, "refreshing a non-template path should fail"
+    assert "not a template-seeded file" in out, (
+        "rejection should explain why:\n%s" % out
+    )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -2739,6 +2818,7 @@ ALL_TESTS = {
     "extension-skin": test_extension_skin,
     "wiki-farm": test_wiki_farm,
     "config-side-effects": test_config_side_effects,
+    "config-refresh-template": test_config_refresh_template,
     "version": test_version,
     "doctor": test_doctor,
     "host-management": test_host_management,
