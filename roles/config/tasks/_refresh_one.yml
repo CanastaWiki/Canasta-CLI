@@ -78,8 +78,8 @@
     - name: Report {{ _refresh_file }} previewed
       ansible.builtin.debug:
         msg: >-
-          Previewed {{ _refresh_file }}. Re-run with --yes to overwrite the
-          instance copy with the current template.
+          Previewed {{ _refresh_file }} (no changes made). Re-run with --yes
+          to overwrite the instance copy with the current template.
       when: not (yes | default(false) | bool)
 
     - name: Remove the staged copy
