@@ -2871,6 +2871,56 @@ def test_gitops_add_wikis_yaml(inst):
     )
 
 
+def test_upgrade_refreshes_gitignore(inst):
+    """canasta upgrade backfills new managed ignore rules into a gitops
+    instance's .gitignore while preserving user-added lines."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    gi = os.path.join(inst.instance_path(), ".gitignore")
+    print("Simulating a stale .gitignore (drop a managed rule, add a user "
+          "line)...")
+    with open(gi) as f:
+        lines = [ln for ln in f.read().splitlines()
+                 if ln.strip() != "config/wikis.yaml"]
+    lines.append("my-custom-ignore.txt")
+    with open(gi, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+    print("Upgrading...")
+    inst.run_ok("upgrade")
+
+    with open(gi) as f:
+        result = f.read().splitlines()
+    assert "config/wikis.yaml" in result, (
+        "upgrade should restore the dropped managed ignore rule:\n%s"
+        % "\n".join(result)
+    )
+    assert "my-custom-ignore.txt" in result, (
+        "upgrade must preserve user-added .gitignore lines:\n%s"
+        % "\n".join(result)
+    )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -2881,6 +2931,7 @@ ALL_TESTS = {
     "lifecycle": test_lifecycle,
     "import": test_import_export,
     "upgrade": test_upgrade,
+    "upgrade-refreshes-gitignore": test_upgrade_refreshes_gitignore,
     "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,

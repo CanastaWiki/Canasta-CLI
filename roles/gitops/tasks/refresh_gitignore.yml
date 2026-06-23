@@ -1,0 +1,40 @@
+---
+# Ensure the instance .gitignore carries the current shipped ignore rules
+# (roles/gitops/files/gitignore.default). New rules added in later
+# releases are appended; user-added lines and existing ordering are
+# preserved (idempotent). Only the rule lines are reconciled — comments
+# and blank lines in gitignore.default are layout, not rules.
+#
+# Gitops-only: .gitignore is written by 'gitops init', so this no-ops when
+# the gitops marker or the .gitignore is absent.
+#
+# Input: instance_path, canasta_root.
+
+- name: Stat gitops marker and .gitignore
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ item }}"
+  loop:
+    - .gitops-host
+    - .gitignore
+  register: _gi_stats
+
+- name: Refresh managed ignore rules
+  when:
+    - _gi_stats.results[0].stat.exists | default(false)
+    - _gi_stats.results[1].stat.exists | default(false)
+  block:
+    - name: Read the shipped ignore rules
+      ansible.builtin.set_fact:
+        _gi_shipped_rules: >-
+          {{ lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.default').splitlines()
+             | map('trim')
+             | reject('match', '^#')
+             | reject('equalto', '')
+             | list }}
+
+    - name: Ensure each shipped ignore rule is present
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/.gitignore"
+        line: "{{ item }}"
+        state: present
+      loop: "{{ _gi_shipped_rules }}"
