@@ -679,7 +679,10 @@ def test_gitops(inst):
         f.write("<?php\n$wgTestSetting = true;\n")
 
     print("Pushing changes...")
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok(
+        "gitops", "add", "-i", inst.id,
+        "config/settings/global/GitopsTest.php",
+    )
     inst.run_ok("gitops", "push", "-i", inst.id)
 
     # Verify push in bare repo
@@ -752,7 +755,7 @@ def test_gitops_join(inst):
     os.makedirs(os.path.dirname(a_settings), exist_ok=True)
     with open(a_settings, "w") as f:
         f.write(repo_content)
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok("gitops", "add", "-i", inst.id, rel_settings)
     inst.run_ok("gitops", "push", "-i", inst.id)
 
     # --- Instance B: create, seed a diverging copy, join ---
@@ -1255,7 +1258,7 @@ def test_gitops_pull_diff(inst):
     )
 
     print("Pushing initial state...")
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    # gitops init already committed the initial state locally; just push it.
     inst.run_ok("gitops", "push", "-i", inst.id)
 
     print("Cloning bare repo to temp directory...")
@@ -1982,7 +1985,7 @@ def test_gitops_push_shared_vars(inst):
         yaml.dump(vars_data, f)
 
     print("Staging and pushing...")
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok("gitops", "add", "-i", inst.id, "hosts/testhost/vars.yaml")
     inst.run_ok("gitops", "push", "-i", inst.id)
 
     print("Checking shared-list keys migrated to _shared/vars.yaml...")
@@ -2076,7 +2079,9 @@ def test_gitops_push_reporting(inst):
     os.makedirs(settings_dir, exist_ok=True)
     with open(os.path.join(settings_dir, "PushTest.php"), "w") as f:
         f.write("<?php\n$wgPushTest = true;\n")
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok(
+        "gitops", "add", "-i", inst.id, "config/settings/global/PushTest.php",
+    )
     output = inst.run_ok("gitops", "push", "-i", inst.id)
     assert "Configuration pushed" in output, (
         "Expected 'Configuration pushed' after staging+push:\n%s" % output
@@ -2201,7 +2206,7 @@ def test_gitops_status_fetch(inst):
     )
 
     print("Pushing initial state...")
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    # gitops init already committed the initial state locally; just push it.
     inst.run_ok("gitops", "push", "-i", inst.id)
 
     print("Verifying status is up to date...")
