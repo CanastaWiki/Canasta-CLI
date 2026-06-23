@@ -2797,6 +2797,59 @@ def test_config_refresh_template(inst):
     )
 
 
+def test_gitops_add_wikis_yaml(inst):
+    """`gitops add config/wikis.yaml` (explicit path) must route through the
+    wikis.yaml->template reconcile, not stage the rendered file. On old code
+    the bare `git add` of the gitignored file errors; with the fix the edit
+    is captured into wikis.yaml.template."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+    import yaml
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    wikis_yaml = os.path.join(inst.instance_path(), "config", "wikis.yaml")
+    template = os.path.join(inst.instance_path(), "wikis.yaml.template")
+    assert os.path.isfile(template), (
+        "gitops init should create wikis.yaml.template"
+    )
+
+    print("Editing the wiki display name directly in config/wikis.yaml...")
+    with open(wikis_yaml) as f:
+        data = yaml.safe_load(f)
+    data["wikis"][0]["name"] = "DWIM Display Name"
+    with open(wikis_yaml, "w") as f:
+        yaml.safe_dump(data, f)
+
+    print("Staging by explicit path: canasta gitops add config/wikis.yaml...")
+    inst.run_ok("gitops", "add", "-i", inst.id, "config/wikis.yaml")
+
+    print("The edit must have been captured into wikis.yaml.template...")
+    with open(template) as f:
+        tmpl = f.read()
+    assert "DWIM Display Name" in tmpl, (
+        "explicit-path gitops add did not reconcile into the template:\n%s"
+        % tmpl
+    )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -2813,6 +2866,7 @@ ALL_TESTS = {
     "backup-custom-dockerfile": test_backup_custom_dockerfile,
     "backup-missing-dockerfile": test_backup_missing_dockerfile,
     "gitops": test_gitops,
+    "gitops-add-wikis-yaml": test_gitops_add_wikis_yaml,
     "gitops-join": test_gitops_join,
     "gitops-pull-diff": test_gitops_pull_diff,
     "extension-skin": test_extension_skin,
