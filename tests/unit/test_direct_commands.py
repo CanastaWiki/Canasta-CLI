@@ -1356,6 +1356,8 @@ class TestLifecycleCommands:
         rc = direct_commands.cmd_stop(args)
         assert rc == 0
         assert "down" in captured_cmds[0]
+        # Sweep a sidecar container orphaned by `sidecar remove`.
+        assert "--remove-orphans" in captured_cmds[0]
 
     def test_restart_runs_down_then_up(self, monkeypatch):
         captured_cmds = []
@@ -1380,6 +1382,8 @@ class TestLifecycleCommands:
         assert rc == 0
         assert len(captured_cmds) == 2
         assert "down" in captured_cmds[0]
+        # Sweep a sidecar container orphaned by `sidecar remove`.
+        assert "--remove-orphans" in captured_cmds[0]
         assert "up" in captured_cmds[1]
 
     def test_restart_stops_on_down_failure(self, monkeypatch):
