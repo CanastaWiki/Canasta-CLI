@@ -673,8 +673,8 @@ commands:
       `canasta` installs the Canasta CLI (canasta-native) on the target
       host, so an instance deployed remotely from a controller can also
       be operated directly on its own host. This is required before
-      scheduling backups on a remote or Kubernetes host — the schedule's
-      cron runs `canasta backup` there — and is useful any time you want
+      scheduling backups on a remote host — the schedule's cron runs
+      `canasta backup` there — and is useful any time you want
       to manage an instance locally on the host it runs on rather than
       only through the controller. Idempotent — skips if canasta is
       already present.
