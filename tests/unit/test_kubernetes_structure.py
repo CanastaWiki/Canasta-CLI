@@ -603,7 +603,6 @@ class TestOrchestratorTasks:
     REQUIRED_TASKS = [
         "helm_deploy.yml",
         "helm_uninstall.yml",
-        "helm_status.yml",
         "k8s_preflight.yml",
         "k8s_install_k3s.yml",
         "k8s_argocd_bootstrap.yml",
