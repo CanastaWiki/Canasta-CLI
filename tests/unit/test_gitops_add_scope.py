@@ -1,14 +1,10 @@
-"""Regression guard for 'canasta gitops add' (no path).
+"""Regression guard for 'canasta gitops add' staging scope.
 
-The no-path form is meant to stage only changes under config/. It used
-to run `git add -A` after chdir-ing into config/, but since Git 2.0
-`git add -A` with no pathspec stages the WHOLE working tree regardless
-of the current directory — so it also swept in extensions/, untracked
-host files (hosts/hosts.yaml), public_assets/, etc.
-
-The fix scopes the add with an explicit `config` pathspec. This test
-asserts the no-path staging command carries that pathspec, so a revert
-to the bare whole-tree form is caught.
+'gitops add' now requires explicit file arguments and stages only those
+paths. It must never fall back to a whole-tree `git add -A` (which, since
+Git 2.0, ignores chdir and stages extensions/, host files, public_assets/,
+etc. regardless of pathspec). This test asserts add.yml carries no
+`git add -A` form, so a reintroduced wildcard stage is caught.
 """
 
 import os
@@ -40,23 +36,13 @@ def _cmd(task):
 
 
 class TestGitopsAddScope:
-    def test_no_path_add_is_scoped_to_config(self):
-        """The no-path staging command must name `config` as a pathspec,
-        not rely on chdir + bare `git add -A` (which is whole-tree)."""
-        tasks = _load_tasks()
-        # Only the whole-tree-capable `git add -A` form is at risk of the
-        # chdir-ignored bug. Match it by command rather than by its `when`
-        # expression (implementation detail). Explicit single-file stages
-        # (e.g. `git add -- wikis.yaml.template`) are already scoped.
-        no_path = [t for t in tasks if "git add -A" in _cmd(t)]
-        assert no_path, "add.yml lost its no-path staging task"
-        for t in no_path:
-            cmd = _cmd(t)
-            # A bare `git add -A` (the buggy form) has no pathspec, so
-            # `config` would only appear in chdir — assert it's in the cmd.
-            tokens = cmd.split()
-            assert "config" in tokens, (
-                "no-path 'gitops add' must stage with a `config` pathspec "
-                "(e.g. `git add -A -- config`), not bare `git add -A`; got: %r"
-                % cmd
-            )
+    def test_no_whole_tree_add(self):
+        """add.yml must never use a whole-tree `git add -A`. Staging is
+        always to explicit, named paths."""
+        offenders = [
+            _cmd(t) for t in _load_tasks() if "git add -A" in _cmd(t)
+        ]
+        assert not offenders, (
+            "gitops add must stage explicit paths, not whole-tree "
+            "`git add -A` (chdir-ignored since Git 2.0); found: %r" % offenders
+        )

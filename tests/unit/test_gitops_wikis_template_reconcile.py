@@ -80,22 +80,22 @@ class TestWiring:
 
     def test_add_reconciles_before_staging_and_stages_template(self):
         raw = _flat_text(ADD_YML)
-        names_in_order = [t.get("name", "") for t in raw if isinstance(t, dict)]
         cmds = " ".join(str(t) for t in raw)
         # reconcile include present
         assert any(RECONCILE_INCLUDE in _include_path(t) for t in _walk(raw))
         # template explicitly staged (it lives outside config/)
         assert "git add -- wikis.yaml.template" in cmds
-        # reconcile must come before the config staging
+        # reconcile must run before the template is staged (it writes the
+        # template the stage then captures)
         recon_idx = next(
             i for i, t in enumerate(raw)
             if isinstance(t, dict) and RECONCILE_INCLUDE in _include_path(t)
         )
         stage_idx = next(
             i for i, t in enumerate(raw)
-            if isinstance(t, dict) and "git add -A -- config" in str(t)
+            if isinstance(t, dict) and "git add -- wikis.yaml.template" in str(t)
         )
-        assert recon_idx < stage_idx, "reconcile must run before staging config/"
+        assert recon_idx < stage_idx, "reconcile must run before staging template"
 
     def test_template_staged_whenever_it_exists_not_only_on_capture(self):
         """A template edit captured by an earlier 'config regenerate' is

@@ -145,9 +145,9 @@
     - _gh_check.rc | default(0) != 0
 
 # --- Commit and push ---
-# Note: no 'git add -A' here. Users stage changes explicitly via
-# 'canasta gitops add' (which runs git add -A). Push only commits
-# what's already staged and pushes any unpushed commits.
+# Note: no staging here. Users stage changes explicitly via
+# 'canasta gitops add <files>'. Push only commits what's already staged
+# and pushes any unpushed commits.
 
 - name: Check for staged changes
   ansible.builtin.command:

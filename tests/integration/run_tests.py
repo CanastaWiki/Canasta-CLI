@@ -2849,6 +2849,27 @@ def test_gitops_add_wikis_yaml(inst):
         % tmpl
     )
 
+    print("gitops add with no file argument must be rejected...")
+    _, rc = inst.run("gitops", "add", "-i", inst.id)
+    assert rc != 0, "no-arg 'gitops add' should error (at least one file)"
+
+    print("gitops add accepts multiple files...")
+    # Use non-gitignored paths (config/default.vcl etc. are gitignored).
+    gdir = os.path.join(inst.instance_path(), "config", "settings", "global")
+    rel_a = "config/settings/global/zz-test-a.php"
+    rel_b = "config/settings/global/zz-test-b.php"
+    for name in ("zz-test-a.php", "zz-test-b.php"):
+        with open(os.path.join(gdir, name), "w") as f:
+            f.write("<?php // test\n")
+    inst.run_ok("gitops", "add", "-i", inst.id, rel_a, rel_b)
+    staged = subprocess.run(
+        ["git", "-C", inst.instance_path(), "diff", "--cached", "--name-only"],
+        capture_output=True, text=True,
+    ).stdout
+    assert rel_a in staged and rel_b in staged, (
+        "both named files should be staged; got:\n%s" % staged
+    )
+
 
 def test_upgrade_refreshes_gitignore(inst):
     """canasta upgrade backfills new managed ignore rules into a gitops

@@ -704,7 +704,9 @@ def add_params_to_parser(parser, params):
             elif param.get("multi"):
                 parser.add_argument(
                     name,
-                    nargs="*",
+                    # `required: true` on a positional multi means at least
+                    # one value must be given (argparse errors on none).
+                    nargs="+" if required else "*",
                     default=default,
                     help=desc,
                     metavar=name.upper(),
