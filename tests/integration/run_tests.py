@@ -2926,6 +2926,51 @@ def test_upgrade_refreshes_gitignore(inst):
     )
 
 
+def test_upgrade_backfills_wikis_template(inst):
+    """canasta upgrade creates wikis.yaml.template on a gitops instance
+    that lacks it (a Go-CLI-era repo predating the template)."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    template = os.path.join(inst.instance_path(), "wikis.yaml.template")
+    assert os.path.isfile(template), "gitops init should create the template"
+
+    print("Removing the template to simulate a legacy gitops repo...")
+    os.remove(template)
+
+    print("Upgrading...")
+    inst.run_ok("upgrade")
+
+    assert os.path.isfile(template), (
+        "upgrade should backfill the missing wikis.yaml.template"
+    )
+    with open(template) as f:
+        content = f.read()
+    assert "id: main" in content, (
+        "backfilled template should contain the instance's wiki(s):\n%s"
+        % content
+    )
+
+
 def test_gitops_add_wiki_tracked(inst):
     """A wiki added after gitops init must have its tracked files captured
     into gitops by 'canasta add' (settings, public_assets logos, and the
@@ -3000,6 +3045,7 @@ ALL_TESTS = {
     "import": test_import_export,
     "upgrade": test_upgrade,
     "upgrade-refreshes-gitignore": test_upgrade_refreshes_gitignore,
+    "upgrade-backfills-wikis-template": test_upgrade_backfills_wikis_template,
     "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
