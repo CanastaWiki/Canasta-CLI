@@ -1910,7 +1910,7 @@ class TestParseGitopsStatus:
     def _make_output(self, hostname="myhost", hosts_yaml="MISSING",
                      commit="abc1234", applied="abc1234",
                      staged="", unstaged="", revcount="0\t0",
-                     wikis=None, template=None):
+                     wikis=None, template=None, untracked=None):
         d = direct_commands._SENTINEL
         out = (
             hostname + "\n" + d + "\n"
@@ -1921,10 +1921,11 @@ class TestParseGitopsStatus:
             + unstaged + "\n" + d + "\n"
             + revcount + "\n"
         )
-        if wikis is not None or template is not None:
+        if wikis is not None or template is not None or untracked is not None:
             out += (
                 d + "\n" + (wikis or "") + "\n"
-                + d + "\n" + (template or "")
+                + d + "\n" + (template or "") + "\n"
+                + d + "\n" + (untracked or "")
             )
         return out
 
@@ -1948,6 +1949,24 @@ class TestParseGitopsStatus:
         out = self._make_output(unstaged="docker-compose.override.yml")
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Unstaged changes (1 files):" in result
+
+    def test_with_untracked_files(self):
+        out = self._make_output(
+            untracked="hosts/hosts.yaml\npublic_assets/notes/",
+        )
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Untracked files (2):" in result
+        assert "hosts/hosts.yaml" in result
+        assert "public_assets/notes/" in result
+        assert "canasta gitops add" in result
+        # Untracked files mean there ARE changes — must not claim otherwise.
+        assert "No changes." not in result
+
+    def test_untracked_does_not_break_clean_status(self):
+        out = self._make_output(untracked="")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "No changes." in result
+        assert "Untracked files" not in result
 
     def test_ahead_of_remote(self):
         out = self._make_output(revcount="3\t0")

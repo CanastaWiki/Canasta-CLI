@@ -53,7 +53,11 @@ def _gitops_status_script(path, ssh_key=None):
         "echo '%(d)s'; "
         "cat config/wikis.yaml 2>/dev/null; "
         "echo '%(d)s'; "
-        "cat wikis.yaml.template 2>/dev/null"
+        "cat wikis.yaml.template 2>/dev/null; "
+        "echo '%(d)s'; "
+        # Untracked, non-ignored files. --directory collapses a wholly
+        # untracked dir to one entry, matching `git status`.
+        "git ls-files --others --exclude-standard --directory 2>/dev/null"
     ) % {"p": qp, "d": d, "ssh": _git_ssh_env_prefix(ssh_key)}
 
 
@@ -127,6 +131,9 @@ def _parse_gitops_status(stdout, instance_id):
     tmpl_wikis_raw = parts[8] if len(parts) > 8 else ""
     wikis_drift = _wikis_uncaptured_edit(live_wikis_raw, tmpl_wikis_raw)
 
+    untracked_raw = parts[9].strip() if len(parts) > 9 else ""
+    untracked = untracked_raw.split("\n") if untracked_raw else []
+
     try:
         revcount_parts = revcount_raw.split("\t")
         ahead = int(revcount_parts[0])
@@ -156,6 +163,15 @@ def _parse_gitops_status(stdout, instance_id):
             lines.append("  %s" % f)
         lines.append("")
 
+    if untracked:
+        lines.append("Untracked files (%d):" % len(untracked))
+        for f in untracked:
+            lines.append("  %s" % f)
+        lines.append(
+            "  capture with 'canasta gitops add <file>' (or add to .gitignore)."
+        )
+        lines.append("")
+
     if wikis_drift:
         lines.append("Uncaptured config/wikis.yaml edits (e.g. wiki display name):")
         lines.append(
@@ -164,7 +180,7 @@ def _parse_gitops_status(stdout, instance_id):
         )
         lines.append("")
 
-    if not staged and not unstaged and not wikis_drift:
+    if not staged and not unstaged and not untracked and not wikis_drift:
         lines.append("No changes.")
         lines.append("")
 
