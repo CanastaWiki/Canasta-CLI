@@ -1,53 +1,46 @@
 ---
+# Stage one or more explicitly named files for the next gitops push.
+# At least one file is required (enforced by the CLI parser). Each path
+# is relative to the instance root.
+#
+# config/wikis.yaml is rendered from wikis.yaml.template, so staging it
+# directly would drop a literal edit (e.g. a wiki display name) on the
+# next render and never reach other hosts. When it is among the files,
+# route it through the reconcile (capture into the template) instead of
+# a bare 'git add'.
+#
+# Input: files (str: space-separated paths), canasta_root.
+
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-# config/wikis.yaml is rendered from wikis.yaml.template, so staging the
-# rendered file directly would drop a literal edit (e.g. a wiki display
-# name) on the next render and never reach other hosts. Detect an
-# explicit request for it and route it through the same reconcile the
-# no-path form uses, rather than a bare 'git add'.
-- name: Classify the add request
+- name: Parse the requested files
   ansible.builtin.set_fact:
-    _add_all: "{{ path is not defined or path == '' }}"
-    _add_wikis: >-
-      {{ path is defined and path != ''
-         and (path | regex_replace('^\\./', '')) == 'config/wikis.yaml' }}
+    _add_files: >-
+      {{ (files | default('', true)).split()
+         | map('regex_replace', '^\\./', '') | list }}
 
-# Explicit path other than config/wikis.yaml: stage it literally.
-- name: Stage specific file
+- name: Classify the request
+  ansible.builtin.set_fact:
+    _add_has_wikis: "{{ 'config/wikis.yaml' in _add_files }}"
+    _add_other_files: "{{ _add_files | reject('equalto', 'config/wikis.yaml') | list }}"
+
+# Stage each explicitly named file other than the rendered wikis.yaml.
+- name: Stage requested files
   ansible.builtin.command:
-    cmd: "git add {{ path }}"
+    cmd: "git add -- {{ item }}"
     chdir: "{{ instance_path }}"
-  register: _git_add_path
-  changed_when: _git_add_path.rc == 0
-  when:
-    - not _add_all
-    - not _add_wikis
+  register: _git_add_file
+  changed_when: _git_add_file.rc == 0
+  loop: "{{ _add_other_files }}"
 
-# Capture any literal config/wikis.yaml edits back into the template so
-# they are staged and shared rather than dropped on the next render.
-# Runs for the no-path form and for an explicit config/wikis.yaml.
+# config/wikis.yaml: capture the literal edit into the template rather
+# than staging the rendered file.
 - name: Capture wikis.yaml edits into the gitops template
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/_reconcile_wikis_template.yml
-  when: _add_all or _add_wikis
+  when: _add_has_wikis
 
-# Scope with an explicit pathspec: since Git 2.0 `git add -A` ignores
-# the working directory and stages the whole tree, so chdir alone does
-# not limit it to config/.
-- name: Stage all changes under config/
-  ansible.builtin.command:
-    cmd: "git add -A -- config"
-    chdir: "{{ instance_path }}"
-  register: _git_add
-  changed_when: _git_add.rc == 0
-  when: _add_all
-
-# An explicit config/wikis.yaml request: the reconcile above captured the
-# edit into the template; also stage the rendered file, but only when it
-# is tracked (it is gitignored on current instances, where there is
-# nothing to stage and a bare 'git add' would error).
 - name: Check whether config/wikis.yaml is tracked
   ansible.builtin.command:
     cmd: "git ls-files --error-unmatch config/wikis.yaml"
@@ -55,8 +48,11 @@
   register: _wikis_tracked
   failed_when: false
   changed_when: false
-  when: _add_wikis
+  when: _add_has_wikis
 
+# Stage the rendered wikis.yaml only when it is tracked (it is gitignored
+# on current instances, where there is nothing to stage and a bare
+# 'git add' would error).
 - name: Stage the tracked rendered wikis.yaml
   ansible.builtin.command:
     cmd: "git add -- config/wikis.yaml"
@@ -64,13 +60,11 @@
   register: _git_add_wikis
   changed_when: _git_add_wikis.rc == 0
   when:
-    - _add_wikis
+    - _add_has_wikis
     - (_wikis_tracked.rc | default(1)) == 0
 
-# wikis.yaml.template lives at the instance root, outside config/, so
-# the pathspec above does not reach it. Stage it whenever it exists (a
-# no-op when unchanged) so a template edit captured by an earlier
-# 'config regenerate' is not left behind on push.
+# wikis.yaml.template lives at the instance root; stage it whenever it
+# exists (a no-op when unchanged).
 - name: Stage wikis.yaml.template
   ansible.builtin.command:
     cmd: "git add -- wikis.yaml.template"
@@ -78,7 +72,7 @@
   register: _git_add_tmpl
   changed_when: _git_add_tmpl.rc == 0
   when:
-    - _add_all or _add_wikis
+    - _add_has_wikis
     - _reconcile_wikis_tmpl.stat.exists | default(false)
 
 - name: Report captured wikis.yaml edits
@@ -87,6 +81,6 @@
       Captured config/wikis.yaml edits into wikis.yaml.template
       (e.g. wiki display names). Staged for push.
   when:
-    - _add_all or _add_wikis
+    - _add_has_wikis
     - _reconcile_wikis_write is defined
     - _reconcile_wikis_write.changed | default(false)

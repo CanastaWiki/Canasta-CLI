@@ -158,7 +158,10 @@ def _parse_gitops_status(stdout, instance_id):
 
     if wikis_drift:
         lines.append("Uncaptured config/wikis.yaml edits (e.g. wiki display name):")
-        lines.append("  run 'canasta gitops add' to capture and stage them.")
+        lines.append(
+            "  run 'canasta gitops add config/wikis.yaml' to capture and "
+            "stage them."
+        )
         lines.append("")
 
     if not staged and not unstaged and not wikis_drift:
