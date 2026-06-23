@@ -648,7 +648,7 @@ commands:
     description: "Install dependencies on the target host"
     long_description: |
       Install one or more dependencies on the target host. Supported
-      packages: docker, k8s-cp, k8s-worker, git-crypt.
+      packages: docker, k8s-cp, k8s-worker, git-crypt, canasta.
 
       `k8s-cp` installs k3s as a control-plane node — the cluster's
       API server, scheduler, etc., plus kubectl + helm on the same
@@ -670,6 +670,15 @@ commands:
       kubectl can verify the cert when reaching the cluster over that
       address. Repeat to add more than one (e.g. an IP and a hostname).
 
+      `canasta` installs the Canasta CLI (canasta-native) on the target
+      host, so an instance deployed remotely from a controller can also
+      be operated directly on its own host. This is required before
+      scheduling backups on a remote host — the schedule's cron runs
+      `canasta backup` there — and is useful any time you want
+      to manage an instance locally on the host it runs on rather than
+      only through the controller. Idempotent — skips if canasta is
+      already present.
+
       Multiple packages can be combined in a single command, except
       that `k8s-cp` and `k8s-worker` are mutually exclusive on a given
       host.
@@ -680,6 +689,7 @@ commands:
       - "canasta install --host node2 k8s-worker --cp-host node1"
       - "canasta install docker git-crypt"
       - "canasta install -i mysite git-crypt"
+      - "canasta install -i mysite canasta"
     playbook: install.yml
     parameters:
       - name: host
@@ -708,7 +718,7 @@ commands:
         required: true
         description: >-
           Dependencies to install (docker, k8s-cp, k8s-worker,
-          git-crypt)
+          git-crypt, canasta)
       - name: public_ip
         type: string
         multi: true
