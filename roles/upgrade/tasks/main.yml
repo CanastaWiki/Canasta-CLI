@@ -106,6 +106,15 @@
     name: orchestrator
     tasks_from: init_config.yml
 
+# Bring a gitops instance's .gitignore current with the shipped rules.
+# Like the managed compose stack files above, .gitignore is CLI-managed
+# scaffolding; unlike them it was never refreshed after 'gitops init', so
+# ignore rules added in later releases never reached existing instances.
+# No-ops on non-gitops instances.
+- name: Refresh gitops .gitignore (managed ignore rules)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/refresh_gitignore.yml
+
 # --- Bump configured image tag (orchestrator-specific) ---
 # K8s updates values.yaml image.tag; Compose updates CANASTA_IMAGE in .env.
 - name: Update configured image tag
