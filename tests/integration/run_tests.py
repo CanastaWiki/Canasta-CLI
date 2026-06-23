@@ -3034,6 +3034,183 @@ def test_gitops_add_wiki_tracked(inst):
         )
 
 
+def _sidecar_running(inst, service):
+    """True if the named sidecar has a running container.
+
+    Sidecars render into docker-compose.sidecars.yml, which plain
+    `docker compose` does not auto-load, so query the Docker daemon by the
+    Compose labels instead (project = the instance directory basename).
+    """
+    project = os.path.basename(inst.instance_path())
+    result = subprocess.run(
+        ["docker", "ps", "-q", "--filter", "status=running",
+         "--filter", "label=com.docker.compose.project=%s" % project,
+         "--filter", "label=com.docker.compose.service=%s" % service],
+        capture_output=True, text=True,
+    )
+    return result.stdout.strip() != ""
+
+
+def _sidecar_volume_exists(inst, volume):
+    """True if the Compose volume <project>_<volume> exists."""
+    project = os.path.basename(inst.instance_path())
+    result = subprocess.run(
+        ["docker", "volume", "ls", "-q",
+         "--filter", "name=%s_%s" % (project, volume)],
+        capture_output=True, text=True,
+    )
+    return result.stdout.strip() != ""
+
+
+def test_sidecar_lifecycle(inst):
+    """add (from file) -> list -> restart -> the sidecar runs and is
+    reachable from web by service name -> remove -> restart -> it is gone.
+
+    Regression guard for sidecar bugs that previously surfaced only in
+    manual e2e: the orphan container left behind after removal, and the
+    stop/restart wedge from k8s-notation resources.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    # A trivial HTTP service the web container can reach by name.
+    sidecar_file = os.path.join(inst.work_dir, "echo-sidecar.yaml")
+    with open(sidecar_file, "w") as f:
+        f.write("name: echo\nimage: traefik/whoami\nports: [80]\n")
+
+    print("Adding the sidecar from a file...")
+    inst.run_ok("sidecar", "add", "-i", inst.id, "--file", sidecar_file)
+
+    declared = os.path.join(inst.instance_path(), "config", "sidecars.yaml")
+    assert os.path.isfile(declared), "sidecars.yaml should be written"
+    with open(declared) as f:
+        assert "echo" in f.read(), "the sidecar should be declared"
+
+    print("Listing sidecars...")
+    # 'sidecar list' reports via an Ansible debug task, so run verbose.
+    out = inst.run_ok("sidecar", "list", "-i", inst.id)
+    assert "echo" in out and "traefik/whoami" in out, (
+        "sidecar list should show the sidecar and its image:\n%s" % out
+    )
+
+    print("Restarting to deploy the sidecar...")
+    inst.run_ok("restart", "-i", inst.id)
+    wait_for_wiki(inst.http_port)
+    assert _sidecar_running(inst, "echo"), (
+        "the echo sidecar container should be running after restart"
+    )
+
+    print("Checking web can reach the sidecar by service name...")
+    reach = subprocess.run(
+        ["docker", "compose", "exec", "-T", "web",
+         "bash", "-c", "exec 3<>/dev/tcp/echo/80"],
+        capture_output=True, text=True, cwd=inst.instance_path(),
+    )
+    assert reach.returncode == 0, (
+        "web should reach the sidecar by service name 'echo':\n%s"
+        % (reach.stderr or reach.stdout)
+    )
+
+    print("Removing the sidecar...")
+    inst.run_ok("sidecar", "remove", "-i", inst.id, "--name", "echo")
+    if os.path.isfile(declared):
+        with open(declared) as f:
+            assert "echo" not in f.read(), (
+                "the sidecar should be removed from sidecars.yaml"
+            )
+
+    print("Restarting after removal...")
+    inst.run_ok("restart", "-i", inst.id)
+    wait_for_wiki(inst.http_port)
+    assert not _sidecar_running(inst, "echo"), (
+        "the echo sidecar container should be gone after removal + restart "
+        "(regression guard for the orphan-container bug)"
+    )
+
+
+def test_sidecar_migrate(inst):
+    """sidecar migrate MOVES a sidecar service: it must both write the
+    declaration to config/sidecars.yaml AND remove the service from
+    docker-compose.override.yml (a left-behind override entry would shadow
+    the migrated sidecar). --dry-run must change nothing.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    override = os.path.join(
+        inst.instance_path(), "docker-compose.override.yml",
+    )
+    with open(override, "w") as f:
+        f.write(
+            "services:\n"
+            "  echo:\n"
+            "    image: traefik/whoami\n"
+            "    volumes:\n"
+            "      - echodata:/data\n"
+            "volumes:\n"
+            "  echodata:\n"
+        )
+
+    declared = os.path.join(inst.instance_path(), "config", "sidecars.yaml")
+
+    print("Dry-run migrate must not change anything...")
+    out = inst.run_ok("sidecar", "migrate", "-i", inst.id, "--dry-run")
+    assert "echo" in out, (
+        "the dry-run plan should mention the echo service:\n%s" % out
+    )
+    assert not os.path.isfile(declared), "dry-run must not write sidecars.yaml"
+    with open(override) as f:
+        assert "echo" in f.read(), "dry-run must leave the override untouched"
+
+    print("Migrating for real...")
+    inst.run_ok("sidecar", "migrate", "-i", inst.id)
+
+    assert os.path.isfile(declared), "migrate should write sidecars.yaml"
+    with open(declared) as f:
+        decl = f.read()
+    assert "echo" in decl, "the migrated sidecar should appear in sidecars.yaml"
+    assert "persistent" in decl, (
+        "a named-volume sidecar should migrate to a persistent volume"
+    )
+
+    ov = ""
+    if os.path.isfile(override):
+        with open(override) as f:
+            ov = f.read()
+    assert "echo" not in ov, (
+        "the migrated service must be REMOVED from the override (a left-behind "
+        "entry would shadow the migrated sidecar):\n%s" % ov
+    )
+
+    print("Restarting to deploy the migrated sidecar...")
+    inst.run_ok("restart", "-i", inst.id)
+    wait_for_wiki(inst.http_port)
+    assert _sidecar_running(inst, "echo"), (
+        "the migrated sidecar should run after restart"
+    )
+    assert _sidecar_volume_exists(inst, "echo-echodata"), (
+        "the migrated sidecar's persistent volume should be created"
+    )
+
+    # delete must tear down the sidecar's named volume too — otherwise it
+    # lingers and blocks a later recreate with a stale-volume error.
+    print("Deleting and checking the sidecar volume is removed...")
+    inst.run_ok("delete", "-i", inst.id, "--yes")
+    assert not _sidecar_volume_exists(inst, "echo-echodata"), (
+        "delete must remove the migrated sidecar's named volume"
+    )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -3074,6 +3251,8 @@ ALL_TESTS = {
     "gitops-status-fetch": test_gitops_status_fetch,
     "gitops-fix-submodules": test_gitops_fix_submodules_orphan,
     "crowdsec": test_crowdsec,
+    "sidecar-lifecycle": test_sidecar_lifecycle,
+    "sidecar-migrate": test_sidecar_migrate,
 }
 
 
