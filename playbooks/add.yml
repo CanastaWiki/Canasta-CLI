@@ -226,6 +226,17 @@
     name: instance_lifecycle
     tasks_from: restart.yml
 
+# Stage the new wiki's gitops-tracked files (per-wiki settings,
+# public_assets, and the farm template). 'gitops init' captures wikis
+# present at init time; a wiki added later was never brought into
+# tracking, so its logos/settings could be lost on a repo-based recovery.
+# No-op on non-gitops instances.
+- name: Capture the new wiki for gitops
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/stage_new_wiki.yml
+  vars:
+    new_wiki_id: "{{ wiki }}"
+
 - name: Report wiki added
   ansible.builtin.debug:
     msg: "Wiki '{{ wiki }}' added to instance '{{ instance_id }}'."
