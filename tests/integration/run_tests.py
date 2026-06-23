@@ -2926,6 +2926,69 @@ def test_upgrade_refreshes_gitignore(inst):
     )
 
 
+def test_gitops_add_wiki_tracked(inst):
+    """A wiki added after gitops init must have its tracked files captured
+    into gitops by 'canasta add' (settings, public_assets logos, and the
+    farm template) — they used to silently stay untracked."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    # Place a logo for the new wiki before adding it, so the add's staging
+    # step has something to capture (public_assets is otherwise populated
+    # by the container at runtime).
+    logo_dir = os.path.join(inst.instance_path(), "public_assets", "docs")
+    os.makedirs(logo_dir, exist_ok=True)
+    with open(os.path.join(logo_dir, "Logo.png"), "w") as f:
+        f.write("PNGDATA")
+
+    settings_src = os.path.join(inst.work_dir, "docs-settings.php")
+    with open(settings_src, "w") as f:
+        f.write("<?php\n$wgDocsWiki = true;\n")
+
+    print("Adding a second wiki (docs)...")
+    inst.run_ok(
+        "add", "-i", inst.id, "-w", "docs",
+        "-u", "localhost:%s/docs" % inst.http_port,
+        "-l", settings_src,
+    )
+
+    staged = subprocess.run(
+        ["git", "-C", inst.instance_path(), "diff", "--cached", "--name-only"],
+        capture_output=True, text=True,
+    ).stdout
+    assert "public_assets/docs/Logo.png" in staged, (
+        "canasta add must stage the new wiki's public_assets logo:\n%s"
+        % staged
+    )
+    assert "config/settings/wikis/docs/Settings.php" in staged, (
+        "canasta add must stage the new wiki's settings:\n%s" % staged
+    )
+    template = os.path.join(inst.instance_path(), "wikis.yaml.template")
+    with open(template) as f:
+        assert "id: docs" in f.read(), (
+            "the new wiki must be captured into wikis.yaml.template"
+        )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
@@ -2944,6 +3007,7 @@ ALL_TESTS = {
     "backup-missing-dockerfile": test_backup_missing_dockerfile,
     "gitops": test_gitops,
     "gitops-add-wikis-yaml": test_gitops_add_wikis_yaml,
+    "gitops-add-wiki-tracked": test_gitops_add_wiki_tracked,
     "gitops-join": test_gitops_join,
     "gitops-pull-diff": test_gitops_pull_diff,
     "extension-skin": test_extension_skin,
