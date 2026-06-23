@@ -211,3 +211,37 @@ class TestRunnerItemOnFailed:
             _result(msg="non-zero return code"), ignore_errors=True
         )
         assert cb._captured == []
+
+
+class TestRunnerOnOkDebug:
+    """v2_runner_on_ok renders debug task 'msg' output. A list msg (one
+    element per line) must render line-by-line, not as a Python list repr.
+    """
+
+    def _debug_result(self, msg):
+        return SimpleNamespace(
+            _result={"msg": msg},
+            _task=SimpleNamespace(action="ansible.builtin.debug"),
+        )
+
+    def test_list_msg_rendered_line_by_line(self):
+        cb = _make_callback()
+        cb.v2_runner_on_ok(self._debug_result(["line one", "line two", ""]))
+        assert len(cb._captured) == 1
+        shown = cb._captured[0][0]
+        assert shown == "line one\nline two\n"
+        assert "[" not in shown and "'" not in shown
+
+    def test_string_msg_unchanged(self):
+        cb = _make_callback()
+        cb.v2_runner_on_ok(self._debug_result("just a string"))
+        assert cb._captured[0][0] == "just a string"
+
+    def test_non_debug_task_suppressed(self):
+        cb = _make_callback()
+        result = SimpleNamespace(
+            _result={"msg": ["x", "y"]},
+            _task=SimpleNamespace(action="ansible.builtin.command"),
+        )
+        cb.v2_runner_on_ok(result)
+        assert cb._captured == []
