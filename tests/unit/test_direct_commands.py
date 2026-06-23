@@ -1952,7 +1952,7 @@ class TestParseGitopsStatus:
 
     def test_with_untracked_files(self):
         out = self._make_output(
-            untracked="hosts/hosts.yaml\npublic_assets/notes/",
+            untracked="?? hosts/hosts.yaml\n?? public_assets/notes/",
         )
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Untracked files (2):" in result
@@ -1967,6 +1967,17 @@ class TestParseGitopsStatus:
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "No changes." in result
         assert "Untracked files" not in result
+
+    def test_only_porcelain_untracked_lines_shown(self):
+        # git status --porcelain mixes staged/modified with untracked;
+        # only '?? ' lines are untracked (the rest come from git diff).
+        out = self._make_output(
+            untracked=" M config/default.vcl\n?? hosts/hosts.yaml",
+        )
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Untracked files (1):" in result
+        assert "hosts/hosts.yaml" in result
+        assert "config/default.vcl" not in result
 
     def test_ahead_of_remote(self):
         out = self._make_output(revcount="3\t0")
