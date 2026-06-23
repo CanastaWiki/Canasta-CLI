@@ -55,9 +55,11 @@ def _gitops_status_script(path, ssh_key=None):
         "echo '%(d)s'; "
         "cat wikis.yaml.template 2>/dev/null; "
         "echo '%(d)s'; "
-        # Untracked, non-ignored files. --directory collapses a wholly
-        # untracked dir to one entry, matching `git status`.
-        "git ls-files --others --exclude-standard --directory 2>/dev/null"
+        # Untracked files, parsed from porcelain '?? ' lines below. Uses
+        # `git status` (not `git ls-files --directory`, which over-reports
+        # dirs whose contents are all ignored and mishandles submodules) so
+        # it matches what `git status` shows exactly.
+        "git status --porcelain 2>/dev/null"
     ) % {"p": qp, "d": d, "ssh": _git_ssh_env_prefix(ssh_key)}
 
 
@@ -131,8 +133,13 @@ def _parse_gitops_status(stdout, instance_id):
     tmpl_wikis_raw = parts[8] if len(parts) > 8 else ""
     wikis_drift = _wikis_uncaptured_edit(live_wikis_raw, tmpl_wikis_raw)
 
-    untracked_raw = parts[9].strip() if len(parts) > 9 else ""
-    untracked = untracked_raw.split("\n") if untracked_raw else []
+    # parts[9] is `git status --porcelain`; untracked entries are the
+    # '?? <path>' lines (staged/modified come from git diff above).
+    status_raw = parts[9].strip() if len(parts) > 9 else ""
+    untracked = [
+        ln[3:] for ln in status_raw.split("\n")
+        if ln.startswith("?? ")
+    ]
 
     try:
         revcount_parts = revcount_raw.split("\t")
