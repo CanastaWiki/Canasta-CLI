@@ -38,7 +38,11 @@ def cmd_stop(args):
         return _helpers.FALLBACK
     if _helpers._instance_has_sidecars(inst):
         return _helpers.FALLBACK  # Ansible includes the sidecar -f layer.
-    return _helpers._run_compose(inst_id, inst, ["down"])
+    # --remove-orphans sweeps a sidecar container left over from a sidecar
+    # that was just removed: sidecars.yaml is now empty (so we take this
+    # non-sidecar path), but its docker-compose.sidecars.yml entry and
+    # running container still linger and a plain `down` would not touch them.
+    return _helpers._run_compose(inst_id, inst, ["down", "--remove-orphans"])
 
 
 @register("restart")
@@ -49,7 +53,10 @@ def cmd_restart(args):
         return _helpers.FALLBACK
     if _helpers._instance_has_sidecars(inst):
         return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
-    rc = _helpers._run_compose(inst_id, inst, ["down"])
+    # --remove-orphans sweeps a sidecar container left over from a sidecar
+    # that was just removed (sidecars.yaml is empty so we take this path, but
+    # its docker-compose.sidecars.yml entry and container still linger).
+    rc = _helpers._run_compose(inst_id, inst, ["down", "--remove-orphans"])
     if rc != 0:
         return rc
     _helpers._sync_compose_profiles(inst)

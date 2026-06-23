@@ -45,11 +45,14 @@ def test_stop_includes_sidecar_layer_for_teardown():
     assert "docker-compose.sidecars.yml" in body
 
 
-def test_destroy_removes_sidecar_orphans():
-    # delete uses a bare `down` (no sidecar -f layer), so it must pass
-    # --remove-orphans or the sidecar container survives deletion.
+def test_destroy_removes_sidecar_orphans_and_volumes():
+    # delete must remove BOTH the sidecar container (--remove-orphans) and
+    # its named volume. The volume is declared only in
+    # docker-compose.sidecars.yml, so `down -v` must load that layer or the
+    # volume survives and later blocks recreate with a stale-volume error.
     body = _text(DESTROY)
     assert "down -v --remove-orphans" in body
+    assert "docker-compose.sidecars.yml" in body
 
 
 def test_scale_up_is_generalized_to_all():
