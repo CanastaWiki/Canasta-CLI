@@ -1,0 +1,66 @@
+---
+# Stage a newly added wiki's gitops-tracked files so a wiki added after
+# 'gitops init' is captured on the next push and recoverable from the
+# repo. 'gitops init' stages everything present at init time, but a wiki
+# added later was never brought into tracking — its per-wiki settings and
+# public_assets (logos) silently stayed out of gitops.
+#
+# Captures the new wiki into the farm template (wikis.yaml.template) and
+# stages its tracked paths (config/settings/wikis/<id>, public_assets/<id>)
+# when present. Best-effort and non-fatal: a staging hiccup must not fail
+# the wiki-add that already succeeded. Gitops-only — no-ops when the
+# gitops marker is absent.
+#
+# Input: instance_path, canasta_root, new_wiki_id.
+
+- name: Check for gitops instance
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _snw_gitops
+
+- name: Capture the new wiki for gitops
+  when: _snw_gitops.stat.exists
+  block:
+    # The new wiki is already in config/wikis.yaml (rendered); capture it
+    # into the tracked template so it survives render and reaches other
+    # hosts. A no-op when the instance has no template.
+    - name: Capture wikis.yaml into the template
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/gitops/tasks/_reconcile_wikis_template.yml
+
+    - name: Stage wikis.yaml.template
+      ansible.builtin.command:
+        cmd: "git add -- wikis.yaml.template"
+        chdir: "{{ instance_path }}"
+      register: _snw_tmpl
+      changed_when: _snw_tmpl.rc == 0
+      failed_when: false
+      when: _reconcile_wikis_tmpl.stat.exists | default(false)
+
+    - name: Stat the new wiki's tracked paths
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/{{ item }}"
+      loop:
+        - "config/settings/wikis/{{ new_wiki_id }}"
+        - "public_assets/{{ new_wiki_id }}"
+      loop_control:
+        label: "{{ item }}"
+      register: _snw_paths
+
+    - name: Stage the new wiki's tracked paths
+      ansible.builtin.command:
+        cmd: "git add -- {{ item.item }}"
+        chdir: "{{ instance_path }}"
+      loop: "{{ _snw_paths.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      register: _snw_add
+      changed_when: _snw_add.rc == 0
+      failed_when: false
+      when: item.stat.exists | default(false)
+
+    - name: Report new wiki staged for gitops
+      ansible.builtin.debug:
+        msg: >-
+          Staged new wiki '{{ new_wiki_id }}' for gitops. Review with
+          'canasta gitops status' and publish with 'canasta gitops push'.
