@@ -45,13 +45,10 @@ class TestGitopsAddScope:
         not rely on chdir + bare `git add -A` (which is whole-tree)."""
         tasks = _load_tasks()
         # Only the whole-tree-capable `git add -A` form is at risk of the
-        # chdir-ignored bug. Explicit single-file stages (e.g.
-        # `git add -- wikis.yaml.template`) are intentionally scoped.
-        no_path = [
-            t for t in tasks
-            if "path is not defined" in str(t.get("when", ""))
-            and ("git add -A" in _cmd(t))
-        ]
+        # chdir-ignored bug. Match it by command rather than by its `when`
+        # expression (implementation detail). Explicit single-file stages
+        # (e.g. `git add -- wikis.yaml.template`) are already scoped.
+        no_path = [t for t in tasks if "git add -A" in _cmd(t)]
         assert no_path, "add.yml lost its no-path staging task"
         for t in no_path:
             cmd = _cmd(t)
