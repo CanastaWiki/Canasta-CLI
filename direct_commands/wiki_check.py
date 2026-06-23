@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """wiki-check command — verify MediaWiki instances are accessible."""
 
+import json
 import ssl
 import sys
 import urllib.parse
@@ -15,8 +16,9 @@ _LOCAL_DOMAINS = {"localhost", "127.0.0.1"}
 
 def _build_urls(wiki_url):
     base = wiki_url.rstrip("/")
+    suffix = "/w/api.php?action=query&meta=siteinfo&format=json"
     if base.startswith("http://") or base.startswith("https://"):
-        return [base + "/"]
+        return [base + suffix]
 
     parsed = urllib.parse.urlsplit("http://" + base)
     host = parsed.netloc
@@ -24,7 +26,23 @@ def _build_urls(wiki_url):
     if path:
         host = host + path
 
-    return [f"{protocol}://{host}/" for protocol in _PROTOCOLS]
+    return [f"{protocol}://{host}{suffix}" for protocol in _PROTOCOLS]
+
+
+def _is_mediawiki_response(body):
+    if not body:
+        return False
+    try:
+        if isinstance(body, bytes):
+            body = body.decode("utf-8", errors="ignore")
+        data = json.loads(body)
+        if "query" in data or "batchcomplete" in data:
+            return True
+        if "error" in data and isinstance(data["error"], dict) and data["error"].get("code") == "readapidenied":
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def _localhost_probe(url, instance_path):
@@ -35,12 +53,12 @@ def _localhost_probe(url, instance_path):
 
     bare_hostname = domain.split(":")[0]
 
-    if bare_hostname in _LOCAL_DOMAINS:
+    if bare_hostname in _LOCAL_DOMAINS and ":" in domain:
         req = urllib.request.Request(url)
         context = ssl._create_unverified_context() if scheme == "https" else None
         try:
             with urllib.request.urlopen(req, timeout=15, context=context) as resp:
-                return resp.status == 200
+                return _is_mediawiki_response(resp.read())
         except Exception:
             return False
 
@@ -51,7 +69,8 @@ def _localhost_probe(url, instance_path):
         port = env.get("HTTP_PORT", "")
 
     if port:
-        check_url = f"{scheme}://127.0.0.1:{port}{url_path}"
+        query_suffix = f"?{parsed.query}" if parsed.query else ""
+        check_url = f"{scheme}://localhost:{port}{url_path}{query_suffix}"
     else:
         check_url = url
 
@@ -65,7 +84,7 @@ def _localhost_probe(url, instance_path):
 
     try:
         with urllib.request.urlopen(req, timeout=15, context=context) as resp:
-            return resp.status == 200
+            return _is_mediawiki_response(resp.read())
     except Exception:
         return False
 
@@ -77,17 +96,12 @@ def _check_url(wiki_url, host, instance_path=""):
                 return True
         else:
             cmd = (
-                "curl -sSLk -o /dev/null -w '%{http_code}' "
+                "curl -sSLk "
                 + _helpers._shell_quote(url)
             )
             rc, stdout = _helpers._ssh_run(host, cmd)
-            if not stdout.strip():
-                continue
-            try:
-                if int(stdout.strip()) == 200:
-                    return True
-            except ValueError:
-                continue
+            if rc == 0 and _is_mediawiki_response(stdout):
+                return True
     return False
 
 
