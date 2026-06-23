@@ -115,6 +115,14 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/refresh_gitignore.yml
 
+# Create wikis.yaml.template for a gitops instance that lacks it (e.g. a
+# Go-CLI-era repo predating the template). Without it the wikis.yaml
+# reconcile/advisory machinery is inert. No-ops on non-gitops instances
+# and when the template already exists.
+- name: Backfill gitops wikis.yaml.template if missing
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/backfill_wikis_template.yml
+
 # --- Bump configured image tag (orchestrator-specific) ---
 # K8s updates values.yaml image.tag; Compose updates CANASTA_IMAGE in .env.
 - name: Update configured image tag
