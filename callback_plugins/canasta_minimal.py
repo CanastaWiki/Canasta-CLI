@@ -64,6 +64,10 @@ class CallbackModule(CallbackBase):
         if hasattr(result, '_task'):
             if result._task.action in ("ansible.builtin.debug", "debug"):
                 msg = result._result.get("msg")
+                # A debug 'msg' may be a list (one element per line). Render
+                # it line-by-line rather than as a Python list repr.
+                if isinstance(msg, (list, tuple)):
+                    msg = "\n".join(str(m) for m in msg)
                 if msg and msg not in ("All items completed", "All items skipped"):
                     msg_str = str(msg)
                     if any(msg_str.startswith(p) for p in self._GREEN_PREFIXES):
