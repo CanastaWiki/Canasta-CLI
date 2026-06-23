@@ -671,10 +671,13 @@ commands:
       address. Repeat to add more than one (e.g. an IP and a hostname).
 
       `canasta` installs the Canasta CLI (canasta-native) on the target
-      host. Install it on a remote or Kubernetes host before scheduling
-      backups there, since a scheduled backup runs `canasta backup` on
-      the host where the schedule lives. Idempotent — skips if canasta
-      is already present.
+      host, so an instance deployed remotely from a controller can also
+      be operated directly on its own host. This is required before
+      scheduling backups on a remote or Kubernetes host — the schedule's
+      cron runs `canasta backup` there — and is useful any time you want
+      to manage an instance locally on the host it runs on rather than
+      only through the controller. Idempotent — skips if canasta is
+      already present.
 
       Multiple packages can be combined in a single command, except
       that `k8s-cp` and `k8s-worker` are mutually exclusive on a given
@@ -686,7 +689,7 @@ commands:
       - "canasta install --host node2 k8s-worker --cp-host node1"
       - "canasta install docker git-crypt"
       - "canasta install -i mysite git-crypt"
-      - "canasta install --host backuphost canasta"
+      - "canasta install -i mysite canasta"
     playbook: install.yml
     parameters:
       - name: host
