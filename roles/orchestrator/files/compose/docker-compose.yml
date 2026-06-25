@@ -89,7 +89,7 @@ services:
       - mediawiki-logs:/var/log/mediawiki
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.10.2
+    image: ${CANASTA_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:7.10.2}
     profiles:
       - elasticsearch
     restart: unless-stopped
