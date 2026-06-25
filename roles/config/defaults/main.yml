@@ -96,6 +96,14 @@ canasta_known_keys:
     group: Docker Image
     description: Override the default Canasta image
 
+  - name: CANASTA_ELASTICSEARCH_IMAGE
+    group: Docker Image
+    description: >-
+      Override the Elasticsearch image (e.g. a build with an extra
+      analysis plugin). Takes effect only while Elasticsearch is enabled
+      (CANASTA_ENABLE_ELASTICSEARCH=true). On Kubernetes the image must be
+      pullable by the cluster (push it to a reachable registry first).
+
   - name: CROWDSEC_BOUNCER_API_KEY
     group: Security (CrowdSec)
     description: >-
