@@ -218,9 +218,17 @@ def render_k8s_values(sidecars, env, file_reader):
             item["image"] = sidecar["image"]
         if sidecar.get("command"):
             item["command"] = resolve_env_value(sidecar["command"], env)
+        # envSecret keys are sourced from the per-instance app Secret (rendered
+        # as secretKeyRef by the chart), so they are NOT resolved to cleartext
+        # here. Everything else stays a resolved literal, exactly as before.
+        secret_keys = set(sidecar.get("envSecret") or [])
         if sidecar.get("env"):
-            item["env"] = {k: resolve_env_value(v, env)
-                           for k, v in sidecar["env"].items()}
+            plain = {k: resolve_env_value(v, env)
+                     for k, v in sidecar["env"].items() if k not in secret_keys}
+            if plain:
+                item["env"] = plain
+        if secret_keys:
+            item["envSecret"] = sorted(secret_keys)
         if sidecar.get("ports"):
             item["ports"] = [int(p) for p in sidecar["ports"]]
         if sidecar.get("volumes"):

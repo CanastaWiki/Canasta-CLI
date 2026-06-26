@@ -1411,3 +1411,49 @@ class TestGitopsArgoRepoSecretShared:
             "known-host (it reads known-hosts at startup; without this the "
             "first sync fails 'knownhosts: key is unknown')"
         )
+
+
+class TestK8sAppSecrets:
+    """Sidecar secrets are sourced from a per-instance Secret via secretKeyRef;
+    values live in the gitignored config/secrets.env, never in values.yaml."""
+
+    SIDECARS_TPL = os.path.join(HELM_CHART, "templates", "sidecars.yaml")
+    HELPERS = os.path.join(HELM_CHART, "templates", "_helpers.tpl")
+    SYNC = os.path.join(ORCHESTRATOR_TASKS, "k8s_sync_config.yml")
+    GITIGNORE = os.path.join(
+        REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
+    SET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "set.yml")
+    SET_SECRET = os.path.join(
+        REPO_ROOT, "roles", "config", "tasks", "_set_secret.yml")
+
+    @staticmethod
+    def _read(path):
+        with open(path) as f:
+            return f.read()
+
+    def test_chart_renders_envsecret_as_secretkeyref(self):
+        c = self._read(self.SIDECARS_TPL)
+        assert "$sc.envSecret" in c, "chart must iterate sidecar envSecret keys"
+        assert "secretKeyRef" in c, "envSecret keys must use secretKeyRef"
+        assert 'include "canasta.appSecretName"' in c
+
+    def test_appsecretname_helper_defined(self):
+        assert 'define "canasta.appSecretName"' in self._read(self.HELPERS)
+
+    def test_sync_upserts_app_secret_guarded(self):
+        c = self._read(self.SYNC)
+        assert "-app-secrets" in c, "must upsert a per-instance app Secret"
+        # Guarded on secrets.env existence -> no Secret for existing instances.
+        assert "secrets.env" in c
+        assert "_app_secrets_stat.stat.exists" in c
+
+    def test_secrets_env_is_gitignored(self):
+        assert "config/secrets.env" in self._read(self.GITIGNORE)
+
+    def test_config_set_dispatches_secret_path(self):
+        c = self._read(self.SET)
+        assert "_set_secret.yml" in c
+        assert "secret | default(false) | bool" in c
+        sec = self._read(self.SET_SECRET)
+        assert "config/secrets.env" in sec
+        assert "no_log: true" in sec  # never echo a secret value

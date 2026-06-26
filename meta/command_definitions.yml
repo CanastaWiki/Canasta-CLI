@@ -1008,6 +1008,13 @@ commands:
         type: bool
         default: false
         description: "Allow setting unrecognized keys"
+      - name: secret
+        type: bool
+        default: false
+        description: >-
+          Write to the gitignored config/secrets.env instead of .env (opaque
+          app secrets; on K8s these feed a per-instance Secret consumed by
+          sidecars via secretKeyRef). Bypasses .env validation and side effects.
 
   - name: config_regenerate
     description: "Regenerate rendered config files (e.g. Caddyfile) from current sources"

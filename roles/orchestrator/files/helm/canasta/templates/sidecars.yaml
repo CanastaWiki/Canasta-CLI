@@ -46,11 +46,18 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           {{- end }}
-          {{- with $sc.env }}
+          {{- if or $sc.env $sc.envSecret }}
           env:
-            {{- range $k, $v := . }}
+            {{- range $k, $v := $sc.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}
+            {{- end }}
+            {{- range $sc.envSecret }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.appSecretName" $ }}
+                  key: {{ . }}
             {{- end }}
           {{- end }}
           {{- with $sc.ports }}

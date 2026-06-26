@@ -57,6 +57,14 @@ MW secret name.
 {{- end }}
 
 {{/*
+App secret name — holds sidecar secrets (sidecars[].envSecret), upserted by
+Ansible from config/secrets.env. Referenced via secretKeyRef.
+*/}}
+{{- define "canasta.appSecretName" -}}
+{{- .Values.secrets.appSecretName | default (printf "%s-app-secrets" .Values.instance.id) }}
+{{- end }}
+
+{{/*
 Backend service for ingress — always routes to caddy.
 Caddy handles wiki farm routing, then forwards to varnish or web.
 */}}
