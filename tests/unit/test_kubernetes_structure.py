@@ -1457,3 +1457,50 @@ class TestK8sAppSecrets:
         sec = self._read(self.SET_SECRET)
         assert "config/secrets.env" in sec
         assert "no_log: true" in sec  # never echo a secret value
+
+
+class TestK8sWebAppSecrets:
+    """Web/jobrunner secrets (config set --secret --web) are exposed to those
+    pods via secretKeyRef from the app Secret, driven by .Values.appSecretEnv."""
+
+    WEB = os.path.join(HELM_CHART, "templates", "deployment-web.yaml")
+    JOB = os.path.join(HELM_CHART, "templates", "deployment-jobrunner.yaml")
+    VALUES = os.path.join(HELM_CHART, "values.yaml")
+    SYNC = os.path.join(ORCHESTRATOR_TASKS, "k8s_sync_config.yml")
+    GITIGNORE = os.path.join(
+        REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
+    SET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "set.yml")
+    SET_SECRET = os.path.join(
+        REPO_ROOT, "roles", "config", "tasks", "_set_secret.yml")
+
+    @staticmethod
+    def _read(path):
+        with open(path) as f:
+            return f.read()
+
+    def test_web_and_jobrunner_expose_appsecretenv(self):
+        for path in (self.WEB, self.JOB):
+            c = self._read(path)
+            assert "range .Values.appSecretEnv" in c, (
+                "%s must expose appSecretEnv keys" % os.path.basename(path))
+            assert 'include "canasta.appSecretName"' in c
+            assert "secretKeyRef" in c
+
+    def test_appsecretenv_default_in_values(self):
+        assert "appSecretEnv: []" in self._read(self.VALUES)
+
+    def test_sync_reads_secrets_web_into_appsecretenv(self):
+        c = self._read(self.SYNC)
+        assert "config/secrets-web" in c
+        assert "appSecretEnv" in c
+        assert "_app_secret_env" in c
+
+    def test_secrets_web_is_gitignored(self):
+        assert "config/secrets-web" in self._read(self.GITIGNORE)
+
+    def test_web_flag_records_keys_and_requires_secret(self):
+        sec = self._read(self.SET_SECRET)
+        assert "config/secrets-web" in sec
+        assert "web | default(false) | bool" in sec
+        # --web without --secret must fail fast.
+        assert "Require --secret with --web" in self._read(self.SET)
