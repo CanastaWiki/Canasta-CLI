@@ -163,3 +163,44 @@ class TestStdinFlagParity:
         assert "-T" in captured["argv"]
         # Ansible compose build is always non-interactive (-T).
         assert "docker compose exec -T" in EXEC_YML
+
+
+def _python_exec_argv(monkeypatch, service, exec_args, orchestrator="compose"):
+    """Capture the docker/kubectl argv the Python direct path execs."""
+    captured = {}
+    monkeypatch.setattr(canasta, "resolve_instance", lambda _id: {
+        "id": "x", "orchestrator": orchestrator,
+        "host": "localhost", "path": "/tmp/i"})
+    monkeypatch.setattr(canasta, "_redirect_stdin_from_file", lambda p: None)
+    monkeypatch.setattr(canasta.os, "chdir", lambda p: None)
+    monkeypatch.setattr(canasta.subprocess, "run", lambda *a, **k:
+                        types.SimpleNamespace(returncode=0, stdout="pod-1"))
+    monkeypatch.setattr(canasta.os, "execvp",
+                        lambda f, argv: captured.__setitem__("argv", list(argv)))
+    canasta.handle_interactive_exec(Namespace(
+        id="x", service=service, exec_args=exec_args, stdin_file=None))
+    return captured["argv"]
+
+
+class TestShellFallbackParity:
+    """Neither exec path may hard-require bash: an exec into a slim sidecar
+    image (no bash) must still work. The interactive (no-command) shell falls
+    back bash->sh; a command is exec'd directly and needs no shell at all."""
+
+    def test_ansible_path_falls_back_to_sh(self):
+        # No bare '/bin/bash -c'; the wrapper tries bash then sh.
+        assert "/bin/bash -c" not in EXEC_YML
+        assert "command -v bash" in EXEC_YML
+        assert "exec sh -c" in EXEC_YML
+
+    def test_python_interactive_falls_back_to_sh(self, monkeypatch):
+        argv = " ".join(_python_exec_argv(monkeypatch, "slimcar", exec_args=[]))
+        assert "command -v bash" in argv and "exec sh" in argv
+        assert "/bin/bash" not in argv  # no hard bash dependency
+
+    def test_python_command_execs_tokens_directly(self, monkeypatch):
+        # A command needs no shell wrapper, so it runs on a bash-less sidecar.
+        argv = _python_exec_argv(monkeypatch, "slimcar",
+                                 exec_args=["redis-cli", "ping"])
+        assert argv[-2:] == ["redis-cli", "ping"]
+        assert "bash" not in " ".join(argv)
