@@ -289,6 +289,43 @@
   when: _crowdsec_key_data | length > 0
   no_log: true
 
+# --- App secrets Secret ---
+# Sidecar env keys listed in sidecars[].envSecret are sourced from this Secret
+# via secretKeyRef (templates/sidecars.yaml). Values live in the gitignored
+# config/secrets.env (written by `canasta config set --secret`), never in
+# values.yaml or the gitops repo. Created here — in the sync/restart path, like
+# the crowdsec key above — so a secret set after create reaches the pod on the
+# next start. Absent until a secret is set: the block is skipped, so existing
+# instances get no Secret (purely additive).
+- name: Check for config/secrets.env
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/secrets.env"
+  register: _app_secrets_stat
+
+- name: Read app secrets
+  canasta_env:
+    path: "{{ instance_path }}/config/secrets.env"
+    state: read_all
+  register: _app_secrets_dict
+  when: _app_secrets_stat.stat.exists
+  no_log: true
+
+- name: Apply app secrets Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ instance_id }}-app-secrets"
+        namespace: "{{ _k8s_namespace }}"
+      type: Opaque
+      stringData: "{{ _app_secrets_dict.variables | default({}) }}"
+  when:
+    - _app_secrets_stat.stat.exists
+    - (_app_secrets_dict.variables | default({})) | length > 0
+  no_log: true
+
 # --- Write configData into values.yaml ---
 # The Helm chart templates render ConfigMaps from configData values.
 # This allows both Ansible-driven and Argo CD-driven workflows to use

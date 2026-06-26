@@ -142,6 +142,40 @@ class TestK8sValues:
         assert render.render_k8s_values([], {}, lambda s: "") == []
 
 
+# A sidecar sourcing one env key from the app Secret, one plain.
+SECRETSC = {"name": "gen", "image": "x:1",
+            "env": {"OP_TOKEN": "${OP_SERVICE_ACCOUNT_TOKEN}",
+                    "PLAIN": "${PLAIN_VAL}"},
+            "envSecret": ["OP_TOKEN"]}
+
+
+class TestK8sEnvSecret:
+    def test_secret_key_not_resolved_and_listed(self):
+        env = {"OP_SERVICE_ACCOUNT_TOKEN": "tok", "PLAIN_VAL": "pv"}
+        item = render.render_k8s_values([SECRETSC], env, lambda s: "")[0]
+        # The secret key is withheld from the cleartext env map...
+        assert "OP_TOKEN" not in item.get("env", {})
+        # ...the plain key is still resolved as before...
+        assert item["env"]["PLAIN"] == "pv"
+        # ...and the secret key is carried as envSecret for secretKeyRef.
+        assert item["envSecret"] == ["OP_TOKEN"]
+
+    def test_all_keys_secret_drops_cleartext_env(self):
+        sc = {"name": "g", "image": "x:1",
+              "env": {"OP_TOKEN": "${T}"}, "envSecret": ["OP_TOKEN"]}
+        item = render.render_k8s_values([sc], {"T": "v"}, lambda s: "")[0]
+        assert "env" not in item
+        assert item["envSecret"] == ["OP_TOKEN"]
+
+    def test_no_envsecret_is_byte_identical(self):
+        # Backward compat: a sidecar without envSecret renders exactly as before
+        # (no envSecret key, env fully resolved).
+        env = {"REDIS_MAX_MEMORY": "256mb", "CITATION_SHARED_SECRET": "s3cr3t"}
+        item = render.render_k8s_values([CITATION], env, lambda s: "FILE")[0]
+        assert "envSecret" not in item
+        assert item["env"] == {"SHARED_SECRET": "s3cr3t"}
+
+
 class TestEnvBridge:
     def test_collect_refs_from_env_and_command(self):
         refs = render.collect_env_refs([CACHE, CITATION])

@@ -1,5 +1,6 @@
 # Generated at deploy time — do not track
 .env
+config/secrets.env
 config/wikis.yaml
 admin-password_*
 
