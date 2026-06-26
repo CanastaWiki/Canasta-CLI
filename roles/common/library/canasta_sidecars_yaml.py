@@ -34,7 +34,10 @@ options:
   definitions:
     description: >-
       YAML document of full sidecar definition(s) for import — a single
-      sidecar mapping, a list, or a 'sidecars:' list.
+      sidecar mapping, a list, or a 'sidecars:' list. A sidecar may set
+      'envPrivate', a list of its env keys that are delivered to the sidecar
+      but withheld from the web-tier getenv() bridge (for a secret only the
+      sidecar should hold).
     type: str
 """
 
@@ -124,6 +127,20 @@ def validate_sidecars(sidecars):
             return "sidecar '%s' must set either image or build" % name
         if has_image and has_build:
             return "sidecar '%s' cannot set both image and build" % name
+        # envPrivate names env keys delivered to the sidecar but withheld from
+        # the web-tier getenv() bridge. A typo here silently leaks the secret
+        # to the web tier, so an unknown key is a hard error, not a no-op.
+        private = sidecar.get("envPrivate")
+        if private is not None:
+            if (not isinstance(private, list)
+                    or not all(isinstance(x, str) for x in private)):
+                return ("sidecar '%s' envPrivate must be a list of env key "
+                        "names" % name)
+            env_keys = sidecar.get("env") or {}
+            missing = [k for k in private if k not in env_keys]
+            if missing:
+                return ("sidecar '%s' envPrivate names env key(s) not in env: "
+                        "%s" % (name, ", ".join(missing)))
     return None
 
 

@@ -77,6 +77,23 @@ class TestValidateSidecars:
             [{"name": "web", "image": "i"}])
         assert "reserved" in err
 
+    def test_env_private_ok(self):
+        assert canasta_sidecars_yaml.validate_sidecars(
+            [{"name": "c", "image": "i",
+              "env": {"TOK": "${T}"}, "envPrivate": ["TOK"]}]) is None
+
+    def test_env_private_not_a_list(self):
+        err = canasta_sidecars_yaml.validate_sidecars(
+            [{"name": "c", "image": "i",
+              "env": {"TOK": "${T}"}, "envPrivate": "TOK"}])
+        assert "envPrivate must be a list" in err
+
+    def test_env_private_unknown_key(self):
+        err = canasta_sidecars_yaml.validate_sidecars(
+            [{"name": "c", "image": "i",
+              "env": {"TOK": "${T}"}, "envPrivate": ["TYPO"]}])
+        assert "not in env" in err
+
 
 def _add(inst, **extra):
     """Seed a 'cache' sidecar via import (used by list/query/remove tests)."""

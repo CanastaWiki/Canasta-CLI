@@ -163,6 +163,46 @@ class TestEnvBridge:
         assert "putenv('CITATION_SHARED_SECRET=a\\'b\\\\c');" in php
 
 
+# A sidecar holding a private token alongside a bridged shared secret.
+LINKGEN = {"name": "linkgen", "image": "example/linkgen:1.0",
+           "env": {"OP_TOKEN": "${OP_SERVICE_ACCOUNT_TOKEN}",
+                   "SHARED": "${LINKGEN_SHARED:-}"},
+           "envPrivate": ["OP_TOKEN"]}
+
+
+class TestEnvPrivate:
+    def test_private_ref_excluded_from_collection(self):
+        refs = render.collect_env_refs([LINKGEN])
+        # SHARED is public; the OP token's var is withheld.
+        assert refs == ["LINKGEN_SHARED"]
+        assert "OP_SERVICE_ACCOUNT_TOKEN" not in refs
+
+    def test_public_elsewhere_still_bridged(self):
+        # Private on linkgen, but another sidecar references it publicly ->
+        # still collected (the union of public demand wins).
+        other = {"name": "other", "image": "x:1",
+                 "env": {"TOK": "${OP_SERVICE_ACCOUNT_TOKEN}"}}
+        refs = render.collect_env_refs([LINKGEN, other])
+        assert "OP_SERVICE_ACCOUNT_TOKEN" in refs
+
+    def test_bridge_omits_private_keeps_public(self):
+        php = render.render_env_bridge(
+            [LINKGEN], {"OP_SERVICE_ACCOUNT_TOKEN": "tok", "LINKGEN_SHARED": "s"})
+        assert "OP_SERVICE_ACCOUNT_TOKEN" not in php
+        assert "putenv('LINKGEN_SHARED=s');" in php
+
+    def test_private_still_delivered_to_sidecar(self):
+        # The sidecar itself must still receive the private key on both renders,
+        # and envPrivate must never leak into a runtime artifact.
+        compose, _ = render.render_compose_service(LINKGEN)
+        assert compose["environment"]["OP_TOKEN"] == "${OP_SERVICE_ACCOUNT_TOKEN}"
+        assert "envPrivate" not in compose
+        k8s = render.render_k8s_values(
+            [LINKGEN], {"OP_SERVICE_ACCOUNT_TOKEN": "tok"}, lambda s: "")[0]
+        assert k8s["env"]["OP_TOKEN"] == "tok"
+        assert "envPrivate" not in k8s
+
+
 class TestModuleBridge:
     def test_writes_bridge_fragment(self, tmp_dir):
         with open(os.path.join(tmp_dir, ".env"), "w") as handle:
