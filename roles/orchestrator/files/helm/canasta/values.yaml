@@ -154,6 +154,13 @@ persistence:
 secrets:
   dbSecretName: ""      # set by Ansible: <instance_id>-db-credentials
   mwSecretName: ""      # set by Ansible: <instance_id>-mw-secrets
+  appSecretName: ""     # set by Ansible: <instance_id>-app-secrets
+
+# App secret keys exposed to the web + jobrunner pods via secretKeyRef from
+# the app Secret. Populated from config/secrets-web (keys set with
+# `config set --secret --web`) by k8s_sync_config.yml; empty by default so
+# existing instances render no extra env.
+appSecretEnv: []
 
 # Config data — populated by Ansible or committed via gitops.
 # Helm renders these into ConfigMaps for each component.

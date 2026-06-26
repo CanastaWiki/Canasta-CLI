@@ -16,6 +16,13 @@
   ansible.builtin.set_fact:
     _config_settings: "{{ config_settings_override | default(settings) }}"
 
+- name: Require --secret with --web
+  ansible.builtin.fail:
+    msg: "--web only applies to secret values; pass it together with --secret."
+  when:
+    - web | default(false) | bool
+    - not (secret | default(false) | bool)
+
 # Dispatch: --secret writes opaque values to the gitignored config/secrets.env
 # (no .env validation/side effects); otherwise the normal .env config path.
 - name: Set opaque secret values (config/secrets.env)

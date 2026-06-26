@@ -86,6 +86,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "canasta.mwSecretName" . }}
                   key: MW_SECRET_KEY
+            {{- range .Values.appSecretEnv }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.appSecretName" $ }}
+                  key: {{ . }}
+            {{- end }}
           volumeMounts:
             - name: config
               mountPath: /mediawiki/config

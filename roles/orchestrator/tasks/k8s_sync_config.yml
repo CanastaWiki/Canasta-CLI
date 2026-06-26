@@ -326,6 +326,28 @@
     - (_app_secrets_dict.variables | default({})) | length > 0
   no_log: true
 
+# Web/jobrunner secrets: config/secrets-web lists the app-secret keys (names
+# only) that should reach the web + jobrunner pods, set with
+# `config set --secret --web`. They render as secretKeyRef env on those pods
+# (deployment-web.yaml / deployment-jobrunner.yaml) via .Values.appSecretEnv.
+- name: Check for config/secrets-web
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/secrets-web"
+  register: _app_secrets_web_stat
+
+- name: Read web-exposed secret keys
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/secrets-web"
+  register: _app_secrets_web_raw
+  when: _app_secrets_web_stat.stat.exists
+
+- name: Build appSecretEnv list
+  ansible.builtin.set_fact:
+    _app_secret_env: >-
+      {{ ((_app_secrets_web_raw.content | b64decode).split('\n')
+          | map('trim') | select() | reject('match', '^#') | list | unique)
+         if _app_secrets_web_stat.stat.exists else [] }}
+
 # --- Write configData into values.yaml ---
 # The Helm chart templates render ConfigMaps from configData values.
 # This allows both Ansible-driven and Argo CD-driven workflows to use
@@ -345,6 +367,7 @@
             'caddy': _caddy_config_data,
             'varnish': _varnish_config_data,
             'crowdsec': _crowdsec_config_data,
-          }} | to_nice_yaml(indent=2) }}
+          },
+          'appSecretEnv': _app_secret_env | default([])} | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values-configdata.yaml"
     mode: "0644"

@@ -107,6 +107,13 @@ spec:
                   key: MW_SECRET_KEY
             - name: CANASTA_ENABLE_VARNISH
               value: "{{ .Values.varnish.enabled }}"
+            {{- range .Values.appSecretEnv }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.appSecretName" $ }}
+                  key: {{ . }}
+            {{- end }}
           volumeMounts:
             - name: config
               mountPath: /mediawiki/config
