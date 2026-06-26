@@ -19,12 +19,23 @@
 # Output:
 #   exec_result (registered result with .stdout, .rc, etc.)
 
+# Run under bash when the image has it (Canasta's own containers do, and some
+# callers rely on bash-isms), else fall back to sh. App sidecars are arbitrary
+# images — many slim ones (alpine, *-slim) ship only sh — so a hard /bin/bash
+# would fail there. Detecting per-exec keeps `maintenance exec --service
+# <sidecar>` working regardless of the sidecar's base image. The command is
+# passed as $0 to the inner shell.
+- name: Define the in-container shell (bash if present, else sh)
+  ansible.builtin.set_fact:
+    _exec_shell: >-
+      /bin/sh -c 'if command -v bash >/dev/null 2>&1; then exec bash -c "$0"; else exec sh -c "$0"; fi'
+
 - name: Build exec command (Compose)
   ansible.builtin.set_fact:
     _exec_full_cmd: >-
       docker compose exec -T
       {{ exec_service | default('web') }}
-      /bin/bash -c {{ exec_command | quote }}
+      {{ _exec_shell }} {{ exec_command | quote }}
     _exec_chdir: "{{ instance_path }}"
   when: instance_orchestrator | default('compose') == 'compose'
   no_log: "{{ exec_no_log | default(false) }}"
@@ -48,7 +59,7 @@
         _exec_full_cmd: >-
           kubectl exec {{ '-i ' if (exec_stdin | default('')) | length > 0 else '' }}{{ _k8s_pod_name }}
           -n {{ _k8s_namespace }} --
-          /bin/bash -c {{ exec_command | quote }}
+          {{ _exec_shell }} {{ exec_command | quote }}
         _exec_chdir: null
       no_log: "{{ exec_no_log | default(false) }}"
 

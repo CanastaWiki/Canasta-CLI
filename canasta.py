@@ -864,7 +864,12 @@ def handle_interactive_exec(args):
     if not service:
         service = "web"
     if not command:
-        command = ["/bin/bash"]
+        # Interactive shell: prefer bash, but fall back to sh so a slim sidecar
+        # image (alpine, *-slim) without bash still opens a usable shell. A
+        # command (the else branch above) is exec'd directly and needs no shell.
+        command = ["/bin/sh", "-c",
+                   "if command -v bash >/dev/null 2>&1; then exec bash; "
+                   "else exec sh; fi"]
 
     if orchestrator in ("kubernetes", "k8s"):
         # Find the pod for this service
