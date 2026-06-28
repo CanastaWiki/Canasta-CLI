@@ -753,3 +753,62 @@ class TestEveryCommandLinkedFromIndex:
             assert ("canasta " + cmd) in menu
         for cmd in ("crowdsec", "argocd"):  # groups -> menu
             assert ("canasta " + cmd) in menu
+
+
+class TestReflowProse:
+    """long_description fields are authored as YAML literal blocks with
+    hand-wrapped, indented continuation lines. MediaWiki renders any line
+    that begins with a space as a preformatted block, so those
+    continuations must be unwrapped onto a single logical line before
+    publishing."""
+
+    def _no_indented_lines(self, page):
+        """Assert no line outside a <pre>/<syntaxhighlight> block begins
+        with whitespace (the cause of stray MediaWiki preformatted boxes).
+        """
+        inpre = False
+        for line in page.split("\n"):
+            low = line.strip().lower()
+            if low.startswith(("<pre", "<syntaxhighlight")):
+                inpre = True
+            if not inpre and (line.startswith(" ") or line.startswith("\t")):
+                return line
+            if low.startswith(("</pre", "</syntaxhighlight")):
+                inpre = False
+        return None
+
+    def test_no_generated_page_has_stray_indentation(self):
+        data = wp.load_definitions()
+        for title, content in wp.generate_all_pages(data):
+            bad = self._no_indented_lines(content)
+            assert bad is None, "%s has space-prefixed line: %r" % (title, bad)
+
+    def test_bullet_continuation_collapsed_to_one_line(self):
+        text = (
+            "Intro paragraph that\nwraps across lines.\n\n"
+            "* first item that\n  wraps onto a second line\n"
+            "* second item\n"
+        )
+        out = wp._reflow_prose(text)
+        assert "Intro paragraph that wraps across lines." in out
+        assert "* first item that wraps onto a second line" in out
+        assert "* second item" in out
+        # No line begins with a space after reflow.
+        assert not any(ln.startswith(" ") for ln in out.split("\n"))
+
+    def test_blank_lines_and_list_items_preserved(self):
+        text = "para one\n\n- a\n  cont\n- b"
+        out = wp._reflow_prose(text)
+        assert out == "para one\n\n- a cont\n- b"
+
+    def test_numbered_items_stay_separate(self):
+        text = "1. first\n   wrapped\n2. second"
+        out = wp._reflow_prose(text)
+        assert out == "1. first wrapped\n2. second"
+
+    def test_config_keys_table_indentation_preserved(self):
+        """Reflow runs before the {{CONFIG_KEYS_TABLE}} substitution, so
+        the generated <pre> block keeps its intentional indentation."""
+        pages = dict(wp.generate_all_pages(wp.load_definitions()))
+        config = pages[wp.PAGE_PREFIX + "canasta config"]
+        assert "\n    HTTP_PORT" in config

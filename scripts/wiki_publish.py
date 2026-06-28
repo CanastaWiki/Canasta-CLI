@@ -187,6 +187,50 @@ def _backticks_to_code(text):
     return _BACKTICK_RE.sub(r"<code>\1</code>", text)
 
 
+# Logical-line markers: a line that, after stripping leading whitespace,
+# begins one of these starts a new logical line rather than continuing the
+# previous one. Covers MediaWiki list/heading/table syntax plus the dash
+# and numbered-list styles authors use in long_description prose.
+_MARKER_RE = re.compile(r"^([*#:;=!|]|\{\||\|\}|-\s|\d+\.\s)")
+
+
+def _reflow_prose(text):
+    """Unwrap hard-wrapped prose so each paragraph or list item is a
+    single wikitext line.
+
+    long_description fields in command_definitions.yml are authored as
+    YAML literal blocks (|), so their hand-wrapped continuation lines are
+    indented for source readability. MediaWiki renders any line that
+    begins with a space as a preformatted (monospace) block, so those
+    indented continuations come out as broken gray boxes. Collapsing each
+    logical line onto one physical line removes the leading spaces and
+    keeps multi-line list items intact (MediaWiki needs a list item's text
+    on a single line). Blank lines (paragraph breaks) and lines that start
+    a new list item / heading / table row are preserved.
+    """
+    if not text:
+        return text
+    out = []
+    cur = None
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if line == "":
+            if cur is not None:
+                out.append(cur)
+                cur = None
+            out.append("")
+            continue
+        if cur is None or _MARKER_RE.match(line):
+            if cur is not None:
+                out.append(cur)
+            cur = line
+        else:
+            cur += " " + line
+    if cur is not None:
+        out.append(cur)
+    return "\n".join(out)
+
+
 def _render_config_keys_table():
     """Render the 'Settings safe to change' table for the canasta
     config landing page.
@@ -327,7 +371,7 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
     if long_desc:
         lines.append("=== Synopsis ===")
         lines.append("")
-        lines.append(_backticks_to_code(long_desc.strip()))
+        lines.append(_backticks_to_code(_reflow_prose(long_desc.strip())))
         lines.append("")
 
     # Usage line — match the live wiki's compact form ('canasta create
@@ -477,6 +521,11 @@ def gen_group_wikitext(group_name, group_def, cmd_index, global_flags=None):
 
     long_desc = group_def.get("long_description", "").strip()
     if long_desc:
+        # Reflow before substituting the table so the generated <pre>
+        # block's intentional indentation survives (reflow strips leading
+        # whitespace; the placeholder sits on its own line and is left
+        # untouched).
+        long_desc = _reflow_prose(long_desc)
         # {{CONFIG_KEYS_TABLE}} expands to a generated reference table
         # built from roles/config/defaults/main.yml — same source of
         # truth `canasta config set`'s validator uses, so the docs and
