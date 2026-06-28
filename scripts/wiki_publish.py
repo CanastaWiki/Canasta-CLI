@@ -41,6 +41,20 @@ PAGE_PREFIX = "CLI:"
 EDIT_DELAY = 2  # seconds between edits
 HTTP_TIMEOUT = 30  # seconds; a hung wiki API must not stall the publish
 
+# Transient API errors worth retrying rather than failing the publish:
+# 'ratelimited' is the wiki throttling the bot when a single run changes
+# many pages; 'maxlag' is the DB-replication backpressure guard. Without
+# backoff a single throttle leaves the rest of the namespace stale.
+RETRYABLE_ERROR_CODES = {"ratelimited", "maxlag"}
+MAX_EDIT_RETRIES = 5
+RETRY_BACKOFF_BASE = 15  # seconds; doubled each retry, capped at the max
+RETRY_BACKOFF_MAX = 120
+
+
+def _retry_delay(attempt):
+    """Backoff (seconds) before retry number `attempt` (0-based)."""
+    return min(RETRY_BACKOFF_BASE * (2 ** attempt), RETRY_BACKOFF_MAX)
+
 
 class PermissionDeniedError(RuntimeError):
     """The bot account lacks the right for an API action (e.g. delete
@@ -752,23 +766,35 @@ class MediaWikiClient:
 
     def edit_page(self, title, content, summary):
         token = self._get_token("csrf")
-        result = self._post({
-            "action": "edit",
-            "title": title,
-            "text": content,
-            "summary": summary,
-            "token": token,
-            "format": "json",
-        })
-        if "error" in result:
-            raise RuntimeError(
-                "API error: %s: %s"
-                % (result["error"]["code"], result["error"]["info"])
-            )
-        if result.get("edit", {}).get("result") != "Success":
-            raise RuntimeError(
-                "Edit failed: %s" % result.get("edit", {}).get("result")
-            )
+        for attempt in range(MAX_EDIT_RETRIES + 1):
+            result = self._post({
+                "action": "edit",
+                "title": title,
+                "text": content,
+                "summary": summary,
+                "token": token,
+                "format": "json",
+            })
+            error = result.get("error")
+            if error:
+                code = error.get("code")
+                if code in RETRYABLE_ERROR_CODES and attempt < MAX_EDIT_RETRIES:
+                    delay = _retry_delay(attempt)
+                    print(
+                        "Rate limited on %s; retrying in %ds (%d/%d)"
+                        % (title, delay, attempt + 1, MAX_EDIT_RETRIES),
+                        file=sys.stderr,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise RuntimeError(
+                    "API error: %s: %s" % (code, error.get("info"))
+                )
+            if result.get("edit", {}).get("result") != "Success":
+                raise RuntimeError(
+                    "Edit failed: %s" % result.get("edit", {}).get("result")
+                )
+            return
 
     def resolve_namespace_id(self, name):
         """Return the namespace id whose canonical or localized name

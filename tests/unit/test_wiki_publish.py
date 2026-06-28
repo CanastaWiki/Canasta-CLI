@@ -9,6 +9,8 @@ page at the wrong title.
 import os
 import sys
 
+import pytest
+
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
@@ -753,6 +755,72 @@ class TestEveryCommandLinkedFromIndex:
             assert ("canasta " + cmd) in menu
         for cmd in ("crowdsec", "argocd"):  # groups -> menu
             assert ("canasta " + cmd) in menu
+
+
+class TestEditRetry:
+    """A large publish run can trip the wiki's edit rate limit partway
+    through. edit_page must retry transient errors with backoff so the
+    rest of the namespace doesn't get left stale (the failed run that
+    skipped CLI:Canasta crowdsec)."""
+
+    def _client(self):
+        # Bypass __init__ (which logs in over the network).
+        return object.__new__(wp.MediaWikiClient)
+
+    def test_retries_ratelimited_then_succeeds(self, monkeypatch):
+        c = self._client()
+        c._get_token = lambda kind: "token+\\"
+        calls = {"n": 0}
+
+        def fake_post(params):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                return {"error": {"code": "ratelimited", "info": "slow down"}}
+            return {"edit": {"result": "Success"}}
+
+        c._post = fake_post
+        sleeps = []
+        monkeypatch.setattr(wp.time, "sleep", sleeps.append)
+        c.edit_page("CLI:canasta crowdsec", "text", "summary")
+        assert calls["n"] == 3
+        assert sleeps == [wp._retry_delay(0), wp._retry_delay(1)]
+
+    def test_gives_up_after_max_retries(self, monkeypatch):
+        c = self._client()
+        c._get_token = lambda kind: "token"
+        calls = {"n": 0}
+
+        def fake_post(params):
+            calls["n"] += 1
+            return {"error": {"code": "ratelimited", "info": "nope"}}
+
+        c._post = fake_post
+        monkeypatch.setattr(wp.time, "sleep", lambda s: None)
+        with pytest.raises(RuntimeError, match="ratelimited"):
+            c.edit_page("t", "c", "s")
+        # Initial attempt plus MAX_EDIT_RETRIES retries.
+        assert calls["n"] == wp.MAX_EDIT_RETRIES + 1
+
+    def test_non_retryable_error_raises_immediately(self, monkeypatch):
+        c = self._client()
+        c._get_token = lambda kind: "token"
+        calls = {"n": 0}
+
+        def fake_post(params):
+            calls["n"] += 1
+            return {"error": {"code": "badtoken", "info": "bad token"}}
+
+        c._post = fake_post
+        monkeypatch.setattr(wp.time, "sleep", lambda s: None)
+        with pytest.raises(RuntimeError, match="badtoken"):
+            c.edit_page("t", "c", "s")
+        assert calls["n"] == 1  # no retries
+
+    def test_backoff_grows_and_is_capped(self):
+        assert wp._retry_delay(0) == wp.RETRY_BACKOFF_BASE
+        assert wp._retry_delay(1) == wp.RETRY_BACKOFF_BASE * 2
+        # Far-out attempts saturate at the cap.
+        assert wp._retry_delay(20) == wp.RETRY_BACKOFF_MAX
 
 
 class TestReflowProse:
