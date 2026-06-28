@@ -451,10 +451,10 @@ commands:
       reconciled from the instance's feature flags so optional
       components start or stay down based on their current setting:
 
-      - `CANASTA_ENABLE_VARNISH` (default `true`) — Varnish cache
-      - `CANASTA_ENABLE_OBSERVABILITY` (default `false`) — Prometheus
+      * `CANASTA_ENABLE_VARNISH` (default `true`) — Varnish cache
+      * `CANASTA_ENABLE_OBSERVABILITY` (default `false`) — Prometheus
         and Grafana stack
-      - `CANASTA_ENABLE_ELASTICSEARCH` (default `false`) — Elasticsearch
+      * `CANASTA_ENABLE_ELASTICSEARCH` (default `false`) — Elasticsearch
 
       If the instance has development mode enabled, Xdebug starts
       automatically. Use `canasta devmode enable` or `canasta devmode
@@ -582,14 +582,14 @@ commands:
 
       Additional output depends on context:
 
-      - Inside an instance directory: also reports that instance's
+      * Inside an instance directory: also reports that instance's
         pinned CANASTA_IMAGE tag and running runtime version.
-      - Outside any instance directory: lists every registered
+      * Outside any instance directory: lists every registered
         instance with its pinned CANASTA_IMAGE tag (no runtime query;
         fast).
-      - With --id: reports full image + running version for the
+      * With --id: reports full image + running version for the
         named instance (same as inside that instance's directory).
-      - With --cli-only: prints only the CLI header; skips all
+      * With --cli-only: prints only the CLI header; skips all
         instance reads. Intended for scripts that just want the CLI
         version deterministically.
     examples:
@@ -2330,11 +2330,11 @@ commands:
 
       This handles two cases:
 
-      1. Extensions or skins that were added after gitops init and
-         need to be converted from standalone git repositories to
-         submodules.
-      2. Submodules listed in .gitmodules that were accidentally
-         committed as regular directories instead of gitlinks.
+      # Extensions or skins that were added after gitops init and
+        need to be converted from standalone git repositories to
+        submodules.
+      # Submodules listed in .gitmodules that were accidentally
+        committed as regular directories instead of gitlinks.
 
       After fixing, run `canasta gitops push` to push the changes.
     examples:
