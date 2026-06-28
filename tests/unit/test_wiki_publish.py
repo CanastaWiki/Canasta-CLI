@@ -812,3 +812,33 @@ class TestReflowProse:
         pages = dict(wp.generate_all_pages(wp.load_definitions()))
         config = pages[wp.PAGE_PREFIX + "canasta config"]
         assert "\n    HTTP_PORT" in config
+
+
+class TestListMarkupIsMediaWiki:
+    """long_description list items must use MediaWiki markup (* for
+    unordered, # for ordered). Markdown-style '- ' and '1.' don't start
+    a list in MediaWiki — they render as literal text with a stray dash
+    or number, which is how CLI:Canasta version's list came out wrong."""
+
+    import re as _re
+    _MARKDOWN_LIST = _re.compile(r"^(-\s|\d+\.\s)")
+
+    def _long_descriptions(self):
+        data = wp.load_definitions()
+        for c in data["commands"]:
+            if c.get("long_description"):
+                yield c["name"], c["long_description"]
+        for g in data.get("command_groups", []):
+            if g.get("long_description"):
+                yield "[group] " + g["name"], g["long_description"]
+
+    def test_no_markdown_style_list_markers(self):
+        offenders = []
+        for name, ld in self._long_descriptions():
+            for line in ld.split("\n"):
+                if self._MARKDOWN_LIST.match(line.strip()):
+                    offenders.append("%s: %r" % (name, line.strip()))
+        assert not offenders, (
+            "use '*'/'#' (MediaWiki), not markdown list markers:\n  "
+            + "\n  ".join(offenders)
+        )
