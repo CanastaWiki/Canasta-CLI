@@ -206,8 +206,8 @@ command_groups:
       Kubernetes instance. Enable or disable CrowdSec itself with
       `canasta config set CANASTA_ENABLE_CROWDSEC=true|false` (the
       same pattern as the other optional features). The subcommands
-      below handle the tasks that take more than flipping a setting on
-      or off:
+      below allow further configuration and monitoring once CrowdSec
+      is enabled:
 
       * `bouncer-enroll` registers the Caddy bouncer with the CrowdSec
         engine, captures the generated API key, stores it as
