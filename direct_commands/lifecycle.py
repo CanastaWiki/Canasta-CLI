@@ -38,6 +38,11 @@ def cmd_stop(args):
         return _helpers.FALLBACK
     if _helpers._instance_has_sidecars(inst):
         return _helpers.FALLBACK  # Ansible includes the sidecar -f layer.
+    # Reconcile COMPOSE_PROFILES before `down`: docker compose down only tears
+    # down services in the active profiles, so a drifted profile set leaves a
+    # running container as an unmanaged orphan. Sync first so `down` covers the
+    # full intended set.
+    _helpers._sync_compose_profiles(inst)
     # --remove-orphans sweeps a sidecar container left over from a sidecar
     # that was just removed: sidecars.yaml is now empty (so we take this
     # non-sidecar path), but its docker-compose.sidecars.yml entry and
@@ -53,13 +58,18 @@ def cmd_restart(args):
         return _helpers.FALLBACK
     if _helpers._instance_has_sidecars(inst):
         return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
+    # Reconcile COMPOSE_PROFILES BEFORE `down` so `down` and `up` act on the
+    # same service set. Previously the sync ran only between down and up: with a
+    # drifted profile set (e.g. missing varnish), `down` skipped that service,
+    # then `up -d` recreated web/caddy on new IPs while the survivor kept stale
+    # state — the Varnish stale-backend redirect loop.
+    _helpers._sync_compose_profiles(inst)
     # --remove-orphans sweeps a sidecar container left over from a sidecar
     # that was just removed (sidecars.yaml is empty so we take this path, but
     # its docker-compose.sidecars.yml entry and container still linger).
     rc = _helpers._run_compose(inst_id, inst, ["down", "--remove-orphans"])
     if rc != 0:
         return rc
-    _helpers._sync_compose_profiles(inst)
     rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
     if rc != 0:
         _helpers._dump_compose_failure(inst)

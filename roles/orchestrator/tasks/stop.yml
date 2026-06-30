@@ -5,6 +5,15 @@
 - name: Stop (Docker Compose)
   when: instance_orchestrator | default('compose') == 'compose'
   block:
+    # Reconcile COMPOSE_PROFILES before `down`: docker compose down only tears
+    # down services in the active profiles, so a drifted profile set would
+    # leave a running container as an unmanaged orphan. The start path syncs
+    # before `up`; syncing here too keeps `down` and `up` symmetric so a
+    # restart recreates the whole intended set (and never strands a peer like
+    # Varnish on a stale backend IP).
+    - name: Reconcile COMPOSE_PROFILES before stop
+      ansible.builtin.include_tasks: sync_compose_profiles.yml
+
     # Include the sidecar layer (if present) so `down` tears down the
     # sidecar containers; the start path regenerates it. No render here.
     - name: Check for docker-compose.sidecars.yml
