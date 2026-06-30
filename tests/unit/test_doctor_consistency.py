@@ -129,6 +129,7 @@ class TestInstanceConsistencyLines:
         assert "WARN" in body
         assert "internal-db" in body      # drift
         assert "CirrusSearch" in body     # search backend
+        assert "canasta reconcile" in body  # points at the fix command
 
     def test_compose_instance_clean_reports_ok(self, monkeypatch):
         inst = {"id": "site", "orchestrator": "compose", "path": "/srv/site",
