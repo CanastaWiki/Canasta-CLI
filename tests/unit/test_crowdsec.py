@@ -1555,3 +1555,42 @@ class TestCrowdsecK8sTrustedProxy:
         assert "combine" not in out
 
 
+BOUNCER_ENROLL = os.path.join(
+    REPO_ROOT, "roles", "crowdsec", "tasks", "bouncer_enroll.yml"
+)
+
+
+class TestBouncerEnrollForceGuard:
+    """The auto-enroll path must ignore an ambient `force` so that
+    `config set --force` (which only means "allow an unrecognized key") can't
+    re-issue the bouncer on every restart and loop forever. `force` is a
+    global extra-var shared between the two commands."""
+
+    def _enroll_task(self):
+        with open(BOUNCER_ENROLL) as f:
+            tasks = yaml.safe_load(f)
+        task = next(
+            (t for t in tasks if t.get("name") == "Enroll the bouncer"), None
+        )
+        assert task is not None, "bouncer_enroll.yml must have the enroll task"
+        return task
+
+    def test_force_branch_is_gated_on_not_auto(self):
+        when = " ".join(str(self._enroll_task().get("when", "")).split())
+        # The force branch must be conjoined with `not bouncer_enroll_auto`.
+        assert "force" in when and "bouncer_enroll_auto" in when, (
+            "the enroll `when` must guard `force` with `bouncer_enroll_auto`"
+        )
+        assert "and not (bouncer_enroll_auto" in when, (
+            "force must be ANDed with `not bouncer_enroll_auto` so the auto "
+            "path ignores an ambient --force (the config-set/enroll loop)"
+        )
+
+    def test_no_key_and_no_bouncer_still_enroll(self):
+        # The non-force re-enroll conditions must remain so a genuinely
+        # un-enrolled instance (no bouncer / no stored key) still enrolls.
+        when = " ".join(str(self._enroll_task().get("when", "")).split())
+        assert "_crowdsec_existing" in when
+        assert "_crowdsec_have_key" in when
+
+
