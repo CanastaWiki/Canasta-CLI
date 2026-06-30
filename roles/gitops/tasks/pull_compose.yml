@@ -158,6 +158,17 @@
         dest: "{{ instance_path }}/config/wikis.yaml"
         mode: "0644"
 
+# --- Step 7b: Reconcile COMPOSE_PROFILES with the rendered flags ---
+# .env is rendered verbatim from env.template + vars, so a stale
+# COMPOSE_PROFILES literal (or a render that dropped internal-db / a feature
+# profile) would otherwise survive the pull and leave services unmanaged —
+# running but invisible to up/down. Run the same sync used before start so the
+# profile set matches the feature flags and the DB mode. This runs before the
+# change-detection below, so a profile change correctly flags a restart.
+- name: Reconcile COMPOSE_PROFILES after render
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
+
 # --- Step 8: Write admin password files ---
 - name: Write admin password files from vars
   ansible.builtin.copy:
