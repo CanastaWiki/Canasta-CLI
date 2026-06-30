@@ -64,18 +64,20 @@
         value: "{{ canasta_default_image }}"
 
     # On a gitops instance the .env above is re-rendered from env.template on
-    # the next pull, which would revert the tag. Persist it to the gitops
-    # source (env.template placeholder + vars.yaml) via the same path config
-    # set uses, so the upgrade survives the next pull. No-op off gitops.
+    # the next pull, which would revert the tag. CANASTA_IMAGE lives in
+    # env.template as a plain literal (it is not a managed/secret placeholder
+    # key), so update that literal directly — the render copies it verbatim, so
+    # the bump survives the next pull. Without this the upgrade silently
+    # reverts. No-op off gitops.
     - name: Check if instance is gitops-managed
       ansible.builtin.stat:
         path: "{{ instance_path }}/.gitops-host"
       register: _upgrade_image_gitops_stat
 
-    - name: Persist CANASTA_IMAGE to gitops source (durable across pulls)
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/orchestrator/tasks/config_update_gitops_vars.yml
-      vars:
-        _config_settings: "CANASTA_IMAGE={{ canasta_default_image }}"
-        _config_gitops_stat: "{{ _upgrade_image_gitops_stat }}"
+    - name: Persist CANASTA_IMAGE to env.template (durable across pulls)
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/env.template"
+        regexp: "^CANASTA_IMAGE="
+        line: "CANASTA_IMAGE={{ canasta_default_image }}"
+        state: present
       when: _upgrade_image_gitops_stat.stat.exists | default(false)
