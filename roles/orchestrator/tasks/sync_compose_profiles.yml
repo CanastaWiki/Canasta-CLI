@@ -14,15 +14,23 @@
       {{ (_env_profiles.variables.COMPOSE_PROFILES | default(''))
          | split(',') | map('trim') | reject('equalto', '') | list }}
 
+# internal-db is reconciled like the feature profiles (stripped, then
+# re-derived) but keyed on the INVERSE of USE_EXTERNAL_DB: the bundled database
+# runs by default and is skipped only when an external DB is configured (mirrors
+# roles/create/tasks/_env_update.yml). Deriving it every sync self-heals an
+# instance whose COMPOSE_PROFILES lost internal-db (created before external-DB
+# support, or a gitops .env render that dropped it). It is excluded from the
+# teardown below (_profile_services), so the database container is never removed.
 - name: Compute desired profiles
   ansible.builtin.set_fact:
     _desired_profiles: >-
       {{
-        (_current_profiles | reject('in', ['observable', 'elasticsearch', 'varnish', 'crowdsec']) | list) +
+        (_current_profiles | reject('in', ['observable', 'elasticsearch', 'varnish', 'crowdsec', 'internal-db']) | list) +
         ((_env_profiles.variables.CANASTA_ENABLE_OBSERVABILITY | default('false') | lower == 'true') | ternary(['observable'], [])) +
         ((_env_profiles.variables.CANASTA_ENABLE_ELASTICSEARCH | default('false') | lower == 'true') | ternary(['elasticsearch'], [])) +
         ((_env_profiles.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true') | ternary(['varnish'], [])) +
-        ((_env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true') | ternary(['crowdsec'], []))
+        ((_env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true') | ternary(['crowdsec'], [])) +
+        ((_env_profiles.variables.USE_EXTERNAL_DB | default('false') | lower != 'true') | ternary(['internal-db'], []))
       }}
 
 - name: Update COMPOSE_PROFILES in .env

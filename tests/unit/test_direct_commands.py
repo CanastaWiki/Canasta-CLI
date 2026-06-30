@@ -1533,10 +1533,11 @@ class TestSyncComposeProfiles:
         )
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
-        # Every managed profile is dropped because all flags are false
+        # Every feature profile is dropped because all flags are false, but
+        # internal-db stays (default-on; no external DB configured).
         for line in content.split("\n"):
             if line.startswith("COMPOSE_PROFILES="):
-                assert line == "COMPOSE_PROFILES="
+                assert line == "COMPOSE_PROFILES=internal-db"
                 break
 
     def test_preserves_unmanaged_profiles(self, tmp_path):
@@ -1559,13 +1560,54 @@ class TestSyncComposeProfiles:
     def test_no_write_when_already_in_sync(self, tmp_path):
         env_path = tmp_path / ".env"
         env_path.write_text(
-            "CANASTA_ENABLE_VARNISH=true\nCOMPOSE_PROFILES=varnish\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "COMPOSE_PROFILES=varnish,internal-db\n"
         )
         original_mtime = env_path.stat().st_mtime_ns
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         # If _sync wrote the file, mtime would update. The guard in
         # _sync (sorted(desired) == sorted(current)) must prevent that.
         assert env_path.stat().st_mtime_ns == original_mtime
+
+    def test_adds_internal_db_by_default(self, tmp_path):
+        # No USE_EXTERNAL_DB set: the bundled database runs by default, so
+        # internal-db must be derived even when COMPOSE_PROFILES omits it.
+        (tmp_path / ".env").write_text("COMPOSE_PROFILES=\n")
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "internal-db" in content
+
+    def test_self_heals_missing_internal_db(self, tmp_path):
+        # An old/drifted instance whose COMPOSE_PROFILES lost internal-db
+        # gets it restored on the next sync (no external DB configured).
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_VARNISH=true\nCOMPOSE_PROFILES=varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert "internal-db" in line
+                assert "varnish" in line
+                break
+
+    def test_external_db_drops_internal_db_without_teardown(self, tmp_path):
+        # USE_EXTERNAL_DB=true: internal-db leaves the profile set, but the
+        # database container must NEVER be auto-torn-down (it is absent from
+        # _MANAGED_PROFILE_SERVICES, so no compose rm is issued for it).
+        (tmp_path / ".env").write_text(
+            "USE_EXTERNAL_DB=true\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "COMPOSE_PROFILES=internal-db,varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert "internal-db" not in line
+                break
+        # No teardown call was issued for the dropped internal-db profile.
+        assert self.compose_calls == []
 
     def test_deactivated_profile_tears_down_its_container(self, tmp_path):
         # elasticsearch was active; the flag is now false. The profile is
@@ -1688,10 +1730,11 @@ class TestSyncComposeProfiles:
         )
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
-        # Profile dropped and the managed image cleared back to default.
+        # crowdsec dropped (internal-db stays, default-on) and the managed
+        # image cleared back to default.
         for line in content.split("\n"):
             if line.startswith("COMPOSE_PROFILES="):
-                assert line == "COMPOSE_PROFILES="
+                assert line == "COMPOSE_PROFILES=internal-db"
             if line.startswith("CANASTA_CADDY_IMAGE="):
                 assert line == "CANASTA_CADDY_IMAGE="
 
