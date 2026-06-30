@@ -366,6 +366,28 @@ _CADDY_PLUGIN_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.11.3"
 # runs on stock Caddy. Mirrors rewrite_caddy.yml / sync_compose_profiles.yml.
 _CADDY_PLUGIN_TRUSTED_PROXY_MODES = ("cloudflare", "imperva")
 
+# Profile names sync derives from the env (feature flags + DB mode). internal-db
+# is included (it is derived too) but is intentionally absent from
+# _MANAGED_PROFILE_SERVICES, so the teardown never removes the db container.
+_MANAGED_PROFILE_NAMES = (
+    {p for p, _flag, _default in _MANAGED_PROFILES} | {"internal-db"}
+)
+
+
+def _reconcile_compose_profiles(env, current):
+    """The COMPOSE_PROFILES that sync derives for `env`: unmanaged profiles in
+    `current` preserved, managed feature profiles whose CANASTA_ENABLE_* flag is
+    true, and internal-db unless an external DB is configured. Shared by
+    _sync_compose_profiles and the doctor consistency check so the checker can
+    never disagree with the syncer."""
+    desired = [p for p in current if p not in _MANAGED_PROFILE_NAMES]
+    for profile, flag, default in _MANAGED_PROFILES:
+        if env.get(flag, default).strip().lower() == "true":
+            desired.append(profile)
+    if env.get("USE_EXTERNAL_DB", "false").strip().lower() != "true":
+        desired.append("internal-db")
+    return desired
+
 
 def _sync_compose_profiles(inst):
     """Align COMPOSE_PROFILES (and the CrowdSec Caddy image) in .env with
@@ -385,27 +407,11 @@ def _sync_compose_profiles(inst):
 
     entries = _parse_env_entries(content)
     env = {k: v for k, v, c in entries if not c and k}
-    # internal-db is reconciled like a managed profile (stripped from current,
-    # then re-derived below) but keyed on the INVERSE of USE_EXTERNAL_DB, and
-    # it is absent from _MANAGED_PROFILE_SERVICES so its container is never
-    # auto-removed by the teardown.
-    managed_names = {p for p, _flag, _default in _MANAGED_PROFILES}
-    managed_names.add("internal-db")
+    managed_names = _MANAGED_PROFILE_NAMES  # for the teardown below
 
     current_raw = env.get("COMPOSE_PROFILES", "")
     current = [p.strip() for p in current_raw.split(",") if p.strip()]
-
-    desired = [p for p in current if p not in managed_names]
-    for profile, flag, default in _MANAGED_PROFILES:
-        if env.get(flag, default).strip().lower() == "true":
-            desired.append(profile)
-    # The bundled database runs by default and is skipped only when an external
-    # DB is configured (mirrors roles/create/tasks/_env_update.yml). Deriving it
-    # every sync — rather than only preserving it when already present — means an
-    # instance whose COMPOSE_PROFILES lost internal-db (created before
-    # external-DB support, or a gitops .env render that dropped it) self-heals.
-    if env.get("USE_EXTERNAL_DB", "false").strip().lower() != "true":
-        desired.append("internal-db")
+    desired = _reconcile_compose_profiles(env, current)
 
     profiles_changed = sorted(desired) != sorted(current)
 
