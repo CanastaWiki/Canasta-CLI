@@ -204,30 +204,142 @@ def _parse_doctor(stdout, hostname):
     return "\n".join(lines)
 
 
+# service name -> the COMPOSE_PROFILE that must be active for it to be managed.
+# Inverted from _MANAGED_PROFILE_SERVICES, plus db -> internal-db. Services not
+# listed (web, caddy) are profile-less / always-on. Used to flag containers
+# that are running but whose profile isn't in COMPOSE_PROFILES.
+_SERVICE_PROFILE = {
+    svc: prof
+    for prof, svcs in _helpers._MANAGED_PROFILE_SERVICES.items()
+    for svc in svcs
+}
+_SERVICE_PROFILE["db"] = "internal-db"
+
+
+def _consistency_warnings(env, current_profiles, running_services, uses_cirrus):
+    """Pure: warnings about config/runtime drift for a Compose instance.
+
+    - COMPOSE_PROFILES that disagrees with what sync would derive from the
+      flags + DB mode.
+    - A container running under a profile that isn't active (unmanaged — a
+      stop/start won't restore it).
+    - CirrusSearch configured in settings while Elasticsearch is disabled.
+    """
+    warns = []
+    active = set(current_profiles)
+
+    desired = _helpers._reconcile_compose_profiles(env, list(current_profiles))
+    if sorted(desired) != sorted(current_profiles):
+        missing = sorted(p for p in desired if p not in active)
+        stale = sorted(p for p in current_profiles if p not in desired)
+        detail = []
+        if missing:
+            detail.append("should add %s" % ", ".join(missing))
+        if stale:
+            detail.append("should drop %s" % ", ".join(stale))
+        warns.append(
+            "COMPOSE_PROFILES out of sync with the feature flags (%s) — "
+            "run 'canasta restart' to reconcile" % "; ".join(detail))
+
+    for svc in running_services:
+        prof = _SERVICE_PROFILE.get(svc)
+        if prof and prof not in active:
+            warns.append(
+                "'%s' is running but its profile '%s' is not in "
+                "COMPOSE_PROFILES — it is unmanaged, and a stop/start cycle "
+                "won't bring it back" % (svc, prof))
+
+    if uses_cirrus and "elasticsearch" not in active:
+        warns.append(
+            "CirrusSearch is configured (config/settings) but the "
+            "'elasticsearch' profile is inactive — search depends on an "
+            "unmanaged Elasticsearch; set CANASTA_ENABLE_ELASTICSEARCH=true")
+
+    return warns
+
+
+def _gather_runtime(path, host):
+    """(running_services, uses_cirrus) for an instance, localhost or remote."""
+    d = _helpers._SENTINEL
+    qpath = _helpers._shell_quote(path)
+    script = (
+        "cd %(p)s 2>/dev/null && "
+        "docker compose ps --services --status running 2>/dev/null; "
+        "echo '%(d)s'; "
+        "grep -rqi cirrussearch %(p)s/config/settings 2>/dev/null "
+        "&& echo USES_CIRRUS || echo NO_CIRRUS"
+    ) % {"p": qpath, "d": d}
+    if _helpers._is_localhost(host):
+        try:
+            out = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True, text=True, timeout=30,
+            ).stdout
+        except (subprocess.TimeoutExpired, OSError):
+            return [], False
+    else:
+        rc, out = _helpers._ssh_run(host, script)
+        if rc != 0 and not out.strip():
+            return [], False
+    parts = out.split(d + "\n")
+    head = parts[0].strip() if parts else ""
+    running = [s for s in head.split("\n") if s.strip()]
+    uses_cirrus = len(parts) > 1 and "USES_CIRRUS" in parts[1]
+    return running, uses_cirrus
+
+
+def _instance_consistency_lines(inst):
+    """doctor lines for an instance's config<->runtime consistency, or [] when
+    not applicable (no instance / not Compose / unreadable .env)."""
+    if not inst or inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+        return []
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    if not path:
+        return []
+    content = _helpers._read_env_content(path, host)
+    if not content:
+        return []
+    env = {
+        k: v for k, v, c in _helpers._parse_env_entries(content) if not c and k
+    }
+    current = [
+        p.strip() for p in env.get("COMPOSE_PROFILES", "").split(",")
+        if p.strip()
+    ]
+    running, uses_cirrus = _gather_runtime(path, host)
+    warns = _consistency_warnings(env, current, running, uses_cirrus)
+    lines = ["", "Instance consistency (%s):" % inst.get("id", "?")]
+    if warns:
+        lines += ["  WARN: %s" % w for w in warns]
+    else:
+        lines.append(
+            "  OK (profiles, running services, and search backend agree)")
+    return lines
+
+
 @register("doctor")
 def cmd_doctor(args):
     host = getattr(args, "host", None)
     inst_id = getattr(args, "id", None)
-    # When the caller doesn't pin a host explicitly, derive it from the
-    # registry: --id wins, then cwd-match, then fall back to localhost.
-    # Matches the "instance-aware default" behavior of `canasta status`,
-    # `version`, and other direct commands so users in an instance
-    # directory get its host checked instead of theirs.
-    if not host:
-        conf_path = os.path.join(_helpers._get_config_dir(), "conf.json")
-        instances = _helpers._read_registry(conf_path)
-        if inst_id:
-            if inst_id not in instances:
-                print(
-                    "Error: Instance '%s' not found in registry" % inst_id,
-                    file=sys.stderr,
-                )
-                return 1
-            host = instances[inst_id].get("host") or "localhost"
-        else:
-            _, inst = _helpers._resolve_instance_by_cwd(args)
-            if inst:
-                host = inst.get("host") or "localhost"
+    # Resolve the instance (--id wins, then cwd-match) so we can both derive
+    # the host to check — matching the "instance-aware default" of `canasta
+    # status` / `version` — and run the per-instance consistency checks below.
+    conf_path = os.path.join(_helpers._get_config_dir(), "conf.json")
+    instances = _helpers._read_registry(conf_path)
+    inst = None
+    if inst_id:
+        if inst_id not in instances:
+            print(
+                "Error: Instance '%s' not found in registry" % inst_id,
+                file=sys.stderr,
+            )
+            return 1
+        inst = instances[inst_id]
+    else:
+        _, inst = _helpers._resolve_instance_by_cwd(args)
+    if not host and inst:
+        host = inst.get("host") or "localhost"
     script = _DOCTOR_SCRIPT % {"delim": _helpers._SENTINEL}
 
     if not host or host == "localhost":
@@ -249,6 +361,9 @@ def cmd_doctor(args):
             return 1
 
     print(_parse_doctor(stdout, hostname))
+
+    for line in _instance_consistency_lines(inst):
+        print(line)
 
     parts = stdout.split(_helpers._SENTINEL + "\n")
     docker = parts[1].strip() if len(parts) > 1 else "MISSING"
