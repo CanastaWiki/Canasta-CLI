@@ -1,0 +1,33 @@
+---
+# Reconcile a Canasta instance: bring its config and running containers into
+# agreement WITHOUT a disruptive stop. Re-derives COMPOSE_PROFILES from the
+# feature flags + DB mode, regenerates rendered config (Caddyfile), and
+# converges the runtime via `up -d` — recreating only what changed. Idempotent;
+# the fix companion to `canasta doctor`'s drift detection.
+# Input: id (optional)
+
+- name: Resolve instance (skip if caller already resolved it)
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  when: instance_path is not defined
+
+# Regenerate rendered config (e.g. the Caddyfile from the current wikis.yaml)
+# so the converge below picks up drift between sources and rendered state.
+- name: Regenerate config
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
+# start.yml runs sync_compose_profiles (reconciles COMPOSE_PROFILES from the
+# flags + DB mode, and tears down containers of deactivated profiles) and then
+# `docker compose up -d`, which starts anything missing and recreates only
+# changed services. No `down`, so this is non-disruptive.
+- name: Converge containers (sync profiles + up -d)
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml
+
+- name: Report reconciled
+  ansible.builtin.debug:
+    msg: >-
+      Instance '{{ instance_id }}' reconciled — config and running containers
+      are in sync.
