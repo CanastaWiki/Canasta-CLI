@@ -102,3 +102,49 @@ class TestUpgradeRefreshesAndRecreatesOnComposeChange:
             "'Already up to date' must key off _restart_needed so a compose "
             "change isn't reported as a no-op"
         )
+
+
+IMAGE_TAG = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "upgrade_image_tag.yml"
+)
+
+
+def _includes(task):
+    inc = task.get("ansible.builtin.include_tasks") or task.get("include_tasks")
+    if isinstance(inc, dict):
+        return inc.get("file", "")
+    return inc or ""
+
+
+class TestImageTagGitopsDurable:
+    """The compose image bump must persist to the gitops source, or the next
+    gitops pull re-renders .env from env.template and reverts the upgrade."""
+
+    def test_bump_propagates_to_gitops_vars(self):
+        tasks = _load(IMAGE_TAG)
+        prop = next(
+            (t for t in _iter_tasks(tasks)
+             if "config_update_gitops_vars.yml" in _includes(t)),
+            None,
+        )
+        assert prop is not None, (
+            "upgrade_image_tag.yml must propagate CANASTA_IMAGE to the gitops "
+            "source (config_update_gitops_vars.yml) so the bump survives a pull"
+        )
+        # It passes CANASTA_IMAGE as the setting and is gated on the instance
+        # actually being gitops-managed.
+        assert "CANASTA_IMAGE" in str(prop.get("vars", {}).get("_config_settings", ""))
+        assert "stat.exists" in str(prop.get("when", "")), (
+            "gitops propagation must be gated on .gitops-host existing"
+        )
+
+    def test_bump_still_writes_env(self):
+        # The .env write must remain — gitops persistence is in addition to it,
+        # and non-gitops instances rely on the .env write alone.
+        tasks = _load(IMAGE_TAG)
+        env_writes = [
+            t for t in _iter_tasks(tasks)
+            if isinstance(t, dict) and "canasta_env" in t
+            and t.get("canasta_env", {}).get("key") == "CANASTA_IMAGE"
+        ]
+        assert env_writes, "the .env CANASTA_IMAGE write must remain"
