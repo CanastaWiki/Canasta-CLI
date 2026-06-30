@@ -1,0 +1,8 @@
+---
+# canasta reconcile - Bring an instance's config and runtime into agreement
+# without a disruptive restart (regenerate config + sync profiles + up -d).
+
+- name: Reconcile instance
+  ansible.builtin.include_role:
+    name: instance_lifecycle
+    tasks_from: reconcile.yml
