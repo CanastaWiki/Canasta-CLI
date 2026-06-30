@@ -62,9 +62,17 @@
 # Enroll when forced, when no bouncer is registered yet, or when one is
 # registered but we have no stored key (cscli can't reveal an existing
 # key, so the only way to recover is to revoke and re-issue).
+#
+# The `force` branch is gated on NOT the auto path: `force` is a global
+# extra-var shared with `config set --force` (which only means "allow an
+# unrecognized key"). Without this guard, running `config set --force` on a
+# CrowdSec instance makes every auto-enroll inside the triggered restart see
+# force=true and re-issue the bouncer, restart, and re-enroll forever. An
+# explicit `canasta crowdsec bouncer-enroll --force` (auto path off) still
+# forces a fresh key.
 - name: Enroll the bouncer
   when: >-
-    (force | default(false) | bool)
+    ((force | default(false) | bool) and not (bouncer_enroll_auto | default(false) | bool))
     or (not (_crowdsec_existing | bool))
     or (not (_crowdsec_have_key | bool))
   block:
