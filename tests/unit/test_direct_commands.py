@@ -1409,6 +1409,38 @@ class TestLifecycleCommands:
         assert rc == 1
         assert call_count[0] == 1
 
+    def test_restart_syncs_profiles_before_down(self, monkeypatch):
+        # The profile sync must run BEFORE `down` so `down` and `up` act on the
+        # same service set. If it ran between down and up (the old order), a
+        # drifted profile set let `down` skip a service that `up` then didn't
+        # recreate — the Varnish stale-backend redirect loop.
+        events = []
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}))
+        monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
+            lambda inst: events.append("sync"))
+        monkeypatch.setattr(direct_commands._helpers, "_run_compose",
+            lambda inst_id, inst, action: events.append(action[0]) or 0)
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_restart(args)
+        assert rc == 0
+        assert events == ["sync", "down", "up"]
+
+    def test_stop_syncs_profiles_before_down(self, monkeypatch):
+        # Standalone stop reconciles too, so `down` tears down the full
+        # intended set rather than leaving an out-of-profile orphan running.
+        events = []
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}))
+        monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
+            lambda inst: events.append("sync"))
+        monkeypatch.setattr(direct_commands._helpers, "_run_compose",
+            lambda inst_id, inst, action: events.append(action[0]) or 0)
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_stop(args)
+        assert rc == 0
+        assert events == ["sync", "down"]
+
     def test_remote_start_uses_ssh(self, monkeypatch):
         # The sync-profiles .env read still goes through _ssh_run...
         def mock_ssh(host, cmd):
