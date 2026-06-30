@@ -5,8 +5,13 @@
 # Output: instance_id, instance_path, instance_orchestrator (+ the rest of
 # resolve_instance's facts), _cscli_prefix, _cscli_chdir.
 
-- name: Resolve instance
+# Top-level `canasta crowdsec ...` needs this; nested callers (the
+# start/upgrade auto-enroll path) already resolved the instance, and
+# re-resolving from CWD would pick the wrong directory when the CLI was
+# invoked outside the instance dir (e.g. `canasta upgrade` from $HOME).
+- name: Resolve instance (skip if caller already resolved it)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  when: instance_path is not defined
 
 # --- Compose: the crowdsec service must be running ---
 - name: Verify crowdsec service is running (Compose)
