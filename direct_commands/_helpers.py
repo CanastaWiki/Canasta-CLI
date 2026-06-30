@@ -385,7 +385,12 @@ def _sync_compose_profiles(inst):
 
     entries = _parse_env_entries(content)
     env = {k: v for k, v, c in entries if not c and k}
+    # internal-db is reconciled like a managed profile (stripped from current,
+    # then re-derived below) but keyed on the INVERSE of USE_EXTERNAL_DB, and
+    # it is absent from _MANAGED_PROFILE_SERVICES so its container is never
+    # auto-removed by the teardown.
     managed_names = {p for p, _flag, _default in _MANAGED_PROFILES}
+    managed_names.add("internal-db")
 
     current_raw = env.get("COMPOSE_PROFILES", "")
     current = [p.strip() for p in current_raw.split(",") if p.strip()]
@@ -394,6 +399,13 @@ def _sync_compose_profiles(inst):
     for profile, flag, default in _MANAGED_PROFILES:
         if env.get(flag, default).strip().lower() == "true":
             desired.append(profile)
+    # The bundled database runs by default and is skipped only when an external
+    # DB is configured (mirrors roles/create/tasks/_env_update.yml). Deriving it
+    # every sync — rather than only preserving it when already present — means an
+    # instance whose COMPOSE_PROFILES lost internal-db (created before
+    # external-DB support, or a gitops .env render that dropped it) self-heals.
+    if env.get("USE_EXTERNAL_DB", "false").strip().lower() != "true":
+        desired.append("internal-db")
 
     profiles_changed = sorted(desired) != sorted(current)
 
@@ -440,8 +452,12 @@ def _sync_compose_profiles(inst):
         removed = [
             p for p in current if p in managed_names and p not in desired
         ]
+        # internal-db is in managed_names but not in _MANAGED_PROFILE_SERVICES:
+        # switching to an external DB drops it from the profile set, but the
+        # database container is intentionally never torn down here.
         stale_services = [
-            svc for p in removed for svc in _MANAGED_PROFILE_SERVICES[p]
+            svc for p in removed if p in _MANAGED_PROFILE_SERVICES
+            for svc in _MANAGED_PROFILE_SERVICES[p]
         ]
         if stale_services:
             profile_flags = []
