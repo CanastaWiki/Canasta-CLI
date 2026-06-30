@@ -501,6 +501,30 @@ commands:
         type: string
         description: "Canasta instance ID"
 
+  - name: reconcile
+    description: "Bring an instance's config and running containers back into agreement"
+    long_description: |
+      Reconcile an instance to a consistent state without a disruptive
+      restart. Re-derives COMPOSE_PROFILES from the feature flags and
+      database mode, regenerates rendered config (e.g. the Caddyfile),
+      and converges the running containers with 'docker compose up -d' —
+      starting anything missing and recreating only what changed, with no
+      stop. Idempotent and safe to run anytime.
+
+      This is the fix companion to 'canasta doctor': when doctor reports
+      config/runtime drift (profiles out of sync with the flags, a
+      container running unmanaged, search configured without its backend),
+      'canasta reconcile' applies the reconcilers to fix it.
+    examples:
+      - "canasta reconcile"
+      - "canasta reconcile --id mysite"
+    playbook: reconcile.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
   - name: rebuild
     description: "Rebuild custom images for a Canasta instance"
     long_description: |

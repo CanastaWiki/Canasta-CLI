@@ -109,33 +109,55 @@ IMAGE_TAG = os.path.join(
 )
 
 
-def _includes(task):
-    inc = task.get("ansible.builtin.include_tasks") or task.get("include_tasks")
-    if isinstance(inc, dict):
-        return inc.get("file", "")
-    return inc or ""
-
-
 class TestImageTagGitopsDurable:
-    """The compose image bump must persist to the gitops source, or the next
-    gitops pull re-renders .env from env.template and reverts the upgrade."""
+    """The compose image bump must persist to env.template, or the next gitops
+    pull re-renders .env from it and reverts the upgrade. CANASTA_IMAGE is a
+    plain literal in env.template (not a managed/secret placeholder key), so it
+    must be updated directly — the config-set placeholder path skips it."""
 
-    def test_bump_propagates_to_gitops_vars(self):
+    @staticmethod
+    def _lineinfile(task):
+        return (task.get("ansible.builtin.lineinfile")
+                or task.get("lineinfile")) if isinstance(task, dict) else None
+
+    def test_bump_updates_env_template_literal(self):
         tasks = _load(IMAGE_TAG)
-        prop = next(
+        upd = next(
             (t for t in _iter_tasks(tasks)
-             if "config_update_gitops_vars.yml" in _includes(t)),
+             if self._lineinfile(t)
+             and "env.template" in str(self._lineinfile(t).get("path", ""))),
             None,
         )
-        assert prop is not None, (
-            "upgrade_image_tag.yml must propagate CANASTA_IMAGE to the gitops "
-            "source (config_update_gitops_vars.yml) so the bump survives a pull"
+        assert upd is not None, (
+            "upgrade_image_tag.yml must update the CANASTA_IMAGE literal in "
+            "env.template so the bump survives the next gitops pull"
         )
-        # It passes CANASTA_IMAGE as the setting and is gated on the instance
-        # actually being gitops-managed.
-        assert "CANASTA_IMAGE" in str(prop.get("vars", {}).get("_config_settings", ""))
-        assert "stat.exists" in str(prop.get("when", "")), (
-            "gitops propagation must be gated on .gitops-host existing"
+        li = self._lineinfile(upd)
+        assert "CANASTA_IMAGE" in str(li.get("regexp", ""))
+        assert "canasta_default_image" in str(li.get("line", "")), (
+            "the new env.template line must carry the upgrade's target tag"
+        )
+        assert "stat.exists" in str(upd.get("when", "")), (
+            "the env.template update must be gated on .gitops-host existing"
+        )
+
+    def test_env_template_update_inherits_build_from_and_default_image_guards(self):
+        # The env.template write must live INSIDE the guarded block so it never
+        # clobbers a --build-from local build or a custom (non-default) image.
+        block = next(
+            t for t in _load(IMAGE_TAG)
+            if isinstance(t, dict) and t.get("name") == "Update Compose image tag"
+        )
+        when = str(block.get("when", ""))
+        assert "buildFrom" in when, "build-from instances must be excluded"
+        assert "canastawiki/canasta:" in when, (
+            "only the default Canasta image is managed; a custom image is left "
+            "alone"
+        )
+        inside = [t for t in block.get("block", []) if self._lineinfile(t)]
+        assert inside, (
+            "the env.template update must be inside the guarded block so it "
+            "inherits the build-from / default-image guards"
         )
 
     def test_bump_still_writes_env(self):
