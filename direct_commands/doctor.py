@@ -216,7 +216,8 @@ _SERVICE_PROFILE = {
 _SERVICE_PROFILE["db"] = "internal-db"
 
 
-def _consistency_warnings(env, current_profiles, running_services, uses_cirrus):
+def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
+                          template_image=None):
     """Pure: warnings about config/runtime drift for a Compose instance.
 
     - COMPOSE_PROFILES that disagrees with what sync would derive from the
@@ -224,6 +225,9 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus):
     - A container running under a profile that isn't active (unmanaged — a
       stop/start won't restore it).
     - CirrusSearch configured in settings while Elasticsearch is disabled.
+    - env.template's CANASTA_IMAGE stale relative to .env (a gitops pull would
+      revert the running image — e.g. an upgrade that self-updated the CLI in
+      the same invocation, #929).
     """
     warns = []
     active = set(current_profiles)
@@ -255,11 +259,20 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus):
             "'elasticsearch' profile is inactive — search depends on an "
             "unmanaged Elasticsearch; set CANASTA_ENABLE_ELASTICSEARCH=true")
 
+    env_image = env.get("CANASTA_IMAGE", "").strip()
+    if template_image and env_image and template_image != env_image:
+        warns.append(
+            "env.template pins the image at '%s' but .env is '%s' — the "
+            "durable gitops source is stale; a gitops pull would revert the "
+            "running image" % (template_image, env_image))
+
     return warns
 
 
 def _gather_runtime(path, host):
-    """(running_services, uses_cirrus) for an instance, localhost or remote."""
+    """(running_services, uses_cirrus, env_template_image) for an instance,
+    localhost or remote. env_template_image is the CANASTA_IMAGE pinned in
+    env.template ('' if not gitops / not present)."""
     d = _helpers._SENTINEL
     qpath = _helpers._shell_quote(path)
     script = (
@@ -267,7 +280,9 @@ def _gather_runtime(path, host):
         "docker compose ps --services --status running 2>/dev/null; "
         "echo '%(d)s'; "
         "grep -rqi cirrussearch %(p)s/config/settings 2>/dev/null "
-        "&& echo USES_CIRRUS || echo NO_CIRRUS"
+        "&& echo USES_CIRRUS || echo NO_CIRRUS; "
+        "echo '%(d)s'; "
+        "grep '^CANASTA_IMAGE=' %(p)s/env.template 2>/dev/null | head -1"
     ) % {"p": qpath, "d": d}
     if _helpers._is_localhost(host):
         try:
@@ -276,16 +291,21 @@ def _gather_runtime(path, host):
                 capture_output=True, text=True, timeout=30,
             ).stdout
         except (subprocess.TimeoutExpired, OSError):
-            return [], False
+            return [], False, ""
     else:
         rc, out = _helpers._ssh_run(host, script)
         if rc != 0 and not out.strip():
-            return [], False
+            return [], False, ""
     parts = out.split(d + "\n")
     head = parts[0].strip() if parts else ""
     running = [s for s in head.split("\n") if s.strip()]
     uses_cirrus = len(parts) > 1 and "USES_CIRRUS" in parts[1]
-    return running, uses_cirrus
+    template_image = ""
+    if len(parts) > 2:
+        line = parts[2].strip()
+        if line.startswith("CANASTA_IMAGE="):
+            template_image = line.split("=", 1)[1].strip()
+    return running, uses_cirrus, template_image
 
 
 def _instance_consistency_lines(inst):
@@ -307,8 +327,9 @@ def _instance_consistency_lines(inst):
         p.strip() for p in env.get("COMPOSE_PROFILES", "").split(",")
         if p.strip()
     ]
-    running, uses_cirrus = _gather_runtime(path, host)
-    warns = _consistency_warnings(env, current, running, uses_cirrus)
+    running, uses_cirrus, template_image = _gather_runtime(path, host)
+    warns = _consistency_warnings(
+        env, current, running, uses_cirrus, template_image)
     lines = ["", "Instance consistency (%s):" % inst.get("id", "?")]
     if warns:
         lines += ["  WARN: %s" % w for w in warns]

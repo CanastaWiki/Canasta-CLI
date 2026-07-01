@@ -10,6 +10,38 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
   when: instance_path is not defined
 
+# Reconcile the durable gitops source to the live .env for the image tag. An
+# upgrade that self-updated the CLI in the same invocation can bump .env's
+# CANASTA_IMAGE but skip the env.template write (#929), leaving env.template
+# stale — a gitops pull would then re-render .env back to the old image. Bring
+# env.template's CANASTA_IMAGE up to .env so the running image survives a pull.
+# Compose gitops only; a no-op when they already match.
+- name: Reconcile env.template image tag to .env (gitops Compose)
+  when: instance_orchestrator | default('compose') == 'compose'
+  block:
+    - name: Check if instance is gitops-managed
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/.gitops-host"
+      register: _reconcile_gitops_stat
+
+    - name: Read .env CANASTA_IMAGE
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CANASTA_IMAGE
+      register: _reconcile_env_image
+      when: _reconcile_gitops_stat.stat.exists | default(false)
+
+    - name: Sync env.template CANASTA_IMAGE to .env
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/env.template"
+        regexp: "^CANASTA_IMAGE="
+        line: "CANASTA_IMAGE={{ _reconcile_env_image.value }}"
+        state: present
+      when:
+        - _reconcile_gitops_stat.stat.exists | default(false)
+        - _reconcile_env_image.found | default(false)
+
 # Regenerate rendered config (e.g. the Caddyfile from the current wikis.yaml)
 # so the converge below picks up drift between sources and rendered state.
 - name: Regenerate config
