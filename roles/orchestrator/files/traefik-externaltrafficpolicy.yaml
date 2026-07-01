@@ -3,7 +3,7 @@
 # The k3s-bundled Traefik LoadBalancer service defaults to
 # externalTrafficPolicy: Cluster, which SNATs the source IP to the node CNI
 # gateway before the request reaches Traefik/Caddy. That breaks every
-# real-client-IP behaviour on K8s: CrowdSec sees only private IPs and
+# real-client-IP behavior on K8s: CrowdSec sees only private IPs and
 # whitelists all traffic (protecting nothing), and access logs are useless.
 #
 # externalTrafficPolicy: Local preserves the client IP, but a node only serves
