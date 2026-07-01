@@ -97,6 +97,18 @@ class TestTranslateService:
         assert sc is None
         assert any("deploy.replicas" in r for r in reasons)
 
+    def test_port_range_skips_instead_of_crashing(self):
+        sc, reasons, _ = m.translate_service(
+            "x", {"image": "i", "ports": ["8000-8005"]})
+        assert sc is None
+        assert any("unparseable port" in r for r in reasons)
+
+    def test_unparseable_expose_port_skips(self):
+        sc, reasons, _ = m.translate_service(
+            "x", {"image": "i", "expose": ["${PORT}"]})
+        assert sc is None
+        assert any("unparseable expose port" in r for r in reasons)
+
 
 CORE_AND_SIDECARS = {
     "services": {
