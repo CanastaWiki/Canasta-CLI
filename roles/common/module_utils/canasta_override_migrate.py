@@ -50,14 +50,22 @@ def _env_to_map(environment):
     return out
 
 
-def _ports_to_list(svc):
+def _ports_to_list(svc, reasons):
     out = []
     for entry in svc.get("expose", []) or []:
-        out.append(int(str(entry)))
+        try:
+            out.append(int(str(entry)))
+        except ValueError:
+            reasons.append("unparseable expose port '%s'" % entry)
     for entry in svc.get("ports", []) or []:
         # HOST:CONTAINER[/proto] or CONTAINER — take the container port.
         container = str(entry).split("/")[0].split(":")[-1]
-        port = int(container)
+        try:
+            port = int(container)
+        except ValueError:
+            # e.g. a port range (8000-8005) or a variable in the container slot.
+            reasons.append("unparseable port '%s'" % entry)
+            continue
         if port not in out:
             out.append(port)
     return out
@@ -152,7 +160,7 @@ def translate_service(name, svc):
         sidecar["command"] = svc["command"]
     if svc.get("environment"):
         sidecar["env"] = _env_to_map(svc["environment"])
-    ports = _ports_to_list(svc)
+    ports = _ports_to_list(svc, reasons)
     if ports:
         sidecar["ports"] = ports
     volumes, files = _volumes(svc, reasons, assumptions, name)
