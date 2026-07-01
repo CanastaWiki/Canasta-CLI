@@ -96,10 +96,9 @@ class TestRebuildFiresOnAnyImageChange:
             "the `web` service (#562, gap 2)"
         )
 
-    def test_running_vs_configured_check_still_gated_on_not_updated(self):
-        """The running-vs-configured check only needs to fire when pull didn't
-        already detect an update — that gate must stay. (It no longer requires
-        a buildable service; see TestRunningVsConfiguredAllInstances / #928.)"""
+    def test_running_vs_configured_check_gated_on_not_updated(self):
+        """The running-vs-configured check fires only when pull didn't already
+        detect an update — that gate must stay."""
         tasks = _load_tasks()
         check = _find_task(tasks, "Check running container image vs configured")
         when = check.get("when", [])
@@ -110,10 +109,9 @@ class TestRebuildFiresOnAnyImageChange:
 
 
 class TestRunningVsConfiguredAllInstances:
-    """#928: the running-vs-configured image check must run for EVERY Compose
-    instance, not only --build-from ones. Otherwise an upgrade to an image
-    already on disk bumps the tag but never restarts (running != configured),
-    and reports success while leaving the old container up."""
+    """The running-vs-configured image check runs for every Compose instance,
+    so an upgrade to an image already on disk still restarts (running !=
+    configured) instead of reporting success while leaving the old container."""
 
     def test_check_not_gated_on_buildable_services(self):
         check = _find_task(
@@ -122,7 +120,7 @@ class TestRunningVsConfiguredAllInstances:
         when = str(check.get("when", ""))
         assert "_buildable_services" not in when, (
             "the running-vs-configured check must not require buildable "
-            "services; it applies to every Compose instance (#928)"
+            "services; it applies to every Compose instance"
         )
         assert "compose" in when and "_images_updated" in when, (
             "it must stay Compose-scoped and skip when pull already flagged "

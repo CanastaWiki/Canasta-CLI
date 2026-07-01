@@ -47,14 +47,12 @@
               | map(attribute='key')
               | list) if (_upgrade_compose_config.rc | default(1)) == 0 else [] }}
 
-# Running-vs-configured check. The pull-based signal (_images_updated) only
-# fires when `docker compose pull` DOWNLOADS a new image — it misses the case
-# where the configured image is already on disk (pulled by an earlier attempt,
-# or a buildable web service that pull skipped) while the running container is
-# still on an older image. Without this, `canasta upgrade` bumps the tag,
-# reports success, and leaves the old container running. Compare the configured
-# image to the running one and flag a restart on a mismatch, for every Compose
-# instance — not just those with a build directive.
+# Flag a restart when the configured image differs from the running one.
+# The pull-based signal (_images_updated) is set only when `docker compose
+# pull` downloads a new image, so it misses a configured tag that is already
+# on disk (pre-pulled, or a buildable web service pull skips) while the
+# container still runs an older one. Runs for every Compose instance, and only
+# when pull hasn't already flagged an update.
 - name: Check running container image vs configured (Compose)
   when:
     - instance_orchestrator | default('compose') == 'compose'
