@@ -70,9 +70,9 @@ RECONCILE_TASKS = os.path.join(
 
 
 class TestReconcileEnvTemplateImageSync:
-    """#929 safety net: reconcile brings env.template's CANASTA_IMAGE up to
-    .env (gitops Compose) so a durability write skipped during a self-updating
-    upgrade self-heals — a gitops pull can't then revert the running image."""
+    """reconcile brings env.template's CANASTA_IMAGE up to .env (gitops
+    Compose) so a stale durable source can't revert the running image on the
+    next gitops pull."""
 
     def test_reconcile_syncs_env_template_image_to_env(self):
         block = next(

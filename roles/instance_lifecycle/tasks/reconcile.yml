@@ -10,12 +10,10 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
   when: instance_path is not defined
 
-# Reconcile the durable gitops source to the live .env for the image tag. An
-# upgrade that self-updated the CLI in the same invocation can bump .env's
-# CANASTA_IMAGE but skip the env.template write (#929), leaving env.template
-# stale — a gitops pull would then re-render .env back to the old image. Bring
-# env.template's CANASTA_IMAGE up to .env so the running image survives a pull.
-# Compose gitops only; a no-op when they already match.
+# Bring env.template's CANASTA_IMAGE up to the live .env value. A gitops pull
+# re-renders .env from env.template, so a stale env.template would revert the
+# running image to its older tag; syncing it here keeps the running image on
+# the next pull. Compose gitops only; a no-op when they already match.
 - name: Reconcile env.template image tag to .env (gitops Compose)
   when: instance_orchestrator | default('compose') == 'compose'
   block:

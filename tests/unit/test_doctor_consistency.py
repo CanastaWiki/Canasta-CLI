@@ -165,7 +165,7 @@ class TestInstanceConsistencyLines:
         assert any("OK (" in line for line in lines)
 
     def test_env_template_image_drift_warns(self, monkeypatch):
-        # .env has the new tag but env.template is stale (the #929 case).
+        # .env has the new tag but env.template still pins the old one.
         inst = {"id": "site", "orchestrator": "compose", "path": "/srv/site",
                 "host": "localhost"}
         monkeypatch.setattr(

@@ -226,8 +226,7 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
       stop/start won't restore it).
     - CirrusSearch configured in settings while Elasticsearch is disabled.
     - env.template's CANASTA_IMAGE stale relative to .env (a gitops pull would
-      revert the running image — e.g. an upgrade that self-updated the CLI in
-      the same invocation, #929).
+      re-render .env from env.template and revert the running image).
     """
     warns = []
     active = set(current_profiles)
