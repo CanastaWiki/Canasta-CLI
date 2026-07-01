@@ -347,7 +347,9 @@ def _instance_consistency_lines(inst):
     lines = ["", "Instance consistency (%s):" % inst.get("id", "?")]
     if warns:
         lines += ["  WARN: %s" % w for w in warns]
-        lines.append("  Run 'canasta reconcile' to fix.")
+        lines.append(
+            "  Run 'canasta reconcile' to heal profile/runtime and image-tag "
+            "drift; any other warning above names its own fix.")
     else:
         lines.append(
             "  OK (profiles, running services, and search backend agree)")
