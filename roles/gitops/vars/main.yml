@@ -12,13 +12,18 @@ gitops_placeholder_keys:
   - HTTPS_PORT
   - HTTP_PORT
   - CADDY_AUTO_HTTPS
-  # Optional edge-security features. These are per-host toggles and
-  # credentials, so a gitops render/pull must preserve them rather than
-  # reset them to the off state captured at init time. CANASTA_CADDY_IMAGE
-  # and COMPOSE_PROFILES are intentionally absent: both are re-derived from
-  # these flags by sync_compose_profiles on every start, so storing them
-  # would only freeze a value the start sequence already reconciles.
+  # Per-host feature toggles that drive COMPOSE_PROFILES, plus the CrowdSec
+  # bouncer key and trusted-proxy setting. A gitops render/pull must preserve
+  # these rather than reset them to the off state captured at init time —
+  # otherwise sync_compose_profiles derives the profile off and silently
+  # disables the feature on the next restart. CANASTA_CADDY_IMAGE and
+  # COMPOSE_PROFILES are intentionally absent: both are re-derived from these
+  # flags on every start, so storing them would only freeze a value the start
+  # sequence already reconciles.
   - CANASTA_ENABLE_CROWDSEC
+  - CANASTA_ENABLE_ELASTICSEARCH
+  - CANASTA_ENABLE_OBSERVABILITY
+  - CANASTA_ENABLE_VARNISH
   - CROWDSEC_BOUNCER_API_KEY
   - CADDY_TRUSTED_PROXIES
 
