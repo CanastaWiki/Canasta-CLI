@@ -187,6 +187,13 @@ def _orchestrator_label(value):
     return _ORCHESTRATOR_LABELS.get(value, value)
 
 
+def _flag_name(p):
+    """Displayed long flag name for a param. The CLI honors the `long:`
+    override when building argparse options (e.g. host add's `host_name`
+    param is the flag `--name`), so the docs must too."""
+    return p.get("long", p["name"]).replace("_", "-")
+
+
 # Match single-backtick inline code spans — the same convention used in
 # markdown and in the `docs/commands/*.md` renderings of long_description.
 # MediaWiki doesn't interpret backticks, so translate them to <code> on the
@@ -319,8 +326,8 @@ def _global_flags_section(global_flags):
         "!! style=\"text-align:center\" | Required "
         "!! style=\"text-align:center\" | Orchestrator"
     )
-    for p in sorted(global_flags, key=lambda x: x["name"]):
-        flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
+    for p in sorted(global_flags, key=_flag_name):
+        flag = "<code>--%s</code>" % _flag_name(p)
         short = ""
         if p.get("short"):
             short = "<code>-%s</code>" % p["short"]
@@ -391,12 +398,24 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
     # Usage line — match the live wiki's compact form ('canasta create
     # [flags]') instead of an inline listing of every option. The
     # detailed flag table below is the authoritative reference.
-    # Skip entirely when the command has no parameters: the line would
-    # read just 'canasta host list' and duplicate the bare-command
-    # example below.
-    if cmd.get("parameters"):
+    # Positional parameters are appended as uppercase metavars, the way
+    # the CLI's own help renders them. Skip entirely when the command
+    # has no parameters: the line would read just 'canasta host list'
+    # and duplicate the bare-command example below.
+    params = cmd.get("parameters", [])
+    positionals = [p for p in params if p.get("positional")]
+    flag_params = [p for p in params if not p.get("positional")]
+    if params:
+        usage = "%s [flags]" % display
+        for p in positionals:
+            token = p["name"].upper()
+            if p.get("multi") or p["name"] in ("exec_args", "script_args"):
+                token += "..."
+            if not p.get("required"):
+                token = "[%s]" % token
+            usage += " " + token
         lines.append("<syntaxhighlight lang=\"bash\">")
-        lines.append("%s [flags]" % display)
+        lines.append(usage)
         lines.append("</syntaxhighlight>")
         lines.append("")
 
@@ -431,11 +450,43 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
         lines.append("</syntaxhighlight>")
         lines.append("")
 
+    # Arguments table — positional parameters, in definition order (the
+    # order the CLI expects them on the command line). These are not
+    # flags; rendering them with a -- prefix produces commands that fail
+    # as written.
+    if positionals:
+        lines.append("=== Arguments ===")
+        lines.append("")
+        lines.append('{| class="wikitable"')
+        lines.append(
+            "! Argument !! Description "
+            "!! style=\"text-align:center\" | Default "
+            "!! style=\"text-align:center\" | Required "
+            "!! style=\"text-align:center\" | Orchestrator"
+        )
+        for p in positionals:
+            arg = "<code>%s</code>" % p["name"].upper()
+            desc = _backticks_to_code(p.get("description", ""))
+            default = ""
+            if p.get("default") not in (None, "", False, 0):
+                default = "<code>%s</code>" % p["default"]
+            required = "✓" if p.get("required") else ""
+            orch = _orchestrator_label(p.get("orchestrator_only"))
+            lines.append("|-")
+            lines.append(
+                "| %s || %s "
+                '|| style="text-align:center" | %s '
+                '|| style="text-align:center" | %s '
+                '|| style="text-align:center" | %s'
+                % (arg, desc, default, required, orch)
+            )
+        lines.append("|}")
+        lines.append("")
+
     # Flags table — alphabetized by flag name so readers can scan
     # quickly. Definition order in command_definitions.yml is convenient
     # for authors but unhelpful when there are 30+ flags.
-    params = cmd.get("parameters", [])
-    if params:
+    if flag_params:
         lines.append("=== Flags ===")
         lines.append("")
         lines.append('{| class="wikitable"')
@@ -449,8 +500,8 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
         # asterisk in the Default column pointing to a footnote about
         # cwd resolution.
         show_cwd_note = False
-        for p in sorted(params, key=lambda x: x["name"]):
-            flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
+        for p in sorted(flag_params, key=_flag_name):
+            flag = "<code>--%s</code>" % _flag_name(p)
             short = ""
             if p.get("short"):
                 short = "<code>-%s</code>" % p["short"]
