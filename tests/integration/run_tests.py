@@ -316,6 +316,130 @@ def test_upgrade(inst):
     wait_for_wiki(inst.http_port)
 
 
+def test_upgrade_mysql_to_mariadb(inst):
+    """A legacy MySQL 8.0 datadir is migrated to MariaDB on upgrade, preserving
+    user data.
+
+    Regression: detection keyed off /var/lib/mysql/.rocksdb, a marker absent
+    from every real MySQL 8 datadir, so the migration was silently skipped and
+    MariaDB later crashed booting on the un-migrated MySQL 8 data. This seeds a
+    genuine MySQL 8.0 datadir (with a sentinel row) into the instance's data
+    volume, runs upgrade, and asserts the row is present in MariaDB afterward.
+    Because MariaDB physically cannot boot on a MySQL 8 datadir, a successful
+    query also proves detection fired and the migration ran.
+    """
+    volume = "%s_mysql-data-volume" % re.sub(
+        r"[^a-z0-9_-]", "", inst.id.lower()
+    )
+
+    def wipe_volume():
+        subprocess.run(
+            ["docker", "run", "--rm", "-v", "%s:/data" % volume, "alpine",
+             "sh", "-c", "rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null || true"],
+            check=True, capture_output=True,
+        )
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    # No need to wait for the wiki — the datadir is replaced wholesale below.
+    time.sleep(10)
+
+    password = read_env(inst.env_path()).get("MYSQL_PASSWORD", "mediawiki")
+
+    print("Stopping instance and wiping the MariaDB datadir...")
+    inst.run_ok("stop", "-i", inst.id)
+    wipe_volume()
+
+    print("Seeding a genuine MySQL 8.0 datadir with a sentinel row...")
+    seed = "canasta-mysql8-seed-%s" % inst.id
+    subprocess.run(["docker", "rm", "-f", seed], capture_output=True)
+    subprocess.run(
+        ["docker", "run", "-d", "--name", seed,
+         "-v", "%s:/var/lib/mysql" % volume,
+         "-e", "MYSQL_ROOT_PASSWORD=%s" % password,
+         "-e", "MYSQL_ROOT_HOST=%",
+         "mysql:8.0"],
+        check=True, capture_output=True,
+    )
+    try:
+        print("  Waiting for the seed MySQL 8.0 server...")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            ping = subprocess.run(
+                ["docker", "exec", "-e", "MYSQL_PWD=%s" % password, seed,
+                 "mysqladmin", "ping", "-h", "localhost", "--user=root"],
+                capture_output=True, text=True,
+            )
+            if ping.returncode == 0 and "alive" in ping.stdout:
+                break
+            time.sleep(3)
+        else:
+            raise AssertionError("seed MySQL 8.0 server never became ready")
+
+        seed_sql = (
+            "CREATE DATABASE IF NOT EXISTS main; "
+            "CREATE TABLE main.canary (id INT PRIMARY KEY, note VARCHAR(64)); "
+            "INSERT INTO main.canary VALUES (1, 'survived-migration');"
+        )
+        result = subprocess.run(
+            ["docker", "exec", "-e", "MYSQL_PWD=%s" % password, seed,
+             "mysql", "--user=root", "-e", seed_sql],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            "seeding the sentinel failed:\n%s\n%s"
+            % (result.stdout, result.stderr)
+        )
+
+        # Confirm the seed really produced a MySQL 8 datadir (the exact thing
+        # the buggy probe failed to recognize).
+        ibd = subprocess.run(
+            ["docker", "exec", seed, "test", "-f", "/var/lib/mysql/mysql.ibd"],
+            capture_output=True,
+        )
+        assert ibd.returncode == 0, "seed did not produce a MySQL 8 datadir"
+    finally:
+        subprocess.run(["docker", "rm", "-f", seed], capture_output=True)
+
+    print("Running upgrade (must detect MySQL 8 and migrate to MariaDB)...")
+    inst.run_ok("upgrade")
+
+    print("Verifying the sentinel row survived into MariaDB...")
+    query = subprocess.run(
+        ["docker", "compose", "exec", "-T", "db", "sh", "-c",
+         "MYSQL_PWD=%s mariadb -u root --skip-column-names -N "
+         "-e 'SELECT note FROM main.canary WHERE id=1'" % password],
+        cwd=inst.instance_path(), capture_output=True, text=True,
+    )
+    assert query.returncode == 0, (
+        "querying MariaDB after migration failed — did MariaDB boot, or is it "
+        "crash-looping on un-migrated MySQL 8 data?\n%s\n%s"
+        % (query.stdout, query.stderr)
+    )
+    assert "survived-migration" in query.stdout, (
+        "sentinel row missing from MariaDB after migration:\n%s" % query.stdout
+    )
+
+    print("Verifying the datadir is now MariaDB format...")
+    fmt = subprocess.run(
+        ["docker", "run", "--rm", "-v", "%s:/data" % volume, "alpine",
+         "sh", "-c", "ls -a /data"],
+        capture_output=True, text=True,
+    )
+    assert "aria_log_control" in fmt.stdout, (
+        "expected a MariaDB datadir (aria_log_control) after migration:\n%s"
+        % fmt.stdout
+    )
+    assert "mysql.ibd" not in fmt.stdout, (
+        "MySQL 8 system tablespace still present after migration:\n%s"
+        % fmt.stdout
+    )
+
+
 def test_upgrade_backfill_hosts_yaml(inst):
     """Initialize gitops, simulate Go-CLI layout (no hosts.yaml),
     run upgrade, verify the backfill_hosts_yaml migration recreates
@@ -3221,6 +3345,7 @@ ALL_TESTS = {
     "lifecycle": test_lifecycle,
     "import": test_import_export,
     "upgrade": test_upgrade,
+    "upgrade-mysql-to-mariadb": test_upgrade_mysql_to_mariadb,
     "upgrade-refreshes-gitignore": test_upgrade_refreshes_gitignore,
     "upgrade-backfills-wikis-template": test_upgrade_backfills_wikis_template,
     "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,
