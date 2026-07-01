@@ -67,6 +67,23 @@ class TestConsistencyWarnings:
         assert len(out) == 1
         assert "CirrusSearch" in out[0]
 
+    def test_env_template_image_drift_warns(self):
+        env = {"CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:3.5.12",
+               "COMPOSE_PROFILES": "internal-db,varnish"}
+        out = doctor._consistency_warnings(
+            env, ["internal-db", "varnish"], ["web"], False,
+            template_image="ghcr.io/canastawiki/canasta:3.5.1")
+        assert len(out) == 1
+        assert "env.template" in out[0] and "stale" in out[0]
+
+    def test_env_template_image_match_no_warn(self):
+        env = {"CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:3.5.12",
+               "COMPOSE_PROFILES": "internal-db,varnish"}
+        out = doctor._consistency_warnings(
+            env, ["internal-db", "varnish"], ["web"], False,
+            template_image="ghcr.io/canastawiki/canasta:3.5.12")
+        assert out == []
+
 
 class TestServiceProfileMap:
     def test_managed_services_map_to_profiles(self):
@@ -81,30 +98,33 @@ class TestServiceProfileMap:
 
 
 class TestGatherRuntime:
-    def test_parses_services_and_cirrus_flag(self, monkeypatch):
+    def test_parses_services_cirrus_and_template_image(self, monkeypatch):
         d = doctor._helpers._SENTINEL
-        out = "web\nvarnish\ndb\n%s\nUSES_CIRRUS\n" % d
+        out = ("web\nvarnish\ndb\n%s\nUSES_CIRRUS\n%s\n"
+               "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:3.5.1\n" % (d, d))
 
         class _R:
             stdout = out
 
         monkeypatch.setattr(doctor._helpers, "_is_localhost", lambda h: True)
         monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: _R())
-        running, cirrus = doctor._gather_runtime("/srv/x", "localhost")
+        running, cirrus, tmpl = doctor._gather_runtime("/srv/x", "localhost")
         assert running == ["web", "varnish", "db"]
         assert cirrus is True
+        assert tmpl == "ghcr.io/canastawiki/canasta:3.5.1"
 
-    def test_no_cirrus_flag(self, monkeypatch):
+    def test_no_cirrus_no_template(self, monkeypatch):
         d = doctor._helpers._SENTINEL
 
         class _R:
-            stdout = "web\n%s\nNO_CIRRUS\n" % d
+            stdout = "web\n%s\nNO_CIRRUS\n%s\n" % (d, d)
 
         monkeypatch.setattr(doctor._helpers, "_is_localhost", lambda h: True)
         monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: _R())
-        running, cirrus = doctor._gather_runtime("/srv/x", "localhost")
+        running, cirrus, tmpl = doctor._gather_runtime("/srv/x", "localhost")
         assert running == ["web"]
         assert cirrus is False
+        assert tmpl == ""
 
 
 class TestInstanceConsistencyLines:
@@ -122,7 +142,7 @@ class TestInstanceConsistencyLines:
                                "COMPOSE_PROFILES=varnish\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",
-            lambda path, host: (["web", "varnish", "db"], True))
+            lambda path, host: (["web", "varnish", "db"], True, ""))
         lines = doctor._instance_consistency_lines(inst)
         assert lines[1] == "Instance consistency (site):"
         body = " ".join(lines)
@@ -140,6 +160,23 @@ class TestInstanceConsistencyLines:
                                "COMPOSE_PROFILES=internal-db,varnish,crowdsec\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",
-            lambda path, host: (["web", "varnish", "crowdsec", "db"], False))
+            lambda path, host: (["web", "varnish", "crowdsec", "db"], False, ""))
         lines = doctor._instance_consistency_lines(inst)
         assert any("OK (" in line for line in lines)
+
+    def test_env_template_image_drift_warns(self, monkeypatch):
+        # .env has the new tag but env.template still pins the old one.
+        inst = {"id": "site", "orchestrator": "compose", "path": "/srv/site",
+                "host": "localhost"}
+        monkeypatch.setattr(
+            doctor._helpers, "_read_env_content",
+            lambda path, host: "COMPOSE_PROFILES=internal-db,varnish\n"
+                               "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:3.5.12\n")
+        monkeypatch.setattr(
+            doctor, "_gather_runtime",
+            lambda path, host: (["web", "varnish", "db"], False,
+                                "ghcr.io/canastawiki/canasta:3.5.1"))
+        body = " ".join(doctor._instance_consistency_lines(inst))
+        assert "env.template" in body and "stale" in body
+        assert "3.5.1" in body and "3.5.12" in body
+        assert "canasta reconcile" in body

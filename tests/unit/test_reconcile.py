@@ -62,3 +62,35 @@ class TestReconcileWiring:
             (c for c in _commands() if c.get("name") == "reconcile"), None)
         assert rec is not None, "reconcile must be in command_definitions.yml"
         assert rec.get("playbook") == "reconcile.yml"
+
+
+RECONCILE_TASKS = os.path.join(
+    REPO_ROOT, "roles", "instance_lifecycle", "tasks", "reconcile.yml"
+)
+
+
+class TestReconcileEnvTemplateImageSync:
+    """reconcile brings env.template's CANASTA_IMAGE up to .env (gitops
+    Compose) so a stale durable source can't revert the running image on the
+    next gitops pull."""
+
+    def test_reconcile_syncs_env_template_image_to_env(self):
+        block = next(
+            (t for t in _load(RECONCILE_TASKS)
+             if "env.template image" in t.get("name", "")),
+            None,
+        )
+        assert block is not None, (
+            "reconcile must reconcile env.template's image tag to .env"
+        )
+        li = next(
+            (t for t in block.get("block", [])
+             if (t.get("ansible.builtin.lineinfile") or {})
+             .get("path", "").endswith("env.template")),
+            None,
+        )
+        assert li is not None, "must lineinfile env.template's CANASTA_IMAGE"
+        assert "CANASTA_IMAGE" in str(li["ansible.builtin.lineinfile"].get("regexp", ""))
+        assert "stat.exists" in str(li.get("when", "")), (
+            "the env.template sync must be gated on .gitops-host existing"
+        )
