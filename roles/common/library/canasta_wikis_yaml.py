@@ -45,6 +45,15 @@ options:
   site_name:
     description: Display name of the wiki.
     type: str
+  port:
+    description: With state=update_port, the new port for the wiki URL(s).
+    type: str
+  default_port:
+    description: >-
+      The scheme's default port ("443" for HTTPS, "80" for HTTP); the port is
+      omitted from the URL when it equals this.
+    type: str
+    default: "443"
 """
 
 import os
