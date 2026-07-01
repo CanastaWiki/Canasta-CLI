@@ -1152,7 +1152,7 @@ class TestSelfUpdateCli:
     ):
         # On a development build ahead of the latest release tag: the
         # release tag is contained in HEAD, so 'canasta upgrade' must NOT
-        # check it out (no travelling backward in time).
+        # check it out (no traveling backward in time).
         self._patch_repo(monkeypatch, tmp_path)
         execv_calls = []
         monkeypatch.setattr(
