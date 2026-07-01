@@ -75,6 +75,11 @@ options:
   config_dir:
     description: Override the config directory (instead of auto-detection).
     type: str
+  docker_host:
+    description: >-
+      Docker daemon endpoint (DOCKER_HOST) for the instance's containers,
+      stored as dockerHost in the registry.
+    type: str
 """
 
 import json
