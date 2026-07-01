@@ -47,15 +47,15 @@
               | map(attribute='key')
               | list) if (_upgrade_compose_config.rc | default(1)) == 0 else [] }}
 
-# Running-vs-configured check. Catches the case where pull skipped
-# the buildable web service (--ignore-buildable) but the configured
-# CANASTA_IMAGE is newer than what's running. Only meaningful when
-# at least one service has a build directive — otherwise the regular
-# pull-based detection is authoritative.
+# Flag a restart when the configured image differs from the running one.
+# The pull-based signal (_images_updated) is set only when `docker compose
+# pull` downloads a new image, so it misses a configured tag that is already
+# on disk (pre-pulled, or a buildable web service pull skips) while the
+# container still runs an older one. Runs for every Compose instance, and only
+# when pull hasn't already flagged an update.
 - name: Check running container image vs configured (Compose)
   when:
     - instance_orchestrator | default('compose') == 'compose'
-    - (_buildable_services | default([]) | length) > 0
     - not (_images_updated | bool)
   block:
     - name: Get running web container image ID
