@@ -199,3 +199,22 @@ class TestInstanceConsistencyLines:
         body = " ".join(doctor._instance_consistency_lines(inst))
         assert "env.template disagrees with .env" in body
         assert "3.5.1" in body and "3.5.12" in body
+
+    def test_reconcile_hint_does_not_overpromise_non_image_drift(
+            self, monkeypatch):
+        # The only drift is a non-image env.template literal, which reconcile
+        # does not heal — the hint must still name reconcile but flag that
+        # other warnings carry their own fix.
+        inst = {"id": "site", "orchestrator": "compose", "path": "/srv/site",
+                "host": "localhost"}
+        monkeypatch.setattr(
+            doctor._helpers, "_read_env_content",
+            lambda path, host: "COMPOSE_PROFILES=internal-db\n"
+                               "HTTP_PORT=8090\n")
+        monkeypatch.setattr(
+            doctor, "_gather_runtime",
+            lambda path, host: (["web", "db"], False, {"HTTP_PORT": "80"}))
+        body = " ".join(doctor._instance_consistency_lines(inst))
+        assert "env.template disagrees with .env" in body
+        assert "canasta reconcile" in body
+        assert "names its own fix" in body
