@@ -82,6 +82,24 @@ class TestWriteConfig:
             loaded = json.load(f)
         assert loaded["Instances"]["test"]["id"] == "test"
 
+    def test_leaves_no_temp_files_behind(self, tmp_dir):
+        canasta_config.write_config(tmp_dir, {"Instances": {}})
+        assert os.listdir(tmp_dir) == ["conf.json"]
+
+    def test_failed_write_preserves_existing_and_cleans_temp(self, tmp_dir):
+        canasta_config.write_config(tmp_dir, {"Instances": {"a": {"id": "a"}}})
+        # object() is not JSON-serializable -> json.dump raises mid-write.
+        try:
+            canasta_config.write_config(tmp_dir, {"Instances": object()})
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("expected a serialization error")
+        # The good conf.json is intact and no .tmp turd is left.
+        with open(os.path.join(tmp_dir, "conf.json")) as f:
+            assert json.load(f)["Instances"]["a"]["id"] == "a"
+        assert os.listdir(tmp_dir) == ["conf.json"]
+
 
 class TestFindByPath:
     def test_exact_match(self, sample_config):

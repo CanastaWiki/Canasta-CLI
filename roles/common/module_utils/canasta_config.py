@@ -29,6 +29,7 @@ import json
 import os
 import platform
 import pwd
+import tempfile
 
 
 CONFIG_FILENAME = "conf.json"
@@ -95,12 +96,27 @@ def read_config(config_dir):
 
 
 def write_config(config_dir, data):
-    """Write the registry dict to conf.json, creating config_dir."""
+    """Write the registry dict to conf.json, creating config_dir.
+
+    Written atomically (temp file in the same dir + os.replace) so a crash
+    mid-write can't leave a truncated conf.json — it is the single source of
+    truth for every registered instance."""
     os.makedirs(config_dir, mode=0o755, exist_ok=True)
     path = config_path(config_dir)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=4)
-        f.write("\n")
+    fd, tmp = tempfile.mkstemp(dir=config_dir, prefix=".conf.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=4)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def find_by_path(instances, search_path):
