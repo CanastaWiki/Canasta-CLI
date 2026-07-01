@@ -217,7 +217,7 @@ _SERVICE_PROFILE["db"] = "internal-db"
 
 
 def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
-                          template_image=None):
+                          template_literals=None):
     """Pure: warnings about config/runtime drift for a Compose instance.
 
     - COMPOSE_PROFILES that disagrees with what sync would derive from the
@@ -225,8 +225,8 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
     - A container running under a profile that isn't active (unmanaged — a
       stop/start won't restore it).
     - CirrusSearch configured in settings while Elasticsearch is disabled.
-    - env.template's CANASTA_IMAGE stale relative to .env (a gitops pull would
-      re-render .env from env.template and revert the running image).
+    - any env.template literal that differs from .env (the durable gitops
+      source and the live config have diverged; a pull would reset .env to it).
     """
     warns = []
     active = set(current_profiles)
@@ -258,20 +258,28 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
             "'elasticsearch' profile is inactive — search depends on an "
             "unmanaged Elasticsearch; set CANASTA_ENABLE_ELASTICSEARCH=true")
 
-    env_image = env.get("CANASTA_IMAGE", "").strip()
-    if template_image and env_image and template_image != env_image:
+    drifted = sorted(
+        k for k, tv in (template_literals or {}).items()
+        if k in env and env[k] != tv)
+    if drifted:
+        detail = "; ".join(
+            "%s (env.template=%s, .env=%s)" % (k, template_literals[k], env[k])
+            for k in drifted)
         warns.append(
-            "env.template pins the image at '%s' but .env is '%s' — the "
-            "durable gitops source is stale; a gitops pull would revert the "
-            "running image" % (template_image, env_image))
+            "env.template disagrees with .env on: %s. A gitops pull or "
+            "'canasta config regenerate' re-renders .env from env.template, so "
+            "these values will change: regenerate if the template is right, or "
+            "update env.template/vars.yaml if the .env value is intended"
+            % detail)
 
     return warns
 
 
 def _gather_runtime(path, host):
-    """(running_services, uses_cirrus, env_template_image) for an instance,
-    localhost or remote. env_template_image is the CANASTA_IMAGE pinned in
-    env.template ('' if not gitops / not present)."""
+    """(running_services, uses_cirrus, env_template_literals) for an instance,
+    localhost or remote. env_template_literals maps each KEY to the literal
+    value pinned in env.template, excluding placeholder (KEY={{...}}) lines and
+    comments; empty when not gitops / no env.template."""
     d = _helpers._SENTINEL
     qpath = _helpers._shell_quote(path)
     script = (
@@ -281,7 +289,8 @@ def _gather_runtime(path, host):
         "grep -rqi cirrussearch %(p)s/config/settings 2>/dev/null "
         "&& echo USES_CIRRUS || echo NO_CIRRUS; "
         "echo '%(d)s'; "
-        "grep '^CANASTA_IMAGE=' %(p)s/env.template 2>/dev/null | head -1"
+        "grep -E '^[A-Za-z_][A-Za-z0-9_]*=' %(p)s/env.template 2>/dev/null "
+        "| grep -v '={{'"
     ) % {"p": qpath, "d": d}
     if _helpers._is_localhost(host):
         try:
@@ -290,21 +299,27 @@ def _gather_runtime(path, host):
                 capture_output=True, text=True, timeout=30,
             ).stdout
         except (subprocess.TimeoutExpired, OSError):
-            return [], False, ""
+            return [], False, {}
     else:
         rc, out = _helpers._ssh_run(host, script)
         if rc != 0 and not out.strip():
-            return [], False, ""
+            return [], False, {}
     parts = out.split(d + "\n")
     head = parts[0].strip() if parts else ""
     running = [s for s in head.split("\n") if s.strip()]
     uses_cirrus = len(parts) > 1 and "USES_CIRRUS" in parts[1]
-    template_image = ""
+    template_literals = {}
     if len(parts) > 2:
-        line = parts[2].strip()
-        if line.startswith("CANASTA_IMAGE="):
-            template_image = line.split("=", 1)[1].strip()
-    return running, uses_cirrus, template_image
+        for line in parts[2].strip().split("\n"):
+            line = line.strip()
+            if "=" not in line or line.startswith("#"):
+                continue
+            key, val = line.split("=", 1)
+            val = val.strip()
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+                val = val[1:-1]
+            template_literals[key.strip()] = val
+    return running, uses_cirrus, template_literals
 
 
 def _instance_consistency_lines(inst):
@@ -326,9 +341,9 @@ def _instance_consistency_lines(inst):
         p.strip() for p in env.get("COMPOSE_PROFILES", "").split(",")
         if p.strip()
     ]
-    running, uses_cirrus, template_image = _gather_runtime(path, host)
+    running, uses_cirrus, template_literals = _gather_runtime(path, host)
     warns = _consistency_warnings(
-        env, current, running, uses_cirrus, template_image)
+        env, current, running, uses_cirrus, template_literals)
     lines = ["", "Instance consistency (%s):" % inst.get("id", "?")]
     if warns:
         lines += ["  WARN: %s" % w for w in warns]
