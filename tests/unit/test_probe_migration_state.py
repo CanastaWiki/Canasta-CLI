@@ -201,22 +201,75 @@ class TestMyCnf:
 
 
 class TestOldWikiDirs:
-    def test_only_system_dirs_yields_empty(self, probe, instance_dir):
-        for sys_dir in ("settings", "logstash", "backup", "persistent"):
-            (instance_dir / "config" / sys_dir).mkdir(exist_ok=True)
+    """old_wiki_dirs is derived from the wikis declared in
+    config/wikis.yaml, not a scan of config/* — so a per-wiki dir is
+    selected only when its id is a declared wiki AND it still sits in
+    the pre-migration config/<id>/ location. Non-wiki config dirs
+    (crowdsec, logstash, …) can never be selected."""
+
+    def _write_wikis(self, instance_dir, ids):
+        body = "wikis:\n" + "".join(
+            "  - id: %s\n    url: %s.example\n" % (wid, wid) for wid in ids
+        )
+        (instance_dir / "config" / "wikis.yaml").write_text(body)
+
+    def test_no_wikis_yaml_yields_empty(self, probe, instance_dir):
+        for d in ("logstash", "backup", "persistent", "wiki1"):
+            (instance_dir / "config" / d).mkdir(exist_ok=True)
         result = _run(probe, instance_dir)
         assert result["old_wiki_dirs"] == []
 
-    def test_per_wiki_dirs_listed(self, probe, instance_dir):
-        for d in ("settings", "wiki1", "wiki2"):
-            (instance_dir / "config" / d).mkdir(exist_ok=True)
+    def test_declared_wiki_in_old_location_is_selected(self, probe, instance_dir):
+        self._write_wikis(instance_dir, ["wiki1", "wiki2"])
+        (instance_dir / "config" / "wiki1").mkdir()
+        (instance_dir / "config" / "wiki2").mkdir()
         result = _run(probe, instance_dir)
         assert result["old_wiki_dirs"] == ["wiki1", "wiki2"]
 
-    def test_files_under_config_are_ignored(self, probe, instance_dir):
-        (instance_dir / "config" / "wikis.yaml").write_text("wikis: []\n")
+    def test_declared_wiki_already_migrated_is_not_selected(self, probe, instance_dir):
+        """Once config/<id>/ has moved to config/settings/wikis/<id>/,
+        there is nothing left to migrate — the probe reports empty."""
+        self._write_wikis(instance_dir, ["main"])
+        (instance_dir / "config" / "settings" / "wikis").mkdir(parents=True)
+        (instance_dir / "config" / "settings" / "wikis" / "main").mkdir()
         result = _run(probe, instance_dir)
         assert result["old_wiki_dirs"] == []
+
+    def test_undeclared_config_dir_is_not_selected(self, probe, instance_dir):
+        """A stray config/<name>/ that is not a declared wiki is left
+        alone, even in the old location."""
+        self._write_wikis(instance_dir, ["main"])
+        (instance_dir / "config" / "main").mkdir()
+        (instance_dir / "config" / "orphan").mkdir()
+        result = _run(probe, instance_dir)
+        assert result["old_wiki_dirs"] == ["main"]
+
+    def test_crowdsec_dir_is_never_selected(self, probe, instance_dir):
+        """Regression: config/crowdsec/ must not be treated as a wiki
+        and moved into config/settings/wikis/crowdsec/ (issue #938)."""
+        self._write_wikis(instance_dir, ["main"])
+        (instance_dir / "config" / "main").mkdir()
+        (instance_dir / "config" / "crowdsec").mkdir()
+        (instance_dir / "config" / "crowdsec" / "acquis.yaml").write_text("x\n")
+        result = _run(probe, instance_dir)
+        assert result["old_wiki_dirs"] == ["main"]
+        assert "crowdsec" not in result["old_wiki_dirs"]
+
+    def test_empty_wikis_list_yields_empty(self, probe, instance_dir):
+        (instance_dir / "config" / "wikis.yaml").write_text("wikis: []\n")
+        (instance_dir / "config" / "crowdsec").mkdir()
+        result = _run(probe, instance_dir)
+        assert result["old_wiki_dirs"] == []
+
+    def test_flush_indent_style_is_parsed(self, probe, instance_dir):
+        """wikis.yaml written with flush (0-indent) block sequence."""
+        (instance_dir / "config" / "wikis.yaml").write_text(
+            "wikis:\n- id: main\n  url: localhost\n- id: two\n  url: two.example\n"
+        )
+        (instance_dir / "config" / "main").mkdir()
+        (instance_dir / "config" / "two").mkdir()
+        result = _run(probe, instance_dir)
+        assert result["old_wiki_dirs"] == ["main", "two"]
 
 
 class TestStrayPhp:
