@@ -1587,10 +1587,10 @@ def main():
                 % (description, target)
             )
         except (EOFError, KeyboardInterrupt):
-            print("\nOperation cancelled.")
+            print("\nOperation canceled.")
             sys.exit(1)
         if answer.strip().lower() != "y":
-            print("Operation cancelled.")
+            print("Operation canceled.")
             sys.exit(0)
         # Tell the playbook to skip its own confirmation check
         args.yes = True
