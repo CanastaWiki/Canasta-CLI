@@ -96,10 +96,9 @@ class TestRebuildFiresOnAnyImageChange:
             "the `web` service (#562, gap 2)"
         )
 
-    def test_running_vs_configured_check_still_gated_on_not_updated(self):
-        """The running-vs-configured fallback only needs to fire when
-        pull didn't already detect an update. Its gate is unchanged
-        from the original logic and must stay."""
+    def test_running_vs_configured_check_gated_on_not_updated(self):
+        """The running-vs-configured check fires only when pull didn't already
+        detect an update — that gate must stay."""
         tasks = _load_tasks()
         check = _find_task(tasks, "Check running container image vs configured")
         when = check.get("when", [])
@@ -107,7 +106,35 @@ class TestRebuildFiresOnAnyImageChange:
             when = [when]
         joined = " ".join(when)
         assert "not (_images_updated | bool)" in joined or "not _images_updated" in joined
-        assert "_buildable_services" in joined, (
-            "Fallback check is only meaningful when there's a "
-            "buildable service to potentially rebuild"
+
+
+class TestRunningVsConfiguredAllInstances:
+    """The running-vs-configured image check runs for every Compose instance,
+    so an upgrade to an image already on disk still restarts (running !=
+    configured) instead of reporting success while leaving the old container."""
+
+    def test_check_not_gated_on_buildable_services(self):
+        check = _find_task(
+            _load_tasks(), "Check running container image vs configured")
+        assert check is not None, "the running-vs-configured check must exist"
+        when = str(check.get("when", ""))
+        assert "_buildable_services" not in when, (
+            "the running-vs-configured check must not require buildable "
+            "services; it applies to every Compose instance"
         )
+        assert "compose" in when and "_images_updated" in when, (
+            "it must stay Compose-scoped and skip when pull already flagged "
+            "an update"
+        )
+
+    def test_check_flags_restart_on_image_mismatch(self):
+        check = _find_task(
+            _load_tasks(), "Check running container image vs configured")
+        flag = next(
+            (t for t in check.get("block", [])
+             if "Flag restart" in t.get("name", "")),
+            None,
+        )
+        assert flag is not None, "the check must flag a restart on mismatch"
+        assert flag.get("ansible.builtin.set_fact", {}).get(
+            "_images_updated") is True
