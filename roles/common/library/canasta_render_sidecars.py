@@ -19,8 +19,8 @@ DOCUMENTATION = r"""
 module: canasta_render_sidecars
 short_description: Render config/sidecars.yaml to runtime artifacts
 description:
-  - Compose -> docker-compose.sidecars.yml (removed when no sidecars).
-  - Kubernetes -> values-sidecars.yaml (sidecars: [] when none).
+  - "Compose -> docker-compose.sidecars.yml (removed when no sidecars)."
+  - "Kubernetes -> values-sidecars.yaml (sidecars: [] when none)."
 options:
   instance_path:
     description: Path to the Canasta instance directory.
