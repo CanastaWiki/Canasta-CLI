@@ -97,9 +97,9 @@ class TestRebuildFiresOnAnyImageChange:
         )
 
     def test_running_vs_configured_check_still_gated_on_not_updated(self):
-        """The running-vs-configured fallback only needs to fire when
-        pull didn't already detect an update. Its gate is unchanged
-        from the original logic and must stay."""
+        """The running-vs-configured check only needs to fire when pull didn't
+        already detect an update — that gate must stay. (It no longer requires
+        a buildable service; see TestRunningVsConfiguredAllInstances / #928.)"""
         tasks = _load_tasks()
         check = _find_task(tasks, "Check running container image vs configured")
         when = check.get("when", [])
@@ -107,7 +107,36 @@ class TestRebuildFiresOnAnyImageChange:
             when = [when]
         joined = " ".join(when)
         assert "not (_images_updated | bool)" in joined or "not _images_updated" in joined
-        assert "_buildable_services" in joined, (
-            "Fallback check is only meaningful when there's a "
-            "buildable service to potentially rebuild"
+
+
+class TestRunningVsConfiguredAllInstances:
+    """#928: the running-vs-configured image check must run for EVERY Compose
+    instance, not only --build-from ones. Otherwise an upgrade to an image
+    already on disk bumps the tag but never restarts (running != configured),
+    and reports success while leaving the old container up."""
+
+    def test_check_not_gated_on_buildable_services(self):
+        check = _find_task(
+            _load_tasks(), "Check running container image vs configured")
+        assert check is not None, "the running-vs-configured check must exist"
+        when = str(check.get("when", ""))
+        assert "_buildable_services" not in when, (
+            "the running-vs-configured check must not require buildable "
+            "services; it applies to every Compose instance (#928)"
         )
+        assert "compose" in when and "_images_updated" in when, (
+            "it must stay Compose-scoped and skip when pull already flagged "
+            "an update"
+        )
+
+    def test_check_flags_restart_on_image_mismatch(self):
+        check = _find_task(
+            _load_tasks(), "Check running container image vs configured")
+        flag = next(
+            (t for t in check.get("block", [])
+             if "Flag restart" in t.get("name", "")),
+            None,
+        )
+        assert flag is not None, "the check must flag a restart on mismatch"
+        assert flag.get("ansible.builtin.set_fact", {}).get(
+            "_images_updated") is True
