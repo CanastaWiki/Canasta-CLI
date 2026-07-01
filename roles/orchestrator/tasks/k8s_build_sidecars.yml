@@ -3,8 +3,11 @@
 # registry, so the k8s pod can pull them. The chart references a build:
 # sidecar at 10.43.0.2:5000/canasta-<id>-<name>:local; this pushes to the
 # same repo path via the registry's loopback hostPort (localhost:5000).
-# Runs at start, before the Helm rollout. Compose builds build: sidecars
-# natively (docker compose up --build), so this is k8s-only.
+# Runs at start, before the Helm rollout. This is k8s-only: on Compose the
+# engine builds a build: sidecar's image locally (implicitly on `docker
+# compose up` when the image is missing, and via `docker compose build`
+# during `canasta upgrade`), whereas the kubelet can only pull — so the
+# image must be built and pushed to the in-cluster registry.
 #
 # Input: instance_path, instance_id
 
