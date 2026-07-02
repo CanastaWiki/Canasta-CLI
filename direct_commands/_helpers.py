@@ -277,17 +277,28 @@ def _read_env_file(path, host):
     return {k: v for k, v, c in _parse_env_entries(content) if not c and k}
 
 
-def _compose_file_args(path, host, devmode=False):
-    """Build docker compose -f flags based on available files."""
+def _compose_file_args(path, host, devmode=False, include_sidecars=False):
+    """Build docker compose -f flags based on available files.
+
+    include_sidecars layers docker-compose.sidecars.yml (when present)
+    between the base file and the override — the same order the Ansible
+    path uses, so a service-name clash lets the operator's override win.
+    Callers must pass it only when config/sidecars.yaml declares
+    sidecars: the rendered file can linger after `sidecar remove`, and
+    layering it into `up -d` would recreate the removed sidecar.
+    """
+    def _exists(name):
+        full = os.path.join(path, name)
+        if _is_localhost(host):
+            return os.path.isfile(full)
+        rc, _ = _ssh_run(host, "test -f %s" % _shell_quote(full))
+        return rc == 0
+
     files = ["docker-compose.yml"]
-    override = os.path.join(path, "docker-compose.override.yml")
-    if _is_localhost(host):
-        if os.path.isfile(override):
-            files.append("docker-compose.override.yml")
-    else:
-        rc, _ = _ssh_run(host, "test -f %s" % _shell_quote(override))
-        if rc == 0:
-            files.append("docker-compose.override.yml")
+    if include_sidecars and _exists("docker-compose.sidecars.yml"):
+        files.append("docker-compose.sidecars.yml")
+    if _exists("docker-compose.override.yml"):
+        files.append("docker-compose.override.yml")
     if devmode:
         files.append("docker-compose.dev.yml")
     result = []
@@ -296,7 +307,7 @@ def _compose_file_args(path, host, devmode=False):
     return result
 
 
-def _run_compose(inst_id, inst, action_args):
+def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     """Run a docker compose command for an instance. Returns exit code.
 
     Output streams to the terminal and there is NO timeout: the actions
@@ -309,7 +320,7 @@ def _run_compose(inst_id, inst, action_args):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     devmode = inst.get("devMode", False)
-    file_args = _compose_file_args(path, host, devmode)
+    file_args = _compose_file_args(path, host, devmode, include_sidecars)
 
     if _is_localhost(host):
         cmd = ["docker", "compose"] + file_args + action_args
@@ -487,7 +498,7 @@ def _sync_compose_profiles(inst):
             )
 
 
-def _dump_compose_failure(inst):
+def _dump_compose_failure(inst, include_sidecars=False):
     """Print docker compose ps + logs to stderr after a failed 'up'.
 
     Matches the diagnostic block in roles/orchestrator/tasks/start.yml:
@@ -499,7 +510,7 @@ def _dump_compose_failure(inst):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     devmode = inst.get("devMode", False)
-    file_args = _compose_file_args(path, host, devmode)
+    file_args = _compose_file_args(path, host, devmode, include_sidecars)
 
     steps = [
         (["ps", "-a"], "docker compose ps -a"),

@@ -1226,6 +1226,34 @@ class TestComposeFileArgs:
         assert "-f" in args
         assert "docker-compose.dev.yml" in args
 
+    def test_sidecars_layered_between_base_and_override(self, tmp_path):
+        # Layer order matches the Ansible path: base, rendered sidecars,
+        # user override (so the operator's override wins a clash).
+        (tmp_path / "docker-compose.sidecars.yml").write_text("")
+        (tmp_path / "docker-compose.override.yml").write_text("")
+        args = direct_commands._compose_file_args(
+            str(tmp_path), "localhost", include_sidecars=True,
+        )
+        assert args == [
+            "-f", "docker-compose.yml",
+            "-f", "docker-compose.sidecars.yml",
+            "-f", "docker-compose.override.yml",
+        ]
+
+    def test_sidecars_skipped_when_file_missing(self, tmp_path):
+        args = direct_commands._compose_file_args(
+            str(tmp_path), "localhost", include_sidecars=True,
+        )
+        assert args == ["-f", "docker-compose.yml"]
+
+    def test_sidecars_excluded_by_default(self, tmp_path):
+        # A rendered file lingering after `sidecar remove` must not be
+        # layered unless the caller opted in: `up -d` with the stale
+        # layer would recreate the removed sidecar.
+        (tmp_path / "docker-compose.sidecars.yml").write_text("")
+        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        assert args == ["-f", "docker-compose.yml"]
+
 
 # ---------------------------------------------------------------------------
 # Start / stop / restart tests
@@ -2269,6 +2297,49 @@ class TestGitopsArgocdStatus:
         result = direct_commands._gitops_argocd_status("mysite")
         assert result == ("Unknown", "Unknown", "never", "unknown")
 
+    def test_remote_host_queries_over_ssh(self, monkeypatch):
+        app = {
+            "status": {
+                "sync": {"status": "Synced", "revision": "abcdef1234567890"},
+                "health": {"status": "Healthy"},
+                "operationState": {"finishedAt": "2026-04-23T10:00:00Z"},
+            }
+        }
+        calls = {}
+
+        def fake_ssh(host, cmd):
+            calls["host"] = host
+            calls["cmd"] = cmd
+            return (0, json.dumps(app))
+
+        def fail_run(*a, **kw):
+            raise AssertionError("kubectl must not run locally for remote host")
+
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
+        monkeypatch.setattr(subprocess, "run", fail_run)
+        sync, health, last, rev = direct_commands._gitops_argocd_status(
+            "mysite", "admin@remote",
+        )
+        assert sync == "Synced"
+        assert health == "Healthy"
+        assert calls["host"] == "admin@remote"
+        assert "kubectl get application canasta-mysite" in calls["cmd"]
+
+    def test_localhost_queries_locally(self, monkeypatch):
+        app = {"status": {"sync": {"status": "Synced", "revision": "abc"},
+                          "health": {"status": "Healthy"}}}
+
+        def fake_run(*a, **kw):
+            return type("R", (), {"returncode": 0, "stdout": json.dumps(app)})()
+
+        def fail_ssh(*a, **kw):
+            raise AssertionError("localhost must not use ssh")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fail_ssh)
+        sync, _, _, _ = direct_commands._gitops_argocd_status("mysite", "localhost")
+        assert sync == "Synced"
+
 
 class TestParseGitopsStatusK8s:
     def _make_output(self, hostname="myhost", commit="abc1234", revcount="0\t0"):
@@ -2349,15 +2420,17 @@ class TestCmdGitopsStatusK8s:
                 "host": "admin@k8s-control",
             }),
         )
-        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
-            lambda host, cmd: (0, ssh_output),
-        )
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {
-                "returncode": 0, "stdout": json.dumps(app),
-            })(),
-        )
+        # Remote host: both the git status and the Argo CD kubectl run
+        # over SSH against the host's kubeconfig, not the laptop's.
+        def fake_ssh(host, cmd):
+            if "kubectl get application" in cmd:
+                return (0, json.dumps(app))
+            return (0, ssh_output)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
+
+        def fail_run(*a, **kw):
+            raise AssertionError("kubectl must not run locally for remote host")
+        monkeypatch.setattr(subprocess, "run", fail_run)
         args = type("Args", (), {"id": "mysite"})()
         rc = direct_commands.cmd_gitops_status(args)
         assert rc == 0
@@ -3551,6 +3624,45 @@ class TestScale:
         assert "values.yaml" in cmd_str
         assert "--reset-values" in cmd_str
         assert "--wait" in cmd_str
+        # No optional values files exist, so none may be layered.
+        assert "values-configdata.yaml" not in cmd_str
+        assert "values-sidecars.yaml" not in cmd_str
+
+    def test_layers_sidecars_values_when_present(
+        self, monkeypatch, tmp_path,
+    ):
+        # helm_deploy.yml layers values-sidecars.yaml when present; with
+        # --reset-values, omitting it reverts to the chart default
+        # (sidecars: []) and prunes every sidecar resource.
+        inst_path = tmp_path / "mysite"
+        inst_path.mkdir()
+        (inst_path / "values.yaml").write_text("web:\n  replicaCount: 1\n")
+        (inst_path / "values-configdata.yaml").write_text("configData: {}\n")
+        (inst_path / "values-sidecars.yaml").write_text(
+            "sidecars:\n  - name: cache\n",
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
+        )
+        captured = {}
+
+        def fake_call(cmd, *a, **kw):
+            captured["cmd"] = cmd
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", fake_call)
+        rc = direct_commands.cmd_scale(self._args(replicas=5))
+        assert rc == 0
+
+        cmd_str = " ".join(captured["cmd"])
+        assert "values-sidecars.yaml" in cmd_str
+        # Same ordering as helm_deploy.yml: values.yaml, configdata,
+        # sidecars, then --reset-values.
+        assert (
+            cmd_str.index("values-configdata.yaml")
+            < cmd_str.index("values-sidecars.yaml")
+            < cmd_str.index("--reset-values")
+        )
 
     def test_helm_failure_reports_partial_state(
         self, monkeypatch, capsys, tmp_path,

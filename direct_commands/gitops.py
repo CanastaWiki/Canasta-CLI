@@ -201,26 +201,39 @@ def _parse_gitops_status(stdout, instance_id):
     return "\n".join(lines)
 
 
-def _gitops_argocd_status(instance_id):
+def _gitops_argocd_status(instance_id, host="localhost"):
     """Query Argo CD Application for this instance; return parsed status.
 
     Returns a tuple (sync_status, health, last_sync, revision). Falls
     back to 'Not registered' / 'N/A' sentinels when Argo CD isn't
     installed or no Application exists — matches the Ansible path's
     behavior for K8s instances without Argo CD.
+
+    For remote hosts, SSH and run kubectl on the host — its kubeconfig
+    points at the cluster it's part of. Running kubectl on the laptop
+    would query whatever the laptop's kubeconfig points at, reporting
+    'Not registered' for instances that are actually Synced.
     """
-    try:
-        result = subprocess.run(
-            ["kubectl", "get", "application", "canasta-%s" % instance_id,
-             "-n", "argocd", "-o", "json"],
-            capture_output=True, text=True, timeout=10,
+    if _helpers._is_localhost(host):
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "application", "canasta-%s" % instance_id,
+                 "-n", "argocd", "-o", "json"],
+                capture_output=True, text=True, timeout=10,
+            )
+            rc, stdout = result.returncode, result.stdout
+        except (subprocess.TimeoutExpired, OSError):
+            return ("Not registered", "N/A", "never", "unknown")
+    else:
+        rc, stdout = _helpers._ssh_run(
+            host,
+            "kubectl get application canasta-%s -n argocd -o json"
+            % instance_id,
         )
-    except (subprocess.TimeoutExpired, OSError):
-        return ("Not registered", "N/A", "never", "unknown")
-    if result.returncode != 0:
+    if rc != 0:
         return ("Not registered", "N/A", "never", "unknown")
     try:
-        app = json.loads(result.stdout)
+        app = json.loads(stdout)
     except ValueError:
         return ("Unknown", "Unknown", "never", "unknown")
     status = app.get("status") or {}
@@ -298,7 +311,7 @@ def cmd_gitops_status(args):
             return 1
 
     if orchestrator in ("kubernetes", "k8s"):
-        argocd = _gitops_argocd_status(inst_id)
+        argocd = _gitops_argocd_status(inst_id, host)
         print(_parse_gitops_status_k8s(stdout, inst_id, argocd))
     else:
         print(_parse_gitops_status(stdout, inst_id))

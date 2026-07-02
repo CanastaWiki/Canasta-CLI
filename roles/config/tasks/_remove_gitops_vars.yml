@@ -1,0 +1,45 @@
+---
+# Remove config-unset keys from a gitops instance's durable source so they
+# survive the next gitops pull (which re-renders .env from env.template). A
+# placeholder key is dropped from both vars.yaml and its env.template
+# placeholder line; a literal key is dropped from env.template. Mirrors
+# _update_gitops_vars.yml on the set side. Compose-only guard lives in the
+# caller, roles/orchestrator/tasks/config_remove_gitops_vars.yml.
+# Input: instance_path, keys, _config_gitops_stat
+
+- name: Load gitops placeholder definitions
+  ansible.builtin.include_vars:
+    file: "{{ canasta_root }}/roles/gitops/vars/main.yml"
+
+- name: Read .gitops-host
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _config_host_raw
+
+- name: Build key-to-placeholder map from env.template
+  ansible.builtin.shell:
+    cmd: |
+      python3 -c "
+      import json, re
+      with open('{{ instance_path }}/env.template') as f:
+          lines = f.readlines()
+      m = {}
+      for line in lines:
+          match = re.match(r'^([A-Z][^=]*)=\{\{([^}]+)\}\}', line.strip())
+          if match:
+              m[match.group(1)] = match.group(2)
+      print(json.dumps(m))
+      "
+  register: _config_map_raw
+  changed_when: false
+
+- name: Parse placeholder map
+  ansible.builtin.set_fact:
+    _config_placeholder_map: "{{ _config_map_raw.stdout | from_json }}"
+
+- name: Remove each unset key from vars.yaml / env.template
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/config/tasks/_remove_gitops_var.yml
+  loop: "{{ keys.split() }}"
+  loop_control:
+    loop_var: _config_key
