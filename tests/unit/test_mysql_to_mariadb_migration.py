@@ -23,6 +23,11 @@ its data mangled; these tests lock the Go-faithful behavior back in.
    (mysql/sys/*_schema, whose grant-table layout differs from MariaDB's) into
    the import. Only user databases must be dumped; MariaDB rebuilds its own
    system tables on the fresh datadir.
+
+Hardening guards covered below: the internal-db gate, the volume-existence
+check before the detection probe, the empty-database-list dump path, the
+quote-filtered dump script, the non-root-user warning, and the gitignored
+failure-path dump.
 """
 
 import os
@@ -32,6 +37,9 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 MIGRATION = os.path.join(
     REPO_ROOT, "roles", "upgrade", "tasks", "migrations", "mysql_to_mariadb.yml"
+)
+GITIGNORE = os.path.join(
+    REPO_ROOT, "roles", "gitops", "files", "gitignore.default"
 )
 
 
@@ -188,4 +196,118 @@ class TestOrderingAndRecovery:
         assert "preserved" in msg and "manual" in msg, (
             "the failure must tell the operator the dump is preserved for "
             "manual import"
+        )
+
+
+class TestInternalDbGate:
+    def test_migration_gated_on_internal_db(self):
+        # An external-DB instance may keep a stale internal data volume, but
+        # its db service is not in the active compose profiles — migrating
+        # would fail mid-way and take down a healthy site.
+        top = _load()[0]
+        cond = str(top.get("when", ""))
+        assert "USE_EXTERNAL_DB" in cond, (
+            "the migration must skip external-DB instances"
+        )
+        assert "COMPOSE_PROFILES" in cond and "internal-db" in cond, (
+            "the migration must only run when the internal-db profile is "
+            "active (or COMPOSE_PROFILES is not yet backfilled)"
+        )
+
+
+class TestVolumeExistenceCheck:
+    def test_volume_inspected_before_detection_probe(self):
+        # `docker run -v` auto-creates a missing named volume; probing an
+        # instance that never had one would leave a stray empty volume.
+        assert _index_of("Check whether the MySQL data volume exists") < (
+            _index_of("Detect MySQL 8.0 data")
+        ), "the volume-existence check must precede the detection probe"
+
+    def test_existence_check_uses_volume_inspect(self):
+        assert any(
+            "docker volume inspect" in c for c in _command_strings()
+        ), "existence must be checked with docker volume inspect, not a run"
+
+    def test_detection_skipped_when_volume_missing(self):
+        detect = next(
+            t for t in _all_tasks()
+            if t.get("name", "").startswith("Detect MySQL 8.0")
+        )
+        assert "_mig_volume_check.rc == 0" in str(detect.get("when", "")), (
+            "the docker run probe must be skipped when the volume is missing"
+        )
+
+    def test_detection_flag_requires_existing_volume(self):
+        flag = next(
+            t for t in _all_tasks()
+            if t.get("name") == "Set MySQL 8 detection flag"
+        )
+        expr = str(flag["ansible.builtin.set_fact"]["_is_mysql8"])
+        assert "_mig_volume_check.rc == 0" in expr, (
+            "_is_mysql8 must be false when the volume does not exist"
+        )
+
+
+class TestEmptyDatabaseList:
+    def test_grep_no_match_neutralized_under_pipefail(self):
+        # With only system schemas present, grep -v matches nothing and exits
+        # 1; under pipefail that aborted the script before the empty-DBS
+        # handler could write the empty dump.
+        script = next(c for c in _shell_text() if "SHOW DATABASES" in c)
+        assert "pipefail" in script, (
+            "pipefail must stay on so mysql/mysqldump failures abort the dump"
+        )
+        assert "{ grep" in script and "|| true; }" in script, (
+            "grep's no-match exit must be neutralized inside the pipeline so "
+            "a system-schemas-only server reaches the empty-DBS branch"
+        )
+
+    def test_empty_list_writes_empty_dump(self):
+        script = next(c for c in _shell_text() if "SHOW DATABASES" in c)
+        assert 'if [ -z "$DBS" ]' in script, (
+            "an empty database list must be handled explicitly"
+        )
+
+
+class TestDumpScriptQuoting:
+    def test_dump_script_passed_through_quote_filter(self):
+        dump_cmd = next(c for c in _command_strings() if "bash -c" in c)
+        assert "_mig_dump_script | quote" in dump_cmd, (
+            "the dump script must be escaped with the quote filter, not "
+            "hand-wrapped in single quotes"
+        )
+        assert "'{{ _mig_dump_script }}'" not in dump_cmd
+
+
+class TestNonRootUserWarning:
+    def test_warns_that_non_root_users_are_not_migrated(self):
+        # The dump excludes the mysql system schema, so a non-root
+        # MYSQL_USER's account and grants do not survive the migration.
+        warn = next(
+            (t for t in _all_tasks()
+             if t.get("name") == "Warn that non-root DB users are not migrated"),
+            None,
+        )
+        assert warn is not None, (
+            "the migration must warn when MYSQL_USER is a non-root user"
+        )
+        msg = str(warn["ansible.builtin.debug"].get("msg", ""))
+        assert "grants" in msg and "MariaDB" in msg, (
+            "the warning must tell the operator to recreate the user and its "
+            "grants in MariaDB"
+        )
+        cond = str(warn.get("when", ""))
+        assert "_mig_dbuser" in cond and "root" in cond, (
+            "the warning must fire only for a non-root, non-empty MYSQL_USER"
+        )
+
+
+class TestFailurePathDumpIgnored:
+    def test_gitignore_default_ignores_migration_dump(self):
+        # A dump preserved by the rescue path sits in the instance root; the
+        # gitops `git add -A` must never be able to commit it.
+        with open(GITIGNORE) as f:
+            content = f.read()
+        assert "mysql8_dump.sql" in content, (
+            "gitignore.default must ignore the preserved migration dump"
         )

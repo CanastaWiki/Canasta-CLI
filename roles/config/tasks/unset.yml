@@ -11,6 +11,21 @@
   loop_control:
     loop_var: _config_key
 
+# If the instance is gitops-managed, remove the key from the durable source
+# so the next gitops pull doesn't resurrect it (it re-renders .env from
+# template).
+- name: Check for gitops instance
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _config_gitops_stat
+
+# The orchestrator owns the compose-vs-K8s decision (K8s gitops uses a
+# different layout, values.template.yaml, not vars.yaml); dispatch.
+- name: Remove gitops vars for unset keys
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/config_remove_gitops_vars.yml
+  when: _config_gitops_stat.stat.exists | default(false)
+
 - name: Regenerate Caddyfile after config change
   ansible.builtin.include_role:
     name: orchestrator

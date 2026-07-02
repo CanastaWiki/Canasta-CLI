@@ -374,6 +374,11 @@ def cmd_doctor(args):
             )
             return 1
         inst = instances[inst_id]
+        # Match _resolve_instance_by_cwd: target this instance's rootless
+        # socket so the runtime consistency checks below see its containers.
+        docker_host = inst.get("dockerHost")
+        if docker_host:
+            os.environ["DOCKER_HOST"] = docker_host
     else:
         _, inst = _helpers._resolve_instance_by_cwd(args)
     if not host and inst:
