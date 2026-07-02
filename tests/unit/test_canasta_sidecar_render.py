@@ -48,6 +48,13 @@ class TestComposeRender:
         assert "${REDIS_MAX_MEMORY:-100mb}" in svc["command"]
         assert svc["restart"] == "unless-stopped"
 
+    def test_list_command_passes_through(self):
+        sc = {"name": "x", "image": "i",
+              "command": ["serve", "--mem", "${MEM:-100mb}"]}
+        svc, _ = render.render_compose_service(sc)
+        # Unresolved on Compose — it interpolates from .env itself.
+        assert svc["command"] == ["serve", "--mem", "${MEM:-100mb}"]
+
     def test_ports_become_expose(self):
         svc, _ = render.render_compose_service(CACHE)
         assert svc["expose"] == ["6379"]
@@ -132,6 +139,14 @@ class TestK8sValues:
         citation = next(s for s in out if s["name"] == "citation")
         assert "256mb" in cache["command"]
         assert citation["env"]["SHARED_SECRET"] == "s3cr3t"
+
+    def test_list_command_resolved_per_element(self):
+        sc = {"name": "x", "image": "i",
+              "command": ["serve", "--mem", "${MEM:-100mb}",
+                          "--token", "${TOK}"]}
+        item = render.render_k8s_values([sc], {"TOK": "t0k"}, lambda s: "")[0]
+        assert item["command"] == ["serve", "--mem", "100mb",
+                                   "--token", "t0k"]
 
     def test_file_content_inlined(self):
         out = render.render_k8s_values([CITATION], {}, lambda s: "FILE-BODY")

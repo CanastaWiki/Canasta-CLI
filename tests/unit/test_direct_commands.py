@@ -1226,6 +1226,34 @@ class TestComposeFileArgs:
         assert "-f" in args
         assert "docker-compose.dev.yml" in args
 
+    def test_sidecars_layered_between_base_and_override(self, tmp_path):
+        # Layer order matches the Ansible path: base, rendered sidecars,
+        # user override (so the operator's override wins a clash).
+        (tmp_path / "docker-compose.sidecars.yml").write_text("")
+        (tmp_path / "docker-compose.override.yml").write_text("")
+        args = direct_commands._compose_file_args(
+            str(tmp_path), "localhost", include_sidecars=True,
+        )
+        assert args == [
+            "-f", "docker-compose.yml",
+            "-f", "docker-compose.sidecars.yml",
+            "-f", "docker-compose.override.yml",
+        ]
+
+    def test_sidecars_skipped_when_file_missing(self, tmp_path):
+        args = direct_commands._compose_file_args(
+            str(tmp_path), "localhost", include_sidecars=True,
+        )
+        assert args == ["-f", "docker-compose.yml"]
+
+    def test_sidecars_excluded_by_default(self, tmp_path):
+        # A rendered file lingering after `sidecar remove` must not be
+        # layered unless the caller opted in: `up -d` with the stale
+        # layer would recreate the removed sidecar.
+        (tmp_path / "docker-compose.sidecars.yml").write_text("")
+        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        assert args == ["-f", "docker-compose.yml"]
+
 
 # ---------------------------------------------------------------------------
 # Start / stop / restart tests
@@ -3596,6 +3624,45 @@ class TestScale:
         assert "values.yaml" in cmd_str
         assert "--reset-values" in cmd_str
         assert "--wait" in cmd_str
+        # No optional values files exist, so none may be layered.
+        assert "values-configdata.yaml" not in cmd_str
+        assert "values-sidecars.yaml" not in cmd_str
+
+    def test_layers_sidecars_values_when_present(
+        self, monkeypatch, tmp_path,
+    ):
+        # helm_deploy.yml layers values-sidecars.yaml when present; with
+        # --reset-values, omitting it reverts to the chart default
+        # (sidecars: []) and prunes every sidecar resource.
+        inst_path = tmp_path / "mysite"
+        inst_path.mkdir()
+        (inst_path / "values.yaml").write_text("web:\n  replicaCount: 1\n")
+        (inst_path / "values-configdata.yaml").write_text("configData: {}\n")
+        (inst_path / "values-sidecars.yaml").write_text(
+            "sidecars:\n  - name: cache\n",
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
+        )
+        captured = {}
+
+        def fake_call(cmd, *a, **kw):
+            captured["cmd"] = cmd
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", fake_call)
+        rc = direct_commands.cmd_scale(self._args(replicas=5))
+        assert rc == 0
+
+        cmd_str = " ".join(captured["cmd"])
+        assert "values-sidecars.yaml" in cmd_str
+        # Same ordering as helm_deploy.yml: values.yaml, configdata,
+        # sidecars, then --reset-values.
+        assert (
+            cmd_str.index("values-configdata.yaml")
+            < cmd_str.index("values-sidecars.yaml")
+            < cmd_str.index("--reset-values")
+        )
 
     def test_helm_failure_reports_partial_state(
         self, monkeypatch, capsys, tmp_path,
