@@ -79,17 +79,29 @@ def _resolve_instance_by_cwd(args):
     Returns (None, None) on no match so callers can emit their own error
     message, unlike canasta.resolve_instance() which exits. Shared by
     `status`, `doctor`, and `version` so they detect instances identically.
+
+    Side effect: like _resolve_instance, exports the resolved instance's
+    registry dockerHost as DOCKER_HOST so subsequent local docker /
+    docker compose subprocesses and SSH-wrapped remote calls target the
+    right (e.g. rootless) socket.
     """
+    def _resolved(iid, inst):
+        if inst:
+            docker_host = inst.get("dockerHost")
+            if docker_host:
+                os.environ["DOCKER_HOST"] = docker_host
+        return (iid, inst)
+
     inst_id = getattr(args, "id", None)
     conf_path = os.path.join(_get_config_dir(), "conf.json")
     instances = _read_registry(conf_path)
     if inst_id:
-        return (inst_id, instances.get(inst_id))
+        return _resolved(inst_id, instances.get(inst_id))
     search = os.path.abspath(os.environ.get("CANASTA_HOST_PWD") or os.getcwd())
     while True:
         for iid, inst in instances.items():
             if os.path.abspath(inst.get("path", "")) == search:
-                return (iid, inst)
+                return _resolved(iid, inst)
         parent = os.path.dirname(search)
         if parent == search:
             break
@@ -837,27 +849,41 @@ def _read_wikis(path, host):
         return []
 
 
-def _check_running(instance_id, path, orchestrator, host):
+def _docker_env(docker_host):
+    """Process env with DOCKER_HOST set to docker_host, or None to inherit.
+
+    Used to target a specific instance's socket per-subprocess rather than
+    mutating os.environ, so concurrent readers of different instances don't
+    clobber each other."""
+    if not docker_host:
+        return None
+    env = dict(os.environ)
+    env["DOCKER_HOST"] = docker_host
+    return env
+
+
+def _check_running(instance_id, path, orchestrator, host, docker_host=None):
     if orchestrator in ("kubernetes", "k8s"):
         return _check_running_k8s(instance_id, host)
-    return _check_running_compose(path, host)
+    return _check_running_compose(path, host, docker_host)
 
 
-def _check_running_compose(path, host):
+def _check_running_compose(path, host, docker_host=None):
     if _is_localhost(host):
         try:
             result = subprocess.run(
                 ["docker", "compose", "ps", "-q", "web"],
                 cwd=path, capture_output=True, text=True, timeout=10,
+                env=_docker_env(docker_host),
             )
             return result.returncode == 0 and result.stdout.strip() != ""
         except (subprocess.TimeoutExpired, OSError):
             return False
     else:
-        rc, stdout = _ssh_run(
-            host,
-            "cd %s && docker compose ps -q web" % _shell_quote(path),
-        )
+        cmd = "cd %s && docker compose ps -q web" % _shell_quote(path)
+        if docker_host:
+            cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
+        rc, stdout = _ssh_run(host, cmd)
         return rc == 0 and stdout.strip() != ""
 
 
@@ -910,20 +936,27 @@ def _gather_instance_info(inst_id, inst):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     orchestrator = inst.get("orchestrator", "compose")
+    # Per-instance socket: many instances are gathered concurrently, so target
+    # this one's rootless socket via a per-command DOCKER_HOST rather than the
+    # process-global env another thread might read.
+    docker_host = inst.get("dockerHost")
     qpath = _shell_quote(path)
 
     if _is_localhost(host):
-        return _gather_local(inst_id, path, orchestrator, host)
+        return _gather_local(inst_id, path, orchestrator, host, docker_host)
 
     if orchestrator in ("kubernetes", "k8s"):
         return _gather_k8s(inst_id, path, host)
 
+    compose_ps = "cd %(p)s && docker compose ps -q web 2>/dev/null || true"
+    if docker_host:
+        compose_ps = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), compose_ps)
     script = (
         "test -d %(p)s && echo DIR_OK || echo DIR_MISSING; "
         "echo '%(d)s'; "
         "cat %(p)s/config/wikis.yaml 2>/dev/null || echo WIKIS_MISSING; "
         "echo '%(d)s'; "
-        "cd %(p)s && docker compose ps -q web 2>/dev/null || true"
+        + compose_ps
     ) % {"p": qpath, "d": _SENTINEL}
 
     rc, stdout = _ssh_run(host, script)
@@ -953,13 +986,13 @@ def _gather_instance_info(inst_id, inst):
     return _make_detail(inst_id, host, path, orchestrator, status, wikis)
 
 
-def _gather_local(inst_id, path, orchestrator, host):
+def _gather_local(inst_id, path, orchestrator, host, docker_host=None):
     dir_exists = os.path.isdir(path)
     wikis = _read_wikis(path, host) if dir_exists else []
 
     if not dir_exists:
         status = "NOT FOUND"
-    elif _check_running(inst_id, path, orchestrator, host):
+    elif _check_running(inst_id, path, orchestrator, host, docker_host):
         status = "RUNNING"
     else:
         status = "STOPPED"
