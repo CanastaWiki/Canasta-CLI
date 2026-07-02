@@ -49,6 +49,19 @@ def _flat_text(path):
         return yaml.safe_load(f)
 
 
+def _copy_template_content():
+    """Return the `content` the reconcile task writes to wikis.yaml.template,
+    with YAML block-scalar indentation already stripped (so column offsets
+    reflect the rendered template, not this file's source indentation)."""
+    for task in _load(RECONCILE):
+        copy = task.get("ansible.builtin.copy") or task.get("copy")
+        if isinstance(copy, dict) and str(copy.get("dest", "")).endswith(
+            "wikis.yaml.template"
+        ):
+            return copy["content"]
+    raise AssertionError("no copy task writing wikis.yaml.template found")
+
+
 class TestReconcileTask:
     def test_template_keeps_url_placeholder_and_name_literal(self):
         with open(RECONCILE) as f:
@@ -66,6 +79,24 @@ class TestReconcileTask:
             content = f.read()
         assert "_reconcile_wikis_tmpl.stat.exists" in content
         assert "reconcile_create" in content
+
+    def test_template_list_items_are_column_zero(self):
+        """List items must sit at column 0 (block-sequence style matching
+        canasta_wikis_yaml.py). render_compose.yml copies this indentation
+        verbatim, and CanastaBase's config-subdir-wikis.sh parses it with
+        column-0 line anchors; indenting here silently drops every
+        public_assets rewrite rule (broken logos on wiki farms)."""
+        content = _copy_template_content()
+        assert "\n- id: " in content, (
+            "wikis.yaml.template list items must start at column 0"
+        )
+        assert "\n  - id: " not in content, (
+            "list items must not be indented; config-subdir-wikis.sh only "
+            "parses column-0 '- id:' lines"
+        )
+        assert "\n  url: " in content and "\n    url: " not in content, (
+            "mapping keys under a column-0 list item are indented 2 spaces"
+        )
 
 
 class TestWiring:

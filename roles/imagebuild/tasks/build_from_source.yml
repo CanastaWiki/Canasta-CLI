@@ -55,6 +55,29 @@
     _base_image_arg: "ghcr.io/canastawiki/canasta-base:latest"
   when: not _base_dockerfile.stat.exists
 
+# The effective base is the last BASE_IMAGE build-arg (a user-supplied one
+# wins over the built-in), else the auto-detected base. The output tag is
+# fixed at canasta:local, so if the effective base resolves to canasta:local
+# the overlay would build FROM its own output tag — overwriting the base and,
+# on a repeat build, silently layering the overlay on top of itself. Guard it.
+- name: Resolve effective BASE_IMAGE
+  ansible.builtin.set_fact:
+    _effective_base_image: >-
+      {{ (build_arg | default([]) | select('match', '^BASE_IMAGE=')
+          | map('regex_replace', '^BASE_IMAGE=', '') | list | last)
+         if (build_arg | default([]) | select('match', '^BASE_IMAGE=') | list | length > 0)
+         else _base_image_arg }}
+
+- name: Fail if the base image collides with the build-from output tag
+  ansible.builtin.fail:
+    msg: >-
+      --build-arg BASE_IMAGE=canasta:local collides with the build-from output
+      tag (canasta:local): the overlay would build FROM its own output and
+      overwrite it (and double-layer on a repeat build). Tag the base under a
+      distinct name, e.g. `docker tag canasta:local canasta:merged`, and pass
+      --build-arg BASE_IMAGE=canasta:merged.
+  when: _effective_base_image == 'canasta:local'
+
 - name: Build Canasta image from source
   ansible.builtin.command:
     cmd: "docker build --build-arg BASE_IMAGE={{ _base_image_arg }} {{ _build_arg_flags }} -t canasta:local ."
