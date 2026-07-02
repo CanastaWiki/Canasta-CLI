@@ -92,15 +92,24 @@ class CallbackModule(CallbackBase):
         ignore_errors = kwargs.get("ignore_errors", False)
         if ignore_errors:
             return
+        # Suppress the generic "One or more items failed" — the individual
+        # item failures were already displayed via v2_runner_item_on_failed.
+        if result._result.get("msg", "") == "One or more items failed":
+            return
+        self._display_failure(result)
+
+    def _display_failure(self, result):
+        """Render a failed command/task result: the message (with cmd +
+        exception diagnostics for spawn failures), the command's stdout
+        when the message is the generic 'non-zero return code', and
+        stderr. Shared by task-level and loop-item failures so both
+        surface the underlying command output, not just the opaque
+        generic message."""
         msg = result._result.get("msg", "")
         stderr = result._result.get("stderr", "")
         stdout = result._result.get("stdout", "")
         cmd = result._result.get("cmd", "")
         exc = result._result.get("exception", "")
-        # Suppress the generic "One or more items failed" — the individual
-        # item failures were already displayed via v2_runner_item_on_failed.
-        if msg == "One or more items failed":
-            return
         # For command failures, msg is generic "non-zero return code"
         # but stdout/stderr have the actual error from the command.
         if stdout and msg and "non-zero return code" in msg:
@@ -168,11 +177,12 @@ class CallbackModule(CallbackBase):
                 or result._result.get("_ansible_ignore_errors")
                 or getattr(getattr(result, "_task", None), "ignore_errors", None)):
             return
-        # Display the specific item's failure message (e.g., missing
-        # required parameter in a loop over param definitions).
-        msg = result._result.get("msg", "")
-        if msg:
-            self._display.display("Error: %s" % msg, color="red", stderr=True)
+        # Display the specific item's failure the same way as a task-level
+        # failure: the message plus the command's stdout/stderr. A looped
+        # command that fails (e.g. 'git add' on a path outside the repo)
+        # otherwise surfaces only the opaque generic "non-zero return
+        # code", dropping git's own reason on stderr.
+        self._display_failure(result)
 
     def v2_playbook_on_no_hosts_matched(self):
         self._display.display("Error: No matching hosts found", color="red", stderr=True)

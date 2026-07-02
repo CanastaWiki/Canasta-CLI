@@ -212,6 +212,46 @@ class TestRunnerItemOnFailed:
         )
         assert cb._captured == []
 
+    def test_item_command_failure_surfaces_stderr(self):
+        """A looped command that exits non-zero (e.g. 'git add' on a path
+        outside the repo) must surface the command's stderr, not just the
+        opaque generic 'non-zero return code'."""
+        cb = _make_callback()
+        cb.v2_runner_item_on_failed(_item_result(
+            ignore_errors=None,
+            msg="non-zero return code",
+            cmd=["git", "add", "--", "../wikis.yaml.template"],
+            stdout="",
+            stderr="fatal: '../wikis.yaml.template' is outside repository",
+        ))
+        msgs = [m for (m, _, _) in cb._captured]
+        assert any("cmd: git add -- ../wikis.yaml.template" in m for m in msgs)
+        assert any("outside repository" in m for m in msgs)
+
+    def test_item_command_failure_surfaces_stdout(self):
+        """When the command wrote the error to stdout, that is shown in
+        place of the generic message (mirrors the task-level path)."""
+        cb = _make_callback()
+        cb.v2_runner_item_on_failed(_item_result(
+            ignore_errors=None,
+            msg="non-zero return code",
+            cmd=["foo"],
+            stdout="something failed on stdout",
+            stderr="",
+        ))
+        msgs = [m for (m, _, _) in cb._captured]
+        assert msgs == ["Error: something failed on stdout"]
+
+    def test_item_plain_message_still_shown(self):
+        """A non-command item failure (e.g. a fail task in a loop) with
+        just a msg is unchanged: the message is displayed as-is."""
+        cb = _make_callback()
+        cb.v2_runner_item_on_failed(
+            _item_result(ignore_errors=None, msg="missing required parameter")
+        )
+        msgs = [m for (m, _, _) in cb._captured]
+        assert msgs == ["Error: missing required parameter"]
+
 
 class TestRunnerOnOkDebug:
     """v2_runner_on_ok renders debug task 'msg' output. A list msg (one
