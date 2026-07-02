@@ -23,6 +23,12 @@ import re
 # Identical list shared by both modules.
 RESERVED_WIKI_IDS = ["settings", "images", "w", "wiki", "wikis"]
 
+# A wiki ID becomes a MariaDB database name, a per-wiki settings directory
+# (config/settings/wikis/<id>/), and a URL path component. Restrict it to
+# alphanumerics and underscores. Unlike instance IDs, hyphens are NOT
+# allowed.
+_WIKI_ID_RE = re.compile(r"^[a-zA-Z0-9_]+$")
+
 
 def validate_wiki_id(value):
     """Return None if `value` is a valid wiki ID, otherwise an error
@@ -31,6 +37,11 @@ def validate_wiki_id(value):
         return "wiki ID cannot be empty"
     if "-" in value:
         return "wiki ID '%s' cannot contain hyphens" % value
+    if not _WIKI_ID_RE.match(value):
+        return (
+            "wiki ID '%s' is invalid: use letters, digits, and underscores "
+            "only" % value
+        )
     if value in RESERVED_WIKI_IDS:
         return "wiki ID '%s' is reserved (cannot be: %s)" % (
             value, ", ".join(RESERVED_WIKI_IDS),
