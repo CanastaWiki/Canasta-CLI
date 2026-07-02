@@ -1548,6 +1548,27 @@ class TestEnvFileWriter:
         with open(tmp_path / ".env") as f:
             assert f.read() == "K=v\n"
 
+    def test_write_env_content_remote_resolves_ssh_target(self, monkeypatch):
+        """A short-name remote host must be mapped to its real SSH target
+        before the ssh argv is built, matching the read path."""
+        captured = {}
+
+        monkeypatch.setattr(
+            direct_commands._helpers, "_resolve_ssh_target",
+            lambda host: "admin@cp.example.com" if host == "node1" else host,
+        )
+
+        def fake_run(ssh_cmd, **kwargs):
+            captured["cmd"] = ssh_cmd
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        ok = direct_commands._write_env_content("/srv/mysite", "node1", "K=v\n")
+        assert ok is True
+        # ssh target must be the resolved user@host, not the bare 'node1'.
+        assert "admin@cp.example.com" in captured["cmd"]
+        assert "node1" not in captured["cmd"]
+
 
 class TestEnvRawLineHelpers:
     """_set_env_lines rewrites only the target key, keeping other lines

@@ -281,9 +281,11 @@ def _write_env_content(path, host, content):
             print("Error writing %s: %s" % (env_path, e), file=sys.stderr)
             return False
 
+    # Map short host names to their real SSH target, like the read path.
+    target = _resolve_ssh_target(host)
     ssh_cmd = (
         ["ssh"] + _ssh_args()
-        + [host, "cat > %s" % _shell_quote(env_path)]
+        + [target, "cat > %s" % _shell_quote(env_path)]
     )
     try:
         result = subprocess.run(
