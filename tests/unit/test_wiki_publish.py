@@ -518,6 +518,93 @@ class TestUsageLineSkipsWhenNoParams:
         assert page.count('<syntaxhighlight lang="bash"') == 2
 
 
+class TestFlagAndArgumentRendering:
+    """Flag tables must show the flag the CLI actually accepts: the
+    `long:` override wins over the param name, and positional params
+    are arguments, not flags. The live-wiki bug was `--host-name` on
+    CLI:canasta host add and a fake `--settings` flag on CLI:canasta
+    config set."""
+
+    def test_long_override_renders_long_name(self):
+        page = wp.gen_wikitext({
+            "name": "host_add",
+            "description": "Add a host",
+            "parameters": [{"name": "host_name", "short": "n",
+                            "long": "name", "type": "string",
+                            "required": True,
+                            "description": "Host name"}],
+        })
+        assert "<code>--name</code>" in page
+        assert "--host-name" not in page
+
+    def test_positional_renders_as_argument_not_flag(self):
+        page = wp.gen_wikitext({
+            "name": "config_set",
+            "description": "Set config",
+            "parameters": [{"name": "settings", "type": "string",
+                            "positional": True, "multi": True,
+                            "description": "KEY=VALUE pairs to set"}],
+        })
+        assert "--settings" not in page
+        assert "=== Arguments ===" in page
+        assert "<code>SETTINGS</code>" in page
+        # No flags besides the positional -> no Flags section.
+        assert "=== Flags ===" not in page
+
+    def test_plain_param_unchanged(self):
+        page = wp.gen_wikitext({
+            "name": "start",
+            "description": "Start",
+            "parameters": [{"name": "id", "short": "i",
+                            "type": "string",
+                            "description": "Canasta instance ID"}],
+        })
+        assert "<code>--id</code>" in page
+        assert "=== Flags ===" in page
+        assert "=== Arguments ===" not in page
+
+    def test_usage_line_shows_positional_metavar(self):
+        page = wp.gen_wikitext({
+            "name": "config_set",
+            "description": "Set config",
+            "parameters": [{"name": "settings", "type": "string",
+                            "positional": True, "multi": True,
+                            "description": "KEY=VALUE pairs to set"}],
+        })
+        assert "canasta config set [flags] [SETTINGS...]" in page
+
+    def test_flags_sorted_by_displayed_name(self):
+        page = wp.gen_wikitext({
+            "name": "host_add",
+            "description": "Add a host",
+            "parameters": [
+                {"name": "host_name", "long": "name", "type": "string",
+                 "description": "Host name"},
+                {"name": "address", "type": "string",
+                 "description": "Address"},
+            ],
+        })
+        # `host_name` displays as --name, so it sorts after --address.
+        assert page.index("<code>--address</code>") < page.index(
+            "<code>--name</code>"
+        )
+
+    def test_real_pages_render_cli_accurate_flags(self):
+        """End-to-end against command_definitions.yml: the previously
+        wrong pages now match the CLI."""
+        data = wp.load_definitions()
+        pages = dict(wp.generate_all_pages(data))
+        host_add = pages[wp.PAGE_PREFIX + "canasta host add"]
+        assert "<code>--name</code>" in host_add
+        assert "--host-name" not in host_add
+        config_set = pages[wp.PAGE_PREFIX + "canasta config set"]
+        assert "--settings" not in config_set
+        assert "<code>SETTINGS</code>" in config_set
+        maint_exec = pages[wp.PAGE_PREFIX + "canasta maintenance exec"]
+        assert "--exec-args" not in maint_exec
+        assert "<code>EXEC_ARGS</code>" in maint_exec
+
+
 class TestBacktickToCode:
     """MediaWiki doesn't interpret single-backtick inline code (unlike
     markdown). The publisher translates backticks to <code> tags so
