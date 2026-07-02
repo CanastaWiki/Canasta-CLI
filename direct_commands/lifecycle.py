@@ -167,25 +167,34 @@ def cmd_scale(args):
 
     # Apply via helm upgrade. Mirror the args helm_deploy.yml uses so
     # the result matches what `canasta start` / `canasta restart`
-    # would render — including values-configdata.yaml when present.
+    # would render — including values-configdata.yaml and
+    # values-sidecars.yaml when present.
     namespace = "canasta-%s" % inst_id
     chart = os.path.join(path, "_chart")
     configdata = os.path.join(path, "values-configdata.yaml")
+    sidecars = os.path.join(path, "values-sidecars.yaml")
     cmd_parts = [
         "helm upgrade --install canasta-%s %s" % (inst_id, _helpers._shell_quote(chart)),
         "--namespace %s --create-namespace" % namespace,
         "-f %s" % _helpers._shell_quote(values_path),
     ]
-    # Probe for the optional configdata file the same way helm_deploy.yml does.
-    if _helpers._is_localhost(host):
-        has_configdata = os.path.isfile(configdata)
-    else:
+
+    # Probe for the optional values files the same way helm_deploy.yml does.
+    def _file_on_host(p):
+        if _helpers._is_localhost(host):
+            return os.path.isfile(p)
         rc, _ = _helpers._ssh_run(
-            host, "test -f %s" % _helpers._shell_quote(configdata),
+            host, "test -f %s" % _helpers._shell_quote(p),
         )
-        has_configdata = (rc == 0)
-    if has_configdata:
+        return rc == 0
+
+    if _file_on_host(configdata):
         cmd_parts.append("-f %s" % _helpers._shell_quote(configdata))
+    # The sidecars layer is mandatory when present: with --reset-values,
+    # omitting it would revert to the chart default (sidecars: []) and
+    # prune every sidecar Deployment/Service/PVC.
+    if _file_on_host(sidecars):
+        cmd_parts.append("-f %s" % _helpers._shell_quote(sidecars))
     cmd_parts.extend(["--reset-values", "--wait", "--timeout 10m"])
     helm_cmd = " ".join(cmd_parts)
 

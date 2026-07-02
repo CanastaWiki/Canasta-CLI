@@ -87,7 +87,15 @@ def _volumes(svc, reasons, assumptions, name):
         source, mount = parts[0], parts[1]
         mode = parts[2] if len(parts) > 2 else "rw"
         if source.startswith((".", "/", "~")):  # bind mount -> files
-            files.append({"source": source.lstrip("./"), "mountPath": mount,
+            # files[].source is instance-relative; anything else can't be
+            # modeled, so the service stays in the override.
+            rel = source[2:] if source.startswith("./") else source
+            if (source.startswith(("/", "~")) or not rel
+                    or rel in (".", "..") or rel.startswith("../")):
+                reasons.append(
+                    "bind mount '%s' outside the instance directory" % source)
+                continue
+            files.append({"source": rel, "mountPath": mount,
                           "readOnly": "ro" in mode})
         else:  # named volume -> persistent (size assumed)
             out.append({"name": source, "mountPath": mount,
