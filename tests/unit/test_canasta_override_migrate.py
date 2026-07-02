@@ -44,6 +44,37 @@ class TestTranslateService:
                                 "mountPath": "/srv/app.yaml", "readOnly": True}]
         assert "volumes" not in sc
 
+    def test_dotfile_bind_mount_keeps_leading_dot(self):
+        sc, reasons, _ = m.translate_service("x", {
+            "image": "i", "volumes": ["./.env:/srv/.env:ro"]})
+        assert reasons == []
+        assert sc["files"] == [{"source": ".env", "mountPath": "/srv/.env",
+                                "readOnly": True}]
+
+    def test_absolute_bind_mount_skips(self):
+        sc, reasons, _ = m.translate_service("x", {
+            "image": "i", "volumes": ["/etc/ssl/certs/a.pem:/srv/a.pem:ro"]})
+        assert sc is None
+        assert any("outside the instance directory" in r for r in reasons)
+
+    def test_parent_bind_mount_skips(self):
+        sc, reasons, _ = m.translate_service("x", {
+            "image": "i", "volumes": ["../shared/data:/data"]})
+        assert sc is None
+        assert any("outside the instance directory" in r for r in reasons)
+
+    def test_home_bind_mount_skips(self):
+        sc, reasons, _ = m.translate_service("x", {
+            "image": "i", "volumes": ["~/certs:/certs"]})
+        assert sc is None
+        assert any("outside the instance directory" in r for r in reasons)
+
+    def test_bare_dot_bind_mount_skips(self):
+        sc, reasons, _ = m.translate_service("x", {
+            "image": "i", "volumes": [".:/srv/app"]})
+        assert sc is None
+        assert any("outside the instance directory" in r for r in reasons)
+
     def test_named_volume_becomes_persistent_with_assumption(self):
         sc, _, notes = m.translate_service("cache", {
             "image": "i", "volumes": ["data:/data"]})

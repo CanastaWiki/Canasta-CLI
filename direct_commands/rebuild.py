@@ -8,7 +8,7 @@ from . import _helpers
 from ._helpers import register
 
 
-def _list_buildable_services(inst):
+def _list_buildable_services(inst, include_sidecars=False):
     """Return service names with a build: directive in the merged compose config.
 
     Uses `docker compose config --format json` so docker itself
@@ -18,7 +18,7 @@ def _list_buildable_services(inst):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     devmode = inst.get("devMode", False)
-    file_args = _helpers._compose_file_args(path, host, devmode)
+    file_args = _helpers._compose_file_args(path, host, devmode, include_sidecars)
 
     if _helpers._is_localhost(host):
         try:
@@ -75,7 +75,13 @@ def cmd_rebuild(args):
         )
         return 1
 
-    services = _list_buildable_services(inst)
+    # Layer the rendered docker-compose.sidecars.yml only when
+    # config/sidecars.yaml declares sidecars — the same file set the
+    # Ansible stop/start path uses. Without it, `down`/`up -d` run with
+    # an incomplete file set and tear down the sidecar containers.
+    has_sidecars = _helpers._instance_has_sidecars(inst)
+
+    services = _list_buildable_services(inst, include_sidecars=has_sidecars)
     if not services:
         print(
             "No services have a build: directive — nothing to rebuild. "
@@ -90,7 +96,8 @@ def cmd_rebuild(args):
     build_argv.extend(services)
 
     print("Rebuilding: %s" % ", ".join(services))
-    rc = _helpers._run_compose(inst_id, inst, build_argv)
+    rc = _helpers._run_compose(
+        inst_id, inst, build_argv, include_sidecars=has_sidecars)
     if rc != 0:
         return rc
 
@@ -102,11 +109,13 @@ def cmd_rebuild(args):
         return 0
 
     print("Restarting containers to pick up the rebuilt image...")
-    rc = _helpers._run_compose(inst_id, inst, ["down"])
+    rc = _helpers._run_compose(
+        inst_id, inst, ["down"], include_sidecars=has_sidecars)
     if rc != 0:
         return rc
     _helpers._sync_compose_profiles(inst)
-    rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
+    rc = _helpers._run_compose(
+        inst_id, inst, ["up", "-d"], include_sidecars=has_sidecars)
     if rc != 0:
-        _helpers._dump_compose_failure(inst)
+        _helpers._dump_compose_failure(inst, include_sidecars=has_sidecars)
     return rc

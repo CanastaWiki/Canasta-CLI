@@ -217,7 +217,12 @@ def render_k8s_values(sidecars, env, file_reader):
         else:
             item["image"] = sidecar["image"]
         if sidecar.get("command"):
-            item["command"] = resolve_env_value(sidecar["command"], env)
+            command = sidecar["command"]
+            if isinstance(command, list):
+                # Resolve each element — k8s never interpolates ${VAR}.
+                item["command"] = [resolve_env_value(c, env) for c in command]
+            else:
+                item["command"] = resolve_env_value(command, env)
         # envSecret keys are sourced from the per-instance app Secret (rendered
         # as secretKeyRef by the chart), so they are NOT resolved to cleartext
         # here. Everything else stays a resolved literal, exactly as before.
