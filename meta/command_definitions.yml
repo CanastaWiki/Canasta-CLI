@@ -368,6 +368,13 @@ commands:
         type: path
         mutual_exclusion: canasta_image
         description: "Build from local source directory"
+      - name: build_arg
+        type: string
+        multi: true
+        description: >-
+          Build argument KEY=VALUE forwarded to the --build-from image
+          builds (repeatable, e.g. --build-arg MW_VERSION=master). A
+          user-supplied BASE_IMAGE overrides the auto-detected base.
       - name: database
         short: d
         type: path
