@@ -1226,6 +1226,34 @@ class TestComposeFileArgs:
         assert "-f" in args
         assert "docker-compose.dev.yml" in args
 
+    def test_sidecars_layered_between_base_and_override(self, tmp_path):
+        # Layer order matches the Ansible path: base, rendered sidecars,
+        # user override (so the operator's override wins a clash).
+        (tmp_path / "docker-compose.sidecars.yml").write_text("")
+        (tmp_path / "docker-compose.override.yml").write_text("")
+        args = direct_commands._compose_file_args(
+            str(tmp_path), "localhost", include_sidecars=True,
+        )
+        assert args == [
+            "-f", "docker-compose.yml",
+            "-f", "docker-compose.sidecars.yml",
+            "-f", "docker-compose.override.yml",
+        ]
+
+    def test_sidecars_skipped_when_file_missing(self, tmp_path):
+        args = direct_commands._compose_file_args(
+            str(tmp_path), "localhost", include_sidecars=True,
+        )
+        assert args == ["-f", "docker-compose.yml"]
+
+    def test_sidecars_excluded_by_default(self, tmp_path):
+        # A rendered file lingering after `sidecar remove` must not be
+        # layered unless the caller opted in: `up -d` with the stale
+        # layer would recreate the removed sidecar.
+        (tmp_path / "docker-compose.sidecars.yml").write_text("")
+        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        assert args == ["-f", "docker-compose.yml"]
+
 
 # ---------------------------------------------------------------------------
 # Start / stop / restart tests
@@ -1521,6 +1549,40 @@ class TestEnvFileWriter:
             assert f.read() == "K=v\n"
 
 
+class TestEnvRawLineHelpers:
+    """_set_env_lines rewrites only the target key, keeping other lines
+    verbatim (quoting and inline '#' preserved)."""
+
+    def test_normalizes_quoted_target(self):
+        out = direct_commands._helpers._set_env_lines(
+            ['A="secret"', "B=keep"], "A", "secret",
+        )
+        assert out == ["A=secret", "B=keep"]
+
+    def test_leaves_other_lines_verbatim(self):
+        # A's quoted value contains ' #'; compose would truncate it if the
+        # quotes were dropped, so it must survive a set of an unrelated key.
+        out = direct_commands._helpers._set_env_lines(
+            ['A="abc #def"', "B=old", "# c"], "B", "new",
+        )
+        assert out == ['A="abc #def"', "B=new", "# c"]
+
+    def test_dedupes_and_appends(self):
+        assert direct_commands._helpers._set_env_lines(
+            ["K=1", "K=2", "X=y"], "K", "3",
+        ) == ["K=3", "X=y"]
+        assert direct_commands._helpers._set_env_lines(
+            ["A=1"], "B", "2",
+        ) == ["A=1", "B=2"]
+
+    def test_key_of(self):
+        ko = direct_commands._helpers._env_key_of
+        assert ko('K="v"') == "K"
+        assert ko("# c") is None
+        assert ko("") is None
+        assert ko("noeq") is None
+
+
 class TestSyncComposeProfiles:
     def _inst(self, tmp_path):
         return {"path": str(tmp_path), "host": "localhost"}
@@ -1640,6 +1702,25 @@ class TestSyncComposeProfiles:
                 break
         # No teardown call was issued for the dropped internal-db profile.
         assert self.compose_calls == []
+
+    def test_preserves_unrelated_quoted_values(self, tmp_path):
+        # Syncing COMPOSE_PROFILES must not re-serialize (and thus strip
+        # quotes from) unrelated keys. A quoted value containing ' #' would
+        # be truncated by compose's env parser if the quotes were dropped.
+        (tmp_path / ".env").write_text(
+            'RESTIC_PASSWORD="abc #def"\n'
+            "CANASTA_ENABLE_ELASTICSEARCH=true\n"
+            "COMPOSE_PROFILES=\n"
+            "# trailing comment\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert 'RESTIC_PASSWORD="abc #def"' in content
+        assert "# trailing comment" in content
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert "elasticsearch" in line
+                break
 
     def test_deactivated_profile_tears_down_its_container(self, tmp_path):
         # elasticsearch was active; the flag is now false. The profile is
@@ -2269,6 +2350,49 @@ class TestGitopsArgocdStatus:
         result = direct_commands._gitops_argocd_status("mysite")
         assert result == ("Unknown", "Unknown", "never", "unknown")
 
+    def test_remote_host_queries_over_ssh(self, monkeypatch):
+        app = {
+            "status": {
+                "sync": {"status": "Synced", "revision": "abcdef1234567890"},
+                "health": {"status": "Healthy"},
+                "operationState": {"finishedAt": "2026-04-23T10:00:00Z"},
+            }
+        }
+        calls = {}
+
+        def fake_ssh(host, cmd):
+            calls["host"] = host
+            calls["cmd"] = cmd
+            return (0, json.dumps(app))
+
+        def fail_run(*a, **kw):
+            raise AssertionError("kubectl must not run locally for remote host")
+
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
+        monkeypatch.setattr(subprocess, "run", fail_run)
+        sync, health, last, rev = direct_commands._gitops_argocd_status(
+            "mysite", "admin@remote",
+        )
+        assert sync == "Synced"
+        assert health == "Healthy"
+        assert calls["host"] == "admin@remote"
+        assert "kubectl get application canasta-mysite" in calls["cmd"]
+
+    def test_localhost_queries_locally(self, monkeypatch):
+        app = {"status": {"sync": {"status": "Synced", "revision": "abc"},
+                          "health": {"status": "Healthy"}}}
+
+        def fake_run(*a, **kw):
+            return type("R", (), {"returncode": 0, "stdout": json.dumps(app)})()
+
+        def fail_ssh(*a, **kw):
+            raise AssertionError("localhost must not use ssh")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fail_ssh)
+        sync, _, _, _ = direct_commands._gitops_argocd_status("mysite", "localhost")
+        assert sync == "Synced"
+
 
 class TestParseGitopsStatusK8s:
     def _make_output(self, hostname="myhost", commit="abc1234", revcount="0\t0"):
@@ -2349,15 +2473,17 @@ class TestCmdGitopsStatusK8s:
                 "host": "admin@k8s-control",
             }),
         )
-        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
-            lambda host, cmd: (0, ssh_output),
-        )
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {
-                "returncode": 0, "stdout": json.dumps(app),
-            })(),
-        )
+        # Remote host: both the git status and the Argo CD kubectl run
+        # over SSH against the host's kubeconfig, not the laptop's.
+        def fake_ssh(host, cmd):
+            if "kubectl get application" in cmd:
+                return (0, json.dumps(app))
+            return (0, ssh_output)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
+
+        def fail_run(*a, **kw):
+            raise AssertionError("kubectl must not run locally for remote host")
+        monkeypatch.setattr(subprocess, "run", fail_run)
         args = type("Args", (), {"id": "mysite"})()
         rc = direct_commands.cmd_gitops_status(args)
         assert rc == 0
@@ -3551,6 +3677,45 @@ class TestScale:
         assert "values.yaml" in cmd_str
         assert "--reset-values" in cmd_str
         assert "--wait" in cmd_str
+        # No optional values files exist, so none may be layered.
+        assert "values-configdata.yaml" not in cmd_str
+        assert "values-sidecars.yaml" not in cmd_str
+
+    def test_layers_sidecars_values_when_present(
+        self, monkeypatch, tmp_path,
+    ):
+        # helm_deploy.yml layers values-sidecars.yaml when present; with
+        # --reset-values, omitting it reverts to the chart default
+        # (sidecars: []) and prunes every sidecar resource.
+        inst_path = tmp_path / "mysite"
+        inst_path.mkdir()
+        (inst_path / "values.yaml").write_text("web:\n  replicaCount: 1\n")
+        (inst_path / "values-configdata.yaml").write_text("configData: {}\n")
+        (inst_path / "values-sidecars.yaml").write_text(
+            "sidecars:\n  - name: cache\n",
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
+        )
+        captured = {}
+
+        def fake_call(cmd, *a, **kw):
+            captured["cmd"] = cmd
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", fake_call)
+        rc = direct_commands.cmd_scale(self._args(replicas=5))
+        assert rc == 0
+
+        cmd_str = " ".join(captured["cmd"])
+        assert "values-sidecars.yaml" in cmd_str
+        # Same ordering as helm_deploy.yml: values.yaml, configdata,
+        # sidecars, then --reset-values.
+        assert (
+            cmd_str.index("values-configdata.yaml")
+            < cmd_str.index("values-sidecars.yaml")
+            < cmd_str.index("--reset-values")
+        )
 
     def test_helm_failure_reports_partial_state(
         self, monkeypatch, capsys, tmp_path,
@@ -3680,6 +3845,114 @@ class TestDockerHostPropagation:
             "remote cmd should be unmodified when DOCKER_HOST unset; "
             "got %r" % remote_cmd
         )
+
+    def _write_conf(self, tmp_path, inst):
+        conf = tmp_path / "conf.json"
+        conf.write_text(json.dumps({"Instances": {inst["id"]: inst}}, indent=4))
+
+    def test_resolve_by_cwd_sets_docker_host_when_registered(
+        self, tmp_path, monkeypatch,
+    ):
+        # cwd read-only fast paths (status/version/doctor) must also export
+        # the socket, or a rootless instance reports STOPPED while running.
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        site.mkdir()
+        self._write_conf(tmp_path, {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+            "dockerHost": "unix:///run/user/1000/podman/podman.sock",
+        })
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        monkeypatch.chdir(site)
+        from argparse import Namespace
+        iid, inst = direct_commands._helpers._resolve_instance_by_cwd(
+            Namespace(id=None))
+        assert iid == "mysite"
+        assert (
+            os.environ.get("DOCKER_HOST")
+            == "unix:///run/user/1000/podman/podman.sock"
+        )
+
+    def test_resolve_by_cwd_leaves_docker_host_alone_when_unset(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        site.mkdir()
+        self._write_conf(tmp_path, {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+        })
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        monkeypatch.chdir(site)
+        from argparse import Namespace
+        direct_commands._helpers._resolve_instance_by_cwd(Namespace(id=None))
+        assert "DOCKER_HOST" not in os.environ
+
+    def test_gather_instance_info_uses_per_instance_docker_host(
+        self, tmp_path, monkeypatch,
+    ):
+        # _gather_instance_info iterates many instances concurrently, so it
+        # must pass the socket per-command (subprocess env) rather than
+        # mutating the process-global DOCKER_HOST.
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        (site / "config").mkdir(parents=True)
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["env"] = kw.get("env")
+            class R:
+                returncode = 0
+                stdout = "abc123\n"
+            return R()
+
+        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        inst = {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+            "dockerHost": "unix:///run/user/1000/podman/podman.sock",
+        }
+        detail = direct_commands._gather_instance_info("mysite", inst)
+        assert detail["status"] == "RUNNING"
+        assert captured["env"] is not None, (
+            "compose ps must run with an explicit env carrying DOCKER_HOST"
+        )
+        assert (
+            captured["env"].get("DOCKER_HOST")
+            == "unix:///run/user/1000/podman/podman.sock"
+        )
+        # Must not leak into the process env other threads read.
+        assert "DOCKER_HOST" not in os.environ
+
+    def test_gather_instance_info_no_env_override_without_docker_host(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        (site / "config").mkdir(parents=True)
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["env"] = kw.get("env")
+            class R:
+                returncode = 0
+                stdout = "abc123\n"
+            return R()
+
+        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        inst = {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+        }
+        direct_commands._gather_instance_info("mysite", inst)
+        # No dockerHost -> inherit the process env (env=None), don't fabricate.
+        assert captured["env"] is None
 
 
 class TestLintEnvContent:

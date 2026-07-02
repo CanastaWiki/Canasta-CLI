@@ -316,45 +316,30 @@ def test_upgrade(inst):
     wait_for_wiki(inst.http_port)
 
 
-def test_upgrade_mysql_to_mariadb(inst):
-    """A legacy MySQL 8.0 datadir is migrated to MariaDB on upgrade, preserving
-    user data.
-
-    Regression: detection keyed off /var/lib/mysql/.rocksdb, a marker absent
-    from every real MySQL 8 datadir, so the migration was silently skipped and
-    MariaDB later crashed booting on the un-migrated MySQL 8 data. This seeds a
-    genuine MySQL 8.0 datadir (with a sentinel row) into the instance's data
-    volume, runs upgrade, and asserts the row is present in MariaDB afterward.
-    Because MariaDB physically cannot boot on a MySQL 8 datadir, a successful
-    query also proves detection fired and the migration ran.
-    """
-    volume = "%s_mysql-data-volume" % re.sub(
+def _mysql_data_volume(inst):
+    """Name of the instance's MySQL data volume, as Compose derives it."""
+    return "%s_mysql-data-volume" % re.sub(
         r"[^a-z0-9_-]", "", inst.id.lower()
     )
 
-    def wipe_volume():
-        subprocess.run(
-            ["docker", "run", "--rm", "-v", "%s:/data" % volume, "alpine",
-             "sh", "-c", "rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null || true"],
-            check=True, capture_output=True,
-        )
 
-    print("Creating instance...")
-    inst.run_ok(
-        "create", "-i", inst.id, "-w", "main",
-        "-n", "localhost", "-p", inst.work_dir,
-        "-e", inst.env_file,
+def _wipe_volume(volume):
+    """Empty a Docker volume via a throwaway alpine container."""
+    subprocess.run(
+        ["docker", "run", "--rm", "-v", "%s:/data" % volume, "alpine",
+         "sh", "-c", "rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null || true"],
+        check=True, capture_output=True,
     )
-    # No need to wait for the wiki — the datadir is replaced wholesale below.
-    time.sleep(10)
 
-    password = read_env(inst.env_path()).get("MYSQL_PASSWORD", "mediawiki")
 
-    print("Stopping instance and wiping the MariaDB datadir...")
-    inst.run_ok("stop", "-i", inst.id)
-    wipe_volume()
+def _seed_mysql8_datadir(inst, volume, password):
+    """Seed a genuine MySQL 8.0 datadir (with a sentinel row) into `volume`.
 
-    print("Seeding a genuine MySQL 8.0 datadir with a sentinel row...")
+    Runs a throwaway mysql:8.0 container over the volume, creates a canary
+    table, and confirms the result is a real MySQL 8 datadir (mysql.ibd) —
+    the exact marker detection keys off. Leaves the volume populated on
+    return.
+    """
     seed = "canasta-mysql8-seed-%s" % inst.id
     subprocess.run(["docker", "rm", "-f", seed], capture_output=True)
     subprocess.run(
@@ -405,26 +390,20 @@ def test_upgrade_mysql_to_mariadb(inst):
     finally:
         subprocess.run(["docker", "rm", "-f", seed], capture_output=True)
 
-    print("Running upgrade (must detect MySQL 8 and migrate to MariaDB)...")
-    inst.run_ok("upgrade")
 
-    print("Verifying the sentinel row survived into MariaDB...")
+def _query_canary(inst, password):
+    """Return (rc, stdout) from selecting the canary row out of MariaDB."""
     query = subprocess.run(
         ["docker", "compose", "exec", "-T", "db", "sh", "-c",
          "MYSQL_PWD=%s mariadb -u root --skip-column-names -N "
          "-e 'SELECT note FROM main.canary WHERE id=1'" % password],
         cwd=inst.instance_path(), capture_output=True, text=True,
     )
-    assert query.returncode == 0, (
-        "querying MariaDB after migration failed — did MariaDB boot, or is it "
-        "crash-looping on un-migrated MySQL 8 data?\n%s\n%s"
-        % (query.stdout, query.stderr)
-    )
-    assert "survived-migration" in query.stdout, (
-        "sentinel row missing from MariaDB after migration:\n%s" % query.stdout
-    )
+    return query.returncode, query.stdout
 
-    print("Verifying the datadir is now MariaDB format...")
+
+def _assert_mariadb_datadir(volume):
+    """Assert the volume now holds a MariaDB datadir, not MySQL 8's."""
     fmt = subprocess.run(
         ["docker", "run", "--rm", "-v", "%s:/data" % volume, "alpine",
          "sh", "-c", "ls -a /data"],
@@ -438,6 +417,172 @@ def test_upgrade_mysql_to_mariadb(inst):
         "MySQL 8 system tablespace still present after migration:\n%s"
         % fmt.stdout
     )
+
+
+def test_upgrade_mysql_to_mariadb(inst):
+    """A legacy MySQL 8.0 datadir is migrated to MariaDB on upgrade, preserving
+    user data — and a second upgrade is a clean no-op.
+
+    Regression: detection keyed off /var/lib/mysql/.rocksdb, a marker absent
+    from every real MySQL 8 datadir, so the migration was silently skipped and
+    MariaDB later crashed booting on the un-migrated MySQL 8 data. This seeds a
+    genuine MySQL 8.0 datadir (with a sentinel row) into the instance's data
+    volume, runs upgrade, and asserts the row is present in MariaDB afterward.
+    Because MariaDB physically cannot boot on a MySQL 8 datadir, a successful
+    query also proves detection fired and the migration ran. A second upgrade
+    must then be idempotent: the datadir is already MariaDB, so detection does
+    not fire and no re-migration touches the data.
+    """
+    volume = _mysql_data_volume(inst)
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    # No need to wait for the wiki — the datadir is replaced wholesale below.
+    time.sleep(10)
+
+    password = read_env(inst.env_path()).get("MYSQL_PASSWORD", "mediawiki")
+
+    print("Stopping instance and wiping the MariaDB datadir...")
+    inst.run_ok("stop", "-i", inst.id)
+    _wipe_volume(volume)
+
+    print("Seeding a genuine MySQL 8.0 datadir with a sentinel row...")
+    _seed_mysql8_datadir(inst, volume, password)
+
+    print("Running upgrade (must detect MySQL 8 and migrate to MariaDB)...")
+    inst.run_ok("upgrade")
+
+    print("Verifying the sentinel row survived into MariaDB...")
+    rc, out = _query_canary(inst, password)
+    assert rc == 0, (
+        "querying MariaDB after migration failed — did MariaDB boot, or is it "
+        "crash-looping on un-migrated MySQL 8 data?\n%s" % out
+    )
+    assert "survived-migration" in out, (
+        "sentinel row missing from MariaDB after migration:\n%s" % out
+    )
+
+    print("Verifying the datadir is now MariaDB format...")
+    _assert_mariadb_datadir(volume)
+
+    # Idempotent re-run: the datadir is already MariaDB, so detection must not
+    # fire and the sentinel row must be untouched (no dump/clear/reimport).
+    print("Running upgrade again (must be a clean no-op)...")
+    output = inst.run_ok("upgrade")
+    assert "Detected MySQL 8.0 data" not in output, (
+        "second upgrade re-ran the migration on an already-MariaDB datadir:\n%s"
+        % output
+    )
+
+    print("Verifying the sentinel row is still present after the re-run...")
+    rc, out = _query_canary(inst, password)
+    assert rc == 0 and "survived-migration" in out, (
+        "sentinel row disappeared after an idempotent re-run:\n%s" % out
+    )
+    _assert_mariadb_datadir(volume)
+
+
+def test_upgrade_mysql_to_mariadb_recovery(inst):
+    """Recover an instance whose compose was already swapped to MariaDB but
+    whose data volume still holds a MySQL 8.0 datadir.
+
+    This is the field-failure state left behind when the .rocksdb-marker bug
+    skipped the migration: the managed compose now pins MariaDB, yet the volume
+    is un-migrated MySQL 8 data that MariaDB cannot boot on. Detection is a
+    read-only volume probe (mysql.ibd), independent of what compose pins, and
+    the dump runs against a throwaway mysql:8.0 container — so upgrade must
+    still detect and migrate here. A successful MariaDB query afterward proves
+    the recovery path fired (MariaDB physically cannot boot on MySQL 8 data).
+    """
+    volume = _mysql_data_volume(inst)
+
+    print("Creating instance (compose already pins MariaDB)...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)
+
+    password = read_env(inst.env_path()).get("MYSQL_PASSWORD", "mediawiki")
+
+    # Leave the MariaDB-pinned compose as-is; only the volume regresses to
+    # MySQL 8 data. This is exactly the stranded post-bug state.
+    print("Stopping instance and regressing the volume to MySQL 8.0 data...")
+    inst.run_ok("stop", "-i", inst.id)
+    _wipe_volume(volume)
+    _seed_mysql8_datadir(inst, volume, password)
+
+    print("Running upgrade (must recover MySQL 8 data despite MariaDB compose)...")
+    inst.run_ok("upgrade")
+
+    print("Verifying the sentinel row was recovered into MariaDB...")
+    rc, out = _query_canary(inst, password)
+    assert rc == 0, (
+        "querying MariaDB after recovery failed — did MariaDB boot, or is it "
+        "crash-looping on un-migrated MySQL 8 data?\n%s" % out
+    )
+    assert "survived-migration" in out, (
+        "sentinel row missing from MariaDB after recovery:\n%s" % out
+    )
+
+    print("Verifying the datadir is now MariaDB format...")
+    _assert_mariadb_datadir(volume)
+
+
+def test_reconcile(inst):
+    """`canasta reconcile` re-derives COMPOSE_PROFILES from the feature flags
+    and converges the running containers without a disruptive stop.
+
+    Introduces config/runtime drift by hand-injecting a stale profile
+    (elasticsearch) into .env's COMPOSE_PROFILES while the feature flag stays
+    off. reconcile must strip the stale profile back out (its source of truth
+    is the flags, not the raw list) and leave the wiki serving.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Introducing drift: injecting a stale profile into COMPOSE_PROFILES...")
+    env = read_env(inst.env_path())
+    profiles = [p for p in env.get("COMPOSE_PROFILES", "").split(",") if p]
+    assert "elasticsearch" not in profiles, (
+        "precondition: elasticsearch profile should be absent"
+    )
+    drifted = ",".join(profiles + ["elasticsearch"])
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "COMPOSE_PROFILES=%s" % drifted, "--force", "--no-restart",
+    )
+    env = read_env(inst.env_path())
+    assert "elasticsearch" in env.get("COMPOSE_PROFILES", ""), (
+        "drift not seeded: %s" % env.get("COMPOSE_PROFILES")
+    )
+
+    print("Reconciling...")
+    output = inst.run_ok("reconcile", "-i", inst.id)
+    assert "reconciled" in output, (
+        "reconcile should report the instance was reconciled:\n%s" % output
+    )
+
+    print("Verifying the stale profile was healed out of COMPOSE_PROFILES...")
+    env = read_env(inst.env_path())
+    healed = [p for p in env.get("COMPOSE_PROFILES", "").split(",") if p]
+    assert "elasticsearch" not in healed, (
+        "reconcile did not strip the stale elasticsearch profile: %s"
+        % env.get("COMPOSE_PROFILES")
+    )
+
+    print("Verifying the wiki still serves after reconcile...")
+    wait_for_wiki(inst.http_port)
 
 
 def test_upgrade_backfill_hosts_yaml(inst):
@@ -747,7 +892,8 @@ def test_backup_missing_dockerfile(inst):
 
 
 def test_gitops(inst):
-    """Init gitops, verify templates, push, verify remote."""
+    """Init gitops, verify templates, push, verify remote, then untrack a
+    file with 'gitops rm'."""
     # Check prerequisites
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
@@ -825,6 +971,49 @@ def test_gitops(inst):
     )
     assert "wgTestSetting" in result.stdout, (
         "File content not in repo: %s" % result.stdout
+    )
+
+    # 'gitops rm <path>' is the inverse of 'gitops add': it untracks the file
+    # (git rm --cached, so the deletion is staged for the next push) and
+    # deletes it from disk. The just-pushed GitopsTest.php starts tracked.
+    rel = "config/settings/global/GitopsTest.php"
+    tracked = subprocess.run(
+        ["git", "-C", inst_path, "ls-files", rel],
+        capture_output=True, text=True,
+    ).stdout
+    assert rel in tracked, "GitopsTest.php should be tracked before rm: %r" % tracked
+
+    print("Untracking the file with gitops rm...")
+    inst.run_ok("gitops", "rm", "-i", inst.id, rel)
+
+    print("Verifying the file is untracked from the repo...")
+    tracked = subprocess.run(
+        ["git", "-C", inst_path, "ls-files", rel],
+        capture_output=True, text=True,
+    ).stdout
+    assert rel not in tracked, (
+        "gitops rm should untrack the file (git rm --cached): %r" % tracked
+    )
+
+    # rm --cached only stages the deletion; the previously-pushed blob must
+    # still be in the remote until the next push.
+    result = subprocess.run(
+        ["git", "show", "main:%s" % rel],
+        cwd=bare_repo, capture_output=True, text=True,
+    )
+    assert "wgTestSetting" in result.stdout, (
+        "the deletion should be local-only until pushed: %r" % result.stdout
+    )
+
+    print("Pushing the untrack and verifying it lands in the remote...")
+    inst.run_ok("gitops", "push", "-i", inst.id)
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "main"],
+        cwd=bare_repo, capture_output=True, text=True,
+    )
+    assert rel not in result.stdout, (
+        "gitops rm + push should drop the file from the remote:\n%s"
+        % result.stdout
     )
 
 
@@ -1486,6 +1675,44 @@ def test_k8s_lifecycle(inst):
     assert "Running" in result.stdout, (
         "No running pods: %s" % result.stdout
     )
+
+    # 'gitops sync' triggers an Argo CD Application sync (Compose is a no-op).
+    # This lifecycle test creates with --skip-argocd-install, so an
+    # Application CR only exists when Argo CD is already running on the runner.
+    # Gate on that: with an Application present, sync must patch it with the
+    # hard-refresh annotation and report completion; without Argo CD there is
+    # nothing to reconcile, so the command must surface a clear error rather
+    # than silently succeeding.
+    app_exists = subprocess.run(
+        ["kubectl", "get", "application", "canasta-%s" % inst.id,
+         "-n", "argocd"],
+        capture_output=True,
+    ).returncode == 0
+    if app_exists:
+        print("Triggering an Argo CD sync via gitops sync...")
+        output = inst.run_ok("gitops", "sync", "-i", inst.id)
+        assert "sync completed" in output.lower(), (
+            "gitops sync should report Argo CD sync completion:\n%s" % output
+        )
+        refresh = subprocess.run(
+            ["kubectl", "get", "application", "canasta-%s" % inst.id,
+             "-n", "argocd", "-o",
+             "jsonpath={.metadata.annotations.argocd\\.argoproj\\.io/refresh}"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        # The controller clears the annotation once it processes the refresh,
+        # so accept either the annotation still set to 'hard' or already
+        # consumed (empty) — both mean the patch reached the Application.
+        assert refresh in ("hard", ""), (
+            "gitops sync did not apply the hard-refresh annotation: %r" % refresh
+        )
+    else:
+        print("No Argo CD Application present; asserting gitops sync errors...")
+        out, rc = inst.run("gitops", "sync", "-i", inst.id)
+        assert rc != 0, (
+            "gitops sync should fail with no Argo CD Application to sync:\n%s"
+            % out
+        )
 
     print("Testing maintenance exec...")
     output = inst.run_ok(
@@ -3346,6 +3573,8 @@ ALL_TESTS = {
     "import": test_import_export,
     "upgrade": test_upgrade,
     "upgrade-mysql-to-mariadb": test_upgrade_mysql_to_mariadb,
+    "upgrade-mysql-to-mariadb-recovery": test_upgrade_mysql_to_mariadb_recovery,
+    "reconcile": test_reconcile,
     "upgrade-refreshes-gitignore": test_upgrade_refreshes_gitignore,
     "upgrade-backfills-wikis-template": test_upgrade_backfills_wikis_template,
     "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,

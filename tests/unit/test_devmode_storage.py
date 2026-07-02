@@ -60,6 +60,35 @@ class TestDevmodeGuards:
                    and "already" not in n.lower())
 
 
+class TestDevmodeRegistryUpdate:
+    """canasta_registry state=present rebuilds the whole record from params, so
+    the registry-update in enable/disable must forward every field it wants
+    kept — including dockerHost (set by create --docker-host or rootless
+    auto-detect), or toggling devmode silently drops it."""
+
+    def _registry_update(self, tasks):
+        for t in tasks:
+            if isinstance(t, dict) and "canasta_registry" in t:
+                params = t["canasta_registry"]
+                if params.get("state") == "present":
+                    return params
+        raise AssertionError("no canasta_registry state=present task found")
+
+    def test_enable_forwards_docker_host(self):
+        params = self._registry_update(
+            _load(os.path.join(DEVMODE_TASKS, "enable.yml")))
+        assert "docker_host" in params
+        assert "dockerHost" in params["docker_host"]
+        assert "default(omit)" in params["docker_host"]
+
+    def test_disable_forwards_docker_host(self):
+        params = self._registry_update(
+            _load(os.path.join(DEVMODE_TASKS, "disable.yml")))
+        assert "docker_host" in params
+        assert "dockerHost" in params["docker_host"]
+        assert "default(omit)" in params["docker_host"]
+
+
 class TestNfsStorageSetup:
     """`canasta storage setup nfs` installs the NFS CSI driver and creates an
     `nfs` StorageClass pointing at the NFS server (#758)."""

@@ -79,17 +79,29 @@ def _resolve_instance_by_cwd(args):
     Returns (None, None) on no match so callers can emit their own error
     message, unlike canasta.resolve_instance() which exits. Shared by
     `status`, `doctor`, and `version` so they detect instances identically.
+
+    Side effect: like _resolve_instance, exports the resolved instance's
+    registry dockerHost as DOCKER_HOST so subsequent local docker /
+    docker compose subprocesses and SSH-wrapped remote calls target the
+    right (e.g. rootless) socket.
     """
+    def _resolved(iid, inst):
+        if inst:
+            docker_host = inst.get("dockerHost")
+            if docker_host:
+                os.environ["DOCKER_HOST"] = docker_host
+        return (iid, inst)
+
     inst_id = getattr(args, "id", None)
     conf_path = os.path.join(_get_config_dir(), "conf.json")
     instances = _read_registry(conf_path)
     if inst_id:
-        return (inst_id, instances.get(inst_id))
+        return _resolved(inst_id, instances.get(inst_id))
     search = os.path.abspath(os.environ.get("CANASTA_HOST_PWD") or os.getcwd())
     while True:
         for iid, inst in instances.items():
             if os.path.abspath(inst.get("path", "")) == search:
-                return (iid, inst)
+                return _resolved(iid, inst)
         parent = os.path.dirname(search)
         if parent == search:
             break
@@ -221,6 +233,38 @@ def _set_env_entry(entries, key, value):
     return new_entries
 
 
+def _env_key_of(line):
+    """Key defined by a raw .env line, or None for comments, blanks, and
+    malformed lines. Tolerates a trailing CR. Mirrors canasta_env._key_of()."""
+    stripped = line.rstrip("\r").strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    parts = stripped.split("=", 1)
+    if len(parts) != 2:
+        return None
+    return parts[0].strip()
+
+
+def _set_env_lines(lines, key, value):
+    """Rewrite the first line defining `key` as an unquoted 'key=value',
+    dropping later duplicates and appending if absent. Untouched lines are
+    kept verbatim so their quoting (and any inline '#') survives. Mirrors
+    canasta_env.set_line()."""
+    found = False
+    new_lines = []
+    for line in lines:
+        if _env_key_of(line) == key:
+            if not found:
+                new_lines.append("%s=%s" % (key, value))
+                found = True
+            # Drop duplicate definitions of the same key.
+        else:
+            new_lines.append(line)
+    if not found:
+        new_lines.append("%s=%s" % (key, value))
+    return new_lines
+
+
 def _write_env_content(path, host, content):
     """Write content to .env. Returns True on success.
 
@@ -265,17 +309,28 @@ def _read_env_file(path, host):
     return {k: v for k, v, c in _parse_env_entries(content) if not c and k}
 
 
-def _compose_file_args(path, host, devmode=False):
-    """Build docker compose -f flags based on available files."""
+def _compose_file_args(path, host, devmode=False, include_sidecars=False):
+    """Build docker compose -f flags based on available files.
+
+    include_sidecars layers docker-compose.sidecars.yml (when present)
+    between the base file and the override — the same order the Ansible
+    path uses, so a service-name clash lets the operator's override win.
+    Callers must pass it only when config/sidecars.yaml declares
+    sidecars: the rendered file can linger after `sidecar remove`, and
+    layering it into `up -d` would recreate the removed sidecar.
+    """
+    def _exists(name):
+        full = os.path.join(path, name)
+        if _is_localhost(host):
+            return os.path.isfile(full)
+        rc, _ = _ssh_run(host, "test -f %s" % _shell_quote(full))
+        return rc == 0
+
     files = ["docker-compose.yml"]
-    override = os.path.join(path, "docker-compose.override.yml")
-    if _is_localhost(host):
-        if os.path.isfile(override):
-            files.append("docker-compose.override.yml")
-    else:
-        rc, _ = _ssh_run(host, "test -f %s" % _shell_quote(override))
-        if rc == 0:
-            files.append("docker-compose.override.yml")
+    if include_sidecars and _exists("docker-compose.sidecars.yml"):
+        files.append("docker-compose.sidecars.yml")
+    if _exists("docker-compose.override.yml"):
+        files.append("docker-compose.override.yml")
     if devmode:
         files.append("docker-compose.dev.yml")
     result = []
@@ -284,7 +339,7 @@ def _compose_file_args(path, host, devmode=False):
     return result
 
 
-def _run_compose(inst_id, inst, action_args):
+def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     """Run a docker compose command for an instance. Returns exit code.
 
     Output streams to the terminal and there is NO timeout: the actions
@@ -297,7 +352,7 @@ def _run_compose(inst_id, inst, action_args):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     devmode = inst.get("devMode", False)
-    file_args = _compose_file_args(path, host, devmode)
+    file_args = _compose_file_args(path, host, devmode, include_sidecars)
 
     if _is_localhost(host):
         cmd = ["docker", "compose"] + file_args + action_args
@@ -438,16 +493,18 @@ def _sync_compose_profiles(inst):
     if not profiles_changed and not image_changed:
         return  # No change needed
 
-    new_entries = entries
+    # Rewrite only the keys that changed, keeping every other line verbatim so
+    # quoting (and any inline '#' inside quotes) on unrelated keys survives.
+    new_lines = content.split("\n")
     if profiles_changed:
-        new_entries = _set_env_entry(
-            new_entries, "COMPOSE_PROFILES", ",".join(desired),
+        new_lines = _set_env_lines(
+            new_lines, "COMPOSE_PROFILES", ",".join(desired),
         )
     if image_changed:
-        new_entries = _set_env_entry(
-            new_entries, "CANASTA_CADDY_IMAGE", desired_caddy_image,
+        new_lines = _set_env_lines(
+            new_lines, "CANASTA_CADDY_IMAGE", desired_caddy_image,
         )
-    _write_env_content(path, host, _entries_to_content(new_entries))
+    _write_env_content(path, host, "\n".join(new_lines))
 
     # A feature flag flipped off drops its profile from COMPOSE_PROFILES, but
     # docker compose up/down only act on active profiles — a container still
@@ -475,7 +532,7 @@ def _sync_compose_profiles(inst):
             )
 
 
-def _dump_compose_failure(inst):
+def _dump_compose_failure(inst, include_sidecars=False):
     """Print docker compose ps + logs to stderr after a failed 'up'.
 
     Matches the diagnostic block in roles/orchestrator/tasks/start.yml:
@@ -487,7 +544,7 @@ def _dump_compose_failure(inst):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     devmode = inst.get("devMode", False)
-    file_args = _compose_file_args(path, host, devmode)
+    file_args = _compose_file_args(path, host, devmode, include_sidecars)
 
     steps = [
         (["ps", "-a"], "docker compose ps -a"),
@@ -837,27 +894,41 @@ def _read_wikis(path, host):
         return []
 
 
-def _check_running(instance_id, path, orchestrator, host):
+def _docker_env(docker_host):
+    """Process env with DOCKER_HOST set to docker_host, or None to inherit.
+
+    Used to target a specific instance's socket per-subprocess rather than
+    mutating os.environ, so concurrent readers of different instances don't
+    clobber each other."""
+    if not docker_host:
+        return None
+    env = dict(os.environ)
+    env["DOCKER_HOST"] = docker_host
+    return env
+
+
+def _check_running(instance_id, path, orchestrator, host, docker_host=None):
     if orchestrator in ("kubernetes", "k8s"):
         return _check_running_k8s(instance_id, host)
-    return _check_running_compose(path, host)
+    return _check_running_compose(path, host, docker_host)
 
 
-def _check_running_compose(path, host):
+def _check_running_compose(path, host, docker_host=None):
     if _is_localhost(host):
         try:
             result = subprocess.run(
                 ["docker", "compose", "ps", "-q", "web"],
                 cwd=path, capture_output=True, text=True, timeout=10,
+                env=_docker_env(docker_host),
             )
             return result.returncode == 0 and result.stdout.strip() != ""
         except (subprocess.TimeoutExpired, OSError):
             return False
     else:
-        rc, stdout = _ssh_run(
-            host,
-            "cd %s && docker compose ps -q web" % _shell_quote(path),
-        )
+        cmd = "cd %s && docker compose ps -q web" % _shell_quote(path)
+        if docker_host:
+            cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
+        rc, stdout = _ssh_run(host, cmd)
         return rc == 0 and stdout.strip() != ""
 
 
@@ -910,20 +981,27 @@ def _gather_instance_info(inst_id, inst):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     orchestrator = inst.get("orchestrator", "compose")
+    # Per-instance socket: many instances are gathered concurrently, so target
+    # this one's rootless socket via a per-command DOCKER_HOST rather than the
+    # process-global env another thread might read.
+    docker_host = inst.get("dockerHost")
     qpath = _shell_quote(path)
 
     if _is_localhost(host):
-        return _gather_local(inst_id, path, orchestrator, host)
+        return _gather_local(inst_id, path, orchestrator, host, docker_host)
 
     if orchestrator in ("kubernetes", "k8s"):
         return _gather_k8s(inst_id, path, host)
 
+    compose_ps = "cd %(p)s && docker compose ps -q web 2>/dev/null || true"
+    if docker_host:
+        compose_ps = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), compose_ps)
     script = (
         "test -d %(p)s && echo DIR_OK || echo DIR_MISSING; "
         "echo '%(d)s'; "
         "cat %(p)s/config/wikis.yaml 2>/dev/null || echo WIKIS_MISSING; "
         "echo '%(d)s'; "
-        "cd %(p)s && docker compose ps -q web 2>/dev/null || true"
+        + compose_ps
     ) % {"p": qpath, "d": _SENTINEL}
 
     rc, stdout = _ssh_run(host, script)
@@ -953,13 +1031,13 @@ def _gather_instance_info(inst_id, inst):
     return _make_detail(inst_id, host, path, orchestrator, status, wikis)
 
 
-def _gather_local(inst_id, path, orchestrator, host):
+def _gather_local(inst_id, path, orchestrator, host, docker_host=None):
     dir_exists = os.path.isdir(path)
     wikis = _read_wikis(path, host) if dir_exists else []
 
     if not dir_exists:
         status = "NOT FOUND"
-    elif _check_running(inst_id, path, orchestrator, host):
+    elif _check_running(inst_id, path, orchestrator, host, docker_host):
         status = "RUNNING"
     else:
         status = "STOPPED"
