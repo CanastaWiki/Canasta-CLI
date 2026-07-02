@@ -26,13 +26,36 @@
     _add_other_files: "{{ _add_files | reject('equalto', 'config/wikis.yaml') | list }}"
 
 # Stage each explicitly named file other than the rendered wikis.yaml.
+# Keep the loop non-fatal so a bad path does not abort with the opaque
+# generic "non-zero return code"; the next task turns any failure into a
+# legible message.
 - name: Stage requested files
   ansible.builtin.command:
     cmd: "git add -- {{ item }}"
     chdir: "{{ instance_path }}"
   register: _git_add_file
   changed_when: _git_add_file.rc == 0
+  failed_when: false
   loop: "{{ _add_other_files }}"
+
+# git add exits non-zero for a path outside the repository (e.g. a
+# shell-relative '../wikis.yaml.template' typed from a subdirectory) or a
+# path that does not exist. Name each rejected file, show git's own
+# reason, and remind that paths are relative to the instance root.
+- name: Fail clearly when a requested file could not be staged
+  ansible.builtin.fail:
+    msg: |-
+      Could not stage the following file(s). Paths are relative to the
+      instance root ({{ instance_path }}), not your current directory.
+      {% for f in _git_add_failures %}
+      - {{ f.item }}: {{ f.stderr | default('git add failed', true) | trim }}
+      {% endfor %}
+  vars:
+    _git_add_failures: >-
+      {{ _git_add_file.results | default([])
+         | selectattr('rc', 'defined')
+         | rejectattr('rc', 'equalto', 0) | list }}
+  when: _git_add_failures | length > 0
 
 # config/wikis.yaml: capture the literal edit into the template rather
 # than staging the rendered file.
