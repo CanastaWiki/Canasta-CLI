@@ -124,9 +124,25 @@
     label: "{{ item }}"
 
 # item.0 is the per-dir find result (item.0.item = 'extensions'|'skins');
-# item.1 is a top-level entry under it. kubectl cp copies the dir/file as
-# /sync/<dir>/<name> (i.e. user-extensions/<name>). Existing entries are
-# overwritten; the prune step above handles removals.
+# item.1 is a top-level entry under it, copied to /sync/<dir>/<name> (i.e.
+# user-extensions/<name>).
+#
+# kubectl cp of a DIRECTORY onto an existing directory nests it as
+# /sync/<dir>/<name>/<name> rather than replacing it, so a re-synced (updated)
+# extension/skin would leave the stale copy at the top level and orphan the
+# new code one level deep. Remove each managed entry first so the copy always
+# lands on a clean path. (The prune step above only removes entries no longer
+# in the instance dir, never one that is present-but-updated.)
+- name: Clear each managed entry before copy
+  ansible.builtin.command:
+    cmd: >-
+      kubectl exec -n {{ _ud_namespace }} user-dir-sync -c sync --
+      rm -rf /sync/{{ item.0.item }}/{{ item.1.path | basename }}
+  changed_when: true
+  loop: "{{ _ud_entries.results | subelements('files', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.item }}/{{ item.1.path | basename }}"
+
 - name: kubectl cp each entry into its PVC
   ansible.builtin.command:
     cmd: >-
