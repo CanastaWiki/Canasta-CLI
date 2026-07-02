@@ -2269,6 +2269,49 @@ class TestGitopsArgocdStatus:
         result = direct_commands._gitops_argocd_status("mysite")
         assert result == ("Unknown", "Unknown", "never", "unknown")
 
+    def test_remote_host_queries_over_ssh(self, monkeypatch):
+        app = {
+            "status": {
+                "sync": {"status": "Synced", "revision": "abcdef1234567890"},
+                "health": {"status": "Healthy"},
+                "operationState": {"finishedAt": "2026-04-23T10:00:00Z"},
+            }
+        }
+        calls = {}
+
+        def fake_ssh(host, cmd):
+            calls["host"] = host
+            calls["cmd"] = cmd
+            return (0, json.dumps(app))
+
+        def fail_run(*a, **kw):
+            raise AssertionError("kubectl must not run locally for remote host")
+
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
+        monkeypatch.setattr(subprocess, "run", fail_run)
+        sync, health, last, rev = direct_commands._gitops_argocd_status(
+            "mysite", "admin@remote",
+        )
+        assert sync == "Synced"
+        assert health == "Healthy"
+        assert calls["host"] == "admin@remote"
+        assert "kubectl get application canasta-mysite" in calls["cmd"]
+
+    def test_localhost_queries_locally(self, monkeypatch):
+        app = {"status": {"sync": {"status": "Synced", "revision": "abc"},
+                          "health": {"status": "Healthy"}}}
+
+        def fake_run(*a, **kw):
+            return type("R", (), {"returncode": 0, "stdout": json.dumps(app)})()
+
+        def fail_ssh(*a, **kw):
+            raise AssertionError("localhost must not use ssh")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fail_ssh)
+        sync, _, _, _ = direct_commands._gitops_argocd_status("mysite", "localhost")
+        assert sync == "Synced"
+
 
 class TestParseGitopsStatusK8s:
     def _make_output(self, hostname="myhost", commit="abc1234", revcount="0\t0"):
@@ -2349,15 +2392,17 @@ class TestCmdGitopsStatusK8s:
                 "host": "admin@k8s-control",
             }),
         )
-        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
-            lambda host, cmd: (0, ssh_output),
-        )
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {
-                "returncode": 0, "stdout": json.dumps(app),
-            })(),
-        )
+        # Remote host: both the git status and the Argo CD kubectl run
+        # over SSH against the host's kubeconfig, not the laptop's.
+        def fake_ssh(host, cmd):
+            if "kubectl get application" in cmd:
+                return (0, json.dumps(app))
+            return (0, ssh_output)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
+
+        def fail_run(*a, **kw):
+            raise AssertionError("kubectl must not run locally for remote host")
+        monkeypatch.setattr(subprocess, "run", fail_run)
         args = type("Args", (), {"id": "mysite"})()
         rc = direct_commands.cmd_gitops_status(args)
         assert rc == 0
