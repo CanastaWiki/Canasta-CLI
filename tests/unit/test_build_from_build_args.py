@@ -73,3 +73,19 @@ def test_register_passes_build_args():
 def test_upgrade_replays_build_args():
     txt = _text(UPGRADE_MAIN)
     assert "buildArgs" in txt
+
+
+def test_build_from_guards_output_tag_collision():
+    # A user --build-arg BASE_IMAGE=canasta:local collides with the fixed
+    # canasta:local output tag (the overlay builds FROM its own output). The
+    # task must fail fast rather than silently overwrite the base / double-layer
+    # on a repeat build (#983). Guard the collision check and its order.
+    with open(BUILD_FROM) as f:
+        tasks = yaml.safe_load(f)
+    names = [t.get("name", "") for t in tasks]
+    assert "Resolve effective BASE_IMAGE" in names
+    guard_name = "Fail if the base image collides with the build-from output tag"
+    guard = next(t for t in tasks if t.get("name") == guard_name)
+    assert "ansible.builtin.fail" in guard
+    assert guard["when"] == "_effective_base_image == 'canasta:local'"
+    assert names.index(guard_name) < names.index("Build Canasta image from source")
