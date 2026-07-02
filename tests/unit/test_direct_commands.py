@@ -1549,6 +1549,40 @@ class TestEnvFileWriter:
             assert f.read() == "K=v\n"
 
 
+class TestEnvRawLineHelpers:
+    """_set_env_lines rewrites only the target key, keeping other lines
+    verbatim (quoting and inline '#' preserved)."""
+
+    def test_normalizes_quoted_target(self):
+        out = direct_commands._helpers._set_env_lines(
+            ['A="secret"', "B=keep"], "A", "secret",
+        )
+        assert out == ["A=secret", "B=keep"]
+
+    def test_leaves_other_lines_verbatim(self):
+        # A's quoted value contains ' #'; compose would truncate it if the
+        # quotes were dropped, so it must survive a set of an unrelated key.
+        out = direct_commands._helpers._set_env_lines(
+            ['A="abc #def"', "B=old", "# c"], "B", "new",
+        )
+        assert out == ['A="abc #def"', "B=new", "# c"]
+
+    def test_dedupes_and_appends(self):
+        assert direct_commands._helpers._set_env_lines(
+            ["K=1", "K=2", "X=y"], "K", "3",
+        ) == ["K=3", "X=y"]
+        assert direct_commands._helpers._set_env_lines(
+            ["A=1"], "B", "2",
+        ) == ["A=1", "B=2"]
+
+    def test_key_of(self):
+        ko = direct_commands._helpers._env_key_of
+        assert ko('K="v"') == "K"
+        assert ko("# c") is None
+        assert ko("") is None
+        assert ko("noeq") is None
+
+
 class TestSyncComposeProfiles:
     def _inst(self, tmp_path):
         return {"path": str(tmp_path), "host": "localhost"}
@@ -1668,6 +1702,25 @@ class TestSyncComposeProfiles:
                 break
         # No teardown call was issued for the dropped internal-db profile.
         assert self.compose_calls == []
+
+    def test_preserves_unrelated_quoted_values(self, tmp_path):
+        # Syncing COMPOSE_PROFILES must not re-serialize (and thus strip
+        # quotes from) unrelated keys. A quoted value containing ' #' would
+        # be truncated by compose's env parser if the quotes were dropped.
+        (tmp_path / ".env").write_text(
+            'RESTIC_PASSWORD="abc #def"\n'
+            "CANASTA_ENABLE_ELASTICSEARCH=true\n"
+            "COMPOSE_PROFILES=\n"
+            "# trailing comment\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert 'RESTIC_PASSWORD="abc #def"' in content
+        assert "# trailing comment" in content
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert "elasticsearch" in line
+                break
 
     def test_deactivated_profile_tears_down_its_container(self, tmp_path):
         # elasticsearch was active; the flag is now false. The profile is

@@ -233,6 +233,38 @@ def _set_env_entry(entries, key, value):
     return new_entries
 
 
+def _env_key_of(line):
+    """Key defined by a raw .env line, or None for comments, blanks, and
+    malformed lines. Tolerates a trailing CR. Mirrors canasta_env._key_of()."""
+    stripped = line.rstrip("\r").strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    parts = stripped.split("=", 1)
+    if len(parts) != 2:
+        return None
+    return parts[0].strip()
+
+
+def _set_env_lines(lines, key, value):
+    """Rewrite the first line defining `key` as an unquoted 'key=value',
+    dropping later duplicates and appending if absent. Untouched lines are
+    kept verbatim so their quoting (and any inline '#') survives. Mirrors
+    canasta_env.set_line()."""
+    found = False
+    new_lines = []
+    for line in lines:
+        if _env_key_of(line) == key:
+            if not found:
+                new_lines.append("%s=%s" % (key, value))
+                found = True
+            # Drop duplicate definitions of the same key.
+        else:
+            new_lines.append(line)
+    if not found:
+        new_lines.append("%s=%s" % (key, value))
+    return new_lines
+
+
 def _write_env_content(path, host, content):
     """Write content to .env. Returns True on success.
 
@@ -461,16 +493,18 @@ def _sync_compose_profiles(inst):
     if not profiles_changed and not image_changed:
         return  # No change needed
 
-    new_entries = entries
+    # Rewrite only the keys that changed, keeping every other line verbatim so
+    # quoting (and any inline '#' inside quotes) on unrelated keys survives.
+    new_lines = content.split("\n")
     if profiles_changed:
-        new_entries = _set_env_entry(
-            new_entries, "COMPOSE_PROFILES", ",".join(desired),
+        new_lines = _set_env_lines(
+            new_lines, "COMPOSE_PROFILES", ",".join(desired),
         )
     if image_changed:
-        new_entries = _set_env_entry(
-            new_entries, "CANASTA_CADDY_IMAGE", desired_caddy_image,
+        new_lines = _set_env_lines(
+            new_lines, "CANASTA_CADDY_IMAGE", desired_caddy_image,
         )
-    _write_env_content(path, host, _entries_to_content(new_entries))
+    _write_env_content(path, host, "\n".join(new_lines))
 
     # A feature flag flipped off drops its profile from COMPOSE_PROFILES, but
     # docker compose up/down only act on active profiles — a container still

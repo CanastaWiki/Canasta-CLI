@@ -238,3 +238,93 @@ class TestRunModuleLint:
         assert "QUOTED_VALUE" in result["quoted_keys"]
         assert "MW_SITE_NAME" in result["quoted_keys"]
         assert result["has_crlf"] is False
+
+
+class TestRawLineHelpers:
+    def test_raw_value_keeps_quotes(self):
+        assert canasta_env.raw_value_of('K="secret"') == '"secret"'
+        assert canasta_env.raw_value_of("K='s'") == "'s'"
+        assert canasta_env.raw_value_of("K=bare") == "bare"
+
+    def test_raw_value_none_for_non_entry(self):
+        assert canasta_env.raw_value_of("# comment") is None
+        assert canasta_env.raw_value_of("") is None
+        assert canasta_env.raw_value_of("noequals") is None
+
+    def test_set_line_normalizes_quoted_target(self):
+        lines = ['A="secret"', "B=keep"]
+        out = canasta_env.set_line(lines, "A", "secret")
+        assert out == ["A=secret", "B=keep"]
+
+    def test_set_line_leaves_other_lines_verbatim(self):
+        lines = ['A="a #b"', "B=old"]
+        out = canasta_env.set_line(lines, "B", "new")
+        # A untouched byte-for-byte, including the inline '#' inside quotes.
+        assert out == ['A="a #b"', "B=new"]
+
+    def test_set_line_dedupes_and_appends(self):
+        assert canasta_env.set_line(["K=1", "K=2", "X=y"], "K", "3") == [
+            "K=3", "X=y",
+        ]
+        assert canasta_env.set_line(["A=1"], "B", "2") == ["A=1", "B=2"]
+
+    def test_unset_lines_keeps_others_verbatim(self):
+        lines = ['A="a #b"', "B=1", "# c", "B=2"]
+        assert canasta_env.unset_lines(lines, "B") == ['A="a #b"', "# c"]
+
+
+class TestSetQuoteHandling:
+    def _write(self, tmp_path, content):
+        p = tmp_path / ".env"
+        p.write_text(content)
+        return str(p)
+
+    def test_quote_only_change_reports_changed_and_repairs(self, tmp_path):
+        # Value equal after stripping the existing quotes must still be
+        # detected as a change so the quotes get repaired.
+        path = self._write(tmp_path, 'RESTIC_PASSWORD="secret"\nOTHER=x\n')
+        result, failed, _ = run_module_with_params(canasta_env, {
+            "path": path, "state": "set",
+            "key": "RESTIC_PASSWORD", "value": "secret", "keys": None,
+        })
+        assert not failed
+        assert result["changed"]
+        assert open(path).read() == "RESTIC_PASSWORD=secret\nOTHER=x\n"
+
+    def test_already_clean_value_is_idempotent(self, tmp_path):
+        path = self._write(tmp_path, "K=v\n")
+        result, _f, _ = run_module_with_params(canasta_env, {
+            "path": path, "state": "set", "key": "K", "value": "v",
+            "keys": None,
+        })
+        assert not result["changed"]
+        assert open(path).read() == "K=v\n"
+
+    def test_setting_key_leaves_other_quoted_value_intact(self, tmp_path):
+        # Setting B must not touch A, whose quoted value contains ' #'
+        # (which compose's env parser would truncate if unquoted).
+        original = 'A="abc #def"\nB=old\n# keep\n'
+        path = self._write(tmp_path, original)
+        result, _f, _ = run_module_with_params(canasta_env, {
+            "path": path, "state": "set", "key": "B", "value": "new",
+            "keys": None,
+        })
+        assert result["changed"]
+        assert open(path).read() == 'A="abc #def"\nB=new\n# keep\n'
+
+    def test_new_key_append_keeps_existing_quotes(self, tmp_path):
+        path = self._write(tmp_path, 'A="q #x"\n')
+        run_module_with_params(canasta_env, {
+            "path": path, "state": "set", "key": "NEW", "value": "1",
+            "keys": None,
+        })
+        assert open(path).read() == 'A="q #x"\n\nNEW=1'
+
+    def test_unset_keeps_other_quoted_values_intact(self, tmp_path):
+        path = self._write(tmp_path, 'A="q #x"\nB=drop\n')
+        result, _f, _ = run_module_with_params(canasta_env, {
+            "path": path, "state": "unset", "key": "B", "value": None,
+            "keys": None,
+        })
+        assert result["changed"]
+        assert open(path).read() == 'A="q #x"\n'
