@@ -59,7 +59,7 @@ class TestRebuildNoBuildableServices:
     def test_returns_zero_with_message(self, monkeypatch, capsys):
         _patch_compose_inst(monkeypatch)
         monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
-            lambda inst: [],
+            lambda inst, include_sidecars=False: [],
         )
         rc = direct_commands.cmd_rebuild(_args())
         assert rc == 0
@@ -71,11 +71,11 @@ class TestRebuildBuildAndRestart:
     def test_default_flow_builds_then_restarts(self, monkeypatch):
         _patch_compose_inst(monkeypatch)
         monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
-            lambda inst: ["web"],
+            lambda inst, include_sidecars=False: ["web"],
         )
         calls = []
 
-        def fake_run_compose(inst_id, inst, action_args):
+        def fake_run_compose(inst_id, inst, action_args, include_sidecars=False):
             calls.append(list(action_args))
             return 0
 
@@ -95,11 +95,12 @@ class TestRebuildBuildAndRestart:
     def test_no_cache_flag_passes_through(self, monkeypatch):
         _patch_compose_inst(monkeypatch)
         monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
-            lambda inst: ["web"],
+            lambda inst, include_sidecars=False: ["web"],
         )
         calls = []
         monkeypatch.setattr(direct_commands._helpers, "_run_compose",
-            lambda inst_id, inst, action_args: (calls.append(list(action_args)) or 0),
+            lambda inst_id, inst, action_args, include_sidecars=False:
+                (calls.append(list(action_args)) or 0),
         )
         monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
             lambda inst: None,
@@ -111,11 +112,12 @@ class TestRebuildBuildAndRestart:
     def test_multiple_buildable_services_all_built(self, monkeypatch):
         _patch_compose_inst(monkeypatch)
         monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
-            lambda inst: ["web", "varnish-custom"],
+            lambda inst, include_sidecars=False: ["web", "varnish-custom"],
         )
         calls = []
         monkeypatch.setattr(direct_commands._helpers, "_run_compose",
-            lambda inst_id, inst, action_args: (calls.append(list(action_args)) or 0),
+            lambda inst_id, inst, action_args, include_sidecars=False:
+                (calls.append(list(action_args)) or 0),
         )
         monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
             lambda inst: None,
@@ -127,11 +129,12 @@ class TestRebuildBuildAndRestart:
     def test_no_restart_skips_down_up(self, monkeypatch, capsys):
         _patch_compose_inst(monkeypatch)
         monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
-            lambda inst: ["web"],
+            lambda inst, include_sidecars=False: ["web"],
         )
         calls = []
         monkeypatch.setattr(direct_commands._helpers, "_run_compose",
-            lambda inst_id, inst, action_args: (calls.append(list(action_args)) or 0),
+            lambda inst_id, inst, action_args, include_sidecars=False:
+                (calls.append(list(action_args)) or 0),
         )
 
         rc = direct_commands.cmd_rebuild(_args(no_restart=True))
@@ -144,11 +147,11 @@ class TestRebuildBuildAndRestart:
     def test_build_failure_skips_restart_and_returns_code(self, monkeypatch):
         _patch_compose_inst(monkeypatch)
         monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
-            lambda inst: ["web"],
+            lambda inst, include_sidecars=False: ["web"],
         )
         calls = []
 
-        def fake_run_compose(inst_id, inst, action_args):
+        def fake_run_compose(inst_id, inst, action_args, include_sidecars=False):
             calls.append(list(action_args))
             return 2 if action_args[0] == "build" else 0
 
@@ -157,6 +160,71 @@ class TestRebuildBuildAndRestart:
         assert rc == 2
         # Only the build call was attempted, no down/up
         assert calls == [["build", "web"]]
+
+
+class TestRebuildSidecars:
+    """rebuild on a sidecar instance must layer docker-compose.sidecars.yml
+    into every compose call (as the Ansible stop/start path does), or the
+    down/up cycle runs with an incomplete file set and drops the sidecars."""
+
+    def _sidecar_inst(self, tmp_path, sidecars_yaml):
+        site = tmp_path / "test"
+        (site / "config").mkdir(parents=True)
+        (site / "config" / "sidecars.yaml").write_text(sidecars_yaml)
+        return site
+
+    def _run(self, monkeypatch, site):
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("test", {
+                "path": str(site),
+                "orchestrator": "compose",
+                "host": "localhost",
+                "devMode": False,
+            }),
+        )
+        listed = {}
+
+        def fake_list(inst, include_sidecars=False):
+            listed["include_sidecars"] = include_sidecars
+            return ["web"]
+
+        monkeypatch.setattr(
+            direct_commands.rebuild, "_list_buildable_services", fake_list)
+        calls = []
+
+        def fake_run_compose(inst_id, inst, action_args, include_sidecars=False):
+            calls.append((list(action_args), include_sidecars))
+            return 0
+
+        monkeypatch.setattr(
+            direct_commands._helpers, "_run_compose", fake_run_compose)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_sync_compose_profiles", lambda inst: None)
+        rc = direct_commands.cmd_rebuild(_args())
+        return rc, listed, calls
+
+    def test_sidecar_instance_layers_sidecars_in_all_compose_calls(
+            self, monkeypatch, tmp_path):
+        site = self._sidecar_inst(
+            tmp_path, "sidecars:\n  - name: cache\n    image: redis:7\n")
+        rc, listed, calls = self._run(monkeypatch, site)
+        assert rc == 0
+        assert listed["include_sidecars"] is True
+        assert calls == [
+            (["build", "web"], True),
+            (["down"], True),
+            (["up", "-d"], True),
+        ]
+
+    def test_no_sidecars_keeps_layer_off(self, monkeypatch, tmp_path):
+        # An empty sidecars list must NOT pull in a lingering rendered
+        # file: after `sidecar remove` the layer would recreate the
+        # removed sidecar on `up -d`.
+        site = self._sidecar_inst(tmp_path, "sidecars: []\n")
+        rc, listed, calls = self._run(monkeypatch, site)
+        assert rc == 0
+        assert listed["include_sidecars"] is False
+        assert all(flag is False for _args_, flag in calls)
 
 
 class TestListBuildableServices:
