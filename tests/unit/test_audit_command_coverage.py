@@ -16,6 +16,11 @@ import audit_command_coverage as audit  # noqa: E402
 GROUPS = {"backup", "config", "extension", "skin", "gitops", "host",
           "maintenance", "sitemap", "devmode", "storage", "crowdsec"}
 
+# A small stand-in for the command_definitions.yml name set, used to
+# exercise longest-path (three-token) resolution.
+KNOWN = {"create", "backup_create", "backup_schedule_set",
+         "backup_schedule_list", "backup_schedule_remove"}
+
 
 def write_test_file(content):
     """Write content to a temp .py file and return its path."""
@@ -172,6 +177,52 @@ class TestExtractInvocations:
             assert results == [("test_x", "backup")]
         finally:
             os.unlink(path)
+
+    def test_three_token_subcommand(self):
+        # A three-token leaf command resolves to group_sub_sub when the
+        # known-command set is supplied.
+        path = write_test_file(
+            'def test_x(inst):\n'
+            '    inst.run_ok("backup", "schedule", "set", "-i", "x", "0 3 * * *")\n'
+        )
+        try:
+            results = list(
+                audit.extract_test_invocations(path, GROUPS, KNOWN),
+            )
+            assert results == [("test_x", "backup_schedule_set")]
+        finally:
+            os.unlink(path)
+
+
+def _args(*values):
+    """Build an ast positional-arg list from literal string values."""
+    import ast
+    return [ast.Constant(value=v) for v in values]
+
+
+class TestResolveCommand:
+    def test_three_token_resolves_to_group_sub_sub(self):
+        args = _args("backup", "schedule", "set", "-i", "x")
+        assert audit.resolve_command(args, GROUPS, KNOWN) == \
+            "backup_schedule_set"
+
+    def test_two_token_resolves_to_group_sub(self):
+        args = _args("backup", "create", "-i", "x")
+        assert audit.resolve_command(args, GROUPS, KNOWN) == "backup_create"
+
+    def test_one_token_command(self):
+        assert audit.resolve_command(_args("create", "-i", "x"),
+                                     GROUPS, KNOWN) == "create"
+
+    def test_trailing_flag_not_folded_into_name(self):
+        # The option value after a flag must never join the command name.
+        args = _args("backup", "create", "-i", "schedule")
+        assert audit.resolve_command(args, GROUPS, KNOWN) == "backup_create"
+
+    def test_leading_tokens_stop_at_first_flag(self):
+        args = _args("backup", "create", "--force", "set")
+        tokens = audit._leading_name_tokens(args)
+        assert tokens == ["backup", "create"]
 
 
 class TestLoadCommands:
