@@ -2568,6 +2568,49 @@ class TestExecInContainer:
         assert rc == 1
 
 
+class TestStreamInContainerStdin:
+    """_stream_in_container must leave stdin attached on every
+    orchestrator so redirects like `canasta maintenance script eval
+    < probe.php` reach the script (#986)."""
+
+    @staticmethod
+    def _fake_popen(captured):
+        def fake(argv, **kw):
+            captured["argv"] = argv
+            captured["kwargs"] = kw
+            return type("P", (), {
+                "stdout": __import__("io").StringIO(""),
+                "wait": lambda self: 0,
+            })()
+        return fake
+
+    def test_k8s_exec_forwards_stdin(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(direct_commands._helpers, "_k8s_get_pod",
+            lambda ns, svc: "canasta-test-web-abc123",
+        )
+        monkeypatch.setattr(subprocess, "Popen", self._fake_popen(captured))
+        rc = direct_commands._helpers._stream_in_container(
+            "test", {"orchestrator": "kubernetes"}, "php maintenance/run.php eval",
+        )
+        assert rc == 0
+        assert captured["argv"][:3] == ["kubectl", "exec", "-i"]
+        # stdin must not be overridden away from inheritance.
+        assert "stdin" not in captured["kwargs"]
+
+    def test_compose_local_inherits_stdin(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(subprocess, "Popen", self._fake_popen(captured))
+        rc = direct_commands._helpers._stream_in_container(
+            "test", {"path": "/srv/test", "orchestrator": "compose"},
+            "php maintenance/run.php eval",
+        )
+        assert rc == 0
+        # -T disables the TTY but keeps stdin attached.
+        assert captured["argv"][:5] == ["docker", "compose", "exec", "-T", "web"]
+        assert "stdin" not in captured["kwargs"]
+
+
 class TestExtensionSkinList:
     def test_extension_list_registered(self):
         assert direct_commands.is_direct_command("extension_list")

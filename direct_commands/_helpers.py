@@ -673,8 +673,11 @@ def _stream_in_container(inst_id, inst, command, service="web",
                 file=sys.stderr,
             )
             return 1
+        # -i forwards the CLI's stdin, matching `docker compose exec`
+        # on the Compose paths, so redirects like
+        # `canasta maintenance script eval < probe.php` work on K8s too.
         argv = [
-            "kubectl", "exec", pod, "-n", ns, "--",
+            "kubectl", "exec", "-i", pod, "-n", ns, "--",
             "/bin/bash", "-c", wrapped,
         ]
         cwd = None
