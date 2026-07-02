@@ -17,6 +17,7 @@
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _install_env
+  no_log: true  # .env includes MYSQL_PASSWORD
 
 - name: Set DB server for install
   ansible.builtin.set_fact:
