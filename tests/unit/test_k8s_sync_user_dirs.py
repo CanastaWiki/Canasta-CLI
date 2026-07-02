@@ -75,3 +75,23 @@ def test_sync_still_copies_present_entries():
     cmd = cp["ansible.builtin.command"]["cmd"]
     assert "kubectl cp" in cmd
     assert cp["loop"] == "{{ _ud_entries.results | subelements('files', skip_missing=True) }}"
+
+
+def test_managed_entry_cleared_before_copy():
+    # kubectl cp of a dir onto an existing dir NESTS it (/sync/<dir>/<name>/<name>)
+    # instead of replacing it, so an updated entry must be removed before the
+    # copy or its new code is orphaned one level deep. Guard the clear step and
+    # its order (clear must precede the cp).
+    tasks = _tasks()
+    names = _names(tasks)
+    assert "Clear each managed entry before copy" in names, (
+        "re-synced (updated) entries must be removed before kubectl cp, else "
+        "the copy nests under the existing dir and the old code keeps loading"
+    )
+    clear = next(t for t in tasks if t.get("name") == "Clear each managed entry before copy")
+    cmd = clear["ansible.builtin.command"]["cmd"]
+    assert "rm -rf" in cmd
+    # Clears exactly the entries about to be copied (same loop as the cp step).
+    assert clear["loop"] == "{{ _ud_entries.results | subelements('files', skip_missing=True) }}"
+    assert names.index("Clear each managed entry before copy") < \
+        names.index("kubectl cp each entry into its PVC")
