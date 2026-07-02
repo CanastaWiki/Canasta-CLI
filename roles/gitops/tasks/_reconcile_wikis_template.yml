@@ -37,14 +37,19 @@
         state: read
       register: _reconcile_wikis_data
 
+    # Emit list items at column 0 (block-sequence style matching
+    # canasta_wikis_yaml.py's yaml.dump output). render_compose.yml copies
+    # this indentation verbatim into config/wikis.yaml, and CanastaBase's
+    # config-subdir-wikis.sh parses it with column-0 line anchors; indenting
+    # here would silently drop every public_assets rewrite rule.
     - name: Write wikis.yaml.template from live wikis.yaml
       ansible.builtin.copy:
         content: |
           wikis:
           {% for w in _reconcile_wikis_data.wikis | default([]) %}
-            - id: {{ w.id }}
-              url: {{ '{{' }}wiki_url_{{ w.id }}{{ '}}' }}
-              name: "{{ w.name | default(w.id) }}"
+          - id: {{ w.id }}
+            url: {{ '{{' }}wiki_url_{{ w.id }}{{ '}}' }}
+            name: "{{ w.name | default(w.id) }}"
           {% endfor %}
         dest: "{{ instance_path }}/wikis.yaml.template"
         mode: "0644"
