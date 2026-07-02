@@ -58,6 +58,10 @@ options:
   build_from:
     description: Local source directory for image builds.
     type: str
+  build_args:
+    description: Build args (list of KEY=VALUE) to replay on rebuild.
+    type: list
+    elements: str
   host:
     description: SSH host (user@host or host) for instances on a remote machine.
     type: str
@@ -125,6 +129,8 @@ def instance_to_dict(instance):
         result["kindCluster"] = instance["kindCluster"]
     if instance.get("buildFrom"):
         result["buildFrom"] = instance["buildFrom"]
+    if instance.get("buildArgs"):
+        result["buildArgs"] = instance["buildArgs"]
     if instance.get("dockerHost"):
         result["dockerHost"] = instance["dockerHost"]
     return result
@@ -146,6 +152,7 @@ def run_module():
         registry=dict(type="str", required=False),
         kind_cluster=dict(type="str", required=False),
         build_from=dict(type="str", required=False),
+        build_args=dict(type="list", elements="str", required=False),
         host=dict(type="str", required=False),
         docker_host=dict(type="str", required=False),
         filter_host=dict(type="str", required=False),
@@ -229,6 +236,7 @@ def run_module():
             "registry": module.params.get("registry"),
             "kindCluster": module.params.get("kind_cluster"),
             "buildFrom": module.params.get("build_from"),
+            "buildArgs": module.params.get("build_args"),
             "dockerHost": module.params.get("docker_host"),
         })
 

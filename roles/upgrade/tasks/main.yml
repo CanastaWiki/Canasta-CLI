@@ -85,6 +85,7 @@
         tasks_from: build_from_source.yml
       vars:
         build_from: "{{ _upgrade_inst.instance.buildFrom }}"
+        build_arg: "{{ _upgrade_inst.instance.buildArgs | default([]) }}"
 
     - name: Publish rebuilt image for the orchestrator
       ansible.builtin.include_tasks: >-
