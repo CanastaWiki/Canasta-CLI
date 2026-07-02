@@ -19,6 +19,34 @@ class TestValidateWikiId:
     def test_valid_alphanumeric(self):
         assert canasta_validate.validate_wiki_id("wiki2") is None
 
+    def test_valid_mixed_case(self):
+        assert canasta_validate.validate_wiki_id("Wiki2") is None
+
+    def test_space_rejected(self):
+        err = canasta_validate.validate_wiki_id("my wiki")
+        assert err is not None
+        assert "invalid" in err
+
+    def test_slash_rejected(self):
+        err = canasta_validate.validate_wiki_id("foo/bar")
+        assert err is not None
+        assert "invalid" in err
+
+    def test_dot_rejected(self):
+        err = canasta_validate.validate_wiki_id("foo.bar")
+        assert err is not None
+        assert "invalid" in err
+
+    def test_dotdot_rejected(self):
+        err = canasta_validate.validate_wiki_id("..")
+        assert err is not None
+        assert "invalid" in err
+
+    def test_unicode_rejected(self):
+        err = canasta_validate.validate_wiki_id("wikí")
+        assert err is not None
+        assert "invalid" in err
+
     def test_empty_rejected(self):
         err = canasta_validate.validate_wiki_id("")
         assert err is not None
