@@ -3793,6 +3793,114 @@ class TestDockerHostPropagation:
             "got %r" % remote_cmd
         )
 
+    def _write_conf(self, tmp_path, inst):
+        conf = tmp_path / "conf.json"
+        conf.write_text(json.dumps({"Instances": {inst["id"]: inst}}, indent=4))
+
+    def test_resolve_by_cwd_sets_docker_host_when_registered(
+        self, tmp_path, monkeypatch,
+    ):
+        # cwd read-only fast paths (status/version/doctor) must also export
+        # the socket, or a rootless instance reports STOPPED while running.
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        site.mkdir()
+        self._write_conf(tmp_path, {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+            "dockerHost": "unix:///run/user/1000/podman/podman.sock",
+        })
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        monkeypatch.chdir(site)
+        from argparse import Namespace
+        iid, inst = direct_commands._helpers._resolve_instance_by_cwd(
+            Namespace(id=None))
+        assert iid == "mysite"
+        assert (
+            os.environ.get("DOCKER_HOST")
+            == "unix:///run/user/1000/podman/podman.sock"
+        )
+
+    def test_resolve_by_cwd_leaves_docker_host_alone_when_unset(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        site.mkdir()
+        self._write_conf(tmp_path, {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+        })
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        monkeypatch.chdir(site)
+        from argparse import Namespace
+        direct_commands._helpers._resolve_instance_by_cwd(Namespace(id=None))
+        assert "DOCKER_HOST" not in os.environ
+
+    def test_gather_instance_info_uses_per_instance_docker_host(
+        self, tmp_path, monkeypatch,
+    ):
+        # _gather_instance_info iterates many instances concurrently, so it
+        # must pass the socket per-command (subprocess env) rather than
+        # mutating the process-global DOCKER_HOST.
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        (site / "config").mkdir(parents=True)
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["env"] = kw.get("env")
+            class R:
+                returncode = 0
+                stdout = "abc123\n"
+            return R()
+
+        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        inst = {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+            "dockerHost": "unix:///run/user/1000/podman/podman.sock",
+        }
+        detail = direct_commands._gather_instance_info("mysite", inst)
+        assert detail["status"] == "RUNNING"
+        assert captured["env"] is not None, (
+            "compose ps must run with an explicit env carrying DOCKER_HOST"
+        )
+        assert (
+            captured["env"].get("DOCKER_HOST")
+            == "unix:///run/user/1000/podman/podman.sock"
+        )
+        # Must not leak into the process env other threads read.
+        assert "DOCKER_HOST" not in os.environ
+
+    def test_gather_instance_info_no_env_override_without_docker_host(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        (site / "config").mkdir(parents=True)
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["env"] = kw.get("env")
+            class R:
+                returncode = 0
+                stdout = "abc123\n"
+            return R()
+
+        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        inst = {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+        }
+        direct_commands._gather_instance_info("mysite", inst)
+        # No dockerHost -> inherit the process env (env=None), don't fabricate.
+        assert captured["env"] is None
+
 
 class TestLintEnvContent:
     """_lint_env_content flags quoted values / CRLF that survive read-time
