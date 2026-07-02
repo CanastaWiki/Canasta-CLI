@@ -21,6 +21,10 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 INSTALL_WIKI = os.path.join(
     REPO_ROOT, "roles", "mediawiki", "tasks", "install_single_wiki.yml",
 )
+EXTRACT_SECRET_KEY = os.path.join(
+    REPO_ROOT, "roles", "upgrade", "tasks", "migrations",
+    "extract_secret_key.yml",
+)
 
 _PASSWORD_VAR = re.compile(r"_password\b")
 
@@ -81,3 +85,59 @@ class TestInstallSecretsNotLogged:
                     "leaking the secret into Ansible output (#722). "
                     "Command: %s" % command
                 )
+
+    def test_env_read_all_is_no_log(self):
+        """The read_all of .env pulls MYSQL_PASSWORD into a registered
+        variable; the task must be no_log."""
+        with open(INSTALL_WIKI) as f:
+            tasks = yaml.safe_load(f)
+        found = False
+        for task in _walk_tasks(tasks):
+            env = task.get("canasta_env")
+            if isinstance(env, dict) and env.get("state") == "read_all":
+                found = True
+                assert task.get("no_log") is True, (
+                    "The canasta_env read_all in install_single_wiki.yml "
+                    "must set no_log: true — it registers the full .env, "
+                    "including MYSQL_PASSWORD."
+                )
+        assert found, (
+            "install_single_wiki.yml has no canasta_env read_all task — "
+            "the .env secret-logging guard cannot run."
+        )
+
+
+class TestExtractSecretKeyNotLogged:
+    """extract_secret_key.yml handles $wgSecretKey, the wiki's
+    session-signing secret; every task carrying it must be no_log."""
+
+    def _tasks(self):
+        with open(EXTRACT_SECRET_KEY) as f:
+            return list(_walk_tasks(yaml.safe_load(f)))
+
+    def test_grep_register_is_no_log(self):
+        """The shell grep registers the extracted secret."""
+        found = False
+        for task in self._tasks():
+            if task.get("register") == "_sk_grep":
+                found = True
+                assert task.get("no_log") is True, (
+                    "The wgSecretKey grep task must set no_log: true — "
+                    "it registers the wiki's session-signing secret."
+                )
+        assert found, "extract_secret_key.yml has no _sk_grep register task."
+
+    def test_secret_saves_are_no_log(self):
+        """Every canasta_env set of MW_SECRET_KEY must be no_log."""
+        found = False
+        for task in self._tasks():
+            env = task.get("canasta_env")
+            if isinstance(env, dict) and env.get("key") == "MW_SECRET_KEY":
+                found = True
+                assert task.get("no_log") is True, (
+                    "A canasta_env task saving MW_SECRET_KEY in "
+                    "extract_secret_key.yml must set no_log: true."
+                )
+        assert found, (
+            "extract_secret_key.yml has no MW_SECRET_KEY save task."
+        )
