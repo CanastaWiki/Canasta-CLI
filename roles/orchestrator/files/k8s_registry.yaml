@@ -37,6 +37,12 @@ metadata:
   namespace: canasta-registry
 spec:
   replicas: 1
+  # A rolling update can never complete: the surge pod needs the same
+  # loopback hostPort (and the RWO data PVC) the old pod holds, so it
+  # stays Pending while the old pod waits for it. Recreate is the only
+  # strategy a single-replica hostPort deployment can roll with.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: canasta-registry

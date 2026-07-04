@@ -2864,14 +2864,23 @@ commands:
       usable with no push.
     examples:
       - "canasta image push ./images/elasticsearch --name myapp-elasticsearch"
-      - "canasta image push ~/custom-web --name custom-web:v2"
+      - "canasta image push ~/es-icu --name es-icu -H prod1"
     playbook: image_push.yml
     parameters:
+      - name: host
+        short: H
+        type: string
+        description: >-
+          Target host (a saved host name or user@hostname; default:
+          localhost)
       - name: context
         type: path
+        path_kind: remote
         positional: true
         required: true
-        description: "Docker build context directory (on the target host)"
+        description: >-
+          Docker build context directory on the target host (with --host,
+          an absolute path or one starting with '~')
       - name: image_name
         long: name
         type: string
@@ -2902,5 +2911,12 @@ commands:
       to prune.
     examples:
       - "canasta image prune"
+      - "canasta image prune -H prod1"
     playbook: image_prune.yml
-    parameters: []
+    parameters:
+      - name: host
+        short: H
+        type: string
+        description: >-
+          Target host (a saved host name or user@hostname; default:
+          localhost)
