@@ -4,11 +4,12 @@
 # is dynamically included (via include_tasks with a when guard).
 # Compose-only controllers no longer need the collection installed.
 #
-# Restores config (-> host -> ConfigMaps), .env, the DB (streamed into the
-# web pod), managed Secrets, and uploaded media (the images PVC, mounted into
-# the restore pod so restic lands it directly). extensions/skins/public_assets
-# are NOT restored here — the host instance dir is their source of truth and
-# k8s_sync_user_dirs mirrors it on the next start.
+# Restores everything the k8s backup captures: config (-> host -> ConfigMaps),
+# .env, the DB (streamed into the web pod), managed Secrets, uploaded media
+# (the images PVC, mounted into the restore pod so restic lands it directly),
+# and the extensions/skins/public_assets dirs (-> host; the post-restore
+# restart's k8s_sync_user_dirs mirrors them into their PVCs). Parity with the
+# Compose restore, which round-trips the same set to the host.
 #
 # Inputs: instance_path, instance_id, _resolved_snapshot, _restore_dbpass
 
@@ -242,6 +243,32 @@
       "{{ instance_path }}/.env"
   changed_when: true
   ignore_errors: true
+
+# Restore the declarative user dirs (extensions, skins, public_assets) to the
+# host instance dir, mirroring the Compose restore. They are NOT written to
+# their PVCs here: the host dir is their source of truth, and the post-restore
+# restart (restore.yml) runs k8s_sync_user_dirs, which mirrors the host dir
+# into each PVC (with prune). Without this, a k8s restore silently dropped
+# custom extensions/skins/public_assets — the backup captured them (see
+# k8s_run_backup.yml) but nothing brought them back. (images is different: it
+# has no host source of truth and is restored straight into its PVC above.)
+# `set -o pipefail` so a broken restic-restore side of the pipe fails loudly;
+# the `test -d` guard skips a dir absent from an older snapshot.
+- name: Restore extensions/skins/public_assets to host
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      test -d /currentsnapshot/{{ item }}; then
+      mkdir -p "{{ instance_path }}/{{ item }}";
+      kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      tar cf - -C /currentsnapshot/{{ item }} . |
+      tar xf - -C "{{ instance_path }}/{{ item }}/";
+      fi
+  args:
+    executable: /bin/bash
+  loop: ['extensions', 'skins', 'public_assets']
+  changed_when: true
 
 # Use the WEB pod (not a DB pod) as the import target. Reasons:
 #
