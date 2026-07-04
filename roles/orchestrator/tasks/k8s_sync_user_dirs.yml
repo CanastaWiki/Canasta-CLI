@@ -1,6 +1,6 @@
 ---
-# Mirror the instance's extensions/ and skins/ directories into the
-# user-extensions / user-skins PVCs (Kubernetes).
+# Mirror the instance's extensions/, skins/, and public_assets/ directories
+# into the user-extensions / user-skins / public-assets PVCs (Kubernetes).
 #
 # On Compose the ./extensions and ./skins bind-mounts make custom
 # extensions/skins live in the container, and monitor-directories.sh's
@@ -16,8 +16,8 @@
 # the instance dir is now empty. A short-lived helper pod mounts the
 # PVCs, independent of the web pod's lifecycle. The PVCs always exist
 # here: this task only runs from start.yml, which acts on an
-# already-deployed Helm release (the chart's pvc-extensions/pvc-skins
-# are unconditional).
+# already-deployed Helm release (the chart's pvc-extensions / pvc-skins /
+# pvc-public-assets are unconditional).
 #
 # Runs BEFORE the Helm rollout so the new web pod starts with the PVC
 # already reconciled — avoids a CrashLoopBackOff when a settings fragment
@@ -30,8 +30,9 @@
     _ud_namespace: "{{ _k8s_namespace | default('canasta-' ~ (instance_id | default(id))) }}"
     _ud_release: "canasta-{{ instance_id | default(id) }}"
 
-# extensions -> <release>-extensions PVC @ /sync/extensions
-# skins      -> <release>-skins PVC      @ /sync/skins
+# extensions    -> <release>-extensions PVC    @ /sync/extensions
+# skins         -> <release>-skins PVC         @ /sync/skins
+# public_assets -> <release>-public-assets PVC @ /sync/public_assets
 - name: Render user-dir sync helper pod
   ansible.builtin.copy:
     dest: "{{ instance_path }}/.user-dir-sync-pod.yaml"
@@ -52,11 +53,14 @@
             volumeMounts:
               - { name: extensions, mountPath: /sync/extensions }
               - { name: skins, mountPath: /sync/skins }
+              - { name: public-assets, mountPath: /sync/public_assets }
         volumes:
           - name: extensions
             persistentVolumeClaim: { claimName: {{ _ud_release }}-extensions }
           - name: skins
             persistentVolumeClaim: { claimName: {{ _ud_release }}-skins }
+          - name: public-assets
+            persistentVolumeClaim: { claimName: {{ _ud_release }}-public-assets }
 
 - name: Replace any prior helper pod
   ansible.builtin.command:
@@ -86,7 +90,7 @@
     excludes: ['.gitignore', '.gitkeep', '.git']
     hidden: false
   register: _ud_entries
-  loop: ['extensions', 'skins']
+  loop: ['extensions', 'skins', 'public_assets']
 
 # Current PVC contents, to diff against the instance dir. `|| true` so an
 # empty dir doesn't fail the command.
@@ -97,11 +101,12 @@
       sh -c "ls -1 /sync/{{ item }} 2>/dev/null || true"
   register: _ud_pvc_ls
   changed_when: false
-  loop: ['extensions', 'skins']
+  loop: ['extensions', 'skins', 'public_assets']
 
 # Stale = present in the PVC but no longer in the instance dir. lost+found
 # (ext-family RWO volumes) is never a managed entry, so never prune it.
-# results[0] is extensions, results[1] is skins (loop order above).
+# results[0] is extensions, results[1] is skins, results[2] is public_assets
+# (loop order above).
 - name: Compute stale PVC entries to prune
   ansible.builtin.set_fact:
     _ud_prune: >-
@@ -111,7 +116,11 @@
          +
          (_ud_pvc_ls.results[1].stdout_lines | difference(['lost+found'])
           | difference(_ud_entries.results[1].files | map(attribute='path') | map('basename') | list)
-          | map('regex_replace', '^', 'skins/') | list) }}
+          | map('regex_replace', '^', 'skins/') | list)
+         +
+         (_ud_pvc_ls.results[2].stdout_lines | difference(['lost+found'])
+          | difference(_ud_entries.results[2].files | map(attribute='path') | map('basename') | list)
+          | map('regex_replace', '^', 'public_assets/') | list) }}
 
 - name: Prune removed entries from the PVCs
   ansible.builtin.command:
