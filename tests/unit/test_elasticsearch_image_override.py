@@ -12,7 +12,6 @@ guaranteed by `combine(recursive=True)`; these tests model that merge.
 """
 
 import os
-import re
 
 import jinja2
 import yaml
@@ -63,19 +62,23 @@ class TestComposeWiring:
     def test_image_is_env_overridable_with_default_preserved(self):
         compose = _read("roles", "orchestrator", "files", "compose", "docker-compose.yml")
         assert "${CANASTA_ELASTICSEARCH_IMAGE:-" in compose
-        # Default kept, so an unset var leaves stock Elasticsearch — at the
-        # same version the Kubernetes chart pins (parity guard: the two
-        # orchestrators must not drift apart again).
-        values = _read("roles", "orchestrator", "files", "helm", "canasta",
-                       "values.yaml")
-        match = re.search(r"image:\s*elasticsearch:([\w.-]+)", values)
-        assert match, "k8s chart no longer pins an elasticsearch image?"
-        assert f"elasticsearch:{match.group(1)}" in compose
+        # Default kept, so an unset var leaves stock Elasticsearch — the
+        # IDENTICAL full image reference the Kubernetes chart pins (parity
+        # guard: the two orchestrators must not drift apart again, in
+        # version or in registry — Docker Hub never published a 7.10.2
+        # tag, so a bare `elasticsearch:` repo is unpullable).
+        values = yaml.safe_load(_read("roles", "orchestrator", "files",
+                                      "helm", "canasta", "values.yaml"))
+        ref = values["elasticsearch"]["image"]
+        assert "/" in ref.split(":")[0], (
+            "k8s elasticsearch image must be a fully qualified registry ref"
+        )
+        assert f"${{CANASTA_ELASTICSEARCH_IMAGE:-{ref}}}" in compose
         # And the pinned line must be the one CirrusSearch supports — its
         # README (REL1_43) says "Only Elasticsearch v7.10 is supported".
         # Update this alongside a CirrusSearch upgrade that widens
         # support, not before.
-        assert match.group(1).startswith("7.10."), (
+        assert ref.rsplit(":", 1)[1].startswith("7.10."), (
             "stock Elasticsearch moved off the 7.10.x line CirrusSearch "
             "supports"
         )
