@@ -256,6 +256,16 @@ command_groups:
       (mounted config files, dependencies, healthchecks), edit
       `config/sidecars.yaml` directly.
 
+  - name: image
+    description: "Manage the in-cluster image registry (Kubernetes)"
+    long_description: |
+      Work with the in-cluster image registry of a Kubernetes host — the
+      registry that serves locally-built images (`canasta create
+      --build-from`, `build:` sidecars) to the cluster's pods. Subcommands
+      push a locally built image so pods can pull it, and garbage-collect
+      storage no tag references anymore. Kubernetes only: on Docker
+      Compose, a locally built tag is directly usable with no push.
+
 commands:
   # ---------------------------------------------------------------------------
   # Instance lifecycle
@@ -577,8 +587,9 @@ commands:
       `canasta rebuild` is the standalone form for cases where the
       operator wants to rebuild without an upgrade.
 
-      Compose only. Kubernetes instances must build and push their
-      custom image to a registry manually.
+      Compose only. On Kubernetes, push a locally built image to the
+      in-cluster registry with `canasta image push` and point the
+      instance at the printed reference via `canasta config set`.
     examples:
       - "canasta rebuild"
       - "canasta rebuild -i mywiki --no-cache"
@@ -2825,3 +2836,71 @@ commands:
         type: bool
         default: false
         description: "Show the migration plan without writing any files"
+
+  # ---------------------------------------------------------------------------
+  # In-cluster image registry
+  # ---------------------------------------------------------------------------
+  - name: image_push
+    description: "Build and push a local image to the in-cluster registry"
+    long_description: |
+      Build a Docker image from a local build context and push it to the
+      in-cluster image registry of a Kubernetes host, printing the
+      cluster-pullable reference (`10.43.0.2:5000/<name>:<tag>`).
+
+      Use the printed reference anywhere an instance takes an image:
+      `canasta config set CANASTA_IMAGE=...` for a custom web image,
+      `canasta config set CANASTA_ELASTICSEARCH_IMAGE=...` for a derived
+      Elasticsearch image (e.g. with an analysis plugin), or a sidecar's
+      `image:` in `config/sidecars.yaml`. Run `canasta restart` afterward
+      if the config change did not already trigger one.
+
+      The build runs on the target host, which must be the cluster's
+      control-plane node — the registry's push endpoint is a loopback-only
+      hostPort there (the same assumption as `canasta create
+      --build-from`). The build context path is resolved on that host. The
+      registry is deployed automatically if it is missing.
+
+      Kubernetes only: on Docker Compose, a locally built tag is directly
+      usable with no push.
+    examples:
+      - "canasta image push ./images/elasticsearch --name myapp-elasticsearch"
+      - "canasta image push ~/custom-web --name custom-web:v2"
+    playbook: image_push.yml
+    parameters:
+      - name: context
+        type: path
+        positional: true
+        required: true
+        description: "Docker build context directory (on the target host)"
+      - name: image_name
+        long: name
+        type: string
+        required: true
+        validator: image_ref
+        description: >-
+          Image name, optionally name:tag (default tag: local). Repeated
+          pushes to the same tag orphan the previous push's layers; run
+          `canasta image prune` occasionally to reclaim them.
+
+  - name: image_prune
+    description: "Garbage-collect the in-cluster image registry"
+    long_description: |
+      Reclaim in-cluster registry storage by deleting manifests no tag
+      references anymore, and their orphaned layers. Repeated pushes of the
+      same tag (e.g. the `:local` tags used by `--build-from` and `build:`
+      sidecars) orphan the previous push's layers, and nothing else ever
+      garbage-collects them — the registry volume only grows until this
+      runs.
+
+      Runs the registry's garbage collector (with `--delete-untagged`)
+      inside the registry pod, then restarts the registry deployment so
+      its in-memory blob cache matches the pruned store. Avoid pushing
+      images while the prune runs — a push racing the garbage collector
+      can be corrupted (a limitation of the registry itself).
+
+      Kubernetes only. A host with no in-cluster registry reports nothing
+      to prune.
+    examples:
+      - "canasta image prune"
+    playbook: image_prune.yml
+    parameters: []
