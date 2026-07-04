@@ -52,6 +52,13 @@ spec:
           command: ["/bin/bash", "-c"]
           args:
             - |
+              # This command overrides the image entrypoint, which is what
+              # prepares /mediawiki on the web pod — so create the
+              # localisation cache dir here or LC-dependent jobs (e.g.
+              # cirrusSearchLinksUpdate) fail on the dangling w/cache
+              # symlink.
+              mkdir -p /mediawiki/cache
+              chown www-data:www-data /mediawiki/cache
               while true; do
                 php maintenance/runJobs.php --wait --maxjobs=10
                 sleep 5
