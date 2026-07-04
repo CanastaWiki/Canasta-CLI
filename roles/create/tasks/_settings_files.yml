@@ -19,6 +19,29 @@
     mode: "0755"
   loop: "{{ _created_wikis.wiki_ids }}"
 
+# Per-wiki public_assets subdir: Canasta serves /public_assets/* by
+# rewriting to public_assets/<wiki-id>/, so each wiki needs its own dir
+# for logos/favicon. The container's create-storage-dirs.sh makes it at
+# runtime, but only inside the volume — on Compose that reflects back
+# through the bind mount, on K8s it lands in the PVC and never in the
+# instance dir. Create it here so users have a place to drop assets and
+# the K8s user-dir sync has a subdir to mirror. The .gitkeep keeps the
+# otherwise-empty dir under git/gitops tracking.
+- name: Create per-wiki public_assets directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/public_assets/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ _created_wikis.wiki_ids }}"
+
+- name: Keep the per-wiki public_assets directory under git
+  ansible.builtin.copy:
+    dest: "{{ instance_path }}/public_assets/{{ item }}/.gitkeep"
+    content: ""
+    mode: "0644"
+    force: false
+  loop: "{{ _created_wikis.wiki_ids }}"
+
 - name: Report copying per-wiki Settings.php
   when: wiki_settings is defined and wiki_settings != ''
   ansible.builtin.debug:
