@@ -461,7 +461,7 @@ jobs:
 
       - name: YAML lint
         run: >-
-          .venv/bin/yamllint -c .yamllint.yml
+          .venv/bin/yamllint --strict -c .yamllint.yml
           meta/ roles/ playbooks/ inventory/ canasta.yml
 
       - name: Python unused-import check
