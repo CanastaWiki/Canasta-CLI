@@ -527,6 +527,12 @@ commands:
       starting anything missing and recreating only what changed, with no
       stop. Idempotent and safe to run anytime.
 
+      It is also how you apply local edits to an instance's configuration
+      (config/settings, wikis.yaml, .env) to the running instance without
+      a full restart: on Docker Compose it recreates only the changed
+      containers; on Kubernetes it re-syncs the ConfigMaps and runs
+      'helm upgrade', rolling only the pods whose config changed.
+
       This is the fix companion to 'canasta doctor': when doctor reports
       config/runtime drift (profiles out of sync with the flags, a
       container running unmanaged, search configured without its backend),
