@@ -71,6 +71,14 @@ class TestComposeWiring:
         match = re.search(r"image:\s*elasticsearch:([\w.-]+)", values)
         assert match, "k8s chart no longer pins an elasticsearch image?"
         assert f"elasticsearch:{match.group(1)}" in compose
+        # And the pinned line must be the one CirrusSearch supports — its
+        # README (REL1_43) says "Only Elasticsearch v7.10 is supported".
+        # Update this alongside a CirrusSearch upgrade that widens
+        # support, not before.
+        assert match.group(1).startswith("7.10."), (
+            "stock Elasticsearch moved off the 7.10.x line CirrusSearch "
+            "supports"
+        )
 
 
 class TestKubernetesPropagation:
