@@ -46,3 +46,28 @@ class TestNfsServerReachabilityCheck:
         assert "--install-server" in content, (
             "the failure message should point users to --install-server"
         )
+
+
+class TestNfsStorageClassReclaimPolicy:
+    """The StorageClass must use reclaimPolicy: Delete so the CSI driver
+    reclaims a PV's backing pvc-* directory from the NFS export when its PVC is
+    deleted; otherwise deleted instances' content dirs accumulate in the export
+    unbounded. (The EFS StorageClass also uses Delete.)"""
+
+    def _storage_class(self):
+        with open(NFS_PLAYBOOK) as f:
+            for t in yaml.safe_load(f):
+                k8s = t.get("kubernetes.core.k8s") or t.get("k8s")
+                if isinstance(k8s, dict):
+                    definition = k8s.get("definition", {})
+                    if definition.get("kind") == "StorageClass":
+                        return definition
+        return None
+
+    def test_storage_class_reclaim_policy_is_delete(self):
+        sc = self._storage_class()
+        assert sc is not None, "storage_setup_nfs.yml must create a StorageClass"
+        assert sc.get("reclaimPolicy") == "Delete", (
+            "the NFS StorageClass must use reclaimPolicy: Delete so deleted "
+            "instances' pvc-* export dirs are reclaimed, not left to leak"
+        )
