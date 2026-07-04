@@ -71,10 +71,11 @@ externalDatabase:
   user: "root"
   ssl: "false"
 
-# Elasticsearch (optional)
+# Elasticsearch (optional). CirrusSearch supports only Elasticsearch
+# 7.10.x, so this pin follows it (and matches the Compose default).
 elasticsearch:
   enabled: false
-  image: elasticsearch:7.17.9
+  image: elasticsearch:7.10.2
   storage: 5Gi
   storageClass: ""
   resources:
