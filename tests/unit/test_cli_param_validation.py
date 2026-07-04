@@ -119,6 +119,81 @@ class TestNamedValidators:
                 "validator 'nope'")]
 
 
+class TestMutualExclusion:
+    CMD = {"parameters": [
+        {"name": "database"},
+        {"name": "skip_install", "mutual_exclusion": "database",
+         "default": False},
+    ]}
+
+    def test_both_set_fails_once(self):
+        vals = {"database": "/tmp/dump.sql", "skip_install": True}
+        errs = canasta._validate_mutual_exclusion(self.CMD, lambda n: vals.get(n))
+        assert errs == [
+            (1, "Error: --database cannot be combined with --skip-install")]
+
+    def test_only_one_set_passes(self):
+        vals = {"database": "/tmp/dump.sql", "skip_install": False}
+        errs = canasta._validate_mutual_exclusion(self.CMD, lambda n: vals.get(n))
+        assert errs == []
+
+    def test_neither_set_passes(self):
+        vals = {"database": None, "skip_install": False}
+        errs = canasta._validate_mutual_exclusion(self.CMD, lambda n: vals.get(n))
+        assert errs == []
+
+    def test_reported_once_when_both_sides_declare(self):
+        cmd = {"parameters": [
+            {"name": "database", "mutual_exclusion": "skip_install"},
+            {"name": "skip_install", "mutual_exclusion": "database",
+             "default": False},
+        ]}
+        vals = {"database": "/tmp/dump.sql", "skip_install": True}
+        errs = canasta._validate_mutual_exclusion(cmd, lambda n: vals.get(n))
+        assert len(errs) == 1
+
+    def test_default_bool_does_not_conflict(self):
+        # skip_install left at its default False must not trip even when the
+        # partner is set.
+        vals = {"database": "/tmp/dump.sql", "skip_install": False}
+        errs = canasta._validate_mutual_exclusion(self.CMD, lambda n: vals.get(n))
+        assert errs == []
+
+
+class TestSkipInstallDefinitionParity:
+    """The --skip-install/--database exclusivity is declared in metadata.
+
+    The CLI helper and the playbook-layer checks both rely on
+    command_definitions.yml declaring the mutual_exclusion relationship for
+    both `create` and `add`. Guard that the metadata stays in place.
+    """
+
+    @staticmethod
+    def _command(name):
+        path = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        return next(c for c in data["commands"] if c["name"] == name)
+
+    def test_create_declares_skip_install_exclusion(self):
+        params = {p["name"]: p for p in self._command("create")["parameters"]}
+        assert params["skip_install"]["mutual_exclusion"] == "database"
+        assert params["database"]["mutual_exclusion"] == "skip_install"
+
+    def test_add_declares_skip_install_exclusion(self):
+        params = {p["name"]: p for p in self._command("add")["parameters"]}
+        assert params["skip_install"]["mutual_exclusion"] == "database"
+        assert params["database"]["mutual_exclusion"] == "skip_install"
+
+    def test_collect_catches_skip_install_with_database(self):
+        cmd = self._command("create")
+        args = _args(database="/tmp/dump.sql", skip_install=True,
+                     orchestrator="compose")
+        errs = canasta.collect_cli_param_errors(cmd, args)
+        assert (1, "Error: --database cannot be combined with "
+                   "--skip-install") in errs
+
+
 class TestCollectOrderAndExitCodes:
     def test_required_unless_reported_before_validator(self):
         # required_unless is evaluated before the named validators, so when

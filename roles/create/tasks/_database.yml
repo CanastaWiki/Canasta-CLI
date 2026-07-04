@@ -5,9 +5,12 @@
 #     dump and regenerates MW_SECRET_KEY from the imported
 #     LocalSettings.php; or
 #   - run the MediaWiki installer (no dump): creates schema,
-#     installs core, and writes LocalSettings.php for each wiki.
+#     installs core, and writes LocalSettings.php for each wiki; or
+#   - skip both (--skip-install): connect to an external database that
+#     already holds a MediaWiki schema, without touching it.
 #
-# Both paths are mutually exclusive on `database is defined`.
+# The import and installer paths are mutually exclusive on
+# `database is defined`; --skip-install suppresses the installer.
 
 - name: Report waiting for database
   ansible.builtin.debug:
@@ -39,13 +42,24 @@
         name: mediawiki
         tasks_from: generate_secret_key.yml
 
+- name: Report skipping installer for existing database
+  ansible.builtin.debug:
+    msg: >-
+      Skipping MediaWiki installer (--skip-install); connecting to an
+      external database that already holds the schema.
+  when: skip_install | default(false) | bool
+
 - name: Report running installer
   ansible.builtin.debug:
     msg: "Configuring MediaWiki installation"
-  when: database is not defined or database == ''
+  when:
+    - database is not defined or database == ''
+    - not (skip_install | default(false) | bool)
 
 - name: Run MediaWiki installer
-  when: database is not defined or database == ''
+  when:
+    - database is not defined or database == ''
+    - not (skip_install | default(false) | bool)
   ansible.builtin.include_role:
     name: mediawiki
     tasks_from: install.yml
