@@ -2890,6 +2890,13 @@ commands:
           Image name, optionally name:tag (default tag: local). Repeated
           pushes to the same tag orphan the previous push's layers; run
           `canasta image prune` occasionally to reclaim them.
+      - name: build_arg
+        type: string
+        multi: true
+        description: >-
+          Build argument KEY=VALUE forwarded to the docker build
+          (repeatable, e.g. --build-arg BASE_IMAGE=ghcr.io/canastawiki/canasta:latest
+          for a web overlay Dockerfile that derives FROM ${BASE_IMAGE})
 
   - name: image_prune
     description: "Garbage-collect the in-cluster image registry"
