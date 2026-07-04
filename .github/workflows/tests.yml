@@ -459,8 +459,6 @@ jobs:
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install yamllint
 
-      # --strict matches `make lint`, so warnings (e.g. line-length) fail
-      # here the same way they fail locally.
       - name: YAML lint
         run: >-
           .venv/bin/yamllint --strict -c .yamllint.yml
