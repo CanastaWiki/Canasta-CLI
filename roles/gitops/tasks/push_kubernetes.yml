@@ -34,13 +34,23 @@
     src: "{{ instance_path }}/values-sidecars.yaml"
   register: _push_sidecars
 
+# values-configdata.yaml (configData, appSecretEnv) and values-sidecars.yaml
+# (sidecars) are complete, freshly-rebuilt snapshots that fully own those
+# keys. Merge them NON-recursively so each one REPLACES the copy already baked
+# into values.yaml by the previous push. A recursive merge would union the
+# configData maps instead, so a settings/caddy/crowdsec file deleted from the
+# instance dir would keep its stale ConfigMap key in the committed values.yaml
+# — and Argo CD would keep rendering it into the running config — forever.
+- name: Merge fresh configData + sidecars over the persisted values
+  ansible.builtin.set_fact:
+    _push_merged_values: >-
+      {{ _push_values.content | b64decode | from_yaml
+         | combine(_push_configdata.content | b64decode | from_yaml)
+         | combine(_push_sidecars.content | b64decode | from_yaml) }}
+
 - name: Merge configData + sidecars into values.yaml for git
   ansible.builtin.copy:
-    content: >-
-      {{ _push_values.content | b64decode | from_yaml
-         | combine(_push_configdata.content | b64decode | from_yaml, recursive=True)
-         | combine(_push_sidecars.content | b64decode | from_yaml, recursive=True)
-         | to_nice_yaml(indent=2) }}
+    content: "{{ _push_merged_values | to_nice_yaml(indent=2) }}"
     dest: "{{ instance_path }}/values.yaml"
     mode: "0644"
 
@@ -53,11 +63,7 @@
 
 - name: Update values.template.yaml from current values
   ansible.builtin.copy:
-    content: >-
-      {{ _push_values.content | b64decode | from_yaml
-         | combine(_push_configdata.content | b64decode | from_yaml, recursive=True)
-         | combine(_push_sidecars.content | b64decode | from_yaml, recursive=True)
-         | to_nice_yaml(indent=2) }}
+    content: "{{ _push_merged_values | to_nice_yaml(indent=2) }}"
     dest: "{{ instance_path }}/values.template.yaml"
     mode: "0644"
   when: _push_template_check.stat.exists
