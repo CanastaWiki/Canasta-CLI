@@ -1,6 +1,7 @@
 """doctor command — dependency checks."""
 
 import os
+import re
 import subprocess
 import sys
 
@@ -324,9 +325,11 @@ def _gather_runtime(path, host):
 
 def _instance_consistency_lines(inst):
     """doctor lines for an instance's config<->runtime consistency, or [] when
-    not applicable (no instance / not Compose / unreadable .env)."""
-    if not inst or inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+    not applicable (no instance / unreadable state)."""
+    if not inst:
         return []
+    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+        return _k8s_config_consistency_lines(inst)
     path = inst.get("path", "")
     host = inst.get("host") or "localhost"
     if not path:
@@ -354,6 +357,198 @@ def _instance_consistency_lines(inst):
         lines.append(
             "  OK (profiles, running services, and search backend agree)")
     return lines
+
+
+# --- Kubernetes config drift ------------------------------------------------
+#
+# On K8s, "desired" config is the operator's local files and "actual" is what
+# was last deployed — captured on disk as values-configdata.yaml (written by
+# k8s_sync_config.yml on every start/restart/reconcile). We compare current
+# managed config files against that snapshot; a difference means edits that a
+# `canasta reconcile` would apply. Managed config == exactly what the sync
+# task deploys, keyed the same way so the comparison is apples-to-apples:
+#   - configData.web:      .env (secrets stripped), wikis.yaml,
+#                          composer.local.json, settings--<encoded path>
+#   - configData.caddy:    Caddyfile, Caddyfile.site
+#   - configData.varnish:  default.vcl
+#   - configData.crowdsec: acquis.yaml, whitelists.yaml
+# Extensions/skins (PVC + boot-time symlinks, need a restart) and secrets are
+# intentionally out of scope; gitops-managed instances are served by
+# `canasta gitops status`/`diff` instead.
+
+# Mirror of k8s_sync_config.yml's secret filter: these keys are stripped from
+# .env before it lands in the web ConfigMap, so a change to them is not
+# ConfigMap drift and must not be flagged.
+_K8S_ENV_SECRET_KEYS = ("MYSQL_PASSWORD", "MW_SECRET_KEY")
+
+# Each managed file's path relative to the instance dir -> (channel, key) in
+# the configData snapshot. Settings files are handled separately (dynamic).
+_K8S_STATIC_CONFIG_MAP = {
+    ".env": ("web", ".env"),
+    "config/wikis.yaml": ("web", "wikis.yaml"),
+    "config/composer.local.json": ("web", "composer.local.json"),
+    "config/Caddyfile": ("caddy", "Caddyfile"),
+    "config/Caddyfile.site": ("caddy", "Caddyfile.site"),
+    "config/default.vcl": ("varnish", "default.vcl"),
+    "config/crowdsec/acquis.yaml": ("crowdsec", "acquis.yaml"),
+    "config/crowdsec/whitelists.yaml": ("crowdsec", "whitelists.yaml"),
+}
+
+# Fetch, on the host where the instance dir lives: the gitops marker, the
+# deployed snapshot, and the current content of every managed config file.
+# Files are emitted as `<delim>FILE:<relpath>\n<content>` so content can hold
+# anything without breaking the framing.
+_K8S_DRIFT_SCRIPT = r"""
+cd '%(path)s' 2>/dev/null || exit 0
+[ -f .gitops-host ] && echo GITOPS_YES || echo GITOPS_NO
+printf '%%s\n' '%(delim)s'
+cat values-configdata.yaml 2>/dev/null
+for f in .env config/wikis.yaml config/composer.local.json config/Caddyfile \
+         config/Caddyfile.site config/default.vcl \
+         config/crowdsec/acquis.yaml config/crowdsec/whitelists.yaml; do
+  [ -f "$f" ] && { printf '%%sFILE:%%s\n' '%(delim)s' "$f"; cat "$f"; }
+done
+if [ -d config/settings ]; then
+  find config/settings -type f 2>/dev/null | while IFS= read -r f; do
+    [ "$(basename "$f")" = README ] && continue
+    printf '%%sFILE:%%s\n' '%(delim)s' "$f"; cat "$f"
+  done
+fi
+printf '%%sEND\n' '%(delim)s'
+"""
+
+
+def _k8s_settings_key(relpath):
+    """config/settings/global/Foo.php -> settings--global--Foo.php, matching
+    k8s_sync_config.yml's ConfigMap-key encoding."""
+    return "settings--" + relpath[len("config/settings/"):].replace("/", "--")
+
+
+def _k8s_strip_env_secrets(text):
+    """Drop the secret-bearing lines the sync strips before embedding .env."""
+    pat = re.compile(r"^(%s)=" % "|".join(_K8S_ENV_SECRET_KEYS))
+    return [ln for ln in text.splitlines() if not pat.match(ln)]
+
+
+def _k8s_display_path(channel, key):
+    """Friendly instance-relative path for a (channel, key) pair, for output."""
+    if channel == "web":
+        if key.startswith("settings--"):
+            return "config/settings/" + key[len("settings--"):].replace(
+                "--", "/")
+        return key if key == ".env" else "config/" + key
+    if channel == "crowdsec":
+        return "config/crowdsec/" + key
+    return "config/" + key
+
+
+def _k8s_current_channels(current_files):
+    """Map {relpath: content} of current managed files into the same
+    {channel: {key: content}} shape as the deployed snapshot's configData."""
+    channels = {"web": {}, "caddy": {}, "varnish": {}, "crowdsec": {}}
+    for relpath, content in current_files.items():
+        if relpath.startswith("config/settings/"):
+            channels["web"][_k8s_settings_key(relpath)] = content
+        elif relpath in _K8S_STATIC_CONFIG_MAP:
+            channel, key = _K8S_STATIC_CONFIG_MAP[relpath]
+            if relpath == ".env":
+                # Compare against the secret-stripped snapshot form.
+                content = "\n".join(_k8s_strip_env_secrets(content)) + "\n"
+            channels[channel][key] = content
+    return channels
+
+
+def _k8s_config_drift(baseline_channels, current_channels):
+    """Return [(display_path, status)] where status is added/changed/removed,
+    comparing the deployed snapshot's configData channels against current
+    files. Trailing-newline differences are ignored (YAML round-trips them)."""
+    drift = []
+    for channel in ("web", "caddy", "varnish", "crowdsec"):
+        base = baseline_channels.get(channel) or {}
+        cur = current_channels.get(channel) or {}
+        for key in sorted(set(base) | set(cur)):
+            disp = _k8s_display_path(channel, key)
+            if key not in base:
+                drift.append((disp, "added"))
+            elif key not in cur:
+                drift.append((disp, "removed"))
+            elif str(base[key]).rstrip("\n") != str(cur[key]).rstrip("\n"):
+                drift.append((disp, "changed"))
+    return drift
+
+
+def _parse_k8s_drift_payload(stdout):
+    """Split the drift script output into (is_gitops, baseline_yaml_text,
+    {relpath: content})."""
+    segments = stdout.split(_helpers._SENTINEL)
+    is_gitops = segments[0].strip() == "GITOPS_YES"
+    baseline_text = segments[1] if len(segments) > 1 else ""
+    current_files = {}
+    for seg in segments[2:]:
+        if not seg.startswith("FILE:"):
+            continue
+        header, _, content = seg.partition("\n")
+        relpath = header[len("FILE:"):].strip()
+        if relpath:
+            current_files[relpath] = content
+    return is_gitops, baseline_text, current_files
+
+
+def _k8s_drift_lines_from_payload(inst_id, is_gitops, baseline_text,
+                                  current_files):
+    """Build the doctor output lines from an already-fetched payload (pure —
+    no I/O, so it is the unit-testable core)."""
+    title = ["", "Config sync (%s):" % inst_id]
+    if is_gitops:
+        return title + [
+            "  Managed via gitops — check for unapplied edits with "
+            "'canasta gitops status' or 'canasta gitops diff'."]
+    import yaml
+    try:
+        snapshot = yaml.safe_load(baseline_text) or {}
+    except yaml.YAMLError:
+        snapshot = {}
+    baseline_channels = snapshot.get("configData")
+    if not baseline_channels:
+        return title + [
+            "  No deployed config snapshot yet — run 'canasta reconcile' or "
+            "'canasta restart' once to enable drift detection."]
+    drift = _k8s_config_drift(
+        baseline_channels, _k8s_current_channels(current_files))
+    if not drift:
+        return title + ["  OK (deployed config matches local config)"]
+    lines = title + [
+        "  WARN: local config edits not yet applied to the running instance:"]
+    lines += ["    - %s (%s)" % (disp, status) for disp, status in drift]
+    lines.append("  Run 'canasta reconcile' to apply them.")
+    return lines
+
+
+def _k8s_config_consistency_lines(inst):
+    """doctor lines for a K8s instance's local-config-vs-deployed drift, or []
+    when it can't be determined (no path, host unreachable)."""
+    path = inst.get("path", "")
+    if not path:
+        return []
+    host = inst.get("host") or "localhost"
+    script = _K8S_DRIFT_SCRIPT % {"path": path, "delim": _helpers._SENTINEL}
+    try:
+        if _helpers._is_localhost(host):
+            stdout = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True, text=True, timeout=30,
+            ).stdout
+        else:
+            rc, stdout = _helpers._ssh_run(host, script)
+            if rc != 0 and not stdout.strip():
+                return []
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    if not stdout.strip():
+        return []
+    is_gitops, baseline_text, current_files = _parse_k8s_drift_payload(stdout)
+    return _k8s_drift_lines_from_payload(
+        inst.get("id", "?"), is_gitops, baseline_text, current_files)
 
 
 @register("doctor")
