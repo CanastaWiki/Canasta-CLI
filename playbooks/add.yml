@@ -70,6 +70,37 @@
     key: MYSQL_USER
   register: _add_dbuser
 
+# --skip-install connects to a database that already holds the new wiki's
+# schema, so there is no dump to import and it only makes sense against an
+# external database.
+- name: Fail if --skip-install is combined with --database
+  ansible.builtin.fail:
+    msg: >-
+      --skip-install cannot be combined with --database. --skip-install
+      connects to a database that already holds the wiki's schema, so
+      there is no dump to import.
+  when:
+    - skip_install | default(false) | bool
+    - database is defined and database != ''
+
+- name: Read .env for external DB flag
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: USE_EXTERNAL_DB
+  register: _add_ext_db
+  when: skip_install | default(false) | bool
+
+- name: Fail if --skip-install without USE_EXTERNAL_DB
+  ansible.builtin.fail:
+    msg: >-
+      --skip-install requires the instance to use an external database
+      (USE_EXTERNAL_DB=true). The bundled database has no schema for
+      wiki '{{ wiki }}', so install.php cannot be skipped.
+  when:
+    - skip_install | default(false) | bool
+    - not (_add_ext_db.value | default('false') | lower == 'true')
+
 - name: Generate admin password if not provided
   when: password is not defined or password == ''
   block:
@@ -147,8 +178,30 @@
         import_database_path: "{{ database }}"
         import_db_password: "{{ _add_dbpass.value }}"
 
+# --skip-install: the external database already holds this wiki's schema,
+# so register it in the farm without running install.php. Still wait for
+# the database so a farm addition against an unreachable DB fails clearly.
+- name: Skip installer for existing database
+  when:
+    - database is not defined or database == ''
+    - skip_install | default(false) | bool
+  block:
+    - name: Report skipping installer for existing database
+      ansible.builtin.debug:
+        msg: >-
+          Skipping MediaWiki installer for wiki '{{ wiki }}'
+          (--skip-install); connecting to an external database that
+          already holds the schema.
+
+    - name: Wait for database
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: wait_for_db.yml
+
 - name: Run install.php for new wiki
-  when: database is not defined or database == ''
+  when:
+    - database is not defined or database == ''
+    - not (skip_install | default(false) | bool)
   block:
     - name: Wait for database
       ansible.builtin.include_role:

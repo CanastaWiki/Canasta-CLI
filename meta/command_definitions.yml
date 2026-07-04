@@ -264,11 +264,14 @@ commands:
     description: "Create a new Canasta instance"
     long_description: |
       Create a new Canasta MediaWiki instance. Generates configuration files,
-      starts the containers, and runs the MediaWiki installer.
+      starts the containers, and runs the MediaWiki installer. With
+      --skip-install, the installer is skipped and the instance is connected
+      to an external database that already holds a MediaWiki schema.
     examples:
       - "canasta create -i mysite -w main -n example.com"
       - "canasta create -i mysite -w main -n example.com -d /path/to/dump.sql"
       - "canasta create -i mysite -w main -n localhost"
+      - "canasta create -i mysite -w main -n example.com -e prod.env --skip-install"
     playbook: create.yml
     parameters:
       - name: host
@@ -378,7 +381,19 @@ commands:
       - name: database
         short: d
         type: path
+        mutual_exclusion: skip_install
         description: "Path to existing database dump (.sql or .sql.gz)"
+      - name: skip_install
+        type: bool
+        default: false
+        mutual_exclusion: database
+        description: >-
+          Skip the MediaWiki installer (install.php) and connect to a
+          database that already has a MediaWiki schema. Requires
+          USE_EXTERNAL_DB=true (set via -e envfile) and cannot be
+          combined with --database. Use this when an external database
+          (e.g. RDS/Aurora) was provisioned separately and already
+          holds the wiki's tables.
       - name: images
         short: I
         type: path
@@ -871,7 +886,9 @@ commands:
       wiki farm. The new wiki is registered in `wikis.yaml`, the
       Caddyfile is regenerated, and the MediaWiki installer runs
       for the new wiki. You can also import an existing database
-      dump instead of running the installer.
+      dump instead of running the installer, or pass --skip-install
+      to connect to an external database that already holds the new
+      wiki's schema.
     examples:
       - "canasta add -w docs -u localhost/docs"
     playbook: add.yml
@@ -897,7 +914,17 @@ commands:
       - name: database
         short: d
         type: path
+        mutual_exclusion: skip_install
         description: "Path to existing database dump"
+      - name: skip_install
+        type: bool
+        default: false
+        mutual_exclusion: database
+        description: >-
+          Skip the MediaWiki installer (install.php) and connect to a
+          database that already has the new wiki's schema. Requires the
+          instance to use USE_EXTERNAL_DB=true and cannot be combined
+          with --database.
       - name: images
         short: I
         type: path
