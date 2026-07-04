@@ -47,9 +47,24 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml
 
+- name: Fail on a malformed --build-arg
+  ansible.builtin.fail:
+    msg: "Invalid --build-arg '{{ item }}': expected KEY=VALUE"
+  loop: "{{ build_arg | default([]) }}"
+  when: "'=' not in item"
+
+- name: Assemble build-arg flags
+  ansible.builtin.set_fact:
+    _img_build_arg_flags: >-
+      {{ build_arg | default([])
+         | map('regex_replace', '^(.+)$', '--build-arg \1')
+         | join(' ') }}
+
 - name: Build the image from the context
   ansible.builtin.command:
-    cmd: "docker build -t localhost:5000/{{ _img_ref }} {{ context | quote }}"
+    cmd: >-
+      docker build -t localhost:5000/{{ _img_ref }}
+      {{ _img_build_arg_flags }} {{ context | quote }}
   changed_when: true
 
 - name: Push the image to the in-cluster registry
