@@ -1,13 +1,14 @@
-"""Structural guards for the K8s user-extensions/user-skins PVC mirror.
+"""Structural guards for the K8s user-extensions/user-skins/public-assets
+PVC mirror.
 
-On K8s, custom extensions/skins live in PVCs that only k8s_sync_user_dirs.yml
-populates. The sync must MIRROR the instance dirs — copy present entries AND
-prune entries removed from the instance dir — so that removing a custom
-extension/skin actually takes effect on the next start, matching the Compose
-inotify monitor. Earlier the sync was additive only (and gated on the dir
-having content), so a removal lingered in the PVC and got re-linked. These
-tests lock the mirror wiring in place; the runtime behavior is covered by the
-live K8s e2e.
+On K8s, custom extensions/skins and public_assets live in PVCs that only
+k8s_sync_user_dirs.yml populates. The sync must MIRROR the instance dirs —
+copy present entries AND prune entries removed from the instance dir — so that
+removing a custom extension/skin/asset actually takes effect on the next
+start, matching the Compose inotify monitor. Earlier the sync was additive
+only (and gated on the dir having content), so a removal lingered in the PVC
+and got re-linked. These tests lock the mirror wiring in place; the runtime
+behavior is covered by the live K8s e2e.
 """
 
 import os
@@ -75,6 +76,27 @@ def test_sync_still_copies_present_entries():
     cmd = cp["ansible.builtin.command"]["cmd"]
     assert "kubectl cp" in cmd
     assert cp["loop"] == "{{ _ud_entries.results | subelements('files', skip_missing=True) }}"
+
+
+def test_public_assets_is_mirrored():
+    # public_assets is a PVC on k8s like extensions/skins, and nothing else
+    # populates it, so the mirror must cover it too — otherwise logos/favicon
+    # referenced from settings ($wgLogos, $wgFavicon) 404 in the pod.
+    body = _text()
+    tasks = _tasks()
+    # Helper pod mounts the public-assets PVC at /sync/public_assets.
+    assert "public-assets" in body
+    assert "/sync/public_assets" in body
+    # The find + list loops include public_assets alongside extensions/skins.
+    find = next(t for t in tasks
+                if t.get("name") == "Find instance top-level entries per dir")
+    assert "public_assets" in find["loop"]
+    # Prune covers the public_assets PVC (results[2], loop order ext/skins/pa).
+    prune_fact = next(t for t in tasks
+                      if t.get("name") == "Compute stale PVC entries to prune")
+    expr = prune_fact["ansible.builtin.set_fact"]["_ud_prune"]
+    assert "public_assets/" in expr
+    assert "results[2]" in expr
 
 
 def test_managed_entry_cleared_before_copy():
