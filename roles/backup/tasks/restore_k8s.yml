@@ -4,6 +4,12 @@
 # is dynamically included (via include_tasks with a when guard).
 # Compose-only controllers no longer need the collection installed.
 #
+# Restores config (-> host -> ConfigMaps), .env, the DB (streamed into the
+# web pod), managed Secrets, and uploaded media (the images PVC, mounted into
+# the restore pod so restic lands it directly). extensions/skins/public_assets
+# are NOT restored here — the host instance dir is their source of truth and
+# k8s_sync_user_dirs mirrors it on the next start.
+#
 # Inputs: instance_path, instance_id, _resolved_snapshot, _restore_dbpass
 
 - name: Set K8s namespace
@@ -42,6 +48,14 @@
   ansible.builtin.set_fact:
     _restore_volume_mounts:
       - { name: restore-data, mountPath: /currentsnapshot }
+      # The images PVC is the sole source of truth for uploaded media —
+      # nothing syncs it from the controller (unlike extensions/skins/
+      # public_assets, which k8s_sync_user_dirs mirrors from the host dir).
+      # Mount it writable at the snapshot's images path so `restic restore
+      # --target /` lands the backed-up media directly in the PVC; without
+      # this the restore brings back config + DB but silently drops all
+      # uploads (the backup captures them — see k8s_run_backup.yml).
+      - { name: images, mountPath: /currentsnapshot/images }
 
 - name: Add local-repo mount when RESTIC_REPOSITORY is a path
   ansible.builtin.set_fact:
@@ -55,6 +69,9 @@
     _restore_volumes:
       - name: restore-data
         emptyDir: {}
+      - name: images
+        persistentVolumeClaim:
+          claimName: "canasta-{{ instance_id }}-images"
 
 - name: Add local-repo hostPath volume when RESTIC_REPOSITORY is a path
   ansible.builtin.set_fact:
