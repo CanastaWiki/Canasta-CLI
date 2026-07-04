@@ -113,7 +113,9 @@ CMD_GROUPS = [
         "create", "delete", "list", "status", "upgrade", "version", "config",
     ]),
     ("Wiki management", ["add", "remove", "import", "export"]),
-    ("Container lifecycle", ["start", "stop", "restart", "reconcile", "rebuild", "scale"]),
+    ("Container lifecycle", [
+        "start", "stop", "restart", "reconcile", "rebuild", "image", "scale",
+    ]),
     ("Extensions & skins", ["extension", "skin"]),
     ("App sidecars", ["sidecar"]),
     ("Maintenance", ["maintenance", "sitemap"]),
