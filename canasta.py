@@ -211,6 +211,43 @@ def _validate_orchestrator_only(cmd_def, get_value):
     return errors
 
 
+def _validate_mutual_exclusion(cmd_def, get_value):
+    """Flag params set together with their declared mutual_exclusion partner.
+
+    Both partners typically declare the relationship, so the conflicting
+    pair is reported once (keyed on the sorted name pair).
+    """
+    errors = []
+    params_by_name = {p["name"]: p for p in cmd_def.get("parameters", [])}
+
+    def _is_set(param):
+        if param is None:
+            return False
+        value = get_value(param["name"])
+        if value is None or value == "":
+            return False
+        # A param left at its default (e.g. a bool flag not passed) is
+        # not "provided" and so does not conflict.
+        return value != param.get("default")
+
+    seen = set()
+    for param in cmd_def.get("parameters", []):
+        partner_name = param.get("mutual_exclusion")
+        if not partner_name:
+            continue
+        pair = tuple(sorted((param["name"], partner_name)))
+        if pair in seen:
+            continue
+        if _is_set(param) and _is_set(params_by_name.get(partner_name)):
+            seen.add(pair)
+            errors.append((
+                1,
+                "Error: --%s cannot be combined with --%s"
+                % (pair[0].replace("_", "-"), pair[1].replace("_", "-")),
+            ))
+    return errors
+
+
 def _validate_named_validators(cmd_def, get_value, validators=None):
     """Check params tagged `validator: <name>` against the named regex.
 
@@ -265,6 +302,7 @@ def collect_cli_param_errors(cmd_def, args):
     return (
         _validate_required_unless(cmd_def, get_value)
         + _validate_orchestrator_only(cmd_def, get_value)
+        + _validate_mutual_exclusion(cmd_def, get_value)
         + _validate_named_validators(cmd_def, get_value)
     )
 
