@@ -37,6 +37,14 @@
       image push.)
   when: _prune_reg.rc != 0
 
+# Re-apply the registry manifests before pruning so a registry deployed
+# by an older CLI picks up spec fixes (e.g. the Recreate strategy the
+# restart below depends on) instead of deadlocking its rollout.
+- name: Ensure the registry manifests are current
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml
+  when: _prune_reg.rc == 0
+
 - name: Garbage-collect manifests no tag references, and their layers
   ansible.builtin.command:
     cmd: >-
