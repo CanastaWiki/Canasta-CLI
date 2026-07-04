@@ -379,6 +379,15 @@ commands:
         short: d
         type: path
         description: "Path to existing database dump (.sql or .sql.gz)"
+      - name: images
+        short: I
+        type: path
+        description: >-
+          Path to a tar (.tar or .tar.gz) of a wiki's images directory at the
+          hash-directory level (0/, 1/, archive/, ...). Its files are copied
+          into the wiki's uploads (images/<wiki>/) as www-data — a placement
+          restore, not importImages. Pairs with --database, which supplies the
+          File: page rows; a leading images/ parent in the tar is elided.
       - name: wiki_settings
         short: l
         type: path
@@ -883,6 +892,15 @@ commands:
         short: d
         type: path
         description: "Path to existing database dump"
+      - name: images
+        short: I
+        type: path
+        description: >-
+          Path to a tar (.tar or .tar.gz) of the new wiki's images directory at
+          the hash-directory level (0/, 1/, archive/, ...). Its files are
+          copied into the wiki's uploads (images/<wiki>/) as www-data — a
+          placement restore, not importImages. Pairs with --database, which
+          supplies the File: page rows; a leading images/ parent is elided.
       - name: wiki_settings
         short: l
         type: path
