@@ -115,7 +115,9 @@ class TestNfsStorageSetup:
         defn = sc["kubernetes.core.k8s"]["definition"]
         assert defn["provisioner"] == "nfs.csi.k8s.io"
         assert "nfs" in str(defn["metadata"]["name"])  # default 'nfs'
-        assert defn["reclaimPolicy"] == "Retain"
+        # Delete so a deleted instance's pvc-* export dirs are reclaimed
+        # instead of leaking; see test_storage_setup_nfs.py.
+        assert defn["reclaimPolicy"] == "Delete"
         params = defn["parameters"]
         assert "server" in params and "share" in params
 

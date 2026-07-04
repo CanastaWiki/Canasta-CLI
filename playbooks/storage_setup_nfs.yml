@@ -126,7 +126,10 @@
       parameters:
         server: "{{ _nfs_server }}"
         share: "{{ share }}"
-      reclaimPolicy: Retain
+      # Delete so the CSI driver reclaims a PV's backing pvc-* dir from the NFS
+      # export when its PVC is deleted, instead of leaving deleted instances'
+      # content dirs to accumulate unbounded. (EFS StorageClass also uses Delete.)
+      reclaimPolicy: Delete
       mountOptions:
         - nfsvers=4.1
 
