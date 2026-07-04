@@ -204,3 +204,69 @@ class TestShellFallbackParity:
                                  exec_args=["redis-cli", "ping"])
         assert argv[-2:] == ["redis-cli", "ping"]
         assert "bash" not in " ".join(argv)
+
+
+class TestRemoteK8sExec:
+    """A remote Kubernetes instance must run the pod lookup and the exec on
+    its registered host via ssh (issue #1043) — kubectl on the controller
+    has no kubeconfig for the instance's cluster, so the previous local
+    invocation always failed with 'no running pod found'."""
+
+    def _capture(self, monkeypatch, **arg_overrides):
+        captured = {}
+        monkeypatch.setattr(canasta, "resolve_instance", lambda _id: {
+            "id": "rsdev", "orchestrator": "k8s",
+            "host": "op@cp.example.com", "path": "/tmp/i"})
+        monkeypatch.setattr(
+            canasta, "_redirect_stdin_from_file", lambda p: None)
+
+        def fake_execvp(f, argv):
+            captured["file"] = f
+            captured["argv"] = argv
+
+        monkeypatch.setattr(canasta.os, "execvp", fake_execvp)
+
+        def no_local_kubectl(*a, **k):
+            raise AssertionError(
+                "local kubectl must not run for a remote instance")
+
+        monkeypatch.setattr(canasta.subprocess, "run", no_local_kubectl)
+        args = Namespace(id="rsdev", service="web",
+                         exec_args=["php", "version"], stdin_file=None)
+        for key, val in arg_overrides.items():
+            setattr(args, key, val)
+        canasta.handle_interactive_exec(args)
+        return captured
+
+    def test_remote_runs_via_ssh_not_local_kubectl(self, monkeypatch):
+        cap = self._capture(monkeypatch)
+        assert cap["file"] == "ssh"
+        assert "op@cp.example.com" in cap["argv"]
+        remote = cap["argv"][-1]
+        assert "kubectl exec" in remote
+        assert "canasta-rsdev" in remote
+
+    def test_remote_pod_lookup_keeps_selector_parity(self, monkeypatch):
+        # The ssh'd lookup must select a pod the same way as the local
+        # path and k8s_get_pod.yml.
+        remote = self._capture(monkeypatch)["argv"][-1]
+        for fragment in TestK8sPodResolutionParity.SHARED:
+            assert fragment in remote, "remote lookup missing %r" % fragment
+
+    def test_remote_stdin_file_drops_the_tty(self, monkeypatch):
+        cap = self._capture(monkeypatch, stdin_file="/tmp/payload.txt")
+        assert "-T" in cap["argv"]
+        remote = cap["argv"][-1]
+        assert "kubectl exec -i " in remote
+        assert "-it" not in remote
+
+    def test_remote_interactive_allocates_a_tty(self, monkeypatch):
+        cap = self._capture(monkeypatch)
+        assert "-t" in cap["argv"]
+        assert "kubectl exec -it " in cap["argv"][-1]
+
+    def test_remote_missing_pod_fails_inside_the_ssh_command(self, monkeypatch):
+        # The remote snippet, not the controller, reports the no-pod case.
+        remote = self._capture(monkeypatch)["argv"][-1]
+        assert "no running pod found for service 'web'" in remote
+        assert "exit 1" in remote

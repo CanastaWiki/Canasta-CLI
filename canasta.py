@@ -925,8 +925,50 @@ def handle_interactive_exec(args):
                    "else exec sh; fi"]
 
     if orchestrator in ("kubernetes", "k8s"):
-        # Find the pod for this service
         ns = "canasta-%s" % inst["id"]
+        # With --stdin-file the exec is non-interactive: keep stdin open
+        # (-i) but drop the TTY (-t), which would otherwise mangle a piped
+        # payload. Without it, preserve the interactive -it behavior.
+        stdin_file = getattr(args, "stdin_file", None)
+        tty_flags = "-i" if stdin_file else "-it"
+        host = inst.get("host", "localhost")
+        if host and host != "localhost":
+            # kubectl and the cluster live on the instance's host, not the
+            # controller — run the pod lookup and the exec there via ssh,
+            # mirroring the Compose branch below. ssh forwards our stdin,
+            # so a --stdin-file payload flows through to `kubectl exec -i`.
+            import shlex
+            lookup = (
+                "kubectl get pods -n %s "
+                "-l app.kubernetes.io/component=%s "
+                "--field-selector=status.phase=Running "
+                "-o 'jsonpath={.items[0].metadata.name}'"
+                % (shlex.quote(ns), shlex.quote(service))
+            )
+            remote_cmd = (
+                'pod="$(%s 2>/dev/null)"; '
+                'if [ -z "$pod" ]; then '
+                "echo \"Error: no running pod found for service '%s'\" >&2; "
+                "exit 1; fi; "
+                'exec kubectl exec %s "$pod" -n %s -- %s'
+                % (lookup, service, tty_flags, shlex.quote(ns),
+                   " ".join(shlex.quote(a) for a in command))
+            )
+            try:
+                ssh_args = ["ssh", "-T" if stdin_file else "-t",
+                            "-o", "LogLevel=ERROR"]
+                # Include any custom SSH args (e.g. from ANSIBLE_SSH_ARGS)
+                extra_ssh = os.environ.get("ANSIBLE_SSH_ARGS", "")
+                if extra_ssh:
+                    ssh_args.extend(extra_ssh.split())
+                ssh_args.extend([host, remote_cmd])
+                _redirect_stdin_from_file(stdin_file)
+                os.execvp("ssh", ssh_args)
+            except FileNotFoundError:
+                print("Error: ssh not found on PATH", file=sys.stderr)
+                sys.exit(1)
+            return True  # unreachable: execvp replaced the process
+        # Find the pod for this service.
         # Select only a Running pod, matching roles/orchestrator/tasks/
         # k8s_get_pod.yml. Without the phase filter, items[0] during a
         # rollout/scale/crash-loop can be a Pending/Terminating/Failed pod,
@@ -947,11 +989,6 @@ def handle_interactive_exec(args):
             )
             sys.exit(1)
         pod = result.stdout.strip()
-        # With --stdin-file the exec is non-interactive: keep stdin open
-        # (-i) but drop the TTY (-t), which would otherwise mangle a piped
-        # payload. Without it, preserve the interactive -it behavior.
-        stdin_file = getattr(args, "stdin_file", None)
-        tty_flags = "-i" if stdin_file else "-it"
         exec_args = ["kubectl", "exec", tty_flags, pod, "-n", ns, "--"]
         exec_args.extend(command)
         _redirect_stdin_from_file(stdin_file)
