@@ -23,3 +23,4 @@ https://github.com/CanastaWiki/Canasta-Go/blob/main/RELEASE_NOTES.md
 - 4.8.0 - July 4, 2026 - New `canasta image push` and `canasta image prune` commands for the Kubernetes in-cluster image registry (#1022, #1028, #1029); Kubernetes Elasticsearch no longer crash-loops on slow starts (#1030); CI YAML lint matches `make lint` (#1024).
 - 4.8.1 - July 4, 2026 - Kubernetes Elasticsearch pins 7.10.2, matching Docker Compose and the version CirrusSearch supports (#1034).
 - 4.9.0 - July 4, 2026 - `canasta image push` supports `--build-arg KEY=VALUE`, enabling web overlay images to be pushed to the in-cluster registry (#1038).
+- 4.9.1 - July 4, 2026 - Bug fixes: enabling Elasticsearch on Kubernetes pulls its image again (#1042); the Kubernetes jobrunner runs localisation-dependent jobs such as CirrusSearch indexing (#1045); `canasta maintenance` commands reach remote Kubernetes instances (#1046, #1048).
