@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 import pytest
+from types import SimpleNamespace
 
 # Ensure direct_commands is importable from the repo root.
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -4063,8 +4064,7 @@ class TestResolveInstanceByCwd:
 
     @staticmethod
     def _args(instance_id=None):
-        import types
-        return types.SimpleNamespace(id=instance_id)
+        return SimpleNamespace(id=instance_id)
 
     def test_top_level_dir(self, registry, monkeypatch):
         _, data = registry
@@ -4215,3 +4215,88 @@ class TestMaintenanceStreamRetriesOnSshReset:
         rc = direct_commands._helpers._stream_in_container("x", inst, "cmd")
         assert rc == 255
         assert calls["n"] == 1, "localhost must not retry on 255"
+
+
+class TestRemoteK8sStreamAndExec:
+    """maintenance script/extension/update stream through
+    _stream_in_container, and lighter helpers use _exec_in_container; for a
+    remote Kubernetes instance both must run the pod lookup and the exec on
+    the instance's host via ssh (issue #1047) — kubectl on the controller
+    has no kubeconfig for the cluster."""
+
+    INST = {"id": "rsdev", "orchestrator": "k8s",
+            "host": "op@cp.example.com", "path": "/tmp/i"}
+
+    def test_stream_remote_goes_via_ssh(self, monkeypatch):
+        captured = {}
+
+        def fake_popen_run(argv, cwd):
+            captured["argv"] = argv
+            return 0
+
+        monkeypatch.setattr(
+            direct_commands._helpers, "_k8s_get_pod",
+            lambda *a, **k: pytest.fail(
+                "local pod lookup must not run for a remote instance"))
+        monkeypatch.setattr(direct_commands._helpers, "_stream_argv", fake_popen_run,
+                            raising=False)
+        # _stream_in_container drives the argv through an inner _run();
+        # patch subprocess.Popen to capture without spawning.
+        class FakeProc:
+            returncode = 0
+
+            def __init__(self):
+                import io
+                self.stdout = io.StringIO("")
+
+            def wait(self):
+                return 0
+
+        def fake_popen(argv, **kw):
+            captured["argv"] = argv
+            return FakeProc()
+
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "Popen", fake_popen)
+        rc = direct_commands._helpers._stream_in_container("rsdev", self.INST, "php x.php")
+        assert rc == 0
+        assert captured["argv"][0] == "ssh"
+        assert "op@cp.example.com" in captured["argv"]
+        remote = captured["argv"][-1]
+        assert "kubectl get pods" in remote
+        assert "app.kubernetes.io/component=web" in remote
+        assert "--field-selector=status.phase=Running" in remote
+        assert "kubectl exec -i" in remote
+        assert "canasta-rsdev" in remote
+        assert "stdbuf -oL" in remote
+
+    def test_exec_remote_goes_via_ssh_run(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            direct_commands._helpers, "_k8s_get_pod",
+            lambda *a, **k: pytest.fail(
+                "local pod lookup must not run for a remote instance"))
+
+        def fake_ssh_run(host, cmd):
+            captured["host"] = host
+            captured["cmd"] = cmd
+            return 0, "ok"
+
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh_run)
+        rc, out = direct_commands._helpers._exec_in_container("rsdev", self.INST, "true")
+        assert (rc, out) == (0, "ok")
+        assert captured["host"] == "op@cp.example.com"
+        assert "kubectl get pods" in captured["cmd"]
+        assert "no running pod found for service 'web'" in captured["cmd"]
+
+    def test_local_k8s_path_unchanged(self, monkeypatch):
+        inst = dict(self.INST, host="localhost")
+        monkeypatch.setattr(direct_commands._helpers, "_k8s_get_pod", lambda *a, **k: "pod-1")
+
+        def fake_run(argv, **kw):
+            fake_run.argv = argv
+            return SimpleNamespace(returncode=0, stdout="out")
+
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "run", fake_run)
+        rc, out = direct_commands._helpers._exec_in_container("rsdev", inst, "true")
+        assert rc == 0
+        assert fake_run.argv[0] == "kubectl"

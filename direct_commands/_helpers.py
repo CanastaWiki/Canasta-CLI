@@ -595,6 +595,28 @@ def _k8s_get_pod(namespace, component="web"):
         return None
 
 
+def _k8s_remote_exec_cmd(inst_id, service, command, forward_stdin=True):
+    """Shell command that resolves a Running pod and execs `command` in it,
+    for running on the instance's host via ssh — the controller has no
+    kubeconfig for a remote cluster, so both the pod lookup and the exec
+    must happen on the host. Pod selection matches _k8s_get_pod."""
+    ns = _k8s_namespace(inst_id)
+    lookup = (
+        "kubectl get pods -n %s -l app.kubernetes.io/component=%s "
+        "--field-selector=status.phase=Running "
+        "-o 'jsonpath={.items[0].metadata.name}'" % (ns, service)
+    )
+    return (
+        'pod="$(%s 2>/dev/null)"; '
+        'if [ -z "$pod" ]; then '
+        "echo \"Error: no running pod found for service '%s'\" >&2; "
+        "exit 1; fi; "
+        'exec kubectl exec%s "$pod" -n %s -- /bin/bash -c %s'
+        % (lookup, service, " -i" if forward_stdin else "",
+           ns, _shell_quote(command))
+    )
+
+
 def _exec_in_container(inst_id, inst, command, service="web"):
     """Execute a command inside a container/pod. Returns (rc, stdout)."""
     host = inst.get("host") or "localhost"
@@ -602,6 +624,9 @@ def _exec_in_container(inst_id, inst, command, service="web"):
     orchestrator = inst.get("orchestrator", "compose")
 
     if orchestrator in ("kubernetes", "k8s"):
+        if not _is_localhost(host):
+            return _ssh_run(host, _k8s_remote_exec_cmd(
+                inst_id, service, command, forward_stdin=False))
         ns = _k8s_namespace(inst_id)
         pod = _k8s_get_pod(ns, service)
         if not pod:
@@ -665,22 +690,34 @@ def _stream_in_container(inst_id, inst, command, service="web",
     wrapped = "stdbuf -oL %s" % command
 
     if orchestrator in ("kubernetes", "k8s"):
-        ns = _k8s_namespace(inst_id)
-        pod = _k8s_get_pod(ns, service)
-        if not pod:
-            print(
-                "Error: no running pod found for service '%s'" % service,
-                file=sys.stderr,
-            )
-            return 1
-        # -i forwards the CLI's stdin, matching `docker compose exec`
-        # on the Compose paths, so redirects like
-        # `canasta maintenance script eval < probe.php` work on K8s too.
-        argv = [
-            "kubectl", "exec", "-i", pod, "-n", ns, "--",
-            "/bin/bash", "-c", wrapped,
-        ]
-        cwd = None
+        if not _is_localhost(host):
+            # kubectl and the cluster live on the instance's host — run
+            # the pod lookup and the exec there via ssh, mirroring the
+            # remote Compose branch below. ssh forwards stdin, so
+            # `... < probe.php` redirects still reach the pod.
+            target = _resolve_ssh_target(host)
+            argv = ["ssh"] + _ssh_args() + [
+                target, _k8s_remote_exec_cmd(inst_id, service, wrapped),
+            ]
+            cwd = None
+        else:
+            ns = _k8s_namespace(inst_id)
+            pod = _k8s_get_pod(ns, service)
+            if not pod:
+                print(
+                    "Error: no running pod found for service '%s'" % service,
+                    file=sys.stderr,
+                )
+                return 1
+            # -i forwards the CLI's stdin, matching `docker compose exec`
+            # on the Compose paths, so redirects like
+            # `canasta maintenance script eval < probe.php` work on K8s
+            # too.
+            argv = [
+                "kubectl", "exec", "-i", pod, "-n", ns, "--",
+                "/bin/bash", "-c", wrapped,
+            ]
+            cwd = None
     elif _is_localhost(host):
         argv = [
             "docker", "compose", "exec", "-T", service,
