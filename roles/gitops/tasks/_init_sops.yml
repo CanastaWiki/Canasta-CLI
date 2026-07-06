@@ -1,0 +1,64 @@
+---
+# SOPS+age bootstrap for a K8s gitops instance (gated on gitops_sops_secrets).
+# Generates/reuses the operator age keypair, writes .sops.yaml (recipient = the
+# age public key), and provisions the sops-age Secret the repo-server CMP mounts
+# to decrypt. The private key is exported to the controller at "{{ key }}.age"
+# (alongside the "{{ key }}.ssh" deploy key) — git-crypt parity for `--key`.
+#
+# The operator key is CLUSTER-GLOBAL: generated once and reused. Reusing the
+# same `--key` basename across instances keeps one recipient; the sops-age
+# Secret is only created when absent so a second instance never clobbers it.
+#
+# Requires: instance_path, key, argocd_namespace; age + sops on the target.
+
+- name: Ensure age + sops are installed
+  ansible.builtin.command: "{{ item }} --version"
+  loop:
+    - age-keygen
+    - sops
+  changed_when: false
+
+- name: Generate the operator age keypair (reused if it already exists)
+  ansible.builtin.command: "age-keygen -o {{ key }}.age"
+  args:
+    creates: "{{ key }}.age"
+  no_log: true
+
+- name: Read the age public recipient
+  ansible.builtin.command: "age-keygen -y {{ key }}.age"
+  register: _sops_age_pub
+  changed_when: false
+  no_log: true
+
+- name: Write .sops.yaml (encrypt only the Secret payload; keep the rest readable)
+  ansible.builtin.copy:
+    content: |
+      creation_rules:
+        - path_regex: hosts/[^/]+/secrets/.*\.enc\.ya?ml$
+          encrypted_regex: '^(data|stringData)$'
+          age: "{{ _sops_age_pub.stdout | trim }}"
+    dest: "{{ instance_path }}/.sops.yaml"
+    mode: "0644"
+
+- name: Check for an existing sops-age Secret
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: sops-age
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  register: _sops_age_secret
+  no_log: true
+
+- name: Provision the sops-age Secret for the repo-server CMP (only if absent)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: sops-age
+        namespace: "{{ argocd_namespace | default('argocd') }}"
+      type: Opaque
+      stringData:
+        keys.txt: "{{ lookup('file', key + '.age') }}"
+  when: _sops_age_secret.resources | length == 0
+  no_log: true

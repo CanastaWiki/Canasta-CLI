@@ -448,9 +448,17 @@
           repoURL: {{ repo }}
           targetRevision: HEAD
           path: .
+      {% if gitops_sops_secrets | default(false) | bool %}
+          plugin:
+            name: helm-sops
+            env:
+              - name: HELM_ARGS
+                value: "-f hosts/{{ host_name }}/rendered-values.yaml"
+      {% else %}
           helm:
             valueFiles:
               - hosts/{{ host_name }}/rendered-values.yaml
+      {% endif %}
         destination:
           server: https://kubernetes.default.svc
           namespace: canasta-{{ instance_id }}
@@ -462,6 +470,13 @@
             - CreateNamespace=true
     dest: "{{ instance_path }}/argocd/application.yaml"
     mode: "0644"
+
+# --- SOPS+age secret encryption (gated; off until the repo-server CMP is
+# bootstrapped). Writes .sops.yaml + provisions the operator age key so the
+# initial commit below carries them. ---
+- name: Bootstrap SOPS+age secret encryption
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_init_sops.yml"
+  when: gitops_sops_secrets | default(false) | bool
 
 # --- Save host identity ---
 - name: Save .gitops-host
