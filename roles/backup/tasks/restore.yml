@@ -17,6 +17,26 @@
   register: _restore_dbpass
   no_log: true
 
+# Single-wiki restore (-w) scopes the restore to one wiki's DB and
+# per-wiki files. The wiki must already exist in this instance — a
+# scoped restore updates an existing wiki, it does not recreate one.
+- name: Validate target wiki exists (single-wiki restore)
+  when: wiki is defined
+  block:
+    - name: Read current wikis for single-wiki restore validation
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _restore_target_wikis
+
+    - name: Fail when the target wiki is not in this instance
+      ansible.builtin.fail:
+        msg: >-
+          Wiki '{{ wiki }}' is not in this instance's wikis.yaml, so there is
+          nothing to restore into. Present wikis:
+          {{ _restore_target_wikis.wiki_ids | join(', ') }}.
+      when: wiki not in _restore_target_wikis.wiki_ids
+
 # Resolve 'latest' to a concrete snapshot ID, filtering out
 # safety-before-restore snapshots. Restic's own "latest" keyword
 # doesn't know about our tags — without this filter, running restore
@@ -80,4 +100,6 @@
 
 - name: Display result
   ansible.builtin.debug:
-    msg: "Restored from snapshot {{ _resolved_snapshot }}."
+    msg: >-
+      Restored {{ ("wiki '" ~ wiki ~ "' from") if wiki is defined else "from" }}
+      snapshot {{ _resolved_snapshot }}.
