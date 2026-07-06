@@ -42,6 +42,20 @@ def test_init_kubernetes_gates_sops_include():
     assert "gitops_sops_secrets" in str(inc[0].get("when", ""))
 
 
+def _flatten(tasks):
+    """Yield tasks recursively, descending into block/rescue/always."""
+    for t in tasks or []:
+        if not isinstance(t, dict):
+            continue
+        nested = False
+        for k in ("block", "rescue", "always"):
+            if k in t:
+                nested = True
+                yield from _flatten(t[k])
+        if not nested:
+            yield t
+
+
 def test_init_sops_structure():
     c = _read(INITSOPS)
     assert "age-keygen" in c
@@ -50,12 +64,28 @@ def test_init_sops_structure():
     assert "sops-age" in c
 
 
+def test_init_sops_key_is_cluster_global_on_controller():
+    c = _read(INITSOPS)
+    # Canonical key lives on the controller, keyed by host = one per cluster.
+    assert "sops/{{ host_name }}.age" in c
+    assert "CANASTA_CONFIG_DIR" in c
+    # --key is the DR import/export channel, not the runtime location.
+    assert "{{ key }}.age" in c or "key ~ '.age'" in c
+
+
 def test_init_sops_never_logs_key_material():
-    for t in yaml.safe_load(_read(INITSOPS)):
+    # Tasks that read/write/generate key CONTENT must be no_log (not the
+    # path set_fact / stat / mkdir, which only touch the location).
+    sensitive = ("import the supplied", "generate the canonical operator age key",
+                 "export the operator age key", "public recipient",
+                 "sops-age secret")
+    seen = 0
+    for t in _flatten(yaml.safe_load(_read(INITSOPS))):
         name = (t.get("name") or "").lower()
-        if any(s in name for s in ("age keypair", "public recipient",
-                                   "sops-age secret")):
+        if any(s in name for s in sensitive):
             assert t.get("no_log") is True, "%r must be no_log" % name
+            seen += 1
+    assert seen >= 4, "expected the key-material tasks to be present + checked"
 
 
 def test_init_sops_restarts_repo_server_after_provision():

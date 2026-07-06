@@ -16,8 +16,9 @@
 #
 # Input: host_name, role, repo, key, force, pull_requests
 #   key is the SSH deploy key path basename (private at <key>.ssh,
-#   public at <key>.ssh.pub). Despite the name, it has no git-crypt
-#   meaning on K8s.
+#   public at <key>.ssh.pub). It carries no git-crypt meaning on K8s;
+#   with SOPS enabled it doubles as the operator age key's portable DR
+#   path (<key>.age) — see _init_sops.yml.
 # Requires: instance_path, instance_id (set by dispatcher)
 
 # --- Validate prerequisites ---
