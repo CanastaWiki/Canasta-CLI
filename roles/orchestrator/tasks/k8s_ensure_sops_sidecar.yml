@@ -31,6 +31,19 @@
     dest: /tmp/canasta-argocd-sops-values.yaml
     mode: "0600"
 
+# Pin the upgrade to the chart version already installed. --reuse-values
+# suppresses new-chart value defaults, so an unpinned `helm upgrade` here would
+# silently jump Argo CD to the latest chart on a months-old cluster.
+- name: Read the installed Argo CD chart version
+  ansible.builtin.command:
+    cmd: "helm -n {{ argocd_namespace | default('argocd') }} get metadata argocd -o json"
+  register: _argocd_meta
+  changed_when: false
+
+- name: Set the installed Argo CD chart version
+  ansible.builtin.set_fact:
+    _argocd_chart_version: "{{ (_argocd_meta.stdout | from_json).version }}"
+
 # --reuse-values overlays the sidecar onto whatever the install set, so we add
 # repoServer without knowing (or resetting) the original values. Launched
 # detached + polled so a controller SSH reset during --wait can't abort it;
@@ -43,5 +56,6 @@
     rx_cmd: >-
       helm upgrade argocd argo/argo-cd
       --namespace {{ argocd_namespace | default('argocd') }}
+      --version {{ _argocd_chart_version }}
       --reuse-values --wait --timeout 10m
       -f /tmp/canasta-argocd-sops-values.yaml

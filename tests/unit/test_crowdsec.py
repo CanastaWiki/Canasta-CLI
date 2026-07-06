@@ -289,14 +289,11 @@ class TestCrowdsecGitopsDurability:
 
     def _is_placeholder(self, key):
         # A key is placeholdered in gitops when the canonical classifier calls
-        # it secret or host-specific.
-        cls = yaml.safe_load(
-            _read(os.path.join(REPO_ROOT, "vars", "secret_classification.yml"))
-        )
-        prefixes = cls["canasta_secret_prefixes"] + cls["canasta_secret_explicit"]
-        regex = ("^([^=]*" + cls["canasta_secret_key_pattern"]
-                 + "|" + "|".join(prefixes) + ")")
-        return (re.match(regex, key) is not None
+        # it secret or host-specific. Uses the shared helper that renders the
+        # real classifier regex, so this can't drift from the vars file.
+        from _classifier import classifier, secret_key_regex
+        cls = classifier()
+        return (re.match(secret_key_regex(cls), key) is not None
                 or key in cls["canasta_host_specific_nonsecret"])
 
     def test_crowdsec_inputs_are_placeholder_keys(self):

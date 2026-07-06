@@ -38,9 +38,21 @@
         ansible_user: ""
         ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-    - name: Ensure age-keygen is installed on the controller
+    - name: Check age-keygen is installed on the controller
       ansible.builtin.command: "age-keygen --version"
+      register: _sops_agekeygen_check
       changed_when: false
+      failed_when: false
+
+    - name: Fail with guidance when age-keygen is missing on the controller
+      ansible.builtin.fail:
+        msg: >-
+          --encrypt-secrets needs age-keygen on the controller (where the CLI
+          runs) to manage the SOPS operator key, but it was not found. Install
+          the toolchain with `canasta install sops` (no --host installs on this
+          controller). The gitops target host also needs sops:
+          `canasta install -H {{ target_host | default(host_name) }} sops`.
+      when: _sops_agekeygen_check.rc != 0
 
     - name: Determine controller config dir
       ansible.builtin.set_fact:

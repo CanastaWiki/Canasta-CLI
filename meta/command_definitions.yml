@@ -743,11 +743,15 @@ commands:
       kubectl can verify the cert when reaching the cluster over that
       address. Repeat to add more than one (e.g. an IP and a hostname).
 
-      `sops` installs the SOPS toolchain (sops + age) on the target,
-      required for encrypted secrets in Kubernetes gitops
-      (gitops_sops_secrets): sops encrypts Secret manifests on the
-      gitops host, and age-keygen manages the operator key on the
-      controller. Idempotent — skips a binary already present.
+      `sops` installs the SOPS toolchain (sops + age), required for
+      encrypted secrets in Kubernetes gitops (`gitops init
+      --encrypt-secrets`). Two hosts need it: the controller (where the
+      CLI runs) uses age-keygen to manage the operator key, and the
+      gitops target host uses sops to encrypt Secret manifests. Run it
+      once per role: `canasta install sops` (no --host) for the
+      controller and `canasta install -H <host> sops` for the target
+      (they may be the same machine). Idempotent — skips a binary
+      already present.
 
       `canasta` installs the Canasta CLI (canasta-native) on the target
       host, so an instance deployed remotely from a controller can also

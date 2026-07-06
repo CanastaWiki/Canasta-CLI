@@ -119,6 +119,26 @@
       -o UserKnownHostsFile=~/.ssh/known_hosts
   changed_when: true
 
+# SOPS-managed repos aren't joinable yet: the joining cluster is a separate
+# cluster that would need the operator age key imported and its own helm-sops
+# sidecar, and pushing from it would otherwise encrypt Secrets to a recipient
+# it can't decrypt. Detect from the fresh clone and refuse before mutating the
+# instance, rather than produce a broken hybrid. (Full join+SOPS is a
+# follow-up; it needs multi-cluster validation.)
+- name: Detect a SOPS-managed repo in the clone
+  ansible.builtin.stat:
+    path: "{{ _join_tmpdir.path }}/.sops.yaml"
+  register: _join_sops_marker
+
+- name: Refuse to join a SOPS-managed gitops repo
+  ansible.builtin.fail:
+    msg: >-
+      This gitops repository uses SOPS secret encryption (.sops.yaml present),
+      which `gitops join` does not yet support. Set up the additional
+      environment with `gitops init --encrypt-secrets` on its own host, or
+      manage it from the initializing controller.
+  when: _join_sops_marker.stat.exists
+
 # --- Validate host name not already in config ---
 - name: Read hosts.yaml from cloned repo
   ansible.builtin.slurp:

@@ -19,15 +19,24 @@ repoServer:
       image: alpine:3.19
       command: [sh, -c]
       args:
+        # Fetch sops with retries (transient GitHub blips at pod start would
+        # otherwise stall the shared repo-server) and verify a pinned sha256 so
+        # a corrupted or substituted binary fails closed. A longer-term
+        # hardening is to serve this from the in-cluster registry Canasta
+        # already deploys, removing the pod-start dependency on GitHub.
         - |
           set -e
           case "$(uname -m)" in
-            x86_64) A=amd64 ;;
-            aarch64|arm64) A=arm64 ;;
-            *) A="$(uname -m)" ;;
+            x86_64) A=amd64; SUM="{{ sops_sha256.amd64 }}" ;;
+            aarch64|arm64) A=arm64; SUM="{{ sops_sha256.arm64 }}" ;;
+            *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
           esac
-          wget -qO /custom-tools/sops \
-            "https://github.com/getsops/sops/releases/download/{{ sops_version }}/sops-{{ sops_version }}.linux.$A"
+          for i in 1 2 3 4 5; do
+            wget -qO /custom-tools/sops \
+              "https://github.com/getsops/sops/releases/download/{{ sops_version }}/sops-{{ sops_version }}.linux.$A" && break
+            echo "sops download attempt $i failed; retrying" >&2; sleep 5
+          done
+          echo "$SUM  /custom-tools/sops" | sha256sum -c -
           chmod +x /custom-tools/sops
       volumeMounts:
         - name: custom-tools

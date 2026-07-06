@@ -1,25 +1,12 @@
 """The canonical secret classifier is the single source of truth for
 "this key is a secret". These tests lock the full secret surface (so a
 future key can't silently leak) and the non-secret exclusions."""
-import os
 import re
 
-import yaml
-
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-CLASSIFIER = os.path.join(REPO_ROOT, "vars", "secret_classification.yml")
-
-
-def _load():
-    with open(CLASSIFIER) as fh:
-        return yaml.safe_load(fh)
-
-
-def _secret_regex(cls):
-    # Mirror canasta_secret_key_regex's Jinja construction so the test checks
-    # the same effective pattern the playbook uses.
-    prefixes = cls["canasta_secret_prefixes"] + cls["canasta_secret_explicit"]
-    return "^([^=]*" + cls["canasta_secret_key_pattern"] + "|" + "|".join(prefixes) + ")"
+# Render the real classifier regex from the vars file (shared helper), rather
+# than re-mirroring its Jinja construction here where it could drift.
+from _classifier import classifier as _load
+from _classifier import secret_key_regex as _secret_regex
 
 
 # Genuine secrets — must ALL classify as secret (kept out of ConfigMaps/gitops).

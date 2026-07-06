@@ -48,6 +48,7 @@
           https://github.com/getsops/sops/releases/download/{{ sops_version }}/sops-{{ sops_version }}.linux.{{ _tool_arch }}
         dest: /usr/local/bin/sops
         mode: "0755"
+        checksum: "sha256:{{ sops_sha256[_tool_arch] }}"
       when: _sops_installed.rc != 0
 
     - name: Install age + age-keygen

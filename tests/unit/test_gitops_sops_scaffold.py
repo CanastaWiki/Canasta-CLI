@@ -130,7 +130,11 @@ def test_helm_sops_plugin_is_named_and_uses_argocd_env_prefix():
     assert "ARGOCD_ENV_HELM_ARGS" in gen
     assert "$HELM_ARGS" not in gen
     assert "sops -d" in gen
-    assert "hosts/*/secrets/*.enc.yaml" in gen
+    # set -e so a failed helm template aborts (else Argo prunes the instance).
+    assert "set -e" in gen
+    # Decrypt only THIS host's secrets, not every host's (host-blind glob bug).
+    assert "$ARGOCD_ENV_SECRETS_DIR" in gen
+    assert "hosts/*/secrets" not in gen
 
 
 def test_sidecar_values_template():
@@ -170,6 +174,63 @@ def test_write_sops_secrets_captures_only_opaque_unowned():
     assert "k8s_info" in c
     # Prunes manifests for Secrets no longer present.
     assert "Prune encrypted manifests" in c
+
+
+def test_application_scopes_secrets_dir_to_host():
+    c = _read(INITK8S)
+    # Plugin env carries a per-host SECRETS_DIR so the CMP decrypts only this
+    # host's secrets.
+    assert "SECRETS_DIR" in c
+    assert "hosts/{{ host_name }}/secrets" in c
+
+
+def test_join_refuses_sops_repo():
+    c = _read(os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                           "join_kubernetes.yml"))
+    # Join detects a .sops.yaml in the clone and refuses rather than making a
+    # broken hybrid.
+    assert ".sops.yaml" in c
+    assert "Refuse to join a SOPS-managed" in c
+
+
+def test_reinit_cleanup_removes_sops_marker():
+    c = _read(os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                           "_reinit_cleanup.yml"))
+    assert ".sops.yaml" in c
+
+
+def test_prune_guarded_against_empty_namespace():
+    c = _read(WRITESECRETS)
+    # Prune only runs when the namespace actually returned Secrets, so an
+    # empty/absent namespace can't wipe every DR copy from git.
+    assert "_sops_secrets | length > 0" in c
+
+
+def test_skip_gate_requires_encrypted_file():
+    c = _read(WRITEONE)
+    # A hash match is only trusted when the file is actually encrypted.
+    assert "_sec_encrypted" in c and "ENC[" in c
+    # A failed encryption removes the cleartext rather than leaving it.
+    assert "rescue:" in c
+
+
+def test_sidecar_verifies_sops_checksum():
+    tv = yaml.safe_load(_read(TOOLVERSIONS))
+    assert tv["sops_sha256"]["amd64"] and tv["sops_sha256"]["arm64"]
+    t = _read(SIDECAR)
+    assert "sha256sum -c" in t and "sops_sha256" in t
+
+
+def test_ensure_sidecar_pins_chart_version():
+    c = _read(ENSURE)
+    assert "get metadata argocd" in c
+    assert "--version {{ _argocd_chart_version }}" in c
+
+
+def test_migration_replaceholder_is_case_insensitive():
+    c = _read(os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                           "_migrate_reclassified_secrets.yml"))
+    assert "(?i)^{{ item }}=" in c
 
 
 def test_write_one_sops_secret_hashes_and_encrypts():

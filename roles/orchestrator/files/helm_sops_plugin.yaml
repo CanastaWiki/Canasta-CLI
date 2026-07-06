@@ -8,10 +8,19 @@ spec:
     args:
       # Render the Helm chart, then append the decrypted Secret manifests.
       # Argo prefixes the Application's plugin.env with ARGOCD_ENV_, so the
-      # values override arrives as ARGOCD_ENV_HELM_ARGS (not HELM_ARGS).
+      # values override arrives as ARGOCD_ENV_HELM_ARGS and the per-host secrets
+      # directory as ARGOCD_ENV_SECRETS_DIR (scoped to THIS host — a repo can
+      # hold several hosts' secrets, and rendering another host's would apply
+      # the wrong Secrets or collide on name/namespace).
+      #
+      # set -e so a failed `helm template` aborts the whole script: without it,
+      # sh returns the last loop command's status, a successful `sops -d` would
+      # mask the failure, and Argo (selfHeal+prune) would prune the instance
+      # down to just the Secrets.
       - |
+        set -e
         helm template "$ARGOCD_APP_NAME" . $ARGOCD_ENV_HELM_ARGS
-        for f in hosts/*/secrets/*.enc.yaml; do
+        for f in "$ARGOCD_ENV_SECRETS_DIR"/*.enc.yaml; do
           [ -e "$f" ] || continue
           echo "---"
           sops -d "$f"

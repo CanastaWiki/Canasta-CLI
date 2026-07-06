@@ -462,6 +462,9 @@
             env:
               - name: HELM_ARGS
                 value: "-f hosts/{{ host_name }}/rendered-values.yaml"
+              # Scope decryption to THIS host's secrets, not every host's.
+              - name: SECRETS_DIR
+                value: "hosts/{{ host_name }}/secrets"
       {% else %}
           helm:
             valueFiles:
