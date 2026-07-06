@@ -555,11 +555,11 @@ class TestCrowdsecEnrollRole:
             REPO_ROOT, "roles", "config", "tasks", "_set_single.yml",
         ))
         assert "no_log:" in set_single
-        assert "canasta_secret_key_pattern" in set_single
-        defaults = yaml.safe_load(
-            _read(os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml"))
+        assert "canasta_secret_key_regex" in set_single
+        classifier = yaml.safe_load(
+            _read(os.path.join(REPO_ROOT, "vars", "secret_classification.yml"))
         )
-        pattern = defaults["canasta_secret_key_pattern"]
+        pattern = classifier["canasta_secret_key_pattern"]
         assert re.search(pattern, "CROWDSEC_BOUNCER_API_KEY"), (
             "secret pattern must match the bouncer key"
         )
