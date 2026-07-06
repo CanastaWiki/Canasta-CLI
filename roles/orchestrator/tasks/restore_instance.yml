@@ -112,6 +112,15 @@
     # - .env, docker-compose.override.yml, my.cnf, and any custom build inputs
     # (Dockerfile, build context dirs) staged by backup_discover_build_paths.yml - is
     # copied back generically, so the restore round-trips whatever was captured.
+    #
+    # cp -a preserves the snapshot's NUMERIC uids. On a cross-host restore those
+    # ids need not map to a real user here, so restored top-level files (notably
+    # .env, mode 0600) come back owned by an unmapped uid and become unreadable
+    # by the CLI user — which aborts the very next step (preserving the DB
+    # password) and leaves the instance broken. Normalize the restored top-level
+    # files to the instance dir's owner (the CLI user), mirroring 'gitops join';
+    # the web entrypoint re-establishes www-data on the content dirs at the
+    # post-restore restart.
     - name: Copy files from volume to host
       when: wiki is not defined
       ansible.builtin.shell:
@@ -136,6 +145,10 @@
               [ "$skip" = "1" ] && continue;
               [ -d "$e" ] && rm -rf "/install/$name";
               cp -a "$e" "/install/$name";
+            done;
+            own=$(stat -c "%u:%g" /install);
+            for f in /install/* /install/.[!.]*; do
+              [ -f "$f" ] && chown "$own" "$f";
             done'
       changed_when: true
 
