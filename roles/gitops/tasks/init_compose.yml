@@ -200,9 +200,10 @@
     state: absent
 
 # --- Step 9: Create env.template and wikis.yaml.template ---
-# env.template replaces secret/host-specific values with {{placeholder}} syntax.
-# Other values are kept as literals. Placeholder key list and secret
-# prefixes are defined in roles/gitops/vars/main.yml.
+# env.template replaces secret + host-specific values with {{placeholder}}
+# syntax; other values stay literal. Classification is the canonical one
+# (canasta_secret_key_regex + canasta_host_specific_nonsecret) so any secret
+# is encrypted into vars.yaml, never left literal in the committed template.
 
 - name: Read raw .env file for template extraction
   ansible.builtin.slurp:
@@ -223,7 +224,7 @@
       {{ line }}
       {% elif '=' in line %}
       {% set key = line.split('=', 1)[0] %}
-      {% if key in gitops_placeholder_keys or key | regex_search(gitops_secret_prefix_pattern) %}
+      {% if (key | regex_search(canasta_secret_key_regex)) or (key in canasta_host_specific_nonsecret) %}
       {{ key }}={{ '{{' }}{{ key | lower }}{{ '}}' }}
       {% else %}
       {{ line }}
@@ -274,15 +275,9 @@
 - name: Build vars content (placeholder values + wiki URLs + admin passwords)
   ansible.builtin.copy:
     content: |
-      # Host-specific values for placeholder keys in env.template
-      {% for k in gitops_placeholder_keys %}
-      {% if k in _gitops_env.variables %}
-      {{ k | lower }}: "{{ _gitops_env.variables[k] }}"
-      {% endif %}
-      {% endfor %}
-      # Secret-prefix keys
+      # Secret + host-specific values (the keys placeholdered in env.template)
       {% for k, v in _gitops_env.variables.items() %}
-      {% if k | regex_search(gitops_secret_prefix_pattern) %}
+      {% if (k | regex_search(canasta_secret_key_regex)) or (k in canasta_host_specific_nonsecret) %}
       {{ k | lower }}: "{{ v }}"
       {% endif %}
       {% endfor %}

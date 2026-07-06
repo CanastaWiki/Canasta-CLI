@@ -287,31 +287,35 @@ class TestCrowdsecGitopsDurability:
     render resets it to the off state captured at init time, silently
     disabling CrowdSec on the next restart."""
 
-    def _placeholder_keys(self):
-        gitops_vars = yaml.safe_load(
-            _read(os.path.join(REPO_ROOT, "roles", "gitops", "vars", "main.yml"))
+    def _is_placeholder(self, key):
+        # A key is placeholdered in gitops when the canonical classifier calls
+        # it secret or host-specific.
+        cls = yaml.safe_load(
+            _read(os.path.join(REPO_ROOT, "vars", "secret_classification.yml"))
         )
-        return gitops_vars["gitops_placeholder_keys"]
+        prefixes = cls["canasta_secret_prefixes"] + cls["canasta_secret_explicit"]
+        regex = ("^([^=]*" + cls["canasta_secret_key_pattern"]
+                 + "|" + "|".join(prefixes) + ")")
+        return (re.match(regex, key) is not None
+                or key in cls["canasta_host_specific_nonsecret"])
 
     def test_crowdsec_inputs_are_placeholder_keys(self):
-        keys = self._placeholder_keys()
         for k in (
             "CANASTA_ENABLE_CROWDSEC",
             "CROWDSEC_BOUNCER_API_KEY",
             "CADDY_TRUSTED_PROXIES",
         ):
-            assert k in keys, (
-                "%s must be a gitops placeholder key or it is dropped from "
-                ".env on the next gitops render/pull" % k
+            assert self._is_placeholder(k), (
+                "%s must classify as secret or host-specific, or it is dropped "
+                "from .env on the next gitops render/pull" % k
             )
 
     def test_derived_keys_not_persisted(self):
         # CANASTA_CADDY_IMAGE and COMPOSE_PROFILES are re-derived from the
         # feature flags by sync_compose_profiles on start; persisting them
         # would freeze a value the start sequence already reconciles.
-        keys = self._placeholder_keys()
-        assert "CANASTA_CADDY_IMAGE" not in keys
-        assert "COMPOSE_PROFILES" not in keys
+        assert not self._is_placeholder("CANASTA_CADDY_IMAGE")
+        assert not self._is_placeholder("COMPOSE_PROFILES")
 
 
 class TestCrowdsecProfileSync:

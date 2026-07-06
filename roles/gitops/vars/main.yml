@@ -1,35 +1,11 @@
 ---
-# Keys whose values are secrets or host-specific; rendered as
-# {{ placeholder }} in env.template and stored in hosts/<host>/vars.yaml.
-gitops_placeholder_keys:
-  - MYSQL_PASSWORD
-  - WIKI_DB_PASSWORD
-  - MW_SECRET_KEY
-  - RESTIC_REPOSITORY
-  - RESTIC_PASSWORD
-  - MW_SITE_SERVER
-  - MW_SITE_FQDN
-  - HTTPS_PORT
-  - HTTP_PORT
-  - CADDY_AUTO_HTTPS
-  # Per-host feature toggles that drive COMPOSE_PROFILES, plus the CrowdSec
-  # bouncer key and trusted-proxy setting. A gitops render/pull must preserve
-  # these rather than reset them to the off state captured at init time —
-  # otherwise sync_compose_profiles derives the profile off and silently
-  # disables the feature on the next restart. CANASTA_CADDY_IMAGE and
-  # COMPOSE_PROFILES are intentionally absent: both are re-derived from these
-  # flags on every start, so storing them would only freeze a value the start
-  # sequence already reconciles.
-  - CANASTA_ENABLE_CROWDSEC
-  - CANASTA_ENABLE_ELASTICSEARCH
-  - CANASTA_ENABLE_OBSERVABILITY
-  - CANASTA_ENABLE_VARNISH
-  - CROWDSEC_BOUNCER_API_KEY
-  - CADDY_TRUSTED_PROXIES
-
-# Keys whose name starts with any of these prefixes are treated as
-# credentials and get placeholders in env.template.
-gitops_secret_prefix_pattern: "^(AWS_|AZURE_|B2_|GOOGLE_|OS_|ST_|RCLONE_|SMTP_)"
+# Which keys gitops placeholders (secrets + host-specific) is decided by the
+# canonical classifier in vars/secret_classification.yml:
+# canasta_secret_key_regex for secrets, and canasta_host_specific_nonsecret for
+# the per-host toggles / ports / URLs a gitops render must preserve
+# (CANASTA_ENABLE_*, CADDY_TRUSTED_PROXIES, ...). CANASTA_CADDY_IMAGE and
+# COMPOSE_PROFILES are intentionally neither — both are re-derived from the
+# feature flags on every start, so storing them would freeze a reconciled value.
 
 # Keys (lowercase) whose values belong in hosts/_shared/vars.yaml
 # rather than per-host vars.yaml. Auto-migrated on gitops push.
