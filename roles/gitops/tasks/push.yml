@@ -4,5 +4,10 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+# Nudge inline Settings.php secrets toward `config set --secret` (both
+# orchestrators). Warn-only unless gitops_strict_secrets is set.
+- name: Detect inline Settings.php secrets
+  ansible.builtin.include_tasks: "_detect_settings_secrets.yml"
+
 - name: Dispatch gitops push
   ansible.builtin.include_tasks: "push_{{ instance_orchestrator | default('compose') }}.yml"
