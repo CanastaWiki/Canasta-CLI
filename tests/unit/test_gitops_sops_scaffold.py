@@ -22,6 +22,7 @@ WRITEONE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
                         "_write_one_sops_secret.yml")
 PUSHK8S = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
                        "push_kubernetes.yml")
+TOOLVERSIONS = os.path.join(REPO_ROOT, "vars", "tool_versions.yml")
 
 
 def _read(p):
@@ -136,9 +137,12 @@ def test_sidecar_values_template():
 
 
 def test_sidecar_defaults_present():
-    d = yaml.safe_load(_read(ODEFAULTS))
-    assert d["sops_version"]
-    assert d["argocd_sops_sidecar_image"]
+    # Sidecar image is role-scoped; the sops version is shared play-global
+    # (one definition, used by both the install and orchestrator roles).
+    assert yaml.safe_load(_read(ODEFAULTS))["argocd_sops_sidecar_image"]
+    versions = yaml.safe_load(_read(TOOLVERSIONS))
+    assert versions["sops_version"]
+    assert versions["age_version"]
 
 
 def test_write_sops_secrets_captures_only_opaque():
@@ -169,6 +173,19 @@ def test_push_gates_secret_capture_on_sops():
     assert "gitops_sops_secrets" in c
     # host_name is resolved from .gitops-host before capture.
     assert ".gitops-host" in c
+
+
+def test_install_supports_sops_toolchain():
+    inst = _read(os.path.join(REPO_ROOT, "playbooks", "install.yml"))
+    assert "'sops' in _install_packages" in inst
+    assert "sops_age.yml" in inst
+    task = _read(os.path.join(REPO_ROOT, "roles", "install", "tasks",
+                              "sops_age.yml"))
+    # Installs both binaries from pinned release versions, idempotently.
+    assert "getsops/sops/releases" in task
+    assert "FiloSottile/age/releases" in task
+    assert "age-keygen" in task
+    assert "sops_version" in task and "age_version" in task
 
 
 def test_bootstrap_gates_sidecar_provisioning():

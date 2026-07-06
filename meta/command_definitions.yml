@@ -690,8 +690,8 @@ commands:
       Verify that the target host has the tools required for its
       orchestrator: Docker + Docker Compose for Compose installs,
       or kubectl + Helm for Kubernetes installs. Also reports
-      status of optional tools (git, git-crypt, crontab) and system
-      resources (memory, disk space).
+      status of optional tools (git, git-crypt, sops, age, crontab) and
+      system resources (memory, disk space).
     examples:
       - "canasta doctor"
       - "canasta doctor --host prod1.example.com"
@@ -721,7 +721,7 @@ commands:
     description: "Install dependencies on the target host"
     long_description: |
       Install one or more dependencies on the target host. Supported
-      packages: docker, k8s-cp, k8s-worker, git-crypt, canasta.
+      packages: docker, k8s-cp, k8s-worker, git-crypt, sops, canasta.
 
       `k8s-cp` installs k3s as a control-plane node — the cluster's
       API server, scheduler, etc., plus kubectl + helm on the same
@@ -743,6 +743,12 @@ commands:
       kubectl can verify the cert when reaching the cluster over that
       address. Repeat to add more than one (e.g. an IP and a hostname).
 
+      `sops` installs the SOPS toolchain (sops + age) on the target,
+      required for encrypted secrets in Kubernetes gitops
+      (gitops_sops_secrets): sops encrypts Secret manifests on the
+      gitops host, and age-keygen manages the operator key on the
+      controller. Idempotent — skips a binary already present.
+
       `canasta` installs the Canasta CLI (canasta-native) on the target
       host, so an instance deployed remotely from a controller can also
       be operated directly on its own host. This is required before
@@ -762,6 +768,7 @@ commands:
       - "canasta install --host node2 k8s-worker --cp-host node1"
       - "canasta install docker git-crypt"
       - "canasta install -i mysite git-crypt"
+      - "canasta install -i mysite sops"
       - "canasta install -i mysite canasta"
     playbook: install.yml
     parameters:

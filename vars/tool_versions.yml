@@ -1,0 +1,7 @@
+---
+# Pinned versions for the SOPS toolchain, shared across roles so there is ONE
+# definition (the install role provisions them; the orchestrator role injects
+# sops into the Argo CD repo-server sidecar). Loaded play-global in canasta.yml
+# pre_tasks. Reviewed and bumped per release; validated on kind.
+sops_version: "v3.13.2"
+age_version: "v1.3.1"
