@@ -8,9 +8,12 @@
 # Input: instance_path, instance_orchestrator
 
 - name: Clean up backup staging directory (Compose)
-  ansible.builtin.include_tasks: exec.yml
+  ansible.builtin.include_tasks:
+    file: exec.yml
+    # Apply to the included tasks — OK if backup dir doesn't exist.
+    apply:
+      ignore_errors: true
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/config/backup"
   when: instance_orchestrator | default('compose') == 'compose'
-  ignore_errors: true  # OK if backup dir doesn't exist
