@@ -61,4 +61,23 @@
       stringData:
         keys.txt: "{{ lookup('file', key + '.age') }}"
   when: _sops_age_secret.resources | length == 0
+  register: _sops_age_provision
   no_log: true
+
+# The repo-server mounts sops-age optionally, so a running pod predating the
+# Secret won't have the key until it restarts. Only needed on first provision.
+- name: Restart argocd-repo-server to load the newly provisioned age key
+  ansible.builtin.command:
+    cmd: >-
+      kubectl -n {{ argocd_namespace | default('argocd') }}
+      rollout restart deployment argocd-repo-server
+  when: _sops_age_provision is changed
+  changed_when: true
+
+- name: Wait for argocd-repo-server to be ready after the restart
+  ansible.builtin.command:
+    cmd: >-
+      kubectl -n {{ argocd_namespace | default('argocd') }}
+      rollout status deployment argocd-repo-server --timeout=120s
+  when: _sops_age_provision is changed
+  changed_when: false

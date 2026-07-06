@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ConfigManagementPlugin
+metadata:
+  name: helm-sops
+spec:
+  generate:
+    command: [sh, -c]
+    args:
+      # Render the Helm chart, then append the decrypted Secret manifests.
+      # Argo prefixes the Application's plugin.env with ARGOCD_ENV_, so the
+      # values override arrives as ARGOCD_ENV_HELM_ARGS (not HELM_ARGS).
+      - |
+        helm template "$ARGOCD_APP_NAME" . $ARGOCD_ENV_HELM_ARGS
+        for f in hosts/*/secrets/*.enc.yaml; do
+          [ -e "$f" ] || continue
+          echo "---"
+          sops -d "$f"
+        done

@@ -15,3 +15,9 @@ canasta_db_wait_timeout: 10
 # (all nodes in a cluster must use the same one).
 canasta_k3s_version: "v1.34.8+k3s1"
 canasta_helm_version: "v3.20.1"
+
+# helm-sops CMP sidecar for the Argo CD repo-server (gitops_sops_secrets).
+# sops binary injected into the sidecar; sidecar image should track the
+# argo-cd chart's appVersion. Bumped per release, validated on kind.
+sops_version: "v3.13.2"
+argocd_sops_sidecar_image: "quay.io/argoproj/argocd:v3.3.9"
