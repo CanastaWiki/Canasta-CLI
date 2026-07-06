@@ -98,6 +98,19 @@
             exec_command: "rm -rf /mediawiki/config/backup"
           ignore_errors: true
 
+    # The safety backup above stages the CURRENT instance into this same volume,
+    # and `restic restore` does not prune its target — so any file present now
+    # but absent from the snapshot would survive the restore and be copied back
+    # to the host (a restore that doesn't fully revert). Clear the volume first
+    # so it reflects only the snapshot. Runs for full and single-wiki restores.
+    - name: Clear backup volume before restore
+      ansible.builtin.command:
+        cmd: >-
+          docker run --rm
+          -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot"
+          alpine sh -c 'rm -rf /currentsnapshot/* /currentsnapshot/.[!.]* 2>/dev/null || true'
+      changed_when: true
+
     - name: Restore snapshot into backup volume
       ansible.builtin.include_tasks: run_backup.yml
       vars:
