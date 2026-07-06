@@ -14,10 +14,18 @@
 - name: Sync config files
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
-# --- Version gitops-managed Secrets into git as SOPS-encrypted manifests
-# (gated). Git becomes the source of truth for the Secrets Argo renders. ---
+# --- Version gitops-managed Secrets into git as SOPS-encrypted manifests.
+# Self-describing: a .sops.yaml at the repo root (written by gitops init
+# --encrypt-secrets) is the marker that this instance encrypts its Secrets, so
+# push needs no flag of its own. Git becomes the source of truth for the
+# Secrets Argo renders. ---
+- name: Check whether the instance uses SOPS secret encryption
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.sops.yaml"
+  register: _push_sops_marker
+
 - name: Version gitops-managed Secrets with SOPS
-  when: gitops_sops_secrets | default(false) | bool
+  when: _push_sops_marker.stat.exists
   block:
     - name: Resolve gitops host name
       ansible.builtin.slurp:

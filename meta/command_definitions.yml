@@ -2203,6 +2203,17 @@ commands:
         type: bool
         default: false
         description: "Require pull requests instead of pushing to main"
+      - name: encrypt_secrets
+        type: bool
+        default: false
+        description: >-
+          Kubernetes only. Encrypt the instance's Secrets in git with
+          SOPS+age instead of leaving them out of version control. The
+          operator age key is generated on the controller (portable via
+          --key for DR); Argo CD's repo-server gains a helm-sops sidecar
+          that decrypts at render time. Requires sops on the target and
+          age on the controller ('canasta install sops'). No effect on
+          Compose, which already encrypts vars with git-crypt.
       - name: git_user_name
         type: string
         description: "Git user.name for commits on the target host (set if not already configured)"

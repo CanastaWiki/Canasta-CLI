@@ -23,6 +23,9 @@ WRITEONE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
 PUSHK8S = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
                        "push_kubernetes.yml")
 TOOLVERSIONS = os.path.join(REPO_ROOT, "vars", "tool_versions.yml")
+ENSURE = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
+                      "k8s_ensure_sops_sidecar.yml")
+CMDDEFS = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
 
 def _read(p):
@@ -167,10 +170,13 @@ def test_write_one_sops_secret_hashes_and_encrypts():
     assert wrote_clear and wrote_clear[0].get("no_log") is True
 
 
-def test_push_gates_secret_capture_on_sops():
+def test_push_gates_secret_capture_on_sops_marker():
     c = _read(PUSHK8S)
     assert "_write_sops_secrets.yml" in c
-    assert "gitops_sops_secrets" in c
+    # Self-describing: push keys off the .sops.yaml marker, not a flag/var,
+    # so it needs no --encrypt-secrets of its own.
+    assert "_push_sops_marker.stat.exists" in c
+    assert ".sops.yaml" in c
     # host_name is resolved from .gitops-host before capture.
     assert ".gitops-host" in c
 
@@ -188,11 +194,24 @@ def test_install_supports_sops_toolchain():
     assert "sops_version" in task and "age_version" in task
 
 
-def test_bootstrap_gates_sidecar_provisioning():
-    tasks = yaml.safe_load(_read(BOOTSTRAP))
-    txt = _read(BOOTSTRAP)
-    assert "helm-sops-plugin" in txt
-    assert "argocd_sops_repo_server_values.yaml.j2" in txt
-    # The sops values file is only appended to the helm args when enabled.
-    assert "canasta-argocd-sops-values.yaml" in txt
-    assert "gitops_sops_secrets" in txt
+def test_encrypt_secrets_flag_drives_the_gate():
+    # The CLI flag exists on gitops init and maps to gitops_sops_secrets.
+    cmds = yaml.safe_load(_read(CMDDEFS))["commands"]
+    gi = [c for c in cmds if c["name"] == "gitops_init"][0]
+    assert any(p["name"] == "encrypt_secrets" for p in gi["parameters"])
+    ik = _read(INITK8S)
+    assert "encrypt_secrets | default(false) | bool" in ik
+    assert "gitops_sops_secrets:" in ik
+
+
+def test_sidecar_ensured_at_init_not_create():
+    # The sidecar is overlaid at gitops init via helm upgrade --reuse-values,
+    # not baked into the create-time Argo CD install.
+    ensure = _read(ENSURE)
+    assert "helm-sops-plugin" in ensure
+    assert "argocd_sops_repo_server_values.yaml.j2" in ensure
+    assert "--reuse-values" in ensure
+    ik = _read(INITK8S)
+    assert "k8s_ensure_sops_sidecar.yml" in ik
+    # create's Argo CD install must NOT carry the sidecar values anymore.
+    assert "argocd_sops_repo_server_values" not in _read(BOOTSTRAP)

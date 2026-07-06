@@ -36,50 +36,13 @@
             params:
               server.insecure: false
 
-    # --- helm-sops CMP sidecar (gated). The plugin ConfigMap the sidecar
-    # mounts must exist before the repo-server pod starts, so provision it
-    # (and the namespace) before the install. The sops-age Secret is created
-    # later by per-instance gitops init. ---
-    - name: Provision the helm-sops CMP sidecar
-      when: gitops_sops_secrets | default(false) | bool
-      block:
-        - name: Ensure the Argo CD namespace exists
-          kubernetes.core.k8s:
-            state: present
-            definition:
-              apiVersion: v1
-              kind: Namespace
-              metadata:
-                name: "{{ argocd_namespace | default('argocd') }}"
-
-        - name: Apply the helm-sops CMP plugin ConfigMap
-          kubernetes.core.k8s:
-            state: present
-            namespace: "{{ argocd_namespace | default('argocd') }}"
-            definition:
-              apiVersion: v1
-              kind: ConfigMap
-              metadata:
-                name: helm-sops-plugin
-              data:
-                plugin.yaml: "{{ lookup('file', canasta_root + '/roles/orchestrator/files/helm_sops_plugin.yaml') }}"
-
-        - name: Stage the SOPS repo-server sidecar Helm values
-          ansible.builtin.template:
-            src: "{{ canasta_root }}/roles/orchestrator/templates/argocd_sops_repo_server_values.yaml.j2"
-            dest: /tmp/canasta-argocd-sops-values.yaml
-            mode: "0600"
-
-    - name: Compose the Argo CD Helm values arguments
-      ansible.builtin.set_fact:
-        _argocd_values_args: >-
-          -f /tmp/canasta-argocd-values.yaml
-          {{ '-f /tmp/canasta-argocd-sops-values.yaml'
-             if (gitops_sops_secrets | default(false) | bool) else '' }}
-
     # Launched detached and polled (resilient_exec) so a controller-side SSH
     # reset during the up-to-10m `--wait` doesn't abort an install still
     # progressing on the target. helm upgrade --install is idempotent.
+    #
+    # The helm-sops CMP sidecar for encrypted secrets is NOT added here — it is
+    # overlaid onto this release at `gitops init --encrypt-secrets`
+    # (k8s_ensure_sops_sidecar.yml) so create stays orchestration-agnostic.
     - name: Install Argo CD via Helm
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
       vars:
@@ -89,7 +52,7 @@
           helm upgrade --install argocd argo/argo-cd
           --namespace {{ argocd_namespace | default('argocd') }} --create-namespace
           --wait --timeout 10m
-          {{ _argocd_values_args }}
+          -f /tmp/canasta-argocd-values.yaml
 
     - name: Report Argo CD installed
       ansible.builtin.debug:
