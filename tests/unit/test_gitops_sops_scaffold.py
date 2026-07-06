@@ -184,13 +184,26 @@ def test_application_scopes_secrets_dir_to_host():
     assert "hosts/{{ host_name }}/secrets" in c
 
 
-def test_join_refuses_sops_repo():
+def test_join_wires_sops():
     c = _read(os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
                            "join_kubernetes.yml"))
-    # Join detects a .sops.yaml in the clone and refuses rather than making a
-    # broken hybrid.
+    # Join detects a .sops.yaml clone, enables SOPS, provisions decryption +
+    # the sidecar, and writes a plugin-source Application scoped to this host.
     assert ".sops.yaml" in c
-    assert "Refuse to join a SOPS-managed" in c
+    assert "_join_sops.yml" in c
+    assert "k8s_ensure_sops_sidecar.yml" in c
+    assert "SECRETS_DIR" in c
+
+
+def test_join_sops_verifies_key_and_provisions_secret():
+    c = _read(os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                           "_join_sops.yml"))
+    # Refuses without the operator key; verifies it matches the repo recipient;
+    # provisions the sops-age Secret. Uses argv for the (possibly spaced) path.
+    assert "does not match this repository" in c
+    assert "{{ key }}.age" in c
+    assert "sops-age" in c
+    assert "argv:" in c
 
 
 def test_reinit_cleanup_removes_sops_marker():

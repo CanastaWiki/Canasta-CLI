@@ -6,9 +6,11 @@
 # values.yaml, renders rendered-values.yaml, creates an Argo CD
 # Application pointing at the new rendered file.
 #
-# No git-crypt: K8s gitops repos are cleartext (see #508 / #509).
-# The Compose join path (gitops/tasks/join.yml) still uses git-crypt
-# unlock since Compose's repo encrypts hosts/<host>/vars.yaml.
+# No git-crypt on K8s. A K8s repo is cleartext unless it was initialized with
+# --encrypt-secrets, in which case a .sops.yaml marks it and this join
+# provisions the operator key (via --key) + a helm-sops sidecar on the joining
+# cluster so its Argo can decrypt (see _join_sops.yml). The Compose join path
+# (gitops/tasks/join.yml) still uses git-crypt unlock instead.
 #
 # Input: host_name, role, repo, key, force
 #   key is the SSH deploy key path basename (private at <key>.ssh,
@@ -119,25 +121,19 @@
       -o UserKnownHostsFile=~/.ssh/known_hosts
   changed_when: true
 
-# SOPS-managed repos aren't joinable yet: the joining cluster is a separate
-# cluster that would need the operator age key imported and its own helm-sops
-# sidecar, and pushing from it would otherwise encrypt Secrets to a recipient
-# it can't decrypt. Detect from the fresh clone and refuse before mutating the
-# instance, rather than produce a broken hybrid. (Full join+SOPS is a
-# follow-up; it needs multi-cluster validation.)
+# A SOPS-managed repo (.sops.yaml at the root) means this joining cluster must
+# render encrypted Secrets: it needs the operator age key (to decrypt) and its
+# own helm-sops sidecar. Detected from the fresh clone; the provisioning +
+# key-match check happen below (after the tree is materialized), and the Argo
+# Application is generated with the plugin source accordingly.
 - name: Detect a SOPS-managed repo in the clone
   ansible.builtin.stat:
     path: "{{ _join_tmpdir.path }}/.sops.yaml"
   register: _join_sops_marker
 
-- name: Refuse to join a SOPS-managed gitops repo
-  ansible.builtin.fail:
-    msg: >-
-      This gitops repository uses SOPS secret encryption (.sops.yaml present),
-      which `gitops join` does not yet support. Set up the additional
-      environment with `gitops init --encrypt-secrets` on its own host, or
-      manage it from the initializing controller.
-  when: _join_sops_marker.stat.exists
+- name: Enable SOPS for this environment when the repo is SOPS-managed
+  ansible.builtin.set_fact:
+    gitops_sops_secrets: "{{ _join_sops_marker.stat.exists }}"
 
 # --- Validate host name not already in config ---
 - name: Read hosts.yaml from cloned repo
@@ -323,9 +319,19 @@
           repoURL: {{ repo }}
           targetRevision: HEAD
           path: .
+      {% if gitops_sops_secrets | default(false) | bool %}
+          plugin:
+            name: helm-sops
+            env:
+              - name: HELM_ARGS
+                value: "-f hosts/{{ host_name }}/rendered-values.yaml"
+              - name: SECRETS_DIR
+                value: "hosts/{{ host_name }}/secrets"
+      {% else %}
           helm:
             valueFiles:
               - hosts/{{ host_name }}/rendered-values.yaml
+      {% endif %}
         destination:
           server: https://kubernetes.default.svc
           namespace: canasta-{{ instance_id }}
@@ -343,6 +349,18 @@
 # host. Without this the Application can't authenticate and never syncs.
 - name: Apply Argo CD repo credential Secret + known-hosts trust
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_apply_argo_repo_secret.yml"
+
+# --- SOPS decryption for a joined SOPS-managed repo (gated) ---
+# Verify the operator key matches the repo, provision the sops-age Secret, and
+# add the helm-sops sidecar so this cluster's Argo can decrypt at render — must
+# precede applying the plugin-source Application below.
+- name: Provision SOPS decryption on the joining cluster
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_join_sops.yml"
+  when: gitops_sops_secrets | default(false) | bool
+
+- name: Ensure the Argo CD repo-server has the helm-sops sidecar
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_sops_sidecar.yml"
+  when: gitops_sops_secrets | default(false) | bool
 
 - name: Apply Argo CD Application to cluster
   kubernetes.core.k8s:
