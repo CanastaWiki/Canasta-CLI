@@ -16,8 +16,6 @@ canasta_db_wait_timeout: 10
 canasta_k3s_version: "v1.34.8+k3s1"
 canasta_helm_version: "v3.20.1"
 
-# helm-sops CMP sidecar for the Argo CD repo-server (gitops_sops_secrets). The
-# injected sops version is sops_version (vars/tool_versions.yml, play-global);
-# the sidecar image should track the argo-cd chart's appVersion. Bumped per
-# release, validated on kind.
-argocd_sops_sidecar_image: "quay.io/argoproj/argocd:v3.3.9"
+# The helm-sops CMP sidecar (gitops_sops_secrets) is configured from
+# play-global vars/tool_versions.yml (sops_version + argocd_sops_sidecar_image),
+# so the gitops role's cross-role include of the sidecar task can resolve them.

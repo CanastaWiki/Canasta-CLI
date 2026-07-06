@@ -83,9 +83,14 @@
         - (key ~ '.age') is exists
       no_log: true
 
+    # argv form (not a shell string) so a config-dir path containing spaces
+    # — e.g. macOS "~/Library/Application Support/canasta" — is one argument.
     - name: Generate the canonical operator age key (once per cluster; reused if present)
-      ansible.builtin.command: "age-keygen -o {{ _sops_age_key }}"
-      args:
+      ansible.builtin.command:
+        argv:
+          - age-keygen
+          - -o
+          - "{{ _sops_age_key }}"
         creates: "{{ _sops_age_key }}"
       no_log: true
 
@@ -100,7 +105,11 @@
       no_log: true
 
     - name: Read the age public recipient
-      ansible.builtin.command: "age-keygen -y {{ _sops_age_key }}"
+      ansible.builtin.command:
+        argv:
+          - age-keygen
+          - -y
+          - "{{ _sops_age_key }}"
       register: _sops_age_pub
       changed_when: false
       no_log: true

@@ -74,6 +74,17 @@ def test_init_sops_structure():
     assert "sops-age" in c
 
 
+def test_init_sops_age_commands_use_argv_for_space_safe_paths():
+    # The config dir can contain spaces (macOS "~/Library/Application
+    # Support/canasta"), so age-keygen must run via argv, never a shell string.
+    for t in _flatten(yaml.safe_load(_read(INITSOPS))):
+        cmd = t.get("ansible.builtin.command")
+        if isinstance(cmd, str) and "age-keygen" in cmd and "--version" not in cmd:
+            raise AssertionError("age-keygen path command must use argv: %r" % cmd)
+    txt = _read(INITSOPS)
+    assert "argv:" in txt and "- age-keygen" in txt
+
+
 def test_init_sops_key_is_cluster_global_on_controller():
     c = _read(INITSOPS)
     # Canonical key lives on the controller, keyed by host = one per cluster.
@@ -139,19 +150,23 @@ def test_sidecar_values_template():
     assert rs["initContainers"][0]["name"] == "install-sops"
 
 
-def test_sidecar_defaults_present():
-    # Sidecar image is role-scoped; the sops version is shared play-global
-    # (one definition, used by both the install and orchestrator roles).
-    assert yaml.safe_load(_read(ODEFAULTS))["argocd_sops_sidecar_image"]
+def test_sidecar_config_is_play_global():
+    # sops version, age version, and the sidecar image are all play-global
+    # (one definition), so the gitops role's cross-role include of the sidecar
+    # task resolves them — role defaults would be out of scope there.
     versions = yaml.safe_load(_read(TOOLVERSIONS))
     assert versions["sops_version"]
     assert versions["age_version"]
+    assert versions["argocd_sops_sidecar_image"]
 
 
-def test_write_sops_secrets_captures_only_opaque():
+def test_write_sops_secrets_captures_only_opaque_unowned():
     c = _read(WRITESECRETS)
     # Only type=Opaque Secrets are versioned (excludes helm-release/TLS/SA-token).
     assert "equalto', 'Opaque'" in c or "equalto\", \"Opaque" in c
+    # And only unowned ones — drops cert-manager's ACME key Secrets (owned by
+    # a Certificate) and any other controller-managed Opaque Secret.
+    assert "rejectattr('metadata.ownerReferences', 'defined')" in c
     assert "k8s_info" in c
     # Prunes manifests for Secrets no longer present.
     assert "Prune encrypted manifests" in c

@@ -5,3 +5,9 @@
 # pre_tasks. Reviewed and bumped per release; validated on kind.
 sops_version: "v3.13.2"
 age_version: "v1.3.1"
+
+# Argo CD repo-server sidecar image for the helm-sops CMP. Should track the
+# argo-cd chart's appVersion. Play-global (not an orchestrator default) because
+# gitops init includes the sidecar task cross-role, where role defaults are
+# out of scope.
+argocd_sops_sidecar_image: "quay.io/argoproj/argocd:v3.3.9"
