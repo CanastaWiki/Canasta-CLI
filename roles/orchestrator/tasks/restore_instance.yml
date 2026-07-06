@@ -113,6 +113,7 @@
     # (Dockerfile, build context dirs) staged by backup_discover_build_paths.yml - is
     # copied back generically, so the restore round-trips whatever was captured.
     - name: Copy files from volume to host
+      when: wiki is not defined
       ansible.builtin.shell:
         cmd: |
           docker run --rm \
@@ -138,7 +139,56 @@
             done'
       changed_when: true
 
+    # Single-wiki restore (-w) brings back only the target wiki's per-wiki
+    # files (settings, images, public assets) and its DB dump. Shared state —
+    # global config, extensions, skins, .env, and other wikis' data — is left
+    # untouched. The wiki id reaches the container via -e (env), never spliced
+    # into the single-quoted sh -c payload.
+    - name: Confirm the target wiki is present in the snapshot
+      when: wiki is defined
+      ansible.builtin.shell:
+        cmd: >-
+          docker run --rm
+          -e W={{ wiki | quote }}
+          -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
+          alpine sh -c 'test -f "/currentsnapshot/config/backup/db_$W.sql"'
+      register: _restore_wiki_in_snapshot
+      changed_when: false
+      failed_when: false
+
+    - name: Fail when the target wiki is absent from the snapshot
+      when:
+        - wiki is defined
+        - _restore_wiki_in_snapshot.rc != 0
+      ansible.builtin.fail:
+        msg: >-
+          Snapshot {{ _resolved_snapshot }} contains no backup for wiki
+          '{{ wiki }}' (no db_{{ wiki }}.sql). Nothing to restore.
+
+    - name: Copy single wiki's files from volume to host
+      when: wiki is defined
+      ansible.builtin.shell:
+        cmd: |
+          docker run --rm \
+            -e W={{ wiki | quote }} \
+            -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
+            -v "{{ instance_path }}:/install" \
+            alpine sh -c '
+            for rel in "config/settings/wikis/$W" "images/$W" "public_assets/$W"; do
+              if [ -d "/currentsnapshot/$rel" ]; then
+                mkdir -p "/install/$rel";
+                rm -rf "/install/$rel"/* "/install/$rel"/.[!.]* 2>/dev/null;
+                cp -a "/currentsnapshot/$rel/." "/install/$rel/";
+              fi;
+            done;
+            mkdir -p /install/config/backup;
+            cp -a "/currentsnapshot/config/backup/db_$W.sql" /install/config/backup/db_$W.sql'
+      changed_when: true
+
+    # Full restore round-trips the source host's .env; single-wiki leaves the
+    # running instance's .env (and its DB password) untouched.
     - name: Preserve DB password in restored .env
+      when: wiki is not defined
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: set
@@ -147,12 +197,14 @@
       no_log: true
 
     - name: Read wiki IDs for DB restore
+      when: wiki is not defined
       canasta_wikis_yaml:
         instance_path: "{{ instance_path }}"
         state: read
       register: _restore_wikis
 
     - name: Import each wiki database dump
+      when: wiki is not defined
       ansible.builtin.include_tasks: exec.yml
       vars:
         exec_service: web
@@ -163,6 +215,17 @@
           < /mediawiki/config/backup/db_{{ item | quote }}.sql
       loop: "{{ _restore_wikis.wiki_ids }}"
       no_log: true
+
+    - name: Import the single restored wiki's database dump
+      when: wiki is defined
+      ansible.builtin.include_tasks: exec.yml
+      vars:
+        exec_service: web
+        exec_no_log: true
+        exec_command: >-
+          mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
+          -p{{ _restore_dbpass.value | quote }}
+          < /mediawiki/config/backup/db_{{ wiki | quote }}.sql
 
     - name: Clean up backup dump directory
       ansible.builtin.include_tasks: exec.yml
@@ -181,17 +244,23 @@
         path: "{{ instance_path }}/.gitops-host"
       register: _restore_gitops_stat
 
+    # Single-wiki restore does not touch shared rendered files (.env,
+    # wikis.yaml, Caddyfile), so there is nothing to re-render.
     - name: Re-render gitops templates against this host's vars
       ansible.builtin.include_role:
         name: gitops
         tasks_from: render_compose.yml
-      when: _restore_gitops_stat.stat.exists | default(false)
+      when:
+        - wiki is not defined
+        - _restore_gitops_stat.stat.exists | default(false)
 
     - name: Regenerate orchestrator config (e.g. Caddyfile)
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: update_config.yml
-      when: _restore_gitops_stat.stat.exists | default(false)
+      when:
+        - wiki is not defined
+        - _restore_gitops_stat.stat.exists | default(false)
 
 # --- Kubernetes restore path ---
 - name: Restore (Kubernetes)
@@ -204,7 +273,10 @@
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/backup/tasks/restore_k8s.yml
 
+    # Full restore round-trips the source host's .env; single-wiki leaves the
+    # running instance's .env (and its DB password) untouched.
     - name: Preserve DB password in restored .env
+      when: wiki is not defined
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: set
