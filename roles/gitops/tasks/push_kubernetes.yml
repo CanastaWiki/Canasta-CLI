@@ -14,6 +14,23 @@
 - name: Sync config files
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
+# --- Version gitops-managed Secrets into git as SOPS-encrypted manifests
+# (gated). Git becomes the source of truth for the Secrets Argo renders. ---
+- name: Version gitops-managed Secrets with SOPS
+  when: gitops_sops_secrets | default(false) | bool
+  block:
+    - name: Resolve gitops host name
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/.gitops-host"
+      register: _push_host_file
+
+    - name: Set gitops host name
+      ansible.builtin.set_fact:
+        host_name: "{{ _push_host_file.content | b64decode | trim }}"
+
+    - name: Encrypt Secrets into git
+      ansible.builtin.include_tasks: _write_sops_secrets.yml
+
 - name: Render sidecars to Helm values
   canasta_render_sidecars:
     instance_path: "{{ instance_path }}"

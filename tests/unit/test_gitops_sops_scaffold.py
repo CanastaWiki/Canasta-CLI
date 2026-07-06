@@ -16,6 +16,12 @@ PLUGIN = os.path.join(REPO_ROOT, "roles", "orchestrator", "files",
                       "helm_sops_plugin.yaml")
 SIDECAR = os.path.join(REPO_ROOT, "roles", "orchestrator", "templates",
                        "argocd_sops_repo_server_values.yaml.j2")
+WRITESECRETS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                            "_write_sops_secrets.yml")
+WRITEONE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                        "_write_one_sops_secret.yml")
+PUSHK8S = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                       "push_kubernetes.yml")
 
 
 def _read(p):
@@ -133,6 +139,36 @@ def test_sidecar_defaults_present():
     d = yaml.safe_load(_read(ODEFAULTS))
     assert d["sops_version"]
     assert d["argocd_sops_sidecar_image"]
+
+
+def test_write_sops_secrets_captures_only_opaque():
+    c = _read(WRITESECRETS)
+    # Only type=Opaque Secrets are versioned (excludes helm-release/TLS/SA-token).
+    assert "equalto', 'Opaque'" in c or "equalto\", \"Opaque" in c
+    assert "k8s_info" in c
+    # Prunes manifests for Secrets no longer present.
+    assert "Prune encrypted manifests" in c
+
+
+def test_write_one_sops_secret_hashes_and_encrypts():
+    c = _read(WRITEONE)
+    # Cleartext hash annotation (metadata stays readable under SOPS) drives
+    # skip-if-unchanged so encrypted blobs don't churn.
+    assert "canasta.io/gitops-secret-hash" in c
+    assert "hash('sha256')" in c
+    assert "sops -e -i" in c
+    # The cleartext-manifest write must never be logged.
+    wrote_clear = [t for t in _flatten(yaml.safe_load(c))
+                   if "cleartext secret manifest" in (t.get("name") or "").lower()]
+    assert wrote_clear and wrote_clear[0].get("no_log") is True
+
+
+def test_push_gates_secret_capture_on_sops():
+    c = _read(PUSHK8S)
+    assert "_write_sops_secrets.yml" in c
+    assert "gitops_sops_secrets" in c
+    # host_name is resolved from .gitops-host before capture.
+    assert ".gitops-host" in c
 
 
 def test_bootstrap_gates_sidecar_provisioning():
