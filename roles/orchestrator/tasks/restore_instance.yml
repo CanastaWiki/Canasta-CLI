@@ -92,11 +92,14 @@
             backup_volumes: "{{ _safety_volumes }}"
 
         - name: Clean up safety DB dump directory
-          ansible.builtin.include_tasks: exec.yml
+          ansible.builtin.include_tasks:
+            file: exec.yml
+            # Apply to the included tasks — best-effort cleanup.
+            apply:
+              ignore_errors: true
           vars:
             exec_service: web
             exec_command: "rm -rf /mediawiki/config/backup"
-          ignore_errors: true
 
     # The safety backup above stages the CURRENT instance into this same volume,
     # and `restic restore` does not prune its target — so any file present now
@@ -125,6 +128,15 @@
     # - .env, docker-compose.override.yml, my.cnf, and any custom build inputs
     # (Dockerfile, build context dirs) staged by backup_discover_build_paths.yml - is
     # copied back generically, so the restore round-trips whatever was captured.
+    #
+    # cp -a preserves the snapshot's NUMERIC uids. On a cross-host restore those
+    # ids need not map to a real user here, so restored top-level files (notably
+    # .env, mode 0600) come back owned by an unmapped uid and become unreadable
+    # by the CLI user — which aborts the very next step (preserving the DB
+    # password) and leaves the instance broken. Normalize the restored top-level
+    # files to the instance dir's owner (the CLI user), mirroring 'gitops join';
+    # the web entrypoint re-establishes www-data on the content dirs at the
+    # post-restore restart.
     - name: Copy files from volume to host
       when: wiki is not defined
       ansible.builtin.shell:
@@ -149,6 +161,10 @@
               [ "$skip" = "1" ] && continue;
               [ -d "$e" ] && rm -rf "/install/$name";
               cp -a "$e" "/install/$name";
+            done;
+            own=$(stat -c "%u:%g" /install);
+            for f in /install/* /install/.[!.]*; do
+              [ -f "$f" ] && chown "$own" "$f";
             done'
       changed_when: true
 
@@ -241,11 +257,14 @@
           < /mediawiki/config/backup/db_{{ wiki | quote }}.sql
 
     - name: Clean up backup dump directory
-      ansible.builtin.include_tasks: exec.yml
+      ansible.builtin.include_tasks:
+        file: exec.yml
+        # Apply to the included tasks — OK if backup dir doesn't exist.
+        apply:
+          ignore_errors: true
       vars:
         exec_service: web
         exec_command: "rm -rf /mediawiki/config/backup"
-      ignore_errors: true  # OK if backup dir doesn't exist
 
     # When the instance is under gitops, the snapshot just restored contains
     # the SOURCE host's rendered files (.env, wikis.yaml, Caddyfile). On this
