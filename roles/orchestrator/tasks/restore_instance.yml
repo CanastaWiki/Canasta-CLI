@@ -92,11 +92,14 @@
             backup_volumes: "{{ _safety_volumes }}"
 
         - name: Clean up safety DB dump directory
-          ansible.builtin.include_tasks: exec.yml
+          ansible.builtin.include_tasks:
+            file: exec.yml
+            # Apply to the included tasks — best-effort cleanup.
+            apply:
+              ignore_errors: true
           vars:
             exec_service: web
             exec_command: "rm -rf /mediawiki/config/backup"
-          ignore_errors: true
 
     - name: Restore snapshot into backup volume
       ansible.builtin.include_tasks: run_backup.yml
@@ -241,11 +244,14 @@
           < /mediawiki/config/backup/db_{{ wiki | quote }}.sql
 
     - name: Clean up backup dump directory
-      ansible.builtin.include_tasks: exec.yml
+      ansible.builtin.include_tasks:
+        file: exec.yml
+        # Apply to the included tasks — OK if backup dir doesn't exist.
+        apply:
+          ignore_errors: true
       vars:
         exec_service: web
         exec_command: "rm -rf /mediawiki/config/backup"
-      ignore_errors: true  # OK if backup dir doesn't exist
 
     # When the instance is under gitops, the snapshot just restored contains
     # the SOURCE host's rendered files (.env, wikis.yaml, Caddyfile). On this

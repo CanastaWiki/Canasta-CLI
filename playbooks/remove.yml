@@ -20,19 +20,26 @@
 
 # Clean up wiki images inside container (owned by www-data on Linux)
 - name: Remove wiki images inside container
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks:
+    file: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+    # ignore_errors must be applied to the included tasks, not the include
+    # itself (where it is inert) — OK if the images dir doesn't exist.
+    apply:
+      ignore_errors: true
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/images/{{ wiki | quote }}"
-  ignore_errors: true  # OK if images dir doesn't exist
 
 # Clean up public assets (sitemaps etc.)
 - name: Remove wiki public assets
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks:
+    file: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+    # Apply to the included tasks — OK if the assets dir doesn't exist.
+    apply:
+      ignore_errors: true
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/public_assets/{{ wiki | quote }}"
-  ignore_errors: true  # OK if assets dir doesn't exist
 
 - name: Remove wiki from wikis.yaml
   canasta_wikis_yaml:
@@ -41,13 +48,16 @@
     wiki_id: "{{ wiki }}"
 
 - name: Drop wiki database
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks:
+    file: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+    # Apply to the included tasks — OK if the database doesn't exist.
+    apply:
+      ignore_errors: true
   vars:
     exec_service: db
     exec_command: >-
       mariadb -u root -p{{ _remove_dbpass.value | default('mediawiki') | quote }}
       -e 'DROP DATABASE IF EXISTS {{ wiki | quote }}'
-  ignore_errors: true  # OK if database doesn't exist
 
 - name: Remove per-wiki settings directory
   ansible.builtin.file:
