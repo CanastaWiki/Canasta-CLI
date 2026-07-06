@@ -29,7 +29,36 @@
             exec_service: web
             exec_command: "mkdir -p /mediawiki/config/backup"
 
-        - name: Dump each wiki database for safety backup
+        # A wiki listed in wikis.yaml may have no database (dropped or corrupted
+        # — the very disaster a restore recovers from). Dumping a missing DB
+        # fails mariadb-dump and would abort the whole restore, so dump only the
+        # wikis whose database is present and warn about the rest.
+        - name: List existing databases for the safety backup
+          ansible.builtin.include_tasks: exec.yml
+          vars:
+            exec_service: web
+            exec_no_log: true
+            exec_command: >-
+              mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
+              -p{{ _restore_dbpass.value | quote }} -N -e "SHOW DATABASES"
+
+        - name: Partition wikis into present and missing databases
+          ansible.builtin.set_fact:
+            _safety_present_wikis: >-
+              {{ _safety_wikis.wiki_ids
+                 | intersect(exec_result.stdout_lines | default([])) }}
+            _safety_missing_wikis: >-
+              {{ _safety_wikis.wiki_ids
+                 | difference(exec_result.stdout_lines | default([])) }}
+
+        - name: Warn about wikis skipped from the safety backup
+          ansible.builtin.debug:
+            msg: >-
+              Skipping the pre-restore safety backup for wiki(s)
+              {{ _safety_missing_wikis | join(', ') }}: no database present.
+          when: _safety_missing_wikis | length > 0
+
+        - name: Dump each present wiki database for safety backup
           ansible.builtin.include_tasks: exec.yml
           vars:
             exec_service: web
@@ -40,7 +69,7 @@
               --single-transaction
               --databases {{ item | quote }}
               > /mediawiki/config/backup/db_{{ item | quote }}.sql
-          loop: "{{ _safety_wikis.wiki_ids }}"
+          loop: "{{ _safety_present_wikis }}"
           no_log: true
 
         - name: Build safety backup volume map
