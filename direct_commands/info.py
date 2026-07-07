@@ -380,6 +380,16 @@ def cmd_status(args):
     if orchestrator in ("kubernetes", "k8s"):
         running = _helpers._check_running_k8s(inst_id, host)
         print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
+        if not running:
+            # A restart runs stop (scale to zero) then start; if it is
+            # interrupted in between, the instance is stranded at zero
+            # replicas and reads as STOPPED. That end-state is identical
+            # to a deliberate stop, so point either way at the recovery.
+            print(
+                "              (workloads are scaled to zero; run "
+                "`canasta start --id %s` to bring it up. An interrupted "
+                "restart can leave an instance in this state.)" % inst_id
+            )
         ns = "canasta-%s" % inst_id
         sections = [
             ("Pods", "pods -o wide"),

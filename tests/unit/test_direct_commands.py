@@ -3111,6 +3111,49 @@ class TestCanastaStatus:
         ]:
             assert piece in joined
 
+    def test_k8s_stopped_hints_at_start(self, monkeypatch, capsys):
+        monkeypatch.setattr(direct_commands._helpers, "_read_registry",
+            lambda p: {
+                "mysite": {
+                    "id": "mysite", "orchestrator": "kubernetes",
+                    "host": "node1", "path": "/home/admin/canasta-instances/mysite",
+                },
+            },
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_check_running_k8s",
+            lambda inst, host: False,
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
+            lambda host, cmd: (0, "stub-output"),
+        )
+        rc = direct_commands.cmd_status(self._args(id="mysite"))
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "STOPPED" in out
+        assert "canasta start --id mysite" in out
+        assert "interrupted restart" in out
+
+    def test_k8s_running_omits_start_hint(self, monkeypatch, capsys):
+        monkeypatch.setattr(direct_commands._helpers, "_read_registry",
+            lambda p: {
+                "mysite": {
+                    "id": "mysite", "orchestrator": "kubernetes",
+                    "host": "node1", "path": "/home/admin/canasta-instances/mysite",
+                },
+            },
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_check_running_k8s",
+            lambda inst, host: True,
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
+            lambda host, cmd: (0, "stub-output"),
+        )
+        rc = direct_commands.cmd_status(self._args(id="mysite"))
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "RUNNING" in out
+        assert "canasta start" not in out
+
     def test_compose_uses_docker_compose_ps_locally(self, monkeypatch, capsys, tmp_path):
         path = str(tmp_path)
         monkeypatch.setattr(direct_commands._helpers, "_read_registry",
