@@ -39,6 +39,10 @@
     # Launched detached and polled (resilient_exec) so a controller-side SSH
     # reset during the up-to-10m `--wait` doesn't abort an install still
     # progressing on the target. helm upgrade --install is idempotent.
+    #
+    # The helm-sops CMP sidecar for encrypted secrets is NOT added here — it is
+    # overlaid onto this release at `gitops init --encrypt-secrets`
+    # (k8s_ensure_sops_sidecar.yml) so create stays orchestration-agnostic.
     - name: Install Argo CD via Helm
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
       vars:

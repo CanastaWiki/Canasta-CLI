@@ -24,7 +24,7 @@
       ansible.builtin.slurp:
         src: "{{ _rgv_vars_file }}"
       register: _rgv_vars_raw
-      no_log: "{{ _config_key is search(canasta_secret_key_pattern) }}"
+      no_log: "{{ _config_key is match(canasta_secret_key_regex) }}"
 
     - name: Drop placeholder from vars
       ansible.builtin.set_fact:
@@ -32,7 +32,7 @@
           {{ (_rgv_vars_raw.content | b64decode | from_yaml | default({}, true))
              | dict2items | rejectattr('key', 'equalto', _rgv_placeholder)
              | items2dict }}
-      no_log: "{{ _config_key is search(canasta_secret_key_pattern) }}"
+      no_log: "{{ _config_key is match(canasta_secret_key_regex) }}"
 
     - name: Write updated vars.yaml
       ansible.builtin.copy:

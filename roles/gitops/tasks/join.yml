@@ -240,19 +240,13 @@
   changed_when: true
 
 # --- Step 6: Extract vars from current .env ---
-- name: Define placeholder keys
+# Classify via the canonical secret classifier so join and init agree — a
+# host that joins must placeholder exactly the keys init would (secrets +
+# host-specific), or it silently diverges from the rest of the farm.
+- name: Classify keys via the canonical secret classifier
   ansible.builtin.set_fact:
-    _join_placeholder_keys:
-      - MYSQL_PASSWORD
-      - WIKI_DB_PASSWORD
-      - MW_SECRET_KEY
-      - RESTIC_REPOSITORY
-      - RESTIC_PASSWORD
-      - MW_SITE_SERVER
-      - MW_SITE_FQDN
-      - HTTPS_PORT
-      - HTTP_PORT
-    _join_secret_prefixes: "^(AWS_|AZURE_|B2_|GOOGLE_|OS_|ST_|RCLONE_)"
+    _join_host_specific_keys: "{{ canasta_host_specific_nonsecret }}"
+    _join_secret_regex: "{{ canasta_secret_key_regex }}"
 
 - name: Read current .env
   canasta_env:
@@ -272,12 +266,12 @@
       {{
         dict(
           _join_env.variables | dict2items
-          | selectattr('key', 'in', _join_placeholder_keys)
+          | selectattr('key', 'in', _join_host_specific_keys)
           | map(attribute='key')
           | map('lower')
           | zip(
               _join_env.variables | dict2items
-              | selectattr('key', 'in', _join_placeholder_keys)
+              | selectattr('key', 'in', _join_host_specific_keys)
               | map(attribute='value')
               | list)
           | list
@@ -285,12 +279,12 @@
         | combine(
             dict(
               _join_env.variables | dict2items
-              | selectattr('key', 'match', _join_secret_prefixes)
+              | selectattr('key', 'match', _join_secret_regex)
               | map(attribute='key')
               | map('lower')
               | zip(
                   _join_env.variables | dict2items
-                  | selectattr('key', 'match', _join_secret_prefixes)
+                  | selectattr('key', 'match', _join_secret_regex)
                   | map(attribute='value')
                   | list)
               | list

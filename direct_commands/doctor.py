@@ -31,7 +31,9 @@ df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown; echo "$D"
 cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
 command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo OK || echo BROKEN; } || echo MISSING; echo "$D"
-cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi
+cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi; echo "$D"
+command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
+command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING
 """
 
 
@@ -66,6 +68,11 @@ def _parse_doctor(stdout, hostname):
     # Writability of the native install dir's .git — the precondition for
     # `canasta upgrade`'s self-update (git fetch). NA on docker installs.
     selfupdate = p(19) if len(parts) > 19 else "NA"
+    # SOPS toolchain for encrypted K8s gitops secrets (appended, so it didn't
+    # shift the positional indices above): sops on the gitops host, age on the
+    # controller.
+    sops = p(20) if len(parts) > 20 else "MISSING"
+    age = p(21) if len(parts) > 21 else "MISSING"
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -132,6 +139,17 @@ def _parse_doctor(stdout, hostname):
         "OK (%s)" % git if "git version" in git else "not installed"))
     lines.append("  git-crypt:       %s" % (
         "OK" if gitcrypt == "OK" else "not installed"))
+    # SOPS toolchain: sops encrypts Secret manifests on the gitops host; age
+    # manages the operator key on the controller. Needed only for K8s gitops
+    # with gitops_sops_secrets enabled. Install both with 'canasta install sops'.
+    lines.append("  sops:            %s" % (
+        "OK" if sops == "OK"
+        else "not installed (needed on the gitops host for encrypted K8s "
+             "secrets; 'canasta install sops')"))
+    lines.append("  age:             %s" % (
+        "OK" if age == "OK"
+        else "not installed (operator key tool for encrypted K8s secrets; "
+             "'canasta install sops')"))
 
     lines.append("")
     # Backup scheduling writes a host crontab entry on the host where the

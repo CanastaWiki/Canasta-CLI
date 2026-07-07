@@ -1,2 +1,8 @@
 ---
 # Defaults for the gitops role.
+
+# Encrypt K8s instance secrets into the gitops repo with SOPS+age and let the
+# Argo repo-server CMP decrypt them at render (git becomes the source of truth
+# for those Secrets). Off until the repo-server CMP sidecar is bootstrapped on
+# the cluster; when off, K8s secrets are created imperatively by Ansible.
+gitops_sops_secrets: false

@@ -690,8 +690,8 @@ commands:
       Verify that the target host has the tools required for its
       orchestrator: Docker + Docker Compose for Compose installs,
       or kubectl + Helm for Kubernetes installs. Also reports
-      status of optional tools (git, git-crypt, crontab) and system
-      resources (memory, disk space).
+      status of optional tools (git, git-crypt, sops, age, crontab) and
+      system resources (memory, disk space).
     examples:
       - "canasta doctor"
       - "canasta doctor --host prod1.example.com"
@@ -721,7 +721,7 @@ commands:
     description: "Install dependencies on the target host"
     long_description: |
       Install one or more dependencies on the target host. Supported
-      packages: docker, k8s-cp, k8s-worker, git-crypt, canasta.
+      packages: docker, k8s-cp, k8s-worker, git-crypt, sops, canasta.
 
       `k8s-cp` installs k3s as a control-plane node — the cluster's
       API server, scheduler, etc., plus kubectl + helm on the same
@@ -743,6 +743,16 @@ commands:
       kubectl can verify the cert when reaching the cluster over that
       address. Repeat to add more than one (e.g. an IP and a hostname).
 
+      `sops` installs the SOPS toolchain (sops + age), required for
+      encrypted secrets in Kubernetes gitops (`gitops init
+      --encrypt-secrets`). Two hosts need it: the controller (where the
+      CLI runs) uses age-keygen to manage the operator key, and the
+      gitops target host uses sops to encrypt Secret manifests. Run it
+      once per role: `canasta install sops` (no --host) for the
+      controller and `canasta install -H <host> sops` for the target
+      (they may be the same machine). Idempotent — skips a binary
+      already present.
+
       `canasta` installs the Canasta CLI (canasta-native) on the target
       host, so an instance deployed remotely from a controller can also
       be operated directly on its own host. This is required before
@@ -762,6 +772,7 @@ commands:
       - "canasta install --host node2 k8s-worker --cp-host node1"
       - "canasta install docker git-crypt"
       - "canasta install -i mysite git-crypt"
+      - "canasta install -i mysite sops"
       - "canasta install -i mysite canasta"
     playbook: install.yml
     parameters:
@@ -2196,6 +2207,17 @@ commands:
         type: bool
         default: false
         description: "Require pull requests instead of pushing to main"
+      - name: encrypt_secrets
+        type: bool
+        default: false
+        description: >-
+          Kubernetes only. Encrypt the instance's Secrets in git with
+          SOPS+age instead of leaving them out of version control. The
+          operator age key is generated on the controller (portable via
+          --key for DR); Argo CD's repo-server gains a helm-sops sidecar
+          that decrypts at render time. Requires sops on the target and
+          age on the controller ('canasta install sops'). No effect on
+          Compose, which already encrypts vars with git-crypt.
       - name: git_user_name
         type: string
         description: "Git user.name for commits on the target host (set if not already configured)"

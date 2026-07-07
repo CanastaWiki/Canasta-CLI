@@ -16,9 +16,17 @@
 #
 # Input: host_name, role, repo, key, force, pull_requests
 #   key is the SSH deploy key path basename (private at <key>.ssh,
-#   public at <key>.ssh.pub). Despite the name, it has no git-crypt
-#   meaning on K8s.
+#   public at <key>.ssh.pub). It carries no git-crypt meaning on K8s;
+#   with SOPS enabled it doubles as the operator age key's portable DR
+#   path (<key>.age) — see _init_sops.yml.
 # Requires: instance_path, instance_id (set by dispatcher)
+
+# The --encrypt-secrets flag is the on-switch for SOPS secret encryption.
+# It drives gitops_sops_secrets, which gates the Argo app's plugin source,
+# the operator-key work, and the repo-server sidecar below.
+- name: Enable SOPS secret encryption when --encrypt-secrets is set
+  ansible.builtin.set_fact:
+    gitops_sops_secrets: "{{ encrypt_secrets | default(false) | bool }}"
 
 # --- Validate prerequisites ---
 - name: Check git is installed
@@ -448,9 +456,20 @@
           repoURL: {{ repo }}
           targetRevision: HEAD
           path: .
+      {% if gitops_sops_secrets | default(false) | bool %}
+          plugin:
+            name: helm-sops
+            env:
+              - name: HELM_ARGS
+                value: "-f hosts/{{ host_name }}/rendered-values.yaml"
+              # Scope decryption to THIS host's secrets, not every host's.
+              - name: SECRETS_DIR
+                value: "hosts/{{ host_name }}/secrets"
+      {% else %}
           helm:
             valueFiles:
               - hosts/{{ host_name }}/rendered-values.yaml
+      {% endif %}
         destination:
           server: https://kubernetes.default.svc
           namespace: canasta-{{ instance_id }}
@@ -462,6 +481,19 @@
             - CreateNamespace=true
     dest: "{{ instance_path }}/argocd/application.yaml"
     mode: "0644"
+
+# --- SOPS+age secret encryption (gated on --encrypt-secrets) ---
+# Provision the operator age key + .sops.yaml + sops-age Secret, then add the
+# helm-sops CMP sidecar to the (already-installed) Argo CD repo-server so it can
+# decrypt at render time. The Argo Application above already points at the
+# plugin source when enabled; the initial commit below carries .sops.yaml.
+- name: Provision the operator age key and .sops.yaml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_init_sops.yml"
+  when: gitops_sops_secrets | default(false) | bool
+
+- name: Ensure the Argo CD repo-server has the helm-sops sidecar
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_sops_sidecar.yml"
+  when: gitops_sops_secrets | default(false) | bool
 
 # --- Save host identity ---
 - name: Save .gitops-host

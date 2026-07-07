@@ -1,0 +1,138 @@
+---
+# Provision SOPS decryption for a cluster JOINING a SOPS-encrypted gitops repo
+# (included by join_kubernetes.yml when the clone carries a .sops.yaml).
+#
+# The repo's .sops.yaml already holds the operator recipient (public), so
+# `gitops push` can encrypt this host's Secrets without any local key. What
+# this cluster's Argo repo-server sidecar needs is the operator PRIVATE key to
+# DECRYPT at render time — supplied via --key (<key>.age, the copy that
+# `gitops init --encrypt-secrets` exported). We verify it matches the repo's
+# recipient (a wrong key would leave Secrets undecryptable), then provision the
+# sops-age Secret; the caller adds the sidecar.
+#
+# Requires: instance_path, key, argocd_namespace; age-keygen on the controller.
+
+- name: Read the repo's SOPS recipient
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.sops.yaml"
+  register: _join_sops_yaml
+
+- name: Extract the repo recipient
+  ansible.builtin.set_fact:
+    _join_repo_recipient: >-
+      {{ (_join_sops_yaml.content | b64decode | from_yaml).creation_rules[0].age }}
+
+# Controller-side key work uses the save/switch/restore dance (delegate_to does
+# not reliably override the play's host-level connection switch — same reason
+# the SSH deploy-key block uses it).
+- name: Save connection state before controller-side SOPS key read
+  ansible.builtin.set_fact:
+    _js_saved:
+      host: "{{ ansible_host | default('localhost') }}"
+      conn: "{{ ansible_connection | default('local') }}"
+      user: "{{ ansible_user | default('') }}"
+      python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
+
+- block:
+    - name: Switch to local for SOPS key read
+      ansible.builtin.set_fact:
+        ansible_host: localhost
+        ansible_connection: local
+        ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Check age-keygen is installed on the controller
+      ansible.builtin.command: "age-keygen --version"
+      register: _js_agekeygen
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with guidance when age-keygen is missing on the controller
+      ansible.builtin.fail:
+        msg: >-
+          Joining a SOPS-encrypted repo needs age-keygen on the controller to
+          read the operator key. Install it with `canasta install sops`.
+      when: _js_agekeygen.rc != 0
+
+    - name: Check the operator age key was supplied via --key
+      ansible.builtin.stat:
+        path: "{{ key }}.age"
+      register: _js_keyfile
+
+    - name: Fail with guidance when the operator key is missing
+      ansible.builtin.fail:
+        msg: >-
+          This gitops repository uses SOPS secret encryption, so joining it
+          needs the operator age key to decrypt its Secrets. Re-run with
+          --key <path> pointing at the .age file that the repo's
+          `gitops init --encrypt-secrets` exported. Not found at {{ key }}.age.
+      when: not _js_keyfile.stat.exists
+
+    # argv form so a --key path containing spaces (macOS controller) is one arg.
+    - name: Read the supplied key's recipient
+      ansible.builtin.command:
+        argv:
+          - age-keygen
+          - -y
+          - "{{ key }}.age"
+      register: _js_key_recipient
+      changed_when: false
+      no_log: true
+  always:
+    - name: Restore connection state after SOPS key read
+      ansible.builtin.set_fact:
+        ansible_host: "{{ _js_saved.host }}"
+        ansible_connection: "{{ _js_saved.conn }}"
+        ansible_user: "{{ _js_saved.user }}"
+        ansible_python_interpreter: "{{ _js_saved.python }}"
+
+- name: Fail if the supplied key does not match the repo recipient
+  ansible.builtin.fail:
+    msg: >-
+      The operator key at {{ key }}.age does not match this repository's SOPS
+      recipient — its Secrets were encrypted for a different key, so this
+      cluster could not decrypt them. Supply the --key exported by the repo's
+      own `gitops init --encrypt-secrets`.
+  when: (_js_key_recipient.stdout | trim) != (_join_repo_recipient | trim)
+
+- name: Check for an existing sops-age Secret
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: sops-age
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  register: _js_sops_secret
+  no_log: true
+
+# Reads the controller-side key via lookup at template time, so the private key
+# is pushed straight into the cluster Secret without touching the target FS.
+- name: Provision the sops-age Secret for the repo-server CMP (only if absent)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: sops-age
+        namespace: "{{ argocd_namespace | default('argocd') }}"
+      type: Opaque
+      stringData:
+        keys.txt: "{{ lookup('file', key + '.age') }}"
+  when: _js_sops_secret.resources | length == 0
+  register: _js_sops_provision
+  no_log: true
+
+- name: Restart argocd-repo-server to load the newly provisioned age key
+  ansible.builtin.command:
+    cmd: >-
+      kubectl -n {{ argocd_namespace | default('argocd') }}
+      rollout restart deployment argocd-repo-server
+  when: _js_sops_provision is changed
+  changed_when: true
+
+- name: Wait for argocd-repo-server to be ready after the restart
+  ansible.builtin.command:
+    cmd: >-
+      kubectl -n {{ argocd_namespace | default('argocd') }}
+      rollout status deployment argocd-repo-server --timeout=120s
+  when: _js_sops_provision is changed
+  changed_when: false

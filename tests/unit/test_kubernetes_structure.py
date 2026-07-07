@@ -326,21 +326,19 @@ class TestK8sSyncConfigSecretsStripped:
             "breaks Argo CD reconciliation (#507)."
         )
 
-    def test_sync_env_no_secrets_rejects_password_and_secret_key(self):
-        """The filter must specifically drop MYSQL_PASSWORD and
-        MW_SECRET_KEY — those are the keys the chart pulls via
-        secretKeyRef and therefore the keys that would be duplicated
-        if left in the .env content."""
+    def test_sync_env_no_secrets_uses_canonical_classifier(self):
+        """The filter must drop the FULL secret surface via the canonical
+        classifier (canasta_secret_key_regex), not a hand-maintained key list —
+        otherwise a secret outside the list (RESTIC_*, AWS_*, WIKI_DB_PASSWORD,
+        SMTP_*, ...) leaks into configData.web['.env'] / the committed values."""
         for task in self._walk_tasks(self._load()):
             sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
             if not (isinstance(sf, dict) and "_sync_env_no_secrets" in sf):
                 continue
             expr = sf["_sync_env_no_secrets"]
-            assert "MYSQL_PASSWORD" in expr, (
-                "_sync_env_no_secrets filter must drop MYSQL_PASSWORD"
-            )
-            assert "MW_SECRET_KEY" in expr, (
-                "_sync_env_no_secrets filter must drop MW_SECRET_KEY"
+            assert "canasta_secret_key_regex" in expr, (
+                "_sync_env_no_secrets must reject via the canonical "
+                "canasta_secret_key_regex, not a literal key list"
             )
             return
 

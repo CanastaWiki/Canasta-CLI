@@ -19,7 +19,7 @@
     state: set
     key: "{{ _config_key }}"
     value: "{{ _config_value }}"
-  # Suppress only secret-bearing writes (e.g. CROWDSEC_BOUNCER_API_KEY).
-  # no_log on the enclosing include_role does NOT propagate to this task,
-  # so the suppression has to live here. See canasta_secret_key_pattern.
-  no_log: "{{ _config_key is search(canasta_secret_key_pattern) }}"
+  # Suppress secret-bearing writes (e.g. CROWDSEC_BOUNCER_API_KEY). no_log on
+  # the enclosing include_role does NOT propagate here, so it lives on the task.
+  # Uses the canonical classifier so every secret is covered.
+  no_log: "{{ _config_key is match(canasta_secret_key_regex) }}"

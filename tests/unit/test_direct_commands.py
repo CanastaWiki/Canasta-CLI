@@ -2907,6 +2907,20 @@ class TestDoctor:
         assert "usermod -aG canasta" in result
         assert "Self-update:     BLOCKED" in result
 
+    def test_parse_doctor_reports_sops_and_age(self):
+        d = direct_commands._SENTINEL
+        # 20 base parts (through self-update) + sops (20) + age (21).
+        base = self._doctor_parts("user docker www-data", "WRITABLE")
+        for sops, age, want in [
+            ("OK", "OK", ["sops:            OK", "age:             OK"]),
+            ("MISSING", "MISSING",
+             ["sops:            not installed", "age:             not installed"]),
+        ]:
+            stdout = ("\n" + d + "\n").join(base + [sops, age]) + "\n"
+            result = direct_commands._parse_doctor(stdout, "myhost")
+            for w in want:
+                assert w in result
+
     def test_parse_doctor_missing_deps(self):
         d = direct_commands._SENTINEL
         parts = [
