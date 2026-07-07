@@ -67,6 +67,21 @@
     msg: "No backup schedule found for instance '{{ instance_id }}'."
   when: _schedule_lines | length == 0
 
+# More than one entry means a duplicate schedule (e.g. one left by an older
+# Canasta version alongside a newly-set one) — the instance backs up more than
+# once, and the single-entry display below would silently report only the first.
+# Surface all of them so the duplicate is visible.
+- name: Warn about duplicate schedule entries
+  ansible.builtin.debug:
+    msg: >-
+      Warning: found {{ _schedule_lines | length }} backup schedule entries in
+      the crontab for instance '{{ instance_id }}' (there should be one) — the
+      instance may be backing up more than once. Schedules:
+      {{ _schedule_lines
+         | map('regex_replace', '^(\S+\s+\S+\s+\S+\s+\S+\s+\S+).*$', '\1')
+         | join('; ') }}. Re-run 'canasta backup schedule set' to consolidate.
+  when: _schedule_lines | length > 1
+
 - name: Parse and display schedule
   when: _schedule_lines | length > 0
   block:
