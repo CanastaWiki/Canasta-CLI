@@ -2120,6 +2120,17 @@ class TestParseGitopsStatus:
         assert "No changes." in result
         assert "Up to date with remote." in result
 
+    def test_unmanaged_instance_reported_not_managed(self):
+        # No .gitops-host marker (hostname MISSING -> unknown) and no git repo
+        # (commit none): must say the instance isn't GitOps-managed, not claim
+        # "No changes / Up to date with remote" (there is no remote).
+        out = self._make_output(hostname="MISSING", commit="none", applied="none")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "not under GitOps management" in result
+        assert "gitops init" in result and "gitops join" in result
+        assert "Up to date with remote." not in result
+        assert "No changes." not in result
+
     def test_with_staged_files(self):
         out = self._make_output(staged="config/.env\nconfig/wikis.yaml")
         result = direct_commands._parse_gitops_status(out, "mysite")
