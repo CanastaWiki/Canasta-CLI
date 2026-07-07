@@ -1117,6 +1117,39 @@ class TestCmdVersionInstanceModes:
         # and suppresses the list-all fallback.
         assert "'other'" not in out
 
+    def test_k8s_instance_probes_via_kubectl(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """A Kubernetes instance must probe the running version by
+        exec'ing the web pod via kubectl, not `docker compose` (which
+        finds no stack and would always report "(not running)")."""
+        site = tmp_path / "site"
+        site.mkdir()
+        (site / ".env").write_text("CANASTA_IMAGE=canasta:3.6.3\n")
+        self._setup(tmp_path, monkeypatch, {
+            "site": {"path": str(site), "host": "localhost",
+                     "orchestrator": "kubernetes"},
+        })
+        monkeypatch.chdir(site)
+        captured = {}
+
+        def fake_run(*a, **kw):
+            captured["cmd"] = a[0][2] if a and len(a[0]) > 2 else ""
+            return type("R", (), {
+                "returncode": 0, "stdout": "3.6.3-running\n",
+            })()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
+        rc = direct_commands.cmd_version(args)
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Instance 'site': canasta:3.6.3 (running: 3.6.3-running)" in out
+        # Probe must target the k8s web pod, not a Compose stack.
+        assert "kubectl" in captured["cmd"]
+        assert "canasta-site" in captured["cmd"]
+        assert "docker compose" not in captured["cmd"]
+
     def test_all_flag_rejected(self, tmp_path, monkeypatch, capsys):
         """--all was removed; argparse should reject it so anyone who
         still uses it gets a loud error instead of silently falling
