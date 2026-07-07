@@ -89,10 +89,13 @@
         - _init_existing_git.stat.exists | default(false)
       changed_when: true
 
+    # Re-raise so the play exits non-zero (a rescue otherwise "recovers" to
+    # success). The failed task already printed its own error, so reference it
+    # rather than embedding ansible_failed_result.msg — repeating it here is
+    # what printed the message twice.
     - name: Re-raise the init failure
       ansible.builtin.fail:
         msg: >-
-          gitops init failed:
-          {{ ansible_failed_result.msg | default('see the error above') }}{{
+          gitops init failed (see the error above).{{
           (reinit | default(false) | bool and _init_existing_git.stat.exists | default(false))
-          | ternary(' (the previous .git was restored, so the instance gitops link is unchanged)', '') }}
+          | ternary(' The previous .git was restored, so the instance gitops link is unchanged.', '') }}
