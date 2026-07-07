@@ -18,12 +18,23 @@
   register: _upgrade_instances
 
 - name: Report dry run
-  ansible.builtin.debug:
-    msg: >-
-      Dry run - would upgrade
-      {{ _upgrade_instances.instances | length }} instance(s):
-      {{ _upgrade_instances.instances.keys() | list | join(', ') }}
   when: dry_run | default(false) | bool
+  block:
+    - name: Report instances that would upgrade
+      ansible.builtin.debug:
+        msg: >-
+          Dry run - would upgrade
+          {{ _upgrade_instances.instances | length }} instance(s):
+          {{ _upgrade_instances.instances.keys() | list | join(', ') }}
+
+    - name: Report purge that would run
+      ansible.builtin.debug:
+        msg: >-
+          Dry run - would then purge images superseded by the upgrade on:
+          {{ _upgrade_instances.instances.values()
+             | map(attribute='host') | map('default', 'localhost')
+             | unique | list | join(', ') }}
+      when: purge | default(false) | bool
 
 - name: Upgrade each instance
   when: not (dry_run | default(false) | bool)
@@ -38,3 +49,16 @@
     - name: Report upgrade complete
       ansible.builtin.debug:
         msg: "Upgraded {{ _upgrade_instances.instances | length }} instance(s)."
+
+    # --- Purge superseded images (--purge) ---
+    # Runs once per distinct host after all its instances have upgraded, so
+    # the per-host prune / registry restart happens once, not per instance.
+    - name: Purge superseded images
+      ansible.builtin.include_tasks: _purge_host.yml
+      loop: >-
+        {{ _upgrade_instances.instances.values()
+           | map(attribute='host') | map('default', 'localhost')
+           | unique | list }}
+      loop_control:
+        loop_var: _purge_host_name
+      when: purge | default(false) | bool

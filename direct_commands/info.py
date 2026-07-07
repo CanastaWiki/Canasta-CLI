@@ -153,18 +153,34 @@ def _read_instance_image(inst_id, inst):
     env_vars = _helpers._read_env_file(path, host)
     image = env_vars.get("CANASTA_IMAGE", "(unset)")
 
-    # Running Canasta version — line 2 of /tmp/canasta-version inside
-    # the web container. Best effort; fall back silently.
+    # Running Canasta version — line 2 of /tmp/canasta-version inside the web
+    # container/pod. Best effort; falls back silently to "(not running)".
+    # The probe depends on the orchestrator: Compose execs the web service, K8s
+    # execs the Running web pod (mirroring the dispatch in `canasta exec`).
     running = "(not running)"
-    compose_cmd = (
-        "cd %s && docker compose exec -T web sh -c "
-        "\"cat /tmp/canasta-version 2>/dev/null | sed -n '2p'\" 2>/dev/null"
-        % _helpers._shell_quote(path)
-    )
+    orchestrator = (inst.get("orchestrator") or "compose").lower()
+    if orchestrator in ("kubernetes", "k8s"):
+        ns = "canasta-%s" % inst_id
+        probe_cmd = (
+            "pod=\"$(kubectl get pods -n %s "
+            "-l app.kubernetes.io/component=web "
+            "--field-selector=status.phase=Running "
+            "-o jsonpath='{.items[0].metadata.name}' 2>/dev/null)\"; "
+            "[ -n \"$pod\" ] && kubectl exec \"$pod\" -n %s -- "
+            "sh -c 'sed -n 2p /tmp/canasta-version' 2>/dev/null"
+            % (_helpers._shell_quote(ns), _helpers._shell_quote(ns))
+        )
+    else:
+        probe_cmd = (
+            "cd %s && docker compose exec -T web sh -c "
+            "\"cat /tmp/canasta-version 2>/dev/null | sed -n '2p'\" 2>/dev/null"
+            % _helpers._shell_quote(path)
+        )
+
     if _helpers._is_localhost(host):
         try:
             result = subprocess.run(
-                ["sh", "-c", compose_cmd],
+                ["sh", "-c", probe_cmd],
                 capture_output=True, text=True, timeout=10,
             )
             if result.returncode == 0 and result.stdout.strip():
@@ -172,7 +188,7 @@ def _read_instance_image(inst_id, inst):
         except (subprocess.TimeoutExpired, OSError):
             pass
     else:
-        rc, stdout = _helpers._ssh_run(host, compose_cmd)
+        rc, stdout = _helpers._ssh_run(host, probe_cmd)
         if rc == 0 and stdout.strip():
             running = stdout.strip()
 

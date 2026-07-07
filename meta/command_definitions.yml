@@ -900,11 +900,18 @@ commands:
       on its own. Pass --allow-major to move to the latest release overall,
       including a new major version (which may include breaking changes).
       Pass --dev to track the development branch (head of main) instead.
+
+      Pass --purge to reclaim disk after the upgrade: each upgraded host has
+      the Canasta images the upgrade superseded removed (only those no
+      container or pod still references), dangling sidecar-rebuild layers
+      pruned, and — on Kubernetes — the in-cluster registry garbage-collected.
+      Volumes are never touched.
     examples:
       - "canasta upgrade"
       - "canasta upgrade --allow-major"
       - "canasta upgrade --dev"
       - "canasta upgrade --dry-run"
+      - "canasta upgrade --purge"
     playbook: upgrade.yml
     parameters:
       - name: dry_run
@@ -919,6 +926,10 @@ commands:
         type: bool
         default: false
         description: "Allow upgrading across a major version boundary to the latest release overall (may include breaking changes)"
+      - name: purge
+        type: bool
+        default: false
+        description: "After upgrading, reclaim disk by removing images the upgrade superseded (never removes in-use images or volumes)"
 
   # ---------------------------------------------------------------------------
   # Wiki management
