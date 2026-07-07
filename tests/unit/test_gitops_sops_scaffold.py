@@ -7,6 +7,7 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 INITK8S = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "init_kubernetes.yml")
+JOINK8S = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "join_kubernetes.yml")
 INITSOPS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_init_sops.yml")
 GDEFAULTS = os.path.join(REPO_ROOT, "roles", "gitops", "defaults", "main.yml")
 BOOTSTRAP = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
@@ -43,6 +44,19 @@ def test_argo_app_source_is_gated_plugin_vs_helm():
     # CMP plugin branch (enabled) + native helm branch (default) both present.
     assert "plugin:" in c and "helm-sops" in c
     assert "valueFiles:" in c
+
+
+def test_argo_app_apply_forces_replace():
+    # Switching source type on reinit/re-join (helm <-> plugin) must fully
+    # replace the Application; a merge apply leaves both source blocks and
+    # Argo then refuses to reconcile (multiple application sources defined).
+    for path in (INITK8S, JOINK8S):
+        apply = [t for t in _flatten(yaml.safe_load(_read(path)))
+                 if t.get("name") == "Apply Argo CD Application to cluster"]
+        assert apply, "%s must apply the Argo CD Application" % path
+        k8s = apply[0]["kubernetes.core.k8s"]
+        assert k8s.get("force") is True, \
+            "Application apply in %s must force: true (replace, not merge)" % path
 
 
 def test_init_kubernetes_gates_sops_include():

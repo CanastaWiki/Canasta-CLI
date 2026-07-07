@@ -537,9 +537,14 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_apply_argo_repo_secret.yml"
 
 # --- Register Argo CD Application ---
+# force: replace rather than merge, so switching source type on reinit
+# (e.g. helm -> plugin when enabling --encrypt-secrets) drops the old
+# source block. A plain apply leaves both, and Argo refuses an
+# Application with two source types (ComparisonError, no reconcile).
 - name: Apply Argo CD Application to cluster
   kubernetes.core.k8s:
     state: present
+    force: true
     src: "{{ instance_path }}/argocd/application.yaml"
 
 - name: Report gitops initialized
