@@ -148,6 +148,21 @@ def _parse_gitops_status(stdout, instance_id):
     except (ValueError, IndexError):
         ahead, behind = 0, 0
 
+    # No .gitops-host marker and no git repository means the instance is simply
+    # not under GitOps management. Reporting "No changes / Up to date with
+    # remote" here would falsely imply a healthy, in-sync managed instance —
+    # there is no remote to be in sync with.
+    if hostname == "unknown" and commit == "none":
+        return "\n".join([
+            "Canasta ID:     %s" % instance_id,
+            "GitOps:         not configured for this instance.",
+            "",
+            "This instance is not under GitOps management (no .gitops-host "
+            "marker and no git repository).",
+            "Set it up with 'canasta gitops init' (new repo) or "
+            "'canasta gitops join' (existing repo).",
+        ])
+
     lines = [
         "Host:           %s" % hostname,
         "Role:           %s" % role,
