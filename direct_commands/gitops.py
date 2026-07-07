@@ -136,9 +136,20 @@ def _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift):
     if untracked:
         lines.append("Untracked files (%d):" % len(untracked))
         lines.extend("  %s" % f for f in untracked)
-        lines.append(
-            "  capture with 'canasta gitops add <file>' (or add to .gitignore)."
-        )
+        # wikis.yaml.template is captured by reconciling the live
+        # config/wikis.yaml, not a plain 'gitops add' of the template — the
+        # latter skips the reconcile and can stage a stale template, dropping
+        # an uncaptured config/wikis.yaml edit. Point at the right command.
+        if "wikis.yaml.template" in untracked:
+            lines.append(
+                "  for wikis.yaml.template, run "
+                "'canasta gitops add config/wikis.yaml'."
+            )
+        if any(f != "wikis.yaml.template" for f in untracked):
+            lines.append(
+                "  capture with 'canasta gitops add <file>' "
+                "(or add to .gitignore)."
+            )
         lines.append("")
     if wikis_drift:
         lines.append("Uncaptured config/wikis.yaml edits (e.g. wiki display name):")

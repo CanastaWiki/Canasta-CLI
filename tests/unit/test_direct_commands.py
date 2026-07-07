@@ -2218,6 +2218,22 @@ class TestParseGitopsStatus:
         # Untracked files mean there ARE changes — must not claim otherwise.
         assert "No changes." not in result
 
+    def test_untracked_wikis_template_points_at_config(self):
+        # A plain 'gitops add wikis.yaml.template' skips the reconcile; the
+        # advisory must route to 'gitops add config/wikis.yaml' instead.
+        out = self._make_output(untracked="?? wikis.yaml.template")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "canasta gitops add config/wikis.yaml" in result
+        assert "gitops add <file>" not in result
+
+    def test_untracked_mixed_shows_both_hints(self):
+        out = self._make_output(
+            untracked="?? wikis.yaml.template\n?? hosts/hosts.yaml",
+        )
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "canasta gitops add config/wikis.yaml" in result
+        assert "gitops add <file>" in result  # generic hint for hosts.yaml
+
     def test_untracked_does_not_break_clean_status(self):
         out = self._make_output(untracked="")
         result = direct_commands._parse_gitops_status(out, "mysite")
@@ -2557,7 +2573,9 @@ class TestParseGitopsStatusK8s:
         result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
         assert "Untracked files (1):" in result
         assert "wikis.yaml.template" in result
-        assert "canasta gitops add" in result
+        # Must point at the reconcile command, not a plain add of the template.
+        assert "canasta gitops add config/wikis.yaml" in result
+        assert "gitops add <file>" not in result
         # Advisory must not shadow the Argo section.
         assert "Sync status:    Synced" in result
 
