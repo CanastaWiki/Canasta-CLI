@@ -1,0 +1,61 @@
+---
+# Add the helm-sops CMP sidecar to an already-installed Argo CD repo-server so
+# it can decrypt SOPS-encrypted Secret manifests at render time. Invoked from
+# gitops init when --encrypt-secrets is set. Idempotent: applies the plugin
+# ConfigMap and helm-upgrades the existing release with --reuse-values, so it
+# only overlays repoServer without disturbing the install-time values, and
+# uniformly bootstraps both new and pre-existing clusters.
+#
+# Input: argocd_namespace (default: argocd); helm on the target.
+
+- name: Ensure the Argo CD Helm repository is present
+  kubernetes.core.helm_repository:
+    name: argo
+    repo_url: https://argoproj.github.io/argo-helm
+
+- name: Apply the helm-sops CMP plugin ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: helm-sops-plugin
+      data:
+        plugin.yaml: "{{ lookup('file', canasta_root + '/roles/orchestrator/files/helm_sops_plugin.yaml') }}"
+
+- name: Stage the SOPS repo-server sidecar Helm values
+  ansible.builtin.template:
+    src: "{{ canasta_root }}/roles/orchestrator/templates/argocd_sops_repo_server_values.yaml.j2"
+    dest: /tmp/canasta-argocd-sops-values.yaml
+    mode: "0600"
+
+# Pin the upgrade to the chart version already installed. --reuse-values
+# suppresses new-chart value defaults, so an unpinned `helm upgrade` here would
+# silently jump Argo CD to the latest chart on a months-old cluster.
+- name: Read the installed Argo CD chart version
+  ansible.builtin.command:
+    cmd: "helm -n {{ argocd_namespace | default('argocd') }} get metadata argocd -o json"
+  register: _argocd_meta
+  changed_when: false
+
+- name: Set the installed Argo CD chart version
+  ansible.builtin.set_fact:
+    _argocd_chart_version: "{{ (_argocd_meta.stdout | from_json).version }}"
+
+# --reuse-values overlays the sidecar onto whatever the install set, so we add
+# repoServer without knowing (or resetting) the original values. Launched
+# detached + polled so a controller SSH reset during --wait can't abort it;
+# helm upgrade is idempotent.
+- name: Add the helm-sops sidecar to the Argo CD repo-server
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "add helm-sops sidecar to Argo CD"
+    rx_async: 720
+    rx_cmd: >-
+      helm upgrade argocd argo/argo-cd
+      --namespace {{ argocd_namespace | default('argocd') }}
+      --version {{ _argocd_chart_version }}
+      --reuse-values --wait --timeout 10m
+      -f /tmp/canasta-argocd-sops-values.yaml

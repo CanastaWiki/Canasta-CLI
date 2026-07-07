@@ -287,31 +287,32 @@ class TestCrowdsecGitopsDurability:
     render resets it to the off state captured at init time, silently
     disabling CrowdSec on the next restart."""
 
-    def _placeholder_keys(self):
-        gitops_vars = yaml.safe_load(
-            _read(os.path.join(REPO_ROOT, "roles", "gitops", "vars", "main.yml"))
-        )
-        return gitops_vars["gitops_placeholder_keys"]
+    def _is_placeholder(self, key):
+        # A key is placeholdered in gitops when the canonical classifier calls
+        # it secret or host-specific. Uses the shared helper that renders the
+        # real classifier regex, so this can't drift from the vars file.
+        from _classifier import classifier, secret_key_regex
+        cls = classifier()
+        return (re.match(secret_key_regex(cls), key) is not None
+                or key in cls["canasta_host_specific_nonsecret"])
 
     def test_crowdsec_inputs_are_placeholder_keys(self):
-        keys = self._placeholder_keys()
         for k in (
             "CANASTA_ENABLE_CROWDSEC",
             "CROWDSEC_BOUNCER_API_KEY",
             "CADDY_TRUSTED_PROXIES",
         ):
-            assert k in keys, (
-                "%s must be a gitops placeholder key or it is dropped from "
-                ".env on the next gitops render/pull" % k
+            assert self._is_placeholder(k), (
+                "%s must classify as secret or host-specific, or it is dropped "
+                "from .env on the next gitops render/pull" % k
             )
 
     def test_derived_keys_not_persisted(self):
         # CANASTA_CADDY_IMAGE and COMPOSE_PROFILES are re-derived from the
         # feature flags by sync_compose_profiles on start; persisting them
         # would freeze a value the start sequence already reconciles.
-        keys = self._placeholder_keys()
-        assert "CANASTA_CADDY_IMAGE" not in keys
-        assert "COMPOSE_PROFILES" not in keys
+        assert not self._is_placeholder("CANASTA_CADDY_IMAGE")
+        assert not self._is_placeholder("COMPOSE_PROFILES")
 
 
 class TestCrowdsecProfileSync:
@@ -555,11 +556,11 @@ class TestCrowdsecEnrollRole:
             REPO_ROOT, "roles", "config", "tasks", "_set_single.yml",
         ))
         assert "no_log:" in set_single
-        assert "canasta_secret_key_pattern" in set_single
-        defaults = yaml.safe_load(
-            _read(os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml"))
+        assert "canasta_secret_key_regex" in set_single
+        classifier = yaml.safe_load(
+            _read(os.path.join(REPO_ROOT, "vars", "secret_classification.yml"))
         )
-        pattern = defaults["canasta_secret_key_pattern"]
+        pattern = classifier["canasta_secret_key_pattern"]
         assert re.search(pattern, "CROWDSEC_BOUNCER_API_KEY"), (
             "secret pattern must match the bouncer key"
         )

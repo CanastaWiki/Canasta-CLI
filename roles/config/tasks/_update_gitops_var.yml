@@ -27,14 +27,14 @@
       ansible.builtin.slurp:
         src: "{{ _ugv_vars_file }}"
       register: _ugv_vars_raw
-      no_log: "{{ _ugv_key is search(canasta_secret_key_pattern) }}"
+      no_log: "{{ _ugv_key is match(canasta_secret_key_regex) }}"
 
     - name: Update var value
       ansible.builtin.set_fact:
         _ugv_updated_vars: >-
           {{ (_ugv_vars_raw.content | b64decode | from_yaml)
              | combine({_ugv_placeholder: _ugv_value}) }}
-      no_log: "{{ _ugv_key is search(canasta_secret_key_pattern) }}"
+      no_log: "{{ _ugv_key is match(canasta_secret_key_regex) }}"
 
     - name: Write updated vars.yaml
       ansible.builtin.copy:

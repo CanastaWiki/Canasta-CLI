@@ -1,0 +1,80 @@
+---
+# Argo CD repo-server values adding the helm-sops CMP sidecar (gitops_sops_secrets).
+# Merged as an extra `-f` on the argo/argo-cd install, so it only touches
+# repoServer and leaves the base install values intact.
+#
+# The sidecar runs the argocd-cmp-server binary that the chart's copyutil
+# initContainer stages into the shared var-files volume, so it decrypts with
+# the same Argo version regardless of this image. helm ships in the argocd
+# image; only sops is injected (initContainer -> emptyDir on PATH).
+#
+# The sops-age Secret mount is optional so the repo-server starts before the
+# operator key is provisioned (per-instance gitops init creates it, then
+# restarts the repo-server). Until the key is present, decryption fails
+# closed — the plugin errors rather than emitting cleartext or dropping the
+# Secret.
+repoServer:
+  initContainers:
+    - name: install-sops
+      image: alpine:3.19
+      command: [sh, -c]
+      args:
+        # Fetch sops with retries (transient GitHub blips at pod start would
+        # otherwise stall the shared repo-server) and verify a pinned sha256 so
+        # a corrupted or substituted binary fails closed. A longer-term
+        # hardening is to serve this from the in-cluster registry Canasta
+        # already deploys, removing the pod-start dependency on GitHub.
+        - |
+          set -e
+          case "$(uname -m)" in
+            x86_64) A=amd64; SUM="{{ sops_sha256.amd64 }}" ;;
+            aarch64|arm64) A=arm64; SUM="{{ sops_sha256.arm64 }}" ;;
+            *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
+          esac
+          for i in 1 2 3 4 5; do
+            wget -qO /custom-tools/sops \
+              "https://github.com/getsops/sops/releases/download/{{ sops_version }}/sops-{{ sops_version }}.linux.$A" && break
+            echo "sops download attempt $i failed; retrying" >&2; sleep 5
+          done
+          echo "$SUM  /custom-tools/sops" | sha256sum -c -
+          chmod +x /custom-tools/sops
+      volumeMounts:
+        - name: custom-tools
+          mountPath: /custom-tools
+
+  extraContainers:
+    - name: helm-sops
+      image: {{ argocd_sops_sidecar_image }}
+      command: [/var/run/argocd/argocd-cmp-server]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      env:
+        - name: SOPS_AGE_KEY_FILE
+          value: /home/argocd/.config/sops/age/keys.txt
+        - name: PATH
+          value: /custom-tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      volumeMounts:
+        - name: var-files
+          mountPath: /var/run/argocd
+        - name: plugins
+          mountPath: /home/argocd/cmp-server/plugins
+        - name: helm-sops-plugin
+          mountPath: /home/argocd/cmp-server/config/plugin.yaml
+          subPath: plugin.yaml
+        - name: custom-tools
+          mountPath: /custom-tools
+        - name: sops-age
+          mountPath: /home/argocd/.config/sops/age
+          readOnly: true
+
+  volumes:
+    - name: custom-tools
+      emptyDir: {}
+    - name: helm-sops-plugin
+      configMap:
+        name: helm-sops-plugin
+    - name: sops-age
+      secret:
+        secretName: sops-age
+        optional: true

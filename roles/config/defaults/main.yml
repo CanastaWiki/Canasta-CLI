@@ -117,21 +117,7 @@ canasta_known_keys:
     group: Backup (Restic)
     description: Restic repo password
 
-# Key prefixes that are always accepted (backup and mail credentials)
-canasta_known_prefixes:
-  - "AWS_"
-  - "AZURE_"
-  - "B2_"
-  - "GOOGLE_"
-  - "OS_"
-  - "ST_"
-  - "RCLONE_"
-  - "SMTP_"
-
-# Keys whose value is a secret. The .env write (and gitops vars write)
-# that carries one of these runs with no_log so the value can't leak via
-# -v, the stock callback, or a task-failure dump. A substring match keeps
-# it fail-safe for future keys (over-suppression is harmless); covers
-# CROWDSEC_BOUNCER_API_KEY, MYSQL_PASSWORD, RESTIC_PASSWORD, MW_SECRET_KEY,
-# and the credential-prefix keys above.
-canasta_secret_key_pattern: "(PASSWORD|SECRET|TOKEN|KEY)"
+# Secret classification (canasta_secret_key_pattern, canasta_secret_prefixes,
+# canasta_secret_key_regex, canasta_backup_backend_prefixes, ...) lives
+# play-global in vars/secret_classification.yml so config, gitops, and the K8s
+# sync share one definition. Config validation + no_log reference it from there.

@@ -1,0 +1,19 @@
+---
+# Pinned versions for the SOPS toolchain, shared across roles so there is ONE
+# definition (the install role provisions them; the orchestrator role injects
+# sops into the Argo CD repo-server sidecar). Loaded play-global in canasta.yml
+# pre_tasks. Reviewed and bumped per release; validated on kind.
+sops_version: "v3.13.2"
+age_version: "v1.3.1"
+
+# sha256 of the sops release binaries, verified after download (the repo-server
+# sidecar fetches sops at pod start). Update alongside sops_version.
+sops_sha256:
+  amd64: "154dfe4cd70554bdd82b98e4cd4acf191d43d01ead6f00a73477aa44c4ac42ef"
+  arm64: "78abf2e15c86250a1553ae6f53aba96be6b2a8126f160b1534959add3467ad76"
+
+# Argo CD repo-server sidecar image for the helm-sops CMP. Should track the
+# argo-cd chart's appVersion. Play-global (not an orchestrator default) because
+# gitops init includes the sidecar task cross-role, where role defaults are
+# out of scope.
+argocd_sops_sidecar_image: "quay.io/argoproj/argocd:v3.3.9"

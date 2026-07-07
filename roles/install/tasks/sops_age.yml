@@ -1,0 +1,70 @@
+---
+# Install the SOPS toolchain (sops + age) on the target host for the K8s
+# gitops SOPS secret flow: sops encrypts Secret manifests on the gitops host at
+# push; age-keygen manages the operator key on the controller. Idempotent —
+# skips a binary already present. Versions pinned in vars/tool_versions.yml.
+
+- name: Check if sops is already installed
+  ansible.builtin.command: sops --version
+  register: _sops_installed
+  changed_when: false
+  ignore_errors: true
+
+- name: Check if age-keygen is already installed
+  ansible.builtin.command: age-keygen --version
+  register: _age_installed
+  changed_when: false
+  ignore_errors: true
+
+- name: Skip if the SOPS toolchain is already available
+  ansible.builtin.debug:
+    msg: "sops and age are already installed."
+  when: _sops_installed.rc == 0 and _age_installed.rc == 0
+
+- name: Install the SOPS toolchain
+  when: _sops_installed.rc != 0 or _age_installed.rc != 0
+  become: true
+  block:
+    - name: Gather architecture
+      ansible.builtin.setup:
+        gather_subset:
+          - "!all"
+          - "!min"
+          - hardware
+
+    - name: Map architecture to the release suffix
+      ansible.builtin.set_fact:
+        _tool_arch: >-
+          {{ {'x86_64': 'amd64', 'aarch64': 'arm64', 'arm64': 'arm64'}[ansible_architecture]
+             | default('amd64') }}
+
+    - name: Report installing the SOPS toolchain
+      ansible.builtin.debug:
+        msg: "Installing sops {{ sops_version }} + age {{ age_version }} ({{ _tool_arch }})..."
+
+    - name: Install the sops binary
+      ansible.builtin.get_url:
+        url: >-
+          https://github.com/getsops/sops/releases/download/{{ sops_version }}/sops-{{ sops_version }}.linux.{{ _tool_arch }}
+        dest: /usr/local/bin/sops
+        mode: "0755"
+        checksum: "sha256:{{ sops_sha256[_tool_arch] }}"
+      when: _sops_installed.rc != 0
+
+    - name: Install age + age-keygen
+      ansible.builtin.unarchive:
+        src: >-
+          https://github.com/FiloSottile/age/releases/download/{{ age_version }}/age-{{ age_version }}-linux-{{ _tool_arch }}.tar.gz
+        dest: /usr/local/bin
+        remote_src: true
+        include:
+          - age/age
+          - age/age-keygen
+        extra_opts:
+          - "--strip-components=1"
+        mode: "0755"
+      when: _age_installed.rc != 0
+
+    - name: Report the SOPS toolchain installed
+      ansible.builtin.debug:
+        msg: "sops + age installed."

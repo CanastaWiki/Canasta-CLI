@@ -58,19 +58,25 @@ class TestBackupEnvSecretSyncTask:
         )
 
     def test_filter_covers_known_backup_env_prefixes(self):
-        """The filter regex must match every prefix the consumers
-        rely on. Keeping the assertion explicit makes a future
-        accidental tightening of the filter visible in tests."""
+        """The backup-env filter must cover every backup-backend prefix (via
+        the canonical list) plus the DB keys the dump-databases init container
+        needs. RCLONE_ was historically absent and broke restic rclone on K8s."""
         with open(self.SYNC_PATH) as f:
             content = f.read()
-        for prefix_or_key in (
-            "RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_", "ST_",
-            "MYSQL_HOST", "MYSQL_USER", "MYSQL_PASSWORD",
-        ):
-            assert prefix_or_key in content, (
-                "k8s_sync_config.yml's backup-env filter must "
-                "cover %r (used by restic backends or the "
-                "dump-databases init container)." % prefix_or_key
+        assert "canasta_backup_backend_prefixes" in content, (
+            "backup-env filter must build from the canonical backend list"
+        )
+        for db_key in ("MYSQL_HOST", "MYSQL_USER", "MYSQL_PASSWORD"):
+            assert db_key in content, (
+                "backup-env filter must include %r for the dump-databases "
+                "init container." % db_key
+            )
+        classifier = yaml.safe_load(open(os.path.join(
+            REPO_ROOT, "vars", "secret_classification.yml")).read())
+        for prefix in ("RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_",
+                       "ST_", "RCLONE_"):
+            assert prefix in classifier["canasta_backup_backend_prefixes"], (
+                "%r must be a backup-backend prefix." % prefix
             )
 
 

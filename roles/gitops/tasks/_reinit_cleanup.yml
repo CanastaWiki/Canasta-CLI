@@ -48,4 +48,9 @@
     - values-configdata.yaml
     - values-sidecars.yaml
     - argocd
+    # The SOPS marker must go too: gitops_sops_secrets comes only from the CLI
+    # flag, so a surviving .sops.yaml would keep push encrypting Secrets while a
+    # re-init without --encrypt-secrets regenerates a plain-helm Application
+    # that never renders them.
+    - .sops.yaml
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']

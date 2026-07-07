@@ -25,8 +25,8 @@
   ansible.builtin.fail:
     msg: >-
       Unknown package '{{ item }}'. Supported: docker, k8s-cp,
-      k8s-worker, git-crypt, canasta.
-  when: item not in ['docker', 'k3s', 'k3s-worker', 'git-crypt', 'canasta']
+      k8s-worker, git-crypt, sops, canasta.
+  when: item not in ['docker', 'k3s', 'k3s-worker', 'git-crypt', 'sops', 'canasta']
   loop: "{{ _install_packages }}"
 
 - name: Validate k8s-cp + k8s-worker not requested together
@@ -72,6 +72,12 @@
     name: install
     tasks_from: git_crypt.yml
   when: "'git-crypt' in _install_packages"
+
+- name: Install the SOPS toolchain (sops + age)
+  ansible.builtin.include_role:
+    name: install
+    tasks_from: sops_age.yml
+  when: "'sops' in _install_packages"
 
 - name: Install canasta-native
   ansible.builtin.include_role:

@@ -43,6 +43,13 @@
       does not allow pushing. Only 'source' and 'both' roles can push.
   when: _push_role not in ['source', 'both']
 
+# --- Migrate pre-classifier cleartext secret literals into vars.yaml ---
+# Runs before the shared-key migration so a freshly-encrypted secret can still
+# be promoted to _shared if it qualifies.
+- name: Migrate reclassified secret literals from env.template
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/_migrate_reclassified_secrets.yml
+
 # --- Auto-migrate shared-category keys to _shared/vars.yaml ---
 # Keys named in gitops_shared_keys (vars/main.yml) belong in the
 # shared file so all hosts inherit them. On every push, any such key
