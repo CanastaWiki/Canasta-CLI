@@ -200,6 +200,42 @@ def _has_command(name):
     return any(c["name"] == name for c in data["commands"])
 
 
+class TestCmdGroupsCompleteness:
+    """Every top-level command must be listed in exactly one CMD_GROUPS
+    heading, or it silently drops out of both the menu and the root
+    page. This is the reverse of TestRootPageCoverage (CMD_GROUPS ->
+    page); without it a new top-level command (e.g. 'wiki_check') merges
+    undetected and never appears in MediaWiki:Menu-cli-reference."""
+
+    def test_every_top_level_command_is_in_cmd_groups(self):
+        data = wp.load_definitions()
+        listing = [n for _heading, names in wp.CMD_GROUPS for n in names]
+        listed = set(listing)
+
+        missing = []
+        duplicated = []
+        for cmd in data["commands"]:
+            name = cmd["name"]
+            # Commands whose prefix is a subcommand group are reached via
+            # their group key (already in CMD_GROUPS) — mirror canasta.py's
+            # own top-level/grouped split.
+            if name.split("_")[0] in wp.SUBCOMMAND_GROUPS:
+                continue
+            if name not in listed:
+                missing.append(name)
+            elif listing.count(name) != 1:
+                duplicated.append(name)
+
+        assert not missing, (
+            "top-level commands missing from CMD_GROUPS (won't appear in "
+            "menu/root page):\n  " + "\n  ".join(missing)
+        )
+        assert not duplicated, (
+            "commands listed in CMD_GROUPS more than once:\n  "
+            + "\n  ".join(duplicated)
+        )
+
+
 class TestCwdResolutionFootnote:
     """Non-required -i flags get a cwd-resolution footnote in the
     flags table. Required -i (create) does not, because there's no

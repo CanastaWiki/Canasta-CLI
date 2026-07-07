@@ -110,7 +110,8 @@ def _group_subcommands(group_name):
 CMD_GROUPS = [
     ("System", ["install", "doctor", "host", "storage", "argocd", "uninstall"]),
     ("Instance management", [
-        "create", "delete", "list", "status", "upgrade", "version", "config",
+        "create", "delete", "list", "status", "wiki_check", "upgrade",
+        "version", "config",
     ]),
     ("Wiki management", ["add", "remove", "import", "export"]),
     ("Container lifecycle", [
@@ -156,7 +157,14 @@ def cmd_display_name(internal_name):
     """Convert internal name to display name (preserves hyphenated subcommands)."""
     if internal_name in _DISPLAY_NAMES:
         return _DISPLAY_NAMES[internal_name]
-    return internal_name.replace("_", " ")
+    if internal_name.split("_")[0] in SUBCOMMAND_GROUPS:
+        # Nested-group parent (e.g. 'backup_schedule'): the underscore is
+        # a group separator, so it renders with a space.
+        return internal_name.replace("_", " ")
+    # Top-level command (prefix not a subcommand group): mirror the CLI's
+    # own conversion so a name like 'wiki_check' renders 'wiki-check', not
+    # 'wiki check' (which would imply a nonexistent 'wiki' group).
+    return _canasta.display_name(internal_name)
 
 
 def cmd_page_title(internal_name):
