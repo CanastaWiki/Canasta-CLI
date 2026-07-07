@@ -82,6 +82,26 @@
                       'type': 'DirectoryOrCreate'}}] }}
   when: _restore_local_repo | bool
 
+# Single-wiki restore (-w) constrains restic to the target wiki's paths so it
+# never writes other wikis' media into the shared images PVC — restic does not
+# prune the restore target, so their existing files stay put. Limiting the DB
+# dump to db_<id>.sql also means the downstream DB-import and Secret-restore
+# steps self-scope: only that wiki's dump (and no secrets-*.yaml) lands in the
+# pod. A full restore uses no filter.
+- name: Build restic include filters for single-wiki restore
+  ansible.builtin.set_fact:
+    _restore_include: >-
+      {{ ' --include /currentsnapshot/config/settings/wikis/' ~ wiki
+         ~ ' --include /currentsnapshot/config/backup/db_' ~ wiki ~ '.sql'
+         ~ ' --include /currentsnapshot/images/' ~ wiki
+         ~ ' --include /currentsnapshot/public_assets/' ~ wiki }}
+  when: wiki is defined
+
+- name: Default to a full (unfiltered) restore
+  ansible.builtin.set_fact:
+    _restore_include: ""
+  when: wiki is not defined
+
 # If a previous restore failed mid-run, the restic-restore pod may
 # still exist. kubernetes.core.k8s state: present then refuses to
 # update it because Pod spec changes are forbidden post-creation
@@ -130,7 +150,9 @@
                 # on EBS-backed PVCs whose selinux xattrs the overlay fs
                 # rejects. Sentinel still fires unconditionally so the wait
                 # can't hang; the controller inspects the rc + log below.
-                restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target / > /tmp/restore-log 2>&1
+                restic --cache-dir /tmp/restic-cache \
+                  restore {{ _resolved_snapshot }}{{ _restore_include }} \
+                  --target / > /tmp/restore-log 2>&1
                 echo $? > /tmp/restore-rc
                 touch /tmp/restore-done
                 sleep 3600
@@ -227,7 +249,29 @@
     (_restore_rc.stdout | default('0') | trim) != '0'
     and not (_restore_log.stdout | default('') is search('Fatal'))
 
+# Restic restores only the included paths, so a wiki absent from the snapshot
+# yields an empty restore that would otherwise look like success. Fail loudly.
+- name: Confirm the target wiki is present in the snapshot (single-wiki restore)
+  when: wiki is defined
+  block:
+    - name: Check for the target wiki's DB dump in the restore pod
+      ansible.builtin.command:
+        cmd: >-
+          kubectl exec -n {{ _k8s_namespace }} restic-restore --
+          test -f /currentsnapshot/config/backup/db_{{ wiki }}.sql
+      register: _restore_k8s_wiki_present
+      changed_when: false
+      failed_when: false
+
+    - name: Fail when the target wiki is absent from the snapshot
+      ansible.builtin.fail:
+        msg: >-
+          Snapshot {{ _resolved_snapshot }} contains no backup for wiki
+          '{{ wiki }}' (no db_{{ wiki }}.sql). Nothing to restore.
+      when: _restore_k8s_wiki_present.rc != 0
+
 - name: Copy restored config to host
+  when: wiki is not defined
   ansible.builtin.shell:
     cmd: >-
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
@@ -236,7 +280,23 @@
   changed_when: true
   ignore_errors: true
 
+# Single-wiki restore replaces only the target wiki's settings dir on the host;
+# k8s_sync_config below pushes it into the ConfigMap the pods read.
+- name: Copy restored single wiki settings to host
+  when: wiki is defined
+  ansible.builtin.shell:
+    cmd: >-
+      rm -rf "{{ instance_path }}/config/settings/wikis/{{ wiki }}";
+      mkdir -p "{{ instance_path }}/config/settings/wikis/{{ wiki }}";
+      kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      tar cf - -C /currentsnapshot/config/settings/wikis/{{ wiki }} . 2>/dev/null |
+      tar xf - -C "{{ instance_path }}/config/settings/wikis/{{ wiki }}/"
+  changed_when: true
+  ignore_errors: true
+
+# Full restore round-trips the source host's .env; single-wiki leaves it alone.
 - name: Copy restored .env to host
+  when: wiki is not defined
   ansible.builtin.shell:
     cmd: >-
       kubectl cp {{ _k8s_namespace }}/restic-restore:/currentsnapshot/.env
@@ -255,6 +315,7 @@
 # `set -o pipefail` so a broken restic-restore side of the pipe fails loudly;
 # the `test -d` guard skips a dir absent from an older snapshot.
 - name: Restore extensions/skins/public_assets to host
+  when: wiki is not defined
   ansible.builtin.shell:
     cmd: >-
       set -o pipefail;
@@ -268,6 +329,27 @@
   args:
     executable: /bin/bash
   loop: ['extensions', 'skins', 'public_assets']
+  changed_when: true
+
+# Single-wiki restore: public_assets is per-wiki, so restore only this wiki's
+# subdir to the host (extensions/skins are shared and left untouched). The
+# post-restore restart's k8s_sync_user_dirs mirrors it into the PVC. images
+# for this wiki was already restored straight into the images PVC by restic.
+- name: Restore single wiki public assets to host
+  when: wiki is defined
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      test -d /currentsnapshot/public_assets/{{ wiki }}; then
+      rm -rf "{{ instance_path }}/public_assets/{{ wiki }}";
+      mkdir -p "{{ instance_path }}/public_assets/{{ wiki }}";
+      kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      tar cf - -C /currentsnapshot/public_assets/{{ wiki }} . |
+      tar xf - -C "{{ instance_path }}/public_assets/{{ wiki }}/";
+      fi
+  args:
+    executable: /bin/bash
   changed_when: true
 
 # Use the WEB pod (not a DB pod) as the import target. Reasons:
