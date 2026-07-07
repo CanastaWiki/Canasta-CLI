@@ -184,6 +184,14 @@ def test_application_scopes_secrets_dir_to_host():
     assert "hosts/{{ host_name }}/secrets" in c
 
 
+def test_push_authenticates_with_deploy_key():
+    # push must use the staged deploy key (or --ssh-key), not ambient ssh —
+    # a joined host authenticates to the forge only via .gitops-deploy-key.
+    c = _read(PUSHK8S)
+    assert "GIT_SSH_COMMAND" in c
+    assert ".gitops-deploy-key" in c
+
+
 def test_join_wires_sops():
     c = _read(os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
                            "join_kubernetes.yml"))
