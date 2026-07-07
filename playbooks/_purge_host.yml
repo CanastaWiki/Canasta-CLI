@@ -1,0 +1,119 @@
+---
+# Reclaim images an upgrade superseded on a single host. Called once per
+# distinct host from upgrade.yml when --purge is passed, after every instance
+# on that host has finished upgrading.
+# Input: _purge_host_name (registry host string: 'localhost' or 'user@host')
+#
+# Deliberately narrow — never touches volumes and never blanket-removes images
+# still in use:
+#   * Compose/Docker: remove superseded ghcr.io/canastawiki/canasta tags that
+#     no container references (Docker refuses to remove an in-use image, so a
+#     tag still run by another instance is skipped), then prune dangling layers
+#     left by sidecar rebuilds.
+#   * Kubernetes: prune containerd images no pod references, then garbage-
+#     collect the in-cluster registry.
+
+- name: "Purging superseded images on host '{{ _purge_host_name }}'"
+  ansible.builtin.debug:
+    msg: "Reclaiming images superseded by the upgrade on {{ _purge_host_name }}..."
+
+- name: Point the connection at the host
+  ansible.builtin.set_fact:
+    _instance_host: "{{ _purge_host_name }}"
+
+- name: Switch connection to the host
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"
+
+# --- Docker / Compose reclaim ---
+- name: Probe for a working Docker daemon
+  ansible.builtin.command:
+    cmd: docker info --format '{% raw %}{{.ServerVersion}}{% endraw %}'
+  register: _purge_docker
+  changed_when: false
+  failed_when: false
+
+- name: Reclaim superseded Canasta images (Docker)
+  when: _purge_docker.rc == 0
+  block:
+    - name: List Canasta base images on the host
+      ansible.builtin.command:
+        cmd: >-
+          docker images ghcr.io/canastawiki/canasta
+          --format {% raw %}'{{.Repository}}:{{.Tag}}'{% endraw %}
+      register: _purge_images
+      changed_when: false
+
+    # No --force: Docker refuses to remove an image any container (running or
+    # stopped) still references, so a tag another instance on this host is
+    # pinned to is skipped rather than yanked out from under it. Only tags left
+    # dangling by the upgrade actually get removed.
+    - name: Remove superseded Canasta image tags no container references
+      ansible.builtin.command:
+        cmd: "docker image rm {{ _purge_image_ref }}"
+      loop: >-
+        {{ _purge_images.stdout_lines
+           | reject('search', ':<none>')
+           | reject('equalto', '')
+           | list }}
+      loop_control:
+        loop_var: _purge_image_ref
+      register: _purge_removed
+      changed_when: "'Untagged' in stdout or 'Deleted' in stdout"
+      failed_when: false
+
+    # Dangling (<none>) layers orphaned by rebuilding `build:` sidecars under
+    # the same tag, plus intermediate build layers. Referenced by nothing, so
+    # this cannot affect a stopped instance or any volume.
+    - name: Prune dangling images (sidecar rebuild orphans)
+      ansible.builtin.command:
+        cmd: docker image prune -f
+      register: _purge_dangling
+      changed_when: "'Total reclaimed space: 0B' not in _purge_dangling.stdout"
+
+    - name: Report Docker reclaim
+      ansible.builtin.debug:
+        msg: >-
+          Docker: removed
+          {{ _purge_removed.results | default([])
+             | selectattr('stdout', 'search', 'Untagged|Deleted')
+             | list | length }}
+          superseded Canasta tag(s);
+          {{ ((_purge_dangling.stdout_lines | default([])
+               | select('search', 'Total reclaimed space')
+               | list) or ['no dangling layers']) | first }}
+
+# --- Kubernetes reclaim ---
+- name: Probe for a Kubernetes cluster on the host
+  ansible.builtin.command:
+    cmd: kubectl get nodes -o name
+  register: _purge_k8s
+  changed_when: false
+  failed_when: false
+
+- name: Reclaim superseded images (Kubernetes)
+  when: _purge_k8s.rc == 0
+  block:
+    # crictl rmi --prune removes only images no pod references, so pods running
+    # the just-upgraded tag keep their image while the superseded one goes.
+    - name: Prune containerd images no pod references
+      ansible.builtin.shell:
+        cmd: >-
+          if command -v crictl >/dev/null 2>&1; then crictl rmi --prune;
+          elif command -v k3s >/dev/null 2>&1; then k3s crictl rmi --prune;
+          else echo 'no crictl on host'; fi
+      register: _purge_crictl
+      changed_when: "'Deleted' in _purge_crictl.stdout"
+      failed_when: false
+
+    - name: Report containerd reclaim
+      ansible.builtin.debug:
+        msg: >-
+          containerd:
+          {{ (_purge_crictl.stdout_lines | default([])
+              | select('search', 'Deleted')
+              | list | length) }}
+          image(s) removed.
+
+    - name: Garbage-collect the in-cluster registry
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/registry_gc.yml
