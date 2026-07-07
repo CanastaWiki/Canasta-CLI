@@ -2491,19 +2491,29 @@ class TestGitopsArgocdStatus:
 
 
 class TestParseGitopsStatusK8s:
-    def _make_output(self, hostname="myhost", commit="abc1234", revcount="0\t0"):
+    def _make_output(self, hostname="myhost", commit="abc1234", revcount="0\t0",
+                     staged="", unstaged="", wikis=None, template=None,
+                     untracked=None):
         d = direct_commands._SENTINEL
-        # K8s parser only reads hostname (0), commit (2), revcount (6).
-        # Fill the unread slots with empty strings for the split to align.
-        return (
+        # Parts: hostname (0), hosts.yaml (1), commit (2), applied (3),
+        # staged (4), unstaged (5), revcount (6), then optionally
+        # wikis (7), template (8), git-status porcelain (9).
+        out = (
             hostname + "\n" + d + "\n"
             + "\n" + d + "\n"
             + commit + "\n" + d + "\n"
             + "\n" + d + "\n"
-            + "\n" + d + "\n"
-            + "\n" + d + "\n"
+            + staged + "\n" + d + "\n"
+            + unstaged + "\n" + d + "\n"
             + revcount + "\n"
         )
+        if wikis is not None or template is not None or untracked is not None:
+            out += (
+                d + "\n" + (wikis or "") + "\n"
+                + d + "\n" + (template or "") + "\n"
+                + d + "\n" + (untracked or "")
+            )
+        return out
 
     def test_synced_healthy(self):
         out = self._make_output()
@@ -2538,6 +2548,36 @@ class TestParseGitopsStatusK8s:
         result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
         assert "Ahead of remote:  3" in result
         assert "Behind remote:    2" in result
+
+    def test_untracked_files_surfaced(self):
+        # A K8s instance with an uncaptured file (e.g. wikis.yaml.template
+        # backfilled by an upgrade) must flag it, not just report Ahead: 0.
+        out = self._make_output(untracked="?? wikis.yaml.template")
+        argocd = ("Synced", "Healthy", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Untracked files (1):" in result
+        assert "wikis.yaml.template" in result
+        assert "canasta gitops add" in result
+        # Advisory must not shadow the Argo section.
+        assert "Sync status:    Synced" in result
+
+    def test_uncaptured_wikis_edit_surfaced(self):
+        live = "wikis:\n- id: main\n  url: rs.example.com\n  name: New Name\n"
+        tmpl = "wikis:\n  - id: main\n    url: {{wiki_url_main}}\n    name: \"main\"\n"
+        out = self._make_output(wikis=live, template=tmpl)
+        argocd = ("Synced", "Healthy", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Uncaptured config/wikis.yaml edits" in result
+
+    def test_clean_tree_shows_no_advisory(self):
+        # No working-tree changes: the Argo section renders as before, with
+        # none of the advisory headers.
+        out = self._make_output(untracked="")
+        argocd = ("Synced", "Healthy", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Untracked files" not in result
+        assert "Uncaptured config/wikis.yaml edits" not in result
+        assert "Argo CD:" in result
 
 
 class TestCmdGitopsStatusK8s:

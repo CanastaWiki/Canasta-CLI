@@ -74,8 +74,9 @@ def _wikis_uncaptured_edit(live_raw, tmpl_raw):
     invisible to git status until 'gitops add' reconciles it. Compare the
     two per wiki id, ignoring the host-specific url (a {{placeholder}} in
     the template), so the advisory fires only on a genuine uncaptured edit.
-    Returns False when either file is absent or unparseable (e.g. non-gitops
-    or K8s gitops, which has no wikis.yaml.template).
+    Returns False when either file is absent or unparseable (e.g. a
+    non-gitops instance, or one whose wikis.yaml.template has not been
+    created/backfilled yet). Applies to both Compose and K8s gitops.
     """
     if not (live_raw or "").strip() or not (tmpl_raw or "").strip():
         return False
@@ -100,6 +101,55 @@ def _wikis_uncaptured_edit(live_raw, tmpl_raw):
     return _by_id(live) != _by_id(tmpl)
 
 
+def _parse_working_tree_changes(parts):
+    """Extract (staged, unstaged, untracked, wikis_drift) from the shared
+    status-probe output (see _gitops_status_script). Used by both the Compose
+    and K8s formatters so their working-tree advisories can't diverge."""
+    staged_raw = parts[4].strip() if len(parts) > 4 else ""
+    unstaged_raw = parts[5].strip() if len(parts) > 5 else ""
+    staged = staged_raw.split("\n") if staged_raw else []
+    unstaged = unstaged_raw.split("\n") if unstaged_raw else []
+
+    live_wikis_raw = parts[7] if len(parts) > 7 else ""
+    tmpl_wikis_raw = parts[8] if len(parts) > 8 else ""
+    wikis_drift = _wikis_uncaptured_edit(live_wikis_raw, tmpl_wikis_raw)
+
+    # parts[9] is `git status --porcelain`; untracked entries are the
+    # '?? <path>' lines (staged/modified come from the git diff sections).
+    status_raw = parts[9].strip() if len(parts) > 9 else ""
+    untracked = [ln[3:] for ln in status_raw.split("\n") if ln.startswith("?? ")]
+    return staged, unstaged, untracked, wikis_drift
+
+
+def _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift):
+    """Advisory lines for uncommitted / untracked / uncaptured working-tree
+    changes. Empty list when the tree is clean."""
+    lines = []
+    if staged:
+        lines.append("Staged for push (%d files):" % len(staged))
+        lines.extend("  %s" % f for f in staged)
+        lines.append("")
+    if unstaged:
+        lines.append("Unstaged changes (%d files):" % len(unstaged))
+        lines.extend("  %s" % f for f in unstaged)
+        lines.append("")
+    if untracked:
+        lines.append("Untracked files (%d):" % len(untracked))
+        lines.extend("  %s" % f for f in untracked)
+        lines.append(
+            "  capture with 'canasta gitops add <file>' (or add to .gitignore)."
+        )
+        lines.append("")
+    if wikis_drift:
+        lines.append("Uncaptured config/wikis.yaml edits (e.g. wiki display name):")
+        lines.append(
+            "  run 'canasta gitops add config/wikis.yaml' to capture and "
+            "stage them."
+        )
+        lines.append("")
+    return lines
+
+
 def _parse_gitops_status(stdout, instance_id):
     """Parse the batched gitops status output into a formatted string."""
     parts = stdout.split(_helpers._SENTINEL + "\n")
@@ -122,24 +172,9 @@ def _parse_gitops_status(stdout, instance_id):
 
     commit = parts[2].strip() if len(parts) > 2 else "none"
     applied = parts[3].strip() if len(parts) > 3 else "none"
-    staged_raw = parts[4].strip() if len(parts) > 4 else ""
-    unstaged_raw = parts[5].strip() if len(parts) > 5 else ""
     revcount_raw = parts[6].strip() if len(parts) > 6 else "0\t0"
 
-    staged = staged_raw.split("\n") if staged_raw else []
-    unstaged = unstaged_raw.split("\n") if unstaged_raw else []
-
-    live_wikis_raw = parts[7] if len(parts) > 7 else ""
-    tmpl_wikis_raw = parts[8] if len(parts) > 8 else ""
-    wikis_drift = _wikis_uncaptured_edit(live_wikis_raw, tmpl_wikis_raw)
-
-    # parts[9] is `git status --porcelain`; untracked entries are the
-    # '?? <path>' lines (staged/modified come from git diff above).
-    status_raw = parts[9].strip() if len(parts) > 9 else ""
-    untracked = [
-        ln[3:] for ln in status_raw.split("\n")
-        if ln.startswith("?? ")
-    ]
+    staged, unstaged, untracked, wikis_drift = _parse_working_tree_changes(parts)
 
     try:
         revcount_parts = revcount_raw.split("\t")
@@ -173,36 +208,10 @@ def _parse_gitops_status(stdout, instance_id):
         "",
     ]
 
-    if staged:
-        lines.append("Staged for push (%d files):" % len(staged))
-        for f in staged:
-            lines.append("  %s" % f)
-        lines.append("")
-
-    if unstaged:
-        lines.append("Unstaged changes (%d files):" % len(unstaged))
-        for f in unstaged:
-            lines.append("  %s" % f)
-        lines.append("")
-
-    if untracked:
-        lines.append("Untracked files (%d):" % len(untracked))
-        for f in untracked:
-            lines.append("  %s" % f)
-        lines.append(
-            "  capture with 'canasta gitops add <file>' (or add to .gitignore)."
-        )
-        lines.append("")
-
-    if wikis_drift:
-        lines.append("Uncaptured config/wikis.yaml edits (e.g. wiki display name):")
-        lines.append(
-            "  run 'canasta gitops add config/wikis.yaml' to capture and "
-            "stage them."
-        )
-        lines.append("")
-
-    if not staged and not unstaged and not untracked and not wikis_drift:
+    changes = _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift)
+    if changes:
+        lines.extend(changes)
+    else:
         lines.append("No changes.")
         lines.append("")
 
@@ -281,6 +290,11 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
 
     sync_status, health, last_sync, revision = argocd
 
+    # Uncommitted/untracked working-tree changes and uncaptured config/wikis.yaml
+    # edits apply to K8s gitops too (e.g. an upgrade backfilling
+    # wikis.yaml.template), so surface the same advisories as the Compose path.
+    staged, unstaged, untracked, wikis_drift = _parse_working_tree_changes(parts)
+
     lines = [
         "Host:             %s" % hostname,
         "Canasta ID:       %s" % instance_id,
@@ -288,12 +302,17 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
         "Ahead of remote:  %d" % ahead,
         "Behind remote:    %d" % behind,
         "",
+    ]
+    lines.extend(
+        _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift)
+    )
+    lines.extend([
         "Argo CD:",
         "  Sync status:    %s" % sync_status,
         "  Health status:  %s" % health,
         "  Last sync:      %s" % last_sync,
         "  Applied rev:    %s" % revision,
-    ]
+    ])
     if sync_status == "OutOfSync":
         lines.append("")
         lines.append("Note: Run 'canasta gitops sync' to apply pending changes immediately.")
