@@ -95,6 +95,38 @@
   ansible.builtin.set_fact:
     _cron_cmd: "{{ (_cron_base + ' ' + _cron_purge + ' ' + _cron_log) | regex_replace('\\s+', ' ') | trim }}"
 
+# The write below only replaces an entry with THIS code path's marker
+# (#Ansible: for the cron module, # BEGIN/END for blockinfile). An entry left
+# by an older Canasta version, the other CLI flavor (canasta vs canasta-docker),
+# or a different install path carries a different marker/format, so it would
+# survive — duplicating the crontab (the instance backs up twice) and letting
+# 'schedule list' report the stale one. Remove EVERY prior entry for this
+# instance first: the ' backup create -i <id> ' job line (the same fragment
+# 'schedule list' matches, with a trailing space so 'foo' != 'foo2') and any
+# Canasta backup marker comment. The write below then leaves exactly one entry.
+- name: Remove any prior backup schedule entries for this instance (live crontab)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: >-
+      set -o pipefail;
+      kept="$(crontab -l 2>/dev/null
+      | grep -vE '( backup create -i {{ instance_id }} | canasta-backup-{{ instance_id }}( |$))' || true)";
+      printf '%s\n' "$kept" | crontab -
+  when: not _sched_use_file
+  changed_when: true
+
+- name: Remove any prior backup schedule entries for this instance (host crontab file)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: >-
+      set -o pipefail;
+      f={{ _host_crontab_file | quote }};
+      [ -f "$f" ] || exit 0;
+      kept="$(grep -vE '( backup create -i {{ instance_id }} | canasta-backup-{{ instance_id }}( |$))' "$f" || true)";
+      printf '%s\n' "$kept" > "$f"
+  when: _sched_use_file
+  changed_when: true
+
 # Native / remote: edit the live crontab via the cron module.
 - name: Set cron schedule
   ansible.builtin.cron:
