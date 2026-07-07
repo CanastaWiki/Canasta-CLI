@@ -57,6 +57,14 @@ MW secret name.
 {{- end }}
 
 {{/*
+App secret name — holds sidecar secrets (sidecars[].envSecret), upserted by
+Ansible from config/secrets.env. Referenced via secretKeyRef.
+*/}}
+{{- define "canasta.appSecretName" -}}
+{{- .Values.secrets.appSecretName | default (printf "%s-app-secrets" .Values.instance.id) }}
+{{- end }}
+
+{{/*
 Backend service for ingress — always routes to caddy.
 Caddy handles wiki farm routing, then forwards to varnish or web.
 */}}
@@ -73,4 +81,29 @@ varnish:80
 {{- else -}}
 web:80
 {{- end -}}
+{{- end }}
+
+{{/*
+A sidecar readiness/liveness probe from a healthcheck spec
+(command | tcp | path+port | bare port).
+*/}}
+{{- define "canasta.sidecarProbe" -}}
+{{- if .command }}
+exec:
+  command:
+    {{- toYaml .command | nindent 4 }}
+{{- else if .tcp }}
+tcpSocket:
+  port: {{ .tcp }}
+{{- else if .path }}
+httpGet:
+  path: {{ .path }}
+  port: {{ .port | default 80 }}
+{{- else }}
+tcpSocket:
+  port: {{ .port }}
+{{- end }}
+periodSeconds: 30
+timeoutSeconds: 5
+failureThreshold: 3
 {{- end }}

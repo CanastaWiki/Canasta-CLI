@@ -32,9 +32,15 @@
     # k3s API server's cert via INSTALL_K3S_EXEC="--tls-san <addr>".
     # Empty string when not provided (k3s uses its default cert SANs:
     # 127.0.0.1, the node's internal IP, kubernetes.default.*).
+    # --write-kubeconfig-mode 0644 persists a readable kubeconfig in the
+    # k3s unit, so a k3s restart doesn't revert /etc/rancher/k3s/k3s.yaml
+    # to root-only 0600 — which breaks every kubectl/helm task that runs
+    # as the non-root SSH user (the one-time chmod below only covers the
+    # fresh-install window, not subsequent restarts).
     - name: Build k3s install exec args
       ansible.builtin.set_fact:
         _k3s_install_exec: >-
+          --write-kubeconfig-mode 0644
           {{ (public_ip | default([]))
              | map('regex_replace', '^(.*)$', '--tls-san \1')
              | join(' ') }}
@@ -48,13 +54,19 @@
     # directly from GitHub instead of asking update.k3s.io to resolve a
     # channel — removing that single point of failure and keeping every
     # node in the cluster on the same version (see canasta_k3s_version).
+    # Launched detached and polled (resilient_exec): the installer downloads
+    # and sets up k3s over a minute or more, and a controller-side SSH reset
+    # mid-install would otherwise abort it. The k3s installer is idempotent,
+    # so a re-run after a reset is safe.
     - name: Download and install k3s
-      ansible.builtin.shell:
-        cmd: >-
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+      vars:
+        rx_name: "install k3s"
+        rx_async: 600
+        rx_cmd: >-
           curl -sfL --retry 3 --retry-delay 5 https://get.k3s.io |
           INSTALL_K3S_VERSION={{ canasta_k3s_version | quote }}
           INSTALL_K3S_EXEC={{ _k3s_install_exec | quote }} sh -
-      changed_when: true
 
     - name: Make k3s kubeconfig readable (before verification)
       ansible.builtin.file:
@@ -99,6 +111,17 @@
     state: link
   become: true
 
+# In-cluster image registry (registry:2 at the fixed ClusterIP 10.43.0.2:5000)
+# + the per-node certs.d trust DaemonSet, for locally built images (canasta
+# create --build-from, custom service/sidecar images).
+- name: Ensure the in-cluster image registry and per-node trust
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml"
+  vars:
+    # Deploy best-effort at install — don't block cluster bootstrap on the
+    # registry becoming ready (it's only needed for a later build-from push,
+    # where create/upgrade wait for it).
+    registry_wait: false
+
 - name: Check if helm is installed
   ansible.builtin.command:
     cmd: helm version --short
@@ -106,13 +129,16 @@
   changed_when: false
   ignore_errors: true
 
+# Launched detached and polled (resilient_exec) like the k3s install above.
 - name: Install helm
-  ansible.builtin.shell:
-    cmd: >-
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "install helm"
+    rx_async: 300
+    rx_cmd: >-
       curl -fsSL --retry 3 --retry-delay 5
       https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
       | DESIRED_VERSION={{ canasta_helm_version | quote }} bash
-  changed_when: true
   when: _helm_installed.rc != 0
 
 # Ansible k8s modules require the Python kubernetes library.

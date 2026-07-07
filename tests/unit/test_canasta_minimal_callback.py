@@ -4,7 +4,6 @@ import os
 import sys
 from types import SimpleNamespace
 
-import pytest
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
@@ -211,4 +210,78 @@ class TestRunnerItemOnFailed:
         cb.v2_runner_item_on_failed(
             _result(msg="non-zero return code"), ignore_errors=True
         )
+        assert cb._captured == []
+
+    def test_item_command_failure_surfaces_stderr(self):
+        """A looped command that exits non-zero (e.g. 'git add' on a path
+        outside the repo) must surface the command's stderr, not just the
+        opaque generic 'non-zero return code'."""
+        cb = _make_callback()
+        cb.v2_runner_item_on_failed(_item_result(
+            ignore_errors=None,
+            msg="non-zero return code",
+            cmd=["git", "add", "--", "../wikis.yaml.template"],
+            stdout="",
+            stderr="fatal: '../wikis.yaml.template' is outside repository",
+        ))
+        msgs = [m for (m, _, _) in cb._captured]
+        assert any("cmd: git add -- ../wikis.yaml.template" in m for m in msgs)
+        assert any("outside repository" in m for m in msgs)
+
+    def test_item_command_failure_surfaces_stdout(self):
+        """When the command wrote the error to stdout, that is shown in
+        place of the generic message (mirrors the task-level path)."""
+        cb = _make_callback()
+        cb.v2_runner_item_on_failed(_item_result(
+            ignore_errors=None,
+            msg="non-zero return code",
+            cmd=["foo"],
+            stdout="something failed on stdout",
+            stderr="",
+        ))
+        msgs = [m for (m, _, _) in cb._captured]
+        assert msgs == ["Error: something failed on stdout"]
+
+    def test_item_plain_message_still_shown(self):
+        """A non-command item failure (e.g. a fail task in a loop) with
+        just a msg is unchanged: the message is displayed as-is."""
+        cb = _make_callback()
+        cb.v2_runner_item_on_failed(
+            _item_result(ignore_errors=None, msg="missing required parameter")
+        )
+        msgs = [m for (m, _, _) in cb._captured]
+        assert msgs == ["Error: missing required parameter"]
+
+
+class TestRunnerOnOkDebug:
+    """v2_runner_on_ok renders debug task 'msg' output. A list msg (one
+    element per line) must render line-by-line, not as a Python list repr.
+    """
+
+    def _debug_result(self, msg):
+        return SimpleNamespace(
+            _result={"msg": msg},
+            _task=SimpleNamespace(action="ansible.builtin.debug"),
+        )
+
+    def test_list_msg_rendered_line_by_line(self):
+        cb = _make_callback()
+        cb.v2_runner_on_ok(self._debug_result(["line one", "line two", ""]))
+        assert len(cb._captured) == 1
+        shown = cb._captured[0][0]
+        assert shown == "line one\nline two\n"
+        assert "[" not in shown and "'" not in shown
+
+    def test_string_msg_unchanged(self):
+        cb = _make_callback()
+        cb.v2_runner_on_ok(self._debug_result("just a string"))
+        assert cb._captured[0][0] == "just a string"
+
+    def test_non_debug_task_suppressed(self):
+        cb = _make_callback()
+        result = SimpleNamespace(
+            _result={"msg": ["x", "y"]},
+            _task=SimpleNamespace(action="ansible.builtin.command"),
+        )
+        cb.v2_runner_on_ok(result)
         assert cb._captured == []

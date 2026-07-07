@@ -7,8 +7,14 @@
 #        _upgrade_inst, _mig
 
 # --- Update K8s values.yaml image tag ---
+# Skip for build_from instances: their image is the registry-qualified local
+# build (set at create), not a ghcr.io version tag — bumping it would point the
+# pod at a non-existent tag. The rebuilt image is re-pushed under the same ref
+# and re-pulled on restart (image.pullPolicy: Always for build_from).
 - name: Update Kubernetes image tag in values.yaml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - _upgrade_inst.instance.buildFrom | default('') == ''
   block:
     - name: Read current values.yaml
       ansible.builtin.slurp:
@@ -37,8 +43,34 @@
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
 
+    # On a gitops K8s instance, render_kubernetes.yml regenerates the deployed
+    # values from values.template.yaml overlaid with hosts/<host>/vars.yaml's
+    # image_tag — so the values.yaml write above is reverted on the next pull
+    # unless image_tag is updated too. Update it to the bumped tag (stripped of
+    # the repo prefix, matching how init/join record it). No-op off gitops.
+    - name: Check if instance is gitops-managed
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/.gitops-host"
+      register: _upgrade_k8s_gitops_stat
+
+    - name: Read gitops host name
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/.gitops-host"
+      register: _upgrade_k8s_host
+      when: _upgrade_k8s_gitops_stat.stat.exists | default(false)
+
+    - name: Persist image_tag to gitops vars.yaml (durable across pulls)
+      ansible.builtin.lineinfile:
+        path: >-
+          {{ instance_path }}/hosts/{{ _upgrade_k8s_host.content
+             | b64decode | trim }}/vars.yaml
+        regexp: "^image_tag:"
+        line: "image_tag: {{ canasta_default_image | regex_replace('^[^:]+:', '') }}"
+        state: present
+      when: _upgrade_k8s_gitops_stat.stat.exists | default(false)
+
 # --- Update Compose CANASTA_IMAGE tag ---
-# Match Go CLI behavior: bump the tag if it's the default ghcr.io image,
+# Bump the tag if it's the default ghcr.io image,
 # leave it alone if user set a custom/local-build image.
 - name: Update Compose image tag
   when:
@@ -56,3 +88,22 @@
         state: set
         key: CANASTA_IMAGE
         value: "{{ canasta_default_image }}"
+
+    # On a gitops instance the .env above is re-rendered from env.template on
+    # the next pull, which would revert the tag. CANASTA_IMAGE lives in
+    # env.template as a plain literal (it is not a managed/secret placeholder
+    # key), so update that literal directly — the render copies it verbatim, so
+    # the bump survives the next pull. Without this the upgrade silently
+    # reverts. No-op off gitops.
+    - name: Check if instance is gitops-managed
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/.gitops-host"
+      register: _upgrade_image_gitops_stat
+
+    - name: Persist CANASTA_IMAGE to env.template (durable across pulls)
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/env.template"
+        regexp: "^CANASTA_IMAGE="
+        line: "CANASTA_IMAGE={{ canasta_default_image }}"
+        state: present
+      when: _upgrade_image_gitops_stat.stat.exists | default(false)

@@ -1,0 +1,46 @@
+---
+# Create wikis.yaml.template for a gitops instance that lacks it. 'gitops
+# init' generates the template (reconcile_create), but a repo created by
+# the Go-CLI predates that feature and nothing backfilled it — leaving the
+# whole config/wikis.yaml <-> wikis.yaml.template reconcile machinery inert
+# (display-name capture, the gitops status advisory). This creates it from
+# the live config/wikis.yaml when missing.
+#
+# Create-only: never re-renders an existing template (which could drop a
+# hand-customized one). Gitops-only — no-ops when the marker is absent.
+# Does not stage it; the next 'canasta gitops add config/wikis.yaml' /
+# 'gitops push' captures it (it is intentionally left for the user to
+# review, like the .gitignore refresh).
+#
+# Input: instance_path, canasta_root.
+
+- name: Stat gitops marker and wikis.yaml.template
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ item }}"
+  loop:
+    - .gitops-host
+    - wikis.yaml.template
+  loop_control:
+    label: "{{ item }}"
+  register: _bwt_stats
+
+- name: Backfill wikis.yaml.template
+  when:
+    - _bwt_stats.results[0].stat.exists | default(false)
+    - not (_bwt_stats.results[1].stat.exists | default(false))
+  block:
+    - name: Create wikis.yaml.template from live wikis.yaml
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/gitops/tasks/_reconcile_wikis_template.yml
+      vars:
+        reconcile_create: true
+
+    - name: Report wikis.yaml.template created
+      ansible.builtin.debug:
+        msg: >-
+          Created wikis.yaml.template (was missing on this gitops instance).
+          Capture it with 'canasta gitops add config/wikis.yaml' and
+          'canasta gitops push'.
+      when:
+        - _reconcile_wikis_write is defined
+        - _reconcile_wikis_write.changed | default(false)

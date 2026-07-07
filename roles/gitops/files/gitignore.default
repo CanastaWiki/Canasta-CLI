@@ -1,5 +1,7 @@
 # Generated at deploy time — do not track
 .env
+config/secrets.env
+config/secrets-web
 config/wikis.yaml
 admin-password_*
 
@@ -18,6 +20,9 @@ public_assets/*/sitemap/
 
 # Database dumps created by canasta backup
 config/backup/
+
+# MySQL-to-MariaDB migration dump (preserved on failure)
+mysql8_dump.sql
 
 # Backup run log
 backup.log

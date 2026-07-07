@@ -2,8 +2,13 @@
 # canasta config set - Change configuration values.
 # Input: id (optional), settings (str: "KEY=VALUE KEY2=VALUE2"), no_restart (bool), force (bool)
 
-- name: Resolve instance
+# Top-level `canasta config set` needs this; the internal caller (crowdsec
+# bouncer_enroll storing the API key during a start/upgrade auto-enroll)
+# already resolved the instance, and re-resolving from CWD would pick the
+# wrong directory when the CLI was invoked outside the instance dir.
+- name: Resolve instance (skip if caller already resolved it)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+  when: instance_path is not defined
 
 # Internal callers (crowdsec bouncer_enroll storing the API key) run during
 # a config-set-triggered restart, where `settings` is an Ansible extra-var
@@ -16,59 +21,22 @@
   ansible.builtin.set_fact:
     _config_settings: "{{ config_settings_override | default(settings) }}"
 
-- name: Validate, apply side effects, and set each key
-  ansible.builtin.include_tasks: _set_single.yml
-  loop: "{{ _config_settings.split() }}"
-  loop_control:
-    loop_var: _setting
-    label: "{{ _setting.split('=', 1)[0] }}"
+- name: Require --secret with --web
+  ansible.builtin.fail:
+    msg: "--web only applies to secret values; pass it together with --secret."
+  when:
+    - web | default(false) | bool
+    - not (secret | default(false) | bool)
 
-# Surface pre-existing .env hygiene problems while the user is here. Quoted
-# values and CRLF endings are stripped on read (so `config get` looks fine)
-# but reach containers via docker --env-file literally — a common cause of
-# restic "wrong password" and similar. canasta_env's `set` writes clean
-# lines, so this only flags lines the user hasn't fixed.
-- name: Check .env for quoted or CRLF values
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: lint
-  register: _set_env_lint
+# Dispatch: --secret writes opaque values to the gitignored config/secrets.env
+# (no .env validation/side effects); otherwise the normal .env config path.
+- name: Set opaque secret values (config/secrets.env)
+  ansible.builtin.include_tasks: _set_secret.yml
+  when: secret | default(false) | bool
 
-- name: Build .env hygiene warning
-  ansible.builtin.set_fact:
-    _set_env_warn: >-
-      {{ ([] if _set_env_lint.quoted_keys | length == 0
-           else ['quoted values (' + (_set_env_lint.quoted_keys | join(', ')) + ')'])
-         + ([] if not _set_env_lint.has_crlf else ['CRLF line endings']) }}
-
-- name: Warn about quoted or CRLF .env values
-  ansible.builtin.debug:
-    msg: >-
-      Warning: {{ instance_path }}/.env has {{ _set_env_warn | join(' and ') }}.
-      Containers (docker --env-file) receive these literally, unlike
-      'canasta config get' which strips them — a common cause of restic
-      'wrong password' or backend auth failures. Remove surrounding quotes
-      and use LF line endings.
-  when: _set_env_warn | length > 0
-
-# If the instance is gitops-managed, update vars.yaml so the change
-# survives the next gitops pull (which re-renders .env from template).
-- name: Check for gitops instance
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.gitops-host"
-  register: _config_gitops_stat
-
-# The orchestrator owns the compose-vs-K8s decision (K8s gitops uses a
-# different layout, values.template.yaml, not vars.yaml); dispatch.
-- name: Update gitops vars for changed keys
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/config_update_gitops_vars.yml
-  when: _config_gitops_stat.stat.exists | default(false)
-
-- name: Regenerate Caddyfile after config change
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: update_config.yml
+- name: Set .env config values
+  ansible.builtin.include_tasks: _set_config.yml
+  when: not (secret | default(false) | bool)
 
 - name: Restart instance to apply changes
   when: not (no_restart | default(false) | bool)
@@ -78,4 +46,7 @@
 
 - name: Report settings applied
   ansible.builtin.debug:
-    msg: "Settings updated.{{ (no_restart | default(false) | bool) | ternary(' Restart skipped.', '') }}"
+    msg: >-
+      Settings updated.{{ (no_restart | default(false) | bool)
+      | ternary(' Restart skipped — run `canasta reconcile` to apply
+      the changes to the running instance.', '') }}

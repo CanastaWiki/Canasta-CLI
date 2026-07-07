@@ -3,7 +3,6 @@
 import os
 import sys
 
-import pytest
 import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
@@ -202,3 +201,56 @@ class TestDescriptionLint:
             "the YAML `default:` field — remove from the description:\n  "
             + "\n  ".join(offenders)
         )
+
+
+class TestAutoConfirmInvariant:
+    """canasta.py auto-prompts 'Continue? [y/N]' for any command whose
+    parameters include one named 'yes' (the destructive-confirmation net).
+    A command that is read-only unless --yes is given (so prompting before
+    it has done anything is wrong) must opt out with 'self_confirm: true'
+    and gate writes itself — e.g. 'config refresh-template' with no args
+    lists drift and must not prompt first.
+    """
+
+    def _real_commands(self):
+        repo_root = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        ))
+        defn_path = os.path.join(
+            repo_root, "meta", "command_definitions.yml",
+        )
+        with open(defn_path) as f:
+            return yaml.safe_load(f).get("commands", [])
+
+    def _canasta(self):
+        repo_root = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        ))
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        import canasta
+        return canasta
+
+    def test_refresh_template_opts_out_of_auto_confirm(self):
+        cmd = next(
+            c for c in self._real_commands()
+            if c["name"] == "config_refresh_template"
+        )
+        assert cmd.get("self_confirm") is True, (
+            "config_refresh_template defines a 'yes' parameter, so it must "
+            "set 'self_confirm: true' or canasta.py's auto-confirm prompt "
+            "fires on its read-only no-arg/preview modes."
+        )
+
+    def test_self_confirm_suppresses_the_prompt(self):
+        canasta = self._canasta()
+        yes_cmd = {"parameters": [{"name": "yes"}]}
+        # A plain destructive command (e.g. delete) still prompts.
+        assert canasta.should_prompt_confirmation(yes_cmd, False) is True
+        assert canasta.should_prompt_confirmation(yes_cmd, True) is False
+        # self_confirm opts out entirely.
+        optout = dict(yes_cmd, self_confirm=True)
+        assert canasta.should_prompt_confirmation(optout, False) is False
+        # No 'yes' parameter -> never prompts.
+        assert canasta.should_prompt_confirmation({"parameters": []}, False) \
+            is False

@@ -22,20 +22,37 @@
         name: argo
         repo_url: https://argoproj.github.io/argo-helm
 
-    - name: Install Argo CD via Helm
-      kubernetes.core.helm:
-        name: argocd
-        chart_ref: argo/argo-cd
-        release_namespace: "{{ argocd_namespace | default('argocd') }}"
-        create_namespace: true
-        wait: true
-        timeout: "10m"
-        values:
+    # Stage the chart values as a file so the helm invocation below can be a
+    # plain CLI command (no --set dotted-key escaping) and run through
+    # resilient_exec.
+    - name: Stage Argo CD Helm values on the target
+      ansible.builtin.copy:
+        dest: /tmp/canasta-argocd-values.yaml
+        mode: "0600"
+        content: |
           server:
             insecure: false
           configs:
             params:
               server.insecure: false
+
+    # Launched detached and polled (resilient_exec) so a controller-side SSH
+    # reset during the up-to-10m `--wait` doesn't abort an install still
+    # progressing on the target. helm upgrade --install is idempotent.
+    #
+    # The helm-sops CMP sidecar for encrypted secrets is NOT added here — it is
+    # overlaid onto this release at `gitops init --encrypt-secrets`
+    # (k8s_ensure_sops_sidecar.yml) so create stays orchestration-agnostic.
+    - name: Install Argo CD via Helm
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+      vars:
+        rx_name: "install Argo CD"
+        rx_async: 720
+        rx_cmd: >-
+          helm upgrade --install argocd argo/argo-cd
+          --namespace {{ argocd_namespace | default('argocd') }} --create-namespace
+          --wait --timeout 10m
+          -f /tmp/canasta-argocd-values.yaml
 
     - name: Report Argo CD installed
       ansible.builtin.debug:

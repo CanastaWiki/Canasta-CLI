@@ -1,0 +1,51 @@
+---
+# Build + push locally-built (`build:`) sidecar images to the in-cluster
+# registry, so the k8s pod can pull them. The chart references a build:
+# sidecar at 10.43.0.2:5000/canasta-<id>-<name>:local; this pushes to the
+# same repo path via the registry's loopback hostPort (localhost:5000).
+# Runs at start, before the Helm rollout. This is k8s-only: on Compose the
+# engine builds a build: sidecar's image locally (implicitly on `docker
+# compose up` when the image is missing, and via `docker compose build`
+# during `canasta upgrade`), whereas the kubelet can only pull — so the
+# image must be built and pushed to the in-cluster registry.
+#
+# Input: instance_path, instance_id
+
+- name: Read declared sidecars
+  canasta_sidecars_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _bs_read
+
+- name: Select sidecars built from a local context
+  ansible.builtin.set_fact:
+    _bs_build: "{{ _bs_read.sidecars | selectattr('build', 'defined') | list }}"
+
+- name: Build + push sidecar images
+  when: _bs_build | length > 0
+  block:
+    # Guarantee the registry exists (idempotent, no restart) so a build:
+    # sidecar never dead-ends on a missing registry — same as build-from.
+    - name: Ensure the in-cluster image registry
+      ansible.builtin.include_tasks: k8s_ensure_registry.yml
+
+    - name: Build each sidecar image from its context
+      ansible.builtin.command:
+        cmd: >-
+          docker build
+          -t localhost:5000/canasta-{{ instance_id }}-{{ item.name }}:local
+          {{ (instance_path ~ '/' ~ item.build) | quote }}
+      loop: "{{ _bs_build }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true
+
+    - name: Push each sidecar image to the registry
+      ansible.builtin.command:
+        cmd: >-
+          docker push
+          localhost:5000/canasta-{{ instance_id }}-{{ item.name }}:local
+      loop: "{{ _bs_build }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true

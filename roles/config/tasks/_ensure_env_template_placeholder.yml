@@ -1,8 +1,8 @@
 ---
 # Ensure env.template has a placeholder line for a single credential key.
 # Input: _ep_setting (str: "KEY=VALUE" or "KEY=...")
-# Requires: instance_path, gitops_placeholder_keys,
-#           gitops_secret_prefix_pattern
+# Requires: instance_path + the canonical classifier
+#           (canasta_secret_key_regex, canasta_host_specific_nonsecret)
 
 - name: Parse key
   ansible.builtin.set_fact:
@@ -11,8 +11,8 @@
 - name: Decide whether key should be a placeholder
   ansible.builtin.set_fact:
     _ep_needs_placeholder: >-
-      {{ _ep_key in gitops_placeholder_keys
-         or (_ep_key | regex_search(gitops_secret_prefix_pattern)) is not none }}
+      {{ (_ep_key | regex_search(canasta_secret_key_regex)) is not none
+         or _ep_key in canasta_host_specific_nonsecret }}
 
 - name: Add placeholder line to env.template
   ansible.builtin.lineinfile:

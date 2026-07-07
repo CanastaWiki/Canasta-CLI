@@ -1,9 +1,9 @@
 """Structural tests for K8s backup-scheduling tasks.
 
-These exercise YAML structure rather than runtime behavior — the
-playbook file is parsed, the CronJob block is located, and we
-assert that field-name conventions and K8s-side defaults are in
-place. They guard against regressions that show up only in
+These exercise YAML structure rather than runtime behavior — the K8s
+backup task files (k8s_run_backup.yml, restore_k8s.yml, the shared RBAC)
+are parsed and we assert that field-name conventions and K8s-side defaults
+are in place. They guard against regressions that show up only in
 production (slow failure feedback, missing history, etc.).
 
 End-to-end behavior is covered separately on a real cluster (see
@@ -11,19 +11,10 @@ issue #424).
 """
 
 import os
-import re
 
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-SCHEDULE_SET = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml",
-)
-
-
-def _load_tasks():
-    with open(SCHEDULE_SET) as f:
-        return yaml.safe_load(f)
 
 
 def _walk_tasks(tasks):
@@ -35,184 +26,6 @@ def _walk_tasks(tasks):
         for nested in ("block", "rescue", "always"):
             if nested in t:
                 yield from _walk_tasks(t[nested])
-
-
-def _find_cronjob_definition():
-    """Find the kubernetes.core.k8s task that creates the CronJob and
-    return its `definition` mapping.
-
-    schedule_set.yml has one CronJob-creating task; any future task
-    that also creates a CronJob would need its own assertion. The
-    `state: present` filter rules out the schedule_remove task that
-    deletes the same resource.
-    """
-    for task in _walk_tasks(_load_tasks()):
-        k8s = task.get("kubernetes.core.k8s") or task.get("k8s")
-        if not isinstance(k8s, dict):
-            continue
-        defn = k8s.get("definition") or {}
-        if defn.get("kind") == "CronJob" and k8s.get("state") == "present":
-            return defn
-    raise AssertionError(
-        "schedule_set.yml has no `state: present` CronJob task — "
-        "test environment expected one"
-    )
-
-
-class TestCronJobHistoryLimits:
-    """Both successful and failed history limits must be set on the
-    backup CronJob. K8s defaults (3 successful / 1 failed) silently
-    rotate failure context off the cluster faster than an operator
-    notices — see #499.
-    """
-
-    def test_successful_jobs_history_limit_set(self):
-        spec = _find_cronjob_definition()["spec"]
-        assert "successfulJobsHistoryLimit" in spec, (
-            "CronJob.spec.successfulJobsHistoryLimit is missing — set "
-            "an explicit value rather than relying on the K8s default."
-        )
-        assert isinstance(spec["successfulJobsHistoryLimit"], int)
-        assert spec["successfulJobsHistoryLimit"] > 0
-
-    def test_failed_jobs_history_limit_set(self):
-        spec = _find_cronjob_definition()["spec"]
-        assert "failedJobsHistoryLimit" in spec, (
-            "CronJob.spec.failedJobsHistoryLimit is missing — set "
-            "an explicit value (the default 1 rotates failure logs "
-            "out before the operator notices)."
-        )
-        assert isinstance(spec["failedJobsHistoryLimit"], int)
-        # Failed jobs are MORE valuable than successful ones for
-        # post-mortem; expect at least 3.
-        assert spec["failedJobsHistoryLimit"] >= 3, (
-            "failedJobsHistoryLimit < 3 — keep at least a week of "
-            "daily failures around for post-mortem."
-        )
-
-    def test_concurrency_policy_forbid(self):
-        """A long-running backup must not double-fire — Forbid skips
-        the next firing if the previous Job is still running."""
-        spec = _find_cronjob_definition()["spec"]
-        assert spec.get("concurrencyPolicy") == "Forbid", (
-            "CronJob.spec.concurrencyPolicy must be 'Forbid' so a "
-            "long-running backup doesn't get a parallel firing."
-        )
-
-
-class TestBackupEnvSecret:
-    """Both the init container (DB dump) and the restic container in
-    the scheduled CronJob must envFrom the same canasta-<id>-backup-
-    env Secret. That Secret is the only path for cloud-backend creds
-    (#497) and external-DB host/user (#498) to reach the Job."""
-
-    @staticmethod
-    def _pod_template(spec):
-        return spec["jobTemplate"]["spec"]["template"]["spec"]
-
-    def _expected_secret_name(self):
-        return 'canasta-{{ instance_id }}-backup-env'
-
-    def test_dump_databases_init_container_envfroms_backup_secret(self):
-        spec = _find_cronjob_definition()["spec"]
-        init = self._pod_template(spec)["initContainers"][0]
-        assert init["name"] == "dump-databases"
-        env_from = init.get("envFrom") or []
-        assert env_from, (
-            "dump-databases initContainer must envFrom the backup-env "
-            "Secret — without it MYSQL_HOST/USER fall back to in-script "
-            "defaults and external-DB instances fail (#498)."
-        )
-        names = [e.get("secretRef", {}).get("name") for e in env_from]
-        assert self._expected_secret_name() in names
-
-    def test_restic_container_envfroms_backup_secret(self):
-        spec = _find_cronjob_definition()["spec"]
-        containers = self._pod_template(spec)["containers"]
-        restic = next(c for c in containers if c["name"] == "restic")
-        env_from = restic.get("envFrom") or []
-        assert env_from, (
-            "restic container must envFrom the backup-env Secret — "
-            "without it cloud backends (S3/B2/Azure/GCS) can't "
-            "authenticate (#497)."
-        )
-        names = [e.get("secretRef", {}).get("name") for e in env_from]
-        assert self._expected_secret_name() in names
-
-    def test_init_container_writes_to_writable_dumps_volume(self):
-        """The init container's mariadb-dump output must land in a
-        writable volume. Previously dumped to /currentsnapshot/config
-        which is the read-only ConfigMap mount — every scheduled run
-        crashed with "Read-only file system" until the dumps emptyDir
-        was added."""
-        spec = _find_cronjob_definition()["spec"]
-        init = self._pod_template(spec)["initContainers"][0]
-        assert init["name"] == "dump-databases"
-
-        mounted = {m["name"] for m in init.get("volumeMounts") or []}
-        assert "web-config" not in mounted, (
-            "dump-databases initContainer should not mount the "
-            "read-only web-config ConfigMap; use the writable dumps "
-            "emptyDir for SQL files."
-        )
-        assert "dumps" in mounted, (
-            "dump-databases initContainer must mount the dumps "
-            "emptyDir to write SQL files."
-        )
-
-        cmd = " ".join(init["command"])
-        # The dump path must align with what restore_k8s.yml looks
-        # for (it iterates /currentsnapshot/config/backup/db_*.sql).
-        # Diverging paths here would make scheduled-snapshot restores
-        # silently skip the DB restore step.
-        assert "/currentsnapshot/config/backup/" in cmd, (
-            "dump-databases script must write to "
-            "/currentsnapshot/config/backup/ to match the path "
-            "restore_k8s.yml reads from."
-        )
-
-    def test_dumps_volume_is_emptydir_at_config_backup_subpath(self):
-        """The dumps volume must mount AT /currentsnapshot/config/backup
-        in both the init container (writable) and the restic container
-        (read-only) so SQL files are captured at the same path the
-        on-demand backup path uses — keeps restore_k8s.yml happy with
-        a single path."""
-        spec = _find_cronjob_definition()["spec"]
-        pod = self._pod_template(spec)
-
-        volumes = {v["name"]: v for v in pod["volumes"]}
-        assert "dumps" in volumes
-        assert "emptyDir" in volumes["dumps"]
-
-        # Init container — writable mount at the canonical dump path
-        init = pod["initContainers"][0]
-        init_dumps = [m for m in init.get("volumeMounts") or []
-                      if m["name"] == "dumps"]
-        assert len(init_dumps) == 1
-        assert init_dumps[0]["mountPath"] == "/currentsnapshot/config/backup"
-
-        # Restic container — same path, this time read-only
-        restic = next(c for c in pod["containers"] if c["name"] == "restic")
-        restic_dumps = [m for m in restic.get("volumeMounts") or []
-                        if m["name"] == "dumps"]
-        assert len(restic_dumps) == 1
-        assert restic_dumps[0]["mountPath"] == "/currentsnapshot/config/backup"
-
-    def test_no_inline_restic_env_anymore(self):
-        """The pre-fix layout passed RESTIC_REPOSITORY/PASSWORD as
-        inline `env:` entries. After #497 the Secret is the canonical
-        source — drift back to inline values would silently re-break
-        cloud backends, so guard against it."""
-        spec = _find_cronjob_definition()["spec"]
-        containers = self._pod_template(spec)["containers"]
-        restic = next(c for c in containers if c["name"] == "restic")
-        inline_env = restic.get("env") or []
-        names = [e.get("name") for e in inline_env]
-        for forbidden in ("RESTIC_REPOSITORY", "RESTIC_PASSWORD"):
-            assert forbidden not in names, (
-                "%s must come from the backup-env Secret, not an "
-                "inline env entry (#497)." % forbidden
-            )
 
 
 class TestBackupEnvSecretSyncTask:
@@ -245,113 +58,26 @@ class TestBackupEnvSecretSyncTask:
         )
 
     def test_filter_covers_known_backup_env_prefixes(self):
-        """The filter regex must match every prefix the consumers
-        rely on. Keeping the assertion explicit makes a future
-        accidental tightening of the filter visible in tests."""
+        """The backup-env filter must cover every backup-backend prefix (via
+        the canonical list) plus the DB keys the dump-databases init container
+        needs. RCLONE_ was historically absent and broke restic rclone on K8s."""
         with open(self.SYNC_PATH) as f:
             content = f.read()
-        for prefix_or_key in (
-            "RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_", "ST_",
-            "MYSQL_HOST", "MYSQL_USER", "MYSQL_PASSWORD",
-        ):
-            assert prefix_or_key in content, (
-                "k8s_sync_config.yml's backup-env filter must "
-                "cover %r (used by restic backends or the "
-                "dump-databases init container)." % prefix_or_key
+        assert "canasta_backup_backend_prefixes" in content, (
+            "backup-env filter must build from the canonical backend list"
+        )
+        for db_key in ("MYSQL_HOST", "MYSQL_USER", "MYSQL_PASSWORD"):
+            assert db_key in content, (
+                "backup-env filter must include %r for the dump-databases "
+                "init container." % db_key
             )
-
-
-class TestK8sSecretBackupCapture:
-    """Guard #510: canasta-managed K8s Secrets must land in the
-    restic snapshot. Without them, a fresh-cluster restore can bring
-    back the DB content but no new wiki pod can authenticate against
-    it (MYSQL_PASSWORD is in the K8s Secret, not in the DB itself).
-    """
-
-    @staticmethod
-    def _pod_template(spec):
-        return spec["jobTemplate"]["spec"]["template"]["spec"]
-
-    def test_dump_secrets_init_container_present(self):
-        spec = _find_cronjob_definition()["spec"]
-        init_names = {c["name"]
-                      for c in self._pod_template(spec)["initContainers"]}
-        assert "dump-secrets" in init_names, (
-            "schedule_set.yml CronJob must include a 'dump-secrets' "
-            "init container that captures canasta-managed K8s Secrets "
-            "into the restic snapshot. Without it, fresh-cluster "
-            "restore loses MYSQL_PASSWORD/MW_SECRET_KEY (#510)."
-        )
-
-    def test_dump_secrets_writes_to_canonical_path(self):
-        spec = _find_cronjob_definition()["spec"]
-        init = next(c for c in self._pod_template(spec)["initContainers"]
-                    if c["name"] == "dump-secrets")
-        cmd = " ".join(init["command"])
-        # Path must align with where restore_k8s.yml looks for the
-        # secrets file (alongside DB dumps, under the dumps emptyDir).
-        assert "/currentsnapshot/config/backup/secrets-" in cmd, (
-            "dump-secrets must write to "
-            "/currentsnapshot/config/backup/secrets-<id>.yaml "
-            "to align with restore_k8s.yml's lookup path."
-        )
-
-    def test_dump_secrets_targets_db_credentials_and_mw_secrets(self):
-        """Dump by explicit name (not label-selector) so this works
-        on instances pre-dating any canasta-managed-by label
-        convention."""
-        spec = _find_cronjob_definition()["spec"]
-        init = next(c for c in self._pod_template(spec)["initContainers"]
-                    if c["name"] == "dump-secrets")
-        cmd = " ".join(init["command"])
-        assert "-db-credentials" in cmd, (
-            "dump-secrets must include the <id>-db-credentials Secret "
-            "(carries MYSQL_PASSWORD)"
-        )
-        assert "-mw-secrets" in cmd, (
-            "dump-secrets must include the <id>-mw-secrets Secret "
-            "(carries MW_SECRET_KEY)"
-        )
-
-    def test_dump_secrets_does_not_capture_backup_env(self):
-        """The canasta-<id>-backup-env Secret carries the credentials
-        needed to READ the snapshot. Including it in the snapshot is
-        chicken-and-egg — operator can't get the bootstrap creds
-        without the snapshot, can't read the snapshot without the
-        creds. Out of scope per #510."""
-        spec = _find_cronjob_definition()["spec"]
-        init = next(c for c in self._pod_template(spec)["initContainers"]
-                    if c["name"] == "dump-secrets")
-        cmd = " ".join(init["command"])
-        assert "backup-env" not in cmd, (
-            "dump-secrets must NOT include the backup-env Secret "
-            "(creds-to-read-the-snapshot must not live IN the snapshot)"
-        )
-
-    def test_dump_secrets_mounts_dumps_emptydir(self):
-        """The init container must mount the same dumps emptyDir the
-        SQL dumps go into, so the secrets file ends up in the
-        snapshot tree restic backs up."""
-        spec = _find_cronjob_definition()["spec"]
-        init = next(c for c in self._pod_template(spec)["initContainers"]
-                    if c["name"] == "dump-secrets")
-        mounts = {m["name"]: m for m in init.get("volumeMounts") or []}
-        assert "dumps" in mounts
-        assert mounts["dumps"]["mountPath"] == "/currentsnapshot/config/backup"
-
-    def test_pod_uses_dedicated_serviceaccount(self):
-        """The dump-secrets init container needs RBAC to read Secrets;
-        the default ServiceAccount has no such permission."""
-        spec = _find_cronjob_definition()["spec"]
-        sa = self._pod_template(spec).get("serviceAccountName")
-        assert sa, (
-            "Backup CronJob Pod must specify a serviceAccountName — "
-            "dump-secrets needs Secret-read RBAC the default SA lacks"
-        )
-        assert "canasta-backup-" in sa, (
-            "ServiceAccount name should be canasta-backup-<id> for "
-            "consistency with the Role/RoleBinding created alongside"
-        )
+        classifier = yaml.safe_load(open(os.path.join(
+            REPO_ROOT, "vars", "secret_classification.yml")).read())
+        for prefix in ("RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_",
+                       "ST_", "RCLONE_"):
+            assert prefix in classifier["canasta_backup_backend_prefixes"], (
+                "%r must be a backup-backend prefix." % prefix
+            )
 
 
 class TestK8sSecretBackupRBAC:
@@ -360,9 +86,9 @@ class TestK8sSecretBackupRBAC:
     only the two Secret names we dump, only `get` verb, namespace-
     local. Least-privilege RBAC.
 
-    Source of truth is roles/backup/tasks/_k8s_backup_rbac.yml — both
-    the CronJob path (schedule_set.yml) and the on-demand path
-    (k8s_run_backup.yml) include this file (#513 refactor)."""
+    Source of truth is roles/backup/tasks/_k8s_backup_rbac.yml — the
+    on-demand backup path (k8s_run_backup.yml) includes this file
+    (#513 refactor)."""
 
     SHARED_RBAC_PATH = os.path.join(
         REPO_ROOT, "roles", "backup", "tasks", "_k8s_backup_rbac.yml",
@@ -382,14 +108,14 @@ class TestK8sSecretBackupRBAC:
     def test_serviceaccount_created(self):
         sas = list(self._find_resources("ServiceAccount"))
         assert len(sas) >= 1, (
-            "schedule_set.yml must create a ServiceAccount for the "
+            "the shared RBAC file must create a ServiceAccount for the "
             "backup Pod (#510)"
         )
 
     def test_role_grants_only_get_on_named_secrets(self):
         roles = list(self._find_resources("Role"))
         assert len(roles) >= 1, (
-            "schedule_set.yml must create a Role granting Secret read "
+            "the shared RBAC file must create a Role granting Secret read "
             "to the backup ServiceAccount (#510)"
         )
         rules = roles[0]["rules"]
@@ -547,6 +273,58 @@ class TestK8sRestorePreservesCurrentDBPassword:
         )
 
 
+class TestK8sRestoreFailsLoudlyOnResticError:
+    """#748: a restore must NOT report success when restic actually failed
+    (repo unreachable, wrong password, snapshot missing). The pod captures
+    restic's exit code + output, and the controller fails loudly on a fatal
+    error while still tolerating the benign xattr exit 1."""
+
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def _content(self):
+        with open(self.RESTORE_K8S) as f:
+            return f.read()
+
+    def test_pod_captures_restic_exit_code_and_log(self):
+        content = self._content()
+        assert "echo $? > /tmp/restore-rc" in content, (
+            "the restore pod must capture restic's exit code so the "
+            "controller can tell a real failure from benign xattr noise"
+        )
+        assert "/tmp/restore-log" in content, (
+            "the restore pod must capture restic's output for diagnosis"
+        )
+
+    def test_fails_loudly_on_fatal_restic_error(self):
+        content = self._content()
+        assert "Fail when restic restore reported a fatal error" in content, (
+            "restore_k8s.yml must have an explicit fail task for fatal "
+            "restic errors so a failed restore is not reported as success"
+        )
+        # Gated on a non-zero rc AND restic's 'Fatal:' marker, so the
+        # benign xattr exit 1 (no Fatal) is tolerated, not aborted.
+        assert "is search('Fatal')" in content, (
+            "the fail must key on restic's 'Fatal:' marker to distinguish "
+            "real failures from the xattr-on-overlay exit 1"
+        )
+        assert "_restore_rc" in content
+
+    def test_fails_when_exit_code_unreadable(self):
+        # If the rc can't be read (e.g. the pod died after the sentinel but
+        # before the read), the restore is unconfirmed and must abort, not
+        # fall through to a false success.
+        content = self._content()
+        assert "Fail when the restic restore exit code is unreadable" in content, (
+            "restore_k8s.yml must abort when the exit code can't be read, "
+            "closing the dead-pod-after-sentinel false-success window"
+        )
+        assert "is not match('^[0-9]+$')" in content, (
+            "the unreadable-rc guard must require the rc to be a clean integer"
+        )
+
+
 class TestOnDemandBackupCapturesDB:
     """Guard #513: on-demand 'canasta backup create' on K8s must
     capture the wiki database. Pre-fix the dump ran via 'kubectl
@@ -620,8 +398,7 @@ class TestOnDemandBackupCapturesDB:
                     )
                     assert "dump-secrets" in names, (
                         "Backup-op init containers must include "
-                        "dump-secrets (matches scheduled CronJob, "
-                        "consolidates with #510)"
+                        "dump-secrets (#510)"
                     )
                     found_backup_op_conditional = True
         assert found_default_empty, (
@@ -638,7 +415,7 @@ class TestOnDemandBackupCapturesDB:
     def test_dumps_volume_added_for_backup_ops(self):
         """The dumps emptyDir + mount-on-mount under
         /currentsnapshot/config/backup must exist when backup-op,
-        matching the schedule_set.yml CronJob's pattern."""
+        matching the on-demand backup Job's pattern."""
         with open(self.K8S_RUN_BACKUP) as f:
             content = f.read()
         # Both the volume and the mount point must be added together
@@ -688,12 +465,51 @@ class TestOnDemandBackupCapturesDB:
             "backup_stage_db_dumps.yml has no 'Dump each wiki database' task"
         )
 
+    def _dump_databases_script(self):
+        """The shell script of the dump-databases init container."""
+        for task in self._walk(self._load_run_backup()):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if not (isinstance(sf, dict) and "_backup_init_containers" in sf):
+                continue
+            value = sf["_backup_init_containers"]
+            if not isinstance(value, list):
+                continue
+            for c in value:
+                if isinstance(c, dict) and c.get("name") == "dump-databases":
+                    cmd = c.get("command", [])
+                    return cmd[-1] if cmd else ""
+        return ""
+
+    def test_dump_databases_fails_loudly_on_db_error(self):
+        """A DB connection/auth failure must FAIL the backup, not
+        silently snapshot without the database. The original
+        'for db in $(mariadb ... SHOW DATABASES)' form swallowed the
+        failure: an empty command substitution ran the loop zero times,
+        wrote no dump, and exited 0 — producing a 'successful' snapshot
+        with no database (silent data loss)."""
+        script = self._dump_databases_script()
+        assert script, "dump-databases init container command not found"
+        assert "SHOW DATABASES" in script
+        assert "exit 1" in script, (
+            "dump-databases must exit non-zero when it cannot list or "
+            "dump the database, so the backup Job fails instead of "
+            "silently saving a snapshot without the database"
+        )
+        # Guard against the original silent-failure shape: looping
+        # directly over the command substitution runs zero times (and
+        # exits 0) when SHOW DATABASES fails.
+        normalized = " ".join(script.split())
+        assert "for db in $(mariadb" not in normalized, (
+            "dump-databases must not loop directly over "
+            "$(mariadb ... SHOW DATABASES) — a failed substitution "
+            "silently skips the dump; capture the list first and check it"
+        )
+
 
 class TestSharedBackupRBAC:
     """The SA + Role + RoleBinding live in roles/backup/tasks/
-    _k8s_backup_rbac.yml so the CronJob (schedule_set.yml) and the
-    on-demand Job (k8s_run_backup.yml) stay in lockstep. Schedule_set
-    must include the shared file (refactored per #513)."""
+    _k8s_backup_rbac.yml so the on-demand backup Job (k8s_run_backup.yml)
+    gets least-privilege RBAC (refactored per #513)."""
 
     SHARED_RBAC = os.path.join(
         REPO_ROOT, "roles", "backup", "tasks", "_k8s_backup_rbac.yml",
@@ -718,17 +534,6 @@ class TestSharedBackupRBAC:
         assert kinds == ["ServiceAccount", "Role", "RoleBinding"], (
             "Shared RBAC file must create exactly: ServiceAccount, "
             "Role, RoleBinding (got %r)" % kinds
-        )
-
-    def test_schedule_set_uses_shared_include(self):
-        """schedule_set.yml must include the shared file rather than
-        defining its own copy — single source of truth, no drift."""
-        with open(SCHEDULE_SET) as f:
-            content = f.read()
-        assert "_k8s_backup_rbac.yml" in content, (
-            "schedule_set.yml must include the shared "
-            "_k8s_backup_rbac.yml task file (refactored per #513 to "
-            "share with k8s_run_backup.yml)"
         )
 
 
@@ -863,13 +668,9 @@ class TestDiffComposeMatchRegex:
 class TestDumpSecretsStripsEphemeralMetadata:
     """`kubectl get secret -o yaml` emits resourceVersion, uid, and
     creationTimestamp. `kubectl apply -f` then refuses to apply,
-    erroring with 'object has been modified'. Both dump-secrets init
-    containers (scheduled CronJob + on-demand Job) must strip those
-    fields with sed."""
+    erroring with 'object has been modified'. The dump-secrets init
+    container (on-demand backup Job) must strip those fields with sed."""
 
-    SCHEDULE_SET = os.path.join(
-        REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml",
-    )
     K8S_RUN_BACKUP = os.path.join(
         REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml",
     )
@@ -889,14 +690,6 @@ class TestDumpSecretsStripsEphemeralMetadata:
                 "creationTimestamp",
                 "sed",
             )
-        )
-
-    def test_schedule_set_strips_metadata(self):
-        assert self._has_strip_in_dump_secrets(self.SCHEDULE_SET), (
-            "schedule_set.yml dump-secrets must sed-strip "
-            "resourceVersion / uid / creationTimestamp; without it "
-            "kubectl apply at restore time fails with 'object has "
-            "been modified' resourceVersion conflict"
         )
 
     def test_k8s_run_backup_strips_metadata(self):
@@ -969,9 +762,12 @@ class TestK8sRestoreCloudBackendDoesNotMountHostPath:
         volumes/volumeMounts. Inline values would re-introduce the
         unconditional hostPath mount that #519 was about."""
         c = self._content()
-        # The Create restore pod block should reference the facts
-        idx = c.find("Create restore pod")
-        block = c[idx:idx + 1500]
+        # Scope to the Create-restore-pod task (up to the next task) rather
+        # than a fixed char window, so additions to the Pod spec don't push
+        # the volume facts out of range.
+        idx = c.find("- name: Create restore pod")
+        end = c.find("- name: Wait for restore pod", idx)
+        block = c[idx:end] if end != -1 else c[idx:]
         assert "_restore_volume_mounts" in block, (
             "Create restore pod must read volumeMounts from "
             "_restore_volume_mounts fact (built conditionally)"
@@ -1081,4 +877,106 @@ class TestK8sRestoreUsesWebPodForDbImport:
             "Import command must not use _restore_dbpass.value — that "
             "ties auth to the controller-side .env read instead of the "
             "pod env vars that match the running cluster"
+        )
+
+
+class TestK8sBackupLocalRepoNodeAffinity:
+    """#749: a local-path restic repo is a node-local hostPath, so the
+    restore Pod must pin to one node (the control-plane). The backup Job
+    additionally hostPath-mounts the cp
+    node's config/ and .env (so it captures the full on-disk config, not
+    the web-config ConfigMap subset), so it pins to the control-plane
+    unconditionally — there's no cloud-unpinned exception for it. The
+    restore Pod reads only the repo, so cloud restores stay node-agnostic."""
+
+    RUN_BACKUP = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml")
+    RESTORE = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+    SCHEDULE = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml")
+
+    @staticmethod
+    def _read(path):
+        with open(path) as f:
+            return f.read()
+
+    def test_backup_job_always_pins_to_control_plane(self):
+        # The backup Job hostPath-mounts the cp node's config/ and .env,
+        # so it must run on the control-plane node for every repo type —
+        # the old cloud-unpinned conditional is gone.
+        c = self._read(self.RUN_BACKUP)
+        assert "_restic_node_selector" in c
+        assert 'nodeSelector: "{{ _restic_node_selector }}"' in c
+        assert "node-role.kubernetes.io/control-plane" in c
+        assert "if (_restic_local_repo | bool) else {}" not in c
+
+    def test_backup_job_hostpath_mounts_config_and_env(self):
+        # The full on-disk config tree + .env are snapshotted from the cp
+        # node (parity with Compose), not the web-config ConfigMap subset.
+        c = self._read(self.RUN_BACKUP)
+        assert "instance-config" in c and "instance-env" in c
+        assert 'path: "{{ instance_path }}/config"' in c
+        assert 'path: "{{ instance_path }}/.env"' in c
+        # The web-config ConfigMap is no longer a backup volume source.
+        assert 'name: "canasta-{{ instance_id }}-web-config"' not in c
+
+    def test_restore_pod_pins_local_repo_to_control_plane(self):
+        c = self._read(self.RESTORE)
+        assert "_restore_node_selector" in c
+        assert 'nodeSelector: "{{ _restore_node_selector }}"' in c
+        assert "node-role.kubernetes.io/control-plane" in c
+
+    def test_restore_cloud_backend_is_not_pinned(self):
+        # The restore Pod reads only the repo (no cp-node hostPath), so a
+        # cloud-backend restore stays node-agnostic.
+        r = self._read(self.RESTORE)
+        assert "if (_restore_local_repo | bool) else {}" in r
+
+
+class TestBackupEnvSecretAppliedBeforeJob:
+    """`config set RESTIC_* --no-restart` updates .env but skips the
+    k8s_sync_config that rebuilds the canasta-<id>-backup-env Secret. So
+    backup/restore must re-apply that Secret from .env right before
+    launching their Job/pod — otherwise restic fails with 'Please specify
+    repository location'."""
+
+    APPLY_SECRET = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks",
+        "k8s_apply_backup_env_secret.yml",
+    )
+    RUN_BACKUP = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml",
+    )
+    RESTORE_K8S = os.path.join(
+        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    )
+
+    def test_apply_secret_task_exists_and_builds_secret(self):
+        assert os.path.isfile(self.APPLY_SECRET), (
+            "k8s_apply_backup_env_secret.yml must exist"
+        )
+        with open(self.APPLY_SECRET) as f:
+            content = f.read()
+        assert "-backup-env" in content, "must apply the backup-env Secret"
+        assert "RESTIC_" in content, "must filter RESTIC_* (and friends)"
+
+    def test_backup_applies_secret_before_job(self):
+        with open(self.RUN_BACKUP) as f:
+            content = f.read()
+        i = content.find("k8s_apply_backup_env_secret.yml")
+        j = content.find("Create restic Job")
+        assert 0 <= i < j, (
+            "k8s_run_backup.yml must apply the backup-env Secret before "
+            "creating the restic Job"
+        )
+
+    def test_restore_applies_secret_before_pod(self):
+        with open(self.RESTORE_K8S) as f:
+            content = f.read()
+        i = content.find("k8s_apply_backup_env_secret.yml")
+        j = content.find("Create restore pod")
+        assert 0 <= i < j, (
+            "restore_k8s.yml must apply the backup-env Secret before "
+            "creating the restore pod"
         )

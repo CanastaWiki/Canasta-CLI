@@ -3,7 +3,6 @@
 
 """Ansible module for reading and writing Canasta .env files.
 
-Replaces the Go canasta.GetEnvVariable/SaveEnvVariable functions.
 Handles comments, quoted values, and values containing '=' characters.
 """
 
@@ -16,7 +15,7 @@ module: canasta_env
 short_description: Manage Canasta .env files
 description:
   - Read, set, and unset variables in a Canasta instance .env file.
-  - Compatible with the Go CLI's .env file format.
+  - Operates on the standard .env file format.
 options:
   path:
     description: Path to the .env file.
@@ -47,7 +46,10 @@ from ansible.module_utils.basic import AnsibleModule
 def parse_env_file(content):
     """Parse a .env file into an ordered list of (key, value, is_comment) tuples.
 
-    Preserves ordering, comments, and blank lines for faithful round-tripping.
+    `value` has surrounding quotes stripped, for reads. Preserves ordering,
+    comments, and blank lines. To rewrite the file while keeping untouched
+    lines (and their quoting) verbatim, use parse_env_lines / set_line /
+    unset_lines / lines_to_content instead.
     """
     entries = []
     for line in content.split("\n"):
@@ -59,7 +61,7 @@ def parse_env_file(content):
         if len(parts) == 2:
             key = parts[0].strip()
             value = parts[1].strip()
-            # Strip surrounding quotes (double or single)
+            # Strip surrounding quotes (double or single) for the read value.
             if len(value) >= 2:
                 if (value.startswith('"') and value.endswith('"')) or \
                    (value.startswith("'") and value.endswith("'")):
@@ -69,6 +71,60 @@ def parse_env_file(content):
             # Malformed line, preserve as-is
             entries.append((None, line, True))
     return entries
+
+
+def _key_of(line):
+    """Return the key defined by a raw .env line, or None for comments,
+    blanks, and malformed lines. Tolerates a trailing CR (CRLF files)."""
+    stripped = line.rstrip("\r").strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    parts = stripped.split("=", 1)
+    if len(parts) != 2:
+        return None
+    return parts[0].strip()
+
+
+def raw_value_of(line):
+    """Return the un-stripped value text of a raw 'key=value' line (quotes
+    intact), or None if the line does not define a key."""
+    if _key_of(line) is None:
+        return None
+    return line.rstrip("\r").strip().split("=", 1)[1].strip()
+
+
+def parse_env_lines(content):
+    """Split content into raw lines, preserving them verbatim for rewriting."""
+    return content.split("\n")
+
+
+def lines_to_content(lines):
+    return "\n".join(lines)
+
+
+def set_line(lines, key, value):
+    """Rewrite the first line defining `key` as an unquoted 'key=value',
+    dropping later duplicates and appending if absent. Untouched lines are
+    kept verbatim so their quoting (and any inline '#') survives.
+    """
+    found = False
+    new_lines = []
+    for line in lines:
+        if _key_of(line) == key:
+            if not found:
+                new_lines.append("%s=%s" % (key, value))
+                found = True
+            # Drop duplicate definitions of the same key.
+        else:
+            new_lines.append(line)
+    if not found:
+        new_lines.append("%s=%s" % (key, value))
+    return new_lines
+
+
+def unset_lines(lines, key):
+    """Remove every line defining `key`, keeping other lines verbatim."""
+    return [line for line in lines if _key_of(line) != key]
 
 
 def lint_env_file(content):
@@ -127,7 +183,7 @@ def entries_to_content(entries):
 def set_variable(entries, key, value):
     """Set a variable, updating in place if it exists or appending if not.
 
-    Matches Go behavior: updates first occurrence, skips duplicate lines for same key.
+    Updates the first occurrence, skips duplicate lines for the same key.
     """
     found = False
     new_entries = []
@@ -207,12 +263,20 @@ def run_module():
         if value is None:
             module.fail_json(msg="value is required when state=set")
             return
-        old_value = env_dict.get(key)
-        if old_value != value:
+        lines = parse_env_lines(content)
+        # Compare against the raw (un-stripped) value so a quote-only change
+        # (KEY="secret" -> KEY=secret) is detected and repaired, and so an
+        # already-clean identical value stays idempotent.
+        old_raw = None
+        for line in lines:
+            if _key_of(line) == key:
+                old_raw = raw_value_of(line)
+                break
+        if old_raw != value:
             changed = True
-            entries = set_variable(entries, key, value)
+            new_lines = set_line(lines, key, value)
             if not module.check_mode:
-                new_content = entries_to_content(entries)
+                new_content = lines_to_content(new_lines)
                 with open(path, "w") as f:
                     f.write(new_content)
         result["changed"] = changed
@@ -223,13 +287,14 @@ def run_module():
         if not keys:
             module.fail_json(msg="key or keys is required when state=unset")
             return
+        lines = parse_env_lines(content)
         for k in keys:
             if k in env_dict:
                 changed = True
-                entries = unset_variable(entries, k)
+                lines = unset_lines(lines, k)
                 del env_dict[k]
         if changed and not module.check_mode:
-            new_content = entries_to_content(entries)
+            new_content = lines_to_content(lines)
             with open(path, "w") as f:
                 f.write(new_content)
         result["changed"] = changed

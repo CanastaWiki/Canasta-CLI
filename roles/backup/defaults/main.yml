@@ -1,3 +1,0 @@
----
-# Defaults for the backup role.
-canasta_backup_service: web

@@ -1,7 +1,6 @@
 """start, stop, restart, scale — lifecycle commands."""
 
 import os
-import re
 import subprocess
 import sys
 
@@ -9,56 +8,6 @@ import yaml
 
 from . import _helpers
 from ._helpers import register
-
-
-# _k8s_namespace lives in _helpers.py — _exec_in_container (a shared
-# helper) needs it too, so it can't be lifecycle-only.
-_k8s_namespace = _helpers._k8s_namespace
-
-
-def _run_kubectl(kubectl_args, timeout=30):
-    """Run a kubectl command. Returns exit code."""
-    cmd = ["kubectl"] + kubectl_args
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        if result.stdout.strip():
-            print(result.stdout.strip())
-        if result.returncode != 0 and result.stderr.strip():
-            print(result.stderr.strip(), file=sys.stderr)
-        return result.returncode
-    except (subprocess.TimeoutExpired, OSError) as e:
-        print("Error: %s" % e, file=sys.stderr)
-        return 1
-
-
-def _k8s_stop(instance_id):
-    """Stop a K8s instance: suspend Argo CD sync, scale everything to 0."""
-    ns = _k8s_namespace(instance_id)
-
-    result = subprocess.run(
-        ["kubectl", "get", "application", "canasta-%s" % instance_id,
-         "-n", "argocd", "-o", "jsonpath={.metadata.name}"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if result.returncode == 0:
-        _run_kubectl([
-            "patch", "application", "canasta-%s" % instance_id,
-            "-n", "argocd", "--type", "merge",
-            "-p", '{"spec":{"syncPolicy":null}}',
-        ])
-
-    _run_kubectl(["scale", "deployment", "--all", "--replicas=0", "-n", ns])
-
-    # External-DB instances with Elasticsearch disabled have no
-    # StatefulSets; 'kubectl scale --all' errors with "no objects
-    # passed to scale". Check first and skip if none exist.
-    sts_check = subprocess.run(
-        ["kubectl", "get", "statefulset", "-n", ns, "-o", "name"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if sts_check.returncode == 0 and sts_check.stdout.strip():
-        _run_kubectl(["scale", "statefulset", "--all", "--replicas=0", "-n", ns])
-    return 0
 
 
 @register("start")
@@ -69,6 +18,8 @@ def cmd_start(args):
         # these are multi-step controller-to-remote operations that
         # need Ansible.
         return _helpers.FALLBACK
+    if _helpers._instance_has_sidecars(inst):
+        return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
     _helpers._sync_compose_profiles(inst)
     rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
     if rc != 0:
@@ -80,8 +31,23 @@ def cmd_start(args):
 def cmd_stop(args):
     inst_id, inst = _helpers._resolve_instance(args)
     if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
-        return _k8s_stop(inst_id)
-    return _helpers._run_compose(inst_id, inst, ["down"])
+        # K8s stop suspends Argo CD sync and scales the instance's
+        # workloads to 0 — kubectl must run on the instance's host
+        # (where the cluster kubeconfig lives), not the controller.
+        # Ansible resolves the host and switches the connection.
+        return _helpers.FALLBACK
+    if _helpers._instance_has_sidecars(inst):
+        return _helpers.FALLBACK  # Ansible includes the sidecar -f layer.
+    # Reconcile COMPOSE_PROFILES before `down`: docker compose down only tears
+    # down services in the active profiles, so a drifted profile set leaves a
+    # running container as an unmanaged orphan. Sync first so `down` covers the
+    # full intended set.
+    _helpers._sync_compose_profiles(inst)
+    # --remove-orphans sweeps a sidecar container left over from a sidecar
+    # that was just removed: sidecars.yaml is now empty (so we take this
+    # non-sidecar path), but its docker-compose.sidecars.yml entry and
+    # running container still linger and a plain `down` would not touch them.
+    return _helpers._run_compose(inst_id, inst, ["down", "--remove-orphans"])
 
 
 @register("restart")
@@ -90,10 +56,20 @@ def cmd_restart(args):
     if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
         # K8s restart needs Ansible for the start half (helm deploy).
         return _helpers.FALLBACK
-    rc = _helpers._run_compose(inst_id, inst, ["down"])
+    if _helpers._instance_has_sidecars(inst):
+        return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
+    # Reconcile COMPOSE_PROFILES BEFORE `down` so `down` and `up` act on the
+    # same service set. Previously the sync ran only between down and up: with a
+    # drifted profile set (e.g. missing varnish), `down` skipped that service,
+    # then `up -d` recreated web/caddy on new IPs while the survivor kept stale
+    # state — the Varnish stale-backend redirect loop.
+    _helpers._sync_compose_profiles(inst)
+    # --remove-orphans sweeps a sidecar container left over from a sidecar
+    # that was just removed (sidecars.yaml is empty so we take this path, but
+    # its docker-compose.sidecars.yml entry and container still linger).
+    rc = _helpers._run_compose(inst_id, inst, ["down", "--remove-orphans"])
     if rc != 0:
         return rc
-    _helpers._sync_compose_profiles(inst)
     rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
     if rc != 0:
         _helpers._dump_compose_failure(inst)
@@ -191,25 +167,34 @@ def cmd_scale(args):
 
     # Apply via helm upgrade. Mirror the args helm_deploy.yml uses so
     # the result matches what `canasta start` / `canasta restart`
-    # would render — including values-configdata.yaml when present.
+    # would render — including values-configdata.yaml and
+    # values-sidecars.yaml when present.
     namespace = "canasta-%s" % inst_id
     chart = os.path.join(path, "_chart")
     configdata = os.path.join(path, "values-configdata.yaml")
+    sidecars = os.path.join(path, "values-sidecars.yaml")
     cmd_parts = [
         "helm upgrade --install canasta-%s %s" % (inst_id, _helpers._shell_quote(chart)),
         "--namespace %s --create-namespace" % namespace,
         "-f %s" % _helpers._shell_quote(values_path),
     ]
-    # Probe for the optional configdata file the same way helm_deploy.yml does.
-    if _helpers._is_localhost(host):
-        has_configdata = os.path.isfile(configdata)
-    else:
+
+    # Probe for the optional values files the same way helm_deploy.yml does.
+    def _file_on_host(p):
+        if _helpers._is_localhost(host):
+            return os.path.isfile(p)
         rc, _ = _helpers._ssh_run(
-            host, "test -f %s" % _helpers._shell_quote(configdata),
+            host, "test -f %s" % _helpers._shell_quote(p),
         )
-        has_configdata = (rc == 0)
-    if has_configdata:
+        return rc == 0
+
+    if _file_on_host(configdata):
         cmd_parts.append("-f %s" % _helpers._shell_quote(configdata))
+    # The sidecars layer is mandatory when present: with --reset-values,
+    # omitting it would revert to the chart default (sidecars: []) and
+    # prune every sidecar Deployment/Service/PVC.
+    if _file_on_host(sidecars):
+        cmd_parts.append("-f %s" % _helpers._shell_quote(sidecars))
     cmd_parts.extend(["--reset-values", "--wait", "--timeout 10m"])
     helm_cmd = " ".join(cmd_parts)
 
@@ -219,13 +204,17 @@ def cmd_scale(args):
     # 10m`, which would falsely report failure on a slow rollout.
     # Stream the helm output through to the operator so they can see
     # progress / diagnose stuck rollouts.
-    if _helpers._is_localhost(host):
-        argv = ["bash", "-c", helm_cmd]
-    else:
-        target = _helpers._resolve_ssh_target(host)
-        argv = ["ssh"] + _helpers._ssh_args() + [target, helm_cmd]
     try:
-        rc = subprocess.call(argv)
+        if _helpers._is_localhost(host):
+            rc = subprocess.call(["bash", "-c", helm_cmd])
+        else:
+            target = _helpers._resolve_ssh_target(host)
+            argv = ["ssh"] + _helpers._ssh_args() + [target, helm_cmd]
+            # helm upgrade --install is idempotent; retry on an ssh
+            # connection-level failure (exit 255) so a transient
+            # controller-to-target reset during the up-to-10m rollout
+            # doesn't abort a deploy that may still be progressing.
+            rc = _helpers._retry_on_ssh_reset(lambda: subprocess.call(argv))
     except OSError as e:
         print("Error running helm upgrade: %s" % e, file=sys.stderr)
         return 1

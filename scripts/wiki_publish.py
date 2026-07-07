@@ -2,9 +2,8 @@
 """Generate wikitext reference pages from Canasta command definitions
 and optionally publish them to a MediaWiki wiki.
 
-Reads meta/command_definitions.yml and generates wikitext pages in the
-same format as the Go CLI's wiki-publish tool. Pages use the Help:
-namespace prefix instead of CLI: to distinguish Ansible docs.
+Reads meta/command_definitions.yml and generates one wikitext page per
+command under the CLI: namespace prefix.
 
 Usage:
     # Dry run (print pages to stdout)
@@ -13,11 +12,13 @@ Usage:
     # Write to files
     python scripts/wiki_publish.py --out docs/wiki/
 
-    # Publish to wiki
+    # Publish to wiki (add --prune to delete orphaned CLI: pages left
+    # behind by renamed or removed commands)
     python scripts/wiki_publish.py \
         --api https://canasta.wiki/w/api.php \
         --user User@BotName \
-        --pass botpassword
+        --pass botpassword \
+        --prune
 """
 
 import argparse
@@ -38,6 +39,27 @@ DEFINITIONS_PATH = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
 PAGE_PREFIX = "CLI:"
 EDIT_DELAY = 2  # seconds between edits
+HTTP_TIMEOUT = 30  # seconds; a hung wiki API must not stall the publish
+
+# Transient API errors worth retrying rather than failing the publish:
+# 'ratelimited' is the wiki throttling the bot when a single run changes
+# many pages; 'maxlag' is the DB-replication backpressure guard. Without
+# backoff a single throttle leaves the rest of the namespace stale.
+RETRYABLE_ERROR_CODES = {"ratelimited", "maxlag"}
+MAX_EDIT_RETRIES = 5
+RETRY_BACKOFF_BASE = 15  # seconds; doubled each retry, capped at the max
+RETRY_BACKOFF_MAX = 120
+
+
+def _retry_delay(attempt):
+    """Backoff (seconds) before retry number `attempt` (0-based)."""
+    return min(RETRY_BACKOFF_BASE * (2 ** attempt), RETRY_BACKOFF_MAX)
+
+
+class PermissionDeniedError(RuntimeError):
+    """The bot account lacks the right for an API action (e.g. delete
+    requires the Administrators group). Treated as a skip, not a
+    publish failure."""
 
 
 def load_definitions():
@@ -86,15 +108,19 @@ def _group_subcommands(group_name):
     return []
 
 CMD_GROUPS = [
-    ("System", ["install", "doctor", "host", "storage", "uninstall"]),
-    ("Instance Management", [
-        "create", "delete", "list", "upgrade", "version", "config",
+    ("System", ["install", "doctor", "host", "storage", "argocd", "uninstall"]),
+    ("Instance management", [
+        "create", "delete", "list", "status", "upgrade", "version", "config",
     ]),
-    ("Wiki Management", ["add", "remove", "import", "export"]),
-    ("Container Lifecycle", ["start", "stop", "restart"]),
-    ("Extensions & Skins", ["extension", "skin"]),
+    ("Wiki management", ["add", "remove", "import", "export"]),
+    ("Container lifecycle", [
+        "start", "stop", "restart", "reconcile", "rebuild", "image", "scale",
+    ]),
+    ("Extensions & skins", ["extension", "skin"]),
+    ("App sidecars", ["sidecar"]),
     ("Maintenance", ["maintenance", "sitemap"]),
-    ("Data Protection", ["backup", "gitops"]),
+    ("Security", ["crowdsec"]),
+    ("Data protection", ["backup", "gitops"]),
     ("Development", ["devmode"]),
 ]
 
@@ -163,6 +189,13 @@ def _orchestrator_label(value):
     return _ORCHESTRATOR_LABELS.get(value, value)
 
 
+def _flag_name(p):
+    """Displayed long flag name for a param. The CLI honors the `long:`
+    override when building argparse options (e.g. host add's `host_name`
+    param is the flag `--name`), so the docs must too."""
+    return p.get("long", p["name"]).replace("_", "-")
+
+
 # Match single-backtick inline code spans — the same convention used in
 # markdown and in the `docs/commands/*.md` renderings of long_description.
 # MediaWiki doesn't interpret backticks, so translate them to <code> on the
@@ -175,6 +208,50 @@ def _backticks_to_code(text):
     if not text:
         return text
     return _BACKTICK_RE.sub(r"<code>\1</code>", text)
+
+
+# Logical-line markers: a line that, after stripping leading whitespace,
+# begins one of these starts a new logical line rather than continuing the
+# previous one. Covers MediaWiki list/heading/table syntax plus the dash
+# and numbered-list styles authors use in long_description prose.
+_MARKER_RE = re.compile(r"^([*#:;=!|]|\{\||\|\}|-\s|\d+\.\s)")
+
+
+def _reflow_prose(text):
+    """Unwrap hard-wrapped prose so each paragraph or list item is a
+    single wikitext line.
+
+    long_description fields in command_definitions.yml are authored as
+    YAML literal blocks (|), so their hand-wrapped continuation lines are
+    indented for source readability. MediaWiki renders any line that
+    begins with a space as a preformatted (monospace) block, so those
+    indented continuations come out as broken gray boxes. Collapsing each
+    logical line onto one physical line removes the leading spaces and
+    keeps multi-line list items intact (MediaWiki needs a list item's text
+    on a single line). Blank lines (paragraph breaks) and lines that start
+    a new list item / heading / table row are preserved.
+    """
+    if not text:
+        return text
+    out = []
+    cur = None
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if line == "":
+            if cur is not None:
+                out.append(cur)
+                cur = None
+            out.append("")
+            continue
+        if cur is None or _MARKER_RE.match(line):
+            if cur is not None:
+                out.append(cur)
+            cur = line
+        else:
+            cur += " " + line
+    if cur is not None:
+        out.append(cur)
+    return "\n".join(out)
 
 
 def _render_config_keys_table():
@@ -243,7 +320,7 @@ def _global_flags_section(global_flags):
     """
     if not global_flags:
         return []
-    lines = ["=== Global Flags ===", ""]
+    lines = ["=== Global flags ===", ""]
     lines.append('{| class="wikitable"')
     lines.append(
         "! Flag !! Shorthand !! Description "
@@ -251,8 +328,8 @@ def _global_flags_section(global_flags):
         "!! style=\"text-align:center\" | Required "
         "!! style=\"text-align:center\" | Orchestrator"
     )
-    for p in sorted(global_flags, key=lambda x: x["name"]):
-        flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
+    for p in sorted(global_flags, key=_flag_name):
+        flag = "<code>--%s</code>" % _flag_name(p)
         short = ""
         if p.get("short"):
             short = "<code>-%s</code>" % p["short"]
@@ -317,18 +394,30 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
     if long_desc:
         lines.append("=== Synopsis ===")
         lines.append("")
-        lines.append(_backticks_to_code(long_desc.strip()))
+        lines.append(_backticks_to_code(_reflow_prose(long_desc.strip())))
         lines.append("")
 
     # Usage line — match the live wiki's compact form ('canasta create
     # [flags]') instead of an inline listing of every option. The
     # detailed flag table below is the authoritative reference.
-    # Skip entirely when the command has no parameters: the line would
-    # read just 'canasta host list' and duplicate the bare-command
-    # example below.
-    if cmd.get("parameters"):
+    # Positional parameters are appended as uppercase metavars, the way
+    # the CLI's own help renders them. Skip entirely when the command
+    # has no parameters: the line would read just 'canasta host list'
+    # and duplicate the bare-command example below.
+    params = cmd.get("parameters", [])
+    positionals = [p for p in params if p.get("positional")]
+    flag_params = [p for p in params if not p.get("positional")]
+    if params:
+        usage = "%s [flags]" % display
+        for p in positionals:
+            token = p["name"].upper()
+            if p.get("multi") or p["name"] in ("exec_args", "script_args"):
+                token += "..."
+            if not p.get("required"):
+                token = "[%s]" % token
+            usage += " " + token
         lines.append("<syntaxhighlight lang=\"bash\">")
-        lines.append("%s [flags]" % display)
+        lines.append(usage)
         lines.append("</syntaxhighlight>")
         lines.append("")
 
@@ -363,11 +452,43 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
         lines.append("</syntaxhighlight>")
         lines.append("")
 
+    # Arguments table — positional parameters, in definition order (the
+    # order the CLI expects them on the command line). These are not
+    # flags; rendering them with a -- prefix produces commands that fail
+    # as written.
+    if positionals:
+        lines.append("=== Arguments ===")
+        lines.append("")
+        lines.append('{| class="wikitable"')
+        lines.append(
+            "! Argument !! Description "
+            "!! style=\"text-align:center\" | Default "
+            "!! style=\"text-align:center\" | Required "
+            "!! style=\"text-align:center\" | Orchestrator"
+        )
+        for p in positionals:
+            arg = "<code>%s</code>" % p["name"].upper()
+            desc = _backticks_to_code(p.get("description", ""))
+            default = ""
+            if p.get("default") not in (None, "", False, 0):
+                default = "<code>%s</code>" % p["default"]
+            required = "✓" if p.get("required") else ""
+            orch = _orchestrator_label(p.get("orchestrator_only"))
+            lines.append("|-")
+            lines.append(
+                "| %s || %s "
+                '|| style="text-align:center" | %s '
+                '|| style="text-align:center" | %s '
+                '|| style="text-align:center" | %s'
+                % (arg, desc, default, required, orch)
+            )
+        lines.append("|}")
+        lines.append("")
+
     # Flags table — alphabetized by flag name so readers can scan
     # quickly. Definition order in command_definitions.yml is convenient
     # for authors but unhelpful when there are 30+ flags.
-    params = cmd.get("parameters", [])
-    if params:
+    if flag_params:
         lines.append("=== Flags ===")
         lines.append("")
         lines.append('{| class="wikitable"')
@@ -381,8 +502,8 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
         # asterisk in the Default column pointing to a footnote about
         # cwd resolution.
         show_cwd_note = False
-        for p in sorted(params, key=lambda x: x["name"]):
-            flag = "<code>--" + p["name"].replace("_", "-") + "</code>"
+        for p in sorted(flag_params, key=_flag_name):
+            flag = "<code>--%s</code>" % _flag_name(p)
             short = ""
             if p.get("short"):
                 short = "<code>-%s</code>" % p["short"]
@@ -467,6 +588,11 @@ def gen_group_wikitext(group_name, group_def, cmd_index, global_flags=None):
 
     long_desc = group_def.get("long_description", "").strip()
     if long_desc:
+        # Reflow before substituting the table so the generated <pre>
+        # block's intentional indentation survives (reflow strips leading
+        # whitespace; the placeholder sits on its own line and is left
+        # untouched).
+        long_desc = _reflow_prose(long_desc)
         # {{CONFIG_KEYS_TABLE}} expands to a generated reference table
         # built from roles/config/defaults/main.yml — same source of
         # truth `canasta config set`'s validator uses, so the docs and
@@ -531,10 +657,11 @@ def generate_all_pages(data):
     """Generate all wiki pages from command definitions."""
     pages = []
     cmd_index = {c["name"]: c for c in data["commands"]}
+    group_index = {g["name"]: g for g in data.get("command_groups", [])}
 
     # Root page
     root_lines = [
-        "== Canasta CLI Reference ==",
+        "== Canasta CLI reference ==",
         "",
         "Ansible-based management tool for Canasta MediaWiki.",
         "",
@@ -543,13 +670,24 @@ def generate_all_pages(data):
         root_lines.append("=== %s ===" % heading)
         root_lines.append("")
         for name in names:
+            # CMD_GROUPS entries are either leaf commands (in cmd_index)
+            # or subcommand-group keys (in SUBCOMMAND_GROUPS). Render both:
+            # leaf commands link their generated page; group keys link the
+            # group landing page. Skipping groups blanks whole sections
+            # (Extensions & skins, Maintenance, Security, Data protection,
+            # Development are all groups).
             if name in cmd_index:
-                cmd = cmd_index[name]
+                desc = cmd_index[name].get("description", "")
                 link = cmd_page_title(name)
-                root_lines.append(
-                    "* [[%s|canasta %s]] — %s"
-                    % (link, name, cmd.get("description", ""))
-                )
+            elif name in SUBCOMMAND_GROUPS:
+                desc = group_index.get(name, {}).get("description", "")
+                link = cmd_page_title(name)
+            else:
+                continue
+            sep = " — " + _backticks_to_code(desc) if desc else ""
+            root_lines.append(
+                "* [[%s|canasta %s]]%s" % (link, name, sep)
+            )
         root_lines.append("")
     root_lines.append("{{Reference Manual}}")
     pages.append((PAGE_PREFIX + "canasta", "\n".join(root_lines)))
@@ -571,7 +709,6 @@ def generate_all_pages(data):
     # command set. Description and synopsis come from `command_groups:`
     # in command_definitions.yml; missing entries fall back to a generic
     # "Manage canasta <group>" stub.
-    group_index = {g["name"]: g for g in data.get("command_groups", [])}
     for group_name in _all_group_names():
         group_def = group_index.get(group_name, {})
         pages.append((
@@ -583,7 +720,7 @@ def generate_all_pages(data):
         ))
 
     # Menu page
-    menu_lines = ["* # | Canasta CLI Reference"]
+    menu_lines = ["* # | Canasta CLI reference"]
     for heading, names in CMD_GROUPS:
         menu_lines.append("** # | %s" % heading)
         for name in names:
@@ -655,14 +792,14 @@ class MediaWikiClient:
     def _post(self, params):
         data = urllib.parse.urlencode(params).encode()
         req = urllib.request.Request(self.api_url, data=data)
-        with self.opener.open(req) as resp:
+        with self.opener.open(req, timeout=HTTP_TIMEOUT) as resp:
             return json.loads(resp.read())
 
     def _get_token(self, token_type):
         url = "%s?action=query&meta=tokens&type=%s&format=json" % (
             self.api_url, token_type,
         )
-        with self.opener.open(url) as resp:
+        with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
             data = json.loads(resp.read())
         return data["query"]["tokens"][token_type + "token"]
 
@@ -682,23 +819,88 @@ class MediaWikiClient:
 
     def edit_page(self, title, content, summary):
         token = self._get_token("csrf")
+        for attempt in range(MAX_EDIT_RETRIES + 1):
+            result = self._post({
+                "action": "edit",
+                "title": title,
+                "text": content,
+                "summary": summary,
+                "token": token,
+                "format": "json",
+            })
+            error = result.get("error")
+            if error:
+                code = error.get("code")
+                if code in RETRYABLE_ERROR_CODES and attempt < MAX_EDIT_RETRIES:
+                    delay = _retry_delay(attempt)
+                    print(
+                        "Rate limited on %s; retrying in %ds (%d/%d)"
+                        % (title, delay, attempt + 1, MAX_EDIT_RETRIES),
+                        file=sys.stderr,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise RuntimeError(
+                    "API error: %s: %s" % (code, error.get("info"))
+                )
+            if result.get("edit", {}).get("result") != "Success":
+                raise RuntimeError(
+                    "Edit failed: %s" % result.get("edit", {}).get("result")
+                )
+            return
+
+    def resolve_namespace_id(self, name):
+        """Return the namespace id whose canonical or localized name
+        matches `name` (e.g. 'CLI'), or None if the wiki has no such
+        namespace."""
+        url = (
+            "%s?action=query&meta=siteinfo&siprop=namespaces&format=json"
+            % self.api_url
+        )
+        with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
+            data = json.loads(resp.read())
+        for ns in data["query"]["namespaces"].values():
+            if name in (ns.get("*"), ns.get("canonical")):
+                return ns["id"]
+        return None
+
+    def list_pages_in_namespace(self, ns_id):
+        """Return all page titles in the given namespace (paginated)."""
+        titles = []
+        apcontinue = None
+        while True:
+            url = (
+                "%s?action=query&list=allpages&apnamespace=%d"
+                "&aplimit=500&format=json" % (self.api_url, ns_id)
+            )
+            if apcontinue:
+                url += "&apcontinue=" + urllib.parse.quote(apcontinue)
+            with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
+                data = json.loads(resp.read())
+            titles.extend(
+                p["title"] for p in data["query"]["allpages"]
+            )
+            cont = data.get("continue", {}).get("apcontinue")
+            if not cont:
+                break
+            apcontinue = cont
+        return titles
+
+    def delete_page(self, title, reason):
+        token = self._get_token("csrf")
         result = self._post({
-            "action": "edit",
+            "action": "delete",
             "title": title,
-            "text": content,
-            "summary": summary,
+            "reason": reason,
             "token": token,
             "format": "json",
         })
         if "error" in result:
-            raise RuntimeError(
-                "API error: %s: %s"
-                % (result["error"]["code"], result["error"]["info"])
-            )
-        if result.get("edit", {}).get("result") != "Success":
-            raise RuntimeError(
-                "Edit failed: %s" % result.get("edit", {}).get("result")
-            )
+            code = result["error"]["code"]
+            msg = "API error: %s: %s" % (code, result["error"]["info"])
+            if code == "permissiondenied":
+                raise PermissionDeniedError(msg)
+            raise RuntimeError(msg)
 
 
 def main():
@@ -712,6 +914,11 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Generate pages without uploading",
+    )
+    parser.add_argument(
+        "--prune", action="store_true",
+        help="Delete CLI: pages that are no longer generated "
+             "(orphans from renamed/removed commands)",
     )
     args = parser.parse_args()
 
@@ -757,6 +964,9 @@ def main():
             print("ERROR uploading %s: %s" % (title, e), file=sys.stderr)
             errors += 1
 
+    if args.prune:
+        errors += prune_orphans(client, pages)
+
     if errors:
         print(
             "Failed to publish %d of %d pages" % (errors, len(pages)),
@@ -764,6 +974,88 @@ def main():
         )
         sys.exit(1)
     print("Done: %d pages published" % len(pages))
+
+
+def _normalize_title(title):
+    """Canonicalize a title the way MediaWiki does, so generated titles
+    compare equal to the titles the API returns. MediaWiki treats
+    underscores as spaces and (with the default $wgCapitalLinks) upper-
+    cases the first letter of the page name. The generator emits
+    'CLI:canasta ...' (lowercase) but the stored page is 'CLI:Canasta
+    ...'; without this normalization every page looks like an orphan."""
+    title = title.replace("_", " ").strip()
+    prefix, sep, name = title.partition(":")
+    if not sep:
+        prefix, name = "", title
+    else:
+        prefix = prefix + ":"
+    name = name.strip()
+    if name:
+        name = name[0].upper() + name[1:]
+    return prefix + name
+
+
+def prune_orphans(client, pages):
+    """Delete CLI: pages on the wiki that the current run no longer
+    generates. Returns the number of deletion errors."""
+    ns_name = PAGE_PREFIX.rstrip(":")
+    ns_id = client.resolve_namespace_id(ns_name)
+    if ns_id is None:
+        print(
+            "WARNING: no '%s' namespace on the wiki; skipping prune"
+            % ns_name,
+            file=sys.stderr,
+        )
+        return 0
+
+    generated = {_normalize_title(title) for title, _ in pages}
+    existing = client.list_pages_in_namespace(ns_id)
+    orphans = [t for t in existing if _normalize_title(t) not in generated]
+
+    if not orphans:
+        print("No orphaned %s pages to prune" % PAGE_PREFIX)
+        return 0
+
+    # Safety valve: real orphans (renamed/removed commands) are few. An
+    # implausibly large orphan set means the comparison is broken (e.g. a
+    # title-normalization regression), so refuse to delete rather than
+    # risk wiping the namespace. This is a hard failure to draw attention.
+    safety_limit = max(10, len(existing) // 4)
+    if len(orphans) > safety_limit:
+        print(
+            "ERROR: prune would delete %d of %d %s pages (safety limit "
+            "%d) — refusing. This indicates a title-matching bug, not "
+            "real orphans; no pages were deleted."
+            % (len(orphans), len(existing), PAGE_PREFIX, safety_limit),
+            file=sys.stderr,
+        )
+        return 1
+
+    errors = 0
+    for i, title in enumerate(orphans):
+        try:
+            client.delete_page(
+                title, "Orphaned Canasta CLI reference (command removed)"
+            )
+            print("Deleted orphan %s" % title)
+        except PermissionDeniedError as e:
+            # The bot can't delete (needs Administrators). Every orphan
+            # would fail the same way, so warn once with the full list
+            # for manual cleanup and don't fail the publish job.
+            remaining = orphans[i:]
+            print(
+                "WARNING: cannot delete orphaned %s pages (%s). "
+                "%d page(s) need manual deletion by an administrator: %s"
+                % (PAGE_PREFIX, e, len(remaining), ", ".join(remaining)),
+                file=sys.stderr,
+            )
+            return errors
+        except Exception as e:
+            print(
+                "ERROR deleting %s: %s" % (title, e), file=sys.stderr
+            )
+            errors += 1
+    return errors
 
 
 if __name__ == "__main__":

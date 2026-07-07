@@ -287,31 +287,32 @@ class TestCrowdsecGitopsDurability:
     render resets it to the off state captured at init time, silently
     disabling CrowdSec on the next restart."""
 
-    def _placeholder_keys(self):
-        gitops_vars = yaml.safe_load(
-            _read(os.path.join(REPO_ROOT, "roles", "gitops", "vars", "main.yml"))
-        )
-        return gitops_vars["gitops_placeholder_keys"]
+    def _is_placeholder(self, key):
+        # A key is placeholdered in gitops when the canonical classifier calls
+        # it secret or host-specific. Uses the shared helper that renders the
+        # real classifier regex, so this can't drift from the vars file.
+        from _classifier import classifier, secret_key_regex
+        cls = classifier()
+        return (re.match(secret_key_regex(cls), key) is not None
+                or key in cls["canasta_host_specific_nonsecret"])
 
     def test_crowdsec_inputs_are_placeholder_keys(self):
-        keys = self._placeholder_keys()
         for k in (
             "CANASTA_ENABLE_CROWDSEC",
             "CROWDSEC_BOUNCER_API_KEY",
             "CADDY_TRUSTED_PROXIES",
         ):
-            assert k in keys, (
-                "%s must be a gitops placeholder key or it is dropped from "
-                ".env on the next gitops render/pull" % k
+            assert self._is_placeholder(k), (
+                "%s must classify as secret or host-specific, or it is dropped "
+                "from .env on the next gitops render/pull" % k
             )
 
     def test_derived_keys_not_persisted(self):
         # CANASTA_CADDY_IMAGE and COMPOSE_PROFILES are re-derived from the
         # feature flags by sync_compose_profiles on start; persisting them
         # would freeze a value the start sequence already reconciles.
-        keys = self._placeholder_keys()
-        assert "CANASTA_CADDY_IMAGE" not in keys
-        assert "COMPOSE_PROFILES" not in keys
+        assert not self._is_placeholder("CANASTA_CADDY_IMAGE")
+        assert not self._is_placeholder("COMPOSE_PROFILES")
 
 
 class TestCrowdsecProfileSync:
@@ -555,11 +556,11 @@ class TestCrowdsecEnrollRole:
             REPO_ROOT, "roles", "config", "tasks", "_set_single.yml",
         ))
         assert "no_log:" in set_single
-        assert "canasta_secret_key_pattern" in set_single
-        defaults = yaml.safe_load(
-            _read(os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml"))
+        assert "canasta_secret_key_regex" in set_single
+        classifier = yaml.safe_load(
+            _read(os.path.join(REPO_ROOT, "vars", "secret_classification.yml"))
         )
-        pattern = defaults["canasta_secret_key_pattern"]
+        pattern = classifier["canasta_secret_key_pattern"]
         assert re.search(pattern, "CROWDSEC_BOUNCER_API_KEY"), (
             "secret pattern must match the bouncer key"
         )
@@ -1553,5 +1554,44 @@ class TestCrowdsecK8sTrustedProxy:
         )
         assert "trusted_proxies cdn_ranges {" in out
         assert "combine" not in out
+
+
+BOUNCER_ENROLL = os.path.join(
+    REPO_ROOT, "roles", "crowdsec", "tasks", "bouncer_enroll.yml"
+)
+
+
+class TestBouncerEnrollForceGuard:
+    """The auto-enroll path must ignore an ambient `force` so that
+    `config set --force` (which only means "allow an unrecognized key") can't
+    re-issue the bouncer on every restart and loop forever. `force` is a
+    global extra-var shared between the two commands."""
+
+    def _enroll_task(self):
+        with open(BOUNCER_ENROLL) as f:
+            tasks = yaml.safe_load(f)
+        task = next(
+            (t for t in tasks if t.get("name") == "Enroll the bouncer"), None
+        )
+        assert task is not None, "bouncer_enroll.yml must have the enroll task"
+        return task
+
+    def test_force_branch_is_gated_on_not_auto(self):
+        when = " ".join(str(self._enroll_task().get("when", "")).split())
+        # The force branch must be conjoined with `not bouncer_enroll_auto`.
+        assert "force" in when and "bouncer_enroll_auto" in when, (
+            "the enroll `when` must guard `force` with `bouncer_enroll_auto`"
+        )
+        assert "and not (bouncer_enroll_auto" in when, (
+            "force must be ANDed with `not bouncer_enroll_auto` so the auto "
+            "path ignores an ambient --force (the config-set/enroll loop)"
+        )
+
+    def test_no_key_and_no_bouncer_still_enroll(self):
+        # The non-force re-enroll conditions must remain so a genuinely
+        # un-enrolled instance (no bouncer / no stored key) still enrolls.
+        when = " ".join(str(self._enroll_task().get("when", "")).split())
+        assert "_crowdsec_existing" in when
+        assert "_crowdsec_have_key" in when
 
 

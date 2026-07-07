@@ -1,6 +1,6 @@
 ---
 # canasta export - Export a wiki's database.
-# Uses container temp file + copy to host (matching Go behavior).
+# Uses container temp file + copy to host.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -38,6 +38,7 @@
   vars:
     exec_service: db
     exec_no_log: true
+    exec_long: true
     exec_command: >-
       mariadb-dump -u root
       -p{{ _export_db_password | quote }}

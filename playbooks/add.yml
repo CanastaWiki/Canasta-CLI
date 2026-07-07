@@ -1,6 +1,6 @@
 ---
 # canasta add - Add a wiki to an existing Canasta instance.
-# Matches Go CLI: wikis.yaml is updated AFTER successful install.
+# wikis.yaml is updated AFTER successful install.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: >-
@@ -70,6 +70,37 @@
     key: MYSQL_USER
   register: _add_dbuser
 
+# --skip-install connects to a database that already holds the new wiki's
+# schema, so there is no dump to import and it only makes sense against an
+# external database.
+- name: Fail if --skip-install is combined with --database
+  ansible.builtin.fail:
+    msg: >-
+      --skip-install cannot be combined with --database. --skip-install
+      connects to a database that already holds the wiki's schema, so
+      there is no dump to import.
+  when:
+    - skip_install | default(false) | bool
+    - database is defined and database != ''
+
+- name: Read .env for external DB flag
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: USE_EXTERNAL_DB
+  register: _add_ext_db
+  when: skip_install | default(false) | bool
+
+- name: Fail if --skip-install without USE_EXTERNAL_DB
+  ansible.builtin.fail:
+    msg: >-
+      --skip-install requires the instance to use an external database
+      (USE_EXTERNAL_DB=true). The bundled database has no schema for
+      wiki '{{ wiki }}', so install.php cannot be skipped.
+  when:
+    - skip_install | default(false) | bool
+    - not (_add_ext_db.value | default('false') | lower == 'true')
+
 - name: Generate admin password if not provided
   when: password is not defined or password == ''
   block:
@@ -91,6 +122,25 @@
       {{ instance_path }}/config/settings/wikis/{{ wiki }}
     state: directory
     mode: "0755"
+
+# Per-wiki public_assets subdir (logos/favicon). Canasta serves
+# /public_assets/* by rewriting to public_assets/<wiki-id>/, so the
+# added wiki needs its own dir. Created here so it exists in the
+# instance dir for the K8s user-dir sync to mirror and for gitops to
+# track (stage_new_wiki.yml stages public_assets/<id>). The .gitkeep
+# keeps the otherwise-empty dir under git.
+- name: Create per-wiki public_assets directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/public_assets/{{ wiki }}"
+    state: directory
+    mode: "0755"
+
+- name: Keep the per-wiki public_assets directory under git
+  ansible.builtin.copy:
+    dest: "{{ instance_path }}/public_assets/{{ wiki }}/.gitkeep"
+    content: ""
+    mode: "0644"
+    force: false
 
 - name: Copy per-wiki Settings.php if provided
   ansible.builtin.copy:
@@ -128,8 +178,30 @@
         import_database_path: "{{ database }}"
         import_db_password: "{{ _add_dbpass.value }}"
 
+# --skip-install: the external database already holds this wiki's schema,
+# so register it in the farm without running install.php. Still wait for
+# the database so a farm addition against an unreachable DB fails clearly.
+- name: Skip installer for existing database
+  when:
+    - database is not defined or database == ''
+    - skip_install | default(false) | bool
+  block:
+    - name: Report skipping installer for existing database
+      ansible.builtin.debug:
+        msg: >-
+          Skipping MediaWiki installer for wiki '{{ wiki }}'
+          (--skip-install); connecting to an external database that
+          already holds the schema.
+
+    - name: Wait for database
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: wait_for_db.yml
+
 - name: Run install.php for new wiki
-  when: database is not defined or database == ''
+  when:
+    - database is not defined or database == ''
+    - not (skip_install | default(false) | bool)
   block:
     - name: Wait for database
       ansible.builtin.include_role:
@@ -173,6 +245,18 @@
           {{ instance_path }}/admin-password_{{ wiki }}
         mode: "0600"
       no_log: true
+
+# Import uploaded media for the new wiki (--images), after its DB is ready so
+# the File: page rows (from --database) are present; this only places the
+# files. A placement restore, not importImages.
+- name: Import images tarball for the new wiki
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: import_images.yml
+  vars:
+    import_wiki_id: "{{ wiki }}"
+    import_images_path: "{{ images }}"
+  when: images is defined and images != ''
 
 # NOW add to wikis.yaml (after successful install/import)
 - name: Add wiki to wikis.yaml
@@ -225,6 +309,17 @@
   ansible.builtin.include_role:
     name: instance_lifecycle
     tasks_from: restart.yml
+
+# Stage the new wiki's gitops-tracked files (per-wiki settings,
+# public_assets, and the farm template). 'gitops init' captures wikis
+# present at init time; a wiki added later was never brought into
+# tracking, so its logos/settings could be lost on a repo-based recovery.
+# No-op on non-gitops instances.
+- name: Capture the new wiki for gitops
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/stage_new_wiki.yml
+  vars:
+    new_wiki_id: "{{ wiki }}"
 
 - name: Report wiki added
   ansible.builtin.debug:

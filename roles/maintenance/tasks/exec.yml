@@ -5,7 +5,7 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-# No args: list running services (matches Go CLI behavior)
+# No args: list running services
 - name: List running services
   when: (exec_args | default('')) == ''
   block:
@@ -34,6 +34,7 @@
   vars:
     exec_service: "{{ service | default('web') }}"
     exec_command: "{{ exec_args }}"
+    exec_stdin: "{{ stdin_file | default('') }}"
   when: (exec_args | default('')) != ''
 
 - name: Display output

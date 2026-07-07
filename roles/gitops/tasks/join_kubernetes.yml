@@ -6,9 +6,11 @@
 # values.yaml, renders rendered-values.yaml, creates an Argo CD
 # Application pointing at the new rendered file.
 #
-# No git-crypt: K8s gitops repos are cleartext (see #508 / #509).
-# The Compose join path (gitops/tasks/join.yml) still uses git-crypt
-# unlock since Compose's repo encrypts hosts/<host>/vars.yaml.
+# No git-crypt on K8s. A K8s repo is cleartext unless it was initialized with
+# --encrypt-secrets, in which case a .sops.yaml marks it and this join
+# provisions the operator key (via --key) + a helm-sops sidecar on the joining
+# cluster so its Argo can decrypt (see _join_sops.yml). The Compose join path
+# (gitops/tasks/join.yml) still uses git-crypt unlock instead.
 #
 # Input: host_name, role, repo, key, force
 #   key is the SSH deploy key path basename (private at <key>.ssh,
@@ -58,15 +60,41 @@
     _ssh_key_path: "{{ key }}.ssh"
     _ssh_key_target_path: "{{ instance_path }}/.gitops-deploy-key"
 
-- name: Read SSH deploy key from controller
-  ansible.builtin.slurp:
-    src: "{{ _ssh_key_path }}"
-  register: _gitops_ssh_key
-  delegate_to: localhost
-  vars:
-    ansible_connection: local
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
-  no_log: true
+# The deploy key lives on the controller, but by this point resolve_instance
+# has switched the play's connection to the instance host. delegate_to:
+# localhost + vars: ansible_connection: local does NOT reliably override that
+# host-level switch, so the slurp would run on the target and fail to find the
+# controller path (silently — no_log + the minimal stdout callback hide it).
+# Use the save/switch-to-local/restore dance instead, the same shape
+# init_kubernetes.yml uses for its controller-side key work.
+- name: Save connection state before controller-side key read
+  ansible.builtin.set_fact:
+    _gjk_saved:
+      host: "{{ ansible_host | default('localhost') }}"
+      conn: "{{ ansible_connection | default('local') }}"
+      user: "{{ ansible_user | default('') }}"
+      python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
+
+- block:
+    - name: Switch to local for SSH key read
+      ansible.builtin.set_fact:
+        ansible_host: "localhost"
+        ansible_connection: "local"
+        ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Read SSH deploy key from controller
+      ansible.builtin.slurp:
+        src: "{{ _ssh_key_path }}"
+      register: _gitops_ssh_key
+      no_log: true
+  always:
+    - name: Restore connection state after key read
+      ansible.builtin.set_fact:
+        ansible_host: "{{ _gjk_saved.host }}"
+        ansible_connection: "{{ _gjk_saved.conn }}"
+        ansible_user: "{{ _gjk_saved.user }}"
+        ansible_python_interpreter: "{{ _gjk_saved.python }}"
 
 - name: Stage SSH deploy private key on target for git operations
   ansible.builtin.copy:
@@ -92,6 +120,20 @@
       -o StrictHostKeyChecking=accept-new
       -o UserKnownHostsFile=~/.ssh/known_hosts
   changed_when: true
+
+# A SOPS-managed repo (.sops.yaml at the root) means this joining cluster must
+# render encrypted Secrets: it needs the operator age key (to decrypt) and its
+# own helm-sops sidecar. Detected from the fresh clone; the provisioning +
+# key-match check happen below (after the tree is materialized), and the Argo
+# Application is generated with the plugin source accordingly.
+- name: Detect a SOPS-managed repo in the clone
+  ansible.builtin.stat:
+    path: "{{ _join_tmpdir.path }}/.sops.yaml"
+  register: _join_sops_marker
+
+- name: Enable SOPS for this environment when the repo is SOPS-managed
+  ansible.builtin.set_fact:
+    gitops_sops_secrets: "{{ _join_sops_marker.stat.exists }}"
 
 # --- Validate host name not already in config ---
 - name: Read hosts.yaml from cloned repo
@@ -139,11 +181,16 @@
 # owned files (#571). Materialize .gitattributes first so git-crypt
 # decrypts hosts/** on checkout, then rewrite only the files that differ
 # and surface a permission failure as an actionable message.
+# Compose gitops repos carry a .gitattributes that drives git-crypt
+# decryption on checkout. K8s gitops repos are cleartext (secrets live in
+# K8s Secrets, not the repo), so they have no .gitattributes — make this a
+# no-op there rather than a hard failure on a missing pathspec.
 - name: Materialize .gitattributes so git-crypt filters apply on checkout
   ansible.builtin.command:
     cmd: "git checkout HEAD -- .gitattributes"
     chdir: "{{ instance_path }}"
   changed_when: true
+  failed_when: false
 
 - name: Find tracked files whose content differs from the repo
   ansible.builtin.command:
@@ -272,9 +319,19 @@
           repoURL: {{ repo }}
           targetRevision: HEAD
           path: .
+      {% if gitops_sops_secrets | default(false) | bool %}
+          plugin:
+            name: helm-sops
+            env:
+              - name: HELM_ARGS
+                value: "-f hosts/{{ host_name }}/rendered-values.yaml"
+              - name: SECRETS_DIR
+                value: "hosts/{{ host_name }}/secrets"
+      {% else %}
           helm:
             valueFiles:
               - hosts/{{ host_name }}/rendered-values.yaml
+      {% endif %}
         destination:
           server: https://kubernetes.default.svc
           namespace: canasta-{{ instance_id }}
@@ -286,6 +343,24 @@
             - CreateNamespace=true
     dest: "{{ instance_path }}/argocd/application.yaml"
     mode: "0644"
+
+# Argo CD on the new host needs the deploy key to clone the repo (and, for
+# a self-hosted host, its key trusted), just as init sets up on the first
+# host. Without this the Application can't authenticate and never syncs.
+- name: Apply Argo CD repo credential Secret + known-hosts trust
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_apply_argo_repo_secret.yml"
+
+# --- SOPS decryption for a joined SOPS-managed repo (gated) ---
+# Verify the operator key matches the repo, provision the sops-age Secret, and
+# add the helm-sops sidecar so this cluster's Argo can decrypt at render — must
+# precede applying the plugin-source Application below.
+- name: Provision SOPS decryption on the joining cluster
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_join_sops.yml"
+  when: gitops_sops_secrets | default(false) | bool
+
+- name: Ensure the Argo CD repo-server has the helm-sops sidecar
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_sops_sidecar.yml"
+  when: gitops_sops_secrets | default(false) | bool
 
 - name: Apply Argo CD Application to cluster
   kubernetes.core.k8s:
@@ -311,10 +386,16 @@
   changed_when: false
   failed_when: false
 
+# The commit runs on the target host, which usually has no git identity
+# configured (unlike init, which commits on the controller). Set the
+# identity inline so the commit never aborts with "Author identity
+# unknown" — overridable by --git-user-name / --git-user-email.
 - name: Commit
   ansible.builtin.command:
     cmd: >-
       git -c commit.gpgsign=false
+      -c user.name={{ (git_user_name | default('Canasta GitOps', true)) | quote }}
+      -c user.email={{ (git_user_email | default('canasta-gitops@' ~ host_name, true)) | quote }}
       commit -m 'Add environment {{ host_name }}'
     chdir: "{{ instance_path }}"
   changed_when: true

@@ -52,4 +52,5 @@ jobs:
           python scripts/wiki_publish.py \
             --api "${{ env.WIKI_API_URL }}" \
             --user "${{ secrets.WIKI_BOT_USER }}" \
-            --pass "${{ secrets.WIKI_BOT_PASSWORD }}"
+            --pass "${{ secrets.WIKI_BOT_PASSWORD }}" \
+            --prune

@@ -530,3 +530,88 @@ class TestPasswdEntryUsesHostUsername:
             "(%r) — got %r in entry %r"
             % (host_username, username, my_entry)
         )
+
+
+def assert_no_env_key(argv, key):
+    """Assert no `-e KEY=...` appears in the docker run argv."""
+    for i, a in enumerate(argv):
+        if a == "-e" and i + 1 < len(argv) and argv[i + 1].startswith(key + "="):
+            raise AssertionError(
+                "did not expect -e %s=... in argv:\n%s" % (key, "\n".join(argv))
+            )
+
+
+class TestBackupScheduleCrontabWiring:
+    """Local 'backup schedule' commands need the host crontab mediated by
+    the wrapper, since the container can't reach it. The wrapper passes
+    CANASTA_HOST_CRONTAB (the mounted file the playbook edits) and always
+    passes CANASTA_CLI_BIN (the host path baked into the cron entry)."""
+
+    def test_cli_bin_always_passed(self):
+        argv, _ = run_dry(["doctor"])
+        # Path is host-specific; assert the key is present with some value.
+        assert any(
+            a == "-e" and argv[i + 1].startswith("CANASTA_CLI_BIN=/")
+            for i, a in enumerate(argv[:-1])
+        ), "CANASTA_CLI_BIN should be passed into the container"
+
+    def test_host_crontab_passed_for_local_schedule_set(self):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        argv, _ = run_dry(
+            ["backup", "schedule", "set", "0 5 * * *"],
+            env={"CANASTA_CONFIG_DIR": config_dir},
+        )
+        assert_env_var(argv, "CANASTA_HOST_CRONTAB", config_dir + "/.host-crontab")
+
+    def test_host_crontab_passed_for_local_schedule_list_and_remove(self):
+        for action in ("list", "remove"):
+            config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+            _run_dry_tmpdirs.append(config_dir)
+            argv, _ = run_dry(
+                ["backup", "schedule", action],
+                env={"CANASTA_CONFIG_DIR": config_dir},
+            )
+            assert_env_var(
+                argv, "CANASTA_HOST_CRONTAB", config_dir + "/.host-crontab"
+            )
+
+    def test_host_crontab_not_passed_for_remote_schedule(self):
+        # --host targets a remote crontab over SSH; the container handles it.
+        argv, _ = run_dry(["--host", "prod1", "backup", "schedule",
+                           "set", "0 5 * * *"])
+        assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+    def test_host_crontab_not_passed_for_non_schedule_commands(self):
+        argv, _ = run_dry(["backup", "create", "-i", "x"])
+        assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+
+class TestRestoreAndGitopsCrontabMediation:
+    """backup restore and gitops pull can re-materialize the host crontab
+    (from the persisted schedule), so a local run of either must get the
+    CANASTA_HOST_CRONTAB mediation, exactly like 'backup schedule'."""
+
+    def test_host_crontab_passed_for_local_backup_restore(self):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        argv, _ = run_dry(["backup", "restore", "-i", "x", "-s", "latest"],
+                          env={"CANASTA_CONFIG_DIR": config_dir})
+        assert_env_var(argv, "CANASTA_HOST_CRONTAB", config_dir + "/.host-crontab")
+
+    def test_host_crontab_passed_for_local_gitops_pull(self):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        argv, _ = run_dry(["gitops", "pull", "-i", "x"],
+                          env={"CANASTA_CONFIG_DIR": config_dir})
+        assert_env_var(argv, "CANASTA_HOST_CRONTAB", config_dir + "/.host-crontab")
+
+    def test_host_crontab_not_passed_for_remote_restore(self):
+        argv, _ = run_dry(["--host", "prod1", "backup", "restore",
+                           "-i", "x", "-s", "latest"])
+        assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+    def test_host_crontab_not_passed_for_backup_create(self):
+        # create doesn't touch the crontab; no mediation needed.
+        argv, _ = run_dry(["backup", "create", "-i", "x"])
+        assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")

@@ -3,8 +3,8 @@
 
 """Ansible module for managing Canasta extension/skin settings.yaml files.
 
-Replaces the Go internal/extensionsskins package. Manages the settings.yaml
-files that control which extensions and skins are enabled.
+Manages the settings.yaml files that control which extensions and skins
+are enabled.
 """
 
 from __future__ import absolute_import, division, print_function

@@ -75,6 +75,31 @@
     msg: "Either --server or --install-server is required."
   when: _nfs_server is not defined or _nfs_server == ''
 
+# With --server (pointing at a pre-existing NFS server) it's easy to
+# target a host that has no NFS server running — the StorageClass is then
+# created pointing at a dead endpoint and the failure only surfaces much
+# later as instance pods stuck on unmountable content PVCs. Probe the NFS
+# port up front and fail with an actionable message. Skipped for
+# --install-server, which sets up the server on this host above.
+- name: Verify the provided NFS server is reachable on the NFS port
+  ansible.builtin.wait_for:
+    host: "{{ _nfs_server }}"
+    port: 2049
+    timeout: 5
+  register: _nfs_reachable
+  ignore_errors: true
+  when: not (install_server | default(false) | bool)
+
+- name: Fail if the provided NFS server is unreachable
+  ansible.builtin.fail:
+    msg: >-
+      NFS server '{{ _nfs_server }}' is not reachable on port 2049. Check
+      the --server address and that its NFS export is running, or use
+      --install-server to set up an NFS server on this host.
+  when:
+    - not (install_server | default(false) | bool)
+    - _nfs_reachable.failed | default(false)
+
 - name: Add NFS CSI driver Helm repository
   kubernetes.core.helm_repository:
     name: csi-driver-nfs
@@ -101,7 +126,10 @@
       parameters:
         server: "{{ _nfs_server }}"
         share: "{{ share }}"
-      reclaimPolicy: Retain
+      # Delete so the CSI driver reclaims a PV's backing pvc-* dir from the NFS
+      # export when its PVC is deleted, instead of leaving deleted instances'
+      # content dirs to accumulate unbounded. (EFS StorageClass also uses Delete.)
+      reclaimPolicy: Delete
       mountOptions:
         - nfsvers=4.1
 

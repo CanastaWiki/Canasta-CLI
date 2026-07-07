@@ -4,6 +4,13 @@
 # is dynamically included (via include_tasks with a when guard).
 # Compose-only controllers no longer need the collection installed.
 #
+# Restores everything the k8s backup captures: config (-> host -> ConfigMaps),
+# .env, the DB (streamed into the web pod), managed Secrets, uploaded media
+# (the images PVC, mounted into the restore pod so restic lands it directly),
+# and the extensions/skins/public_assets dirs (-> host; the post-restore
+# restart's k8s_sync_user_dirs mirrors them into their PVCs). Parity with the
+# Compose restore, which round-trips the same set to the host.
+#
 # Inputs: instance_path, instance_id, _resolved_snapshot, _restore_dbpass
 
 - name: Set K8s namespace
@@ -28,10 +35,28 @@
     _restore_local_repo: >-
       {{ (_restore_env.variables.RESTIC_REPOSITORY | default('')) is match('^/') }}
 
+# Pin a local-path restore to the control-plane node — the same node the
+# backup Job pins to — so the restore reads the repo that backup wrote.
+# Without this the restore pod could land on a node with no repo (an empty
+# DirectoryOrCreate hostPath) and find nothing. Cloud backends need no pin.
+- name: Pin local-path restore to the control-plane node
+  ansible.builtin.set_fact:
+    _restore_node_selector: >-
+      {{ {'node-role.kubernetes.io/control-plane': 'true'}
+         if (_restore_local_repo | bool) else {} }}
+
 - name: Build restore pod volume mounts
   ansible.builtin.set_fact:
     _restore_volume_mounts:
       - { name: restore-data, mountPath: /currentsnapshot }
+      # The images PVC is the sole source of truth for uploaded media —
+      # nothing syncs it from the controller (unlike extensions/skins/
+      # public_assets, which k8s_sync_user_dirs mirrors from the host dir).
+      # Mount it writable at the snapshot's images path so `restic restore
+      # --target /` lands the backed-up media directly in the PVC; without
+      # this the restore brings back config + DB but silently drops all
+      # uploads (the backup captures them — see k8s_run_backup.yml).
+      - { name: images, mountPath: /currentsnapshot/images }
 
 - name: Add local-repo mount when RESTIC_REPOSITORY is a path
   ansible.builtin.set_fact:
@@ -45,6 +70,9 @@
     _restore_volumes:
       - name: restore-data
         emptyDir: {}
+      - name: images
+        persistentVolumeClaim:
+          claimName: "canasta-{{ instance_id }}-images"
 
 - name: Add local-repo hostPath volume when RESTIC_REPOSITORY is a path
   ansible.builtin.set_fact:
@@ -53,6 +81,26 @@
          'hostPath': {'path': _restore_env.variables.RESTIC_REPOSITORY,
                       'type': 'DirectoryOrCreate'}}] }}
   when: _restore_local_repo | bool
+
+# Single-wiki restore (-w) constrains restic to the target wiki's paths so it
+# never writes other wikis' media into the shared images PVC — restic does not
+# prune the restore target, so their existing files stay put. Limiting the DB
+# dump to db_<id>.sql also means the downstream DB-import and Secret-restore
+# steps self-scope: only that wiki's dump (and no secrets-*.yaml) lands in the
+# pod. A full restore uses no filter.
+- name: Build restic include filters for single-wiki restore
+  ansible.builtin.set_fact:
+    _restore_include: >-
+      {{ ' --include /currentsnapshot/config/settings/wikis/' ~ wiki
+         ~ ' --include /currentsnapshot/config/backup/db_' ~ wiki ~ '.sql'
+         ~ ' --include /currentsnapshot/images/' ~ wiki
+         ~ ' --include /currentsnapshot/public_assets/' ~ wiki }}
+  when: wiki is defined
+
+- name: Default to a full (unfiltered) restore
+  ansible.builtin.set_fact:
+    _restore_include: ""
+  when: wiki is not defined
 
 # If a previous restore failed mid-run, the restic-restore pod may
 # still exist. kubernetes.core.k8s state: present then refuses to
@@ -68,6 +116,13 @@
     wait: true
     wait_timeout: 60
 
+# Refresh the backup-env Secret from .env so the restore pod's restic +
+# DB creds are current even after `config set --no-restart`. The full
+# k8s_sync_config runs later in this file, but the restore pod needs the
+# Secret now.
+- name: Apply backup-env Secret before the restore pod
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_apply_backup_env_secret.yml"
+
 - name: Create restore pod
   kubernetes.core.k8s:
     state: present
@@ -79,6 +134,10 @@
         namespace: "{{ _k8s_namespace }}"
       spec:
         restartPolicy: Never
+        # Pin to the control-plane node for a local-path repo so the restore
+        # reads the same hostPath the backup wrote; empty ({}) for cloud
+        # backends imposes no constraint.
+        nodeSelector: "{{ _restore_node_selector }}"
         containers:
           - name: restic
             image: restic/restic:latest
@@ -86,41 +145,133 @@
               - sh
               - -c
               - |
-                # Don't gate the sentinel on restic's exit code: snapshots from
-                # EBS-backed PVCs include security.selinux xattrs that the
-                # restore pod's overlay fs can't accept, so restic exits 1 on
-                # the lost+found dirs even though all wiki content restored.
-                restic --cache-dir /tmp/restic-cache restore {{ _resolved_snapshot }} --target /
+                # Capture restic's rc + output so the controller can tell a
+                # real failure (restic prints "Fatal:") from the benign exit 1
+                # on EBS-backed PVCs whose selinux xattrs the overlay fs
+                # rejects. Sentinel still fires unconditionally so the wait
+                # can't hang; the controller inspects the rc + log below.
+                restic --cache-dir /tmp/restic-cache \
+                  restore {{ _resolved_snapshot }}{{ _restore_include }} \
+                  --target / > /tmp/restore-log 2>&1
+                echo $? > /tmp/restore-rc
                 touch /tmp/restore-done
                 sleep 3600
             # canasta-<id>-backup-env carries every cloud-backend
             # credential restic might need (RESTIC_*, AWS_*, B2_*,
             # AZURE_*, GOOGLE_*, OS_*, ST_*) — same Secret the on-
-            # demand backup Job and scheduled CronJob use (#497).
+            # demand and scheduled backup Jobs use (#497).
             envFrom:
               - secretRef:
                   name: "canasta-{{ instance_id }}-backup-env"
             volumeMounts: "{{ _restore_volume_mounts }}"
         volumes: "{{ _restore_volumes }}"
 
-- name: Wait for restore pod to be running
+# Poll readiness with short `kubectl get` calls rather than a single held
+# `kubectl wait`: a controller-side SSH reset during a held wait would abort
+# the restore, while the pod keeps running on the target. Each poll is a
+# brief connection, so transient resets are simply retried.
+- name: Wait for restore pod to be Ready
   ansible.builtin.command:
     cmd: >-
-      kubectl wait pod/restic-restore
-      -n {{ _k8s_namespace }}
-      --for=condition=Ready
-      --timeout=120s
+      kubectl get pod restic-restore -n {{ _k8s_namespace }}
+      -o jsonpath={.status.conditions[?(@.type=="Ready")].status}
+  register: _restore_pod_ready
   changed_when: false
+  failed_when: false
+  retries: 60
+  delay: 2
+  until: (_restore_pod_ready.stdout | trim) == 'True'
 
+# Poll for the restore sentinel with short `kubectl exec test -f` calls
+# instead of a single held exec that loops on the target for up to 10
+# minutes — same resilience rationale as the readiness poll above.
 - name: Wait for restore to complete
   ansible.builtin.command:
     cmd: >-
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      sh -c "while ! test -f /tmp/restore-done; do sleep 2; done"
+      test -f /tmp/restore-done
+  register: _restore_done
   changed_when: false
-  timeout: 600
+  failed_when: false
+  retries: 300
+  delay: 2
+  until: _restore_done.rc == 0
+
+# Inspect restic's captured exit code and output. A non-zero rc is only
+# tolerated when it is the known xattr noise (no "Fatal:" line); anything
+# restic flagged as fatal — repo unreachable, wrong password, snapshot not
+# found — must abort loudly instead of being reported as a successful
+# restore that actually restored nothing.
+- name: Read restic restore exit code
+  ansible.builtin.command:
+    cmd: kubectl exec -n {{ _k8s_namespace }} restic-restore -- cat /tmp/restore-rc
+  register: _restore_rc
+  changed_when: false
+  failed_when: false
+
+- name: Read restic restore log
+  ansible.builtin.command:
+    cmd: kubectl exec -n {{ _k8s_namespace }} restic-restore -- cat /tmp/restore-log
+  register: _restore_log
+  changed_when: false
+  failed_when: false
+
+# If the exit code couldn't be read (e.g. the pod died after touching the
+# sentinel but before this read), we cannot confirm the restore — treat it
+# as failed rather than falling through and reporting a success that may not
+# have happened.
+- name: Fail when the restic restore exit code is unreadable
+  ansible.builtin.fail:
+    msg: >-
+      Could not read the restic restore exit code from the restore pod
+      (got '{{ _restore_rc.stdout | default('') | trim }}'). The restore
+      could not be confirmed and is treated as failed.
+  when: (_restore_rc.stdout | default('') | trim) is not match('^[0-9]+$')
+
+- name: Fail when restic restore reported a fatal error
+  ansible.builtin.fail:
+    msg: |-
+      restic restore failed (exit {{ _restore_rc.stdout | default('?') | trim }}).
+      The snapshot was NOT restored. restic output:
+      {{ _restore_log.stdout | default('(no log captured)') }}
+  when: >-
+    (_restore_rc.stdout | trim | int) != 0
+    and (_restore_log.stdout | default('') is search('Fatal'))
+
+- name: Warn about ignored non-fatal restore errors
+  ansible.builtin.debug:
+    msg: >-
+      restic exited {{ _restore_rc.stdout | default('?') | trim }} with
+      non-fatal errors (treated as the known xattr-on-overlay case); wiki
+      content was restored. Output:
+      {{ _restore_log.stdout | default('') | truncate(500) }}
+  when: >-
+    (_restore_rc.stdout | default('0') | trim) != '0'
+    and not (_restore_log.stdout | default('') is search('Fatal'))
+
+# Restic restores only the included paths, so a wiki absent from the snapshot
+# yields an empty restore that would otherwise look like success. Fail loudly.
+- name: Confirm the target wiki is present in the snapshot (single-wiki restore)
+  when: wiki is defined
+  block:
+    - name: Check for the target wiki's DB dump in the restore pod
+      ansible.builtin.command:
+        cmd: >-
+          kubectl exec -n {{ _k8s_namespace }} restic-restore --
+          test -f /currentsnapshot/config/backup/db_{{ wiki }}.sql
+      register: _restore_k8s_wiki_present
+      changed_when: false
+      failed_when: false
+
+    - name: Fail when the target wiki is absent from the snapshot
+      ansible.builtin.fail:
+        msg: >-
+          Snapshot {{ _resolved_snapshot }} contains no backup for wiki
+          '{{ wiki }}' (no db_{{ wiki }}.sql). Nothing to restore.
+      when: _restore_k8s_wiki_present.rc != 0
 
 - name: Copy restored config to host
+  when: wiki is not defined
   ansible.builtin.shell:
     cmd: >-
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
@@ -129,13 +280,77 @@
   changed_when: true
   ignore_errors: true
 
+# Single-wiki restore replaces only the target wiki's settings dir on the host;
+# k8s_sync_config below pushes it into the ConfigMap the pods read.
+- name: Copy restored single wiki settings to host
+  when: wiki is defined
+  ansible.builtin.shell:
+    cmd: >-
+      rm -rf "{{ instance_path }}/config/settings/wikis/{{ wiki }}";
+      mkdir -p "{{ instance_path }}/config/settings/wikis/{{ wiki }}";
+      kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      tar cf - -C /currentsnapshot/config/settings/wikis/{{ wiki }} . 2>/dev/null |
+      tar xf - -C "{{ instance_path }}/config/settings/wikis/{{ wiki }}/"
+  changed_when: true
+  ignore_errors: true
+
+# Full restore round-trips the source host's .env; single-wiki leaves it alone.
 - name: Copy restored .env to host
+  when: wiki is not defined
   ansible.builtin.shell:
     cmd: >-
       kubectl cp {{ _k8s_namespace }}/restic-restore:/currentsnapshot/.env
       "{{ instance_path }}/.env"
   changed_when: true
   ignore_errors: true
+
+# Restore the declarative user dirs (extensions, skins, public_assets) to the
+# host instance dir, mirroring the Compose restore. They are NOT written to
+# their PVCs here: the host dir is their source of truth, and the post-restore
+# restart (restore.yml) runs k8s_sync_user_dirs, which mirrors the host dir
+# into each PVC (with prune). Without this, a k8s restore silently dropped
+# custom extensions/skins/public_assets — the backup captured them (see
+# k8s_run_backup.yml) but nothing brought them back. (images is different: it
+# has no host source of truth and is restored straight into its PVC above.)
+# `set -o pipefail` so a broken restic-restore side of the pipe fails loudly;
+# the `test -d` guard skips a dir absent from an older snapshot.
+- name: Restore extensions/skins/public_assets to host
+  when: wiki is not defined
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      test -d /currentsnapshot/{{ item }}; then
+      mkdir -p "{{ instance_path }}/{{ item }}";
+      kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      tar cf - -C /currentsnapshot/{{ item }} . |
+      tar xf - -C "{{ instance_path }}/{{ item }}/";
+      fi
+  args:
+    executable: /bin/bash
+  loop: ['extensions', 'skins', 'public_assets']
+  changed_when: true
+
+# Single-wiki restore: public_assets is per-wiki, so restore only this wiki's
+# subdir to the host (extensions/skins are shared and left untouched). The
+# post-restore restart's k8s_sync_user_dirs mirrors it into the PVC. images
+# for this wiki was already restored straight into the images PVC by restic.
+- name: Restore single wiki public assets to host
+  when: wiki is defined
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      test -d /currentsnapshot/public_assets/{{ wiki }}; then
+      rm -rf "{{ instance_path }}/public_assets/{{ wiki }}";
+      mkdir -p "{{ instance_path }}/public_assets/{{ wiki }}";
+      kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      tar cf - -C /currentsnapshot/public_assets/{{ wiki }} . |
+      tar xf - -C "{{ instance_path }}/public_assets/{{ wiki }}/";
+      fi
+  args:
+    executable: /bin/bash
+  changed_when: true
 
 # Use the WEB pod (not a DB pod) as the import target. Reasons:
 #

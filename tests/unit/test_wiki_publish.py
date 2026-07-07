@@ -11,6 +11,7 @@ import sys
 
 import pytest
 
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
 import wiki_publish as wp
@@ -153,6 +154,52 @@ class TestMenuCoverage:
                 )
 
 
+class TestRootPageCoverage:
+    """The root CLI:canasta page must link to every CMD_GROUPS entry,
+    including subcommand groups. The earlier bug was that the root
+    generator only rendered leaf commands found in cmd_index and
+    silently dropped every subcommand-group name, blanking whole
+    sections (Extensions & Skins, Maintenance, Security, Data
+    Protection, Development are all groups)."""
+
+    def _root_content(self):
+        data = wp.load_definitions()
+        for title, content in wp.generate_all_pages(data):
+            if title == wp.PAGE_PREFIX + "canasta":
+                return content
+        raise AssertionError("root page not emitted")
+
+    def test_every_cmd_group_entry_is_linked(self):
+        root = self._root_content()
+        missing = []
+        for _heading, names in wp.CMD_GROUPS:
+            for name in names:
+                if name in wp.SUBCOMMAND_GROUPS or _has_command(name):
+                    if "|canasta %s]]" % name not in root:
+                        missing.append(name)
+        assert not missing, (
+            "root page missing entries:\n  " + "\n  ".join(missing)
+        )
+
+    def test_no_section_is_empty(self):
+        root = self._root_content()
+        lines = root.splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith("=== ") and line.endswith(" ==="):
+                rest = [
+                    ln for ln in lines[i + 1:]
+                    if ln.strip() and not ln.startswith("{{")
+                ]
+                assert rest and rest[0].startswith("* "), (
+                    "section %r has no command entries" % line
+                )
+
+
+def _has_command(name):
+    data = wp.load_definitions()
+    return any(c["name"] == name for c in data["commands"])
+
+
 class TestCwdResolutionFootnote:
     """Non-required -i flags get a cwd-resolution footnote in the
     flags table. Required -i (create) does not, because there's no
@@ -208,7 +255,7 @@ class TestGlobalFlagsSection:
                 continue
             if title == wp.PAGE_PREFIX + "canasta":
                 continue  # root page has no flag table
-            if "=== Global Flags ===" not in content:
+            if "=== Global flags ===" not in content:
                 missing.append(title)
         assert not missing, (
             "pages missing Global Flags section:\n  "
@@ -226,7 +273,7 @@ class TestGlobalFlagsSection:
                              "description": "Canasta instance ID"}]},
             global_flags=wp.load_definitions()["global_flags"],
         )
-        assert "=== Global Flags ===" in page
+        assert "=== Global flags ===" in page
         assert "--help" in page
         assert "--verbose" in page
 
@@ -239,7 +286,7 @@ class TestGlobalFlagsSection:
                              "type": "string",
                              "description": "Canasta instance ID"}]}
         )
-        assert "=== Global Flags ===" not in page
+        assert "=== Global flags ===" not in page
 
 
 class TestOrchestratorColumn:
@@ -289,8 +336,8 @@ class TestOrchestratorColumn:
         orchestrator, so they show 'Both' in the column."""
         page = self._create_page()
         # The Global Flags section is the tail of the page after
-        # '=== Global Flags ==='.
-        gf = page.split("=== Global Flags ===", 1)[1]
+        # '=== Global flags ==='.
+        gf = page.split("=== Global flags ===", 1)[1]
         assert "Orchestrator" in gf
         for line in gf.splitlines():
             if "<code>--help</code>" in line or "<code>--verbose</code>" in line:
@@ -358,7 +405,7 @@ class TestSubcommandGroupPages:
         pages = self._pages()
         for group in ("host", "gitops", "config"):
             page = pages[wp.PAGE_PREFIX + "canasta " + group]
-            assert "=== Global Flags ===" in page
+            assert "=== Global flags ===" in page
             assert "<code>--help</code>" in page
             assert "<code>--verbose</code>" in page
 
@@ -471,6 +518,93 @@ class TestUsageLineSkipsWhenNoParams:
         assert page.count('<syntaxhighlight lang="bash"') == 2
 
 
+class TestFlagAndArgumentRendering:
+    """Flag tables must show the flag the CLI actually accepts: the
+    `long:` override wins over the param name, and positional params
+    are arguments, not flags. The live-wiki bug was `--host-name` on
+    CLI:canasta host add and a fake `--settings` flag on CLI:canasta
+    config set."""
+
+    def test_long_override_renders_long_name(self):
+        page = wp.gen_wikitext({
+            "name": "host_add",
+            "description": "Add a host",
+            "parameters": [{"name": "host_name", "short": "n",
+                            "long": "name", "type": "string",
+                            "required": True,
+                            "description": "Host name"}],
+        })
+        assert "<code>--name</code>" in page
+        assert "--host-name" not in page
+
+    def test_positional_renders_as_argument_not_flag(self):
+        page = wp.gen_wikitext({
+            "name": "config_set",
+            "description": "Set config",
+            "parameters": [{"name": "settings", "type": "string",
+                            "positional": True, "multi": True,
+                            "description": "KEY=VALUE pairs to set"}],
+        })
+        assert "--settings" not in page
+        assert "=== Arguments ===" in page
+        assert "<code>SETTINGS</code>" in page
+        # No flags besides the positional -> no Flags section.
+        assert "=== Flags ===" not in page
+
+    def test_plain_param_unchanged(self):
+        page = wp.gen_wikitext({
+            "name": "start",
+            "description": "Start",
+            "parameters": [{"name": "id", "short": "i",
+                            "type": "string",
+                            "description": "Canasta instance ID"}],
+        })
+        assert "<code>--id</code>" in page
+        assert "=== Flags ===" in page
+        assert "=== Arguments ===" not in page
+
+    def test_usage_line_shows_positional_metavar(self):
+        page = wp.gen_wikitext({
+            "name": "config_set",
+            "description": "Set config",
+            "parameters": [{"name": "settings", "type": "string",
+                            "positional": True, "multi": True,
+                            "description": "KEY=VALUE pairs to set"}],
+        })
+        assert "canasta config set [flags] [SETTINGS...]" in page
+
+    def test_flags_sorted_by_displayed_name(self):
+        page = wp.gen_wikitext({
+            "name": "host_add",
+            "description": "Add a host",
+            "parameters": [
+                {"name": "host_name", "long": "name", "type": "string",
+                 "description": "Host name"},
+                {"name": "address", "type": "string",
+                 "description": "Address"},
+            ],
+        })
+        # `host_name` displays as --name, so it sorts after --address.
+        assert page.index("<code>--address</code>") < page.index(
+            "<code>--name</code>"
+        )
+
+    def test_real_pages_render_cli_accurate_flags(self):
+        """End-to-end against command_definitions.yml: the previously
+        wrong pages now match the CLI."""
+        data = wp.load_definitions()
+        pages = dict(wp.generate_all_pages(data))
+        host_add = pages[wp.PAGE_PREFIX + "canasta host add"]
+        assert "<code>--name</code>" in host_add
+        assert "--host-name" not in host_add
+        config_set = pages[wp.PAGE_PREFIX + "canasta config set"]
+        assert "--settings" not in config_set
+        assert "<code>SETTINGS</code>" in config_set
+        maint_exec = pages[wp.PAGE_PREFIX + "canasta maintenance exec"]
+        assert "--exec-args" not in maint_exec
+        assert "<code>EXEC_ARGS</code>" in maint_exec
+
+
 class TestBacktickToCode:
     """MediaWiki doesn't interpret single-backtick inline code (unlike
     markdown). The publisher translates backticks to <code> tags so
@@ -516,3 +650,350 @@ class TestBacktickToCode:
         assert "<code>canasta start</code>" in page
         # And the literal backtick-wrapped form should not appear.
         assert "`canasta start`" not in page
+
+
+class _StubClient:
+    """Minimal stand-in for MediaWikiClient: no network, records the
+    delete calls so tests can assert which orphans were pruned."""
+
+    def __init__(self, ns_id, existing, delete_exc=None):
+        self._ns_id = ns_id
+        self._existing = list(existing)
+        self._delete_exc = delete_exc
+        self.deleted = []
+        self.delete_attempts = []
+
+    def resolve_namespace_id(self, name):
+        return self._ns_id
+
+    def list_pages_in_namespace(self, ns_id):
+        assert ns_id == self._ns_id
+        return self._existing
+
+    def delete_page(self, title, reason):
+        self.delete_attempts.append(title)
+        if self._delete_exc is not None:
+            raise self._delete_exc
+        self.deleted.append(title)
+
+
+class TestPruneOrphans:
+    """prune_orphans must delete exactly the CLI: pages the current run
+    no longer generates — and only those (the 'crowdsec enroll' orphan
+    class, #723)."""
+
+    def test_deletes_only_orphans(self):
+        # Generated titles are lowercase 'canasta'; the wiki stores them
+        # capitalized ('Canasta'). Only the genuinely renamed page is an
+        # orphan — capitalization alone must not flag a page.
+        generated = [
+            (wp.PAGE_PREFIX + "canasta crowdsec bouncer-enroll", "x"),
+            (wp.PAGE_PREFIX + "canasta create", "x"),
+        ]
+        existing = [
+            wp.PAGE_PREFIX + "Canasta crowdsec bouncer-enroll",
+            wp.PAGE_PREFIX + "Canasta create",
+            wp.PAGE_PREFIX + "Canasta crowdsec enroll",  # renamed -> orphan
+        ]
+        client = _StubClient(100, existing)
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 0
+        assert client.deleted == [
+            wp.PAGE_PREFIX + "Canasta crowdsec enroll"
+        ]
+
+    def test_capitalization_difference_is_not_an_orphan(self):
+        """Regression: the generator emits 'CLI:canasta ...' but the wiki
+        stores 'CLI:Canasta ...'. A raw string compare flags every page
+        as an orphan and (with delete rights) would wipe the namespace."""
+        generated = [
+            (wp.PAGE_PREFIX + "canasta", "x"),
+            (wp.PAGE_PREFIX + "canasta create", "x"),
+            (wp.PAGE_PREFIX + "canasta backup schedule set", "x"),
+        ]
+        existing = [
+            wp.PAGE_PREFIX + "Canasta",
+            wp.PAGE_PREFIX + "Canasta create",
+            wp.PAGE_PREFIX + "Canasta backup schedule set",
+        ]
+        client = _StubClient(100, existing)
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 0
+        assert client.deleted == []
+
+    def test_safety_valve_refuses_mass_deletion(self):
+        """If the orphan set is implausibly large (a comparison bug),
+        prune must refuse to delete anything and fail loudly."""
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        existing = [wp.PAGE_PREFIX + "Canasta page %d" % i
+                    for i in range(40)]
+        client = _StubClient(100, existing)
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 1
+        assert client.delete_attempts == []  # nothing deleted
+
+    def test_no_orphans_deletes_nothing(self):
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        existing = [wp.PAGE_PREFIX + "canasta create"]
+        client = _StubClient(100, existing)
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 0
+        assert client.deleted == []
+
+    def test_missing_namespace_is_skipped_not_fatal(self):
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        client = _StubClient(None, [])
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 0
+        assert client.deleted == []
+
+    def test_permission_denied_warns_not_fails(self):
+        """If the bot lacks delete rights, prune must not fail the
+        publish job — warn and leave the orphans for an admin."""
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        existing = [
+            wp.PAGE_PREFIX + "canasta create",
+            wp.PAGE_PREFIX + "canasta crowdsec enroll",
+            wp.PAGE_PREFIX + "canasta old two",
+        ]
+        client = _StubClient(
+            100, existing,
+            delete_exc=wp.PermissionDeniedError(
+                "API error: permissiondenied: not an admin"
+            ),
+        )
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 0
+        # Stops after the first denial (all would fail identically).
+        assert len(client.delete_attempts) == 1
+        assert client.deleted == []
+
+    def test_non_permission_error_still_counts(self):
+        """A non-permission deletion failure is still a real error."""
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        existing = [
+            wp.PAGE_PREFIX + "canasta create",
+            wp.PAGE_PREFIX + "canasta crowdsec enroll",
+        ]
+        client = _StubClient(
+            100, existing, delete_exc=RuntimeError("API error: badtoken"),
+        )
+        errors = wp.prune_orphans(client, generated)
+        assert errors == 1
+
+
+class TestEveryCommandLinkedFromIndex:
+    """Every top-level command and every subcommand group must appear in
+    CMD_GROUPS, which drives both the root CLI:canasta index page and the
+    MediaWiki:Menu-cli-reference menu. A command omitted here generates a
+    page that nothing links to — an orphan (Special:LonelyPages). This is
+    how CLI:Canasta rebuild (plus scale, status, crowdsec, argocd) ended
+    up orphaned."""
+
+    def _must_be_linked(self):
+        data = wp.load_definitions()
+        names = {c["name"] for c in data["commands"]}
+        groups = set(wp.SUBCOMMAND_GROUPS.keys())
+        # Leaf top-level commands have no underscore and aren't groups;
+        # group pages are the SUBCOMMAND_GROUPS keys. Nested groups
+        # (backup_schedule, storage_setup) are linked under their parent
+        # by the menu walk, so they don't need a direct CMD_GROUPS entry.
+        leaves = {n for n in names if "_" not in n and n not in groups}
+        return leaves | groups
+
+    def _listed_in_cmd_groups(self):
+        listed = set()
+        for _heading, cmds in wp.CMD_GROUPS:
+            listed.update(cmds)
+        return listed
+
+    def test_no_command_omitted_from_index(self):
+        missing = self._must_be_linked() - self._listed_in_cmd_groups()
+        assert not missing, (
+            "CMD_GROUPS omits %s — their CLI: pages would be orphaned. "
+            "Add each to the appropriate group." % sorted(missing)
+        )
+
+    def test_leaves_linked_from_root_and_everything_in_menu(self):
+        # Leaf commands appear directly on the root index page (a content
+        # page), giving them an incoming link so they can't be orphaned.
+        # Group pages are linked from the menu and from their own
+        # subcommand pages' breadcrumbs, so they only need the menu.
+        data = wp.load_definitions()
+        pages = dict(wp.generate_all_pages(data))
+        root = pages["CLI:canasta"]
+        menu = pages["MediaWiki:Menu-cli-reference"]
+        leaves = self._must_be_linked() - set(wp.SUBCOMMAND_GROUPS.keys())
+        for cmd in sorted(leaves):
+            assert ("canasta " + cmd) in root, "root page missing leaf %s" % cmd
+        for name in sorted(self._must_be_linked()):
+            assert ("canasta " + name) in menu, "menu missing %s" % name
+
+    def test_previously_orphaned_commands_now_linked(self):
+        # Regression: these five were omitted from CMD_GROUPS, leaving
+        # CLI:Canasta rebuild orphaned (the others were saved only by the
+        # hand-maintained Help:CLI overview linking them).
+        data = wp.load_definitions()
+        pages = dict(wp.generate_all_pages(data))
+        root = pages["CLI:canasta"]
+        menu = pages["MediaWiki:Menu-cli-reference"]
+        for cmd in ("rebuild", "scale", "status"):  # leaves -> root + menu
+            assert ("canasta " + cmd) in root
+            assert ("canasta " + cmd) in menu
+        for cmd in ("crowdsec", "argocd"):  # groups -> menu
+            assert ("canasta " + cmd) in menu
+
+
+class TestEditRetry:
+    """A large publish run can trip the wiki's edit rate limit partway
+    through. edit_page must retry transient errors with backoff so the
+    rest of the namespace doesn't get left stale (the failed run that
+    skipped CLI:Canasta crowdsec)."""
+
+    def _client(self):
+        # Bypass __init__ (which logs in over the network).
+        return object.__new__(wp.MediaWikiClient)
+
+    def test_retries_ratelimited_then_succeeds(self, monkeypatch):
+        c = self._client()
+        c._get_token = lambda kind: "token+\\"
+        calls = {"n": 0}
+
+        def fake_post(params):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                return {"error": {"code": "ratelimited", "info": "slow down"}}
+            return {"edit": {"result": "Success"}}
+
+        c._post = fake_post
+        sleeps = []
+        monkeypatch.setattr(wp.time, "sleep", sleeps.append)
+        c.edit_page("CLI:canasta crowdsec", "text", "summary")
+        assert calls["n"] == 3
+        assert sleeps == [wp._retry_delay(0), wp._retry_delay(1)]
+
+    def test_gives_up_after_max_retries(self, monkeypatch):
+        c = self._client()
+        c._get_token = lambda kind: "token"
+        calls = {"n": 0}
+
+        def fake_post(params):
+            calls["n"] += 1
+            return {"error": {"code": "ratelimited", "info": "nope"}}
+
+        c._post = fake_post
+        monkeypatch.setattr(wp.time, "sleep", lambda s: None)
+        with pytest.raises(RuntimeError, match="ratelimited"):
+            c.edit_page("t", "c", "s")
+        # Initial attempt plus MAX_EDIT_RETRIES retries.
+        assert calls["n"] == wp.MAX_EDIT_RETRIES + 1
+
+    def test_non_retryable_error_raises_immediately(self, monkeypatch):
+        c = self._client()
+        c._get_token = lambda kind: "token"
+        calls = {"n": 0}
+
+        def fake_post(params):
+            calls["n"] += 1
+            return {"error": {"code": "badtoken", "info": "bad token"}}
+
+        c._post = fake_post
+        monkeypatch.setattr(wp.time, "sleep", lambda s: None)
+        with pytest.raises(RuntimeError, match="badtoken"):
+            c.edit_page("t", "c", "s")
+        assert calls["n"] == 1  # no retries
+
+    def test_backoff_grows_and_is_capped(self):
+        assert wp._retry_delay(0) == wp.RETRY_BACKOFF_BASE
+        assert wp._retry_delay(1) == wp.RETRY_BACKOFF_BASE * 2
+        # Far-out attempts saturate at the cap.
+        assert wp._retry_delay(20) == wp.RETRY_BACKOFF_MAX
+
+
+class TestReflowProse:
+    """long_description fields are authored as YAML literal blocks with
+    hand-wrapped, indented continuation lines. MediaWiki renders any line
+    that begins with a space as a preformatted block, so those
+    continuations must be unwrapped onto a single logical line before
+    publishing."""
+
+    def _no_indented_lines(self, page):
+        """Assert no line outside a <pre>/<syntaxhighlight> block begins
+        with whitespace (the cause of stray MediaWiki preformatted boxes).
+        """
+        inpre = False
+        for line in page.split("\n"):
+            low = line.strip().lower()
+            if low.startswith(("<pre", "<syntaxhighlight")):
+                inpre = True
+            if not inpre and (line.startswith(" ") or line.startswith("\t")):
+                return line
+            if low.startswith(("</pre", "</syntaxhighlight")):
+                inpre = False
+        return None
+
+    def test_no_generated_page_has_stray_indentation(self):
+        data = wp.load_definitions()
+        for title, content in wp.generate_all_pages(data):
+            bad = self._no_indented_lines(content)
+            assert bad is None, "%s has space-prefixed line: %r" % (title, bad)
+
+    def test_bullet_continuation_collapsed_to_one_line(self):
+        text = (
+            "Intro paragraph that\nwraps across lines.\n\n"
+            "* first item that\n  wraps onto a second line\n"
+            "* second item\n"
+        )
+        out = wp._reflow_prose(text)
+        assert "Intro paragraph that wraps across lines." in out
+        assert "* first item that wraps onto a second line" in out
+        assert "* second item" in out
+        # No line begins with a space after reflow.
+        assert not any(ln.startswith(" ") for ln in out.split("\n"))
+
+    def test_blank_lines_and_list_items_preserved(self):
+        text = "para one\n\n- a\n  cont\n- b"
+        out = wp._reflow_prose(text)
+        assert out == "para one\n\n- a cont\n- b"
+
+    def test_numbered_items_stay_separate(self):
+        text = "1. first\n   wrapped\n2. second"
+        out = wp._reflow_prose(text)
+        assert out == "1. first wrapped\n2. second"
+
+    def test_config_keys_table_indentation_preserved(self):
+        """Reflow runs before the {{CONFIG_KEYS_TABLE}} substitution, so
+        the generated <pre> block keeps its intentional indentation."""
+        pages = dict(wp.generate_all_pages(wp.load_definitions()))
+        config = pages[wp.PAGE_PREFIX + "canasta config"]
+        assert "\n    HTTP_PORT" in config
+
+
+class TestListMarkupIsMediaWiki:
+    """long_description list items must use MediaWiki markup (* for
+    unordered, # for ordered). Markdown-style '- ' and '1.' don't start
+    a list in MediaWiki — they render as literal text with a stray dash
+    or number, which is how CLI:Canasta version's list came out wrong."""
+
+    import re as _re
+    _MARKDOWN_LIST = _re.compile(r"^(-\s|\d+\.\s)")
+
+    def _long_descriptions(self):
+        data = wp.load_definitions()
+        for c in data["commands"]:
+            if c.get("long_description"):
+                yield c["name"], c["long_description"]
+        for g in data.get("command_groups", []):
+            if g.get("long_description"):
+                yield "[group] " + g["name"], g["long_description"]
+
+    def test_no_markdown_style_list_markers(self):
+        offenders = []
+        for name, ld in self._long_descriptions():
+            for line in ld.split("\n"):
+                if self._MARKDOWN_LIST.match(line.strip()):
+                    offenders.append("%s: %r" % (name, line.strip()))
+        assert not offenders, (
+            "use '*'/'#' (MediaWiki), not markdown list markers:\n  "
+            + "\n  ".join(offenders)
+        )

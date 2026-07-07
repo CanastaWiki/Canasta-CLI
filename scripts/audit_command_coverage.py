@@ -62,7 +62,52 @@ def _string_const(node):
     return None
 
 
-def extract_test_invocations(test_file, subcommand_groups):
+def _leading_name_tokens(args):
+    """Return the leading run of string-literal positional tokens.
+
+    Stops at the first non-string argument or the first flag/option
+    (a string token beginning with "-"), so option values are never
+    folded into the command name.
+    """
+    tokens = []
+    for arg in args:
+        value = _string_const(arg)
+        if value is None or value.startswith("-"):
+            break
+        tokens.append(value)
+    return tokens
+
+
+def resolve_command(args, subcommand_groups, known_commands=None):
+    """Resolve a run* call's positional args to a canonical command key.
+
+    Tries the longest subcommand path first: a three-token
+    "group sub sub" resolves to "group_sub_sub", a two-token
+    "group sub" to "group_sub", otherwise the first token alone. The
+    CLI/tests use hyphenated names (bouncer-enroll) while
+    command_definitions.yml uses underscores, so hyphens are normalized.
+    When known_commands is supplied, the longest candidate that names a
+    real command wins; otherwise the greedy two-token form is used.
+    """
+    tokens = _leading_name_tokens(args)
+    if not tokens:
+        return None
+    first = tokens[0]
+    if first not in subcommand_groups or len(tokens) < 2:
+        return first
+
+    def key(n):
+        return "_".join(tokens[:n]).replace("-", "_")
+
+    if known_commands is not None:
+        for n in range(len(tokens), 1, -1):
+            candidate = key(n)
+            if candidate in known_commands:
+                return candidate
+    return key(2)
+
+
+def extract_test_invocations(test_file, subcommand_groups, known_commands=None):
     """Walk the test file and yield (test_func_name, command_name) tuples.
 
     command_name is the canonical underscore-joined form
@@ -94,27 +139,18 @@ def extract_test_invocations(test_file, subcommand_groups):
         func = node.func
         if not (isinstance(func, ast.Attribute) and func.attr in RUN_METHODS):
             continue
-        # Filter to inst.run* calls (the test instance method).
-        if not (isinstance(func.value, ast.Name) and func.value.id == "inst"):
+        # Filter to test-instance run* calls. The primary instance is
+        # `inst`; tests that need a second instance use `inst_b`, `inst_a`,
+        # etc. Match those too, but not unrelated receivers like
+        # `subprocess.run` or a TestInstance method's own `self.run`.
+        if not (isinstance(func.value, ast.Name)
+                and (func.value.id == "inst"
+                     or func.value.id.startswith("inst_"))):
             continue
 
-        # First positional arg is the command name (or group name).
-        if not node.args:
+        command = resolve_command(node.args, subcommand_groups, known_commands)
+        if command is None:
             continue
-        first = _string_const(node.args[0])
-        if first is None:
-            continue
-
-        # If the first arg is a subcommand group, the second positional
-        # arg is the actual subcommand name.
-        if first in subcommand_groups and len(node.args) >= 2:
-            second = _string_const(node.args[1])
-            if second is not None:
-                command = "%s_%s" % (first, second)
-            else:
-                command = first
-        else:
-            command = first
 
         yield func_for_line(node.lineno), command
 
@@ -137,7 +173,7 @@ def main():
     coverage = defaultdict(set)  # command -> {test_func_name, ...}
     unknown = set()              # invoked commands not in definitions
 
-    for test_name, command in extract_test_invocations(TEST_FILE, groups):
+    for test_name, command in extract_test_invocations(TEST_FILE, groups, all_commands):
         if command in all_commands:
             coverage[command].add(test_name or "?")
         else:

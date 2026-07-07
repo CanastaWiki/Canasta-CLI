@@ -1,5 +1,5 @@
 ---
-# GitOps pull (Compose) — full multi-host flow matching Go implementation.
+# GitOps pull (Compose) — full multi-host flow.
 # Pulls from remote, renders .env and wikis.yaml from templates + host
 # vars, writes admin passwords, detects what changed, and flags whether
 # a restart or maintenance update is needed.
@@ -158,6 +158,17 @@
         dest: "{{ instance_path }}/config/wikis.yaml"
         mode: "0644"
 
+# --- Step 7b: Reconcile COMPOSE_PROFILES with the rendered flags ---
+# .env is rendered verbatim from env.template + vars, so a stale
+# COMPOSE_PROFILES literal (or a render that dropped internal-db / a feature
+# profile) would otherwise survive the pull and leave services unmanaged —
+# running but invisible to up/down. Run the same sync used before start so the
+# profile set matches the feature flags and the DB mode. This runs before the
+# change-detection below, so a profile change correctly flags a restart.
+- name: Reconcile COMPOSE_PROFILES after render
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
+
 # --- Step 8: Write admin password files ---
 - name: Write admin password files from vars
   ansible.builtin.copy:
@@ -215,6 +226,17 @@
     content: "{{ _pull_new_commit.stdout }}"
     dest: "{{ instance_path }}/.gitops-applied"
     mode: "0644"
+
+# Re-materialize the crontab when the pulled config changed the schedule
+# (added / edited / removed config/backup-schedule.yml). The rematerialize
+# task applies the file's schedule, or removes the crontab entry if the
+# file is now gone.
+- name: Re-materialize the backup schedule if it changed
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_rematerialize.yml
+  when: >-
+    _pull_changed_files.stdout_lines | default([])
+    | select('search', 'config/backup-schedule.yml') | list | length > 0
 
 # --- Step 11: Report results ---
 - name: Report pull results

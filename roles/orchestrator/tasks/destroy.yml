@@ -5,16 +5,39 @@
 - name: Destroy (Docker Compose)
   when: instance_orchestrator | default('compose') == 'compose'
   block:
+    - name: Check for docker-compose.sidecars.yml
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.sidecars.yml"
+      register: _destroy_sidecars
+
+    - name: Check for docker-compose.override.yml
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.override.yml"
+      register: _destroy_override
+
+    # Pass the sidecars layer explicitly: `down -v` only removes volumes
+    # declared in the compose files it loads, and an app sidecar's named
+    # volume lives in docker-compose.sidecars.yml, which Compose does not
+    # auto-load. Without it the volume survives delete and later blocks
+    # recreate with a stale-volume error. --remove-orphans still sweeps any
+    # stray containers.
+    - name: Build compose file arguments for destroy
+      ansible.builtin.set_fact:
+        _destroy_compose_files: >-
+          {{ ['-f', 'docker-compose.yml'] +
+             (_destroy_sidecars.stat.exists | ternary(['-f', 'docker-compose.sidecars.yml'], [])) +
+             (_destroy_override.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) }}
+
     - name: Destroy containers and volumes
       ansible.builtin.command:
-        cmd: "docker compose down -v"
+        cmd: "docker compose {{ _destroy_compose_files | join(' ') }} down -v --remove-orphans"
         chdir: "{{ instance_path }}"
       changed_when: true
       ignore_errors: true  # OK if containers already removed
 
     - name: Remove backup staging volume
       ansible.builtin.command:
-        cmd: "docker volume rm {{ instance_path | basename }}-backup"
+        cmd: "docker volume rm canasta-backup-{{ instance_path | basename }}"
       changed_when: true
       ignore_errors: true  # OK if volume doesn't exist
 

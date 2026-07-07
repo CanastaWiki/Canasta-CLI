@@ -3,8 +3,7 @@
 
 """Ansible module for Canasta input validation.
 
-Replaces validation functions from Go packages: instance ID validation
-from internal/canasta and wiki ID validation from internal/farmsettings.
+Validates instance IDs and wiki IDs.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -32,7 +31,6 @@ import re
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_validate import (
-    RESERVED_WIKI_IDS,
     validate_wiki_id,
 )
 

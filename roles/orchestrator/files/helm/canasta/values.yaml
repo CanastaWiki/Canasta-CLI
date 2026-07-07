@@ -71,10 +71,13 @@ externalDatabase:
   user: "root"
   ssl: "false"
 
-# Elasticsearch (optional)
+# Elasticsearch (optional). CirrusSearch supports only Elasticsearch
+# 7.10.x, so this pin follows it (and matches the Compose default).
+# The fully qualified registry is required: Docker Hub's library/
+# elasticsearch never published a 7.10.2 tag.
 elasticsearch:
   enabled: false
-  image: elasticsearch:7.17.9
+  image: docker.elastic.co/elasticsearch/elasticsearch:7.10.2
   storage: 5Gi
   storageClass: ""
   resources:
@@ -154,6 +157,13 @@ persistence:
 secrets:
   dbSecretName: ""      # set by Ansible: <instance_id>-db-credentials
   mwSecretName: ""      # set by Ansible: <instance_id>-mw-secrets
+  appSecretName: ""     # set by Ansible: <instance_id>-app-secrets
+
+# App secret keys exposed to the web + jobrunner pods via secretKeyRef from
+# the app Secret. Populated from config/secrets-web (keys set with
+# `config set --secret --web`) by k8s_sync_config.yml; empty by default so
+# existing instances render no extra env.
+appSecretEnv: []
 
 # Config data — populated by Ansible or committed via gitops.
 # Helm renders these into ConfigMaps for each component.
@@ -175,3 +185,8 @@ argocd:
     automated: true
     selfHeal: true
     prune: true
+
+# App sidecars (companion services). Rendered from config/sidecars.yaml
+# into values-sidecars.yaml at start; empty here so a release with no
+# sidecars renders nothing (and helm prunes a removed one).
+sidecars: []

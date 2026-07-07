@@ -17,6 +17,7 @@
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _install_env
+  no_log: true  # .env includes MYSQL_PASSWORD
 
 - name: Set DB server for install
   ansible.builtin.set_fact:
@@ -28,6 +29,8 @@
     {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
   vars:
     exec_service: web
+    exec_no_log: true
+    exec_long: true
     exec_command: >-
       env -u MW_SECRET_KEY php maintenance/install.php
       --skins='Vector'

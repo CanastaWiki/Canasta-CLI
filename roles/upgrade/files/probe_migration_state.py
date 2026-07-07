@@ -19,6 +19,7 @@ Output JSON shape:
 """
 import json
 import os
+import re
 import sys
 
 
@@ -30,10 +31,6 @@ ENV_KEYS_OF_INTEREST = (
     "COMPOSE_PROFILES",
     "USE_EXTERNAL_DB",
 )
-
-# Subdirs of config/ that are NOT per-wiki state and must not be
-# moved by the directory-structure migration.
-CONFIG_NON_WIKI = ("settings", "logstash", "backup", "persistent")
 
 
 def parse_env(path):
@@ -114,6 +111,60 @@ def list_files_matching(dir_path, suffix):
     )
 
 
+def wiki_ids_from_yaml(path):
+    """Wiki ids declared under the top-level `wikis:` key of wikis.yaml.
+
+    Parsed without PyYAML (not guaranteed on the target host): scan the
+    `wikis:` block for list-item `id:` values. wikis.yaml is machine-
+    written with `id` as the first key of each entry; both `- id: x`
+    and flush `- id: x` indent styles are handled. A missing or
+    unreadable file yields [].
+    """
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+    ids = []
+    in_wikis = False
+    wikis_indent = 0
+    for raw in lines:
+        line = raw.rstrip("\n")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if not in_wikis:
+            if stripped == "wikis:" or stripped.startswith("wikis:"):
+                in_wikis = True
+                wikis_indent = indent
+            continue
+        # A new key at or below the `wikis:` indent ends the block.
+        if indent <= wikis_indent and not stripped.startswith("-"):
+            break
+        m = re.match(r"-?\s*id:\s*(.+)$", stripped)
+        if m:
+            val = m.group(1).strip().strip('"').strip("'")
+            if val:
+                ids.append(val)
+    return ids
+
+
+def old_wiki_dirs(base):
+    """Per-wiki config dirs still in the pre-migration location
+    config/<id>/. The wiki set is the farm declared in
+    config/wikis.yaml, NOT a scan of config/* — so non-wiki dirs
+    (crowdsec, logstash, backup, …) can never be selected for the
+    directory-structure migration.
+    """
+    config = os.path.join(base, "config")
+    ids = wiki_ids_from_yaml(os.path.join(config, "wikis.yaml"))
+    return sorted(
+        wid for wid in ids
+        if os.path.isdir(os.path.join(config, wid))
+    )
+
+
 def main():
     if len(sys.argv) != 2:
         print(json.dumps(
@@ -146,9 +197,7 @@ def main():
             "legacy_git": os.path.isdir(legacy_git),
             "hosts_yaml": os.path.isfile(hosts_yaml),
         },
-        "old_wiki_dirs": list_subdirs(
-            os.path.join(base, "config"), exclude=CONFIG_NON_WIKI,
-        ),
+        "old_wiki_dirs": old_wiki_dirs(base),
         "stray_php": list_files_matching(
             os.path.join(base, "config", "settings"), ".php",
         ),

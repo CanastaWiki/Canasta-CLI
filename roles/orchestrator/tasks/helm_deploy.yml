@@ -16,17 +16,30 @@
     path: "{{ instance_path }}/values-configdata.yaml"
   register: _configdata_file
 
+- name: Check for sidecars values file
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/values-sidecars.yaml"
+  register: _sidecars_file
+
+# Launched detached and polled (resilient_exec) so a controller-side SSH
+# reset during the up-to-10m `--wait` doesn't abort a deploy that is still
+# progressing on the target. helm upgrade --install is idempotent, so a
+# re-run after a reset is safe.
 - name: Deploy Canasta Helm release
-  ansible.builtin.command:
-    cmd: >-
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "deploy Helm release canasta-{{ instance_id }}"
+    rx_async: 720
+    rx_cmd: >-
       helm upgrade --install canasta-{{ instance_id }}
       {{ instance_path }}/_chart
       --namespace {{ _k8s_namespace }} --create-namespace
       -f {{ instance_path }}/values.yaml
       {{ (_configdata_file.stat.exists | default(false))
          | ternary('-f ' ~ instance_path ~ '/values-configdata.yaml', '') }}
+      {{ (_sidecars_file.stat.exists | default(false))
+         | ternary('-f ' ~ instance_path ~ '/values-sidecars.yaml', '') }}
       {{ (helm_reset_values | default(true) | bool)
          | ternary('--reset-values', '') }}
       {{ (helm_wait | default(true) | bool)
          | ternary('--wait --timeout 10m', '') }}
-  changed_when: true

@@ -328,6 +328,23 @@ class TestRunModuleUpdatePort:
         assert not failed
         assert result["wikis"][0]["url"] == "localhost"
 
+    def test_update_port_idempotent_when_unchanged(self, tmp_dir):
+        """Re-applying the same port must report changed=False so
+        Ansible idempotency / check-mode stay accurate."""
+        os.makedirs(os.path.join(tmp_dir, "config"), exist_ok=True)
+        canasta_wikis_yaml.write_wikis(tmp_dir, [
+            {"id": "main", "url": "localhost:8443", "name": "Main"},
+        ])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "update_port",
+            "wiki_id": None, "domain": None,
+            "wiki_path": None, "site_name": None,
+            "port": "8443",
+        })
+        assert not failed
+        assert result["changed"] is False
+        assert result["wikis"][0]["url"] == "localhost:8443"
+
     def test_update_port_requires_port(self, sample_wikis_yaml):
         result, failed, msg = run_module_with_params(canasta_wikis_yaml, {
             "instance_path": sample_wikis_yaml, "state": "update_port",
@@ -454,3 +471,34 @@ class TestRunModuleUpdateDomain:
         assert not failed
         assert not result["changed"]
         assert result["wikis"][0]["url"] == "a.example.com"
+
+
+class TestAddCollision:
+    """Adding a wiki to a farm must reject a colliding id or URL, so two
+    wikis on one instance can't clobber each other."""
+
+    def _add(self, tmp_dir, wiki_id, domain, wiki_path=None):
+        return run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": tmp_dir, "state": "add",
+            "wiki_id": wiki_id, "domain": domain,
+            "wiki_path": wiki_path, "site_name": None, "port": None,
+        })
+
+    def test_duplicate_wiki_id_rejected(self, sample_wikis_yaml):
+        # 'main' already exists in the sample farm.
+        _, failed, msg = self._add(sample_wikis_yaml, "main", "other.com")
+        assert failed
+        assert "Wiki ID 'main' already exists" in msg
+
+    def test_duplicate_url_rejected(self, sample_wikis_yaml):
+        # A different id but the same URL as 'main' (example.com).
+        _, failed, msg = self._add(sample_wikis_yaml, "mirror", "example.com")
+        assert failed
+        assert "Wiki URL 'example.com' already exists" in msg
+
+    def test_distinct_id_and_url_succeeds(self, sample_wikis_yaml):
+        result, failed, _ = self._add(
+            sample_wikis_yaml, "blog", "blog.example.com")
+        assert not failed
+        assert result["changed"]
+        assert any(w["id"] == "blog" for w in result["wikis"])

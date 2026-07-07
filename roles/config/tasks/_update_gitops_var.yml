@@ -27,14 +27,14 @@
       ansible.builtin.slurp:
         src: "{{ _ugv_vars_file }}"
       register: _ugv_vars_raw
-      no_log: "{{ _ugv_key is search(canasta_secret_key_pattern) }}"
+      no_log: "{{ _ugv_key is match(canasta_secret_key_regex) }}"
 
     - name: Update var value
       ansible.builtin.set_fact:
         _ugv_updated_vars: >-
           {{ (_ugv_vars_raw.content | b64decode | from_yaml)
              | combine({_ugv_placeholder: _ugv_value}) }}
-      no_log: "{{ _ugv_key is search(canasta_secret_key_pattern) }}"
+      no_log: "{{ _ugv_key is match(canasta_secret_key_regex) }}"
 
     - name: Write updated vars.yaml
       ansible.builtin.copy:
@@ -46,5 +46,25 @@
     - name: Stage updated vars.yaml
       ansible.builtin.command:
         cmd: "git add {{ _ugv_vars_file }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+# A key with no gitops placeholder lives as a literal in env.template (or is
+# absent). Update that literal so the change reaches the durable source; a
+# gitops pull / config regenerate re-renders .env from env.template, so a
+# literal left stale reverts the value on the next render.
+- name: Update env.template literal when key has no placeholder
+  when: _ugv_placeholder == ''
+  block:
+    - name: Set the literal in env.template
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/env.template"
+        regexp: "^{{ _ugv_key }}="
+        line: "{{ _ugv_key }}={{ _ugv_value }}"
+        state: present
+
+    - name: Stage updated env.template
+      ansible.builtin.command:
+        cmd: "git add env.template"
         chdir: "{{ instance_path }}"
       changed_when: true

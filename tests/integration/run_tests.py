@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Integration tests for the Canasta CLI.
 
-Mirrors the Go CLI integration tests by calling ./canasta commands as
+Exercises the CLI end to end by calling ./canasta commands as
 subprocesses. Each test creates an isolated instance with unique ports
 and a separate config directory.
 
@@ -316,6 +316,275 @@ def test_upgrade(inst):
     wait_for_wiki(inst.http_port)
 
 
+def _mysql_data_volume(inst):
+    """Name of the instance's MySQL data volume, as Compose derives it."""
+    return "%s_mysql-data-volume" % re.sub(
+        r"[^a-z0-9_-]", "", inst.id.lower()
+    )
+
+
+def _wipe_volume(volume):
+    """Empty a Docker volume via a throwaway alpine container."""
+    subprocess.run(
+        ["docker", "run", "--rm", "-v", "%s:/data" % volume, "alpine",
+         "sh", "-c", "rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null || true"],
+        check=True, capture_output=True,
+    )
+
+
+def _seed_mysql8_datadir(inst, volume, password):
+    """Seed a genuine MySQL 8.0 datadir (with a sentinel row) into `volume`.
+
+    Runs a throwaway mysql:8.0 container over the volume, creates a canary
+    table, and confirms the result is a real MySQL 8 datadir (mysql.ibd) —
+    the exact marker detection keys off. Leaves the volume populated on
+    return.
+    """
+    seed = "canasta-mysql8-seed-%s" % inst.id
+    subprocess.run(["docker", "rm", "-f", seed], capture_output=True)
+    subprocess.run(
+        ["docker", "run", "-d", "--name", seed,
+         "-v", "%s:/var/lib/mysql" % volume,
+         "-e", "MYSQL_ROOT_PASSWORD=%s" % password,
+         "-e", "MYSQL_ROOT_HOST=%",
+         "mysql:8.0"],
+        check=True, capture_output=True,
+    )
+    try:
+        print("  Waiting for the seed MySQL 8.0 server...")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            ping = subprocess.run(
+                ["docker", "exec", "-e", "MYSQL_PWD=%s" % password, seed,
+                 "mysqladmin", "ping", "-h", "localhost", "--user=root"],
+                capture_output=True, text=True,
+            )
+            if ping.returncode == 0 and "alive" in ping.stdout:
+                break
+            time.sleep(3)
+        else:
+            raise AssertionError("seed MySQL 8.0 server never became ready")
+
+        seed_sql = (
+            "CREATE DATABASE IF NOT EXISTS main; "
+            "CREATE TABLE main.canary (id INT PRIMARY KEY, note VARCHAR(64)); "
+            "INSERT INTO main.canary VALUES (1, 'survived-migration');"
+        )
+        result = subprocess.run(
+            ["docker", "exec", "-e", "MYSQL_PWD=%s" % password, seed,
+             "mysql", "--user=root", "-e", seed_sql],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            "seeding the sentinel failed:\n%s\n%s"
+            % (result.stdout, result.stderr)
+        )
+
+        # Confirm the seed really produced a MySQL 8 datadir (the exact thing
+        # the buggy probe failed to recognize).
+        ibd = subprocess.run(
+            ["docker", "exec", seed, "test", "-f", "/var/lib/mysql/mysql.ibd"],
+            capture_output=True,
+        )
+        assert ibd.returncode == 0, "seed did not produce a MySQL 8 datadir"
+    finally:
+        subprocess.run(["docker", "rm", "-f", seed], capture_output=True)
+
+
+def _query_canary(inst, password):
+    """Return (rc, stdout) from selecting the canary row out of MariaDB."""
+    query = subprocess.run(
+        ["docker", "compose", "exec", "-T", "db", "sh", "-c",
+         "MYSQL_PWD=%s mariadb -u root --skip-column-names -N "
+         "-e 'SELECT note FROM main.canary WHERE id=1'" % password],
+        cwd=inst.instance_path(), capture_output=True, text=True,
+    )
+    return query.returncode, query.stdout
+
+
+def _assert_mariadb_datadir(volume):
+    """Assert the volume now holds a MariaDB datadir, not MySQL 8's."""
+    fmt = subprocess.run(
+        ["docker", "run", "--rm", "-v", "%s:/data" % volume, "alpine",
+         "sh", "-c", "ls -a /data"],
+        capture_output=True, text=True,
+    )
+    assert "aria_log_control" in fmt.stdout, (
+        "expected a MariaDB datadir (aria_log_control) after migration:\n%s"
+        % fmt.stdout
+    )
+    assert "mysql.ibd" not in fmt.stdout, (
+        "MySQL 8 system tablespace still present after migration:\n%s"
+        % fmt.stdout
+    )
+
+
+def test_upgrade_mysql_to_mariadb(inst):
+    """A legacy MySQL 8.0 datadir is migrated to MariaDB on upgrade, preserving
+    user data — and a second upgrade is a clean no-op.
+
+    Regression: detection keyed off /var/lib/mysql/.rocksdb, a marker absent
+    from every real MySQL 8 datadir, so the migration was silently skipped and
+    MariaDB later crashed booting on the un-migrated MySQL 8 data. This seeds a
+    genuine MySQL 8.0 datadir (with a sentinel row) into the instance's data
+    volume, runs upgrade, and asserts the row is present in MariaDB afterward.
+    Because MariaDB physically cannot boot on a MySQL 8 datadir, a successful
+    query also proves detection fired and the migration ran. A second upgrade
+    must then be idempotent: the datadir is already MariaDB, so detection does
+    not fire and no re-migration touches the data.
+    """
+    volume = _mysql_data_volume(inst)
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    # No need to wait for the wiki — the datadir is replaced wholesale below.
+    time.sleep(10)
+
+    password = read_env(inst.env_path()).get("MYSQL_PASSWORD", "mediawiki")
+
+    print("Stopping instance and wiping the MariaDB datadir...")
+    inst.run_ok("stop", "-i", inst.id)
+    _wipe_volume(volume)
+
+    print("Seeding a genuine MySQL 8.0 datadir with a sentinel row...")
+    _seed_mysql8_datadir(inst, volume, password)
+
+    print("Running upgrade (must detect MySQL 8 and migrate to MariaDB)...")
+    inst.run_ok("upgrade")
+
+    print("Verifying the sentinel row survived into MariaDB...")
+    rc, out = _query_canary(inst, password)
+    assert rc == 0, (
+        "querying MariaDB after migration failed — did MariaDB boot, or is it "
+        "crash-looping on un-migrated MySQL 8 data?\n%s" % out
+    )
+    assert "survived-migration" in out, (
+        "sentinel row missing from MariaDB after migration:\n%s" % out
+    )
+
+    print("Verifying the datadir is now MariaDB format...")
+    _assert_mariadb_datadir(volume)
+
+    # Idempotent re-run: the datadir is already MariaDB, so detection must not
+    # fire and the sentinel row must be untouched (no dump/clear/reimport).
+    print("Running upgrade again (must be a clean no-op)...")
+    output = inst.run_ok("upgrade")
+    assert "Detected MySQL 8.0 data" not in output, (
+        "second upgrade re-ran the migration on an already-MariaDB datadir:\n%s"
+        % output
+    )
+
+    print("Verifying the sentinel row is still present after the re-run...")
+    rc, out = _query_canary(inst, password)
+    assert rc == 0 and "survived-migration" in out, (
+        "sentinel row disappeared after an idempotent re-run:\n%s" % out
+    )
+    _assert_mariadb_datadir(volume)
+
+
+def test_upgrade_mysql_to_mariadb_recovery(inst):
+    """Recover an instance whose compose was already swapped to MariaDB but
+    whose data volume still holds a MySQL 8.0 datadir.
+
+    This is the field-failure state left behind when the .rocksdb-marker bug
+    skipped the migration: the managed compose now pins MariaDB, yet the volume
+    is un-migrated MySQL 8 data that MariaDB cannot boot on. Detection is a
+    read-only volume probe (mysql.ibd), independent of what compose pins, and
+    the dump runs against a throwaway mysql:8.0 container — so upgrade must
+    still detect and migrate here. A successful MariaDB query afterward proves
+    the recovery path fired (MariaDB physically cannot boot on MySQL 8 data).
+    """
+    volume = _mysql_data_volume(inst)
+
+    print("Creating instance (compose already pins MariaDB)...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)
+
+    password = read_env(inst.env_path()).get("MYSQL_PASSWORD", "mediawiki")
+
+    # Leave the MariaDB-pinned compose as-is; only the volume regresses to
+    # MySQL 8 data. This is exactly the stranded post-bug state.
+    print("Stopping instance and regressing the volume to MySQL 8.0 data...")
+    inst.run_ok("stop", "-i", inst.id)
+    _wipe_volume(volume)
+    _seed_mysql8_datadir(inst, volume, password)
+
+    print("Running upgrade (must recover MySQL 8 data despite MariaDB compose)...")
+    inst.run_ok("upgrade")
+
+    print("Verifying the sentinel row was recovered into MariaDB...")
+    rc, out = _query_canary(inst, password)
+    assert rc == 0, (
+        "querying MariaDB after recovery failed — did MariaDB boot, or is it "
+        "crash-looping on un-migrated MySQL 8 data?\n%s" % out
+    )
+    assert "survived-migration" in out, (
+        "sentinel row missing from MariaDB after recovery:\n%s" % out
+    )
+
+    print("Verifying the datadir is now MariaDB format...")
+    _assert_mariadb_datadir(volume)
+
+
+def test_reconcile(inst):
+    """`canasta reconcile` re-derives COMPOSE_PROFILES from the feature flags
+    and converges the running containers without a disruptive stop.
+
+    Introduces config/runtime drift by hand-injecting a stale profile
+    (elasticsearch) into .env's COMPOSE_PROFILES while the feature flag stays
+    off. reconcile must strip the stale profile back out (its source of truth
+    is the flags, not the raw list) and leave the wiki serving.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    print("Introducing drift: injecting a stale profile into COMPOSE_PROFILES...")
+    env = read_env(inst.env_path())
+    profiles = [p for p in env.get("COMPOSE_PROFILES", "").split(",") if p]
+    assert "elasticsearch" not in profiles, (
+        "precondition: elasticsearch profile should be absent"
+    )
+    drifted = ",".join(profiles + ["elasticsearch"])
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "COMPOSE_PROFILES=%s" % drifted, "--force", "--no-restart",
+    )
+    env = read_env(inst.env_path())
+    assert "elasticsearch" in env.get("COMPOSE_PROFILES", ""), (
+        "drift not seeded: %s" % env.get("COMPOSE_PROFILES")
+    )
+
+    print("Reconciling...")
+    output = inst.run_ok("reconcile", "-i", inst.id)
+    assert "reconciled" in output, (
+        "reconcile should report the instance was reconciled:\n%s" % output
+    )
+
+    print("Verifying the stale profile was healed out of COMPOSE_PROFILES...")
+    env = read_env(inst.env_path())
+    healed = [p for p in env.get("COMPOSE_PROFILES", "").split(",") if p]
+    assert "elasticsearch" not in healed, (
+        "reconcile did not strip the stale elasticsearch profile: %s"
+        % env.get("COMPOSE_PROFILES")
+    )
+
+    print("Verifying the wiki still serves after reconcile...")
+    wait_for_wiki(inst.http_port)
+
+
 def test_upgrade_backfill_hosts_yaml(inst):
     """Initialize gitops, simulate Go-CLI layout (no hosts.yaml),
     run upgrade, verify the backfill_hosts_yaml migration recreates
@@ -623,7 +892,8 @@ def test_backup_missing_dockerfile(inst):
 
 
 def test_gitops(inst):
-    """Init gitops, verify templates, push, verify remote."""
+    """Init gitops, verify templates, push, verify remote, then untrack a
+    file with 'gitops rm'."""
     # Check prerequisites
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
@@ -679,7 +949,10 @@ def test_gitops(inst):
         f.write("<?php\n$wgTestSetting = true;\n")
 
     print("Pushing changes...")
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok(
+        "gitops", "add", "-i", inst.id,
+        "config/settings/global/GitopsTest.php",
+    )
     inst.run_ok("gitops", "push", "-i", inst.id)
 
     # Verify push in bare repo
@@ -698,6 +971,49 @@ def test_gitops(inst):
     )
     assert "wgTestSetting" in result.stdout, (
         "File content not in repo: %s" % result.stdout
+    )
+
+    # 'gitops rm <path>' is the inverse of 'gitops add': it untracks the file
+    # (git rm --cached, so the deletion is staged for the next push) and
+    # deletes it from disk. The just-pushed GitopsTest.php starts tracked.
+    rel = "config/settings/global/GitopsTest.php"
+    tracked = subprocess.run(
+        ["git", "-C", inst_path, "ls-files", rel],
+        capture_output=True, text=True,
+    ).stdout
+    assert rel in tracked, "GitopsTest.php should be tracked before rm: %r" % tracked
+
+    print("Untracking the file with gitops rm...")
+    inst.run_ok("gitops", "rm", "-i", inst.id, rel)
+
+    print("Verifying the file is untracked from the repo...")
+    tracked = subprocess.run(
+        ["git", "-C", inst_path, "ls-files", rel],
+        capture_output=True, text=True,
+    ).stdout
+    assert rel not in tracked, (
+        "gitops rm should untrack the file (git rm --cached): %r" % tracked
+    )
+
+    # rm --cached only stages the deletion; the previously-pushed blob must
+    # still be in the remote until the next push.
+    result = subprocess.run(
+        ["git", "show", "main:%s" % rel],
+        cwd=bare_repo, capture_output=True, text=True,
+    )
+    assert "wgTestSetting" in result.stdout, (
+        "the deletion should be local-only until pushed: %r" % result.stdout
+    )
+
+    print("Pushing the untrack and verifying it lands in the remote...")
+    inst.run_ok("gitops", "push", "-i", inst.id)
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "main"],
+        cwd=bare_repo, capture_output=True, text=True,
+    )
+    assert rel not in result.stdout, (
+        "gitops rm + push should drop the file from the remote:\n%s"
+        % result.stdout
     )
 
 
@@ -752,7 +1068,7 @@ def test_gitops_join(inst):
     os.makedirs(os.path.dirname(a_settings), exist_ok=True)
     with open(a_settings, "w") as f:
         f.write(repo_content)
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok("gitops", "add", "-i", inst.id, rel_settings)
     inst.run_ok("gitops", "push", "-i", inst.id)
 
     # --- Instance B: create, seed a diverging copy, join ---
@@ -1255,7 +1571,7 @@ def test_gitops_pull_diff(inst):
     )
 
     print("Pushing initial state...")
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    # gitops init already committed the initial state locally; just push it.
     inst.run_ok("gitops", "push", "-i", inst.id)
 
     print("Cloning bare repo to temp directory...")
@@ -1359,6 +1675,44 @@ def test_k8s_lifecycle(inst):
     assert "Running" in result.stdout, (
         "No running pods: %s" % result.stdout
     )
+
+    # 'gitops sync' triggers an Argo CD Application sync (Compose is a no-op).
+    # This lifecycle test creates with --skip-argocd-install, so an
+    # Application CR only exists when Argo CD is already running on the runner.
+    # Gate on that: with an Application present, sync must patch it with the
+    # hard-refresh annotation and report completion; without Argo CD there is
+    # nothing to reconcile, so the command must surface a clear error rather
+    # than silently succeeding.
+    app_exists = subprocess.run(
+        ["kubectl", "get", "application", "canasta-%s" % inst.id,
+         "-n", "argocd"],
+        capture_output=True,
+    ).returncode == 0
+    if app_exists:
+        print("Triggering an Argo CD sync via gitops sync...")
+        output = inst.run_ok("gitops", "sync", "-i", inst.id)
+        assert "sync completed" in output.lower(), (
+            "gitops sync should report Argo CD sync completion:\n%s" % output
+        )
+        refresh = subprocess.run(
+            ["kubectl", "get", "application", "canasta-%s" % inst.id,
+             "-n", "argocd", "-o",
+             "jsonpath={.metadata.annotations.argocd\\.argoproj\\.io/refresh}"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        # The controller clears the annotation once it processes the refresh,
+        # so accept either the annotation still set to 'hard' or already
+        # consumed (empty) — both mean the patch reached the Application.
+        assert refresh in ("hard", ""), (
+            "gitops sync did not apply the hard-refresh annotation: %r" % refresh
+        )
+    else:
+        print("No Argo CD Application present; asserting gitops sync errors...")
+        out, rc = inst.run("gitops", "sync", "-i", inst.id)
+        assert rc != 0, (
+            "gitops sync should fail with no Argo CD Application to sync:\n%s"
+            % out
+        )
 
     print("Testing maintenance exec...")
     output = inst.run_ok(
@@ -1513,6 +1867,111 @@ def test_k8s_lifecycle(inst):
     print("Verifying instance deregistered...")
     output = inst.run_ok("list")
     assert inst.id not in output, "Instance still in list after delete"
+
+
+def test_k8s_backup(inst):
+    """K8s backup end-to-end on a single-node cluster.
+
+    Exercises the runtime backup path that previously had only unit
+    coverage: a local (hostPath) restic repo, the on-demand backup Job
+    with its dump-databases init container, and the host-crontab schedule
+    lifecycle. Restore is covered by the Compose backup test; here the
+    focus is that the K8s backup Job machinery and host-crontab scheduling
+    actually run.
+    """
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+
+    ns = "canasta-%s" % inst.id
+    cronjob = "canasta-backup-%s" % inst.id
+    # Local restic repo as a hostPath on the node. k8s_run_backup mounts
+    # it with type DirectoryOrCreate, so the path is created on demand.
+    repo = "/var/lib/canasta-k8s-backup-test-%s" % inst.id
+
+    # Backup repo config has to be present before create so it lands in
+    # the backup-env Secret the Job reads.
+    with open(inst.env_file, "a") as f:
+        f.write("RESTIC_REPOSITORY=%s\n" % repo)
+        f.write("RESTIC_PASSWORD=testpass\n")
+
+    try:
+        print("Creating Kubernetes instance...")
+        inst.run_ok(
+            "create", "-i", inst.id, "-w", "main",
+            "-n", "localhost", "-p", inst.work_dir,
+            "--orchestrator", "kubernetes",
+            "--skip-argocd-install",
+            "-e", inst.env_file,
+        )
+
+        # The dump-databases init container connects to the db, so the
+        # db StatefulSet must be ready before a backup can succeed.
+        print("Waiting for the database to be ready...")
+        result = subprocess.run(
+            ["kubectl", "rollout", "status",
+             "statefulset/canasta-%s-db" % inst.id,
+             "-n", ns, "--timeout=300s"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            "db not ready: %s\n%s" % (result.stdout, result.stderr)
+        )
+
+        print("Initializing backup repository...")
+        inst.run_ok("backup", "init", "-i", inst.id)
+
+        print("Creating backup snapshot...")
+        inst.run_ok("backup", "create", "-i", inst.id, "-t", "k8s-test-snapshot")
+
+        print("Listing snapshots...")
+        output = inst.run_quiet("backup", "list", "-i", inst.id)
+        assert "k8s-test-snapshot" in output, (
+            "Snapshot tag not found in list output:\n%s" % output
+        )
+
+        print("Setting a backup schedule (host crontab on the cp node)...")
+        inst.run_ok("backup", "schedule", "set", "-i", inst.id, "0 3 * * *")
+        # Scheduling is a host crontab entry now, not an in-cluster CronJob.
+        # The CI runner is the single-node control plane, so the entry lands
+        # in its crontab.
+        marker = "canasta-backup-%s" % inst.id
+        crontab = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True,
+        )
+        assert marker in crontab.stdout, (
+            "crontab entry %s not written:\n%s" % (marker, crontab.stdout)
+        )
+        no_cronjob = subprocess.run(
+            ["kubectl", "get", "cronjob", cronjob, "-n", ns],
+            capture_output=True,
+        )
+        assert no_cronjob.returncode != 0, (
+            "an in-cluster CronJob was created; scheduling should use the "
+            "host crontab"
+        )
+
+        print("Listing the backup schedule...")
+        output = inst.run_quiet("backup", "schedule", "list", "-i", inst.id)
+        assert "0 3 * * *" in output, (
+            "Schedule not shown in list output:\n%s" % output
+        )
+
+        print("Removing the backup schedule...")
+        inst.run_ok("backup", "schedule", "remove", "-i", inst.id)
+        crontab = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True,
+        )
+        assert marker not in crontab.stdout, (
+            "crontab entry still present after remove:\n%s" % crontab.stdout
+        )
+    finally:
+        # The hostPath repo lives on the node (created by the Job as root);
+        # cleanup() removes the instance but not this path.
+        subprocess.run(["sudo", "rm", "-rf", repo], capture_output=True)
 
 
 def test_version(inst):
@@ -1877,7 +2336,7 @@ def test_gitops_push_shared_vars(inst):
         yaml.dump(vars_data, f)
 
     print("Staging and pushing...")
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok("gitops", "add", "-i", inst.id, "hosts/testhost/vars.yaml")
     inst.run_ok("gitops", "push", "-i", inst.id)
 
     print("Checking shared-list keys migrated to _shared/vars.yaml...")
@@ -1971,7 +2430,9 @@ def test_gitops_push_reporting(inst):
     os.makedirs(settings_dir, exist_ok=True)
     with open(os.path.join(settings_dir, "PushTest.php"), "w") as f:
         f.write("<?php\n$wgPushTest = true;\n")
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    inst.run_ok(
+        "gitops", "add", "-i", inst.id, "config/settings/global/PushTest.php",
+    )
     output = inst.run_ok("gitops", "push", "-i", inst.id)
     assert "Configuration pushed" in output, (
         "Expected 'Configuration pushed' after staging+push:\n%s" % output
@@ -2096,7 +2557,7 @@ def test_gitops_status_fetch(inst):
     )
 
     print("Pushing initial state...")
-    inst.run_ok("gitops", "add", "-i", inst.id)
+    # gitops init already committed the initial state locally; just push it.
     inst.run_ok("gitops", "push", "-i", inst.id)
 
     print("Verifying status is up to date...")
@@ -2529,25 +2990,607 @@ def test_k8s_crowdsec(inst):
     assert result.returncode != 0, "Namespace still exists after delete"
 
 
+def test_k8s_build_from(inst):
+    """`create -o kubernetes --build-from`: the custom image is built, pushed to
+    the in-cluster registry, and the web pod runs it from the registry ref.
+
+    Guards the #790 fix end to end: without it the pod silently ran the stock
+    ghcr image (wrong image ref) or never pulled (no registry). The build is a
+    single FROM-stock layer plus a marker file, so the test exercises the
+    build -> push -> pull delivery path without a heavyweight image build.
+    """
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+
+    # Trivial build-from source: a Canasta image identical to stock plus a marker
+    # layer. canasta create --build-from runs `docker build` on <src>/Canasta.
+    src_root = os.path.join(inst.work_dir, "bfsrc")
+    src = os.path.join(src_root, "Canasta")
+    os.makedirs(src, exist_ok=True)
+    with open(os.path.join(src, "Dockerfile"), "w") as f:
+        f.write(
+            "FROM ghcr.io/canastawiki/canasta:latest\n"
+            "RUN echo build-from-ci > /tmp/canasta-build-from-ci\n"
+        )
+
+    print("Creating Kubernetes instance from source (--build-from)...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "--orchestrator", "kubernetes",
+        "--build-from", src_root,
+        "--skip-argocd-install",
+    )
+
+    print("Verifying instance registered...")
+    output = inst.run_ok("list")
+    assert inst.id in output, "instance not in list: %s" % output
+    assert "KUBERNETES" in output, "instance not K8s: %s" % output
+
+    namespace = "canasta-%s" % inst.id
+
+    print("Verifying the web deployment runs the in-cluster registry image...")
+    image = subprocess.run(
+        ["kubectl", "-n", namespace, "get",
+         "deployment/canasta-%s-web" % inst.id,
+         "-o", "jsonpath={.spec.template.spec.containers[0].image}"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    assert image == "10.43.0.2:5000/canasta:local", (
+        "web image is %r, expected the in-cluster registry ref "
+        "(build_from image-ref fix)" % image
+    )
+
+    print("Verifying the web pod pulled the image and is running...")
+    result = subprocess.run(
+        ["kubectl", "get", "pods", "-n", namespace,
+         "-l", "app.kubernetes.io/component=web",
+         "-o", "jsonpath={.items[0].metadata.name}"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0 and result.stdout, (
+        "could not find web pod (pull/registry failure?): %s" % result.stderr
+    )
+    web_pod = result.stdout.strip()
+    phase = subprocess.run(
+        ["kubectl", "get", "pod", web_pod, "-n", namespace,
+         "-o", "jsonpath={.status.phase}"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    assert phase == "Running", "web pod not Running (phase=%s)" % phase
+
+    print("Confirming the running pod is the built image (marker layer)...")
+    marker = subprocess.run(
+        ["kubectl", "exec", "-n", namespace, web_pod, "--",
+         "cat", "/tmp/canasta-build-from-ci"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    assert marker == "build-from-ci", (
+        "marker missing; pod is not the built image: %r" % marker
+    )
+
+
+def test_config_refresh_template(inst):
+    """Verify 'config refresh-template' lists drift, previews, and adopts
+    the shipped template for a seeded file (and restores a deleted one)."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    vcl = os.path.join(inst.instance_path(), "config", "default.vcl")
+    vector = os.path.join(
+        inst.instance_path(), "config", "settings", "global", "Vector.php",
+    )
+    tmpl_vcl = os.path.join(
+        REPO_ROOT, "instance_template", "config", "default.vcl",
+    )
+    tmpl_vector = os.path.join(
+        REPO_ROOT, "instance_template", "config", "settings", "global",
+        "Vector.php",
+    )
+
+    # Drift one seed file (local edit) and delete another.
+    marker = "# CANASTA_TEST_REFRESH_MARKER"
+    print("Drifting default.vcl and deleting Vector.php...")
+    with open(vcl, "a") as f:
+        f.write("\n%s\n" % marker)
+    os.remove(vector)
+
+    print("Listing drift (no file argument)...")
+    out = inst.run_ok("config", "refresh-template", "-i", inst.id)
+    assert "config/default.vcl" in out, (
+        "drift list should flag default.vcl:\n%s" % out
+    )
+    assert "config/settings/global/Vector.php" in out, (
+        "drift list should flag the deleted Vector.php:\n%s" % out
+    )
+
+    print("Previewing default.vcl (no --yes must not change it)...")
+    out = inst.run_ok(
+        "config", "refresh-template", "-i", inst.id, "config/default.vcl",
+    )
+    assert "--yes" in out, (
+        "preview should tell the user to re-run with --yes:\n%s" % out
+    )
+    with open(vcl) as f:
+        assert marker in f.read(), "preview must not modify the instance copy"
+
+    print("Adopting the template for both files with --yes...")
+    inst.run_ok(
+        "config", "refresh-template", "-i", inst.id,
+        "config/default.vcl", "config/settings/global/Vector.php", "--yes",
+    )
+    with open(vcl) as f, open(tmpl_vcl) as t:
+        assert f.read() == t.read(), "default.vcl should match the template"
+    assert os.path.isfile(vector), "deleted Vector.php should be restored"
+    with open(vector) as f, open(tmpl_vector) as t:
+        assert f.read() == t.read(), "restored Vector.php should match template"
+
+    print("A second --yes run is a no-op (already matches)...")
+    out = inst.run_ok(
+        "config", "refresh-template", "-i", inst.id,
+        "config/default.vcl", "--yes",
+    )
+    assert "already matches" in out, (
+        "an unchanged file should report already matching:\n%s" % out
+    )
+
+    print("A non-template path is rejected...")
+    out, rc = inst.run(
+        "config", "refresh-template", "-i", inst.id, "config/../.env",
+    )
+    assert rc != 0, "refreshing a non-template path should fail"
+    assert "not a template-seeded file" in out, (
+        "rejection should explain why:\n%s" % out
+    )
+
+
+def test_gitops_add_wikis_yaml(inst):
+    """`gitops add config/wikis.yaml` (explicit path) must route through the
+    wikis.yaml->template reconcile, not stage the rendered file. On old code
+    the bare `git add` of the gitignored file errors; with the fix the edit
+    is captured into wikis.yaml.template."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+    import yaml
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    wikis_yaml = os.path.join(inst.instance_path(), "config", "wikis.yaml")
+    template = os.path.join(inst.instance_path(), "wikis.yaml.template")
+    assert os.path.isfile(template), (
+        "gitops init should create wikis.yaml.template"
+    )
+
+    print("Editing the wiki display name directly in config/wikis.yaml...")
+    with open(wikis_yaml) as f:
+        data = yaml.safe_load(f)
+    data["wikis"][0]["name"] = "DWIM Display Name"
+    with open(wikis_yaml, "w") as f:
+        yaml.safe_dump(data, f)
+
+    print("Staging by explicit path: canasta gitops add config/wikis.yaml...")
+    inst.run_ok("gitops", "add", "-i", inst.id, "config/wikis.yaml")
+
+    print("The edit must have been captured into wikis.yaml.template...")
+    with open(template) as f:
+        tmpl = f.read()
+    assert "DWIM Display Name" in tmpl, (
+        "explicit-path gitops add did not reconcile into the template:\n%s"
+        % tmpl
+    )
+
+    print("gitops add with no file argument must be rejected...")
+    _, rc = inst.run("gitops", "add", "-i", inst.id)
+    assert rc != 0, "no-arg 'gitops add' should error (at least one file)"
+
+    print("gitops add accepts multiple files...")
+    # Use non-gitignored paths (config/default.vcl etc. are gitignored).
+    gdir = os.path.join(inst.instance_path(), "config", "settings", "global")
+    rel_a = "config/settings/global/zz-test-a.php"
+    rel_b = "config/settings/global/zz-test-b.php"
+    for name in ("zz-test-a.php", "zz-test-b.php"):
+        with open(os.path.join(gdir, name), "w") as f:
+            f.write("<?php // test\n")
+    inst.run_ok("gitops", "add", "-i", inst.id, rel_a, rel_b)
+    staged = subprocess.run(
+        ["git", "-C", inst.instance_path(), "diff", "--cached", "--name-only"],
+        capture_output=True, text=True,
+    ).stdout
+    assert rel_a in staged and rel_b in staged, (
+        "both named files should be staged; got:\n%s" % staged
+    )
+
+
+def test_upgrade_refreshes_gitignore(inst):
+    """canasta upgrade backfills new managed ignore rules into a gitops
+    instance's .gitignore while preserving user-added lines."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    gi = os.path.join(inst.instance_path(), ".gitignore")
+    print("Simulating a stale .gitignore (drop a managed rule, add a user "
+          "line)...")
+    with open(gi) as f:
+        lines = [ln for ln in f.read().splitlines()
+                 if ln.strip() != "config/wikis.yaml"]
+    lines.append("my-custom-ignore.txt")
+    with open(gi, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+    print("Upgrading...")
+    inst.run_ok("upgrade")
+
+    with open(gi) as f:
+        result = f.read().splitlines()
+    assert "config/wikis.yaml" in result, (
+        "upgrade should restore the dropped managed ignore rule:\n%s"
+        % "\n".join(result)
+    )
+    assert "my-custom-ignore.txt" in result, (
+        "upgrade must preserve user-added .gitignore lines:\n%s"
+        % "\n".join(result)
+    )
+
+
+def test_upgrade_backfills_wikis_template(inst):
+    """canasta upgrade creates wikis.yaml.template on a gitops instance
+    that lacks it (a Go-CLI-era repo predating the template)."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    template = os.path.join(inst.instance_path(), "wikis.yaml.template")
+    assert os.path.isfile(template), "gitops init should create the template"
+
+    print("Removing the template to simulate a legacy gitops repo...")
+    os.remove(template)
+
+    print("Upgrading...")
+    inst.run_ok("upgrade")
+
+    assert os.path.isfile(template), (
+        "upgrade should backfill the missing wikis.yaml.template"
+    )
+    with open(template) as f:
+        content = f.read()
+    assert "id: main" in content, (
+        "backfilled template should contain the instance's wiki(s):\n%s"
+        % content
+    )
+
+
+def test_gitops_add_wiki_tracked(inst):
+    """A wiki added after gitops init must have its tracked files captured
+    into gitops by 'canasta add' (settings, public_assets logos, and the
+    farm template) — they used to silently stay untracked."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    # Place a logo for the new wiki before adding it, so the add's staging
+    # step has something to capture (public_assets is otherwise populated
+    # by the container at runtime).
+    logo_dir = os.path.join(inst.instance_path(), "public_assets", "docs")
+    os.makedirs(logo_dir, exist_ok=True)
+    with open(os.path.join(logo_dir, "Logo.png"), "w") as f:
+        f.write("PNGDATA")
+
+    settings_src = os.path.join(inst.work_dir, "docs-settings.php")
+    with open(settings_src, "w") as f:
+        f.write("<?php\n$wgDocsWiki = true;\n")
+
+    print("Adding a second wiki (docs)...")
+    inst.run_ok(
+        "add", "-i", inst.id, "-w", "docs",
+        "-u", "localhost:%s/docs" % inst.http_port,
+        "-l", settings_src,
+    )
+
+    staged = subprocess.run(
+        ["git", "-C", inst.instance_path(), "diff", "--cached", "--name-only"],
+        capture_output=True, text=True,
+    ).stdout
+    assert "public_assets/docs/Logo.png" in staged, (
+        "canasta add must stage the new wiki's public_assets logo:\n%s"
+        % staged
+    )
+    assert "config/settings/wikis/docs/Settings.php" in staged, (
+        "canasta add must stage the new wiki's settings:\n%s" % staged
+    )
+    template = os.path.join(inst.instance_path(), "wikis.yaml.template")
+    with open(template) as f:
+        assert "id: docs" in f.read(), (
+            "the new wiki must be captured into wikis.yaml.template"
+        )
+
+
+def _sidecar_running(inst, service):
+    """True if the named sidecar has a running container.
+
+    Sidecars render into docker-compose.sidecars.yml, which plain
+    `docker compose` does not auto-load, so query the Docker daemon by the
+    Compose labels instead (project = the instance directory basename).
+    """
+    project = os.path.basename(inst.instance_path())
+    result = subprocess.run(
+        ["docker", "ps", "-q", "--filter", "status=running",
+         "--filter", "label=com.docker.compose.project=%s" % project,
+         "--filter", "label=com.docker.compose.service=%s" % service],
+        capture_output=True, text=True,
+    )
+    return result.stdout.strip() != ""
+
+
+def _sidecar_volume_exists(inst, volume):
+    """True if the Compose volume <project>_<volume> exists."""
+    project = os.path.basename(inst.instance_path())
+    result = subprocess.run(
+        ["docker", "volume", "ls", "-q",
+         "--filter", "name=%s_%s" % (project, volume)],
+        capture_output=True, text=True,
+    )
+    return result.stdout.strip() != ""
+
+
+def test_sidecar_lifecycle(inst):
+    """add (from file) -> list -> restart -> the sidecar runs and is
+    reachable from web by service name -> remove -> restart -> it is gone.
+
+    Regression guard for sidecar bugs that previously surfaced only in
+    manual e2e: the orphan container left behind after removal, and the
+    stop/restart wedge from k8s-notation resources.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    # A trivial HTTP service the web container can reach by name.
+    sidecar_file = os.path.join(inst.work_dir, "echo-sidecar.yaml")
+    with open(sidecar_file, "w") as f:
+        f.write("name: echo\nimage: traefik/whoami\nports: [80]\n")
+
+    print("Adding the sidecar from a file...")
+    inst.run_ok("sidecar", "add", "-i", inst.id, "--file", sidecar_file)
+
+    declared = os.path.join(inst.instance_path(), "config", "sidecars.yaml")
+    assert os.path.isfile(declared), "sidecars.yaml should be written"
+    with open(declared) as f:
+        assert "echo" in f.read(), "the sidecar should be declared"
+
+    print("Listing sidecars...")
+    # 'sidecar list' reports via an Ansible debug task, so run verbose.
+    out = inst.run_ok("sidecar", "list", "-i", inst.id)
+    assert "echo" in out and "traefik/whoami" in out, (
+        "sidecar list should show the sidecar and its image:\n%s" % out
+    )
+
+    print("Restarting to deploy the sidecar...")
+    inst.run_ok("restart", "-i", inst.id)
+    wait_for_wiki(inst.http_port)
+    assert _sidecar_running(inst, "echo"), (
+        "the echo sidecar container should be running after restart"
+    )
+
+    print("Checking web can reach the sidecar by service name...")
+    reach = subprocess.run(
+        ["docker", "compose", "exec", "-T", "web",
+         "bash", "-c", "exec 3<>/dev/tcp/echo/80"],
+        capture_output=True, text=True, cwd=inst.instance_path(),
+    )
+    assert reach.returncode == 0, (
+        "web should reach the sidecar by service name 'echo':\n%s"
+        % (reach.stderr or reach.stdout)
+    )
+
+    print("Removing the sidecar...")
+    inst.run_ok("sidecar", "remove", "-i", inst.id, "--name", "echo")
+    if os.path.isfile(declared):
+        with open(declared) as f:
+            assert "echo" not in f.read(), (
+                "the sidecar should be removed from sidecars.yaml"
+            )
+
+    print("Restarting after removal...")
+    inst.run_ok("restart", "-i", inst.id)
+    wait_for_wiki(inst.http_port)
+    assert not _sidecar_running(inst, "echo"), (
+        "the echo sidecar container should be gone after removal + restart "
+        "(regression guard for the orphan-container bug)"
+    )
+
+
+def test_sidecar_migrate(inst):
+    """sidecar migrate MOVES a sidecar service: it must both write the
+    declaration to config/sidecars.yaml AND remove the service from
+    docker-compose.override.yml (a left-behind override entry would shadow
+    the migrated sidecar). --dry-run must change nothing.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    override = os.path.join(
+        inst.instance_path(), "docker-compose.override.yml",
+    )
+    with open(override, "w") as f:
+        f.write(
+            "services:\n"
+            "  echo:\n"
+            "    image: traefik/whoami\n"
+            "    volumes:\n"
+            "      - echodata:/data\n"
+            "volumes:\n"
+            "  echodata:\n"
+        )
+
+    declared = os.path.join(inst.instance_path(), "config", "sidecars.yaml")
+
+    print("Dry-run migrate must not change anything...")
+    out = inst.run_ok("sidecar", "migrate", "-i", inst.id, "--dry-run")
+    assert "echo" in out, (
+        "the dry-run plan should mention the echo service:\n%s" % out
+    )
+    assert not os.path.isfile(declared), "dry-run must not write sidecars.yaml"
+    with open(override) as f:
+        assert "echo" in f.read(), "dry-run must leave the override untouched"
+
+    print("Migrating for real...")
+    inst.run_ok("sidecar", "migrate", "-i", inst.id)
+
+    assert os.path.isfile(declared), "migrate should write sidecars.yaml"
+    with open(declared) as f:
+        decl = f.read()
+    assert "echo" in decl, "the migrated sidecar should appear in sidecars.yaml"
+    assert "persistent" in decl, (
+        "a named-volume sidecar should migrate to a persistent volume"
+    )
+
+    ov = ""
+    if os.path.isfile(override):
+        with open(override) as f:
+            ov = f.read()
+    assert "echo" not in ov, (
+        "the migrated service must be REMOVED from the override (a left-behind "
+        "entry would shadow the migrated sidecar):\n%s" % ov
+    )
+
+    print("Restarting to deploy the migrated sidecar...")
+    inst.run_ok("restart", "-i", inst.id)
+    wait_for_wiki(inst.http_port)
+    assert _sidecar_running(inst, "echo"), (
+        "the migrated sidecar should run after restart"
+    )
+    assert _sidecar_volume_exists(inst, "echo-echodata"), (
+        "the migrated sidecar's persistent volume should be created"
+    )
+
+    # delete must tear down the sidecar's named volume too — otherwise it
+    # lingers and blocks a later recreate with a stale-volume error.
+    print("Deleting and checking the sidecar volume is removed...")
+    inst.run_ok("delete", "-i", inst.id, "--yes")
+    assert not _sidecar_volume_exists(inst, "echo-echodata"), (
+        "delete must remove the migrated sidecar's named volume"
+    )
+
+
 # --- Test runner ---
 
 ALL_TESTS = {
     "k8s-lifecycle": test_k8s_lifecycle,
+    "k8s-build-from": test_k8s_build_from,
     "k8s-crowdsec": test_k8s_crowdsec,
+    "k8s-backup": test_k8s_backup,
     "lifecycle": test_lifecycle,
     "import": test_import_export,
     "upgrade": test_upgrade,
+    "upgrade-mysql-to-mariadb": test_upgrade_mysql_to_mariadb,
+    "upgrade-mysql-to-mariadb-recovery": test_upgrade_mysql_to_mariadb_recovery,
+    "reconcile": test_reconcile,
+    "upgrade-refreshes-gitignore": test_upgrade_refreshes_gitignore,
+    "upgrade-backfills-wikis-template": test_upgrade_backfills_wikis_template,
     "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
     "backup-custom-dockerfile": test_backup_custom_dockerfile,
     "backup-missing-dockerfile": test_backup_missing_dockerfile,
     "gitops": test_gitops,
+    "gitops-add-wikis-yaml": test_gitops_add_wikis_yaml,
+    "gitops-add-wiki-tracked": test_gitops_add_wiki_tracked,
     "gitops-join": test_gitops_join,
     "gitops-pull-diff": test_gitops_pull_diff,
     "extension-skin": test_extension_skin,
     "wiki-farm": test_wiki_farm,
     "config-side-effects": test_config_side_effects,
+    "config-refresh-template": test_config_refresh_template,
     "version": test_version,
     "doctor": test_doctor,
     "host-management": test_host_management,
@@ -2562,6 +3605,8 @@ ALL_TESTS = {
     "gitops-status-fetch": test_gitops_status_fetch,
     "gitops-fix-submodules": test_gitops_fix_submodules_orphan,
     "crowdsec": test_crowdsec,
+    "sidecar-lifecycle": test_sidecar_lifecycle,
+    "sidecar-migrate": test_sidecar_migrate,
 }
 
 

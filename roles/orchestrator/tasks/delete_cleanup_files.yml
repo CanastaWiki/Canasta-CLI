@@ -31,9 +31,12 @@
       ignore_errors: true  # OK if pods not running
 
     - name: Remove files inside K8s pod
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      ansible.builtin.include_tasks:
+        file: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+        # Apply to the included tasks — OK if dirs already empty or missing.
+        apply:
+          ignore_errors: true
       vars:
         exec_service: web
         exec_command: "find /mediawiki/images /mediawiki/config /mediawiki/public_assets -mindepth 1 -delete 2>/dev/null || true"
-      ignore_errors: true  # OK if dirs already empty or missing
       when: _container_running | default(false) | bool

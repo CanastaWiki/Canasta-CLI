@@ -1,0 +1,67 @@
+---
+# Ensure the in-cluster image registry (fixed ClusterIP 10.43.0.2:5000) and the
+# per-node certs.d trust DaemonSet exist and are ready. Idempotent: deploys on a
+# cluster that lacks them, a no-op (instant) afterward — and the DaemonSet reads
+# containerd certs.d per-pull, so no k3s restart is ever needed.
+#
+# Called from: k8s-cp install (fresh clusters), canasta upgrade (so a cluster
+# installed before this support self-migrates on the next upgrade), and
+# create --build-from (so build-from works even before an upgrade). This makes
+# the registry guaranteed present whenever a locally-built image is used.
+
+# kubectl runs on the instance's host, so the manifests must be there — the
+# canasta_root path is the controller's and doesn't exist on a remote host.
+# Stage them on the host first (copy reads the controller src, writes the host
+# dest, local or remote).
+- name: Stage the registry manifests on the host
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/{{ item }}"
+    dest: "/tmp/{{ item }}"
+    mode: "0644"
+  loop:
+    - k8s_registry.yaml
+    - k8s_registry_trust.yaml
+
+- name: Deploy the in-cluster image registry and per-node trust
+  ansible.builtin.command:
+    cmd: >-
+      kubectl apply
+      -f /tmp/k8s_registry.yaml
+      -f /tmp/k8s_registry_trust.yaml
+  register: _registry_apply
+  changed_when: "'created' in _registry_apply.stdout or 'configured' in _registry_apply.stdout"
+  failed_when: false
+  # Retry transient API errors, but stop immediately on a permanent fixed-
+  # ClusterIP error (don't hammer it); the next task reports it clearly.
+  until: >-
+    _registry_apply.rc == 0
+    or 'already allocated' in _registry_apply.stderr
+    or 'Invalid value' in _registry_apply.stderr
+  retries: 4
+  delay: 5
+
+- name: Explain a registry deploy failure (often a fixed-ClusterIP conflict)
+  ansible.builtin.fail:
+    msg: >-
+      Could not deploy the in-cluster image registry. Its fixed ClusterIP
+      10.43.0.2 is unavailable if the cluster uses a non-default Kubernetes
+      service CIDR (not 10.43.0.0/16) or 10.43.0.2 is already in use.
+      kubectl: {{ _registry_apply.stderr | default('') }}
+  when: _registry_apply.rc != 0
+
+# registry_wait=false (install) deploys best-effort and returns immediately, so
+# bootstrapping a cluster never hard-fails on the registry being slow to come up
+# (it's not needed until a build-from push). The build-from paths (create /
+# upgrade) leave it at the default true and block until it's ready before they
+# push/pull.
+- name: Wait for the registry to be ready
+  ansible.builtin.command:
+    cmd: kubectl -n canasta-registry rollout status deploy/registry --timeout=180s
+  changed_when: false
+  when: registry_wait | default(true)
+
+- name: Wait for every node to trust the registry (trust DaemonSet ready)
+  ansible.builtin.command:
+    cmd: kubectl -n canasta-registry rollout status ds/registry-trust --timeout=180s
+  changed_when: false
+  when: registry_wait | default(true)

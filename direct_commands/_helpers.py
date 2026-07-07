@@ -9,7 +9,6 @@ import os
 import re
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yaml
 
@@ -80,17 +79,29 @@ def _resolve_instance_by_cwd(args):
     Returns (None, None) on no match so callers can emit their own error
     message, unlike canasta.resolve_instance() which exits. Shared by
     `status`, `doctor`, and `version` so they detect instances identically.
+
+    Side effect: like _resolve_instance, exports the resolved instance's
+    registry dockerHost as DOCKER_HOST so subsequent local docker /
+    docker compose subprocesses and SSH-wrapped remote calls target the
+    right (e.g. rootless) socket.
     """
+    def _resolved(iid, inst):
+        if inst:
+            docker_host = inst.get("dockerHost")
+            if docker_host:
+                os.environ["DOCKER_HOST"] = docker_host
+        return (iid, inst)
+
     inst_id = getattr(args, "id", None)
     conf_path = os.path.join(_get_config_dir(), "conf.json")
     instances = _read_registry(conf_path)
     if inst_id:
-        return (inst_id, instances.get(inst_id))
+        return _resolved(inst_id, instances.get(inst_id))
     search = os.path.abspath(os.environ.get("CANASTA_HOST_PWD") or os.getcwd())
     while True:
         for iid, inst in instances.items():
             if os.path.abspath(inst.get("path", "")) == search:
-                return (iid, inst)
+                return _resolved(iid, inst)
         parent = os.path.dirname(search)
         if parent == search:
             break
@@ -109,6 +120,35 @@ def _read_env_content(path, host):
             return ""
     rc, content = _ssh_run(host, "cat %s 2>/dev/null" % _shell_quote(env_path))
     return content if rc == 0 else ""
+
+
+def _instance_has_sidecars(inst):
+    """True if the instance declares app sidecars in config/sidecars.yaml.
+
+    The Ansible start/stop path renders the sidecar override layer and
+    includes it in the compose -f list; this fast direct path does not, so
+    the lifecycle commands fall back to Ansible when sidecars exist."""
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    sidecars_path = os.path.join(path, "config", "sidecars.yaml")
+    if _is_localhost(host):
+        try:
+            with open(sidecars_path) as f:
+                content = f.read()
+        except OSError:
+            return False
+    else:
+        rc, content = _ssh_run(
+            host, "cat %s 2>/dev/null" % _shell_quote(sidecars_path))
+        if rc != 0:
+            return False
+    if not (content or "").strip():
+        return False
+    try:
+        data = yaml.safe_load(content) or {}
+    except yaml.YAMLError:
+        return False
+    return bool(data.get("sidecars"))
 
 
 def _lint_env_content(content):
@@ -193,6 +233,38 @@ def _set_env_entry(entries, key, value):
     return new_entries
 
 
+def _env_key_of(line):
+    """Key defined by a raw .env line, or None for comments, blanks, and
+    malformed lines. Tolerates a trailing CR. Mirrors canasta_env._key_of()."""
+    stripped = line.rstrip("\r").strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    parts = stripped.split("=", 1)
+    if len(parts) != 2:
+        return None
+    return parts[0].strip()
+
+
+def _set_env_lines(lines, key, value):
+    """Rewrite the first line defining `key` as an unquoted 'key=value',
+    dropping later duplicates and appending if absent. Untouched lines are
+    kept verbatim so their quoting (and any inline '#') survives. Mirrors
+    canasta_env.set_line()."""
+    found = False
+    new_lines = []
+    for line in lines:
+        if _env_key_of(line) == key:
+            if not found:
+                new_lines.append("%s=%s" % (key, value))
+                found = True
+            # Drop duplicate definitions of the same key.
+        else:
+            new_lines.append(line)
+    if not found:
+        new_lines.append("%s=%s" % (key, value))
+    return new_lines
+
+
 def _write_env_content(path, host, content):
     """Write content to .env. Returns True on success.
 
@@ -209,9 +281,11 @@ def _write_env_content(path, host, content):
             print("Error writing %s: %s" % (env_path, e), file=sys.stderr)
             return False
 
+    # Map short host names to their real SSH target, like the read path.
+    target = _resolve_ssh_target(host)
     ssh_cmd = (
         ["ssh"] + _ssh_args()
-        + [host, "cat > %s" % _shell_quote(env_path)]
+        + [target, "cat > %s" % _shell_quote(env_path)]
     )
     try:
         result = subprocess.run(
@@ -237,17 +311,28 @@ def _read_env_file(path, host):
     return {k: v for k, v, c in _parse_env_entries(content) if not c and k}
 
 
-def _compose_file_args(path, host, devmode=False):
-    """Build docker compose -f flags based on available files."""
+def _compose_file_args(path, host, devmode=False, include_sidecars=False):
+    """Build docker compose -f flags based on available files.
+
+    include_sidecars layers docker-compose.sidecars.yml (when present)
+    between the base file and the override — the same order the Ansible
+    path uses, so a service-name clash lets the operator's override win.
+    Callers must pass it only when config/sidecars.yaml declares
+    sidecars: the rendered file can linger after `sidecar remove`, and
+    layering it into `up -d` would recreate the removed sidecar.
+    """
+    def _exists(name):
+        full = os.path.join(path, name)
+        if _is_localhost(host):
+            return os.path.isfile(full)
+        rc, _ = _ssh_run(host, "test -f %s" % _shell_quote(full))
+        return rc == 0
+
     files = ["docker-compose.yml"]
-    override = os.path.join(path, "docker-compose.override.yml")
-    if _is_localhost(host):
-        if os.path.isfile(override):
-            files.append("docker-compose.override.yml")
-    else:
-        rc, _ = _ssh_run(host, "test -f %s" % _shell_quote(override))
-        if rc == 0:
-            files.append("docker-compose.override.yml")
+    if include_sidecars and _exists("docker-compose.sidecars.yml"):
+        files.append("docker-compose.sidecars.yml")
+    if _exists("docker-compose.override.yml"):
+        files.append("docker-compose.override.yml")
     if devmode:
         files.append("docker-compose.dev.yml")
     result = []
@@ -256,33 +341,50 @@ def _compose_file_args(path, host, devmode=False):
     return result
 
 
-def _run_compose(inst_id, inst, action_args):
-    """Run a docker compose command for an instance. Returns exit code."""
+def _run_compose(inst_id, inst, action_args, include_sidecars=False):
+    """Run a docker compose command for an instance. Returns exit code.
+
+    Output streams to the terminal and there is NO timeout: the actions
+    routed here (`up -d` with image pulls, `down`, `build` from rebuild)
+    legitimately run for minutes. (A prior 120s local / 30s remote cap
+    falsely reported failure on slow pulls/builds while the work kept
+    running.) On a remote host these actions are idempotent, so a
+    connection-level reset (ssh exit 255) is retried.
+    """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     devmode = inst.get("devMode", False)
-    file_args = _compose_file_args(path, host, devmode)
+    file_args = _compose_file_args(path, host, devmode, include_sidecars)
 
     if _is_localhost(host):
         cmd = ["docker", "compose"] + file_args + action_args
         try:
-            result = subprocess.run(cmd, cwd=path, timeout=120)
-            return result.returncode
-        except (subprocess.TimeoutExpired, OSError) as e:
+            return subprocess.call(cmd, cwd=path)
+        except OSError as e:
             print("Error: %s" % e, file=sys.stderr)
             return 1
-    else:
-        file_str = " ".join(file_args)
-        action_str = " ".join(action_args)
-        rc, stdout = _ssh_run(
-            host,
-            "cd %s && docker compose %s %s" % (
-                _shell_quote(path), file_str, action_str,
-            ),
-        )
-        if stdout.strip():
-            print(stdout.strip())
-        return rc
+
+    file_str = " ".join(file_args)
+    action_str = " ".join(action_args)
+    remote_cmd = "cd %s && docker compose %s %s" % (
+        _shell_quote(path), file_str, action_str,
+    )
+    # SSH does not pass env; propagate DOCKER_HOST like _ssh_run does so a
+    # rootless socket on the target is honored.
+    docker_host = os.environ.get("DOCKER_HOST")
+    if docker_host:
+        remote_cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), remote_cmd)
+    target = _resolve_ssh_target(host)
+    argv = ["ssh"] + _ssh_args() + [target, remote_cmd]
+
+    def _attempt():
+        try:
+            return subprocess.call(argv)
+        except OSError as e:
+            print("Error: %s" % e, file=sys.stderr)
+            return 1
+
+    return _retry_on_ssh_reset(_attempt)
 
 
 # Profiles that Canasta derives from CANASTA_ENABLE_* feature flags.
@@ -295,6 +397,21 @@ _MANAGED_PROFILES = [
     ("crowdsec", "CANASTA_ENABLE_CROWDSEC", "false"),
 ]
 
+# Service names declared under each managed profile, used to tear down
+# containers left running when a feature flag is turned off. internal-db
+# (the db service) is intentionally absent so a database is never
+# auto-removed. Must match the `profiles:` keys in
+# roles/orchestrator/files/compose/docker-compose.yml and the
+# _profile_services map in sync_compose_profiles.yml.
+_MANAGED_PROFILE_SERVICES = {
+    "observable": [
+        "opensearch", "logstash", "opensearch-dashboards", "observable-init",
+    ],
+    "elasticsearch": ["elasticsearch"],
+    "varnish": ["varnish"],
+    "crowdsec": ["crowdsec"],
+}
+
 # Plugin-enabled Caddy image the caddy service runs when a feature needs
 # a Caddy plugin: CrowdSec (the bouncer) or a provider trusted-proxy mode
 # (caddy-cdn-ranges). Kept in sync with the literal in
@@ -305,6 +422,28 @@ _CADDY_PLUGIN_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.11.3"
 # image). An explicit CIDR list uses Caddy's built-in 'static' source and
 # runs on stock Caddy. Mirrors rewrite_caddy.yml / sync_compose_profiles.yml.
 _CADDY_PLUGIN_TRUSTED_PROXY_MODES = ("cloudflare", "imperva")
+
+# Profile names sync derives from the env (feature flags + DB mode). internal-db
+# is included (it is derived too) but is intentionally absent from
+# _MANAGED_PROFILE_SERVICES, so the teardown never removes the db container.
+_MANAGED_PROFILE_NAMES = (
+    {p for p, _flag, _default in _MANAGED_PROFILES} | {"internal-db"}
+)
+
+
+def _reconcile_compose_profiles(env, current):
+    """The COMPOSE_PROFILES that sync derives for `env`: unmanaged profiles in
+    `current` preserved, managed feature profiles whose CANASTA_ENABLE_* flag is
+    true, and internal-db unless an external DB is configured. Shared by
+    _sync_compose_profiles and the doctor consistency check so the checker can
+    never disagree with the syncer."""
+    desired = [p for p in current if p not in _MANAGED_PROFILE_NAMES]
+    for profile, flag, default in _MANAGED_PROFILES:
+        if env.get(flag, default).strip().lower() == "true":
+            desired.append(profile)
+    if env.get("USE_EXTERNAL_DB", "false").strip().lower() != "true":
+        desired.append("internal-db")
+    return desired
 
 
 def _sync_compose_profiles(inst):
@@ -325,15 +464,11 @@ def _sync_compose_profiles(inst):
 
     entries = _parse_env_entries(content)
     env = {k: v for k, v, c in entries if not c and k}
-    managed_names = {p for p, _flag, _default in _MANAGED_PROFILES}
+    managed_names = _MANAGED_PROFILE_NAMES  # for the teardown below
 
     current_raw = env.get("COMPOSE_PROFILES", "")
     current = [p.strip() for p in current_raw.split(",") if p.strip()]
-
-    desired = [p for p in current if p not in managed_names]
-    for profile, flag, default in _MANAGED_PROFILES:
-        if env.get(flag, default).strip().lower() == "true":
-            desired.append(profile)
+    desired = _reconcile_compose_profiles(env, current)
 
     profiles_changed = sorted(desired) != sorted(current)
 
@@ -360,19 +495,46 @@ def _sync_compose_profiles(inst):
     if not profiles_changed and not image_changed:
         return  # No change needed
 
-    new_entries = entries
+    # Rewrite only the keys that changed, keeping every other line verbatim so
+    # quoting (and any inline '#' inside quotes) on unrelated keys survives.
+    new_lines = content.split("\n")
     if profiles_changed:
-        new_entries = _set_env_entry(
-            new_entries, "COMPOSE_PROFILES", ",".join(desired),
+        new_lines = _set_env_lines(
+            new_lines, "COMPOSE_PROFILES", ",".join(desired),
         )
     if image_changed:
-        new_entries = _set_env_entry(
-            new_entries, "CANASTA_CADDY_IMAGE", desired_caddy_image,
+        new_lines = _set_env_lines(
+            new_lines, "CANASTA_CADDY_IMAGE", desired_caddy_image,
         )
-    _write_env_content(path, host, _entries_to_content(new_entries))
+    _write_env_content(path, host, "\n".join(new_lines))
+
+    # A feature flag flipped off drops its profile from COMPOSE_PROFILES, but
+    # docker compose up/down only act on active profiles — a container still
+    # running under the now-inactive profile is an untouched orphan. Stop and
+    # remove those containers so disabling a feature tears it down. Mirrors
+    # the teardown in sync_compose_profiles.yml.
+    if profiles_changed:
+        removed = [
+            p for p in current if p in managed_names and p not in desired
+        ]
+        # internal-db is in managed_names but not in _MANAGED_PROFILE_SERVICES:
+        # switching to an external DB drops it from the profile set, but the
+        # database container is intentionally never torn down here.
+        stale_services = [
+            svc for p in removed if p in _MANAGED_PROFILE_SERVICES
+            for svc in _MANAGED_PROFILE_SERVICES[p]
+        ]
+        if stale_services:
+            profile_flags = []
+            for p in removed:
+                profile_flags += ["--profile", p]
+            _run_compose(
+                inst.get("id"), inst,
+                profile_flags + ["rm", "-sf"] + stale_services,
+            )
 
 
-def _dump_compose_failure(inst):
+def _dump_compose_failure(inst, include_sidecars=False):
     """Print docker compose ps + logs to stderr after a failed 'up'.
 
     Matches the diagnostic block in roles/orchestrator/tasks/start.yml:
@@ -384,7 +546,7 @@ def _dump_compose_failure(inst):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     devmode = inst.get("devMode", False)
-    file_args = _compose_file_args(path, host, devmode)
+    file_args = _compose_file_args(path, host, devmode, include_sidecars)
 
     steps = [
         (["ps", "-a"], "docker compose ps -a"),
@@ -433,6 +595,28 @@ def _k8s_get_pod(namespace, component="web"):
         return None
 
 
+def _k8s_remote_exec_cmd(inst_id, service, command, forward_stdin=True):
+    """Shell command that resolves a Running pod and execs `command` in it,
+    for running on the instance's host via ssh — the controller has no
+    kubeconfig for a remote cluster, so both the pod lookup and the exec
+    must happen on the host. Pod selection matches _k8s_get_pod."""
+    ns = _k8s_namespace(inst_id)
+    lookup = (
+        "kubectl get pods -n %s -l app.kubernetes.io/component=%s "
+        "--field-selector=status.phase=Running "
+        "-o 'jsonpath={.items[0].metadata.name}'" % (ns, service)
+    )
+    return (
+        'pod="$(%s 2>/dev/null)"; '
+        'if [ -z "$pod" ]; then '
+        "echo \"Error: no running pod found for service '%s'\" >&2; "
+        "exit 1; fi; "
+        'exec kubectl exec%s "$pod" -n %s -- /bin/bash -c %s'
+        % (lookup, service, " -i" if forward_stdin else "",
+           ns, _shell_quote(command))
+    )
+
+
 def _exec_in_container(inst_id, inst, command, service="web"):
     """Execute a command inside a container/pod. Returns (rc, stdout)."""
     host = inst.get("host") or "localhost"
@@ -440,6 +624,9 @@ def _exec_in_container(inst_id, inst, command, service="web"):
     orchestrator = inst.get("orchestrator", "compose")
 
     if orchestrator in ("kubernetes", "k8s"):
+        if not _is_localhost(host):
+            return _ssh_run(host, _k8s_remote_exec_cmd(
+                inst_id, service, command, forward_stdin=False))
         ns = _k8s_namespace(inst_id)
         pod = _k8s_get_pod(ns, service)
         if not pod:
@@ -474,7 +661,8 @@ def _exec_in_container(inst_id, inst, command, service="web"):
     return rc, stdout
 
 
-def _stream_in_container(inst_id, inst, command, service="web"):
+def _stream_in_container(inst_id, inst, command, service="web",
+                         retry_on_reset=False):
     """Run a command inside a container/pod, streaming combined
     stdout+stderr to the user's terminal as it arrives. Returns the
     process return code.
@@ -483,6 +671,13 @@ def _stream_in_container(inst_id, inst, command, service="web"):
     rebuildData.php, ad-hoc maintenance scripts) so the operator can
     distinguish 'still working' from 'stuck' without having to drop
     down to `docker compose exec` directly. See issue #433.
+
+    retry_on_reset re-streams from the start on an SSH connection reset
+    (ssh exit 255). Only pass it for IDEMPOTENT commands (update.php,
+    runJobs.php, rebuildData.php). It must stay false for arbitrary
+    operator-supplied scripts, which may be destructive and non-idempotent
+    (deleteBatch.php, nukePage.php, importDump.php) — re-running those
+    after a mid-run reset would double-apply the work.
 
     `stdbuf -oL` is prepended to force line-buffered stdout from any
     coreutils-style child the script spawns; PHP CLI is line-buffered
@@ -495,19 +690,34 @@ def _stream_in_container(inst_id, inst, command, service="web"):
     wrapped = "stdbuf -oL %s" % command
 
     if orchestrator in ("kubernetes", "k8s"):
-        ns = _k8s_namespace(inst_id)
-        pod = _k8s_get_pod(ns, service)
-        if not pod:
-            print(
-                "Error: no running pod found for service '%s'" % service,
-                file=sys.stderr,
-            )
-            return 1
-        argv = [
-            "kubectl", "exec", pod, "-n", ns, "--",
-            "/bin/bash", "-c", wrapped,
-        ]
-        cwd = None
+        if not _is_localhost(host):
+            # kubectl and the cluster live on the instance's host — run
+            # the pod lookup and the exec there via ssh, mirroring the
+            # remote Compose branch below. ssh forwards stdin, so
+            # `... < probe.php` redirects still reach the pod.
+            target = _resolve_ssh_target(host)
+            argv = ["ssh"] + _ssh_args() + [
+                target, _k8s_remote_exec_cmd(inst_id, service, wrapped),
+            ]
+            cwd = None
+        else:
+            ns = _k8s_namespace(inst_id)
+            pod = _k8s_get_pod(ns, service)
+            if not pod:
+                print(
+                    "Error: no running pod found for service '%s'" % service,
+                    file=sys.stderr,
+                )
+                return 1
+            # -i forwards the CLI's stdin, matching `docker compose exec`
+            # on the Compose paths, so redirects like
+            # `canasta maintenance script eval < probe.php` work on K8s
+            # too.
+            argv = [
+                "kubectl", "exec", "-i", pod, "-n", ns, "--",
+                "/bin/bash", "-c", wrapped,
+            ]
+            cwd = None
     elif _is_localhost(host):
         argv = [
             "docker", "compose", "exec", "-T", service,
@@ -524,31 +734,43 @@ def _stream_in_container(inst_id, inst, command, service="web"):
         ]
         cwd = None
 
-    try:
-        proc = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-    except OSError as e:
-        print("Error: %s" % e, file=sys.stderr)
-        return 1
-
-    try:
-        for line in iter(proc.stdout.readline, ""):
-            sys.stdout.write(line)
-            sys.stdout.flush()
-    except KeyboardInterrupt:
-        proc.terminate()
+    def _run():
         try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        return 130
-    return proc.wait()
+            proc = subprocess.Popen(
+                argv,
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        except OSError as e:
+            print("Error: %s" % e, file=sys.stderr)
+            return 1
+
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                sys.stdout.write(line)
+                sys.stdout.flush()
+        except KeyboardInterrupt:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            return 130
+        return proc.wait()
+
+    # When streaming over SSH to a remote host, retry on a connection-level
+    # reset (ssh exit 255) ONLY when the caller opted in (idempotent command)
+    # — re-streaming a non-idempotent operator script would double-apply it.
+    # localhost and in-cluster `kubectl exec` never return 255.
+    is_remote_ssh = (
+        orchestrator not in ("kubernetes", "k8s") and not _is_localhost(host)
+    )
+    if is_remote_ssh and retry_on_reset:
+        return _retry_on_ssh_reset(_run)
+    return _run()
 
 
 def _normalize_script_args(args):
@@ -655,6 +877,31 @@ def _ssh_run(host, cmd):
         return 1, ""
 
 
+# ssh exits 255 on a connection-level failure (reset / broken pipe /
+# unreachable) — distinct from any exit code the remote command itself
+# returns. Idempotent remote operations retry on this so a transient
+# controller-to-target reset doesn't abort a command that was progressing.
+_SSH_CONN_FAILURE_RC = 255
+
+
+def _retry_on_ssh_reset(run, attempts=3):
+    """Run `run` (a callable returning an int exit code) and retry while it
+    returns 255, the code ssh produces on a connection-level failure. `run`
+    MUST be idempotent. Returns the final exit code."""
+    rc = _SSH_CONN_FAILURE_RC
+    for attempt in range(1, attempts + 1):
+        rc = run()
+        if rc != _SSH_CONN_FAILURE_RC:
+            return rc
+        if attempt < attempts:
+            print(
+                "SSH connection to the target was reset; retrying "
+                "(attempt %d of %d)…" % (attempt + 1, attempts),
+                file=sys.stderr,
+            )
+    return rc
+
+
 def _is_localhost(host):
     return host in ("localhost", "", None)
 
@@ -689,27 +936,41 @@ def _read_wikis(path, host):
         return []
 
 
-def _check_running(instance_id, path, orchestrator, host):
+def _docker_env(docker_host):
+    """Process env with DOCKER_HOST set to docker_host, or None to inherit.
+
+    Used to target a specific instance's socket per-subprocess rather than
+    mutating os.environ, so concurrent readers of different instances don't
+    clobber each other."""
+    if not docker_host:
+        return None
+    env = dict(os.environ)
+    env["DOCKER_HOST"] = docker_host
+    return env
+
+
+def _check_running(instance_id, path, orchestrator, host, docker_host=None):
     if orchestrator in ("kubernetes", "k8s"):
         return _check_running_k8s(instance_id, host)
-    return _check_running_compose(path, host)
+    return _check_running_compose(path, host, docker_host)
 
 
-def _check_running_compose(path, host):
+def _check_running_compose(path, host, docker_host=None):
     if _is_localhost(host):
         try:
             result = subprocess.run(
                 ["docker", "compose", "ps", "-q", "web"],
                 cwd=path, capture_output=True, text=True, timeout=10,
+                env=_docker_env(docker_host),
             )
             return result.returncode == 0 and result.stdout.strip() != ""
         except (subprocess.TimeoutExpired, OSError):
             return False
     else:
-        rc, stdout = _ssh_run(
-            host,
-            "cd %s && docker compose ps -q web" % _shell_quote(path),
-        )
+        cmd = "cd %s && docker compose ps -q web" % _shell_quote(path)
+        if docker_host:
+            cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
+        rc, stdout = _ssh_run(host, cmd)
         return rc == 0 and stdout.strip() != ""
 
 
@@ -762,20 +1023,27 @@ def _gather_instance_info(inst_id, inst):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     orchestrator = inst.get("orchestrator", "compose")
+    # Per-instance socket: many instances are gathered concurrently, so target
+    # this one's rootless socket via a per-command DOCKER_HOST rather than the
+    # process-global env another thread might read.
+    docker_host = inst.get("dockerHost")
     qpath = _shell_quote(path)
 
     if _is_localhost(host):
-        return _gather_local(inst_id, path, orchestrator, host)
+        return _gather_local(inst_id, path, orchestrator, host, docker_host)
 
     if orchestrator in ("kubernetes", "k8s"):
         return _gather_k8s(inst_id, path, host)
 
+    compose_ps = "cd %(p)s && docker compose ps -q web 2>/dev/null || true"
+    if docker_host:
+        compose_ps = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), compose_ps)
     script = (
         "test -d %(p)s && echo DIR_OK || echo DIR_MISSING; "
         "echo '%(d)s'; "
         "cat %(p)s/config/wikis.yaml 2>/dev/null || echo WIKIS_MISSING; "
         "echo '%(d)s'; "
-        "cd %(p)s && docker compose ps -q web 2>/dev/null || true"
+        + compose_ps
     ) % {"p": qpath, "d": _SENTINEL}
 
     rc, stdout = _ssh_run(host, script)
@@ -805,13 +1073,13 @@ def _gather_instance_info(inst_id, inst):
     return _make_detail(inst_id, host, path, orchestrator, status, wikis)
 
 
-def _gather_local(inst_id, path, orchestrator, host):
+def _gather_local(inst_id, path, orchestrator, host, docker_host=None):
     dir_exists = os.path.isdir(path)
     wikis = _read_wikis(path, host) if dir_exists else []
 
     if not dir_exists:
         status = "NOT FOUND"
-    elif _check_running(inst_id, path, orchestrator, host):
+    elif _check_running(inst_id, path, orchestrator, host, docker_host):
         status = "RUNNING"
     else:
         status = "STOPPED"

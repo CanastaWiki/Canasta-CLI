@@ -1,8 +1,6 @@
 """maintenance script / extension / update commands."""
 
 import os
-import re
-import subprocess
 import sys
 
 import yaml
@@ -133,6 +131,7 @@ def cmd_maintenance_update(args):
         rc = _helpers._stream_in_container(
             inst_id, inst,
             "php maintenance/update.php --wiki=%s" % _helpers._shell_quote(w),
+            retry_on_reset=True,  # update.php is idempotent
         )
         if rc != 0:
             overall_rc = rc
@@ -143,6 +142,7 @@ def cmd_maintenance_update(args):
             rc = _helpers._stream_in_container(
                 inst_id, inst,
                 "php maintenance/runJobs.php --wiki=%s" % _helpers._shell_quote(w),
+                retry_on_reset=True,  # runJobs.php is idempotent
             )
             if rc != 0:
                 overall_rc = rc
@@ -165,6 +165,7 @@ def cmd_maintenance_update(args):
                     inst_id, inst,
                     "php extensions/SemanticMediaWiki/maintenance/"
                     "rebuildData.php --wiki=%s" % _helpers._shell_quote(w),
+                    retry_on_reset=True,  # rebuildData.php is idempotent
                 )
 
     print("\nMaintenance update complete for: %s" % ", ".join(wikis))

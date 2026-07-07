@@ -1,0 +1,85 @@
+# In-cluster image registry for locally-built images (canasta create
+# --build-from, custom service/sidecar images).
+#
+# Reached at two addresses for the same registry (a registry stores by repo
+# path, so the host:port is just the endpoint):
+#   - pull: the fixed ClusterIP 10.43.0.2:5000 — cluster-internal (NOT
+#     externally routable), reachable from every node's containerd, trusted
+#     via certs.d (see k8s_registry_trust.yaml). This is what pods reference.
+#   - push: localhost:5000 on the control-plane node, via a loopback-only
+#     hostPort — so `docker push` is auto-insecure (no daemon.json) and not
+#     exposed. The pod is pinned to the cp so the hostPort lands there.
+# No NodePort (which would expose the auth-less registry on every node's public
+# IP), so no kube-proxy lockdown and no k3s restart are needed.
+#
+# The fixed ClusterIP assumes the k3s default service CIDR (10.43.0.0/16),
+# which Canasta installs use.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: canasta-registry
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+  namespace: canasta-registry
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: canasta-registry
+spec:
+  replicas: 1
+  # A rolling update can never complete: the surge pod needs the same
+  # loopback hostPort (and the RWO data PVC) the old pod holds, so it
+  # stays Pending while the old pod waits for it. Recreate is the only
+  # strategy a single-replica hostPort deployment can roll with.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: canasta-registry
+  template:
+    metadata:
+      labels:
+        app: canasta-registry
+    spec:
+      # Pin to the control plane so the loopback push hostPort is on the host
+      # that runs `docker build`/`docker push` for --build-from.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      containers:
+        - name: registry
+          image: registry:2
+          ports:
+            - containerPort: 5000
+              hostPort: 5000
+              hostIP: 127.0.0.1
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/registry
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: registry-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: canasta-registry
+spec:
+  type: ClusterIP
+  clusterIP: 10.43.0.2
+  selector:
+    app: canasta-registry
+  ports:
+    - port: 5000
+      targetPort: 5000

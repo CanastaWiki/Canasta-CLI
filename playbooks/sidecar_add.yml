@@ -1,0 +1,28 @@
+---
+# canasta sidecar add - Declare app sidecar(s) in config/sidecars.yaml from a
+# YAML file of full definitions (the orchestrator-agnostic sidecar schema).
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+# The file is a controller-side path (where the CLI runs). A lookup always
+# runs on the controller, regardless of the connection resolve_instance
+# switched to for a remote (-H) instance — unlike a delegated slurp, which
+# can read the wrong host.
+- name: Read the sidecar definition file (on the controller)
+  ansible.builtin.set_fact:
+    _sidecar_defs: "{{ lookup('file', file) }}"
+
+- name: Import sidecar definitions into config/sidecars.yaml
+  canasta_sidecars_yaml:
+    instance_path: "{{ instance_path }}"
+    state: import
+    definitions: "{{ _sidecar_defs }}"
+  register: _sidecar_import
+
+- name: Report
+  ansible.builtin.debug:
+    msg: >-
+      Sidecar(s) {{ _sidecar_import.names | join(', ') }} added to
+      config/sidecars.yaml. Run 'canasta restart' to deploy them.

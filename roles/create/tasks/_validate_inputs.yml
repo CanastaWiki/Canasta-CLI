@@ -10,6 +10,20 @@
   ansible.builtin.debug:
     msg: "Validating inputs..."
 
+# --skip-install connects to an already-populated database, so there is
+# no dump to import. The two options are mutually exclusive. The
+# USE_EXTERNAL_DB=true requirement is checked later in _env_update.yml,
+# once the -e envfile has been merged into .env.
+- name: Fail if --skip-install is combined with --database
+  ansible.builtin.fail:
+    msg: >-
+      --skip-install cannot be combined with --database. --skip-install
+      connects to a database that already holds the wiki's schema, so
+      there is no dump to import.
+  when:
+    - skip_install | default(false) | bool
+    - database is defined and database != ''
+
 - name: Validate instance ID
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_instance_id.yml"
 

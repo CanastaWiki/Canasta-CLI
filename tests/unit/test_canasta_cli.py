@@ -333,6 +333,38 @@ class TestBuildAnsibleArgs:
         extra = self._get_vars(result)
         assert extra["id"] == "mysite"
 
+    def test_maintenance_exec_stdin_file_path_abspath(self, data):
+        """--stdin-file is a local path: resolved to an absolute path so the
+        controller-side lookup('file', ...) finds it regardless of cwd."""
+        import os
+        from argparse import Namespace
+        args = Namespace(
+            command="maintenance_exec", host=None, verbose=False,
+            id="mysite", service=None, wiki=None,
+            stdin_file="page.wikitext", exec_args=["php", "run.php", "edit"],
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "maintenance_exec", args, data
+        )
+        extra = self._get_vars(result)
+        assert extra["stdin_file"] == os.path.abspath(
+            os.path.expanduser("page.wikitext")
+        )
+
+    def test_maintenance_exec_stdin_file_omitted(self, data):
+        """No --stdin-file: the stdin_file var is absent (the play omits it)."""
+        from argparse import Namespace
+        args = Namespace(
+            command="maintenance_exec", host=None, verbose=False,
+            id="mysite", service=None, wiki=None,
+            stdin_file=None, exec_args=["ls", "/var/www/mediawiki"],
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "maintenance_exec", args, data
+        )
+        extra = self._get_vars(result)
+        assert "stdin_file" not in extra
+
     def test_host_name_param(self, data):
         """host_name parameter (with long: name) is passed correctly."""
         from argparse import Namespace
@@ -1047,6 +1079,24 @@ class TestSelfUpdateCli:
         assert canasta_cli._pick_latest_release_tag([]) is None
         assert canasta_cli._pick_latest_release_tag(["v5.0.0-rc1"]) is None
 
+    def test_pick_latest_release_tag_max_major(self):
+        tags = "v4.2.1 v4.2.3 v4.3.1 v5.0.0 v6.1.0".split()
+        # Uncapped: highest overall, crossing majors.
+        assert canasta_cli._pick_latest_release_tag(tags) == "v6.1.0"
+        # Capped to major 4: never crosses into v5/v6.
+        assert canasta_cli._pick_latest_release_tag(
+            tags, max_major=4) == "v4.3.1"
+        # max_major=0 (no eligible tag) → None even though tags exist.
+        assert canasta_cli._pick_latest_release_tag(
+            tags, max_major=0) is None
+
+    def test_version_major(self):
+        assert canasta_cli._version_major("4.2.1") == 4
+        assert canasta_cli._version_major("v5.0.0") == 5
+        assert canasta_cli._version_major("10.0.0") == 10
+        assert canasta_cli._version_major("unknown") is None
+        assert canasta_cli._version_major("") is None
+
     def test_no_op_when_not_a_git_repo(
         self, monkeypatch, tmp_path, capsys,
     ):
@@ -1102,7 +1152,7 @@ class TestSelfUpdateCli:
     ):
         # On a development build ahead of the latest release tag: the
         # release tag is contained in HEAD, so 'canasta upgrade' must NOT
-        # check it out (no travelling backward in time).
+        # check it out (no traveling backward in time).
         self._patch_repo(monkeypatch, tmp_path)
         execv_calls = []
         monkeypatch.setattr(
@@ -1295,6 +1345,82 @@ class TestSelfUpdateCli:
         assert "no release tags found" in err
         assert "--dev" in err
 
+    def test_default_stays_within_current_major(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        # Installed 4.2.1 with a newer major (v5.0.0) tagged: default
+        # 'canasta upgrade' moves to the latest 4.x (v4.3.1), not v5.0.0,
+        # and surfaces the --allow-major hint.
+        self._patch_repo(monkeypatch, tmp_path, version="4.2.1")
+        monkeypatch.setattr(canasta_cli.os, "execv", lambda *a: None)
+        runner, calls = self._make_runner([
+            {"stdout": "old1234\n"},                      # rev-parse HEAD
+            {"stdout": ""},                                # fetch --tags
+            {"stdout": "v4.2.1\nv4.3.1\nv5.0.0\n"},        # tag -l v*
+            {"stdout": "new4031\n"},                       # rev-parse v4.3.1
+            {"returncode": 1},                             # merge-base → move
+            {"stdout": ""},                                # checkout v4.3.1
+            {"stdout": "new4031\n"},                       # rev-parse new HEAD
+            {"stdout": "2026-05-05 10:00:00\n"},           # log -1 date
+            {"stdout": ""},                                # pip install
+            {"stdout": ""},                                # ansible-galaxy
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        out = capsys.readouterr().out
+        assert "Updated Canasta CLI" in out
+        assert any("v4.3.1" in c for c in calls)        # checked out 4.3.1
+        assert not any("v5.0.0" in c for c in calls)    # never touched v5
+        assert "newer major release (v5.0.0)" in out
+        assert "--allow-major" in out
+
+    def test_allow_major_crosses_to_latest_overall(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        # With --allow-major the cap is lifted: from 4.2.1 it jumps straight
+        # to the latest overall (v5.0.0), and prints no major hint.
+        self._patch_repo(monkeypatch, tmp_path, version="4.2.1")
+        monkeypatch.setattr(canasta_cli.os, "execv", lambda *a: None)
+        runner, calls = self._make_runner([
+            {"stdout": "old1234\n"},                      # rev-parse HEAD
+            {"stdout": ""},                                # fetch --tags
+            {"stdout": "v4.2.1\nv4.3.1\nv5.0.0\n"},        # tag -l v*
+            {"stdout": "new5000\n"},                       # rev-parse v5.0.0
+            {"returncode": 1},                             # merge-base → move
+            {"stdout": ""},                                # checkout v5.0.0
+            {"stdout": "new5000\n"},                       # rev-parse new HEAD
+            {"stdout": "2026-05-05 10:00:00\n"},           # log -1 date
+            {"stdout": ""},                                # pip install
+            {"stdout": ""},                                # ansible-galaxy
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli(allow_major=True)
+        out = capsys.readouterr().out
+        assert "Updated Canasta CLI" in out
+        assert any("v5.0.0" in c for c in calls)         # checked out v5
+        assert "newer major release" not in out          # no cap → no hint
+
+    def test_no_release_at_or_below_major_warns(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        # Installed 4.2.1 but the only tags are a higher major: the default
+        # cap leaves nothing eligible, so skip and point at --allow-major.
+        self._patch_repo(monkeypatch, tmp_path, version="4.2.1")
+        runner, calls = self._make_runner([
+            {"stdout": "abc1234\n"},   # rev-parse HEAD
+            {"stdout": ""},             # fetch --tags
+            {"stdout": "v5.0.0\n"},     # tag -l → only a higher major
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli()
+        err = capsys.readouterr().err
+        assert "no release found at or below the current major" in err
+        assert "v4.x" in err
+        assert "v5.0.0" in err
+        assert "--allow-major" in err
+        # Capped out → no checkout.
+        assert not any("checkout" in c for c in calls)
+
     def test_fetch_failure_warns_and_returns(
         self, monkeypatch, tmp_path, capsys,
     ):
@@ -1425,3 +1551,102 @@ class TestNestedGroupHelp:
         assert "backup schedule" in out
         for sub in ("set", "list", "remove"):
             assert sub in out
+
+
+class TestHandleInteractiveExecStdin:
+    """maintenance exec --stdin-file must make the direct exec non-interactive
+    (so a piped payload survives) and redirect the file onto stdin. This path
+    bypasses Ansible, so the wiring lives in handle_interactive_exec."""
+
+    def _run(self, monkeypatch, stdin_file, orchestrator="compose"):
+        from argparse import Namespace
+        calls = {}
+        monkeypatch.setattr(canasta_cli, "resolve_instance", lambda _id: {
+            "id": "rsdev", "orchestrator": orchestrator,
+            "host": "localhost", "path": "/tmp/inst",
+        })
+        monkeypatch.setattr(canasta_cli.os, "chdir", lambda p: None)
+        monkeypatch.setattr(
+            canasta_cli, "_redirect_stdin_from_file",
+            lambda p: calls.__setitem__("redirect", p))
+        monkeypatch.setattr(
+            canasta_cli.os, "execvp",
+            lambda f, argv: calls.__setitem__("execvp", (f, list(argv))))
+        if orchestrator in ("kubernetes", "k8s"):
+            monkeypatch.setattr(
+                canasta_cli.subprocess, "run",
+                lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="pod-1"))
+        args = Namespace(id="rsdev", service=None,
+                         exec_args=["php", "edit"], stdin_file=stdin_file)
+        canasta_cli.handle_interactive_exec(args)
+        return calls
+
+    def test_compose_stdin_file_adds_T_and_redirects(self, monkeypatch):
+        calls = self._run(monkeypatch, "/tmp/page.txt")
+        binary, argv = calls["execvp"]
+        assert binary == "docker"
+        assert argv[:4] == ["docker", "compose", "exec", "-T"]
+        assert calls["redirect"] == "/tmp/page.txt"
+
+    def test_compose_without_stdin_file_stays_interactive(self, monkeypatch):
+        calls = self._run(monkeypatch, None)
+        _binary, argv = calls["execvp"]
+        assert "-T" not in argv
+        assert calls["redirect"] is None
+
+    def test_k8s_stdin_file_drops_tty(self, monkeypatch):
+        calls = self._run(monkeypatch, "/tmp/page.txt", orchestrator="k8s")
+        binary, argv = calls["execvp"]
+        assert binary == "kubectl"
+        assert "-i" in argv and "-it" not in argv
+        assert calls["redirect"] == "/tmp/page.txt"
+
+    def test_k8s_pod_resolution_filters_running(self, monkeypatch):
+        """The pod lookup must select only Running pods, matching
+        roles/orchestrator/tasks/k8s_get_pod.yml. Without the phase filter,
+        items[0] during a rollout/scale/crash-loop can be a
+        Pending/Terminating/Failed pod and the exec targets the wrong
+        replica (or fails)."""
+        from argparse import Namespace
+        captured = {}
+
+        monkeypatch.setattr(canasta_cli, "resolve_instance", lambda _id: {
+            "id": "rsdev", "orchestrator": "k8s",
+            "host": "localhost", "path": "/tmp/inst"})
+        monkeypatch.setattr(
+            canasta_cli, "_redirect_stdin_from_file", lambda p: None)
+        monkeypatch.setattr(canasta_cli.os, "execvp", lambda f, argv: None)
+
+        def fake_run(cmd, *a, **k):
+            captured["cmd"] = cmd
+            return types.SimpleNamespace(returncode=0, stdout="pod-1")
+
+        monkeypatch.setattr(canasta_cli.subprocess, "run", fake_run)
+        args = Namespace(id="rsdev", service="web",
+                         exec_args=["php", "version"], stdin_file=None)
+        canasta_cli.handle_interactive_exec(args)
+        assert "--field-selector=status.phase=Running" in captured["cmd"]
+
+    def test_string_exec_args_preserves_quoting(self, monkeypatch):
+        """A `--` passthrough arrives as one string; quoted args (a spaced
+        --summary, a page title with spaces) must survive as single argv
+        elements. Regression: a naive .split() shredded them on whitespace,
+        so edit.php wrote to a page titled "'--summary=Initial"."""
+        from argparse import Namespace
+        calls = {}
+        monkeypatch.setattr(canasta_cli, "resolve_instance", lambda _id: {
+            "id": "x", "orchestrator": "compose",
+            "host": "localhost", "path": "/tmp/i"})
+        monkeypatch.setattr(canasta_cli.os, "chdir", lambda p: None)
+        monkeypatch.setattr(
+            canasta_cli, "_redirect_stdin_from_file", lambda p: None)
+        monkeypatch.setattr(
+            canasta_cli.os, "execvp",
+            lambda f, argv: calls.__setitem__("argv", list(argv)))
+        args = Namespace(
+            id="x", service=None, stdin_file=None,
+            exec_args="php edit '--summary=a b' 'Template:Page Name'")
+        canasta_cli.handle_interactive_exec(args)
+        argv = calls["argv"]
+        assert "--summary=a b" in argv
+        assert "Template:Page Name" in argv

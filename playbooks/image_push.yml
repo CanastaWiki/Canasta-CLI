@@ -1,0 +1,83 @@
+---
+# canasta image push - Build a local context and push it to the in-cluster
+# image registry, so Kubernetes pods can pull the image.
+#
+# The build and push run on the target host, which must be the cluster's
+# control-plane node: the registry's push endpoint is a loopback-only
+# hostPort there (localhost:5000, auto-insecure) — the same assumption as
+# create --build-from. Pods pull the pushed image via the registry's fixed
+# ClusterIP (10.43.0.2:5000).
+
+- name: Probe for a Kubernetes cluster on the host
+  ansible.builtin.command:
+    cmd: kubectl get nodes -o name
+  register: _img_k8s
+  changed_when: false
+  failed_when: false
+
+- name: Fail when the host has no Kubernetes cluster
+  ansible.builtin.fail:
+    msg: >-
+      canasta image push targets the in-cluster registry of a Kubernetes
+      host, and no cluster was found here. On Docker Compose a locally
+      built tag is directly usable — build it with `docker build -t <tag>`
+      and reference the tag; no push is needed.
+  when: _img_k8s.rc != 0
+
+- name: Check the build context exists
+  ansible.builtin.stat:
+    path: "{{ context }}"
+  register: _img_ctx
+
+- name: Fail when the build context is missing
+  ansible.builtin.fail:
+    msg: >-
+      Build context '{{ context }}' is not a directory on the target
+      host.
+  when: not (_img_ctx.stat.isdir | default(false))
+
+- name: Resolve the image reference (default tag :local)
+  ansible.builtin.set_fact:
+    _img_ref: >-
+      {{ image_name if ':' in image_name else image_name ~ ':local' }}
+
+# Idempotent: deploys the registry on a cluster that lacks it, an instant
+# no-op afterward. Blocks until the registry is ready to take the push.
+- name: Ensure the in-cluster image registry
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml
+
+- name: Fail on a malformed --build-arg
+  ansible.builtin.fail:
+    msg: "Invalid --build-arg '{{ item }}': expected KEY=VALUE"
+  loop: "{{ build_arg | default([]) }}"
+  when: "'=' not in item"
+
+- name: Assemble build-arg flags
+  ansible.builtin.set_fact:
+    _img_build_arg_flags: >-
+      {{ build_arg | default([])
+         | map('regex_replace', '^(.+)$', '--build-arg \1')
+         | join(' ') }}
+
+- name: Build the image from the context
+  ansible.builtin.command:
+    cmd: >-
+      docker build -t localhost:5000/{{ _img_ref }}
+      {{ _img_build_arg_flags }} {{ context | quote }}
+  changed_when: true
+
+- name: Push the image to the in-cluster registry
+  ansible.builtin.command:
+    cmd: "docker push localhost:5000/{{ _img_ref }}"
+  changed_when: true
+
+- name: Report the cluster-pullable reference
+  ansible.builtin.debug:
+    msg: >-
+      Pushed {{ _img_ref }}. Pods can pull it as
+      10.43.0.2:5000/{{ _img_ref }} — use that reference with e.g.
+      `canasta config set -i <id>
+      CANASTA_ELASTICSEARCH_IMAGE=10.43.0.2:5000/{{ _img_ref }}`,
+      `canasta config set -i <id> CANASTA_IMAGE=...` for a custom web
+      image, or a sidecar's `image:` in config/sidecars.yaml.

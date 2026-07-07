@@ -166,6 +166,21 @@ class TestHelmChart:
             "should be 3500. See #58 / #65."
         )
 
+    def test_k3s_install_persists_readable_kubeconfig_mode(self):
+        """The control-plane k3s install must pass
+        --write-kubeconfig-mode 0644 in INSTALL_K3S_EXEC so a k3s restart
+        keeps /etc/rancher/k3s/k3s.yaml readable. The one-time chmod only
+        covers the fresh-install window; k3s rewrites the file at its
+        default 0600 on every restart, which then breaks every non-root
+        kubectl/helm task (preflight, helm_deploy, sync)."""
+        with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_install_k3s.yml")) as f:
+            content = f.read()
+        assert "--write-kubeconfig-mode 0644" in content, (
+            "k8s_install_k3s.yml must pass --write-kubeconfig-mode 0644 "
+            "in the k3s install exec so the kubeconfig stays readable "
+            "across k3s restarts"
+        )
+
 
 class TestExternalDatabase:
     """External DB support on the K8s path: chart gates db.enabled,
@@ -311,21 +326,19 @@ class TestK8sSyncConfigSecretsStripped:
             "breaks Argo CD reconciliation (#507)."
         )
 
-    def test_sync_env_no_secrets_rejects_password_and_secret_key(self):
-        """The filter must specifically drop MYSQL_PASSWORD and
-        MW_SECRET_KEY — those are the keys the chart pulls via
-        secretKeyRef and therefore the keys that would be duplicated
-        if left in the .env content."""
+    def test_sync_env_no_secrets_uses_canonical_classifier(self):
+        """The filter must drop the FULL secret surface via the canonical
+        classifier (canasta_secret_key_regex), not a hand-maintained key list —
+        otherwise a secret outside the list (RESTIC_*, AWS_*, WIKI_DB_PASSWORD,
+        SMTP_*, ...) leaks into configData.web['.env'] / the committed values."""
         for task in self._walk_tasks(self._load()):
             sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
             if not (isinstance(sf, dict) and "_sync_env_no_secrets" in sf):
                 continue
             expr = sf["_sync_env_no_secrets"]
-            assert "MYSQL_PASSWORD" in expr, (
-                "_sync_env_no_secrets filter must drop MYSQL_PASSWORD"
-            )
-            assert "MW_SECRET_KEY" in expr, (
-                "_sync_env_no_secrets filter must drop MW_SECRET_KEY"
+            assert "canasta_secret_key_regex" in expr, (
+                "_sync_env_no_secrets must reject via the canonical "
+                "canasta_secret_key_regex, not a literal key list"
             )
             return
 
@@ -588,7 +601,6 @@ class TestOrchestratorTasks:
     REQUIRED_TASKS = [
         "helm_deploy.yml",
         "helm_uninstall.yml",
-        "helm_status.yml",
         "k8s_preflight.yml",
         "k8s_install_k3s.yml",
         "k8s_argocd_bootstrap.yml",
@@ -1008,16 +1020,140 @@ class TestK8sDeleteWaitsForNamespace:
     returning — otherwise an immediate re-create races the still-Terminating
     namespace and fails the stale-namespace guard (#684)."""
 
-    def test_namespace_deletion_waits(self):
+    def test_namespace_deletion_requests_then_polls_until_gone(self):
+        # #762: a single held `kubectl delete --wait` aborts the whole delete
+        # when termination is slow (NFS on multi-node), leaking the namespace.
+        # Issue the delete (--wait=false), then poll until it's gone — still
+        # waiting for full termination so delete->re-create doesn't race.
         with open(os.path.join(ORCHESTRATOR_TASKS, "helm_uninstall.yml")) as f:
             tasks = yaml.safe_load(f)
-        ns = next(t for t in tasks if t.get("name") == "Delete namespace")
-        spec = ns["kubernetes.core.k8s"]
-        assert spec.get("kind") == "Namespace"
-        assert spec.get("state") == "absent"
-        assert spec.get("wait") is True, (
-            "namespace deletion must wait, so delete->create does not race"
+        req = next(t for t in tasks if t.get("name") == "Request namespace deletion")
+        assert "--wait=false" in req["ansible.builtin.command"]["cmd"]
+        assert "--ignore-not-found" in req["ansible.builtin.command"]["cmd"]
+
+        wait = next(t for t in tasks if t.get("name") == "Wait for namespace to be fully gone")
+        assert "kubectl get namespace" in wait["ansible.builtin.command"]["cmd"]
+        assert wait["until"] == "_ns_gone.rc != 0"  # NotFound == gone
+        assert int(wait["retries"]) * int(wait["delay"]) >= 300
+
+    def test_helm_uninstall_drops_wait(self):
+        # The helm uninstall must NOT use --wait: with --wait its async window
+        # could time out on slow multi-node NFS teardown and abort the delete
+        # before the namespace was removed (#762). Teardown is handled by the
+        # namespace delete + poll above.
+        with open(os.path.join(ORCHESTRATOR_TASKS, "helm_uninstall.yml")) as f:
+            tasks = yaml.safe_load(f)
+        un = next(t for t in tasks if t.get("name") == "Uninstall Canasta Helm release")
+        assert "--wait" not in un["vars"]["rx_cmd"]
+
+
+class TestResilientExec:
+    """Long-running remote ops run detached and are polled (resilient_exec)
+    so a controller-side SSH reset doesn't abort work still progressing on
+    the target (#750)."""
+
+    PRIMITIVE = os.path.join(ORCHESTRATOR_TASKS, "resilient_exec.yml")
+
+    def test_primitive_launches_async_and_polls(self):
+        tasks = yaml.safe_load(open(self.PRIMITIVE))
+        # First task fires the command and returns immediately (poll: 0).
+        launch = tasks[0]
+        assert launch.get("poll") == 0
+        assert launch.get("async") is not None
+        assert "ansible.builtin.shell" in launch
+        # Completion is polled with async_status in an until-loop that
+        # tolerates transient unreachable polls.
+        poll = next(t for t in tasks if "ansible.builtin.async_status" in t)
+        assert "until" in poll
+        assert poll.get("ignore_unreachable") is True
+
+    def test_launch_collapses_only_newlines(self):
+        # rx_cmd often comes from a `>-` folded scalar whose more-indented
+        # Jinja continuations preserve newlines. Under `shell` (/bin/sh -c) a
+        # bare newline is a command separator, so the launch must fold the
+        # command onto one line (regression for the helm `--reset-values`
+        # rc=127 break) — but collapse ONLY newlines, not all whitespace, so
+        # a secret with a tab/double-space on the exec_long path isn't mangled.
+        tasks = yaml.safe_load(open(self.PRIMITIVE))
+        cmd = tasks[0]["ansible.builtin.shell"]["cmd"]
+        assert "regex_replace" in cmd and r"\r\n" in cmd, (
+            "launch must collapse newline runs (regex_replace) not all "
+            "whitespace, so intra-line spacing in secrets is preserved"
         )
+        assert ".split()" not in cmd, (
+            "split()|join collapses ALL whitespace and mangles secrets "
+            "containing tabs/double-spaces"
+        )
+
+    def test_folded_rx_cmds_have_no_newline_after_normalization(self):
+        # Every resilient_exec caller's rx_cmd, once folded by YAML and
+        # newline-collapsed, must be a single line.
+        import re
+        for rel in ("helm_deploy.yml", "helm_uninstall.yml",
+                    "k8s_argocd_bootstrap.yml"):
+            tasks = yaml.safe_load(open(os.path.join(ORCHESTRATOR_TASKS, rel)))
+            for t in self._walk(tasks):
+                rx = (t.get("vars") or {}).get("rx_cmd")
+                if rx:
+                    assert "\n" not in re.sub(r"[\r\n]+", " ", rx).strip(), rel
+
+    def test_poll_and_cleanup_honor_no_log(self):
+        # async_status returns the job's `cmd`, so the poll + cleanup tasks
+        # must honor rx_no_log or a secret in rx_cmd (e.g. the k3s join
+        # token) leaks under -v.
+        tasks = yaml.safe_load(open(self.PRIMITIVE))
+        for name in ("Wait for completion", "Clean up async job file"):
+            t = next(x for x in tasks if str(x.get("name", "")).startswith(name))
+            assert "rx_no_log" in str(t.get("no_log", "")), name
+
+    @staticmethod
+    def _walk(tasks):
+        for t in tasks or []:
+            if not isinstance(t, dict):
+                continue
+            yield t
+            for nested in ("block", "rescue", "always"):
+                if nested in t:
+                    yield from TestResilientExec._walk(t[nested])
+
+    def test_helm_deploy_uses_resilient_exec(self):
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "helm_deploy.yml")))
+        deploy = next(
+            t for t in tasks if t.get("name") == "Deploy Canasta Helm release")
+        assert "resilient_exec.yml" in deploy["ansible.builtin.include_tasks"]
+        assert "helm upgrade --install" in deploy["vars"]["rx_cmd"]
+
+    def test_argocd_install_uses_resilient_exec(self):
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "k8s_argocd_bootstrap.yml")))
+        install_block = next(t for t in tasks if t.get("name") == "Install Argo CD")
+        sub = install_block["block"]
+        helm = next(t for t in sub if t.get("name") == "Install Argo CD via Helm")
+        assert "resilient_exec.yml" in helm["ansible.builtin.include_tasks"]
+
+    def test_k3s_install_uses_resilient_exec(self):
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "k8s_install_k3s.yml")))
+        block = next(t for t in tasks if t.get("name") == "Install k3s")
+        install = next(
+            t for t in block["block"]
+            if t.get("name") == "Download and install k3s")
+        assert "resilient_exec.yml" in install["ansible.builtin.include_tasks"]
+
+    def test_exec_supports_opt_in_long_mode(self):
+        # The shared exec abstraction gains an opt-in long mode (detached +
+        # polled) used by update.php / mysqldump callers, while short callers
+        # keep the held single connection (gated by exec_long).
+        tasks = yaml.safe_load(
+            open(os.path.join(ORCHESTRATOR_TASKS, "exec.yml")))
+        held = next(t for t in tasks if str(t.get("name", "")).startswith("Execute:"))
+        assert "not (exec_long" in str(held.get("when", ""))
+        long_task = next(
+            t for t in tasks
+            if "resilient_exec.yml" in str(
+                t.get("ansible.builtin.include_tasks", "")))
+        assert "exec_long" in str(long_task.get("when", ""))
 
 
 class TestK8sTraefikClientIP:
@@ -1106,3 +1242,263 @@ class TestK8sWorkerJoinDualStackIP:
             if isinstance(t, dict) and "_k3s_server_url" in str(t.get("ansible.builtin.set_fact", {}))
         )
         assert task["ansible.builtin.set_fact"]["_k3s_server_url"] == "https://{{ _cp_internal_ip }}:6443"
+
+
+class TestGitopsInitNonInteractive:
+    """K8s `gitops init` pauses for the operator to register the deploy
+    key on the forge. That pause reads the TTY, so it hangs any
+    unattended/CI run. The init must (a) probe whether the key already
+    works and skip the pause when it does, and (b) honor --non-interactive
+    by failing fast instead of hanging when the key is not yet
+    authorized."""
+
+    INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
+
+    def _content(self):
+        with open(self.INIT_K8S) as f:
+            return f.read()
+
+    def test_probes_key_before_pausing(self):
+        c = self._content()
+        i = c.find("git ls-remote")
+        j = c.find("Pause for user to add deploy key")
+        assert 0 <= i < j, (
+            "init_kubernetes.yml must probe the deploy key (git ls-remote) "
+            "before the pause, to decide whether the pause is needed"
+        )
+        assert "_deploy_key_authorized" in c, (
+            "init must record whether the deploy key already works"
+        )
+
+    def test_pause_is_gated_on_unauthorized_and_interactive(self):
+        tasks = yaml.safe_load(open(self.INIT_K8S))
+        pause = next(
+            t for t in tasks
+            if isinstance(t, dict) and t.get("name", "").startswith("Pause for user")
+        )
+        when = " ".join(str(x) for x in pause.get("when", []))
+        assert "_deploy_key_authorized" in when, (
+            "the pause must be skipped when the deploy key already works"
+        )
+        assert "non_interactive" in when, (
+            "the pause must be skipped in --non-interactive mode"
+        )
+
+    def test_non_interactive_fails_fast(self):
+        c = self._content()
+        assert "non_interactive | default(false) | bool" in c, (
+            "init must check the non_interactive flag"
+        )
+        assert "Fail fast when the deploy key is not yet authorized" in c, (
+            "init must fail fast (not hang) in --non-interactive mode when "
+            "the deploy key is not yet authorized"
+        )
+
+
+class TestGitopsJoinK8sWorks:
+    """gitops join was broken on Kubernetes (it assumed Compose/git-crypt
+    and committed on the controller). These guard the four fixes that make
+    a cross-host re-attach actually work end-to-end."""
+
+    JOIN_K8S = os.path.join(GITOPS_TASKS, "join_kubernetes.yml")
+
+    def _content(self):
+        with open(self.JOIN_K8S) as f:
+            return f.read()
+
+    def test_reads_deploy_key_via_connection_switch(self):
+        """The controller-local key read must use the save/switch-to-local/
+        restore dance, not delegate_to+vars (which doesn't override the
+        connection switch to the instance host, so the slurp runs on the
+        target and fails)."""
+        c = self._content()
+        assert "Switch to local for SSH key read" in c, (
+            "the key read must switch the connection to local"
+        )
+        i = c.find("Read SSH deploy key from controller")
+        seg = c[i:i + 400]
+        assert "delegate_to: localhost" not in seg, (
+            "the key read must not rely on delegate_to+vars (unreliable "
+            "after the connection switch); use the switch-to-local dance"
+        )
+
+    def test_gitattributes_materialize_is_non_fatal(self):
+        """K8s gitops repos are cleartext (no git-crypt / no .gitattributes),
+        so the .gitattributes checkout must not hard-fail."""
+        c = self._content()
+        i = c.find("git checkout HEAD -- .gitattributes")
+        assert i >= 0, "join still materializes .gitattributes"
+        assert "failed_when: false" in c[i:i + 200], (
+            ".gitattributes materialize must be non-fatal (absent on K8s)"
+        )
+
+    def test_commit_sets_inline_identity(self):
+        """The commit runs on the target host (no git identity); it must set
+        user.name/user.email inline so it doesn't abort 'Author identity
+        unknown'."""
+        c = self._content()
+        i = c.find("commit -m 'Add environment")
+        seg = c[max(0, i - 200):i]
+        assert "user.name=" in seg and "user.email=" in seg, (
+            "the join commit must set an inline git identity"
+        )
+
+    def test_applies_argocd_repo_credential_secret(self):
+        """Argo CD on the new host needs the deploy key to clone the repo;
+        the join must apply the repository Secret via the shared task."""
+        c = self._content()
+        assert "_apply_argo_repo_secret.yml" in c, (
+            "join must apply the Argo CD repo-credential Secret (shared "
+            "task) so the new host's Argo can authenticate to the repo"
+        )
+
+
+class TestGitopsArgoRepoSecretShared:
+    """The Argo CD repo-credential Secret + host-key trust is created by one
+    shared task included by both gitops init and join, and it seeds Argo's
+    known-hosts for self-hosted (non-forge) repos so they can sync."""
+
+    SHARED = os.path.join(GITOPS_TASKS, "_apply_argo_repo_secret.yml")
+    INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
+    JOIN_K8S = os.path.join(GITOPS_TASKS, "join_kubernetes.yml")
+
+    def _read(self, p):
+        with open(p) as f:
+            return f.read()
+
+    def test_shared_task_creates_repo_secret(self):
+        c = self._read(self.SHARED)
+        assert "argocd.argoproj.io/secret-type: repository" in c
+        assert "sshPrivateKey:" in c
+
+    def test_init_and_join_both_include_shared_task(self):
+        for p in (self.INIT_K8S, self.JOIN_K8S):
+            assert "_apply_argo_repo_secret.yml" in self._read(p), (
+                "%s must include the shared repo-Secret task" % p
+            )
+        # And neither should still inline the Secret definition.
+        for p in (self.INIT_K8S, self.JOIN_K8S):
+            assert "argocd.argoproj.io/secret-type: repository" not in \
+                self._read(p), (
+                "%s should apply the Secret via the shared task, not "
+                "inline it" % p
+            )
+
+    def test_seeds_known_hosts_for_non_forge_only(self):
+        c = self._read(self.SHARED)
+        assert "ssh-keyscan" in c, (
+            "must scan a self-hosted repo host's SSH key"
+        )
+        assert "argocd-ssh-known-hosts-cm" in c, (
+            "must seed Argo CD's known-hosts ConfigMap"
+        )
+        # The forge allowlist must classify the host and skip seeding for
+        # known forges. The hostname is assembled at runtime so CodeQL's
+        # URL-substring rule doesn't flag this plain content check.
+        assert "_repo_is_known_forge" in c and ("github" + ".com") in c, (
+            "must skip the seeding for known forges (their keys ship "
+            "with Argo CD)"
+        )
+        # Idempotent merge — only add lines not already present.
+        assert "difference(_existing)" in c, (
+            "the known-hosts merge must be idempotent (don't duplicate "
+            "or clobber other repos' keys)"
+        )
+        assert "rollout restart deployment argocd-repo-server" in c, (
+            "must restart the repo-server so it loads the newly-seeded "
+            "known-host (it reads known-hosts at startup; without this the "
+            "first sync fails 'knownhosts: key is unknown')"
+        )
+
+
+class TestK8sAppSecrets:
+    """Sidecar secrets are sourced from a per-instance Secret via secretKeyRef;
+    values live in the gitignored config/secrets.env, never in values.yaml."""
+
+    SIDECARS_TPL = os.path.join(HELM_CHART, "templates", "sidecars.yaml")
+    HELPERS = os.path.join(HELM_CHART, "templates", "_helpers.tpl")
+    SYNC = os.path.join(ORCHESTRATOR_TASKS, "k8s_sync_config.yml")
+    GITIGNORE = os.path.join(
+        REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
+    SET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "set.yml")
+    SET_SECRET = os.path.join(
+        REPO_ROOT, "roles", "config", "tasks", "_set_secret.yml")
+
+    @staticmethod
+    def _read(path):
+        with open(path) as f:
+            return f.read()
+
+    def test_chart_renders_envsecret_as_secretkeyref(self):
+        c = self._read(self.SIDECARS_TPL)
+        assert "$sc.envSecret" in c, "chart must iterate sidecar envSecret keys"
+        assert "secretKeyRef" in c, "envSecret keys must use secretKeyRef"
+        assert 'include "canasta.appSecretName"' in c
+
+    def test_appsecretname_helper_defined(self):
+        assert 'define "canasta.appSecretName"' in self._read(self.HELPERS)
+
+    def test_sync_upserts_app_secret_guarded(self):
+        c = self._read(self.SYNC)
+        assert "-app-secrets" in c, "must upsert a per-instance app Secret"
+        # Guarded on secrets.env existence -> no Secret for existing instances.
+        assert "secrets.env" in c
+        assert "_app_secrets_stat.stat.exists" in c
+
+    def test_secrets_env_is_gitignored(self):
+        assert "config/secrets.env" in self._read(self.GITIGNORE)
+
+    def test_config_set_dispatches_secret_path(self):
+        c = self._read(self.SET)
+        assert "_set_secret.yml" in c
+        assert "secret | default(false) | bool" in c
+        sec = self._read(self.SET_SECRET)
+        assert "config/secrets.env" in sec
+        assert "no_log: true" in sec  # never echo a secret value
+
+
+class TestK8sWebAppSecrets:
+    """Web/jobrunner secrets (config set --secret --web) are exposed to those
+    pods via secretKeyRef from the app Secret, driven by .Values.appSecretEnv."""
+
+    WEB = os.path.join(HELM_CHART, "templates", "deployment-web.yaml")
+    JOB = os.path.join(HELM_CHART, "templates", "deployment-jobrunner.yaml")
+    VALUES = os.path.join(HELM_CHART, "values.yaml")
+    SYNC = os.path.join(ORCHESTRATOR_TASKS, "k8s_sync_config.yml")
+    GITIGNORE = os.path.join(
+        REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
+    SET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "set.yml")
+    SET_SECRET = os.path.join(
+        REPO_ROOT, "roles", "config", "tasks", "_set_secret.yml")
+
+    @staticmethod
+    def _read(path):
+        with open(path) as f:
+            return f.read()
+
+    def test_web_and_jobrunner_expose_appsecretenv(self):
+        for path in (self.WEB, self.JOB):
+            c = self._read(path)
+            assert "range .Values.appSecretEnv" in c, (
+                "%s must expose appSecretEnv keys" % os.path.basename(path))
+            assert 'include "canasta.appSecretName"' in c
+            assert "secretKeyRef" in c
+
+    def test_appsecretenv_default_in_values(self):
+        assert "appSecretEnv: []" in self._read(self.VALUES)
+
+    def test_sync_reads_secrets_web_into_appsecretenv(self):
+        c = self._read(self.SYNC)
+        assert "config/secrets-web" in c
+        assert "appSecretEnv" in c
+        assert "_app_secret_env" in c
+
+    def test_secrets_web_is_gitignored(self):
+        assert "config/secrets-web" in self._read(self.GITIGNORE)
+
+    def test_web_flag_records_keys_and_requires_secret(self):
+        sec = self._read(self.SET_SECRET)
+        assert "config/secrets-web" in sec
+        assert "web | default(false) | bool" in sec
+        # --web without --secret must fail fast.
+        assert "Require --secret with --web" in self._read(self.SET)

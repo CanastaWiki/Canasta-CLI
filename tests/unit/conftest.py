@@ -7,6 +7,15 @@ import tempfile
 
 import pytest
 
+# Warm ansible's global config here, before any test module inserts the repo
+# root onto sys.path. ansible.constants instantiates a ConfigManager that
+# parses ansible/config/base.yml on first import; under `pytest --cov=canasta.py`
+# with the repo root on sys.path, coverage imports canasta.py mid-collection and
+# its import side effects leave that first base.yml parse failing with a
+# YAML ConstructorError. Loading (and caching) ansible now makes the suite
+# independent of test collection order. See conftest, not the tests, for this.
+import ansible.constants  # noqa: E402,F401
+
 # Add the module library paths so we can import them directly
 ROLES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "roles")
 sys.path.insert(0, os.path.join(ROLES_DIR, "common", "library"))
@@ -20,7 +29,8 @@ sys.path.insert(0, os.path.join(ROLES_DIR, "extensions_skins", "library"))
 import importlib  # noqa: E402
 _module_utils_dir = os.path.join(ROLES_DIR, "common", "module_utils")
 sys.path.insert(0, _module_utils_dir)
-for _name in ("canasta_validate",):
+for _name in ("canasta_validate", "canasta_config", "canasta_sidecar_render",
+              "canasta_override_migrate"):
     _mod = importlib.import_module(_name)
     sys.modules.setdefault("ansible.module_utils.%s" % _name, _mod)
 

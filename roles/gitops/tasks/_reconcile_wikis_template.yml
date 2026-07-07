@@ -1,0 +1,56 @@
+---
+# Regenerate wikis.yaml.template from the live config/wikis.yaml.
+#
+# Host-specific fields (url) are rewritten as {{wiki_url_<id>}}
+# placeholders; shared literal fields (name) are copied through. This
+# captures a display name edited directly in config/wikis.yaml into the
+# tracked canonical source, so it survives the next render and reaches
+# other hosts, instead of being silently dropped.
+#
+# Only Compose gitops instances use wikis.yaml.template, so by default
+# this acts only when that template already exists (a no-op on K8s
+# gitops and non-gitops instances). Pass reconcile_create=true at init
+# time to create the template when it does not yet exist.
+#
+# Input: instance_path. Optional: reconcile_create (default false).
+# Output: _reconcile_wikis_write (the template copy result; only
+#         defined when the reconcile block ran).
+
+- name: Stat live wikis.yaml for template reconcile
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/wikis.yaml"
+  register: _reconcile_wikis_src
+
+- name: Stat existing wikis.yaml.template
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/wikis.yaml.template"
+  register: _reconcile_wikis_tmpl
+
+- name: Reconcile wikis.yaml.template from live wikis.yaml
+  when:
+    - _reconcile_wikis_src.stat.exists
+    - _reconcile_wikis_tmpl.stat.exists or (reconcile_create | default(false) | bool)
+  block:
+    - name: Read live wikis.yaml for template reconcile
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _reconcile_wikis_data
+
+    # Emit list items at column 0 (block-sequence style matching
+    # canasta_wikis_yaml.py's yaml.dump output). render_compose.yml copies
+    # this indentation verbatim into config/wikis.yaml, and CanastaBase's
+    # config-subdir-wikis.sh parses it with column-0 line anchors; indenting
+    # here would silently drop every public_assets rewrite rule.
+    - name: Write wikis.yaml.template from live wikis.yaml
+      ansible.builtin.copy:
+        content: |
+          wikis:
+          {% for w in _reconcile_wikis_data.wikis | default([]) %}
+          - id: {{ w.id }}
+            url: {{ '{{' }}wiki_url_{{ w.id }}{{ '}}' }}
+            name: "{{ w.name | default(w.id) }}"
+          {% endfor %}
+        dest: "{{ instance_path }}/wikis.yaml.template"
+        mode: "0644"
+      register: _reconcile_wikis_write

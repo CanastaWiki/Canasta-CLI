@@ -21,6 +21,20 @@
     # CANASTA_ENABLE_VARNISH also stay out because they're sourced from
     # values.yaml fields that double-duty as K8s-level config (Ingress
     # hostnames, Varnish deployment gate).
+    #
+    # This is an allowlist by design, not a gap: Compose likewise passes
+    # only a curated `environment:` block, so an arbitrary app-defined
+    # key (e.g. `config set --force MY_APP_KEY=...`) is NOT exported to
+    # the web container's getenv() on either orchestrator. NON-SECRET .env
+    # keys still reach the web tier via the ConfigMap mounted at
+    # /mediawiki/config/.env (read by a settings fragment under
+    # config/settings/global/ or .../wikis/<id>/, synced to both
+    # orchestrators). SECRET-classified keys are stripped from that
+    # ConfigMap .env (see the filter below) and reach pods only via
+    # secretKeyRef from K8s Secrets — so a secret an app expects in the
+    # process environment must be wired as a Secret, not read from .env.
+    # (Compose still delivers secret .env keys to the container env; this
+    # is a deliberate K8s-side hardening divergence.)
     _k8s_pod_env_allowlist:
       - PHP_UPLOAD_MAX_FILESIZE
       - PHP_POST_MAX_SIZE
@@ -75,19 +89,17 @@
   loop_control:
     label: "{{ item.path | regex_replace('^.*/config/settings/', 'settings/') }}"
 
-# Strip secret-bearing keys from the .env content before embedding
-# it in the web ConfigMap. The chart's web/jobrunner deployments read
-# MYSQL_PASSWORD / MW_SECRET_KEY exclusively via secretKeyRef from the
-# canonical K8s Secrets (<id>-db-credentials, <id>-mw-secrets); the
-# .env file at /mediawiki/config/.env is never sourced. Leaving the
-# secrets in the ConfigMap-backed file duplicated them in plaintext
-# and forced the gitops repo to encrypt rendered-values.yaml, which
-# Argo CD couldn't read. See #507.
+# Strip EVERY secret from the .env before embedding it in the web/jobrunner
+# ConfigMap (and, on gitops, the committed values). Pods receive secrets only
+# via secretKeyRef from K8s Secrets; this ConfigMap-backed /config/.env is
+# never sourced for them, so stripping the full secret surface is safe and
+# keeps all secrets out of the gitops repo. Classification is the canonical
+# one (canasta_secret_key_regex) so no key can slip through a stale list.
 - name: Filter secret-bearing keys out of .env for ConfigMap embedding
   ansible.builtin.set_fact:
     _sync_env_no_secrets: >-
       {{ (_sync_env.content | b64decode).splitlines()
-         | reject('match', '^(MYSQL_PASSWORD|MW_SECRET_KEY)=')
+         | reject('match', canasta_secret_key_regex)
          | join('\n') + '\n' }}
 
 - name: Build web config data
@@ -213,9 +225,9 @@
           whitelists.yaml: "{{ _sync_crowdsec_whitelists.content | b64decode }}"
 
 # --- Backup environment Secret ---
-# The on-demand backup Job (k8s_run_backup.yml) and the scheduled
-# CronJob (roles/backup/tasks/schedule_set.yml) both need restic +
-# DB env to land on the backup containers. Build a single Secret
+# The backup Job (k8s_run_backup.yml) needs restic + DB env to land on
+# the backup containers (scheduled runs go through the same Job via the
+# host crontab). Build a single Secret
 # from .env so envFrom: secretRef gives both flows everything they
 # need — including cloud-backend creds (#497) and external-DB
 # host/user (#498) — without per-task plumbing.
@@ -230,7 +242,8 @@
     _backup_env_data: >-
       {{ _sync_env_dict.variables | default({}) | dict2items
          | selectattr('key', 'match',
-             '^(RESTIC_|AWS_|B2_|AZURE_|GOOGLE_|OS_|ST_|MYSQL_HOST$|MYSQL_USER$|MYSQL_PASSWORD$)')
+             '^(' ~ canasta_backup_backend_prefixes | join('|')
+             ~ '|MYSQL_HOST$|MYSQL_USER$|MYSQL_PASSWORD$)')
          | items2dict }}
   no_log: true
 
@@ -278,6 +291,65 @@
   when: _crowdsec_key_data | length > 0
   no_log: true
 
+# --- App secrets Secret ---
+# Sidecar env keys listed in sidecars[].envSecret are sourced from this Secret
+# via secretKeyRef (templates/sidecars.yaml). Values live in the gitignored
+# config/secrets.env (written by `canasta config set --secret`), never in
+# values.yaml or the gitops repo. Created here — in the sync/restart path, like
+# the crowdsec key above — so a secret set after create reaches the pod on the
+# next start. Absent until a secret is set: the block is skipped, so existing
+# instances get no Secret (purely additive).
+- name: Check for config/secrets.env
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/secrets.env"
+  register: _app_secrets_stat
+
+- name: Read app secrets
+  canasta_env:
+    path: "{{ instance_path }}/config/secrets.env"
+    state: read_all
+  register: _app_secrets_dict
+  when: _app_secrets_stat.stat.exists
+  no_log: true
+
+- name: Apply app secrets Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ instance_id }}-app-secrets"
+        namespace: "{{ _k8s_namespace }}"
+      type: Opaque
+      stringData: "{{ _app_secrets_dict.variables | default({}) }}"
+  when:
+    - _app_secrets_stat.stat.exists
+    - (_app_secrets_dict.variables | default({})) | length > 0
+  no_log: true
+
+# Web/jobrunner secrets: config/secrets-web lists the app-secret keys (names
+# only) that should reach the web + jobrunner pods, set with
+# `config set --secret --web`. They render as secretKeyRef env on those pods
+# (deployment-web.yaml / deployment-jobrunner.yaml) via .Values.appSecretEnv.
+- name: Check for config/secrets-web
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/secrets-web"
+  register: _app_secrets_web_stat
+
+- name: Read web-exposed secret keys
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/secrets-web"
+  register: _app_secrets_web_raw
+  when: _app_secrets_web_stat.stat.exists
+
+- name: Build appSecretEnv list
+  ansible.builtin.set_fact:
+    _app_secret_env: >-
+      {{ ((_app_secrets_web_raw.content | b64decode).split('\n')
+          | map('trim') | select() | reject('match', '^#') | list | unique)
+         if _app_secrets_web_stat.stat.exists else [] }}
+
 # --- Write configData into values.yaml ---
 # The Helm chart templates render ConfigMaps from configData values.
 # This allows both Ansible-driven and Argo CD-driven workflows to use
@@ -297,6 +369,7 @@
             'caddy': _caddy_config_data,
             'varnish': _varnish_config_data,
             'crowdsec': _crowdsec_config_data,
-          }} | to_nice_yaml(indent=2) }}
+          },
+          'appSecretEnv': _app_secret_env | default([])} | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values-configdata.yaml"
     mode: "0644"

@@ -1,0 +1,175 @@
+{{/*
+App sidecars — one Deployment (+ Service, PVCs, ConfigMap) per entry in
+.Values.sidecars. Rendered from config/sidecars.yaml by canasta at start.
+The Service is named for the sidecar (bare name) so the wiki reaches it by
+hostname (e.g. cache:6379), matching the Compose service-name convention.
+*/}}
+{{- range $sc := .Values.sidecars }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "canasta.fullname" $ }}-{{ $sc.name }}
+  namespace: {{ include "canasta.namespace" $ }}
+  labels:
+    {{- include "canasta.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $sc.name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "canasta.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $sc.name }}
+  template:
+    metadata:
+      labels:
+        {{- include "canasta.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $sc.name }}
+    spec:
+      containers:
+        - name: {{ $sc.name }}
+          {{- if $sc.build }}
+          # Locally-built image, pushed to the in-cluster registry (see the
+          # build/push step); re-pulled each rollout since the tag is reused.
+          image: "10.43.0.2:5000/{{ include "canasta.fullname" $ }}-{{ $sc.name }}:local"
+          imagePullPolicy: Always
+          {{- else }}
+          image: {{ $sc.image | quote }}
+          {{- end }}
+          {{- with $sc.command }}
+          command:
+            {{- if kindIs "string" . }}
+            - sh
+            - -c
+            - {{ . | quote }}
+            {{- else }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- if or $sc.env $sc.envSecret }}
+          env:
+            {{- range $k, $v := $sc.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- range $sc.envSecret }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.appSecretName" $ }}
+                  key: {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- with $sc.ports }}
+          ports:
+            {{- range . }}
+            - containerPort: {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- if or $sc.volumes $sc.files }}
+          volumeMounts:
+            {{- range $sc.volumes }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+            {{- end }}
+            {{- range $i, $f := $sc.files }}
+            - name: files
+              mountPath: {{ $f.mountPath }}
+              subPath: file-{{ $i }}
+              readOnly: {{ $f.readOnly | default true }}
+            {{- end }}
+          {{- end }}
+          {{- with $sc.resources }}
+          resources:
+            limits:
+              {{- with .memory }}
+              memory: {{ . }}
+              {{- end }}
+              {{- with .cpu }}
+              cpu: {{ . | quote }}
+              {{- end }}
+          {{- end }}
+          {{- with $sc.healthcheck }}
+          readinessProbe:
+            {{- include "canasta.sidecarProbe" . | nindent 12 }}
+          livenessProbe:
+            {{- include "canasta.sidecarProbe" . | nindent 12 }}
+          {{- end }}
+      {{- if or (gt (len ($sc.volumes | default list)) 0) $sc.files }}
+      volumes:
+        {{- range $sc.volumes }}
+        - name: {{ .name }}
+          {{- if .persistent }}
+          persistentVolumeClaim:
+            claimName: {{ include "canasta.fullname" $ }}-{{ $sc.name }}-{{ .name }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if $sc.files }}
+        - name: files
+          configMap:
+            name: {{ include "canasta.fullname" $ }}-{{ $sc.name }}-files
+        {{- end }}
+      {{- end }}
+{{- with $sc.ports }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $sc.name }}
+  namespace: {{ include "canasta.namespace" $ }}
+  labels:
+    {{- include "canasta.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $sc.name }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "canasta.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $sc.name }}
+  ports:
+    {{- range . }}
+    - port: {{ . }}
+      targetPort: {{ . }}
+      protocol: TCP
+    {{- end }}
+{{- end }}
+{{- range $sc.volumes }}
+{{- if .persistent }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "canasta.fullname" $ }}-{{ $sc.name }}-{{ .name }}
+  namespace: {{ include "canasta.namespace" $ }}
+  labels:
+    {{- include "canasta.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $sc.name }}
+  annotations:
+    # Keep a sidecar's data when the sidecar is removed (no surprise loss).
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .size | default "1Gi" }}
+{{- end }}
+{{- end }}
+{{- if $sc.files }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "canasta.fullname" $ }}-{{ $sc.name }}-files
+  namespace: {{ include "canasta.namespace" $ }}
+  labels:
+    {{- include "canasta.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $sc.name }}
+data:
+  {{- range $i, $f := $sc.files }}
+  file-{{ $i }}: |
+    {{- $f.content | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

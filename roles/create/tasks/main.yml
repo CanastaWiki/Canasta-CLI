@@ -1,6 +1,5 @@
 ---
 # Create a new Canasta instance.
-# Mirrors Go createCanasta() step by step.
 #
 # Input variables (from extra-vars):
 #   id, wiki, path, orchestrator, domain_name, admin, password,
@@ -170,6 +169,18 @@
 # --- Step 12: Database setup ---
 - name: Wait for DB and import dump or run installer
   ansible.builtin.include_tasks: _database.yml
+
+# --- Step 12b: Import uploaded media (--images) ---
+# After the DB so the File: page rows (from --database) are already present;
+# this only places the files. A placement restore, not importImages.
+- name: Import images tarball into the wiki's uploads
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: import_images.yml
+  vars:
+    import_wiki_id: "{{ wiki }}"
+    import_images_path: "{{ images }}"
+  when: images is defined and images != ''
 
 # --- Step 13: Register instance ---
 - name: Register instance in controller and target host

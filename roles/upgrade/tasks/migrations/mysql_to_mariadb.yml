@@ -1,48 +1,79 @@
 ---
-# Migration: Detect MySQL 8.0 data and migrate to MariaDB.
-# Matches Go upgrade.go mysql_to_mariadb.go logic.
+# Migration: Detect MySQL 8.0 data and migrate it to MariaDB.
+# Ported from the retired Go CLI (cmd/upgrade/mysql_to_mariadb.go).
 # Compose-only; the orchestrator guard is owned by the caller
 # (roles/orchestrator/tasks/upgrade_db_migration.yml), so no
 # instance_orchestrator switch is needed here.
 # Input: instance_path
+#
+# Approach: detection is a read-only file check against the data volume, so
+# it works whether the DB is running, stopped, or crash-looping (e.g. a
+# MariaDB container already failing to boot on MySQL 8 data). The dump runs
+# against a throwaway mysql:8.0 container we start ourselves, so it does not
+# depend on the instance's compose still pinning MySQL 8 — and it can recover
+# an instance whose compose was already swapped to MariaDB. Only user
+# databases are dumped; MySQL 8's system schema (mysql/sys/*_schema) is left
+# behind, since MariaDB rebuilds its own grant tables on a fresh datadir.
 
-- name: Check for MySQL 8.0 data
+# Only instances running the internal db service can (and should) migrate.
+# An external-DB instance may still have a stale internal data volume; its
+# db service is not in the active compose profiles, so the migration would
+# fail mid-way and take down a healthy site.
+- name: MySQL 8.0 to MariaDB migration
+  when: >-
+    (_mig.env.USE_EXTERNAL_DB | default('false')) | lower != 'true'
+    and (not _mig.env_present.COMPOSE_PROFILES
+         or 'internal-db' in _mig.env.COMPOSE_PROFILES)
   block:
-    # Detection (and the migration itself) requires a live db container to
-    # exec into. A stopped instance has no db service, so skip rather than
-    # abort the upgrade. ignore_errors on the include_tasks below would not
-    # help: it does not propagate to the shell task inside exec.yml, so the
-    # running-state is guarded explicitly here instead.
-    - name: Default MySQL 8 detection flag
+    # Compose v2 derives the project name by lowercasing the instance
+    # directory name and stripping characters outside [a-z0-9_-], then
+    # prefixes the volume. Match that exactly or the volume is not found.
+    - name: Resolve the MySQL data volume name
       ansible.builtin.set_fact:
-        _is_mysql8: false
+        _mig_volume: >-
+          {{ (instance_path | basename | lower
+              | regex_replace('[^a-z0-9_-]', '')) }}_mysql-data-volume
 
-    - name: Check whether the db service is running
+    # A missing volume means nothing to migrate. Check first: `docker run -v`
+    # auto-creates a missing named volume, which would leave a stray empty
+    # volume behind on every instance that never had one.
+    - name: Check whether the MySQL data volume exists
       ansible.builtin.command:
-        cmd: "docker compose ps -q db"
-        chdir: "{{ instance_path }}"
-      register: _db_ps
+        cmd: "docker volume inspect {{ _mig_volume }}"
+      register: _mig_volume_check
       changed_when: false
-      ignore_errors: true  # OK if db container not running
+      failed_when: false
 
-    - name: Detect MySQL 8.0 data (db running only)
-      when:
-        - _db_ps.rc == 0
-        - _db_ps.stdout | default('') | trim | length > 0
-      block:
-        - name: Check if MySQL data volume has read-only flag (MySQL 8.0 indicator)
-          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-          vars:
-            exec_service: db
-            exec_command: "test -f /var/lib/mysql/.rocksdb && echo mysql8 || echo mariadb"
+    # mysql.ibd is MySQL 8.0's system-schema InnoDB tablespace; MariaDB never
+    # creates it (it keeps the mysql schema in Aria tables under mysql/). Its
+    # presence is the definitive MySQL 8 marker. A throwaway container reads
+    # the volume without needing the DB service up.
+    - name: Detect MySQL 8.0 data on the volume
+      ansible.builtin.command:
+        cmd: >-
+          docker run --rm -v {{ _mig_volume }}:/data
+          alpine test -f /data/mysql.ibd
+      register: _mig_detect
+      changed_when: false
+      failed_when: false
+      when: _mig_volume_check.rc == 0
 
-        - name: Set MySQL 8 detection flag
-          ansible.builtin.set_fact:
-            _is_mysql8: "{{ exec_result.stdout | default('') | trim == 'mysql8' }}"
+    - name: Set MySQL 8 detection flag
+      ansible.builtin.set_fact:
+        _is_mysql8: >-
+          {{ _mig_volume_check.rc == 0
+             and (_mig_detect.rc | default(1)) == 0 }}
 
     - name: Migrate MySQL 8.0 to MariaDB
       when: _is_mysql8 | bool
+      vars:
+        _mig_temp_container: "canasta-mysql-migrate-{{ instance_path | basename }}"
+        _mig_dump_host: "{{ instance_path }}/mysql8_dump.sql"
       block:
+        - name: Report migration required
+          ansible.builtin.debug:
+            msg: "Detected MySQL 8.0 data — migrating to MariaDB..."
+
         - name: Read DB password
           canasta_env:
             path: "{{ instance_path }}/.env"
@@ -51,80 +82,170 @@
           register: _mig_dbpass
           no_log: true
 
-        - name: Get wiki list for dump
-          canasta_wikis_yaml:
-            instance_path: "{{ instance_path }}"
+        - name: Read DB user
+          canasta_env:
+            path: "{{ instance_path }}/.env"
             state: read
-          register: _mig_wikis
+            key: MYSQL_USER
+          register: _mig_dbuser
 
-        - name: Dump all databases before migration
-          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-          vars:
-            exec_service: db
-            exec_no_log: true
-            exec_command: >-
-              mysqldump -u root
-              -p{{ _mig_dbpass.value | quote }}
-              --all-databases --single-transaction
-              > /tmp/mysql8_dump.sql
-          no_log: true
-
-        - name: Copy dump from container
-          ansible.builtin.command:
-            cmd: "docker compose cp db:/tmp/mysql8_dump.sql {{ instance_path }}/mysql8_dump.sql"
-            chdir: "{{ instance_path }}"
-          changed_when: true
-
-        - name: Stop containers for volume clear
+        # Stop the instance so the data volume is released before a second
+        # mysqld (the throwaway dump container) opens the same datadir.
+        - name: Stop containers before dump
           ansible.builtin.include_role:
             name: orchestrator
             tasks_from: stop.yml
 
-        - name: Clear MySQL data volume
-          ansible.builtin.command:
-            cmd: "docker volume rm {{ instance_path | basename }}_mysql-data-volume"
-            chdir: "{{ instance_path }}"
-          changed_when: true
-          ignore_errors: true  # OK if volume already removed
+        # Everything from here preserves the host-side dump on failure so a
+        # partial migration can be finished by hand rather than losing data.
+        - name: Dump, clear, and reimport
+          block:
+            - name: Remove any stale dump container
+              ansible.builtin.command:
+                cmd: "docker rm -f {{ _mig_temp_container }}"
+              changed_when: false
+              failed_when: false
 
-        - name: Start new MariaDB containers
-          ansible.builtin.include_role:
-            name: orchestrator
-            tasks_from: start.yml
+            - name: Start a temporary MySQL 8.0 container for the dump
+              ansible.builtin.command:
+                cmd: >-
+                  docker run -d --name {{ _mig_temp_container }}
+                  -v {{ _mig_volume }}:/var/lib/mysql
+                  -e MYSQL_ROOT_PASSWORD={{ _mig_dbpass.value | quote }}
+                  mysql:8.0
+              changed_when: true
+              no_log: true
 
-        - name: Wait for database
-          ansible.builtin.include_role:
-            name: mediawiki
-            tasks_from: wait_for_db.yml
+            - name: Wait for the temporary MySQL 8.0 server
+              ansible.builtin.command:
+                cmd: >-
+                  docker exec -e MYSQL_PWD={{ _mig_dbpass.value | quote }}
+                  {{ _mig_temp_container }}
+                  mysqladmin ping -h localhost --user=root --wait=60
+              changed_when: false
+              no_log: true
 
-        - name: Copy dump back into container
-          ansible.builtin.command:
-            cmd: "docker compose cp {{ instance_path }}/mysql8_dump.sql db:/tmp/mysql8_dump.sql"
-            chdir: "{{ instance_path }}"
-          changed_when: true
+            # List user databases (excluding the system schemas) and dump them
+            # in one shell so an empty list is handled cleanly. SHOW DATABASES
+            # + grep avoids SQL string literals, which the command module's
+            # shlex parsing (no shell) would mangle. grep's no-match exit is
+            # neutralized inside the pipeline so a system-schemas-only server
+            # reaches the empty-DBS branch instead of tripping pipefail.
+            # --routines / --triggers / --events carry stored programs across.
+            - name: Dump user databases from MySQL 8.0
+              ansible.builtin.command:
+                cmd: >-
+                  docker exec -e MYSQL_PWD={{ _mig_dbpass.value | quote }}
+                  {{ _mig_temp_container }} bash -c
+                  {{ _mig_dump_script | quote }}
+              vars:
+                _mig_dump_script: >-
+                  set -eo pipefail;
+                  DBS=$(mysql --user=root --skip-column-names --batch
+                  -e "SHOW DATABASES"
+                  | { grep -vxE
+                  "mysql|sys|information_schema|performance_schema"
+                  || true; }
+                  | tr "\n" " ");
+                  if [ -z "$DBS" ]; then : > /tmp/dump.sql; exit 0; fi;
+                  mysqldump --user=root --databases $DBS
+                  --single-transaction --routines --triggers --events
+                  > /tmp/dump.sql
+              changed_when: true
+              no_log: true
 
-        - name: Import dump into MariaDB
-          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-          vars:
-            exec_service: db
-            exec_no_log: true
-            exec_command: >-
-              mariadb -u root
-              -p{{ _mig_dbpass.value | quote }}
-              < /tmp/mysql8_dump.sql
-          no_log: true
+            - name: Copy the dump out of the temporary container
+              ansible.builtin.command:
+                cmd: "docker cp {{ _mig_temp_container }}:/tmp/dump.sql {{ _mig_dump_host }}"
+              changed_when: true
 
-        - name: Clean up dump files
-          ansible.builtin.file:
-            path: "{{ instance_path }}/mysql8_dump.sql"
-            state: absent
+            - name: Remove the temporary MySQL 8.0 container
+              ansible.builtin.command:
+                cmd: "docker rm -f {{ _mig_temp_container }}"
+              changed_when: true
 
-        - name: Clean up container dump
-          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-          vars:
-            exec_service: db
-            exec_command: "rm -f /tmp/mysql8_dump.sql"
+            # Empty the datadir so MariaDB initializes a fresh one on start.
+            - name: Clear the MySQL data volume
+              ansible.builtin.command:
+                cmd: >-
+                  docker run --rm -v {{ _mig_volume }}:/data
+                  alpine sh -c 'rm -rf /data/* /data/..?* /data/.[!.]*'
+              changed_when: true
 
-        - name: Report migration complete
-          ansible.builtin.debug:
-            msg: "MySQL 8.0 data migrated to MariaDB successfully."
+            # The managed-compose refresh that pins the MariaDB image runs
+            # later in the upgrade, so force it now — otherwise the restart
+            # below would bring MySQL 8 back up on the cleared volume.
+            - name: Refresh compose to the managed MariaDB image
+              ansible.builtin.include_role:
+                name: orchestrator
+                tasks_from: write_stack_files.yml
+              vars:
+                stack_files_force: true
+
+            - name: Start MariaDB containers
+              ansible.builtin.include_role:
+                name: orchestrator
+                tasks_from: start.yml
+
+            - name: Wait for MariaDB
+              ansible.builtin.include_role:
+                name: mediawiki
+                tasks_from: wait_for_db.yml
+
+            - name: Copy the dump into the MariaDB container
+              ansible.builtin.command:
+                cmd: "docker compose cp {{ _mig_dump_host }} db:/tmp/dump.sql"
+                chdir: "{{ instance_path }}"
+              changed_when: true
+
+            - name: Import the dump into MariaDB
+              ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+              vars:
+                exec_service: db
+                exec_no_log: true
+                exec_long: true
+                exec_command: >-
+                  mariadb --no-defaults -u root
+                  -p{{ _mig_dbpass.value | quote }}
+                  < /tmp/dump.sql
+              no_log: true
+
+            - name: Clean up the dump inside the container
+              ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+              vars:
+                exec_service: db
+                exec_command: "rm -f /tmp/dump.sql"
+
+            - name: Clean up the host-side dump
+              ansible.builtin.file:
+                path: "{{ _mig_dump_host }}"
+                state: absent
+
+            - name: Report migration complete
+              ansible.builtin.debug:
+                msg: "MySQL 8.0 data migrated to MariaDB successfully."
+
+            # The dump excludes the mysql system schema, so user accounts
+            # and their grants do not survive the migration.
+            - name: Warn that non-root DB users are not migrated
+              ansible.builtin.debug:
+                msg: >-
+                  WARNING: MYSQL_USER is set to
+                  '{{ _mig_dbuser.value }}', but MySQL user accounts and
+                  grants are not carried over by the migration. Recreate
+                  this user and its grants in MariaDB.
+              when: (_mig_dbuser.value | default('')) not in ['', 'root']
+
+          rescue:
+            - name: Remove the temporary container after a failed migration
+              ansible.builtin.command:
+                cmd: "docker rm -f {{ _mig_temp_container }}"
+              changed_when: false
+              failed_when: false
+
+            - name: Report preserved dump for manual recovery
+              ansible.builtin.fail:
+                msg: >-
+                  MySQL 8.0 to MariaDB migration failed. The database dump, if
+                  it was written, is preserved at {{ _mig_dump_host }} for
+                  manual import.

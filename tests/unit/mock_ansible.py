@@ -1,7 +1,6 @@
 """Mock AnsibleModule for testing run_module() functions."""
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class MockAnsibleModule:
@@ -13,6 +12,10 @@ class MockAnsibleModule:
         self._result = None
         self._failed = False
         self._fail_msg = None
+        self.warnings = []
+
+    def warn(self, message):
+        self.warnings.append(message)
 
     def exit_json(self, **kwargs):
         self._result = kwargs

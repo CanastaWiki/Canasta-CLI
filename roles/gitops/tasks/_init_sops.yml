@@ -1,0 +1,188 @@
+---
+# SOPS+age key lifecycle for a K8s gitops instance (gated on gitops_sops_secrets).
+#
+# The operator age key is CLUSTER-GLOBAL: every instance on a cluster must
+# encrypt to the same recipient, because a single sops-age Secret in the argocd
+# namespace decrypts them all. Its canonical home is on the CONTROLLER at
+# <config_dir>/sops/<host>.age (one cluster per host), auto-generated once and
+# reused — the tool, not the operator, enforces one key per cluster.
+#
+# --key is the portable DR channel (mirrors git-crypt export-key): on init it
+# also exports a copy to <key>.age; on join/restore to a fresh controller it
+# imports <key>.age as the canonical key instead of minting a new recipient, so
+# the rebuilt controller decrypts the existing repo.
+#
+# Only the PUBLIC recipient reaches the target: .sops.yaml (for `sops -e`) and
+# the Secret is populated by reading the controller key via lookup at template
+# time, so the private key never lands on the target filesystem.
+#
+# Requires: instance_path, host_name, argocd_namespace; age-keygen on the
+# controller. All key-material tasks are no_log.
+
+# --- Controller-side key material (save/switch/restore dance; delegate_to does
+# NOT reliably override the host-level connection set_fact this play plants —
+# same reason the SSH deploy key block above uses the dance). ---
+- name: Save connection state before controller-side SOPS key work
+  ansible.builtin.set_fact:
+    _sops_saved:
+      host: "{{ ansible_host | default('localhost') }}"
+      conn: "{{ ansible_connection | default('local') }}"
+      user: "{{ ansible_user | default('') }}"
+      python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
+
+- block:
+    - name: Switch to local for SOPS key generation
+      ansible.builtin.set_fact:
+        ansible_host: "localhost"
+        ansible_connection: "local"
+        ansible_user: ""
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Check age-keygen is installed on the controller
+      ansible.builtin.command: "age-keygen --version"
+      register: _sops_agekeygen_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with guidance when age-keygen is missing on the controller
+      ansible.builtin.fail:
+        msg: >-
+          --encrypt-secrets needs age-keygen on the controller (where the CLI
+          runs) to manage the SOPS operator key, but it was not found. Install
+          the toolchain with `canasta install sops` (no --host installs on this
+          controller). The gitops target host also needs sops:
+          `canasta install -H {{ target_host | default(host_name) }} sops`.
+      when: _sops_agekeygen_check.rc != 0
+
+    - name: Determine controller config dir
+      ansible.builtin.set_fact:
+        _canasta_config_dir: >-
+          {{ lookup('ansible.builtin.env', 'CANASTA_CONFIG_DIR')
+             or (
+                 (lookup('ansible.builtin.env', 'USER') == 'root')
+                 | ternary(
+                     '/etc/canasta',
+                     lookup('ansible.builtin.env', 'HOME') ~ '/.config/canasta'
+                   )
+                ) }}
+
+    - name: Set the canonical operator age key path (one per cluster/host)
+      ansible.builtin.set_fact:
+        _sops_age_key: "{{ _canasta_config_dir }}/sops/{{ host_name }}.age"
+
+    - name: Ensure the controller sops key directory exists
+      ansible.builtin.file:
+        path: "{{ _sops_age_key | dirname }}"
+        state: directory
+        mode: "0700"
+
+    - name: Check whether the canonical operator age key exists
+      ansible.builtin.stat:
+        path: "{{ _sops_age_key }}"
+      register: _sops_age_stat
+
+    # DR/join: adopt a supplied --key as the canonical key so a fresh
+    # controller decrypts an existing repo instead of minting a new recipient.
+    - name: Import the supplied --key as the canonical operator age key (DR/join)
+      ansible.builtin.copy:
+        src: "{{ key }}.age"
+        dest: "{{ _sops_age_key }}"
+        mode: "0600"
+        remote_src: true
+      when:
+        - not _sops_age_stat.stat.exists
+        - key is defined and (key | length > 0)
+        - (key ~ '.age') is exists
+      no_log: true
+
+    # argv form (not a shell string) so a config-dir path containing spaces
+    # — e.g. macOS "~/Library/Application Support/canasta" — is one argument.
+    - name: Generate the canonical operator age key (once per cluster; reused if present)
+      ansible.builtin.command:
+        argv:
+          - age-keygen
+          - -o
+          - "{{ _sops_age_key }}"
+        creates: "{{ _sops_age_key }}"
+      no_log: true
+
+    # Portability/DR: export a copy of the canonical key to the --key path.
+    - name: Export the operator age key to the --key path (portable DR copy)
+      ansible.builtin.copy:
+        src: "{{ _sops_age_key }}"
+        dest: "{{ key }}.age"
+        mode: "0600"
+        remote_src: true
+      when: key is defined and (key | length > 0)
+      no_log: true
+
+    - name: Read the age public recipient
+      ansible.builtin.command:
+        argv:
+          - age-keygen
+          - -y
+          - "{{ _sops_age_key }}"
+      register: _sops_age_pub
+      changed_when: false
+      no_log: true
+  always:
+    - name: Restore connection state after SOPS key generation
+      ansible.builtin.set_fact:
+        ansible_host: "{{ _sops_saved.host }}"
+        ansible_connection: "{{ _sops_saved.conn }}"
+        ansible_user: "{{ _sops_saved.user }}"
+        ansible_python_interpreter: "{{ _sops_saved.python }}"
+
+- name: Write .sops.yaml (encrypt only the Secret payload; keep the rest readable)
+  ansible.builtin.copy:
+    content: |
+      creation_rules:
+        - path_regex: hosts/[^/]+/secrets/.*\.enc\.ya?ml$
+          encrypted_regex: '^(data|stringData)$'
+          age: "{{ _sops_age_pub.stdout | trim }}"
+    dest: "{{ instance_path }}/.sops.yaml"
+    mode: "0644"
+
+- name: Check for an existing sops-age Secret
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: sops-age
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  register: _sops_age_secret
+  no_log: true
+
+# Reads the controller-side key via lookup at template time, so the private
+# key is pushed straight into the cluster Secret without touching the target FS.
+- name: Provision the sops-age Secret for the repo-server CMP (only if absent)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: sops-age
+        namespace: "{{ argocd_namespace | default('argocd') }}"
+      type: Opaque
+      stringData:
+        keys.txt: "{{ lookup('file', _sops_age_key) }}"
+  when: _sops_age_secret.resources | length == 0
+  register: _sops_age_provision
+  no_log: true
+
+# The repo-server mounts sops-age optionally, so a running pod predating the
+# Secret won't have the key until it restarts. Only needed on first provision.
+- name: Restart argocd-repo-server to load the newly provisioned age key
+  ansible.builtin.command:
+    cmd: >-
+      kubectl -n {{ argocd_namespace | default('argocd') }}
+      rollout restart deployment argocd-repo-server
+  when: _sops_age_provision is changed
+  changed_when: true
+
+- name: Wait for argocd-repo-server to be ready after the restart
+  ansible.builtin.command:
+    cmd: >-
+      kubectl -n {{ argocd_namespace | default('argocd') }}
+      rollout status deployment argocd-repo-server --timeout=120s
+  when: _sops_age_provision is changed
+  changed_when: false

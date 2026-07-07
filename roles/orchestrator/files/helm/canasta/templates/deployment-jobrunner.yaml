@@ -52,8 +52,21 @@ spec:
           command: ["/bin/bash", "-c"]
           args:
             - |
+              # This command overrides the image entrypoint, which is what
+              # prepares /mediawiki on the web pod — so create the
+              # localisation cache dir here or LC-dependent jobs (e.g.
+              # cirrusSearchLinksUpdate) fail on the dangling w/cache
+              # symlink.
+              mkdir -p /mediawiki/cache
+              chown www-data:www-data /mediawiki/cache
+              # Run the job loop as www-data so files jobs write to the
+              # shared images/ PVC (thumbnails, uploads-adjacent output)
+              # are owned by the same user the web pod serves as. Running
+              # as root would leave root-owned files the web tier can't
+              # later regenerate or delete. runuser mirrors the drop the
+              # image entrypoint does for the web pod.
               while true; do
-                php maintenance/runJobs.php --wait --maxjobs=10
+                runuser -u www-data -- php maintenance/runJobs.php --wait --maxjobs=10
                 sleep 5
               done
           # See deployment-web.yaml for the full explanation of the
@@ -86,6 +99,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "canasta.mwSecretName" . }}
                   key: MW_SECRET_KEY
+            {{- range .Values.appSecretEnv }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.appSecretName" $ }}
+                  key: {{ . }}
+            {{- end }}
           volumeMounts:
             - name: config
               mountPath: /mediawiki/config

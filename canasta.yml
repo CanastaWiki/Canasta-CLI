@@ -50,6 +50,17 @@
         file: meta/command_definitions.yml
         name: canasta_commands
 
+    # Canonical secret classifier, play-global so config/gitops/orchestrator
+    # all share one definition of "secret" (roles/*/defaults are role-scoped).
+    - name: Load canonical secret classification
+      ansible.builtin.include_vars:
+        file: vars/secret_classification.yml
+
+    # Pinned tool versions (SOPS toolchain) shared across roles — one source.
+    - name: Load pinned tool versions
+      ansible.builtin.include_vars:
+        file: vars/tool_versions.yml
+
     - name: Validate command exists
       ansible.builtin.assert:
         that: command in (canasta_commands.commands | map(attribute='name'))

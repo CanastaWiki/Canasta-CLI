@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 import pytest
+from types import SimpleNamespace
 
 # Ensure direct_commands is importable from the repo root.
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -1256,6 +1257,34 @@ class TestComposeFileArgs:
         assert "-f" in args
         assert "docker-compose.dev.yml" in args
 
+    def test_sidecars_layered_between_base_and_override(self, tmp_path):
+        # Layer order matches the Ansible path: base, rendered sidecars,
+        # user override (so the operator's override wins a clash).
+        (tmp_path / "docker-compose.sidecars.yml").write_text("")
+        (tmp_path / "docker-compose.override.yml").write_text("")
+        args = direct_commands._compose_file_args(
+            str(tmp_path), "localhost", include_sidecars=True,
+        )
+        assert args == [
+            "-f", "docker-compose.yml",
+            "-f", "docker-compose.sidecars.yml",
+            "-f", "docker-compose.override.yml",
+        ]
+
+    def test_sidecars_skipped_when_file_missing(self, tmp_path):
+        args = direct_commands._compose_file_args(
+            str(tmp_path), "localhost", include_sidecars=True,
+        )
+        assert args == ["-f", "docker-compose.yml"]
+
+    def test_sidecars_excluded_by_default(self, tmp_path):
+        # A rendered file lingering after `sidecar remove` must not be
+        # layered unless the caller opted in: `up -d` with the stale
+        # layer would recreate the removed sidecar.
+        (tmp_path / "docker-compose.sidecars.yml").write_text("")
+        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        assert args == ["-f", "docker-compose.yml"]
+
 
 # ---------------------------------------------------------------------------
 # Start / stop / restart tests
@@ -1291,21 +1320,11 @@ class TestLifecycleCommands:
         args = type("Args", (), {"id": "k8s-site"})()
         assert direct_commands.cmd_restart(args) is direct_commands.FALLBACK
 
-    def test_k8s_stop_runs_kubectl(self, monkeypatch):
-        kubectl_cmds = []
-
-        def mock_run(cmd, **kw):
-            kubectl_cmds.append(cmd)
-            # Return a STS when queried so the scale-sts step runs
-            if "statefulset" in cmd and "-o" in cmd and "name" in cmd:
-                return type("R", (), {
-                    "returncode": 0,
-                    "stdout": "statefulset.apps/foo-db\n",
-                    "stderr": "",
-                })()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-
-        monkeypatch.setattr(subprocess, "run", mock_run)
+    def test_k8s_stop_falls_back(self, monkeypatch):
+        # K8s stop must run kubectl on the instance's host (where the
+        # cluster kubeconfig lives), so it defers to Ansible — which
+        # resolves the host and switches the connection — rather than
+        # running kubectl on the controller.
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("k8s-site", {
                 "path": "/srv/k8s-site",
@@ -1313,67 +1332,50 @@ class TestLifecycleCommands:
             }),
         )
         args = type("Args", (), {"id": "k8s-site"})()
-        rc = direct_commands.cmd_stop(args)
-        assert rc == 0
-        cmds_str = str(kubectl_cmds)
-        assert "scale" in cmds_str
-        assert "replicas=0" in cmds_str
+        assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
 
-    def test_k8s_stop_skips_sts_scale_when_none_exist(self, monkeypatch):
-        # External-DB instances with Elasticsearch disabled have zero
-        # StatefulSets. 'kubectl scale statefulset --all' errors with
-        # "no objects passed to scale" in that case — we must check
-        # first and skip the scale step.
-        kubectl_cmds = []
+    def _compose_inst(self, tmp_path, sidecars_yaml):
+        site = tmp_path / "scsite"
+        (site / "config").mkdir(parents=True)
+        (site / "config" / "sidecars.yaml").write_text(sidecars_yaml)
+        return str(site)
 
-        def mock_run(cmd, **kw):
-            kubectl_cmds.append(cmd)
-            # "No Argo CD application" + "no statefulsets" scenario
-            if "application" in cmd:
-                return type("R", (), {
-                    "returncode": 1, "stdout": "", "stderr": "not found",
-                })()
-            if "statefulset" in cmd and "-o" in cmd and "name" in cmd:
-                return type("R", (), {
-                    "returncode": 0, "stdout": "", "stderr": "",
-                })()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+    def test_lifecycle_falls_back_when_sidecars_declared(
+            self, tmp_path, monkeypatch):
+        # A compose instance with sidecars must defer start/stop/restart to
+        # Ansible, which renders the sidecar override layer; the fast direct
+        # path doesn't render it.
+        path = self._compose_inst(
+            tmp_path, "sidecars:\n  - name: cache\n    image: redis:7\n")
+        monkeypatch.setattr(
+            direct_commands._helpers, "_resolve_instance",
+            lambda args: ("scsite", {"path": path, "orchestrator": "compose"}))
+        args = type("Args", (), {"id": "scsite"})()
+        assert direct_commands.cmd_start(args) is direct_commands.FALLBACK
+        assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
+        assert direct_commands.cmd_restart(args) is direct_commands.FALLBACK
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
-        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
-            lambda args: ("extdb-site", {
-                "path": "/srv/extdb-site",
-                "orchestrator": "kubernetes",
-            }),
-        )
-        args = type("Args", (), {"id": "extdb-site"})()
-        rc = direct_commands.cmd_stop(args)
-        assert rc == 0
-        # Deployment scale must have happened...
-        deployment_scale = [
-            c for c in kubectl_cmds
-            if "scale" in c and "deployment" in c
-        ]
-        assert deployment_scale, "deployment scale should still run"
-        # ... but STS scale must NOT, since 'kubectl get statefulset'
-        # returned no objects.
-        sts_scale = [
-            c for c in kubectl_cmds
-            if "scale" in c and "statefulset" in c
-        ]
-        assert not sts_scale, (
-            "statefulset scale must be skipped when no STS exist "
-            "(would error 'no objects passed to scale')"
-        )
+    def test_no_fallback_when_sidecars_empty(self, tmp_path, monkeypatch):
+        # An empty sidecars list keeps the fast direct path.
+        path = self._compose_inst(tmp_path, "sidecars: []\n")
+        monkeypatch.setattr(
+            direct_commands._helpers, "_resolve_instance",
+            lambda args: ("scsite", {"path": path, "orchestrator": "compose"}))
+        monkeypatch.setattr(
+            direct_commands._helpers, "_sync_compose_profiles", lambda inst: None)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_run_compose", lambda *a, **kw: 0)
+        args = type("Args", (), {"id": "scsite"})()
+        assert direct_commands.cmd_start(args) == 0
 
     def test_start_runs_up(self, monkeypatch):
         captured_cmds = []
 
-        def mock_run(cmd, **kw):
+        def mock_call(cmd, **kw):
             captured_cmds.append(cmd)
-            return type("R", (), {"returncode": 0})()
+            return 0
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "call", mock_call)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1394,11 +1396,11 @@ class TestLifecycleCommands:
     def test_stop_runs_down(self, monkeypatch):
         captured_cmds = []
 
-        def mock_run(cmd, **kw):
+        def mock_call(cmd, **kw):
             captured_cmds.append(cmd)
-            return type("R", (), {"returncode": 0})()
+            return 0
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "call", mock_call)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1413,15 +1415,17 @@ class TestLifecycleCommands:
         rc = direct_commands.cmd_stop(args)
         assert rc == 0
         assert "down" in captured_cmds[0]
+        # Sweep a sidecar container orphaned by `sidecar remove`.
+        assert "--remove-orphans" in captured_cmds[0]
 
     def test_restart_runs_down_then_up(self, monkeypatch):
         captured_cmds = []
 
-        def mock_run(cmd, **kw):
+        def mock_call(cmd, **kw):
             captured_cmds.append(cmd)
-            return type("R", (), {"returncode": 0})()
+            return 0
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "call", mock_call)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1437,16 +1441,18 @@ class TestLifecycleCommands:
         assert rc == 0
         assert len(captured_cmds) == 2
         assert "down" in captured_cmds[0]
+        # Sweep a sidecar container orphaned by `sidecar remove`.
+        assert "--remove-orphans" in captured_cmds[0]
         assert "up" in captured_cmds[1]
 
     def test_restart_stops_on_down_failure(self, monkeypatch):
         call_count = [0]
 
-        def mock_run(cmd, **kw):
+        def mock_call(cmd, **kw):
             call_count[0] += 1
-            return type("R", (), {"returncode": 1})()
+            return 1
 
-        monkeypatch.setattr(subprocess, "run", mock_run)
+        monkeypatch.setattr(subprocess, "call", mock_call)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1462,15 +1468,54 @@ class TestLifecycleCommands:
         assert rc == 1
         assert call_count[0] == 1
 
-    def test_remote_start_uses_ssh(self, monkeypatch):
-        ssh_cmds = []
+    def test_restart_syncs_profiles_before_down(self, monkeypatch):
+        # The profile sync must run BEFORE `down` so `down` and `up` act on the
+        # same service set. If it ran between down and up (the old order), a
+        # drifted profile set let `down` skip a service that `up` then didn't
+        # recreate — the Varnish stale-backend redirect loop.
+        events = []
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}))
+        monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
+            lambda inst: events.append("sync"))
+        monkeypatch.setattr(direct_commands._helpers, "_run_compose",
+            lambda inst_id, inst, action: events.append(action[0]) or 0)
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_restart(args)
+        assert rc == 0
+        assert events == ["sync", "down", "up"]
 
+    def test_stop_syncs_profiles_before_down(self, monkeypatch):
+        # Standalone stop reconciles too, so `down` tears down the full
+        # intended set rather than leaving an out-of-profile orphan running.
+        events = []
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}))
+        monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
+            lambda inst: events.append("sync"))
+        monkeypatch.setattr(direct_commands._helpers, "_run_compose",
+            lambda inst_id, inst, action: events.append(action[0]) or 0)
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_stop(args)
+        assert rc == 0
+        assert events == ["sync", "down"]
+
+    def test_remote_start_uses_ssh(self, monkeypatch):
+        # The sync-profiles .env read still goes through _ssh_run...
         def mock_ssh(host, cmd):
-            ssh_cmds.append((host, cmd))
-            # Return empty .env for the sync-profiles read
-            return 0, ""
+            return 0, ""  # empty .env → no write
 
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run", mock_ssh)
+
+        # ...but the long `up -d` runs via `ssh <target> <remote_cmd>` through
+        # subprocess.call (no 30s _ssh_run cap, which would kill image pulls).
+        call_argvs = []
+
+        def mock_call(argv, **kw):
+            call_argvs.append(argv)
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", mock_call)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1485,11 +1530,10 @@ class TestLifecycleCommands:
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_start(args)
         assert rc == 0
-        # The sync-profiles read + the up -d: 2 SSH calls total.
-        # Empty .env returned above → no write.
-        up_calls = [c for _, c in ssh_cmds if "up -d" in c]
-        assert len(up_calls) == 1
-        assert all(h == "admin@remote" for h, _ in ssh_cmds)
+        up_argv = [a for a in call_argvs if a and "up -d" in a[-1]]
+        assert len(up_argv) == 1
+        assert up_argv[0][0] == "ssh"
+        assert "admin@remote" in up_argv[0]
 
 
 class TestEnvFileWriter:
@@ -1535,10 +1579,78 @@ class TestEnvFileWriter:
         with open(tmp_path / ".env") as f:
             assert f.read() == "K=v\n"
 
+    def test_write_env_content_remote_resolves_ssh_target(self, monkeypatch):
+        """A short-name remote host must be mapped to its real SSH target
+        before the ssh argv is built, matching the read path."""
+        captured = {}
+
+        monkeypatch.setattr(
+            direct_commands._helpers, "_resolve_ssh_target",
+            lambda host: "admin@cp.example.com" if host == "node1" else host,
+        )
+
+        def fake_run(ssh_cmd, **kwargs):
+            captured["cmd"] = ssh_cmd
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        ok = direct_commands._write_env_content("/srv/mysite", "node1", "K=v\n")
+        assert ok is True
+        # ssh target must be the resolved user@host, not the bare 'node1'.
+        assert "admin@cp.example.com" in captured["cmd"]
+        assert "node1" not in captured["cmd"]
+
+
+class TestEnvRawLineHelpers:
+    """_set_env_lines rewrites only the target key, keeping other lines
+    verbatim (quoting and inline '#' preserved)."""
+
+    def test_normalizes_quoted_target(self):
+        out = direct_commands._helpers._set_env_lines(
+            ['A="secret"', "B=keep"], "A", "secret",
+        )
+        assert out == ["A=secret", "B=keep"]
+
+    def test_leaves_other_lines_verbatim(self):
+        # A's quoted value contains ' #'; compose would truncate it if the
+        # quotes were dropped, so it must survive a set of an unrelated key.
+        out = direct_commands._helpers._set_env_lines(
+            ['A="abc #def"', "B=old", "# c"], "B", "new",
+        )
+        assert out == ['A="abc #def"', "B=new", "# c"]
+
+    def test_dedupes_and_appends(self):
+        assert direct_commands._helpers._set_env_lines(
+            ["K=1", "K=2", "X=y"], "K", "3",
+        ) == ["K=3", "X=y"]
+        assert direct_commands._helpers._set_env_lines(
+            ["A=1"], "B", "2",
+        ) == ["A=1", "B=2"]
+
+    def test_key_of(self):
+        ko = direct_commands._helpers._env_key_of
+        assert ko('K="v"') == "K"
+        assert ko("# c") is None
+        assert ko("") is None
+        assert ko("noeq") is None
+
 
 class TestSyncComposeProfiles:
     def _inst(self, tmp_path):
         return {"path": str(tmp_path), "host": "localhost"}
+
+    @pytest.fixture(autouse=True)
+    def _stub_run_compose(self, monkeypatch):
+        """Record (don't execute) the teardown `docker compose` calls so the
+        sync tests never shell out to a real docker."""
+        self.compose_calls = []
+        monkeypatch.setattr(
+            direct_commands._helpers,
+            "_run_compose",
+            lambda inst_id, inst, action_args: (
+                self.compose_calls.append(action_args) or 0
+            ),
+        )
 
     def test_adds_elasticsearch_when_flag_true(self, tmp_path):
         # User toggled CANASTA_ENABLE_ELASTICSEARCH=true by hand-editing
@@ -1567,10 +1679,11 @@ class TestSyncComposeProfiles:
         )
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
-        # Every managed profile is dropped because all flags are false
+        # Every feature profile is dropped because all flags are false, but
+        # internal-db stays (default-on; no external DB configured).
         for line in content.split("\n"):
             if line.startswith("COMPOSE_PROFILES="):
-                assert line == "COMPOSE_PROFILES="
+                assert line == "COMPOSE_PROFILES=internal-db"
                 break
 
     def test_preserves_unmanaged_profiles(self, tmp_path):
@@ -1593,13 +1706,139 @@ class TestSyncComposeProfiles:
     def test_no_write_when_already_in_sync(self, tmp_path):
         env_path = tmp_path / ".env"
         env_path.write_text(
-            "CANASTA_ENABLE_VARNISH=true\nCOMPOSE_PROFILES=varnish\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "COMPOSE_PROFILES=varnish,internal-db\n"
         )
         original_mtime = env_path.stat().st_mtime_ns
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         # If _sync wrote the file, mtime would update. The guard in
         # _sync (sorted(desired) == sorted(current)) must prevent that.
         assert env_path.stat().st_mtime_ns == original_mtime
+
+    def test_adds_internal_db_by_default(self, tmp_path):
+        # No USE_EXTERNAL_DB set: the bundled database runs by default, so
+        # internal-db must be derived even when COMPOSE_PROFILES omits it.
+        (tmp_path / ".env").write_text("COMPOSE_PROFILES=\n")
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert "internal-db" in content
+
+    def test_self_heals_missing_internal_db(self, tmp_path):
+        # An old/drifted instance whose COMPOSE_PROFILES lost internal-db
+        # gets it restored on the next sync (no external DB configured).
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_VARNISH=true\nCOMPOSE_PROFILES=varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert "internal-db" in line
+                assert "varnish" in line
+                break
+
+    def test_external_db_drops_internal_db_without_teardown(self, tmp_path):
+        # USE_EXTERNAL_DB=true: internal-db leaves the profile set, but the
+        # database container must NEVER be auto-torn-down (it is absent from
+        # _MANAGED_PROFILE_SERVICES, so no compose rm is issued for it).
+        (tmp_path / ".env").write_text(
+            "USE_EXTERNAL_DB=true\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "COMPOSE_PROFILES=internal-db,varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert "internal-db" not in line
+                break
+        # No teardown call was issued for the dropped internal-db profile.
+        assert self.compose_calls == []
+
+    def test_preserves_unrelated_quoted_values(self, tmp_path):
+        # Syncing COMPOSE_PROFILES must not re-serialize (and thus strip
+        # quotes from) unrelated keys. A quoted value containing ' #' would
+        # be truncated by compose's env parser if the quotes were dropped.
+        (tmp_path / ".env").write_text(
+            'RESTIC_PASSWORD="abc #def"\n'
+            "CANASTA_ENABLE_ELASTICSEARCH=true\n"
+            "COMPOSE_PROFILES=\n"
+            "# trailing comment\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        content = (tmp_path / ".env").read_text()
+        assert 'RESTIC_PASSWORD="abc #def"' in content
+        assert "# trailing comment" in content
+        for line in content.split("\n"):
+            if line.startswith("COMPOSE_PROFILES="):
+                assert "elasticsearch" in line
+                break
+
+    def test_deactivated_profile_tears_down_its_container(self, tmp_path):
+        # elasticsearch was active; the flag is now false. The profile is
+        # dropped AND its orphaned container must be stopped and removed.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "COMPOSE_PROFILES=elasticsearch,varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        assert len(self.compose_calls) == 1
+        argv = self.compose_calls[0]
+        assert argv[:2] == ["--profile", "elasticsearch"]
+        assert argv[2:4] == ["rm", "-sf"]
+        assert "elasticsearch" in argv[4:]
+        # varnish stays active, so it is never torn down.
+        assert "varnish" not in argv
+
+    def test_deactivated_observable_removes_all_its_services(self, tmp_path):
+        # The observable profile maps to four services; all must be named.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_OBSERVABILITY=false\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "COMPOSE_PROFILES=observable,varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        assert len(self.compose_calls) == 1
+        named = self.compose_calls[0][self.compose_calls[0].index("-sf") + 1:]
+        assert sorted(named) == sorted(
+            direct_commands._helpers._MANAGED_PROFILE_SERVICES["observable"]
+        )
+
+    def test_no_teardown_when_nothing_deactivated(self, tmp_path):
+        # Adding a profile (or steady state) must not tear anything down.
+        (tmp_path / ".env").write_text(
+            "CANASTA_ENABLE_ELASTICSEARCH=true\n"
+            "CANASTA_ENABLE_VARNISH=true\n"
+            "COMPOSE_PROFILES=varnish\n"
+        )
+        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        assert self.compose_calls == []
+
+    def test_profile_service_map_matches_bundled_compose(self):
+        # The teardown map must list exactly the services each managed
+        # profile owns in the bundled compose file; drift would orphan a
+        # container or name a non-existent service.
+        import yaml
+
+        compose_path = os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "files", "compose",
+            "docker-compose.yml",
+        )
+        with open(compose_path) as f:
+            services = yaml.safe_load(f)["services"]
+
+        expected = {}
+        for name, spec in services.items():
+            for profile in (spec.get("profiles") or []):
+                expected.setdefault(profile, []).append(name)
+
+        for profile, names in (
+            direct_commands._helpers._MANAGED_PROFILE_SERVICES.items()
+        ):
+            assert sorted(expected.get(profile, [])) == sorted(names), (
+                "profile %r services drifted from docker-compose.yml" % profile
+            )
 
     def test_no_env_file_is_a_noop(self, tmp_path):
         # Nothing to sync; must not create a file or raise.
@@ -1656,10 +1895,11 @@ class TestSyncComposeProfiles:
         )
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
-        # Profile dropped and the managed image cleared back to default.
+        # crowdsec dropped (internal-db stays, default-on) and the managed
+        # image cleared back to default.
         for line in content.split("\n"):
             if line.startswith("COMPOSE_PROFILES="):
-                assert line == "COMPOSE_PROFILES="
+                assert line == "COMPOSE_PROFILES=internal-db"
             if line.startswith("CANASTA_CADDY_IMAGE="):
                 assert line == "CANASTA_CADDY_IMAGE="
 
@@ -1881,9 +2121,10 @@ class TestHostRemove:
 class TestParseGitopsStatus:
     def _make_output(self, hostname="myhost", hosts_yaml="MISSING",
                      commit="abc1234", applied="abc1234",
-                     staged="", unstaged="", revcount="0\t0"):
+                     staged="", unstaged="", revcount="0\t0",
+                     wikis=None, template=None, untracked=None):
         d = direct_commands._SENTINEL
-        return (
+        out = (
             hostname + "\n" + d + "\n"
             + hosts_yaml + "\n" + d + "\n"
             + commit + "\n" + d + "\n"
@@ -1892,6 +2133,13 @@ class TestParseGitopsStatus:
             + unstaged + "\n" + d + "\n"
             + revcount + "\n"
         )
+        if wikis is not None or template is not None or untracked is not None:
+            out += (
+                d + "\n" + (wikis or "") + "\n"
+                + d + "\n" + (template or "") + "\n"
+                + d + "\n" + (untracked or "")
+            )
+        return out
 
     def test_basic_status(self):
         out = self._make_output()
@@ -1901,6 +2149,17 @@ class TestParseGitopsStatus:
         assert "Current commit: abc1234" in result
         assert "No changes." in result
         assert "Up to date with remote." in result
+
+    def test_unmanaged_instance_reported_not_managed(self):
+        # No .gitops-host marker (hostname MISSING -> unknown) and no git repo
+        # (commit none): must say the instance isn't GitOps-managed, not claim
+        # "No changes / Up to date with remote" (there is no remote).
+        out = self._make_output(hostname="MISSING", commit="none", applied="none")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "not under GitOps management" in result
+        assert "gitops init" in result and "gitops join" in result
+        assert "Up to date with remote." not in result
+        assert "No changes." not in result
 
     def test_with_staged_files(self):
         out = self._make_output(staged="config/.env\nconfig/wikis.yaml")
@@ -1913,6 +2172,35 @@ class TestParseGitopsStatus:
         out = self._make_output(unstaged="docker-compose.override.yml")
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Unstaged changes (1 files):" in result
+
+    def test_with_untracked_files(self):
+        out = self._make_output(
+            untracked="?? hosts/hosts.yaml\n?? public_assets/notes/",
+        )
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Untracked files (2):" in result
+        assert "hosts/hosts.yaml" in result
+        assert "public_assets/notes/" in result
+        assert "canasta gitops add" in result
+        # Untracked files mean there ARE changes — must not claim otherwise.
+        assert "No changes." not in result
+
+    def test_untracked_does_not_break_clean_status(self):
+        out = self._make_output(untracked="")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "No changes." in result
+        assert "Untracked files" not in result
+
+    def test_only_porcelain_untracked_lines_shown(self):
+        # git status --porcelain mixes staged/modified with untracked;
+        # only '?? ' lines are untracked (the rest come from git diff).
+        out = self._make_output(
+            untracked=" M config/default.vcl\n?? hosts/hosts.yaml",
+        )
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Untracked files (1):" in result
+        assert "hosts/hosts.yaml" in result
+        assert "config/default.vcl" not in result
 
     def test_ahead_of_remote(self):
         out = self._make_output(revcount="3\t0")
@@ -1935,6 +2223,50 @@ class TestParseGitopsStatus:
         out = self._make_output(hostname="MISSING")
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Host:           unknown" in result
+
+    # Uncaptured config/wikis.yaml edits (e.g. a display name edited
+    # directly in the gitignored rendered file) are invisible to git
+    # status; status must flag them with a hint to run 'gitops add'.
+    _LIVE = "wikis:\n- id: main\n  url: localhost:8090\n  name: Conservation Wiki\n"
+    _TMPL_STALE = (
+        "wikis:\n  - id: main\n    url: {{wiki_url_main}}\n    name: \"main\"\n"
+    )
+    _TMPL_OK = (
+        "wikis:\n  - id: main\n    url: {{wiki_url_main}}\n"
+        "    name: \"Conservation Wiki\"\n"
+    )
+
+    def test_uncaptured_wikis_edit_flagged(self):
+        out = self._make_output(wikis=self._LIVE, template=self._TMPL_STALE)
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Uncaptured config/wikis.yaml edits" in result
+        assert "canasta gitops add" in result
+        # Must not also claim there is nothing to do.
+        assert "No changes." not in result
+
+    def test_captured_wikis_no_advisory(self):
+        out = self._make_output(wikis=self._LIVE, template=self._TMPL_OK)
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Uncaptured config/wikis.yaml edits" not in result
+        assert "No changes." in result
+
+    def test_no_template_no_advisory(self):
+        """Non-gitops / K8s gitops has no wikis.yaml.template — never flag."""
+        out = self._make_output(wikis=self._LIVE, template="")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Uncaptured config/wikis.yaml edits" not in result
+
+    def test_legacy_output_without_wikis_sections(self):
+        """Output predating the wikis sections must parse unchanged."""
+        out = self._make_output()
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "No changes." in result
+        assert "Uncaptured config/wikis.yaml edits" not in result
+
+    def test_script_reads_wikis_and_template(self):
+        script = direct_commands._gitops_status_script("/srv/mysite")
+        assert "cat config/wikis.yaml" in script
+        assert "cat wikis.yaml.template" in script
 
 
 class TestCmdGitopsStatus:
@@ -2081,6 +2413,49 @@ class TestGitopsArgocdStatus:
         result = direct_commands._gitops_argocd_status("mysite")
         assert result == ("Unknown", "Unknown", "never", "unknown")
 
+    def test_remote_host_queries_over_ssh(self, monkeypatch):
+        app = {
+            "status": {
+                "sync": {"status": "Synced", "revision": "abcdef1234567890"},
+                "health": {"status": "Healthy"},
+                "operationState": {"finishedAt": "2026-04-23T10:00:00Z"},
+            }
+        }
+        calls = {}
+
+        def fake_ssh(host, cmd):
+            calls["host"] = host
+            calls["cmd"] = cmd
+            return (0, json.dumps(app))
+
+        def fail_run(*a, **kw):
+            raise AssertionError("kubectl must not run locally for remote host")
+
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
+        monkeypatch.setattr(subprocess, "run", fail_run)
+        sync, health, last, rev = direct_commands._gitops_argocd_status(
+            "mysite", "admin@remote",
+        )
+        assert sync == "Synced"
+        assert health == "Healthy"
+        assert calls["host"] == "admin@remote"
+        assert "kubectl get application canasta-mysite" in calls["cmd"]
+
+    def test_localhost_queries_locally(self, monkeypatch):
+        app = {"status": {"sync": {"status": "Synced", "revision": "abc"},
+                          "health": {"status": "Healthy"}}}
+
+        def fake_run(*a, **kw):
+            return type("R", (), {"returncode": 0, "stdout": json.dumps(app)})()
+
+        def fail_ssh(*a, **kw):
+            raise AssertionError("localhost must not use ssh")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fail_ssh)
+        sync, _, _, _ = direct_commands._gitops_argocd_status("mysite", "localhost")
+        assert sync == "Synced"
+
 
 class TestParseGitopsStatusK8s:
     def _make_output(self, hostname="myhost", commit="abc1234", revcount="0\t0"):
@@ -2161,15 +2536,17 @@ class TestCmdGitopsStatusK8s:
                 "host": "admin@k8s-control",
             }),
         )
-        monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
-            lambda host, cmd: (0, ssh_output),
-        )
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda *a, **kw: type("R", (), {
-                "returncode": 0, "stdout": json.dumps(app),
-            })(),
-        )
+        # Remote host: both the git status and the Argo CD kubectl run
+        # over SSH against the host's kubeconfig, not the laptop's.
+        def fake_ssh(host, cmd):
+            if "kubectl get application" in cmd:
+                return (0, json.dumps(app))
+            return (0, ssh_output)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
+
+        def fail_run(*a, **kw):
+            raise AssertionError("kubectl must not run locally for remote host")
+        monkeypatch.setattr(subprocess, "run", fail_run)
         args = type("Args", (), {"id": "mysite"})()
         rc = direct_commands.cmd_gitops_status(args)
         assert rc == 0
@@ -2231,6 +2608,49 @@ class TestExecInContainer:
             "find extensions",
         )
         assert rc == 1
+
+
+class TestStreamInContainerStdin:
+    """_stream_in_container must leave stdin attached on every
+    orchestrator so redirects like `canasta maintenance script eval
+    < probe.php` reach the script (#986)."""
+
+    @staticmethod
+    def _fake_popen(captured):
+        def fake(argv, **kw):
+            captured["argv"] = argv
+            captured["kwargs"] = kw
+            return type("P", (), {
+                "stdout": __import__("io").StringIO(""),
+                "wait": lambda self: 0,
+            })()
+        return fake
+
+    def test_k8s_exec_forwards_stdin(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(direct_commands._helpers, "_k8s_get_pod",
+            lambda ns, svc: "canasta-test-web-abc123",
+        )
+        monkeypatch.setattr(subprocess, "Popen", self._fake_popen(captured))
+        rc = direct_commands._helpers._stream_in_container(
+            "test", {"orchestrator": "kubernetes"}, "php maintenance/run.php eval",
+        )
+        assert rc == 0
+        assert captured["argv"][:3] == ["kubectl", "exec", "-i"]
+        # stdin must not be overridden away from inheritance.
+        assert "stdin" not in captured["kwargs"]
+
+    def test_compose_local_inherits_stdin(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(subprocess, "Popen", self._fake_popen(captured))
+        rc = direct_commands._helpers._stream_in_container(
+            "test", {"path": "/srv/test", "orchestrator": "compose"},
+            "php maintenance/run.php eval",
+        )
+        assert rc == 0
+        # -T disables the TTY but keeps stdin attached.
+        assert captured["argv"][:5] == ["docker", "compose", "exec", "-T", "web"]
+        assert "stdin" not in captured["kwargs"]
 
 
 class TestExtensionSkinList:
@@ -2516,6 +2936,20 @@ class TestDoctor:
         assert "canasta group:   NOT A MEMBER" in result
         assert "usermod -aG canasta" in result
         assert "Self-update:     BLOCKED" in result
+
+    def test_parse_doctor_reports_sops_and_age(self):
+        d = direct_commands._SENTINEL
+        # 20 base parts (through self-update) + sops (20) + age (21).
+        base = self._doctor_parts("user docker www-data", "WRITABLE")
+        for sops, age, want in [
+            ("OK", "OK", ["sops:            OK", "age:             OK"]),
+            ("MISSING", "MISSING",
+             ["sops:            not installed", "age:             not installed"]),
+        ]:
+            stdout = ("\n" + d + "\n").join(base + [sops, age]) + "\n"
+            result = direct_commands._parse_doctor(stdout, "myhost")
+            for w in want:
+                assert w in result
 
     def test_parse_doctor_missing_deps(self):
         d = direct_commands._SENTINEL
@@ -2922,7 +3356,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2947,7 +3382,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2962,7 +3398,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2977,7 +3414,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -2994,7 +3432,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -3011,7 +3450,8 @@ class TestMaintenanceScript:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -3045,7 +3485,8 @@ class TestMaintenanceExtension:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -3059,7 +3500,8 @@ class TestMaintenanceExtension:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -3076,7 +3518,8 @@ class TestMaintenanceExtension:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -3093,7 +3536,8 @@ class TestMaintenanceExtension:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -3110,7 +3554,8 @@ class TestMaintenanceExtension:
         self._patch_resolve(monkeypatch)
         captured = {}
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             captured["command"] = command
             return 0
 
@@ -3159,7 +3604,8 @@ class TestMaintenanceUpdate:
         )
         commands = []
 
-        def fake_stream(inst_id, inst, command, service="web"):
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
             commands.append(command)
             return 0
 
@@ -3184,7 +3630,8 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web": commands.append(c) or 0,
+            lambda iid, i, c, service="web", retry_on_reset=False:
+                commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(skip_jobs=True))
         assert any("update.php" in c for c in commands)
@@ -3197,7 +3644,8 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web": commands.append(c) or 0,
+            lambda iid, i, c, service="web", retry_on_reset=False:
+                commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args())
         assert any("rebuildData.php" in c for c in commands)
@@ -3211,7 +3659,8 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web": commands.append(c) or 0,
+            lambda iid, i, c, service="web", retry_on_reset=False:
+                commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(skip_smw=True))
         assert not any("rebuildData.php" in c for c in commands)
@@ -3223,7 +3672,8 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web": commands.append(c) or 0,
+            lambda iid, i, c, service="web", retry_on_reset=False:
+                commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(wiki="draft"))
         # Only the named wiki should appear in the commands.
@@ -3347,6 +3797,45 @@ class TestScale:
         assert "values.yaml" in cmd_str
         assert "--reset-values" in cmd_str
         assert "--wait" in cmd_str
+        # No optional values files exist, so none may be layered.
+        assert "values-configdata.yaml" not in cmd_str
+        assert "values-sidecars.yaml" not in cmd_str
+
+    def test_layers_sidecars_values_when_present(
+        self, monkeypatch, tmp_path,
+    ):
+        # helm_deploy.yml layers values-sidecars.yaml when present; with
+        # --reset-values, omitting it reverts to the chart default
+        # (sidecars: []) and prunes every sidecar resource.
+        inst_path = tmp_path / "mysite"
+        inst_path.mkdir()
+        (inst_path / "values.yaml").write_text("web:\n  replicaCount: 1\n")
+        (inst_path / "values-configdata.yaml").write_text("configData: {}\n")
+        (inst_path / "values-sidecars.yaml").write_text(
+            "sidecars:\n  - name: cache\n",
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
+        )
+        captured = {}
+
+        def fake_call(cmd, *a, **kw):
+            captured["cmd"] = cmd
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", fake_call)
+        rc = direct_commands.cmd_scale(self._args(replicas=5))
+        assert rc == 0
+
+        cmd_str = " ".join(captured["cmd"])
+        assert "values-sidecars.yaml" in cmd_str
+        # Same ordering as helm_deploy.yml: values.yaml, configdata,
+        # sidecars, then --reset-values.
+        assert (
+            cmd_str.index("values-configdata.yaml")
+            < cmd_str.index("values-sidecars.yaml")
+            < cmd_str.index("--reset-values")
+        )
 
     def test_helm_failure_reports_partial_state(
         self, monkeypatch, capsys, tmp_path,
@@ -3477,6 +3966,114 @@ class TestDockerHostPropagation:
             "got %r" % remote_cmd
         )
 
+    def _write_conf(self, tmp_path, inst):
+        conf = tmp_path / "conf.json"
+        conf.write_text(json.dumps({"Instances": {inst["id"]: inst}}, indent=4))
+
+    def test_resolve_by_cwd_sets_docker_host_when_registered(
+        self, tmp_path, monkeypatch,
+    ):
+        # cwd read-only fast paths (status/version/doctor) must also export
+        # the socket, or a rootless instance reports STOPPED while running.
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        site.mkdir()
+        self._write_conf(tmp_path, {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+            "dockerHost": "unix:///run/user/1000/podman/podman.sock",
+        })
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        monkeypatch.chdir(site)
+        from argparse import Namespace
+        iid, inst = direct_commands._helpers._resolve_instance_by_cwd(
+            Namespace(id=None))
+        assert iid == "mysite"
+        assert (
+            os.environ.get("DOCKER_HOST")
+            == "unix:///run/user/1000/podman/podman.sock"
+        )
+
+    def test_resolve_by_cwd_leaves_docker_host_alone_when_unset(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        site.mkdir()
+        self._write_conf(tmp_path, {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+        })
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
+        monkeypatch.chdir(site)
+        from argparse import Namespace
+        direct_commands._helpers._resolve_instance_by_cwd(Namespace(id=None))
+        assert "DOCKER_HOST" not in os.environ
+
+    def test_gather_instance_info_uses_per_instance_docker_host(
+        self, tmp_path, monkeypatch,
+    ):
+        # _gather_instance_info iterates many instances concurrently, so it
+        # must pass the socket per-command (subprocess env) rather than
+        # mutating the process-global DOCKER_HOST.
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        (site / "config").mkdir(parents=True)
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["env"] = kw.get("env")
+            class R:
+                returncode = 0
+                stdout = "abc123\n"
+            return R()
+
+        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        inst = {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+            "dockerHost": "unix:///run/user/1000/podman/podman.sock",
+        }
+        detail = direct_commands._gather_instance_info("mysite", inst)
+        assert detail["status"] == "RUNNING"
+        assert captured["env"] is not None, (
+            "compose ps must run with an explicit env carrying DOCKER_HOST"
+        )
+        assert (
+            captured["env"].get("DOCKER_HOST")
+            == "unix:///run/user/1000/podman/podman.sock"
+        )
+        # Must not leak into the process env other threads read.
+        assert "DOCKER_HOST" not in os.environ
+
+    def test_gather_instance_info_no_env_override_without_docker_host(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        site = tmp_path / "mysite"
+        (site / "config").mkdir(parents=True)
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["env"] = kw.get("env")
+            class R:
+                returncode = 0
+                stdout = "abc123\n"
+            return R()
+
+        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        inst = {
+            "id": "mysite",
+            "path": str(site),
+            "orchestrator": "compose",
+        }
+        direct_commands._gather_instance_info("mysite", inst)
+        # No dockerHost -> inherit the process env (env=None), don't fabricate.
+        assert captured["env"] is None
+
 
 class TestLintEnvContent:
     """_lint_env_content flags quoted values / CRLF that survive read-time
@@ -3522,8 +4119,7 @@ class TestResolveInstanceByCwd:
 
     @staticmethod
     def _args(instance_id=None):
-        import types
-        return types.SimpleNamespace(id=instance_id)
+        return SimpleNamespace(id=instance_id)
 
     def test_top_level_dir(self, registry, monkeypatch):
         _, data = registry
@@ -3563,3 +4159,199 @@ class TestResolveInstanceByCwd:
         )
         assert iid == "siteB"
         assert inst is not None
+
+
+class TestRetryOnSshReset:
+    """Idempotent remote ops retry on ssh exit 255 (a connection-level
+    reset) so a transient controller-to-target drop doesn't fail a command
+    that was progressing (#750)."""
+
+    def test_retries_on_255_then_succeeds(self):
+        calls = []
+
+        def run():
+            calls.append(1)
+            return 255 if len(calls) < 2 else 0
+
+        rc = direct_commands._helpers._retry_on_ssh_reset(run, attempts=3)
+        assert rc == 0
+        assert len(calls) == 2
+
+    def test_gives_up_after_attempts(self):
+        calls = []
+
+        def run():
+            calls.append(1)
+            return 255
+
+        rc = direct_commands._helpers._retry_on_ssh_reset(run, attempts=3)
+        assert rc == 255
+        assert len(calls) == 3
+
+    def test_no_retry_on_non_connection_failure(self):
+        # A non-255 rc is the remote command's own exit code — a real
+        # failure, not a connection reset. It must not be retried.
+        calls = []
+
+        def run():
+            calls.append(1)
+            return 1
+
+        rc = direct_commands._helpers._retry_on_ssh_reset(run, attempts=3)
+        assert rc == 1
+        assert len(calls) == 1
+
+    def test_success_first_try_runs_once(self):
+        calls = []
+
+        def run():
+            calls.append(1)
+            return 0
+
+        rc = direct_commands._helpers._retry_on_ssh_reset(run, attempts=3)
+        assert rc == 0
+        assert len(calls) == 1
+
+
+class TestMaintenanceStreamRetriesOnSshReset:
+    """#750: maintenance update/script stream over SSH to a remote compose
+    host with no timeout (long runs are fine) but must retry on a
+    connection-level reset (ssh exit 255) — they are idempotent and
+    re-runnable. localhost / in-cluster exec must not retry."""
+
+    class _FakeStdout:
+        def readline(self):
+            return ""  # no streamed output in the test
+
+    class _FakeProc:
+        def __init__(self, rc):
+            self.stdout = TestMaintenanceStreamRetriesOnSshReset._FakeStdout()
+            self._rc = rc
+
+        def wait(self, timeout=None):
+            return self._rc
+
+    def _popen_factory(self, rcs, calls):
+        def factory(*args, **kwargs):
+            rc = rcs[calls["n"]]
+            calls["n"] += 1
+            return TestMaintenanceStreamRetriesOnSshReset._FakeProc(rc)
+        return factory
+
+    def test_remote_retries_only_when_opted_in(self, monkeypatch):
+        # retry_on_reset=True (idempotent command, e.g. update.php): re-stream
+        # once after a 255 reset.
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            subprocess, "Popen", self._popen_factory([255, 0], calls))
+        inst = {"host": "remote", "path": "/srv/x", "orchestrator": "compose"}
+        rc = direct_commands._helpers._stream_in_container(
+            "x", inst, "php maintenance/update.php", retry_on_reset=True)
+        assert rc == 0
+        assert calls["n"] == 2, "should re-stream once after the 255 reset"
+
+    def test_remote_does_not_retry_by_default(self, monkeypatch):
+        # Default (arbitrary, possibly non-idempotent script): a 255 reset is
+        # NOT retried — re-running could double-apply destructive work.
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            subprocess, "Popen", self._popen_factory([255, 0], calls))
+        inst = {"host": "remote", "path": "/srv/x", "orchestrator": "compose"}
+        rc = direct_commands._helpers._stream_in_container(
+            "x", inst, "php maintenance/nukePage.php Foo")
+        assert rc == 255
+        assert calls["n"] == 1, "arbitrary scripts must not be retried"
+
+    def test_localhost_does_not_retry(self, monkeypatch):
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            subprocess, "Popen", self._popen_factory([255, 0], calls))
+        inst = {"host": "localhost", "path": "/srv/x", "orchestrator": "compose"}
+        rc = direct_commands._helpers._stream_in_container("x", inst, "cmd")
+        assert rc == 255
+        assert calls["n"] == 1, "localhost must not retry on 255"
+
+
+class TestRemoteK8sStreamAndExec:
+    """maintenance script/extension/update stream through
+    _stream_in_container, and lighter helpers use _exec_in_container; for a
+    remote Kubernetes instance both must run the pod lookup and the exec on
+    the instance's host via ssh (issue #1047) — kubectl on the controller
+    has no kubeconfig for the cluster."""
+
+    INST = {"id": "rsdev", "orchestrator": "k8s",
+            "host": "op@cp.example.com", "path": "/tmp/i"}
+
+    def test_stream_remote_goes_via_ssh(self, monkeypatch):
+        captured = {}
+
+        def fake_popen_run(argv, cwd):
+            captured["argv"] = argv
+            return 0
+
+        monkeypatch.setattr(
+            direct_commands._helpers, "_k8s_get_pod",
+            lambda *a, **k: pytest.fail(
+                "local pod lookup must not run for a remote instance"))
+        monkeypatch.setattr(direct_commands._helpers, "_stream_argv", fake_popen_run,
+                            raising=False)
+        # _stream_in_container drives the argv through an inner _run();
+        # patch subprocess.Popen to capture without spawning.
+        class FakeProc:
+            returncode = 0
+
+            def __init__(self):
+                import io
+                self.stdout = io.StringIO("")
+
+            def wait(self):
+                return 0
+
+        def fake_popen(argv, **kw):
+            captured["argv"] = argv
+            return FakeProc()
+
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "Popen", fake_popen)
+        rc = direct_commands._helpers._stream_in_container("rsdev", self.INST, "php x.php")
+        assert rc == 0
+        assert captured["argv"][0] == "ssh"
+        assert "op@cp.example.com" in captured["argv"]
+        remote = captured["argv"][-1]
+        assert "kubectl get pods" in remote
+        assert "app.kubernetes.io/component=web" in remote
+        assert "--field-selector=status.phase=Running" in remote
+        assert "kubectl exec -i" in remote
+        assert "canasta-rsdev" in remote
+        assert "stdbuf -oL" in remote
+
+    def test_exec_remote_goes_via_ssh_run(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            direct_commands._helpers, "_k8s_get_pod",
+            lambda *a, **k: pytest.fail(
+                "local pod lookup must not run for a remote instance"))
+
+        def fake_ssh_run(host, cmd):
+            captured["host"] = host
+            captured["cmd"] = cmd
+            return 0, "ok"
+
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh_run)
+        rc, out = direct_commands._helpers._exec_in_container("rsdev", self.INST, "true")
+        assert (rc, out) == (0, "ok")
+        assert captured["host"] == "op@cp.example.com"
+        assert "kubectl get pods" in captured["cmd"]
+        assert "no running pod found for service 'web'" in captured["cmd"]
+
+    def test_local_k8s_path_unchanged(self, monkeypatch):
+        inst = dict(self.INST, host="localhost")
+        monkeypatch.setattr(direct_commands._helpers, "_k8s_get_pod", lambda *a, **k: "pod-1")
+
+        def fake_run(argv, **kw):
+            fake_run.argv = argv
+            return SimpleNamespace(returncode=0, stdout="out")
+
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "run", fake_run)
+        rc, out = direct_commands._helpers._exec_in_container("rsdev", inst, "true")
+        assert rc == 0
+        assert fake_run.argv[0] == "kubectl"

@@ -16,9 +16,17 @@
 #
 # Input: host_name, role, repo, key, force, pull_requests
 #   key is the SSH deploy key path basename (private at <key>.ssh,
-#   public at <key>.ssh.pub). Despite the name, it has no git-crypt
-#   meaning on K8s.
+#   public at <key>.ssh.pub). It carries no git-crypt meaning on K8s;
+#   with SOPS enabled it doubles as the operator age key's portable DR
+#   path (<key>.age) — see _init_sops.yml.
 # Requires: instance_path, instance_id (set by dispatcher)
+
+# The --encrypt-secrets flag is the on-switch for SOPS secret encryption.
+# It drives gitops_sops_secrets, which gates the Argo app's plugin source,
+# the operator-key work, and the repo-server sidecar below.
+- name: Enable SOPS secret encryption when --encrypt-secrets is set
+  ansible.builtin.set_fact:
+    gitops_sops_secrets: "{{ encrypt_secrets | default(false) | bool }}"
 
 # --- Validate prerequisites ---
 - name: Check git is installed
@@ -173,6 +181,35 @@
         ansible_user: "{{ _gki_saved.user }}"
         ansible_python_interpreter: "{{ _gki_saved.python }}"
 
+- name: Stage SSH deploy private key on target for git operations
+  ansible.builtin.copy:
+    content: "{{ _gitops_ssh_key.content | b64decode }}"
+    dest: "{{ _ssh_key_target_path }}"
+    mode: "0600"
+  no_log: true
+
+# Probe whether the deploy key is already authorized on the remote. If it
+# is (the operator pre-installed it, or --ssh-key points at a registered
+# key), there's nothing to add — skip the manual prompt entirely. This is
+# also what lets `gitops init` run unattended. BatchMode keeps the probe
+# itself from blocking on an SSH prompt.
+- name: Probe whether the deploy key is already authorized
+  ansible.builtin.command:
+    cmd: "git ls-remote {{ repo }}"
+  environment:
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
+      -o StrictHostKeyChecking=accept-new
+      -o UserKnownHostsFile=~/.ssh/known_hosts
+      -o BatchMode=yes
+  register: _gitops_keyprobe
+  changed_when: false
+  ignore_errors: true
+
+- name: Determine whether the deploy key already works
+  ansible.builtin.set_fact:
+    _deploy_key_authorized: "{{ _gitops_keyprobe.rc == 0 }}"
+
 - name: Display public key for deploy key setup
   ansible.builtin.debug:
     msg: >-
@@ -181,17 +218,27 @@
       Repository: {{ repo }}
       GitHub: go to Settings > Deploy keys > Add deploy key.
       Public key: {{ _gitops_ssh_pubkey.content | b64decode | trim }}
+  when: not (_deploy_key_authorized | bool)
+
+# Unattended runs (--non-interactive) can't pause for a human to register
+# the key, so fail fast with the public key + guidance instead of hanging.
+- name: Fail fast when the deploy key is not yet authorized (non-interactive)
+  ansible.builtin.fail:
+    msg: >-
+      The gitops deploy key is not authorized on {{ repo }} and
+      --non-interactive was set, so init cannot pause for you to add it.
+      Register this public key as a deploy key with WRITE access, then
+      re-run: {{ _gitops_ssh_pubkey.content | b64decode | trim }}
+  when:
+    - not (_deploy_key_authorized | bool)
+    - non_interactive | default(false) | bool
 
 - name: Pause for user to add deploy key to git repository
   ansible.builtin.pause:
     prompt: "Press Enter after you have added the deploy key to your repository (or Ctrl+C then A to abort)"
-
-- name: Stage SSH deploy private key on target for git operations
-  ansible.builtin.copy:
-    content: "{{ _gitops_ssh_key.content | b64decode }}"
-    dest: "{{ _ssh_key_target_path }}"
-    mode: "0600"
-  no_log: true
+  when:
+    - not (_deploy_key_authorized | bool)
+    - not (non_interactive | default(false) | bool)
 
 - name: Check remote is empty
   ansible.builtin.command:
@@ -253,6 +300,11 @@
 - name: Sync config files
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
+- name: Render sidecars to Helm values
+  canasta_render_sidecars:
+    instance_path: "{{ instance_path }}"
+    orchestrator: kubernetes
+
 - name: Read values.yaml after config sync
   ansible.builtin.slurp:
     src: "{{ instance_path }}/values.yaml"
@@ -263,11 +315,17 @@
     src: "{{ instance_path }}/values-configdata.yaml"
   register: _gitops_configdata
 
-- name: Merge configData into values
+- name: Read values-sidecars.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values-sidecars.yaml"
+  register: _gitops_sidecars
+
+- name: Merge configData + sidecars into values
   ansible.builtin.set_fact:
     _final_values: >-
       {{ _gitops_values_synced.content | b64decode | from_yaml
-         | combine(_gitops_configdata.content | b64decode | from_yaml, recursive=True) }}
+         | combine(_gitops_configdata.content | b64decode | from_yaml, recursive=True)
+         | combine(_gitops_sidecars.content | b64decode | from_yaml, recursive=True) }}
 
 # --- Extract per-environment values into template + vars ---
 - name: Define K8s placeholder keys
@@ -350,6 +408,7 @@
       my.cnf
       scripts/
       values-configdata.yaml
+      values-sidecars.yaml
       extensions/
       skins/
       public_assets/
@@ -397,9 +456,20 @@
           repoURL: {{ repo }}
           targetRevision: HEAD
           path: .
+      {% if gitops_sops_secrets | default(false) | bool %}
+          plugin:
+            name: helm-sops
+            env:
+              - name: HELM_ARGS
+                value: "-f hosts/{{ host_name }}/rendered-values.yaml"
+              # Scope decryption to THIS host's secrets, not every host's.
+              - name: SECRETS_DIR
+                value: "hosts/{{ host_name }}/secrets"
+      {% else %}
           helm:
             valueFiles:
               - hosts/{{ host_name }}/rendered-values.yaml
+      {% endif %}
         destination:
           server: https://kubernetes.default.svc
           namespace: canasta-{{ instance_id }}
@@ -411,6 +481,19 @@
             - CreateNamespace=true
     dest: "{{ instance_path }}/argocd/application.yaml"
     mode: "0644"
+
+# --- SOPS+age secret encryption (gated on --encrypt-secrets) ---
+# Provision the operator age key + .sops.yaml + sops-age Secret, then add the
+# helm-sops CMP sidecar to the (already-installed) Argo CD repo-server so it can
+# decrypt at render time. The Argo Application above already points at the
+# plugin source when enabled; the initial commit below carries .sops.yaml.
+- name: Provision the operator age key and .sops.yaml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_init_sops.yml"
+  when: gitops_sops_secrets | default(false) | bool
+
+- name: Ensure the Argo CD repo-server has the helm-sops sidecar
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_sops_sidecar.yml"
+  when: gitops_sops_secrets | default(false) | bool
 
 # --- Save host identity ---
 - name: Save .gitops-host
@@ -450,25 +533,8 @@
   changed_when: true
 
 # --- Create Argo CD repo credential Secret ---
-- name: Create or update Argo CD repo credential Secret
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: "canasta-{{ instance_id }}-repo"
-        namespace: "{{ argocd_namespace | default('argocd') }}"
-        labels:
-          argocd.argoproj.io/secret-type: repository
-          app.kubernetes.io/managed-by: canasta-cli
-          app.kubernetes.io/instance: "{{ instance_id }}"
-      type: Opaque
-      stringData:
-        type: git
-        url: "{{ repo }}"
-        sshPrivateKey: "{{ _gitops_ssh_key.content | b64decode }}"
-  no_log: true
+- name: Apply Argo CD repo credential Secret + known-hosts trust
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_apply_argo_repo_secret.yml"
 
 # --- Register Argo CD Application ---
 - name: Apply Argo CD Application to cluster

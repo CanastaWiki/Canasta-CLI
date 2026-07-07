@@ -1,0 +1,57 @@
+---
+# Restore a wiki's uploaded media into its per-wiki images directory.
+#
+# The File: page rows come from the database (--database); this only places
+# the files. `import_images_path` is a tar (.tar or .tar.gz — the content is
+# sniffed, so the extension does not matter) of a wiki's images dir at the
+# hash-directory level (0/, 1/, archive/, ...). A single leading images/
+# parent is elided. Files land in images/<wiki-id>/ — the per-wiki
+# $wgUploadDirectory ($MW_HOME/images/<id>, symlinked to the images
+# volume/PVC) — owned by www-data, matching create-storage-dirs.sh.
+#
+# Input: instance_path, instance_orchestrator, instance_id,
+#        import_wiki_id, import_images_path
+
+- name: Transfer images tarball to target host
+  ansible.builtin.copy:
+    src: "{{ import_images_path }}"
+    dest: "/tmp/canasta-images-import.tar"
+    mode: "0644"
+
+# Orchestrator dispatch (docker compose cp vs kubectl cp) into the web
+# container, which mounts the images volume/PVC.
+- name: Copy images tarball into the web container
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml"
+  vars:
+    copy_service: web
+    copy_src: "/tmp/canasta-images-import.tar"
+    copy_dest: "/tmp/canasta-images-import.tar"
+
+- name: Clean up transferred tarball from target host
+  ansible.builtin.file:
+    path: "/tmp/canasta-images-import.tar"
+    state: absent
+
+# Extract the hash-dir tree into the wiki's uploads dir and fix ownership.
+# A single leading images/ parent (someone tarred the parent dir instead of
+# its contents) is elided so files always land at the hash-directory level.
+# exec_long: a large media tree can take a while, so run detached + polled
+# (survives a controller-side SSH reset).
+- name: Extract images into the wiki's uploads dir (owned by www-data)
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: web
+    exec_long: true
+    exec_command: >-
+      set -e;
+      dest="/var/www/mediawiki/w/images/{{ import_wiki_id }}";
+      mkdir -p "$dest";
+      stage="$(mktemp -d)";
+      tar xf /tmp/canasta-images-import.tar -C "$stage";
+      if [ -d "$stage/images" ] && [ "$(ls -A "$stage" | wc -l)" = "1" ];
+      then src="$stage/images";
+      else src="$stage";
+      fi;
+      cp -a "$src/." "$dest/";
+      chown -R www-data:www-data "$dest";
+      rm -rf "$stage" /tmp/canasta-images-import.tar

@@ -358,6 +358,7 @@
 #   CANASTA_ENABLE_ELASTICSEARCH → elasticsearch.enabled: <bool>
 #   CANASTA_STAGING_CERTS  → ingress.certManager.issuer: letsencrypt-{staging,prod}
 #   CANASTA_IMAGE          → image.repository + image.tag
+#   CANASTA_ELASTICSEARCH_IMAGE → elasticsearch.image: <value>
 #
 # External DB keys (USE_EXTERNAL_DB, MYSQL_*) are intentionally NOT
 # propagated here — _validate_key.yml blocks them as immutable after
@@ -370,7 +371,8 @@
     - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
     - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH',
                       'CANASTA_ENABLE_ELASTICSEARCH',
-                      'CANASTA_STAGING_CERTS', 'CANASTA_IMAGE']
+                      'CANASTA_STAGING_CERTS', 'CANASTA_IMAGE',
+                      'CANASTA_ELASTICSEARCH_IMAGE']
   block:
     - name: Read current values.yaml
       ansible.builtin.slurp:
@@ -413,8 +415,16 @@
         _k8s_override:
           image:
             repository: "{{ _config_value | regex_replace(':[^:]+$', '') }}"
-            tag: "{{ _config_value | regex_replace('^[^:]+:', '') }}"
+            tag: "{{ _config_value | regex_replace('^.*:', '') }}"
       when: _config_key == 'CANASTA_IMAGE'
+
+    # Deep-merged into values.yaml, so it composes with elasticsearch.enabled
+    # (CANASTA_ENABLE_ELASTICSEARCH) — setting one preserves the other. The
+    # StatefulSet only deploys while enabled, so this is inert until then.
+    - name: Build values.yaml override for CANASTA_ELASTICSEARCH_IMAGE
+      ansible.builtin.set_fact:
+        _k8s_override: "{{ {'elasticsearch': {'image': _config_value}} }}"
+      when: _config_key == 'CANASTA_ELASTICSEARCH_IMAGE'
 
     - name: Write updated values.yaml
       ansible.builtin.copy:
@@ -457,11 +467,12 @@
         key: MW_SITE_FQDN
         value: "{{ _new_fqdn }}"
 
-    - name: Update wikis.yaml URLs with new domain
-      ansible.builtin.replace:
-        path: "{{ instance_path }}/config/wikis.yaml"
-        regexp: "{{ _se_old_fqdn.value | regex_escape() }}"
-        replace: "{{ _new_fqdn }}"
+    - name: Update wikis.yaml URLs (only for wikis on the old FQDN)
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: update_domain
+        old_domain: "{{ _se_old_fqdn.value }}"
+        domain: "{{ _new_fqdn }}"
       when: _se_old_fqdn.found and _se_old_fqdn.value != _new_fqdn
 
     # Localhost → real-domain TLS cascade (K8s only).

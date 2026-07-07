@@ -6,7 +6,6 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import yaml
 
 from . import _helpers
 from ._helpers import register
@@ -20,7 +19,7 @@ def _gather_all_instances(instances):
     ordered_ids = list(instances.keys())
     results = {}
 
-    with ThreadPoolExecutor(max_workers=len(instances)) as pool:
+    with ThreadPoolExecutor(max_workers=min(len(instances), 16)) as pool:
         futures = {
             pool.submit(_helpers._gather_instance_info, iid, inst): iid
             for iid, inst in instances.items()
@@ -84,7 +83,7 @@ def cmd_list(args):
         # Probe all instances in parallel — remote classify can SSH.
         classifications = {}
         if instances:
-            with ThreadPoolExecutor(max_workers=len(instances)) as pool:
+            with ThreadPoolExecutor(max_workers=min(len(instances), 16)) as pool:
                 futures = {
                     pool.submit(_classify_for_cleanup, iid, inst): iid
                     for iid, inst in instances.items()

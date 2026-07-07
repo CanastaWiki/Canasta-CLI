@@ -140,32 +140,32 @@ command_groups:
   - name: backup_schedule
     description: "Manage scheduled backups"
     long_description: |
-      Manage recurring backup schedules. The implementation differs
-      by orchestrator:
+      Manage recurring backup schedules. Scheduling is the same on both
+      orchestrators: a crontab entry on the host where the instance runs
+      — the local or remote host for Compose, the control-plane node for
+      Kubernetes (the same host the instance's other commands run on).
+      The entry runs `canasta backup create -i <id> --tag scheduled` on
+      the schedule, which performs the backup the orchestrator-native
+      way: a Compose container, or an in-cluster restic Job for
+      Kubernetes. Output goes to `backup.log` in the instance directory;
+      failures are visible there and via `tail -F`.
 
-      **Compose** instances use a host crontab entry that runs
-      `canasta backup create -i <id> --tag scheduled` on the schedule.
-      Output goes to `backup.log` in the instance directory; failures
-      are visible there and via `tail -F`. Requires the `cron` package
-      on the host (Debian: `apt install cron`).
+      That host therefore needs the `cron` package (Debian:
+      `apt install cron`) and a runnable `canasta` — the cron entry calls
+      `canasta backup create`. `canasta backup schedule set` fails with
+      guidance if either is missing on a remote / control-plane host. The
+      schedule is also persisted to `config/backup-schedule.yml`, so it
+      is captured by backups and re-materialized on restore.
 
-      **Kubernetes** instances use a `CronJob` named
-      `canasta-backup-<id>` in the instance namespace. The Job pod
-      runs a `dump-databases` init container (mariadb-dump for every
-      DB on the configured `MYSQL_HOST`) followed by a `restic`
-      container that snapshots the instance's PVCs. Both containers
-      `envFrom` a `canasta-<id>-backup-env` Secret that's synced from
-      the instance's `.env` and contains restic + cloud-backend
-      credentials (`RESTIC_*`, `AWS_*`, `B2_*`, `AZURE_*`,
-      `GOOGLE_*`, `OS_*`, `ST_*`) plus `MYSQL_HOST` / `MYSQL_USER`
-      / `MYSQL_PASSWORD`. The CronJob keeps the last 3 successful
-      and 7 failed Jobs for post-mortem.
-
-      When a scheduled K8s backup fails, the operator finds it via
-      `kubectl get jobs -n canasta-<id>` (status `Failed`) and
-      `kubectl logs -n canasta-<id> job/<name>` for the dump or
-      restic error. Watch out for the failed-history limit cycling
-      old failures off the cluster after seven runs.
+      For Kubernetes, the in-cluster backup Job runs a `dump-databases`
+      init container (mariadb-dump for every DB on the configured
+      `MYSQL_HOST`) followed by a `restic` container that snapshots the
+      instance's PVCs. Both `envFrom` a `canasta-<id>-backup-env` Secret
+      synced from the instance's `.env`, containing restic + cloud-backend
+      credentials (`RESTIC_*`, `AWS_*`, `B2_*`, `AZURE_*`, `GOOGLE_*`,
+      `OS_*`, `ST_*`) plus `MYSQL_HOST` / `MYSQL_USER` / `MYSQL_PASSWORD`.
+      Find a failed run via `kubectl get jobs -n canasta-<id>` (status
+      `Failed`) and `kubectl logs -n canasta-<id> job/<name>`.
 
   - name: gitops
     description: "Git-based configuration management"
@@ -205,8 +205,9 @@ command_groups:
       Manage the optional CrowdSec security feature on a Compose or
       Kubernetes instance. Enable or disable CrowdSec itself with
       `canasta config set CANASTA_ENABLE_CROWDSEC=true|false` (the
-      same pattern as the other optional features); this group covers
-      the steps that don't reduce to a single config value:
+      same pattern as the other optional features). The subcommands
+      below allow further configuration and monitoring once CrowdSec
+      is enabled:
 
       * `bouncer-enroll` registers the Caddy bouncer with the CrowdSec
         engine, captures the generated API key, stores it as
@@ -243,6 +244,28 @@ command_groups:
       pod CIDRs (override with `CADDY_TRUSTED_PROXY_CIDRS`) so it attributes
       decisions to the real client IP rather than the ingress.
 
+  - name: sidecar
+    description: "Manage app sidecars for a Canasta instance"
+    long_description: |
+      Declare and manage app sidecars — companion services the wiki talks
+      to (e.g. a cache or a parsing service) — in `config/sidecars.yaml`.
+      Sidecars are declared once and deploy the same way on Docker Compose
+      and Kubernetes. Subcommands add, list, and remove sidecar
+      declarations, and migrate legacy `docker-compose.override.yml` sidecars
+      into the schema; run `canasta restart` to apply. For richer sidecars
+      (mounted config files, dependencies, healthchecks), edit
+      `config/sidecars.yaml` directly.
+
+  - name: image
+    description: "Manage the in-cluster image registry (Kubernetes)"
+    long_description: |
+      Work with the in-cluster image registry of a Kubernetes host — the
+      registry that serves locally-built images (`canasta create
+      --build-from`, `build:` sidecars) to the cluster's pods. Subcommands
+      push a locally built image so pods can pull it, and garbage-collect
+      storage no tag references anymore. Kubernetes only: on Docker
+      Compose, a locally built tag is directly usable with no push.
+
 commands:
   # ---------------------------------------------------------------------------
   # Instance lifecycle
@@ -251,11 +274,14 @@ commands:
     description: "Create a new Canasta instance"
     long_description: |
       Create a new Canasta MediaWiki instance. Generates configuration files,
-      starts the containers, and runs the MediaWiki installer.
+      starts the containers, and runs the MediaWiki installer. With
+      --skip-install, the installer is skipped and the instance is connected
+      to an external database that already holds a MediaWiki schema.
     examples:
       - "canasta create -i mysite -w main -n example.com"
       - "canasta create -i mysite -w main -n example.com -d /path/to/dump.sql"
       - "canasta create -i mysite -w main -n localhost"
+      - "canasta create -i mysite -w main -n example.com -e prod.env --skip-install"
     playbook: create.yml
     parameters:
       - name: host
@@ -355,10 +381,38 @@ commands:
         type: path
         mutual_exclusion: canasta_image
         description: "Build from local source directory"
+      - name: build_arg
+        type: string
+        multi: true
+        description: >-
+          Build argument KEY=VALUE forwarded to the --build-from image
+          builds (repeatable, e.g. --build-arg MW_VERSION=master). A
+          user-supplied BASE_IMAGE overrides the auto-detected base.
       - name: database
         short: d
         type: path
+        mutual_exclusion: skip_install
         description: "Path to existing database dump (.sql or .sql.gz)"
+      - name: skip_install
+        type: bool
+        default: false
+        mutual_exclusion: database
+        description: >-
+          Skip the MediaWiki installer (install.php) and connect to a
+          database that already has a MediaWiki schema. Requires
+          USE_EXTERNAL_DB=true (set via -e envfile) and cannot be
+          combined with --database. Use this when an external database
+          (e.g. RDS/Aurora) was provisioned separately and already
+          holds the wiki's tables.
+      - name: images
+        short: I
+        type: path
+        description: >-
+          Path to a tar (.tar or .tar.gz) of a wiki's images directory at the
+          hash-directory level (0/, 1/, archive/, ...). Its files are copied
+          into the wiki's uploads (images/<wiki>/) as www-data — a placement
+          restore, not importImages. Pairs with --database, which supplies the
+          File: page rows; a leading images/ parent in the tar is elided.
       - name: wiki_settings
         short: l
         type: path
@@ -370,11 +424,6 @@ commands:
       - name: composer
         type: path
         description: "Path to custom composer.local.json"
-      - name: registry
-        type: string
-        default: "localhost:5000"
-        orchestrator_only: kubernetes
-        description: "Container registry for pushing locally built images"
       - name: skip_argocd_install
         type: bool
         default: false
@@ -443,10 +492,10 @@ commands:
       reconciled from the instance's feature flags so optional
       components start or stay down based on their current setting:
 
-      - `CANASTA_ENABLE_VARNISH` (default `true`) — Varnish cache
-      - `CANASTA_ENABLE_OBSERVABILITY` (default `false`) — Prometheus
+      * `CANASTA_ENABLE_VARNISH` (default `true`) — Varnish cache
+      * `CANASTA_ENABLE_OBSERVABILITY` (default `false`) — Prometheus
         and Grafana stack
-      - `CANASTA_ENABLE_ELASTICSEARCH` (default `false`) — Elasticsearch
+      * `CANASTA_ENABLE_ELASTICSEARCH` (default `false`) — Elasticsearch
 
       If the instance has development mode enabled, Xdebug starts
       automatically. Use `canasta devmode enable` or `canasta devmode
@@ -469,7 +518,7 @@ commands:
       Docker volumes.
     examples:
       - "canasta stop"
-    direct_only: true
+    playbook: stop.yml
     parameters:
       - name: id
         short: i
@@ -493,6 +542,36 @@ commands:
         type: string
         description: "Canasta instance ID"
 
+  - name: reconcile
+    description: "Bring an instance's config and running containers back into agreement"
+    long_description: |
+      Reconcile an instance to a consistent state without a disruptive
+      restart. Re-derives COMPOSE_PROFILES from the feature flags and
+      database mode, regenerates rendered config (e.g. the Caddyfile),
+      and converges the running containers with 'docker compose up -d' —
+      starting anything missing and recreating only what changed, with no
+      stop. Idempotent and safe to run anytime.
+
+      It is also how you apply local edits to an instance's configuration
+      (config/settings, wikis.yaml, .env) to the running instance without
+      a full restart: on Docker Compose it recreates only the changed
+      containers; on Kubernetes it re-syncs the ConfigMaps and runs
+      'helm upgrade', rolling only the pods whose config changed.
+
+      This is the fix companion to 'canasta doctor': when doctor reports
+      config/runtime drift (profiles out of sync with the flags, a
+      container running unmanaged, search configured without its backend),
+      'canasta reconcile' applies the reconcilers to fix it.
+    examples:
+      - "canasta reconcile"
+      - "canasta reconcile --id mysite"
+    playbook: reconcile.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
   - name: rebuild
     description: "Rebuild custom images for a Canasta instance"
     long_description: |
@@ -508,8 +587,9 @@ commands:
       `canasta rebuild` is the standalone form for cases where the
       operator wants to rebuild without an upgrade.
 
-      Compose only. Kubernetes instances must build and push their
-      custom image to a registry manually.
+      Compose only. On Kubernetes, push a locally built image to the
+      in-cluster registry with `canasta image push` and point the
+      instance at the printed reference via `canasta config set`.
     examples:
       - "canasta rebuild"
       - "canasta rebuild -i mywiki --no-cache"
@@ -574,14 +654,14 @@ commands:
 
       Additional output depends on context:
 
-      - Inside an instance directory: also reports that instance's
+      * Inside an instance directory: also reports that instance's
         pinned CANASTA_IMAGE tag and running runtime version.
-      - Outside any instance directory: lists every registered
+      * Outside any instance directory: lists every registered
         instance with its pinned CANASTA_IMAGE tag (no runtime query;
         fast).
-      - With --id: reports full image + running version for the
+      * With --id: reports full image + running version for the
         named instance (same as inside that instance's directory).
-      - With --cli-only: prints only the CLI header; skips all
+      * With --cli-only: prints only the CLI header; skips all
         instance reads. Intended for scripts that just want the CLI
         version deterministically.
     examples:
@@ -610,8 +690,8 @@ commands:
       Verify that the target host has the tools required for its
       orchestrator: Docker + Docker Compose for Compose installs,
       or kubectl + Helm for Kubernetes installs. Also reports
-      status of optional tools (git, git-crypt, crontab) and system
-      resources (memory, disk space).
+      status of optional tools (git, git-crypt, sops, age, crontab) and
+      system resources (memory, disk space).
     examples:
       - "canasta doctor"
       - "canasta doctor --host prod1.example.com"
@@ -663,7 +743,7 @@ commands:
     description: "Install dependencies on the target host"
     long_description: |
       Install one or more dependencies on the target host. Supported
-      packages: docker, k8s-cp, k8s-worker, git-crypt.
+      packages: docker, k8s-cp, k8s-worker, git-crypt, sops, canasta.
 
       `k8s-cp` installs k3s as a control-plane node — the cluster's
       API server, scheduler, etc., plus kubectl + helm on the same
@@ -685,6 +765,25 @@ commands:
       kubectl can verify the cert when reaching the cluster over that
       address. Repeat to add more than one (e.g. an IP and a hostname).
 
+      `sops` installs the SOPS toolchain (sops + age), required for
+      encrypted secrets in Kubernetes gitops (`gitops init
+      --encrypt-secrets`). Two hosts need it: the controller (where the
+      CLI runs) uses age-keygen to manage the operator key, and the
+      gitops target host uses sops to encrypt Secret manifests. Run it
+      once per role: `canasta install sops` (no --host) for the
+      controller and `canasta install -H <host> sops` for the target
+      (they may be the same machine). Idempotent — skips a binary
+      already present.
+
+      `canasta` installs the Canasta CLI (canasta-native) on the target
+      host, so an instance deployed remotely from a controller can also
+      be operated directly on its own host. This is required before
+      scheduling backups on a remote host — the schedule's cron runs
+      `canasta backup` there — and is useful any time you want
+      to manage an instance locally on the host it runs on rather than
+      only through the controller. Idempotent — skips if canasta is
+      already present.
+
       Multiple packages can be combined in a single command, except
       that `k8s-cp` and `k8s-worker` are mutually exclusive on a given
       host.
@@ -695,6 +794,8 @@ commands:
       - "canasta install --host node2 k8s-worker --cp-host node1"
       - "canasta install docker git-crypt"
       - "canasta install -i mysite git-crypt"
+      - "canasta install -i mysite sops"
+      - "canasta install -i mysite canasta"
     playbook: install.yml
     parameters:
       - name: host
@@ -723,7 +824,7 @@ commands:
         required: true
         description: >-
           Dependencies to install (docker, k8s-cp, k8s-worker,
-          git-crypt)
+          git-crypt, canasta)
       - name: public_ip
         type: string
         multi: true
@@ -794,10 +895,14 @@ commands:
       pulling latest images, running migrations, and restarting containers.
 
       By default the CLI itself updates to the latest released version
-      (the highest vX.Y.Z tag). Pass --dev to track the development branch
-      (head of main) instead.
+      within the current major (the highest vX.Y.Z tag whose major matches
+      the installed version), so an upgrade never crosses a major boundary
+      on its own. Pass --allow-major to move to the latest release overall,
+      including a new major version (which may include breaking changes).
+      Pass --dev to track the development branch (head of main) instead.
     examples:
       - "canasta upgrade"
+      - "canasta upgrade --allow-major"
       - "canasta upgrade --dev"
       - "canasta upgrade --dry-run"
     playbook: upgrade.yml
@@ -810,6 +915,10 @@ commands:
         type: bool
         default: false
         description: "Track the development branch (head of main) instead of the latest release"
+      - name: allow_major
+        type: bool
+        default: false
+        description: "Allow upgrading across a major version boundary to the latest release overall (may include breaking changes)"
 
   # ---------------------------------------------------------------------------
   # Wiki management
@@ -821,7 +930,9 @@ commands:
       wiki farm. The new wiki is registered in `wikis.yaml`, the
       Caddyfile is regenerated, and the MediaWiki installer runs
       for the new wiki. You can also import an existing database
-      dump instead of running the installer.
+      dump instead of running the installer, or pass --skip-install
+      to connect to an external database that already holds the new
+      wiki's schema.
     examples:
       - "canasta add -w docs -u localhost/docs"
     playbook: add.yml
@@ -847,7 +958,26 @@ commands:
       - name: database
         short: d
         type: path
+        mutual_exclusion: skip_install
         description: "Path to existing database dump"
+      - name: skip_install
+        type: bool
+        default: false
+        mutual_exclusion: database
+        description: >-
+          Skip the MediaWiki installer (install.php) and connect to a
+          database that already has the new wiki's schema. Requires the
+          instance to use USE_EXTERNAL_DB=true and cannot be combined
+          with --database.
+      - name: images
+        short: I
+        type: path
+        description: >-
+          Path to a tar (.tar or .tar.gz) of the new wiki's images directory at
+          the hash-directory level (0/, 1/, archive/, ...). Its files are
+          copied into the wiki's uploads (images/<wiki>/) as www-data — a
+          placement restore, not importImages. Pairs with --database, which
+          supplies the File: page rows; a leading images/ parent is elided.
       - name: wiki_settings
         short: l
         type: path
@@ -1005,6 +1135,20 @@ commands:
         type: bool
         default: false
         description: "Allow setting unrecognized keys"
+      - name: secret
+        type: bool
+        default: false
+        description: >-
+          Write to the gitignored config/secrets.env instead of .env (opaque
+          app secrets; on K8s these feed a per-instance Secret consumed by
+          sidecars via secretKeyRef). Bypasses .env validation and side effects.
+      - name: web
+        type: bool
+        default: false
+        description: >-
+          With --secret, also expose the key(s) to the web and jobrunner pods
+          via secretKeyRef (for a secret the MediaWiki process itself needs).
+          Recorded in config/secrets-web (key names only).
 
   - name: config_regenerate
     description: "Regenerate rendered config files (e.g. Caddyfile) from current sources"
@@ -1022,6 +1166,50 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+
+  - name: config_refresh_template
+    description: "List, diff, or adopt template versions of seeded config files"
+    long_description: |
+      Overwrite an instance's copy of a template-seeded config file
+      (e.g. config/default.vcl, config/settings/global/Vector.php) with
+      the version shipped in the current CLI. These files are copied
+      once when the instance is created and then owned by you, so an
+      upgrade never changes them; use this to adopt an improved shipped
+      version, or to restore a seed file you deleted.
+
+      This command is read-only unless --yes is given. With no file
+      argument it lists the seed files whose instance copy differs from
+      the current template. With one or more files it shows the diff but
+      changes nothing; add --yes to overwrite, so review the diff first
+      (your local edits to that file are replaced). Rendered files (.env,
+      wikis.yaml, Caddyfile) belong to 'config regenerate' and per-wiki
+      Settings.php is user-owned; neither is touched here.
+    examples:
+      - "canasta config refresh-template"
+      - "canasta config refresh-template config/default.vcl"
+      - "canasta config refresh-template config/default.vcl --yes"
+    playbook: config_refresh_template.yml
+    # Read-only by default (lists drift / previews a diff); only --yes
+    # writes. Opt out of the generic destructive-confirmation prompt so
+    # the no-arg and preview invocations don't ask before doing nothing.
+    self_confirm: true
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: files
+        type: string
+        positional: true
+        multi: true
+        description: >-
+          Template-seeded file path(s) to refresh, relative to the
+          instance root (e.g. config/default.vcl)
+      - name: "yes"
+        short: "y"
+        type: bool
+        default: false
+        description: "Overwrite the instance copy (without this, only previews the diff)"
 
   - name: config_unset
     description: "Remove a configuration setting"
@@ -1321,9 +1509,15 @@ commands:
 
       With no arguments and no --service flag, lists the running services.
       The default service is "web" (the MediaWiki container).
+
+      Use --stdin-file to feed a file to the command's standard input — for
+      example, piping wikitext to `maintenance/run.php edit <page>`. The
+      file is read on the controller, so it works for local, remote, and
+      Kubernetes targets alike. Content is read as text (UTF-8).
     examples:
       - "canasta maintenance exec -- ls /var/www/mediawiki"
       - "canasta maintenance exec -s db -- mariadb-admin ping -h localhost"
+      - "canasta maintenance exec --stdin-file page.txt -- php run.php edit 'Main Page'"
     playbook: maintenance_exec.yml
     parameters:
       - name: id
@@ -1338,6 +1532,9 @@ commands:
         short: w
         type: string
         description: "Wiki ID"
+      - name: stdin_file
+        type: path
+        description: "File fed to the command's standard input (e.g. wikitext for an edit), read as UTF-8 on the controller."
       - name: exec_args
         type: string
         positional: true
@@ -1887,28 +2084,22 @@ commands:
       expression follows the standard 5-field format
       `minute hour day-of-month month day-of-week`.
 
-      On **Compose**, this writes a host crontab entry that runs
-      `canasta backup create -i <id> --tag scheduled` on the
-      schedule. Output goes to `backup.log` in the instance
-      directory.
+      This writes a crontab entry on the host where the instance runs
+      (the instance's host for Compose, the control-plane node for
+      Kubernetes) that runs `canasta backup create -i <id> --tag
+      scheduled` on the schedule; output goes to `backup.log` in the
+      instance directory. `canasta` must be installed on that host — on a
+      remote or Kubernetes instance, set it up first with
+      `canasta install canasta -H <host>`.
 
-      On **Kubernetes**, this creates a `CronJob` named
-      `canasta-backup-<id>` in the instance namespace. The Job pod
-      runs `mariadb-dump` per database followed by `restic backup`
-      against the configured `RESTIC_REPOSITORY`. Both steps consume
-      credentials via the `canasta-<id>-backup-env` Secret —
-      including any cloud-backend env (`AWS_*`, `B2_*`, `AZURE_*`,
-      `GOOGLE_*`) the user set in `.env`. To inspect the rendered
-      schedule and resources, use `kubectl get cronjob
-      canasta-backup-<id> -n canasta-<id> -o yaml`.
+      Use `--purge-older-than` to chain `canasta backup purge
+      --keep-within <duration>` after each backup, so old snapshots are
+      pruned without a separate maintenance run.
 
-      Use `--purge-older-than` to chain `restic forget --prune
-      --keep-within <duration>` after each backup, so old snapshots
-      are pruned without a separate maintenance run.
-
-      Setting a new schedule replaces the existing one in place
-      (same crontab entry name on Compose, same CronJob name on
-      Kubernetes); duplicates aren't created.
+      The schedule is persisted to `config/backup-schedule.yml` (captured
+      by backups, re-materialized on restore). Setting a new schedule
+      replaces the existing crontab entry in place; duplicates aren't
+      created.
     examples:
       - "canasta backup schedule set '0 2 * * *'"
       - "canasta backup schedule set '0 3 * * *' --purge-older-than 30d"
@@ -1933,13 +2124,11 @@ commands:
       Show the current backup schedule for this instance, if one
       exists.
 
-      On Compose, queries the host crontab and parses the
-      `canasta backup create -i <id>` entry. On Kubernetes, queries
-      the `canasta-backup-<id>` CronJob in the instance namespace.
-      Reports the schedule expression and whether a `--purge-older-
-      than` is wired in. "No backup schedule found" means no entry
-      exists for this instance on the orchestrator's native
-      scheduling surface.
+      Reads the crontab on the host where the instance runs (the
+      control-plane node for Kubernetes) and parses the
+      `canasta backup create -i <id>` entry, reporting the schedule
+      expression and whether a `--purge-older-than` is wired in. "No
+      backup schedule found" means no entry exists for this instance.
     examples:
       - "canasta backup schedule list"
     playbook: backup_schedule_list.yml
@@ -1952,10 +2141,11 @@ commands:
   - name: backup_schedule_remove
     description: "Remove a scheduled backup"
     long_description: |
-      Remove the recurring backup schedule for this instance. On
-      Compose this deletes the host crontab entry; on Kubernetes
-      this deletes the `canasta-backup-<id>` CronJob. A Job that's
-      already running at the moment the schedule is removed
+      Remove the recurring backup schedule for this instance — deletes
+      the crontab entry on the host where the instance runs (the
+      control-plane node for Kubernetes) and clears
+      `config/backup-schedule.yml` so it isn't re-materialized on
+      restore. A backup already running when the schedule is removed
       finishes naturally — only future firings stop.
     examples:
       - "canasta backup schedule remove"
@@ -2039,12 +2229,32 @@ commands:
         type: bool
         default: false
         description: "Require pull requests instead of pushing to main"
+      - name: encrypt_secrets
+        type: bool
+        default: false
+        description: >-
+          Kubernetes only. Encrypt the instance's Secrets in git with
+          SOPS+age instead of leaving them out of version control. The
+          operator age key is generated on the controller (portable via
+          --key for DR); Argo CD's repo-server gains a helm-sops sidecar
+          that decrypts at render time. Requires sops on the target and
+          age on the controller ('canasta install sops'). No effect on
+          Compose, which already encrypts vars with git-crypt.
       - name: git_user_name
         type: string
         description: "Git user.name for commits on the target host (set if not already configured)"
       - name: git_user_email
         type: string
         description: "Git user.email for commits on the target host (set if not already configured)"
+      - name: non_interactive
+        type: bool
+        default: false
+        description: >-
+          Don't pause to prompt for registering the deploy key. The pause
+          is skipped automatically when the deploy key already works; this
+          flag additionally makes init fail fast (instead of hanging) when
+          the key is not yet authorized — for unattended/CI runs where the
+          key was pre-installed on the remote.
 
   - name: gitops_join
     description: "Join an existing gitops repository"
@@ -2112,22 +2322,27 @@ commands:
   - name: gitops_add
     description: "Add configuration changes to git"
     long_description: |
-      Stage configuration changes for the next gitops push. If a file
-      path is given, stage just that path. Without a path, stage all
-      changes under the config directory (existing behavior).
+      Stage one or more files for the next gitops push. Each path is
+      relative to the instance root. At least one file is required.
+
+      Staging config/wikis.yaml captures its literal edits (e.g. a wiki
+      display name) into wikis.yaml.template rather than the rendered
+      file, so they survive the next render and reach other hosts.
     examples:
-      - "canasta gitops add extensions/WikiWorks/LocalSettings.php"
-      - "canasta gitops add"
+      - "canasta gitops add config/wikis.yaml"
+      - "canasta gitops add extensions/WikiWorks/LocalSettings.php config/default.vcl"
     playbook: gitops_add.yml
     parameters:
       - name: id
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: path
+      - name: files
         type: string
         positional: true
-        description: "File path to stage (relative to instance root)"
+        multi: true
+        required: true
+        description: "File path(s) to stage (relative to instance root)"
 
   - name: gitops_rm
     description: "Remove configuration from git tracking"
@@ -2152,10 +2367,12 @@ commands:
   - name: gitops_push
     description: "Push configuration changes to the git repository"
     long_description: |
-      Commit staged changes and push to the remote repository. Files
-      must be staged first using `canasta gitops add`. When
-      `pull_requests` is enabled in `hosts.yaml`, creates a branch
-      and opens a pull request instead of pushing directly to main.
+      Commit staged changes and push to the remote repository. Stage
+      changes first with `canasta gitops add`; commits already made by
+      other commands (such as `canasta gitops fix-submodules`) are also
+      pushed even when nothing is staged. When `pull_requests` is enabled
+      in `hosts.yaml`, creates a branch and opens a pull request instead
+      of pushing directly to main.
     examples:
       - "canasta gitops push"
       - "canasta gitops push -m 'Add docs wiki'"
@@ -2250,11 +2467,11 @@ commands:
 
       This handles two cases:
 
-      1. Extensions or skins that were added after gitops init and
-         need to be converted from standalone git repositories to
-         submodules.
-      2. Submodules listed in .gitmodules that were accidentally
-         committed as regular directories instead of gitlinks.
+      # Extensions or skins that were added after gitops init and
+        need to be converted from standalone git repositories to
+        submodules.
+      # Submodules listed in .gitmodules that were accidentally
+        committed as regular directories instead of gitlinks.
 
       After fixing, run `canasta gitops push` to push the changes.
     examples:
@@ -2560,3 +2777,197 @@ commands:
         short: H
         type: string
         description: "Target host (default: localhost)"
+
+  - name: sidecar_add
+    description: "Add app sidecar(s) to config/sidecars.yaml from a YAML file"
+    long_description: |
+      Declare app sidecar(s) in `config/sidecars.yaml` from a YAML file of
+      full definitions — a single sidecar mapping, a list, or a `sidecars:`
+      list — then run `canasta restart` to deploy them. The file uses the
+      orchestrator-agnostic sidecar schema (name, image/build, ports, command,
+      env, volumes, files, depends_on, healthcheck, resources), so it renders
+      identically on Compose and Kubernetes.
+
+      To migrate an existing `docker-compose.override.yml`, use
+      `canasta sidecar migrate` instead, which translates its sidecar
+      services into this schema.
+    examples:
+      - "canasta sidecar add -i mywiki --file sidecars.yaml"
+    playbook: sidecar_add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+      - name: file
+        short: f
+        type: string
+        required: true
+        description: >-
+          Path to a YAML file of full sidecar definition(s) (the
+          orchestrator-agnostic sidecar schema)
+
+  - name: sidecar_list
+    description: "List app sidecars declared for a Canasta instance"
+    long_description: |
+      List the sidecars declared in `config/sidecars.yaml`, with their
+      image (or build context) and ports.
+    examples:
+      - "canasta sidecar list -i mywiki"
+    playbook: sidecar_list.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+
+  - name: sidecar_remove
+    description: "Remove an app sidecar from config/sidecars.yaml"
+    long_description: |
+      Remove a sidecar declaration from `config/sidecars.yaml`, then run
+      `canasta restart` to tear it down.
+    examples:
+      - "canasta sidecar remove -i mywiki --name cache"
+    playbook: sidecar_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+      - name: sidecar_name
+        long: name
+        short: n
+        type: string
+        required: true
+        description: "Name of the sidecar to remove"
+
+  - name: sidecar_migrate
+    description: "Migrate docker-compose.override.yml sidecars to config/sidecars.yaml"
+    long_description: |
+      Translate sidecar services in an instance's `docker-compose.override.yml`
+      into `config/sidecars.yaml` (the orchestrator-agnostic schema) and remove
+      them from the override, so they gain Kubernetes support and managed
+      lifecycle. Core-stack overrides (web/db/caddy/...) and any service that
+      can't be fully modelled are left in the override and reported. Run
+      `canasta restart` afterward to deploy the migrated sidecars.
+    examples:
+      - "canasta sidecar migrate -i mywiki"
+      - "canasta sidecar migrate -i mywiki --dry-run"
+    playbook: sidecar_migrate.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: path
+        short: p
+        type: string
+        description: "Path to the Canasta instance directory"
+      - name: dry_run
+        long: dry-run
+        type: bool
+        default: false
+        description: "Show the migration plan without writing any files"
+
+  # ---------------------------------------------------------------------------
+  # In-cluster image registry
+  # ---------------------------------------------------------------------------
+  - name: image_push
+    description: "Build and push a local image to the in-cluster registry"
+    long_description: |
+      Build a Docker image from a local build context and push it to the
+      in-cluster image registry of a Kubernetes host, printing the
+      cluster-pullable reference (`10.43.0.2:5000/<name>:<tag>`).
+
+      Use the printed reference anywhere an instance takes an image:
+      `canasta config set CANASTA_IMAGE=...` for a custom web image,
+      `canasta config set CANASTA_ELASTICSEARCH_IMAGE=...` for a derived
+      Elasticsearch image (e.g. with an analysis plugin), or a sidecar's
+      `image:` in `config/sidecars.yaml`. Run `canasta restart` afterward
+      if the config change did not already trigger one.
+
+      The build runs on the target host, which must be the cluster's
+      control-plane node — the registry's push endpoint is a loopback-only
+      hostPort there (the same assumption as `canasta create
+      --build-from`). The build context path is resolved on that host. The
+      registry is deployed automatically if it is missing.
+
+      Kubernetes only: on Docker Compose, a locally built tag is directly
+      usable with no push.
+    examples:
+      - "canasta image push ./images/elasticsearch --name myapp-elasticsearch"
+      - "canasta image push ~/es-icu --name es-icu -H prod1"
+    playbook: image_push.yml
+    parameters:
+      - name: host
+        short: H
+        type: string
+        description: >-
+          Target host (a saved host name or user@hostname; default:
+          localhost)
+      - name: context
+        type: path
+        path_kind: remote
+        positional: true
+        required: true
+        description: >-
+          Docker build context directory on the target host (with --host,
+          an absolute path or one starting with '~')
+      - name: image_name
+        long: name
+        type: string
+        required: true
+        validator: image_ref
+        description: >-
+          Image name, optionally name:tag (default tag: local). Repeated
+          pushes to the same tag orphan the previous push's layers; run
+          `canasta image prune` occasionally to reclaim them.
+      - name: build_arg
+        type: string
+        multi: true
+        description: >-
+          Build argument KEY=VALUE forwarded to the docker build
+          (repeatable, e.g. --build-arg BASE_IMAGE=ghcr.io/canastawiki/canasta:latest
+          for a web overlay Dockerfile that derives FROM ${BASE_IMAGE})
+
+  - name: image_prune
+    description: "Garbage-collect the in-cluster image registry"
+    long_description: |
+      Reclaim in-cluster registry storage by deleting manifests no tag
+      references anymore, and their orphaned layers. Repeated pushes of the
+      same tag (e.g. the `:local` tags used by `--build-from` and `build:`
+      sidecars) orphan the previous push's layers, and nothing else ever
+      garbage-collects them — the registry volume only grows until this
+      runs.
+
+      Runs the registry's garbage collector (with `--delete-untagged`)
+      inside the registry pod, then restarts the registry deployment so
+      its in-memory blob cache matches the pruned store. Avoid pushing
+      images while the prune runs — a push racing the garbage collector
+      can be corrupted (a limitation of the registry itself).
+
+      Kubernetes only. A host with no in-cluster registry reports nothing
+      to prune.
+    examples:
+      - "canasta image prune"
+      - "canasta image prune -H prod1"
+    playbook: image_prune.yml
+    parameters:
+      - name: host
+        short: H
+        type: string
+        description: >-
+          Target host (a saved host name or user@hostname; default:
+          localhost)

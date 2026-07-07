@@ -1,6 +1,6 @@
 ---
 # Enable extensions or skins.
-# Matches Go behavior: check installed, enable in settings.yaml, optionally run update.php.
+# Check installed, enable in settings.yaml, optionally run update.php.
 # Input: id, wiki (optional), _item_type (extensions|skins), _item_dir (extensions|skins),
 #        _names (comma-separated), skip_update (bool)
 
@@ -34,6 +34,7 @@
   vars:
     exec_service: web
     exec_command: "php maintenance/update.php --wiki={{ wiki | default('') | quote }}"
+    exec_long: true
 
 - name: "Report {{ _item_type }} enabled"
   ansible.builtin.debug:

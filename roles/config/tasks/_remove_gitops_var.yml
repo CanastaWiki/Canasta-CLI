@@ -1,0 +1,74 @@
+---
+# Remove a single unset key from the gitops durable source. A key with a
+# gitops placeholder is dropped from vars.yaml and its placeholder line from
+# env.template; a literal key is dropped from env.template. Mirrors
+# _update_gitops_var.yml on the set side.
+# Input: _config_key (str), _config_placeholder_map (dict),
+#        _config_host_raw, instance_path
+
+- name: Look up placeholder name
+  ansible.builtin.set_fact:
+    _rgv_placeholder: "{{ _config_placeholder_map[_config_key] | default('') }}"
+
+- name: Remove from vars.yaml and env.template when key has a placeholder
+  when: _rgv_placeholder != ''
+  block:
+    - name: Determine vars file path
+      ansible.builtin.set_fact:
+        _rgv_vars_file: >-
+          {{ instance_path }}/hosts/{{ _config_host_raw.content | b64decode | trim }}/vars.yaml
+
+    # vars.yaml holds passwords/keys, so suppress its contents when the key
+    # being removed is a secret. The write below is always no_log.
+    - name: Read current vars
+      ansible.builtin.slurp:
+        src: "{{ _rgv_vars_file }}"
+      register: _rgv_vars_raw
+      no_log: "{{ _config_key is match(canasta_secret_key_regex) }}"
+
+    - name: Drop placeholder from vars
+      ansible.builtin.set_fact:
+        _rgv_updated_vars: >-
+          {{ (_rgv_vars_raw.content | b64decode | from_yaml | default({}, true))
+             | dict2items | rejectattr('key', 'equalto', _rgv_placeholder)
+             | items2dict }}
+      no_log: "{{ _config_key is match(canasta_secret_key_regex) }}"
+
+    - name: Write updated vars.yaml
+      ansible.builtin.copy:
+        content: "{{ _rgv_updated_vars | to_nice_yaml(indent=2) }}"
+        dest: "{{ _rgv_vars_file }}"
+        mode: "0644"
+      no_log: true
+
+    - name: Remove placeholder line from env.template
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/env.template"
+        regexp: "^{{ _config_key }}="
+        state: absent
+
+    - name: Stage updated vars.yaml and env.template
+      ansible.builtin.command:
+        cmd: "git add {{ _rgv_vars_file }} env.template"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+# A key with no placeholder lives as a literal in env.template (or is absent).
+# Remove that literal so the next gitops pull / config regenerate re-renders
+# .env without it, instead of resurrecting the value.
+- name: Remove env.template literal when key has no placeholder
+  when: _rgv_placeholder == ''
+  block:
+    - name: Remove the literal from env.template
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/env.template"
+        regexp: "^{{ _config_key }}="
+        state: absent
+      register: _rgv_literal_removed
+
+    - name: Stage updated env.template
+      ansible.builtin.command:
+        cmd: "git add env.template"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      when: _rgv_literal_removed is changed

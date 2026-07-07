@@ -1,0 +1,82 @@
+---
+# canasta image prune - Garbage-collect the in-cluster image registry.
+#
+# Repeated pushes of the same tag (the :local tags used by --build-from,
+# build: sidecars, and image push) orphan the previous push's layers, and
+# nothing else ever garbage-collects them. This runs the registry's own
+# garbage collector (--delete-untagged) inside the registry pod, then
+# restarts the deployment so its in-memory blob cache matches the pruned
+# store.
+
+- name: Probe for a Kubernetes cluster on the host
+  ansible.builtin.command:
+    cmd: kubectl get nodes -o name
+  register: _prune_k8s
+  changed_when: false
+  failed_when: false
+
+- name: Fail when the host has no Kubernetes cluster
+  ansible.builtin.fail:
+    msg: >-
+      canasta image prune targets the in-cluster registry of a Kubernetes
+      host, and no cluster was found here.
+  when: _prune_k8s.rc != 0
+
+- name: Check the in-cluster registry is deployed
+  ansible.builtin.command:
+    cmd: kubectl -n canasta-registry get deploy/registry -o name
+  register: _prune_reg
+  changed_when: false
+  failed_when: false
+
+- name: Report when there is no registry to prune
+  ansible.builtin.debug:
+    msg: >-
+      No in-cluster registry is deployed on this cluster; nothing to
+      prune. (It is created by k8s-cp install, create --build-from, or
+      image push.)
+  when: _prune_reg.rc != 0
+
+# Re-apply the registry manifests before pruning so a registry deployed
+# by an older CLI picks up spec fixes (e.g. the Recreate strategy the
+# restart below depends on) instead of deadlocking its rollout.
+- name: Ensure the registry manifests are current
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml
+  when: _prune_reg.rc == 0
+
+- name: Garbage-collect manifests no tag references, and their layers
+  ansible.builtin.command:
+    cmd: >-
+      kubectl -n canasta-registry exec deploy/registry --
+      registry garbage-collect --delete-untagged
+      /etc/docker/registry/config.yml
+  register: _prune_gc
+  changed_when: true
+  when: _prune_reg.rc == 0
+
+# The running registry caches blob existence in memory; after an
+# on-disk GC it can serve stale metadata and reject re-pushes of
+# deleted blobs. A restart re-reads the pruned store.
+- name: Restart the registry
+  ansible.builtin.command:
+    cmd: kubectl -n canasta-registry rollout restart deploy/registry
+  changed_when: true
+  when: _prune_reg.rc == 0
+
+- name: Wait for the registry to come back
+  ansible.builtin.command:
+    cmd: >-
+      kubectl -n canasta-registry rollout status deploy/registry
+      --timeout=180s
+  changed_when: false
+  when: _prune_reg.rc == 0
+
+- name: Report the prune result
+  ansible.builtin.debug:
+    msg: >-
+      {{ (_prune_gc.stdout_lines | default([])
+          | select('search', 'eligible for deletion|blobs marked')
+          | list)
+         or ['Garbage collection completed.'] }}
+  when: _prune_reg.rc == 0

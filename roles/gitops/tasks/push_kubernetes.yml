@@ -14,6 +14,36 @@
 - name: Sync config files
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_config.yml"
 
+# --- Version gitops-managed Secrets into git as SOPS-encrypted manifests.
+# Self-describing: a .sops.yaml at the repo root (written by gitops init
+# --encrypt-secrets) is the marker that this instance encrypts its Secrets, so
+# push needs no flag of its own. Git becomes the source of truth for the
+# Secrets Argo renders. ---
+- name: Check whether the instance uses SOPS secret encryption
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.sops.yaml"
+  register: _push_sops_marker
+
+- name: Version gitops-managed Secrets with SOPS
+  when: _push_sops_marker.stat.exists
+  block:
+    - name: Resolve gitops host name
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/.gitops-host"
+      register: _push_host_file
+
+    - name: Set gitops host name
+      ansible.builtin.set_fact:
+        host_name: "{{ _push_host_file.content | b64decode | trim }}"
+
+    - name: Encrypt Secrets into git
+      ansible.builtin.include_tasks: _write_sops_secrets.yml
+
+- name: Render sidecars to Helm values
+  canasta_render_sidecars:
+    instance_path: "{{ instance_path }}"
+    orchestrator: kubernetes
+
 - name: Read values.yaml from remote
   ansible.builtin.slurp:
     src: "{{ instance_path }}/values.yaml"
@@ -24,12 +54,28 @@
     src: "{{ instance_path }}/values-configdata.yaml"
   register: _push_configdata
 
-- name: Merge configData into values.yaml for git
-  ansible.builtin.copy:
-    content: >-
+- name: Read values-sidecars.yaml from remote
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values-sidecars.yaml"
+  register: _push_sidecars
+
+# values-configdata.yaml (configData, appSecretEnv) and values-sidecars.yaml
+# (sidecars) are complete, freshly-rebuilt snapshots that fully own those
+# keys. Merge them NON-recursively so each one REPLACES the copy already baked
+# into values.yaml by the previous push. A recursive merge would union the
+# configData maps instead, so a settings/caddy/crowdsec file deleted from the
+# instance dir would keep its stale ConfigMap key in the committed values.yaml
+# — and Argo CD would keep rendering it into the running config — forever.
+- name: Merge fresh configData + sidecars over the persisted values
+  ansible.builtin.set_fact:
+    _push_merged_values: >-
       {{ _push_values.content | b64decode | from_yaml
-         | combine(_push_configdata.content | b64decode | from_yaml, recursive=True)
-         | to_nice_yaml(indent=2) }}
+         | combine(_push_configdata.content | b64decode | from_yaml)
+         | combine(_push_sidecars.content | b64decode | from_yaml) }}
+
+- name: Merge configData + sidecars into values.yaml for git
+  ansible.builtin.copy:
+    content: "{{ _push_merged_values | to_nice_yaml(indent=2) }}"
     dest: "{{ instance_path }}/values.yaml"
     mode: "0644"
 
@@ -42,10 +88,7 @@
 
 - name: Update values.template.yaml from current values
   ansible.builtin.copy:
-    content: >-
-      {{ _push_values.content | b64decode | from_yaml
-         | combine(_push_configdata.content | b64decode | from_yaml, recursive=True)
-         | to_nice_yaml(indent=2) }}
+    content: "{{ _push_merged_values | to_nice_yaml(indent=2) }}"
     dest: "{{ instance_path }}/values.template.yaml"
     mode: "0644"
   when: _push_template_check.stat.exists
@@ -68,24 +111,44 @@
   changed_when: false
   ignore_errors: true
 
-- name: Commit and push
+- name: Commit staged changes
+  ansible.builtin.command:
+    cmd: "git -c commit.gpgsign=false commit -m 'Configuration update'"
+    chdir: "{{ instance_path }}"
   when: _git_staged.rc != 0
-  block:
-    - name: Commit changes
-      ansible.builtin.command:
-        cmd: "git -c commit.gpgsign=false commit -m 'Configuration update'"
-        chdir: "{{ instance_path }}"
-      changed_when: true
+  changed_when: true
 
-    - name: Push to remote
-      ansible.builtin.command:
-        cmd: "git push"
-        chdir: "{{ instance_path }}"
-      changed_when: true
+# Push whenever the local branch is ahead of its upstream — this run's commit
+# OR a commit left behind by an earlier push whose `git push` failed after the
+# commit (a transient drop / SSH reset). Gating the push on freshly-staged
+# changes alone stranded that earlier commit: the next push staged nothing, so
+# it never retried and the config was silently never published.
+- name: Count commits not yet pushed
+  ansible.builtin.command:
+    cmd: "git rev-list --count @{u}..HEAD"
+    chdir: "{{ instance_path }}"
+  register: _unpushed
+  changed_when: false
+  failed_when: false
+
+# Authenticate with the staged deploy key (or --ssh-key), like init/join — not
+# the ambient ssh/agent, which isn't present on every gitops host (a joined
+# host authenticates only via its .gitops-deploy-key).
+- name: Push to remote
+  ansible.builtin.command:
+    cmd: "git push"
+    chdir: "{{ instance_path }}"
+  when: (_unpushed.stdout | default('0', true) | int) > 0
+  environment:
+    GIT_SSH_COMMAND: >-
+      ssh -i {{ ssh_key | default(instance_path + '/.gitops-deploy-key', true) }}
+      -o StrictHostKeyChecking=accept-new
+      -o UserKnownHostsFile=~/.ssh/known_hosts
+  changed_when: true
 
 - name: Report result
   ansible.builtin.debug:
     msg: >-
-      {{ (_git_staged.rc != 0)
+      {{ ((_unpushed.stdout | default('0', true) | int) > 0)
          | ternary('Configuration pushed. Argo CD will sync shortly.',
                    'No changes to push.') }}

@@ -2,13 +2,20 @@
 # Uninstall the Canasta Helm release and clean up.
 # Input: instance_id, _k8s_namespace
 
+# No --wait: helm uninstall removes the release record and triggers resource
+# deletion; the namespace delete below waits for full teardown. With --wait,
+# on a multi-node NFS instance the uninstall could exceed its async window
+# (slow pod termination / NFS unmount) and the timed-out async_status task
+# would abort the whole delete BEFORE the namespace was removed — leaking the
+# namespace + PVCs while the instance was already deregistered. rx_fail is
+# false because uninstalling an already-absent release returns non-zero.
 - name: Uninstall Canasta Helm release
-  kubernetes.core.helm:
-    name: "canasta-{{ instance_id }}"
-    release_namespace: "{{ _k8s_namespace }}"
-    state: absent
-    wait: true
-  ignore_errors: true  # OK if release already uninstalled
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+  vars:
+    rx_name: "uninstall Helm release canasta-{{ instance_id }}"
+    rx_async: 120
+    rx_fail: false
+    rx_cmd: "helm uninstall canasta-{{ instance_id }} -n {{ _k8s_namespace }}"
 
 - name: Delete Ansible-managed resources
   kubernetes.core.k8s:
@@ -26,17 +33,27 @@
     - { kind: ConfigMap, name: "canasta-{{ instance_id }}-db-config" }
   ignore_errors: true  # OK if resources already deleted
 
-- name: Delete namespace
-  kubernetes.core.k8s:
-    state: absent
-    api_version: v1
-    kind: Namespace
-    name: "{{ _k8s_namespace }}"
-    # Wait for the namespace to fully terminate before delete returns.
-    # Without this, deletion is async and an immediate `canasta create`
-    # races the still-Terminating namespace and fails its stale-namespace
-    # guard. Namespace teardown (finalizers, PVC/pod cleanup) can take a
-    # while, so allow generous time.
-    wait: true
-    wait_timeout: 300
+# Request deletion without a held --wait, then poll until the namespace is
+# fully gone with short `kubectl get` calls. A single held `kubectl delete
+# --wait` (or wrapping one in an async window) aborts the whole delete when
+# termination is slow — e.g. NFS PVC/pod cleanup on a multi-node cluster —
+# leaving the namespace behind. Polling tolerates a slow teardown and a
+# transient SSH reset (each poll is a brief connection). We still wait for
+# full termination so an immediate same-id re-create doesn't race the stale
+# Terminating namespace. --ignore-not-found keeps the request idempotent.
+- name: Request namespace deletion
+  ansible.builtin.command:
+    cmd: "kubectl delete namespace {{ _k8s_namespace }} --ignore-not-found=true --wait=false"
+  changed_when: true
+  when: delete_namespace | default(true) | bool
+
+- name: Wait for namespace to be fully gone
+  ansible.builtin.command:
+    cmd: "kubectl get namespace {{ _k8s_namespace }} -o name"
+  register: _ns_gone
+  changed_when: false
+  failed_when: false
+  retries: 120
+  delay: 5
+  until: _ns_gone.rc != 0
   when: delete_namespace | default(true) | bool

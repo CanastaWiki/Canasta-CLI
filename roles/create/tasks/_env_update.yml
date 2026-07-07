@@ -55,6 +55,18 @@
     - { key: "CANASTA_IMAGE", value: "{{ _base_image }}" }
   no_log: true
 
+# Pin the literal bridge-gateway IP for podman < 4.4, which can't resolve
+# the "host-gateway" magic value in docker-compose.yml's extra_hosts. The
+# fact is only set (non-empty) by the orchestrator create_preflight on
+# such hosts, so this is naturally a no-op for Docker and podman >= 4.4.
+- name: Pin HOST_GATEWAY for podman < 4.4
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: HOST_GATEWAY
+    value: "{{ _host_gateway_fallback }}"
+  when: _host_gateway_fallback | default('') | length > 0
+
 - name: Set WIKI_DB_PASSWORD for non-root user
   canasta_env:
     path: "{{ instance_path }}/.env"
@@ -102,11 +114,29 @@
       {{ (_ext_db_check.found and _ext_db_check.value | lower == 'true')
          | ternary('', 'internal-db') }}
 
+# --skip-install only makes sense against an external database that was
+# provisioned separately and already holds a MediaWiki schema. The bundled
+# database starts from an empty volume, so skipping install.php there would
+# leave the wiki with no tables.
+- name: Fail if --skip-install without USE_EXTERNAL_DB
+  ansible.builtin.fail:
+    msg: >-
+      --skip-install requires USE_EXTERNAL_DB=true. Point the instance at
+      an external database that already has a MediaWiki schema by setting
+      USE_EXTERNAL_DB=true and MYSQL_HOST in your env file (-e).
+  when:
+    - skip_install | default(false) | bool
+    - not (_ext_db_check.found and _ext_db_check.value | lower == 'true')
+
 # Generate a placeholder MW_SECRET_KEY so docker compose variable substitution
 # doesn't warn about it being empty during the first 'docker compose up'.
 # install.php later replaces this with the key from LocalSettings.php,
-# or the import-database path regenerates it.
+# or the import-database path regenerates it. A MW_SECRET_KEY supplied in the
+# -e envfile is preserved (not overwritten) so a --skip-install reconnect to
+# an existing wiki keeps its existing sessions valid.
 - name: Generate initial MW_SECRET_KEY
   ansible.builtin.include_role:
     name: mediawiki
     tasks_from: generate_secret_key.yml
+  vars:
+    secret_key_preserve_existing: true

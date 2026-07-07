@@ -1,7 +1,6 @@
 """gitops status, gitops diff commands."""
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -50,8 +49,55 @@ def _gitops_status_script(path, ssh_key=None):
         "git diff --name-only 2>/dev/null; "
         "echo '%(d)s'; "
         "git fetch 2>/dev/null; "
-        "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'"
+        "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'; "
+        "echo '%(d)s'; "
+        "cat config/wikis.yaml 2>/dev/null; "
+        "echo '%(d)s'; "
+        "cat wikis.yaml.template 2>/dev/null; "
+        "echo '%(d)s'; "
+        # Untracked files, parsed from porcelain '?? ' lines below. Uses
+        # `git status` (not `git ls-files --directory`, which over-reports
+        # dirs whose contents are all ignored and mishandles submodules) so
+        # it matches what `git status` shows exactly.
+        "git status --porcelain 2>/dev/null"
     ) % {"p": qp, "d": d, "ssh": _git_ssh_env_prefix(ssh_key)}
+
+
+_URL_LINE_RE = re.compile(r"^[ \t]*url:.*$", re.MULTILINE)
+
+
+def _wikis_uncaptured_edit(live_raw, tmpl_raw):
+    """True if config/wikis.yaml has literal edits not yet in the template.
+
+    config/wikis.yaml is rendered from wikis.yaml.template, so a direct
+    edit to a literal field (e.g. a wiki's display name) is gitignored and
+    invisible to git status until 'gitops add' reconciles it. Compare the
+    two per wiki id, ignoring the host-specific url (a {{placeholder}} in
+    the template), so the advisory fires only on a genuine uncaptured edit.
+    Returns False when either file is absent or unparseable (e.g. non-gitops
+    or K8s gitops, which has no wikis.yaml.template).
+    """
+    if not (live_raw or "").strip() or not (tmpl_raw or "").strip():
+        return False
+    # The template's `url:` lines hold {{placeholder}} values that are not
+    # valid YAML, so strip url lines from both before parsing. url is
+    # host-specific and excluded from the comparison anyway.
+    live_clean = _URL_LINE_RE.sub("", live_raw)
+    tmpl_clean = _URL_LINE_RE.sub("", tmpl_raw)
+    try:
+        live = yaml.safe_load(live_clean) or {}
+        tmpl = yaml.safe_load(tmpl_clean) or {}
+    except yaml.YAMLError:
+        return False
+
+    def _by_id(doc):
+        out = {}
+        for w in (doc.get("wikis") or []) if isinstance(doc, dict) else []:
+            if isinstance(w, dict) and "id" in w:
+                out[w["id"]] = {k: v for k, v in w.items() if k != "url"}
+        return out
+
+    return _by_id(live) != _by_id(tmpl)
 
 
 def _parse_gitops_status(stdout, instance_id):
@@ -83,12 +129,39 @@ def _parse_gitops_status(stdout, instance_id):
     staged = staged_raw.split("\n") if staged_raw else []
     unstaged = unstaged_raw.split("\n") if unstaged_raw else []
 
+    live_wikis_raw = parts[7] if len(parts) > 7 else ""
+    tmpl_wikis_raw = parts[8] if len(parts) > 8 else ""
+    wikis_drift = _wikis_uncaptured_edit(live_wikis_raw, tmpl_wikis_raw)
+
+    # parts[9] is `git status --porcelain`; untracked entries are the
+    # '?? <path>' lines (staged/modified come from git diff above).
+    status_raw = parts[9].strip() if len(parts) > 9 else ""
+    untracked = [
+        ln[3:] for ln in status_raw.split("\n")
+        if ln.startswith("?? ")
+    ]
+
     try:
         revcount_parts = revcount_raw.split("\t")
         ahead = int(revcount_parts[0])
         behind = int(revcount_parts[1]) if len(revcount_parts) > 1 else 0
     except (ValueError, IndexError):
         ahead, behind = 0, 0
+
+    # No .gitops-host marker and no git repository means the instance is simply
+    # not under GitOps management. Reporting "No changes / Up to date with
+    # remote" here would falsely imply a healthy, in-sync managed instance —
+    # there is no remote to be in sync with.
+    if hostname == "unknown" and commit == "none":
+        return "\n".join([
+            "Canasta ID:     %s" % instance_id,
+            "GitOps:         not configured for this instance.",
+            "",
+            "This instance is not under GitOps management (no .gitops-host "
+            "marker and no git repository).",
+            "Set it up with 'canasta gitops init' (new repo) or "
+            "'canasta gitops join' (existing repo).",
+        ])
 
     lines = [
         "Host:           %s" % hostname,
@@ -112,7 +185,24 @@ def _parse_gitops_status(stdout, instance_id):
             lines.append("  %s" % f)
         lines.append("")
 
-    if not staged and not unstaged:
+    if untracked:
+        lines.append("Untracked files (%d):" % len(untracked))
+        for f in untracked:
+            lines.append("  %s" % f)
+        lines.append(
+            "  capture with 'canasta gitops add <file>' (or add to .gitignore)."
+        )
+        lines.append("")
+
+    if wikis_drift:
+        lines.append("Uncaptured config/wikis.yaml edits (e.g. wiki display name):")
+        lines.append(
+            "  run 'canasta gitops add config/wikis.yaml' to capture and "
+            "stage them."
+        )
+        lines.append("")
+
+    if not staged and not unstaged and not untracked and not wikis_drift:
         lines.append("No changes.")
         lines.append("")
 
@@ -126,26 +216,39 @@ def _parse_gitops_status(stdout, instance_id):
     return "\n".join(lines)
 
 
-def _gitops_argocd_status(instance_id):
+def _gitops_argocd_status(instance_id, host="localhost"):
     """Query Argo CD Application for this instance; return parsed status.
 
     Returns a tuple (sync_status, health, last_sync, revision). Falls
     back to 'Not registered' / 'N/A' sentinels when Argo CD isn't
     installed or no Application exists — matches the Ansible path's
     behavior for K8s instances without Argo CD.
+
+    For remote hosts, SSH and run kubectl on the host — its kubeconfig
+    points at the cluster it's part of. Running kubectl on the laptop
+    would query whatever the laptop's kubeconfig points at, reporting
+    'Not registered' for instances that are actually Synced.
     """
-    try:
-        result = subprocess.run(
-            ["kubectl", "get", "application", "canasta-%s" % instance_id,
-             "-n", "argocd", "-o", "json"],
-            capture_output=True, text=True, timeout=10,
+    if _helpers._is_localhost(host):
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "application", "canasta-%s" % instance_id,
+                 "-n", "argocd", "-o", "json"],
+                capture_output=True, text=True, timeout=10,
+            )
+            rc, stdout = result.returncode, result.stdout
+        except (subprocess.TimeoutExpired, OSError):
+            return ("Not registered", "N/A", "never", "unknown")
+    else:
+        rc, stdout = _helpers._ssh_run(
+            host,
+            "kubectl get application canasta-%s -n argocd -o json"
+            % instance_id,
         )
-    except (subprocess.TimeoutExpired, OSError):
-        return ("Not registered", "N/A", "never", "unknown")
-    if result.returncode != 0:
+    if rc != 0:
         return ("Not registered", "N/A", "never", "unknown")
     try:
-        app = json.loads(result.stdout)
+        app = json.loads(stdout)
     except ValueError:
         return ("Unknown", "Unknown", "never", "unknown")
     status = app.get("status") or {}
@@ -223,7 +326,7 @@ def cmd_gitops_status(args):
             return 1
 
     if orchestrator in ("kubernetes", "k8s"):
-        argocd = _gitops_argocd_status(inst_id)
+        argocd = _gitops_argocd_status(inst_id, host)
         print(_parse_gitops_status_k8s(stdout, inst_id, argocd))
     else:
         print(_parse_gitops_status(stdout, inst_id))
