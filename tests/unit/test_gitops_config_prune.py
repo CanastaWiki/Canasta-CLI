@@ -33,7 +33,7 @@ def _tasks():
 def _merge_task():
     task = next(
         t for t in _tasks()
-        if t.get("name") == "Merge fresh configData + sidecars over the persisted values"
+        if "Merge fresh configData" in (t.get("name") or "")
     )
     return task["ansible.builtin.set_fact"]["_push_merged_values"]
 
@@ -41,15 +41,16 @@ def _merge_task():
 def test_merge_is_not_recursive():
     # A recursive combine unions the configData maps and never drops a key, so
     # a deleted settings file lingers in the committed values.yaml. Guard
-    # against recursive=True creeping back into either combine.
+    # against recursive=True creeping back into any combine.
     expr = _merge_task()
     assert "recursive=True" not in expr and "recursive = True" not in expr, (
         "the configData/sidecars merge must be non-recursive so the fresh "
         "values-configdata.yaml replaces (not unions) the persisted configData"
     )
-    assert expr.count("combine(") == 2, (
-        "expected the merge to combine both values-configdata and "
-        "values-sidecars over the persisted values"
+    # configData + sidecars + derived domains, each replacing non-recursively.
+    assert expr.count("combine(") == 3, (
+        "expected the merge to combine values-configdata, values-sidecars, "
+        "and the derived domains over the persisted values"
     )
 
 

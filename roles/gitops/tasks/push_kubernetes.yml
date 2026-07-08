@@ -59,19 +59,42 @@
     src: "{{ instance_path }}/values-sidecars.yaml"
   register: _push_sidecars
 
-# values-configdata.yaml (configData, appSecretEnv) and values-sidecars.yaml
-# (sidecars) are complete, freshly-rebuilt snapshots that fully own those
-# keys. Merge them NON-recursively so each one REPLACES the copy already baked
-# into values.yaml by the previous push. A recursive merge would union the
-# configData maps instead, so a settings/caddy/crowdsec file deleted from the
-# instance dir would keep its stale ConfigMap key in the committed values.yaml
-# — and Argo CD would keep rendering it into the running config — forever.
-- name: Merge fresh configData + sidecars over the persisted values
+# Derive the ingress domains from the farm's wiki URLs (union extraDomains) so
+# the committed rendered values route exactly the wikis' hostnames — the same
+# derivation helm_deploy.yml applies on a direct deploy, done here so a
+# GitOps-managed instance (deployed by Argo from rendered-values.yaml) stays in
+# sync. Falls back to the persisted domains when wikis.yaml is absent/empty.
+- name: Read wikis.yaml for ingress-domain derivation
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/wikis.yaml"
+  register: _push_wikis_raw
+  failed_when: false
+
+- name: Derive ingress domains from wiki URLs
+  ansible.builtin.set_fact:
+    _push_wiki_hosts: >-
+      {{ ((_push_wikis_raw.content | default('') | b64decode | from_yaml)
+          | default({}, true)).wikis | default([])
+         | map(attribute='url')
+         | map('regex_replace', '/.*$', '')
+         | map('regex_replace', ':[0-9]+$', '')
+         | select | list }}
+    _push_base_values: "{{ _push_values.content | b64decode | from_yaml }}"
+
+# configData + sidecars are complete, freshly-rebuilt snapshots that fully own
+# their keys — merge NON-recursively so each REPLACES the copy already in
+# values.yaml (a recursive merge would keep stale keys from deleted files
+# forever). The derived domains list likewise replaces the persisted one.
+- name: Merge fresh configData + sidecars + derived domains over the values
   ansible.builtin.set_fact:
     _push_merged_values: >-
-      {{ _push_values.content | b64decode | from_yaml
+      {{ _push_base_values
          | combine(_push_configdata.content | b64decode | from_yaml)
-         | combine(_push_sidecars.content | b64decode | from_yaml) }}
+         | combine(_push_sidecars.content | b64decode | from_yaml)
+         | combine({'domains': (_push_wiki_hosts
+                                + (_push_base_values.extraDomains | default([])))
+                               | unique}
+                   if (_push_wiki_hosts | length) > 0 else {}) }}
 
 - name: Merge configData + sidecars into values.yaml for git
   ansible.builtin.copy:
