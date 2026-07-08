@@ -145,6 +145,14 @@
               - sh
               - -c
               - |
+                # Full restore: empty the images PVC (mounted at
+                # /currentsnapshot/images) first so it exactly matches the
+                # snapshot. Single-wiki restore must NOT — the PVC is shared
+                # across the farm's wikis and restic's --include already scopes
+                # the write to just this wiki's subdir.
+                {% if wiki is not defined %}
+                rm -rf /currentsnapshot/images/* /currentsnapshot/images/.[!.]* 2>/dev/null || true
+                {% endif %}
                 # Capture restic's rc + output so the controller can tell a
                 # real failure (restic prints "Fatal:") from the benign exit 1
                 # on EBS-backed PVCs whose selinux xattrs the overlay fs
@@ -270,10 +278,17 @@
           '{{ wiki }}' (no db_{{ wiki }}.sql). Nothing to restore.
       when: _restore_k8s_wiki_present.rc != 0
 
+# Clear config/ first so a full restore exactly matches the snapshot: a plain
+# tar-overlay leaves create-seeded files the source deleted (e.g. a removed
+# config/settings/global/*.php) in place, silently drifting config from the
+# source. .env lives outside config/ (restored separately below), and the
+# Caddyfile is regenerated post-restore, so clearing config/ is safe.
 - name: Copy restored config to host
   when: wiki is not defined
   ansible.builtin.shell:
     cmd: >-
+      rm -rf "{{ instance_path }}/config";
+      mkdir -p "{{ instance_path }}/config";
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
       tar cf - -C /currentsnapshot/config . 2>/dev/null |
       tar xf - -C "{{ instance_path }}/config/"
@@ -314,14 +329,20 @@
 # has no host source of truth and is restored straight into its PVC above.)
 # `set -o pipefail` so a broken restic-restore side of the pipe fails loudly;
 # the `test -d` guard skips a dir absent from an older snapshot.
+# Clear each dir first so a full restore exactly matches the snapshot (as the
+# single-wiki public_assets path below already does): a plain overlay leaves
+# create-seeded/source-deleted files behind, and the host->PVC sync then mirrors
+# that drift into the PVC. If the dir is absent from the snapshot, the target
+# ends up empty — the correct exact-match result.
 - name: Restore extensions/skins/public_assets to host
   when: wiki is not defined
   ansible.builtin.shell:
     cmd: >-
       set -o pipefail;
+      rm -rf "{{ instance_path }}/{{ item }}";
+      mkdir -p "{{ instance_path }}/{{ item }}";
       if kubectl exec -n {{ _k8s_namespace }} restic-restore --
       test -d /currentsnapshot/{{ item }}; then
-      mkdir -p "{{ instance_path }}/{{ item }}";
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
       tar cf - -C /currentsnapshot/{{ item }} . |
       tar xf - -C "{{ instance_path }}/{{ item }}/";
