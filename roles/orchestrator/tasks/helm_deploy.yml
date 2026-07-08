@@ -11,6 +11,58 @@
     dest: "{{ instance_path }}/_chart/"
     mode: preserve
 
+# Auto-derive the ingress domains from the farm's wiki URLs so the Ingress
+# always routes exactly the wikis' hostnames — no manual values.yaml upkeep
+# (adding a wiki, or restoring a farm, updates the Ingress automatically). The
+# result is written as a -f override applied AFTER values.yaml below, so it
+# replaces the domains list (helm is last-wins for lists) on every deploy.
+# An operator escape hatch, extraDomains in values.yaml, is unioned in for any
+# non-wiki hostname. Falls back to the existing values.yaml domains when
+# wikis.yaml is absent/empty, so a bare instance is unaffected.
+- name: Read wikis.yaml for ingress-domain derivation
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/wikis.yaml"
+  register: _hd_wikis_raw
+  failed_when: false
+
+- name: Read values.yaml for extraDomains + existing domains
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _hd_values_raw
+  failed_when: false
+
+- name: Derive ingress domains from wiki URLs + extraDomains
+  ansible.builtin.set_fact:
+    _hd_wiki_hosts: >-
+      {{ ((_hd_wikis_raw.content | default('') | b64decode | from_yaml)
+          | default({}, true)).wikis | default([])
+         | map(attribute='url')
+         | map('regex_replace', '/.*$', '')
+         | map('regex_replace', ':[0-9]+$', '')
+         | select | list }}
+    _hd_values: >-
+      {{ (_hd_values_raw.content | default('') | b64decode | from_yaml)
+         | default({}, true) }}
+
+- name: Compute final ingress domains
+  ansible.builtin.set_fact:
+    _hd_domains: >-
+      {{ ((_hd_wiki_hosts + (_hd_values.extraDomains | default([]))) | unique)
+         if (_hd_wiki_hosts | length) > 0
+         else (_hd_values.domains | default([])) }}
+
+- name: Write derived ingress-domains override
+  ansible.builtin.copy:
+    content: "{{ {'domains': _hd_domains} | to_nice_yaml(indent=2) }}"
+    dest: "{{ instance_path }}/values-domains.yaml"
+    mode: "0644"
+  when: _hd_domains | length > 0
+
+- name: Check for derived domains file
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/values-domains.yaml"
+  register: _domains_file
+
 - name: Check for configData values file
   ansible.builtin.stat:
     path: "{{ instance_path }}/values-configdata.yaml"
@@ -39,6 +91,8 @@
          | ternary('-f ' ~ instance_path ~ '/values-configdata.yaml', '') }}
       {{ (_sidecars_file.stat.exists | default(false))
          | ternary('-f ' ~ instance_path ~ '/values-sidecars.yaml', '') }}
+      {{ (_domains_file.stat.exists | default(false))
+         | ternary('-f ' ~ instance_path ~ '/values-domains.yaml', '') }}
       {{ (helm_reset_values | default(true) | bool)
          | ternary('--reset-values', '') }}
       {{ (helm_wait | default(true) | bool)
