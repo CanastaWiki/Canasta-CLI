@@ -16,7 +16,15 @@
 
 - name: Determine Caddyfile parameters
   ansible.builtin.set_fact:
-    _http_only: "{{ _env_caddy.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off' }}"
+    # On K8s the ingress (Traefik) terminates TLS and forwards plain HTTP to
+    # Caddy, so Caddy must serve HTTP-only with no HTTP->HTTPS redirect — else
+    # it loops behind the ingress (sees HTTP, redirects to HTTPS, ingress
+    # terminates, forwards HTTP, ...). Force http-only on K8s regardless of
+    # CADDY_AUTO_HTTPS, which a cross-orchestrator restore can leave unset/on.
+    # Compose (where Caddy is the TLS edge) keeps the .env-driven behavior.
+    _http_only: >-
+      {{ (instance_orchestrator | default('compose') in ['kubernetes', 'k8s'])
+         or (_env_caddy.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off') }}
     _observable: "{{ _env_caddy.variables.CANASTA_ENABLE_OBSERVABILITY | default('false') | lower == 'true' }}"
     _varnish_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true' }}"
     _staging_certs: "{{ _env_caddy.variables.CANASTA_STAGING_CERTS | default('false') | lower == 'true' }}"
