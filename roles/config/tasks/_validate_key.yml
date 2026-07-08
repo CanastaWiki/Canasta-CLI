@@ -68,6 +68,24 @@
     - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
     - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
 
+# CADDY_AUTO_HTTPS is Compose-only for the same reasons as the ports above.
+# On Kubernetes the Ingress terminates TLS and Caddy always runs behind it in
+# http-only mode (rewrite_caddy.yml forces this), so the value has no effect.
+# And its _side_effects.yml scheme handler carries no orchestrator guard, so on
+# K8s it would rewrite MW_SITE_SERVER to http:// (a scheme nothing serves).
+- name: Block CADDY_AUTO_HTTPS on Kubernetes (Ingress terminates TLS)
+  ansible.builtin.fail:
+    msg: |
+      'CADDY_AUTO_HTTPS' cannot be set via 'canasta config set' on a
+      Kubernetes instance. The Ingress terminates TLS and Caddy always
+      runs behind it in http-only mode, so this value has no effect.
+
+      TLS for a Kubernetes instance is handled by the Ingress and
+      cert-manager, not by Caddy.
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - _config_key == 'CADDY_AUTO_HTTPS'
+
 - name: Check if key is recognized
   ansible.builtin.fail:
     msg: >-
