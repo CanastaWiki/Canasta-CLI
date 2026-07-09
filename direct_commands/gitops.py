@@ -65,6 +65,11 @@ def _gitops_status_script(path, ssh_key=None):
 
 _URL_LINE_RE = re.compile(r"^[ \t]*url:.*$", re.MULTILINE)
 
+# Untracked files that gitops manages and must be committed, never gitignored.
+# gitops init commits hosts.yaml; gitops push reads it for each host's role,
+# and other hosts pull it — ignoring it would break topology resolution.
+_MANAGED_UNTRACKED_FILES = {"hosts/hosts.yaml"}
+
 
 def _wikis_uncaptured_edit(live_raw, tmpl_raw):
     """True if config/wikis.yaml has literal edits not yet in the template.
@@ -145,7 +150,20 @@ def _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift):
                 "  for wikis.yaml.template, run "
                 "'canasta gitops add config/wikis.yaml'."
             )
-        if any(f != "wikis.yaml.template" for f in untracked):
+        # Managed gitops files (e.g. hosts.yaml, read by push to resolve each
+        # host's role) must be tracked, never gitignored — so they get
+        # add-only guidance, not the generic "or add to .gitignore" hint.
+        managed = [f for f in untracked if f in _MANAGED_UNTRACKED_FILES]
+        for f in managed:
+            lines.append(
+                "  %s is a managed gitops file; run "
+                "'canasta gitops add %s' to track it." % (f, f)
+            )
+        others = [
+            f for f in untracked
+            if f != "wikis.yaml.template" and f not in _MANAGED_UNTRACKED_FILES
+        ]
+        if others:
             lines.append(
                 "  capture with 'canasta gitops add <file>' "
                 "(or add to .gitignore)."
