@@ -33,6 +33,10 @@ images/
 # Runtime state (e.g. Semantic MediaWiki rebuild status)
 config/persistent/
 
+# Legacy SMW state location (pre-CanastaBase 1.2.1, before .smw.json moved
+# to config/persistent/); ignore any orphan left on migrated instances
+config/.smw.json
+
 # Editor / tooling backup files
 *.bak
 *.bak.*
