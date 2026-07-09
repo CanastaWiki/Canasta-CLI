@@ -34,6 +34,16 @@
         dest: "{{ instance_path }}/hosts/hosts.yaml"
         mode: "0644"
 
+    # hosts.yaml is a managed gitops file (gitops init commits it; gitops
+    # push reads it for each host's role). Stage it so the next 'gitops
+    # push' commits it — without this it lingers untracked forever and
+    # never reaches the remote for other hosts to pull.
+    - name: Stage hosts.yaml for the next gitops push
+      ansible.builtin.command:
+        cmd: "git add hosts/hosts.yaml"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
     - name: Report backfill
       ansible.builtin.debug:
         msg: >-
@@ -41,4 +51,5 @@
           {{ _mig.host_dirs | length }} host(s):
           {{ _mig.host_dirs | join(', ') }}.
           Roles default to 'both'; edit hosts.yaml if any host should
-          be source-only or sink-only.
+          be source-only or sink-only, then run 'canasta gitops push'
+          to commit it.
