@@ -2195,16 +2195,34 @@ class TestParseGitopsStatus:
         assert "No changes." not in result
 
     def test_with_staged_files(self):
-        out = self._make_output(staged="config/.env\nconfig/wikis.yaml")
+        # git diff --name-status format: <CODE>\t<path>
+        out = self._make_output(
+            staged="M\tconfig/.env\nA\tconfig/wikis.yaml",
+        )
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Staged for push (2 files):" in result
-        assert "config/.env" in result
-        assert "config/wikis.yaml" in result
+        assert "modified: config/.env" in result
+        assert "new file: config/wikis.yaml" in result
 
     def test_with_unstaged_files(self):
-        out = self._make_output(unstaged="docker-compose.override.yml")
+        out = self._make_output(unstaged="M\tdocker-compose.override.yml")
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Unstaged changes (1 files):" in result
+        assert "modified: docker-compose.override.yml" in result
+
+    def test_staged_deletion_labeled(self):
+        # A staged deletion (e.g. after 'git rm --cached') must read as a
+        # removal, not as content being pushed.
+        out = self._make_output(staged="D\tconfig/.smw.json")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Staged for push (1 files):" in result
+        assert "deleted: config/.smw.json" in result
+
+    def test_renamed_file_shows_current_path(self):
+        # name-status rename lines are R<score>\t<old>\t<new>; show the new path.
+        out = self._make_output(staged="R100\told/name.php\tnew/name.php")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "renamed: new/name.php" in result
 
     def test_with_untracked_files(self):
         out = self._make_output(
