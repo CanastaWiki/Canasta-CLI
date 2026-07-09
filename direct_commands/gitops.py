@@ -44,9 +44,9 @@ def _gitops_status_script(path, ssh_key=None):
         "echo '%(d)s'; "
         "cat .gitops-applied 2>/dev/null || echo none; "
         "echo '%(d)s'; "
-        "git diff --cached --name-only 2>/dev/null; "
+        "git diff --cached --name-status 2>/dev/null; "
         "echo '%(d)s'; "
-        "git diff --name-only 2>/dev/null; "
+        "git diff --name-status 2>/dev/null; "
         "echo '%(d)s'; "
         "git fetch 2>/dev/null; "
         "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'; "
@@ -64,6 +64,30 @@ def _gitops_status_script(path, ssh_key=None):
 
 
 _URL_LINE_RE = re.compile(r"^[ \t]*url:.*$", re.MULTILINE)
+
+# git diff --name-status codes → human labels (git's own vocabulary), so a
+# staged/unstaged deletion doesn't read as content being pushed.
+_CHANGE_LABELS = {
+    "A": "new file", "M": "modified", "D": "deleted",
+    "R": "renamed", "C": "copied", "T": "typechange",
+}
+
+
+def _parse_name_status(raw):
+    """Parse `git diff --name-status` output into (label, path) pairs.
+
+    Each line is `<CODE>\\t<path>` (rename/copy is `<CODE>\\t<old>\\t<path>` —
+    take the last field for the current path). Unknown codes fall back to the
+    raw code so nothing is silently dropped."""
+    changes = []
+    for ln in raw.split("\n"):
+        if not ln.strip():
+            continue
+        fields = ln.split("\t")
+        code = fields[0][:1]
+        path = fields[-1]
+        changes.append((_CHANGE_LABELS.get(code, fields[0]), path))
+    return changes
 
 
 def _wikis_uncaptured_edit(live_raw, tmpl_raw):
@@ -107,8 +131,10 @@ def _parse_working_tree_changes(parts):
     and K8s formatters so their working-tree advisories can't diverge."""
     staged_raw = parts[4].strip() if len(parts) > 4 else ""
     unstaged_raw = parts[5].strip() if len(parts) > 5 else ""
-    staged = staged_raw.split("\n") if staged_raw else []
-    unstaged = unstaged_raw.split("\n") if unstaged_raw else []
+    # (label, path) pairs from git diff --name-status, so deletions render
+    # distinctly from adds/modifications.
+    staged = _parse_name_status(staged_raw)
+    unstaged = _parse_name_status(unstaged_raw)
 
     live_wikis_raw = parts[7] if len(parts) > 7 else ""
     tmpl_wikis_raw = parts[8] if len(parts) > 8 else ""
@@ -127,11 +153,11 @@ def _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift):
     lines = []
     if staged:
         lines.append("Staged for push (%d files):" % len(staged))
-        lines.extend("  %s" % f for f in staged)
+        lines.extend("  %s: %s" % (label, path) for label, path in staged)
         lines.append("")
     if unstaged:
         lines.append("Unstaged changes (%d files):" % len(unstaged))
-        lines.extend("  %s" % f for f in unstaged)
+        lines.extend("  %s: %s" % (label, path) for label, path in unstaged)
         lines.append("")
     if untracked:
         lines.append("Untracked files (%d):" % len(untracked))
