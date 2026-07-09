@@ -2233,6 +2233,8 @@ class TestParseGitopsStatus:
         assert "hosts/hosts.yaml" in result
         assert "public_assets/notes/" in result
         assert "canasta gitops add" in result
+        # A genuinely unmanaged untracked file keeps the gitignore option.
+        assert "add to .gitignore" in result
         # Untracked files mean there ARE changes — must not claim otherwise.
         assert "No changes." not in result
 
@@ -2244,13 +2246,20 @@ class TestParseGitopsStatus:
         assert "canasta gitops add config/wikis.yaml" in result
         assert "gitops add <file>" not in result
 
-    def test_untracked_mixed_shows_both_hints(self):
+    def test_untracked_managed_file_no_gitignore_hint(self):
+        # hosts/hosts.yaml is a managed gitops file (push reads it); the
+        # advisory must tell the user to track it, never to gitignore it.
         out = self._make_output(
             untracked="?? wikis.yaml.template\n?? hosts/hosts.yaml",
         )
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "canasta gitops add config/wikis.yaml" in result
-        assert "gitops add <file>" in result  # generic hint for hosts.yaml
+        assert "canasta gitops add hosts/hosts.yaml" in result
+        assert "managed gitops file" in result
+        # Only wikis.yaml.template and the managed file are untracked, so the
+        # generic gitignore hint must not appear at all.
+        assert "add to .gitignore" not in result
+        assert "gitops add <file>" not in result
 
     def test_untracked_does_not_break_clean_status(self):
         out = self._make_output(untracked="")

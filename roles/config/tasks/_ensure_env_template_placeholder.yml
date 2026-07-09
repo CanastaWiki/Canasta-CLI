@@ -21,3 +21,14 @@
     line: "{{ _ep_key }}={{ '{{' }}{{ _ep_key | lower }}{{ '}}' }}"
     state: present
   when: _ep_needs_placeholder
+  register: _ep_lineinfile
+
+# Stage env.template alongside the edit, matching _update_gitops_var.yml.
+# Without this, a placeholder added for a new credential key is left
+# unstaged and silently omitted from the next 'gitops push'.
+- name: Stage updated env.template
+  ansible.builtin.command:
+    cmd: "git add env.template"
+    chdir: "{{ instance_path }}"
+  when: _ep_needs_placeholder and _ep_lineinfile is changed
+  changed_when: true
