@@ -235,6 +235,15 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+# Materialize extensions/skins submodules so this host has the source of
+# truth on disk for the user-extensions / user-skins PVC sync.
+- name: Update submodules
+  ansible.builtin.command:
+    cmd: "git submodule update --init --recursive"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  ignore_errors: true  # OK if no submodules configured
+
 # --- Extract per-host vars from current values.yaml ---
 - name: Read current values.yaml
   ansible.builtin.slurp:

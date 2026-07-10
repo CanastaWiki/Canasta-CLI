@@ -409,10 +409,6 @@
       scripts/
       values-configdata.yaml
       values-sidecars.yaml
-      extensions/
-      skins/
-      public_assets/
-      wikis/
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 
@@ -501,6 +497,44 @@
     content: "{{ host_name }}"
     dest: "{{ instance_path }}/.gitops-host"
     mode: "0644"
+
+# --- Convert extensions/skins git repos to submodules ---
+# extensions/ and skins/ are the source of truth for the user-extensions
+# and user-skins PVCs (roles/orchestrator/tasks/k8s_sync_user_dirs.yml),
+# so they must be tracked. A loose git checkout under them is promoted to a
+# proper submodule (pinned to its current commit) — otherwise `git add -A`
+# below would record it as a bare gitlink whose files never get tracked.
+- name: Find git repos in extensions
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/extensions"
+    patterns: ".git"
+    file_type: directory
+    hidden: true
+    recurse: false
+    depth: 2
+  register: _ext_git_repos
+
+- name: Convert extension git repos to submodules
+  ansible.builtin.include_tasks: _convert_submodule.yml
+  loop: "{{ _ext_git_repos.files | map(attribute='path') | map('dirname') | list }}"
+  loop_control:
+    loop_var: _repo_path
+
+- name: Find git repos in skins
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/skins"
+    patterns: ".git"
+    file_type: directory
+    hidden: true
+    recurse: false
+    depth: 2
+  register: _skin_git_repos
+
+- name: Convert skin git repos to submodules
+  ansible.builtin.include_tasks: _convert_submodule.yml
+  loop: "{{ _skin_git_repos.files | map(attribute='path') | map('dirname') | list }}"
+  loop_control:
+    loop_var: _repo_path
 
 # --- Initial commit and push ---
 - name: Stage all files

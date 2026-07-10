@@ -54,6 +54,15 @@
   changed_when: false
   ignore_errors: true  # OK if no upstream configured
 
+# --- Submodule changes ---
+- name: Check submodule status
+  ansible.builtin.command:
+    cmd: git submodule status
+    chdir: "{{ instance_path }}"
+  register: _kdiff_submodules
+  changed_when: false
+  ignore_errors: true  # OK if no submodules configured
+
 # --- Argo CD live diff ---
 - name: Render Helm template to temp file
   ansible.builtin.command:
@@ -97,6 +106,13 @@
 
       Remote changes (would be applied on pull): {{ _kdiff_remote_names.stdout_lines | default([]) | length }} file(s)
       {{ _kdiff_remote.stdout | default('') }}
+      {% set subs = _kdiff_submodules.stdout_lines | default([]) | select('match', '^[+]') | list %}
+      {% if subs | length > 0 %}
+      Submodules with changes:
+      {% for s in subs %}
+        {{ s.split()[1] | default(s) }}
+      {% endfor %}
+      {% endif %}
       {% if _kdiff_cluster is defined and _kdiff_cluster.stdout | default('') | trim | length > 0 %}
 
       Live cluster diff (desired vs current):
