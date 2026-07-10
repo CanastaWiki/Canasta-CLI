@@ -11,6 +11,14 @@
   register: _git_pull
   changed_when: "'Already up to date' not in _git_pull.stdout"
 
+# Keep extensions/skins submodules in sync with the pulled pointers.
+- name: Update submodules
+  ansible.builtin.command:
+    cmd: "git submodule update --init --recursive"
+    chdir: "{{ instance_path }}"
+  changed_when: _git_pull.changed
+  ignore_errors: true  # OK if no submodules configured
+
 - name: Check for multi-env structure
   ansible.builtin.stat:
     path: "{{ instance_path }}/values.template.yaml"

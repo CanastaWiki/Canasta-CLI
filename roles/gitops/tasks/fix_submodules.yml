@@ -2,16 +2,10 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-# Input validation rejecting an operation that does not apply on K8s
-# (extensions are image-bundled, not git submodules) — no Compose-
-# equivalent action to dispatch to. Kept in place by design.
-- name: Not applicable for Kubernetes
-  ansible.builtin.fail:
-    msg: >-
-      'canasta gitops fix-submodules' is not applicable for the kubernetes
-      orchestrator. Extensions are bundled in the Canasta image rather than
-      managed as git submodules.
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+# Applies to both orchestrators. extensions/ and skins/ are tracked in the
+# gitops repo on Compose and on K8s (where they are also the source of truth
+# for the user-extensions / user-skins PVCs), so loose git checkouts must be
+# promoted to submodules on either.
 
 # --- Step 1: Convert any loose git repos in extensions/ and skins/ to submodules ---
 # This mirrors the logic gitops init runs, so extensions added after init

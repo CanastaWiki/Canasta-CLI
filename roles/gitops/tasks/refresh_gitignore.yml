@@ -38,3 +38,20 @@
         line: "{{ item }}"
         state: present
       loop: "{{ _gi_shipped_rules }}"
+
+    # Remove obsolete K8s ignore lines that wrongly excluded source-of-truth
+    # dirs from the gitops repo (extensions/, skins/, public_assets/ feed the
+    # PVCs; the unanchored `wikis/` also matched config/settings/wikis/). Older
+    # K8s repos carry these; drop them so the next `gitops push` tracks the
+    # files. No-op on Compose, which never wrote them. The base default still
+    # ignores public_assets/*/sitemap/, so generated sitemaps stay excluded.
+    - name: Remove obsolete K8s source-dir ignore lines
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/.gitignore"
+        regexp: "^{{ item }}/$"
+        state: absent
+      loop:
+        - extensions
+        - skins
+        - public_assets
+        - wikis
