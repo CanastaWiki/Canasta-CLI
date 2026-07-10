@@ -9,6 +9,16 @@ from . import _helpers
 from ._helpers import register
 
 
+# Shown when the script NAME (first token) isn't a valid maintenance path.
+# Arguments after the name are shell-quoted, not matched, so they may hold
+# any characters — spell that out to head off "my password has a $ in it".
+_INVALID_NAME_MSG = (
+    "Error: Invalid script name '%s'. The script name must be a path under "
+    "maintenance/ using only letters, digits, and the characters / . _ - : "
+    "\n(Arguments after the script name may contain any characters.)"
+)
+
+
 def _read_wiki_ids(inst):
     """Return the wiki IDs declared in the instance's config/wikis.yaml.
     Empty list if the file is missing or unparseable."""
@@ -56,42 +66,35 @@ def _resolve_wiki_targets(args, inst):
 @register("maintenance_script")
 def cmd_maintenance_script(args):
     inst_id, inst = _helpers._resolve_instance(args)
-    script_args = _helpers._normalize_script_args(args)
+    tokens = _helpers._script_arg_tokens(args)
 
     # No script name → list available scripts (closes #444).
-    if not script_args:
+    if not tokens:
         return _helpers._stream_in_container(
             inst_id, inst,
             "ls maintenance/*.php 2>/dev/null "
             "| sed 's|^maintenance/||' | sort",
         )
 
-    if not _helpers._MAINT_PATH_RE.match(script_args):
-        print(
-            "Error: Invalid script path '%s'. Must match pattern: "
-            "alphanumeric, slashes, dots, hyphens, colons." % script_args,
-            file=sys.stderr,
-        )
+    if not _helpers._MAINT_PATH_RE.match(tokens[0]):
+        print(_INVALID_NAME_MSG % tokens[0], file=sys.stderr)
         return 1
 
     wiki = getattr(args, "wiki", "") or ""
-    cmd = "php maintenance/run.php %s%s" % (
-        script_args,
-        " --wiki=%s" % _helpers._shell_quote(wiki) if wiki else "",
-    )
+    cmd = _helpers._maint_run_command(tokens, wiki)
     return _helpers._stream_in_container(inst_id, inst, cmd)
 
 
 @register("maintenance_extension")
 def cmd_maintenance_extension(args):
     inst_id, inst = _helpers._resolve_instance(args)
-    script_args = _helpers._normalize_script_args(args)
+    tokens = _helpers._script_arg_tokens(args)
 
     # No args → list extensions that have a maintenance/ subdirectory.
     # Each entry under extensions/ in the Canasta image is a symlink
     # into canasta-extensions/, so -L is required for find to descend
     # past the symlink and see the maintenance/ dir on the other side.
-    if not script_args:
+    if not tokens:
         return _helpers._stream_in_container(
             inst_id, inst,
             "find -L extensions -mindepth 2 -maxdepth 2 -type d "
@@ -99,19 +102,12 @@ def cmd_maintenance_extension(args):
             "| sed -e 's|^extensions/||' -e 's|/maintenance$||' | sort",
         )
 
-    if not _helpers._MAINT_PATH_RE.match(script_args):
-        print(
-            "Error: Invalid script path '%s'. Must match pattern: "
-            "alphanumeric, slashes, dots, hyphens, colons." % script_args,
-            file=sys.stderr,
-        )
+    if not _helpers._MAINT_PATH_RE.match(tokens[0]):
+        print(_INVALID_NAME_MSG % tokens[0], file=sys.stderr)
         return 1
 
     wiki = getattr(args, "wiki", "") or ""
-    cmd = "php maintenance/run.php %s%s" % (
-        script_args,
-        " --wiki=%s" % _helpers._shell_quote(wiki) if wiki else "",
-    )
+    cmd = _helpers._maint_run_command(tokens, wiki)
     return _helpers._stream_in_container(inst_id, inst, cmd)
 
 

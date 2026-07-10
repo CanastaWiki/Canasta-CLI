@@ -3410,37 +3410,53 @@ class TestArgocdCommands:
 # canasta maintenance script / extension / update
 # ---------------------------------------------------------------------------
 
-class TestNormalizeScriptArgs:
+class TestScriptArgTokens:
     def test_none(self):
         args = type("Args", (), {})()
-        assert direct_commands._normalize_script_args(args) == ""
+        assert direct_commands._script_arg_tokens(args) == []
 
     def test_empty_string(self):
         args = type("Args", (), {"script_args": ""})()
-        assert direct_commands._normalize_script_args(args) == ""
+        assert direct_commands._script_arg_tokens(args) == []
 
     def test_string_with_whitespace(self):
         args = type("Args", (), {"script_args": "  rebuildall.php  "})()
-        assert direct_commands._normalize_script_args(args) == "rebuildall.php"
+        assert direct_commands._script_arg_tokens(args) == ["rebuildall.php"]
 
-    def test_list_joined(self):
-        args = type("Args", (), {"script_args": ["foo.php", "--arg", "x"]})()
-        assert (
-            direct_commands._normalize_script_args(args)
-            == "foo.php --arg x"
-        )
+    def test_string_tokenized(self):
+        # The `--` passthrough path pre-joins args into a string; shlex
+        # recovers the individual tokens.
+        args = type("Args", (), {"script_args": "foo.php --arg x"})()
+        assert direct_commands._script_arg_tokens(args) == [
+            "foo.php", "--arg", "x",
+        ]
+
+    def test_list_kept_verbatim(self):
+        # REMAINDER positionals arrive already split — a password token with
+        # spaces or special characters must survive intact.
+        args = type("Args", (), {
+            "script_args": ["createAndPromote", "User", "p @ss$"],
+        })()
+        assert direct_commands._script_arg_tokens(args) == [
+            "createAndPromote", "User", "p @ss$",
+        ]
 
     def test_empty_list(self):
         args = type("Args", (), {"script_args": []})()
-        assert direct_commands._normalize_script_args(args) == ""
+        assert direct_commands._script_arg_tokens(args) == []
 
 
 class TestMaintPathRegex:
     def test_accepts_simple(self):
         assert direct_commands._MAINT_PATH_RE.match("rebuildall.php")
 
-    def test_accepts_with_args(self):
-        assert direct_commands._MAINT_PATH_RE.match("rebuildall.php --quick")
+    def test_accepts_extension_prefix(self):
+        assert direct_commands._MAINT_PATH_RE.match("Cite:fixHTMLOutputForCite")
+
+    def test_rejects_space(self):
+        # The regex now guards the script NAME only — a single token, never
+        # a whole arg string, so a space signals a bad name.
+        assert not direct_commands._MAINT_PATH_RE.match("rebuildall.php --quick")
 
     def test_accepts_subdir(self):
         assert direct_commands._MAINT_PATH_RE.match("Cite/maintenance/foo.php")
@@ -3494,7 +3510,52 @@ class TestMaintenanceScript:
             self._args(script_args="foo;rm -rf /"),
         )
         assert rc == 1
-        assert "Invalid script path" in capsys.readouterr().err
+        assert "Invalid script name" in capsys.readouterr().err
+
+    def test_password_arg_with_special_chars(self, monkeypatch):
+        # Regression: a password argument containing shell-special characters
+        # ($ # ! @) must be accepted and passed through shell-quoted, not
+        # rejected by the script-name guard. See createAndPromote usage.
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        rc = direct_commands.cmd_maintenance_script(
+            self._args(script_args=["createAndPromote", "WikiSysop",
+                                     "P@ss$w0rd#4!"]),
+        )
+        assert rc == 0
+        cmd = captured["command"]
+        assert "php maintenance/run.php createAndPromote WikiSysop" in cmd
+        # The password is single-quoted as one token, so the shell can't
+        # interpret its metacharacters.
+        assert "'P@ss$w0rd#4!'" in cmd
+
+    def test_metachar_arg_is_quoted_not_executed(self, monkeypatch):
+        # An argument that looks like a shell injection must be neutralized
+        # by quoting, not rejected (it's a legitimate argument value).
+        self._patch_resolve(monkeypatch)
+        captured = {}
+
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
+            captured["command"] = command
+            return 0
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        rc = direct_commands.cmd_maintenance_script(
+            self._args(script_args=["createAndPromote", "User", "x; rm -rf /"]),
+        )
+        assert rc == 0
+        cmd = captured["command"]
+        assert "'x; rm -rf /'" in cmd
+        # The metacharacters stay inside the quoted token — no bare `; rm`.
+        assert "run.php createAndPromote User 'x; rm -rf /'" in cmd
 
     def test_runs_named_script(self, monkeypatch):
         self._patch_resolve(monkeypatch)

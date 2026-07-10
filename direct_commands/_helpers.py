@@ -7,6 +7,7 @@ overhead of ansible-playbook startup for simple operations.
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -773,21 +774,43 @@ def _stream_in_container(inst_id, inst, command, service="web",
     return _run()
 
 
-def _normalize_script_args(args):
-    """REMAINDER positionals come back as a list; collapse to a single
-    space-joined string. Empty list / None / blanks all map to ''."""
+def _script_arg_tokens(args):
+    """Return the maintenance script name and its arguments as a token list.
+
+    A REMAINDER positional arrives already split into a list; the ``--``
+    passthrough path pre-joins it into a single string, which we re-tokenize
+    with shlex. Keeping the tokens separate lets us validate only the script
+    name and shell-quote each argument individually, so argument *values*
+    (passwords, page titles, etc.) may contain any characters."""
     val = getattr(args, "script_args", None)
     if val is None:
-        return ""
+        return []
     if isinstance(val, list):
-        return " ".join(val).strip()
-    return str(val).strip()
+        return list(val)
+    s = str(val).strip()
+    if not s:
+        return []
+    try:
+        return shlex.split(s)
+    except ValueError:
+        return s.split()
 
 
-# Maintenance script paths must look like a php file path: alnum,
-# slash, dot, underscore, hyphen, colon, space (for arguments after
-# the script name). Same character class the playbook used.
-_MAINT_PATH_RE = re.compile(r"^[a-zA-Z0-9/_. :-]+$")
+# Guard on the maintenance script NAME only (the first token): it must look
+# like a php file path relative to maintenance/ — alnum, slash, dot,
+# underscore, hyphen, colon (the last for the extension `Ext:script` form).
+# Argument values are not matched against this; they are shell-quoted instead.
+_MAINT_PATH_RE = re.compile(r"^[a-zA-Z0-9/_.:-]+$")
+
+
+def _maint_run_command(tokens, wiki):
+    """Build the `php maintenance/run.php ...` command line for a validated
+    token list. Every token is shell-quoted so special characters in
+    arguments are passed through literally and cannot inject shell syntax."""
+    parts = ["php maintenance/run.php"] + [shlex.quote(t) for t in tokens]
+    if wiki:
+        parts.append("--wiki=%s" % _shell_quote(wiki))
+    return " ".join(parts)
 
 
 def _read_registry(conf_path):
