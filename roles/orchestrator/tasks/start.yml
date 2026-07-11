@@ -39,9 +39,18 @@
       ansible.builtin.debug:
         msg: "Starting containers..."
 
+    # The compose command can be overridden for podman deployments.
+    # When using rootless Podman instead of Docker, set
+    # compose_command: "podman-compose -f docker-compose.yml" in
+    # the instance .env or via extra-vars.
+    - name: Set compose and inspect commands
+      ansible.builtin.set_fact:
+        _compose_cmd: "{{ compose_command | default('docker compose') }}"
+        _inspect_cmd: "{{ inspect_command | default('docker') }}"
+
     - name: Start containers
       ansible.builtin.command:
-        cmd: "docker compose {{ _compose_files | join(' ') }} up -d"
+        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} up -d"
         chdir: "{{ instance_path }}"
       register: _start_result
       changed_when: true
@@ -55,7 +64,7 @@
     # only reliable way to see WHY a container was unhealthy.
     - name: Capture compose state on failure
       ansible.builtin.command:
-        cmd: "docker compose {{ _compose_files | join(' ') }} ps -a"
+        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} ps -a"
         chdir: "{{ instance_path }}"
       register: _start_ps
       changed_when: false
@@ -64,7 +73,7 @@
 
     - name: Capture compose logs on failure
       ansible.builtin.command:
-        cmd: "docker compose {{ _compose_files | join(' ') }} logs --tail=200 --no-color"
+        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} logs --tail=200 --no-color"
         chdir: "{{ instance_path }}"
       register: _start_logs
       changed_when: false
@@ -102,7 +111,7 @@
     # readiness contract).
     - name: Get web container id
       ansible.builtin.command:
-        cmd: "docker compose {{ _compose_files | join(' ') }} ps -q web"
+        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} ps -q web"
         chdir: "{{ instance_path }}"
       register: _start_web_cid
       changed_when: false
@@ -110,7 +119,7 @@
     - name: Probe whether web declares a healthcheck
       ansible.builtin.command:
         argv:
-          - docker
+          - "{{ _inspect_cmd }}"
           - inspect
           - "-f"
           - "{% raw %}{{if .State.Health}}has{{end}}{% endraw %}"
@@ -125,7 +134,7 @@
     - name: Wait for web container to report healthy
       ansible.builtin.command:
         argv:
-          - docker
+          - "{{ _inspect_cmd }}"
           - inspect
           - "-f"
           - "{% raw %}{{.State.Health.Status}}{% endraw %}"
