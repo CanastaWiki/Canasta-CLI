@@ -738,6 +738,10 @@ commands:
           Canasta instance ID — check the host where this instance is
           registered. Mutually exclusive with --host; --host wins if
           both are given.
+      - name: write
+        type: bool
+        default: false
+        description: "Perform write checks (create, edit, delete, upload) and clean up"
 
   - name: install
     description: "Install dependencies on the target host"

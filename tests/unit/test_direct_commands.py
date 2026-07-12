@@ -4534,3 +4534,146 @@ class TestRemoteK8sStreamAndExec:
         rc, out = direct_commands._helpers._exec_in_container("rsdev", inst, "true")
         assert rc == 0
         assert fake_run.argv[0] == "kubectl"
+
+
+class TestWikiCheckWrite:
+    def test_wiki_check_write_success(self, monkeypatch):
+        inst = {"id": "siteA", "host": "localhost", "path": "/tmp/i"}
+        monkeypatch.setattr(direct_commands.wiki_check._helpers, "_resolve_instance", lambda args: ("siteA", inst))
+        monkeypatch.setattr(direct_commands.wiki_check._helpers, "_read_wikis", lambda path, host: [{"id": "main", "url": "http://localhost:8080"}])
+        
+        monkeypatch.setattr(direct_commands.wiki_check._helpers, "_read_remote_or_local_file", lambda path, host: None)
+        monkeypatch.setattr(direct_commands.wiki_check._helpers, "_write_remote_or_local_file", lambda path, host, content: True)
+        
+        execs = []
+        def fake_exec_in_container(inst_id, instance, command, service="web"):
+            execs.append(command)
+            if "User::newFromId(1)->getName()" in command:
+                return 0, "WikiSysop\n"
+            if "createBotPassword" in command:
+                return 0, "success\n"
+            return 0, ""
+        monkeypatch.setattr(direct_commands.wiki_check._helpers, "_exec_in_container", fake_exec_in_container)
+        
+        urls_visited = []
+        
+        class FakeResponse:
+            def __init__(self, data):
+                self.data = data
+            def read(self):
+                return self.data
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+        def fake_open(opener_self, req, *args, **kwargs):
+            if isinstance(req, str):
+                url = req
+                data = None
+            else:
+                url = req.full_url
+                data = req.data
+            
+            urls_visited.append((url, data))
+            
+            data_str = ""
+            if data:
+                if isinstance(data, bytes):
+                    data_str = data.decode("utf-8", errors="ignore")
+                else:
+                    data_str = str(data)
+
+            def has_param(param):
+                if "=" in param:
+                    k, v = param.split("=", 1)
+                    if f"{k}={v}" in url or f"{k}={v}" in data_str:
+                        return True
+                    if f'name="{k}"' in data_str and v in data_str:
+                        return True
+                    return False
+                return param in url or param in data_str
+
+            if has_param("action=query") and has_param("meta=siteinfo"):
+                return FakeResponse(b'{"query": {"namespaces": {}}}')
+            elif has_param("action=query") and has_param("meta=tokens") and has_param("type=login"):
+                return FakeResponse(b'{"query": {"tokens": {"logintoken": "mock_login_token"}}}')
+            elif has_param("action=login"):
+                return FakeResponse(b'{"login": {"result": "Success"}}')
+            elif has_param("action=query") and has_param("meta=tokens") and has_param("type=csrf"):
+                return FakeResponse(b'{"query": {"tokens": {"csrftoken": "mock_csrf_token"}}}')
+            elif has_param("action=edit"):
+                return FakeResponse(b'{"edit": {"result": "Success"}}')
+            elif has_param("action=upload"):
+                return FakeResponse(b'{"upload": {"result": "Success"}}')
+            elif has_param("action=delete"):
+                return FakeResponse(b'{"delete": {"result": "Success"}}')
+            
+            return FakeResponse(b'{}')
+
+        monkeypatch.setattr(direct_commands.wiki_check.urllib.request.OpenerDirector, "open", fake_open)
+        
+        class Args:
+            id = "siteA"
+            host = None
+            write = True
+            
+        rc = direct_commands.wiki_check.cmd_wiki_check(Args())
+        assert rc == 0
+        
+        assert any("User::newFromId(1)->getName()" in cmd for cmd in execs)
+        assert any("createBotPassword" in cmd for cmd in execs)
+        
+        def has_visited(param):
+            for url, data in urls_visited:
+                data_str = data.decode("utf-8", errors="ignore") if isinstance(data, bytes) else str(data or "")
+                if param in url or param in data_str:
+                    return True
+                # also handle multipart fields (e.g. action and upload separated)
+                if "=" in param:
+                    k, v = param.split("=", 1)
+                    if f'name="{k}"' in data_str and v in data_str:
+                        return True
+            return False
+
+        assert has_visited("action=query") and has_visited("type=login")
+        assert has_visited("action=login")
+        assert has_visited("action=query") and has_visited("type=csrf")
+        assert has_visited("action=edit")
+        assert has_visited("action=upload")
+        
+        # Verify both deletes were sent (temporary page and temporary file)
+        assert len([data for _, data in urls_visited if data and (b"action=delete" in data or b'name="action"\r\n\r\ndelete' in data or b"delete" in data)]) == 2
+
+    def test_wiki_check_read_only_success(self, monkeypatch):
+        inst = {"id": "siteA", "host": "localhost", "path": "/tmp/i"}
+        monkeypatch.setattr(direct_commands.wiki_check._helpers, "_resolve_instance", lambda args: ("siteA", inst))
+        monkeypatch.setattr(direct_commands.wiki_check._helpers, "_read_wikis", lambda path, host: [{"id": "main", "url": "http://localhost:8080"}])
+        
+        urls_visited = []
+        
+        class FakeResponse:
+            def __init__(self, data):
+                self.data = data
+            def read(self):
+                return self.data
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+        def fake_open(opener_self, req, *args, **kwargs):
+            url = req if isinstance(req, str) else req.full_url
+            urls_visited.append(url)
+            return FakeResponse(b'{"query": {"namespaces": {}}}')
+
+        monkeypatch.setattr(direct_commands.wiki_check.urllib.request.OpenerDirector, "open", fake_open)
+        
+        class Args:
+            id = "siteA"
+            host = None
+            write = False
+            
+        rc = direct_commands.wiki_check.cmd_wiki_check(Args())
+        assert rc == 0
+        assert len(urls_visited) > 0
