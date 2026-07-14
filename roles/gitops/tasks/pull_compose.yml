@@ -5,6 +5,13 @@
 # a restart or maintenance update is needed.
 # Requires: instance_path, instance_id (set by dispatcher)
 
+# --- Step 0: Fail fast on a locked git-crypt checkout ---
+# Rendering below parses hosts/**/vars.yaml as YAML; if git-crypt was never
+# unlocked those are ciphertext and from_yaml crashes on non-UTF-8 bytes. Stop
+# with an actionable message first.
+- name: Detect a locked git-crypt checkout
+  ansible.builtin.include_tasks: "_detect_gitcrypt_lock.yml"
+
 # --- Step 1: Check for uncommitted changes ---
 - name: Check for uncommitted changes
   ansible.builtin.command:
