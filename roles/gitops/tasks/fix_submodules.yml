@@ -32,7 +32,11 @@
     patterns: ".git"
     file_type: directory
     hidden: true
-    recurse: false
+    # extensions/skins repos live at <dir>/<Name>/.git — one level below the
+    # search root — so recurse must be true (depth 2 keeps it to that level and
+    # skips nested submodules' own .git). file_type: directory matches only
+    # loose clones, never a real submodule's .git gitlink file.
+    recurse: true
     depth: 2
   register: _ext_git_repos
 
@@ -64,7 +68,11 @@
     patterns: ".git"
     file_type: directory
     hidden: true
-    recurse: false
+    # extensions/skins repos live at <dir>/<Name>/.git — one level below the
+    # search root — so recurse must be true (depth 2 keeps it to that level and
+    # skips nested submodules' own .git). file_type: directory matches only
+    # loose clones, never a real submodule's .git gitlink file.
+    recurse: true
     depth: 2
   register: _skin_git_repos
 
