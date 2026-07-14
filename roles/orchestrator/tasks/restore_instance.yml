@@ -305,6 +305,40 @@
         path: "{{ instance_path }}/.gitops-host"
       register: _restore_gitops_stat
 
+    # git-crypt's key and filters live in .git, which backup does not capture,
+    # so a restored/migrated checkout can come back locked: hosts/**/vars.yaml
+    # are ciphertext and the re-render below (which parses them) would crash.
+    # Detect the lock via the magic header (od, no decode) and warn+skip rather
+    # than fail the whole restore, which already succeeded.
+    - name: Check git-crypt lock state
+      ansible.builtin.shell:
+        cmd: "head -c 10 hosts/hosts.yaml 2>/dev/null | od -An -tx1 | tr -d ' \\n'"
+      args:
+        chdir: "{{ instance_path }}"
+        executable: /bin/bash
+      register: _restore_gitcrypt_hdr
+      changed_when: false
+      failed_when: false
+      when:
+        - wiki is not defined
+        - _restore_gitops_stat.stat.exists | default(false)
+
+    - name: Set git-crypt locked fact
+      ansible.builtin.set_fact:
+        _restore_gitcrypt_locked: >-
+          {{ (_restore_gitcrypt_hdr.stdout | default('')) == '00474954435259505400' }}
+
+    - name: Warn that git-crypt is locked (re-render skipped)
+      ansible.builtin.debug:
+        msg: |-
+          WARNING: git-crypt is locked in this checkout, so hosts/**/vars.yaml
+          are still encrypted and the gitops config was NOT re-rendered for
+          this host. The data restore itself completed. Unlock and re-render:
+
+            git-crypt unlock /path/to/gitops.key
+            canasta gitops pull -i {{ instance_id }}
+      when: _restore_gitcrypt_locked | default(false)
+
     # Single-wiki restore does not touch shared rendered files (.env,
     # wikis.yaml, Caddyfile), so there is nothing to re-render.
     - name: Re-render gitops templates against this host's vars
@@ -314,6 +348,7 @@
       when:
         - wiki is not defined
         - _restore_gitops_stat.stat.exists | default(false)
+        - not (_restore_gitcrypt_locked | default(false))
 
     - name: Regenerate orchestrator config (e.g. Caddyfile)
       ansible.builtin.include_role:
@@ -322,6 +357,7 @@
       when:
         - wiki is not defined
         - _restore_gitops_stat.stat.exists | default(false)
+        - not (_restore_gitcrypt_locked | default(false))
 
 # --- Kubernetes restore path ---
 - name: Restore (Kubernetes)
