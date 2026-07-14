@@ -2,6 +2,22 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+# A prior failed `gitops join` can leave .gitmodules committed (in HEAD) but not
+# materialized in the working tree; without it the orphan-gitlink recovery below
+# misclassifies registered submodules as orphans. Restore it from HEAD first.
+- name: Check for a working-tree .gitmodules
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitmodules"
+  register: _fixsub_gitmodules
+
+- name: Restore .gitmodules from HEAD when tracked but missing on disk
+  ansible.builtin.command:
+    cmd: "git checkout HEAD -- .gitmodules"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  failed_when: false  # HEAD may legitimately have no .gitmodules
+  when: not _fixsub_gitmodules.stat.exists
+
 # Applies to both orchestrators. extensions/ and skins/ are tracked in the
 # gitops repo on Compose and on K8s (where they are also the source of truth
 # for the user-extensions / user-skins PVCs), so loose git checkouts must be
@@ -33,7 +49,7 @@
 - name: Parse registered submodule paths
   ansible.builtin.set_fact:
     _registered_paths: >-
-      {{ (_gitmodules_content.content | default('') | b64decode).split('\n')
+      {{ (_gitmodules_content.content | default('') | b64decode).splitlines()
          | select('match', '^\s*path\s*=')
          | map('regex_replace', '^\s*path\s*=\s*', '')
          | map('trim')
@@ -84,7 +100,7 @@
 - name: Parse registered submodule paths (refreshed)
   ansible.builtin.set_fact:
     _registered_paths: >-
-      {{ (_gitmodules_after.content | default('') | b64decode).split('\n')
+      {{ (_gitmodules_after.content | default('') | b64decode).splitlines()
          | select('match', '^\s*path\s*=')
          | map('regex_replace', '^\s*path\s*=\s*', '')
          | map('trim')
@@ -161,7 +177,14 @@
         - _recover_commit.rc != 0
         - "'nothing to commit' not in _recover_commit.stdout"
 
-# --- Step 3: Initialize any remaining submodules ---
+# --- Step 3: Heal dangling gitlinks left by a backup/restore move, then
+# initialize any remaining submodules ---
+# Drop the stale working tree of any submodule whose .git/modules backing is
+# gone (moved instance) so the update below can re-clone it instead of aborting
+# on the dangling gitlink.
+- name: Heal submodules whose .git/modules backing is missing
+  ansible.builtin.include_tasks: _heal_dangling_submodules.yml
+
 - name: Update and initialize all submodules
   ansible.builtin.command:
     cmd: "git submodule update --init --recursive"
