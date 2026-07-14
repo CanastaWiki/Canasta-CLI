@@ -195,6 +195,14 @@
   ansible.builtin.meta: end_play
   when: not _push_has_staged and not _push_has_unpushed
 
+# --- Guard: never commit a git-crypt path as plaintext ---
+# A checkout cloned/reset/restored without `git-crypt unlock` has no clean
+# filter, so a staged encrypted path (hosts/**/vars.yaml) is cleartext and a
+# commit would leak secrets to the remote. Stop before committing.
+- name: Guard against committing unencrypted git-crypt files
+  ansible.builtin.include_tasks: "_check_gitcrypt_staged.yml"
+  when: _push_has_staged
+
 # --- Direct push (default) ---
 - name: Direct push to main
   when: not (_push_pr_mode | bool)
