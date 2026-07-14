@@ -2446,7 +2446,7 @@ class TestGitopsArgocdStatus:
             raise OSError("kubectl not found")
         monkeypatch.setattr(subprocess, "run", fake_run)
         result = direct_commands._gitops_argocd_status("mysite")
-        assert result == ("Not registered", "N/A", "never", "unknown")
+        assert result == ("Not registered", "N/A", "never", "unknown", None)
 
     def test_no_application_returns_not_registered(self, monkeypatch):
         monkeypatch.setattr(
@@ -2457,7 +2457,7 @@ class TestGitopsArgocdStatus:
             })(),
         )
         result = direct_commands._gitops_argocd_status("mysite")
-        assert result == ("Not registered", "N/A", "never", "unknown")
+        assert result == ("Not registered", "N/A", "never", "unknown", None)
 
     def test_parses_synced_application(self, monkeypatch):
         app = {
@@ -2473,11 +2473,12 @@ class TestGitopsArgocdStatus:
                 "returncode": 0, "stdout": json.dumps(app),
             })(),
         )
-        sync, health, last, rev = direct_commands._gitops_argocd_status("mysite")
+        sync, health, last, rev, hint = direct_commands._gitops_argocd_status("mysite")
         assert sync == "Synced"
         assert health == "Healthy"
         assert last == "2026-04-23T10:00:00Z"
         assert rev == "abcdef1"  # truncated to 7 chars
+        assert hint is None
 
     def test_malformed_json_returns_unknown(self, monkeypatch):
         monkeypatch.setattr(
@@ -2487,7 +2488,7 @@ class TestGitopsArgocdStatus:
             })(),
         )
         result = direct_commands._gitops_argocd_status("mysite")
-        assert result == ("Unknown", "Unknown", "never", "unknown")
+        assert result == ("Unknown", "Unknown", "never", "unknown", None)
 
     def test_remote_host_queries_over_ssh(self, monkeypatch):
         app = {
@@ -2509,7 +2510,7 @@ class TestGitopsArgocdStatus:
 
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
         monkeypatch.setattr(subprocess, "run", fail_run)
-        sync, health, last, rev = direct_commands._gitops_argocd_status(
+        sync, health, last, rev, _ = direct_commands._gitops_argocd_status(
             "mysite", "admin@remote",
         )
         assert sync == "Synced"
@@ -2529,8 +2530,53 @@ class TestGitopsArgocdStatus:
 
         monkeypatch.setattr(subprocess, "run", fake_run)
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fail_ssh)
-        sync, _, _, _ = direct_commands._gitops_argocd_status("mysite", "localhost")
+        sync, _, _, _, _ = direct_commands._gitops_argocd_status("mysite", "localhost")
         assert sync == "Synced"
+
+    def test_sops_decrypt_error_returns_hint(self, monkeypatch):
+        app = {
+            "status": {
+                "sync": {"status": "Unknown", "revision": "abc"},
+                "health": {"status": "Unknown"},
+                "conditions": [
+                    {"type": "ComparisonError",
+                     "message": "Failed to load target state: failed to "
+                                "generate manifest: sops: no identity matched "
+                                "any of the recipients"},
+                ],
+            }
+        }
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": json.dumps(app),
+            })(),
+        )
+        sync, _, _, _, hint = direct_commands._gitops_argocd_status("mysite")
+        assert sync == "Unknown"
+        assert hint is not None
+        assert "sops-age" in hint
+
+    def test_non_sops_error_returns_no_hint(self, monkeypatch):
+        app = {
+            "status": {
+                "sync": {"status": "OutOfSync", "revision": "abc"},
+                "health": {"status": "Degraded"},
+                "conditions": [
+                    {"type": "ComparisonError",
+                     "message": "Failed to load target state: connection "
+                                "refused"},
+                ],
+            }
+        }
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": json.dumps(app),
+            })(),
+        )
+        _, _, _, _, hint = direct_commands._gitops_argocd_status("mysite")
+        assert hint is None
 
 
 class TestParseGitopsStatusK8s:
@@ -2623,6 +2669,22 @@ class TestParseGitopsStatusK8s:
         assert "Untracked files" not in result
         assert "Uncaptured config/wikis.yaml edits" not in result
         assert "Argo CD:" in result
+
+    def test_sops_hint_surfaced(self):
+        out = self._make_output()
+        argocd = ("Unknown", "Unknown", "never", "unknown",
+                  "Argo CD reported a SOPS/age decryption error. Check the "
+                  "sops-age Secret.")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "SOPS/age decryption error" in result
+        assert "sops-age" in result
+
+    def test_four_tuple_argocd_still_supported(self):
+        # Back-compat: a 4-tuple (no hint slot) must not raise.
+        out = self._make_output()
+        argocd = ("Synced", "Healthy", "never", "abcdef1")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Sync status:    Synced" in result
 
 
 class TestCmdGitopsStatusK8s:
