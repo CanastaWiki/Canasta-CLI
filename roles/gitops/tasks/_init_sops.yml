@@ -133,6 +133,45 @@
         ansible_user: "{{ _sops_saved.user }}"
         ansible_python_interpreter: "{{ _sops_saved.python }}"
 
+# Guard: a pre-existing .sops.yaml means this repo's Secrets are already
+# encrypted to a recipient. If the operator key about to be used has a
+# different recipient (e.g. a rebuilt controller that lost its age key and is
+# being re-inited rather than joined/restored), overwriting .sops.yaml would
+# re-encrypt future Secrets to a key the cluster's sops-age Secret cannot
+# decrypt. Refuse and point at recovery — mirrors the check in _join_sops.
+# Legitimate re-init clears .sops.yaml first (_reinit_cleanup), so this only
+# fires on an un-cleared mismatched recipient.
+- name: Check for an existing .sops.yaml
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.sops.yaml"
+  register: _init_sops_existing
+
+- name: Read the existing SOPS recipient
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.sops.yaml"
+  register: _init_sops_existing_raw
+  when: _init_sops_existing.stat.exists
+
+- name: Extract the existing SOPS recipient
+  ansible.builtin.set_fact:
+    _init_sops_existing_recipient: >-
+      {{ (_init_sops_existing_raw.content | b64decode | from_yaml).creation_rules[0].age | trim }}
+  when: _init_sops_existing.stat.exists
+
+- name: Fail if the operator key does not match the existing repo recipient
+  ansible.builtin.fail:
+    msg: >-
+      This repository already encrypts Secrets to a SOPS recipient that differs
+      from the operator age key on this controller ({{ _sops_age_key }}).
+      Re-initializing would rewrite .sops.yaml and re-encrypt Secrets to a key
+      the cluster's sops-age Secret cannot decrypt. To recover a controller,
+      restore its age key (or the --key export) and re-run, or use
+      `canasta gitops join --key <path>` to adopt the repo's existing key —
+      do not re-initialize.
+  when:
+    - _init_sops_existing.stat.exists
+    - (_init_sops_existing_recipient | default('')) != (_sops_age_pub.stdout | trim)
+
 - name: Write .sops.yaml (encrypt only the Secret payload; keep the rest readable)
   ansible.builtin.copy:
     content: |

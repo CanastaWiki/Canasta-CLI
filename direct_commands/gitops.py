@@ -280,13 +280,49 @@ def _parse_gitops_status(stdout, instance_id):
     return "\n".join(lines)
 
 
+# Argo condition / operation messages that indicate the repo-server CMP could
+# not SOPS-decrypt Secrets (operator age key missing or not matching
+# .sops.yaml). Lowercased substrings; 'age' alone is too broad to match on.
+_SOPS_DECRYPT_MARKERS = (
+    "sops",
+    "no identity matched",
+    "failed to decrypt",
+    "cannot decrypt",
+)
+
+
+def _sops_decrypt_hint(status):
+    """Advisory string when Argo reports a SOPS/age decryption failure, else None.
+
+    Scans the Application's conditions and last operation message for decrypt
+    markers so 'gitops status' can point at the operator age key instead of
+    showing a bare OutOfSync.
+    """
+    conditions = status.get("conditions") or []
+    messages = [c.get("message", "") for c in conditions if isinstance(c, dict)]
+    op = status.get("operationState") or {}
+    messages.append(op.get("message") or "")
+    blob = " ".join(messages).lower()
+    if any(m in blob for m in _SOPS_DECRYPT_MARKERS):
+        return (
+            "Argo CD reported a SOPS/age decryption error. The operator age "
+            "key (the 'sops-age' Secret in the argocd namespace) may be missing "
+            "or may not match this repo's .sops.yaml recipient. Re-provision it "
+            "from the controller key, or re-run 'canasta gitops join --key "
+            "<path>' with the repo's operator key."
+        )
+    return None
+
+
 def _gitops_argocd_status(instance_id, host="localhost"):
     """Query Argo CD Application for this instance; return parsed status.
 
-    Returns a tuple (sync_status, health, last_sync, revision). Falls
-    back to 'Not registered' / 'N/A' sentinels when Argo CD isn't
-    installed or no Application exists — matches the Ansible path's
-    behavior for K8s instances without Argo CD.
+    Returns a tuple (sync_status, health, last_sync, revision, sops_hint).
+    sops_hint is a short advisory when Argo reports a SOPS/age decryption
+    failure (missing/mismatched operator key), else None. Falls back to
+    'Not registered' / 'N/A' sentinels when Argo CD isn't installed or no
+    Application exists — matches the Ansible path's behavior for K8s instances
+    without Argo CD.
 
     For remote hosts, SSH and run kubectl on the host — its kubeconfig
     points at the cluster it's part of. Running kubectl on the laptop
@@ -302,7 +338,7 @@ def _gitops_argocd_status(instance_id, host="localhost"):
             )
             rc, stdout = result.returncode, result.stdout
         except (subprocess.TimeoutExpired, OSError):
-            return ("Not registered", "N/A", "never", "unknown")
+            return ("Not registered", "N/A", "never", "unknown", None)
     else:
         rc, stdout = _helpers._ssh_run(
             host,
@@ -310,11 +346,11 @@ def _gitops_argocd_status(instance_id, host="localhost"):
             % instance_id,
         )
     if rc != 0:
-        return ("Not registered", "N/A", "never", "unknown")
+        return ("Not registered", "N/A", "never", "unknown", None)
     try:
         app = json.loads(stdout)
     except ValueError:
-        return ("Unknown", "Unknown", "never", "unknown")
+        return ("Unknown", "Unknown", "never", "unknown", None)
     status = app.get("status") or {}
     sync = status.get("sync") or {}
     health = status.get("health") or {}
@@ -325,6 +361,7 @@ def _gitops_argocd_status(instance_id, host="localhost"):
         health.get("status") or "Unknown",
         op.get("finishedAt") or "never",
         revision[:7],
+        _sops_decrypt_hint(status),
     )
 
 
@@ -343,7 +380,8 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     except (ValueError, IndexError):
         ahead, behind = 0, 0
 
-    sync_status, health, last_sync, revision = argocd
+    sync_status, health, last_sync, revision = argocd[:4]
+    sops_hint = argocd[4] if len(argocd) > 4 else None
 
     # Uncommitted/untracked working-tree changes and uncaptured config/wikis.yaml
     # edits apply to K8s gitops too (e.g. an upgrade backfilling
@@ -371,7 +409,37 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     if sync_status == "OutOfSync":
         lines.append("")
         lines.append("Note: Run 'canasta gitops sync' to apply pending changes immediately.")
+    if sops_hint:
+        lines.append("")
+        lines.append("Note: " + sops_hint)
     return "\n".join(lines)
+
+
+def _gitops_gitcrypt_locked(path, host, ssh_key=None):
+    """True when the gitops checkout's git-crypt files are still ciphertext.
+
+    hosts/hosts.yaml is git-crypt encrypted; a checkout that was never
+    unlocked (cloned/reset/restored without `git-crypt unlock`) has it on disk
+    as ciphertext, beginning with the git-crypt magic header. Reading or
+    YAML-parsing it then crashes on the non-UTF-8 bytes, so callers bail out
+    with an actionable message first. Returns False when the file is absent or
+    already decrypted (including non-git-crypt instances), so it is safe to
+    call unconditionally.
+    """
+    magic = b"\x00GITCRYPT\x00"
+    target = "%s/hosts/hosts.yaml" % path.rstrip("/")
+    if _helpers._is_localhost(host):
+        try:
+            with open(target, "rb") as fh:
+                return fh.read(len(magic)) == magic
+        except OSError:
+            return False
+    rc, out = _helpers._ssh_run(
+        host,
+        "head -c 10 %s | od -An -tx1 | tr -d ' \\n'"
+        % _helpers._shell_quote(target),
+    )
+    return rc == 0 and out.strip() == "00474954435259505400"
 
 
 @register("gitops_status")
@@ -380,6 +448,20 @@ def cmd_gitops_status(args):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     orchestrator = inst.get("orchestrator", "compose")
+
+    # A locked git-crypt checkout has hosts/hosts.yaml on disk as ciphertext;
+    # the status script cats it, and decoding those bytes would crash. Report
+    # the lock clearly instead. (Compose-only: K8s gitops does not git-crypt.)
+    if orchestrator not in ("kubernetes", "k8s") and _gitops_gitcrypt_locked(
+        path, host, getattr(args, "ssh_key", None)
+    ):
+        print(
+            "git-crypt is locked in this checkout: the encrypted host files "
+            "(hosts/**) are still ciphertext, so gitops cannot read them.\n"
+            "Run 'git-crypt unlock <key>' in %s and retry." % path,
+            file=sys.stderr,
+        )
+        return 1
 
     script = _gitops_status_script(path, ssh_key=getattr(args, "ssh_key", None))
 
