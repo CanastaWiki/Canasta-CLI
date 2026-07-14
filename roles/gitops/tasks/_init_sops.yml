@@ -186,3 +186,25 @@
       rollout status deployment argocd-repo-server --timeout=120s
   when: _sops_age_provision is changed
   changed_when: false
+
+# The operator age key is the only thing that can re-provision the cluster's
+# sops-age decryption Secret, but it lives in the controller config dir, which
+# `canasta backup` does not capture — so remind the operator to back it up.
+- name: Remind to back up the operator age key (portable copy exported)
+  ansible.builtin.debug:
+    msg:
+      - "IMPORTANT: back up the SOPS operator age key — 'canasta backup' does NOT capture it."
+      - "Controller key: {{ _sops_age_key }}"
+      - "Portable copy exported to: {{ key }}.age — store it off-host and keep it safe."
+      - "Recovery on a rebuilt controller: 'canasta gitops join --key <path>' with that key."
+  when: key is defined and (key | length > 0)
+
+- name: Remind to back up the operator age key (no portable copy)
+  ansible.builtin.debug:
+    msg:
+      - "IMPORTANT: back up the SOPS operator age key — 'canasta backup' does NOT capture it."
+      - "Controller key (the ONLY copy): {{ _sops_age_key }}"
+      - "No portable copy was exported (no --key). Copy this file to safe off-host storage now,"
+      - "or re-run with --key <path> to export one. Without it, a lost controller cannot decrypt the repo's Secrets."
+      - "Recovery on a rebuilt controller: 'canasta gitops join --key <path>'."
+  when: not (key is defined and (key | length > 0))
