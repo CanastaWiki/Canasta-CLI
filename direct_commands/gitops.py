@@ -415,12 +415,53 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     return "\n".join(lines)
 
 
+def _gitops_gitcrypt_locked(path, host, ssh_key=None):
+    """True when the gitops checkout's git-crypt files are still ciphertext.
+
+    hosts/hosts.yaml is git-crypt encrypted; a checkout that was never
+    unlocked (cloned/reset/restored without `git-crypt unlock`) has it on disk
+    as ciphertext, beginning with the git-crypt magic header. Reading or
+    YAML-parsing it then crashes on the non-UTF-8 bytes, so callers bail out
+    with an actionable message first. Returns False when the file is absent or
+    already decrypted (including non-git-crypt instances), so it is safe to
+    call unconditionally.
+    """
+    magic = b"\x00GITCRYPT\x00"
+    target = "%s/hosts/hosts.yaml" % path.rstrip("/")
+    if _helpers._is_localhost(host):
+        try:
+            with open(target, "rb") as fh:
+                return fh.read(len(magic)) == magic
+        except OSError:
+            return False
+    rc, out = _helpers._ssh_run(
+        host,
+        "head -c 10 %s | od -An -tx1 | tr -d ' \\n'"
+        % _helpers._shell_quote(target),
+    )
+    return rc == 0 and out.strip() == "00474954435259505400"
+
+
 @register("gitops_status")
 def cmd_gitops_status(args):
     inst_id, inst = _helpers._resolve_instance(args)
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     orchestrator = inst.get("orchestrator", "compose")
+
+    # A locked git-crypt checkout has hosts/hosts.yaml on disk as ciphertext;
+    # the status script cats it, and decoding those bytes would crash. Report
+    # the lock clearly instead. (Compose-only: K8s gitops does not git-crypt.)
+    if orchestrator not in ("kubernetes", "k8s") and _gitops_gitcrypt_locked(
+        path, host, getattr(args, "ssh_key", None)
+    ):
+        print(
+            "git-crypt is locked in this checkout: the encrypted host files "
+            "(hosts/**) are still ciphertext, so gitops cannot read them.\n"
+            "Run 'git-crypt unlock <key>' in %s and retry." % path,
+            file=sys.stderr,
+        )
+        return 1
 
     script = _gitops_status_script(path, ssh_key=getattr(args, "ssh_key", None))
 
