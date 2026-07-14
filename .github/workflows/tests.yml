@@ -116,10 +116,21 @@ jobs:
         timeout-minutes: 20
 
   integration-features:
-    name: "Integration: Features"
+    name: "Integration: Features (${{ matrix.leg.name }})"
     if: github.event_name != 'pull_request'  # See #67
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
+    # Two parallel legs so the suite doesn't approach the step timeout and the
+    # whole workflow's long pole is ~halved. Legs are balanced by measured
+    # per-test runtime; keep the two backup tests together on one leg.
+    strategy:
+      fail-fast: false
+      matrix:
+        leg:
+          - name: "config & farms"
+            tests: "extension-skin wiki-farm config-side-effects"
+          - name: "backup & ops"
+            tests: "backup backup-advanced sitemap maintenance"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -145,10 +156,8 @@ jobs:
           git config --global user.email "ci@canasta.wiki"
       - name: Run feature tests
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
-          extension-skin wiki-farm config-side-effects backup backup-advanced
-          sitemap maintenance
-        timeout-minutes: 30
+          .venv/bin/python tests/integration/run_tests.py ${{ matrix.leg.tests }}
+        timeout-minutes: 20
 
   integration-gitops:
     name: "Integration: GitOps"
