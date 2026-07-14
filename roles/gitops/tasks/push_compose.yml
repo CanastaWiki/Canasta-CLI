@@ -5,6 +5,13 @@
 # Requires: instance_path, instance_id (set by dispatcher)
 # Optional: message (commit message, defaults to 'Configuration update')
 
+# --- Fail fast on a locked git-crypt checkout ---
+# Reading hosts.yaml below parses it as YAML; if git-crypt was never unlocked
+# it is ciphertext and from_yaml crashes on non-UTF-8 bytes. Stop with an
+# actionable message first.
+- name: Detect a locked git-crypt checkout
+  ansible.builtin.include_tasks: "_detect_gitcrypt_lock.yml"
+
 # --- Validate role allows push ---
 - name: Read hosts.yaml
   ansible.builtin.slurp:
