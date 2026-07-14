@@ -280,13 +280,49 @@ def _parse_gitops_status(stdout, instance_id):
     return "\n".join(lines)
 
 
+# Argo condition / operation messages that indicate the repo-server CMP could
+# not SOPS-decrypt Secrets (operator age key missing or not matching
+# .sops.yaml). Lowercased substrings; 'age' alone is too broad to match on.
+_SOPS_DECRYPT_MARKERS = (
+    "sops",
+    "no identity matched",
+    "failed to decrypt",
+    "cannot decrypt",
+)
+
+
+def _sops_decrypt_hint(status):
+    """Advisory string when Argo reports a SOPS/age decryption failure, else None.
+
+    Scans the Application's conditions and last operation message for decrypt
+    markers so 'gitops status' can point at the operator age key instead of
+    showing a bare OutOfSync.
+    """
+    conditions = status.get("conditions") or []
+    messages = [c.get("message", "") for c in conditions if isinstance(c, dict)]
+    op = status.get("operationState") or {}
+    messages.append(op.get("message") or "")
+    blob = " ".join(messages).lower()
+    if any(m in blob for m in _SOPS_DECRYPT_MARKERS):
+        return (
+            "Argo CD reported a SOPS/age decryption error. The operator age "
+            "key (the 'sops-age' Secret in the argocd namespace) may be missing "
+            "or may not match this repo's .sops.yaml recipient. Re-provision it "
+            "from the controller key, or re-run 'canasta gitops join --key "
+            "<path>' with the repo's operator key."
+        )
+    return None
+
+
 def _gitops_argocd_status(instance_id, host="localhost"):
     """Query Argo CD Application for this instance; return parsed status.
 
-    Returns a tuple (sync_status, health, last_sync, revision). Falls
-    back to 'Not registered' / 'N/A' sentinels when Argo CD isn't
-    installed or no Application exists — matches the Ansible path's
-    behavior for K8s instances without Argo CD.
+    Returns a tuple (sync_status, health, last_sync, revision, sops_hint).
+    sops_hint is a short advisory when Argo reports a SOPS/age decryption
+    failure (missing/mismatched operator key), else None. Falls back to
+    'Not registered' / 'N/A' sentinels when Argo CD isn't installed or no
+    Application exists — matches the Ansible path's behavior for K8s instances
+    without Argo CD.
 
     For remote hosts, SSH and run kubectl on the host — its kubeconfig
     points at the cluster it's part of. Running kubectl on the laptop
@@ -302,7 +338,7 @@ def _gitops_argocd_status(instance_id, host="localhost"):
             )
             rc, stdout = result.returncode, result.stdout
         except (subprocess.TimeoutExpired, OSError):
-            return ("Not registered", "N/A", "never", "unknown")
+            return ("Not registered", "N/A", "never", "unknown", None)
     else:
         rc, stdout = _helpers._ssh_run(
             host,
@@ -310,11 +346,11 @@ def _gitops_argocd_status(instance_id, host="localhost"):
             % instance_id,
         )
     if rc != 0:
-        return ("Not registered", "N/A", "never", "unknown")
+        return ("Not registered", "N/A", "never", "unknown", None)
     try:
         app = json.loads(stdout)
     except ValueError:
-        return ("Unknown", "Unknown", "never", "unknown")
+        return ("Unknown", "Unknown", "never", "unknown", None)
     status = app.get("status") or {}
     sync = status.get("sync") or {}
     health = status.get("health") or {}
@@ -325,6 +361,7 @@ def _gitops_argocd_status(instance_id, host="localhost"):
         health.get("status") or "Unknown",
         op.get("finishedAt") or "never",
         revision[:7],
+        _sops_decrypt_hint(status),
     )
 
 
@@ -343,7 +380,8 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     except (ValueError, IndexError):
         ahead, behind = 0, 0
 
-    sync_status, health, last_sync, revision = argocd
+    sync_status, health, last_sync, revision = argocd[:4]
+    sops_hint = argocd[4] if len(argocd) > 4 else None
 
     # Uncommitted/untracked working-tree changes and uncaptured config/wikis.yaml
     # edits apply to K8s gitops too (e.g. an upgrade backfilling
@@ -371,6 +409,9 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     if sync_status == "OutOfSync":
         lines.append("")
         lines.append("Note: Run 'canasta gitops sync' to apply pending changes immediately.")
+    if sops_hint:
+        lines.append("")
+        lines.append("Note: " + sops_hint)
     return "\n".join(lines)
 
 
