@@ -3,6 +3,7 @@
 
 import json
 import os
+import random
 import secrets
 import ssl
 import sys
@@ -173,8 +174,31 @@ def _run_write_check(api_url, host_header, username, password):
     client.login(f"{username}@canasta-cli", password)
     token = client.get_csrf_token()
     
-    temp_page = "Canasta-Wiki-Check-Temp-Page"
-    temp_file = "File:Canasta-Wiki-Check-Temp-File.gif"
+    # Find a unique page and file name with a random 3-digit suffix
+    while True:
+        num = random.randint(100, 999)
+        test_page = f"Canasta-Wiki-Check-Temp-Page-{num}"
+        test_filename = f"Canasta-Wiki-Check-Temp-File-{num}.gif"
+        test_file = f"File:{test_filename}"
+        
+        # Check if they already exist
+        res = client._request({
+            "action": "query",
+            "titles": f"{test_page}|{test_file}",
+            "format": "json"
+        })
+        pages = res.get("query", {}).get("pages", {})
+        exists = False
+        for page_id, page_info in pages.items():
+            if "missing" not in page_info:
+                exists = True
+                break
+        
+        if not exists:
+            temp_page = test_page
+            temp_file = test_file
+            temp_filename = test_filename
+            break
     
     # 1x1 pixel transparent GIF
     gif_data = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b")
@@ -196,7 +220,7 @@ def _run_write_check(api_url, host_header, username, password):
         )
         # Upload
         client.upload_file(
-            filename="Canasta-Wiki-Check-Temp-File.gif",
+            filename=temp_filename,
             file_content=gif_data,
             token=token
         )
