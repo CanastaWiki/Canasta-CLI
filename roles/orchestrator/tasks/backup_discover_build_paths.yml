@@ -54,7 +54,7 @@
 
     - name: Render merged compose config as JSON
       ansible.builtin.command:
-        cmd: "docker compose config --format json"
+        cmd: "{{ compose_command }} config --format json"
         chdir: "{{ instance_path }}"
       register: _build_compose_config
       changed_when: false

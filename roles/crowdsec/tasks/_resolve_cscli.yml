@@ -13,8 +13,8 @@
 
 - name: Build cscli prefix (Compose)
   ansible.builtin.set_fact:
-    _cscli_prefix: "docker compose exec -T crowdsec"
-    _cscli_argv: ['docker', 'compose', 'exec', '-T', 'crowdsec']
+    _cscli_prefix: "{{ compose_command }} exec -T crowdsec"
+    _cscli_argv: ['{{ compose_command }}', 'exec', '-T', 'crowdsec']
     _cscli_chdir: "{{ instance_path }}"
   when: instance_orchestrator | default('compose') == 'compose'
 

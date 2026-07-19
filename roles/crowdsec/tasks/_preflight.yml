@@ -19,7 +19,7 @@
   block:
     - name: List running services
       ansible.builtin.command:
-        cmd: "docker compose ps --services --filter status=running"
+        cmd: "{{ compose_command }} ps --services --filter status=running"
         chdir: "{{ instance_path }}"
       register: _crowdsec_running
       changed_when: false

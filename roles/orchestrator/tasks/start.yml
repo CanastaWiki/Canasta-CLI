@@ -41,12 +41,15 @@
 
     # The compose command can be overridden for podman deployments.
     # When using rootless Podman instead of Docker, set
-    # compose_command: "podman-compose -f docker-compose.yml" in
-    # the instance .env or via extra-vars.
+    # compose_command: "podman-compose" in the instance .env or via
+    # extra-vars.  The -f flags are appended automatically by
+    # _compose_files above, so duplicating them here would break.
+    # compose_command and inspect_command are defined in
+    # roles/orchestrator/defaults/main.yml (override for Podman).
     - name: Set compose and inspect commands
       ansible.builtin.set_fact:
-        _compose_cmd: "{{ compose_command | default('docker compose') }}"
-        _inspect_cmd: "{{ inspect_command | default('docker') }}"
+        _compose_cmd: "{{ compose_command }}"
+        _inspect_cmd: "{{ inspect_command }}"
 
     - name: Start containers
       ansible.builtin.command:
@@ -109,6 +112,13 @@
     # "healthy" is the right gate. Custom images that do not declare a
     # HEALTHCHECK skip the wait (we trust them to define their own
     # readiness contract).
+    #
+    # Podman note: `podman inspect -f '{{.State.Health.Status}}'`
+    # returns the same Go template output as Docker for containers
+    # with a HEALTHCHECK.  Validated with Podman 4.3.1 (Debian 12
+    # Bookworm ARM64).  Earlier rootless Podman (<4.0) may not
+    # populate .State.Health at all; the `has` probe below skips
+    # gracefully in that case.
     - name: Get web container id
       ansible.builtin.command:
         cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} ps -q web"

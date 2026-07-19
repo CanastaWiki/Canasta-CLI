@@ -138,7 +138,7 @@
     - name: Clear backup volume before restore
       ansible.builtin.command:
         cmd: >-
-          docker run --rm
+          {{ inspect_command }} run --rm
           -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot"
           alpine sh -c 'rm -rf /currentsnapshot/* /currentsnapshot/.[!.]* 2>/dev/null || true'
       changed_when: true
@@ -170,7 +170,7 @@
       when: wiki is not defined
       ansible.builtin.shell:
         cmd: |
-          docker run --rm \
+          {{ inspect_command }} run --rm \
             -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
             -v "{{ instance_path }}:/install" \
             alpine sh -c '
@@ -206,7 +206,7 @@
       when: wiki is defined
       ansible.builtin.shell:
         cmd: >-
-          docker run --rm
+          {{ inspect_command }} run --rm
           -e W={{ wiki | quote }}
           -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
           alpine sh -c 'test -f "/currentsnapshot/config/backup/db_$W.sql"'
@@ -227,7 +227,7 @@
       when: wiki is defined
       ansible.builtin.shell:
         cmd: |
-          docker run --rm \
+          {{ inspect_command }} run --rm \
             -e W={{ wiki | quote }} \
             -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
             -v "{{ instance_path }}:/install" \
