@@ -1492,6 +1492,17 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
             pass
         except Exception:
             pass
+
+    # Auto-detect Podman-only hosts: when compose_command was not set
+    # (no registry field, no .env, no CLI override), probe Docker then
+    # Podman and inject the right runtime so create/start work on
+    # Podman-only systems without manual .env setup.
+    if "compose_command" not in extra_vars:
+        docker_avail = shutil.which("docker") is not None
+        podman_avail = shutil.which("podman") is not None
+        if not docker_avail and podman_avail:
+            extra_vars["compose_command"] = "podman-compose"
+            extra_vars["inspect_command"] = "podman"
     vars_file = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="canasta-vars-",
         delete=False,
