@@ -101,8 +101,8 @@ fi
 DOCKER_SOCK_GID=""
 if [[ -S "$DOCKER_SOCK_PATH" ]]; then
     if [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]] \
-        && docker image inspect "$IMAGE" >/dev/null 2>&1; then
-        DOCKER_SOCK_GID="$(docker run --rm \
+        && "$CONTAINER_ENGINE" image inspect "$IMAGE" >/dev/null 2>&1; then
+        DOCKER_SOCK_GID="$("$CONTAINER_ENGINE" run --rm \
             -v "$DOCKER_SOCK_PATH:/var/run/docker.sock" \
             --entrypoint stat "$IMAGE" -c '%g' /var/run/docker.sock 2>/dev/null || true)"
     fi
@@ -267,15 +267,15 @@ if [[ ! -f "$CANASTA_PASSWD" ]]; then
     PASSWD_STALE=true
 elif [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
     # Regenerate if the image changed (after upgrade) or UID changed.
-    PASSWD_IMAGE_ID=$(docker inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
+    PASSWD_IMAGE_ID=$("$CONTAINER_ENGINE" inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
     if [[ -n "$PASSWD_IMAGE_ID" ]] && ! grep -q "# $PASSWD_IMAGE_ID" "$CANASTA_PASSWD" 2>/dev/null; then
         PASSWD_STALE=true
     fi
 fi
 if [[ "$PASSWD_STALE" == "true" ]]; then
     if [[ -z "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
-        docker run --rm --entrypoint cat "$IMAGE" /etc/passwd > "$CANASTA_PASSWD" 2>/dev/null || true
-        PASSWD_IMAGE_ID=$(docker inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
+        "$CONTAINER_ENGINE" run --rm --entrypoint cat "$IMAGE" /etc/passwd > "$CANASTA_PASSWD" 2>/dev/null || true
+        PASSWD_IMAGE_ID=$("$CONTAINER_ENGINE" inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)
         echo "# $PASSWD_IMAGE_ID" >> "$CANASTA_PASSWD"
     else
         # Stub passwd file for tests so the read-only mount source exists.
@@ -612,7 +612,7 @@ for arg in "$@"; do
             WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/${WRAPPER_REF}/canasta-docker"
 
             echo "Pulling canasta-ansible image ($IMAGE)..."
-            docker pull "$IMAGE"
+            "$CONTAINER_ENGINE" pull "$IMAGE"
 
             # Update the wrapper script itself if the upstream differs.
             if command -v curl &>/dev/null; then
@@ -730,25 +730,35 @@ if [[ -n "$SCHEDULE_CRONTAB_FILE" ]]; then
     DOCKER_RUN_FLAGS+=(-e "CANASTA_HOST_CRONTAB=$SCHEDULE_CRONTAB_FILE")
 fi
 
-# Detect if `docker` is actually a podman shim (e.g. the podman-docker
+# Choose container engine: prefer docker if available, fall back to podman.
+if command -v docker &>/dev/null; then
+    CONTAINER_ENGINE=docker
+elif command -v podman &>/dev/null; then
+    CONTAINER_ENGINE=podman
+else
+    echo "Error: neither docker nor podman found on PATH. Install one and try again." >&2
+    exit 1
+fi
+
+# Detect if the engine is actually a podman shim (e.g. the podman-docker
 # package on Debian/Fedora installs /usr/bin/docker as a wrapper that
 # calls podman). Rootless podman remaps --user 1000:1000 in the
 # container to a host subuid (e.g. 100999), so writes to bind-mounted
 # host paths look like a foreign UID even though the host user owns
 # them. `--userns=keep-id` opts out of that remap and keeps in-
 # container UIDs equal to host UIDs. Podman-only flag — Docker rejects
-# it. Detection by `docker --version` output is intentional: shell
-# aliases aren't expanded in non-interactive scripts, but binary
+# it. Detection by `$CONTAINER_ENGINE --version` output is intentional:
+# shell aliases aren't expanded in non-interactive scripts, but binary
 # wrappers (the common case) do report "podman" here.
 ENGINE_OPTS=()
-if docker --version 2>/dev/null | grep -qi 'podman'; then
+if "$CONTAINER_ENGINE" --version 2>/dev/null | grep -qi 'podman'; then
     ENGINE_OPTS+=(--userns=keep-id)
 fi
 
 # Dry-run mode for tests: print the assembled docker run command, one
 # argument per line, and exit. Does not invoke docker.
 if [[ -n "${CANASTA_DOCKER_DRY_RUN:-}" ]]; then
-    printf 'docker\n'
+    printf '%s\n' "$CONTAINER_ENGINE"
     for a in run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" "${MOUNTS[@]}" "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}; do
         printf '%s\n' "$a"
     done
@@ -763,7 +773,7 @@ if [[ -n "$SCHEDULE_CRONTAB_FILE" ]]; then
     crontab -l > "$SCHEDULE_CRONTAB_FILE" 2>/dev/null || : > "$SCHEDULE_CRONTAB_FILE"
     _crontab_before="$(cksum < "$SCHEDULE_CRONTAB_FILE")"
     _sched_rc=0
-    docker run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" \
+    "$CONTAINER_ENGINE" run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" \
         "${MOUNTS[@]}" \
         "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} || _sched_rc=$?
     _crontab_after="$(cksum < "$SCHEDULE_CRONTAB_FILE")"
@@ -781,6 +791,6 @@ if [[ -n "$SCHEDULE_CRONTAB_FILE" ]]; then
     exit "$_sched_rc"
 fi
 
-exec docker run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" \
+exec "$CONTAINER_ENGINE" run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" \
     "${MOUNTS[@]}" \
     "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
