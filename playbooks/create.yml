@@ -33,7 +33,7 @@
   rescue:
     - name: Clean up on failure (destroy Compose containers)
       ansible.builtin.command:
-        cmd: "docker compose down -v"
+        cmd: "{{ compose_command | default('docker compose') }} down -v"
         chdir: "{{ instance_path | default(omit) }}"
       when:
         - instance_path is defined

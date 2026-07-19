@@ -76,7 +76,7 @@
     - name: Stop and remove containers for deactivated profiles
       ansible.builtin.command:
         cmd: >-
-          docker compose {{ _teardown_compose_files | join(' ') }}
+          {{ compose_command }} {{ _teardown_compose_files | join(' ') }}
           {{ _removed_profiles | map('regex_replace', '^', '--profile ') | join(' ') }}
           rm -sf
           {{ _removed_profiles | map('extract', _profile_services) | flatten | join(' ') }}
