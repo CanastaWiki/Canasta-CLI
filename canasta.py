@@ -833,6 +833,27 @@ def get_config_file_path():
     return canasta_config.config_path(get_config_dir())
 
 
+def _read_env_file_value(path, key):
+    """Read a single value from an instance's .env file.
+
+    Parses KEY=VALUE lines. Returns the value string or None.
+    """
+    env_file = os.path.join(path, ".env")
+    try:
+        with open(env_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    if k.strip() == key:
+                        return v.strip()
+    except (OSError, IOError):
+        pass
+    return None
+
+
 def resolve_instance(instance_id=None):
     """Resolve an instance from the registry by ID or working directory.
 
@@ -1450,6 +1471,29 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # delete=False because ansible-playbook needs to read it after
     # execvp replaces this process. Stale files are cleaned up by
     # _cleanup_stale_vars_files() at the start of each invocation.
+
+    # When the registry lacks composeCommand/inspectCommand (e.g.
+    # instances created before Podman support), fall back to reading
+    # from the instance's .env file so Ansible gets the values.
+    instance_id = getattr(args, "id", None)
+    if instance_id and "compose_command" not in extra_vars:
+        try:
+            conf_file = get_config_file_path()
+            if os.path.isfile(conf_file):
+                instances = canasta_config.read_config(
+                    get_config_dir()
+                ).get("Instances", {})
+                inst = instances.get(instance_id, {})
+                path = inst.get("path", "")
+                if path:
+                    env_val = _read_env_file_value(path, "compose_command")
+                    if env_val:
+                        extra_vars["compose_command"] = env_val
+                    env_val = _read_env_file_value(path, "inspect_command")
+                    if env_val:
+                        extra_vars["inspect_command"] = env_val
+        except Exception:
+            pass
     vars_file = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="canasta-vars-",
         delete=False,
