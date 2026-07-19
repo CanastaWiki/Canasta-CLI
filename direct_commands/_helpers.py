@@ -935,19 +935,47 @@ def _retry_on_ssh_reset(run, attempts=3):
     return rc
 
 
+def _read_env(path, key):
+    """Read a single value from an instance's .env file.
+
+    Parses KEY=VALUE lines (Docker Compose / Ansible format). Returns
+    the value string or None if the key is not found.
+    """
+    env_file = os.path.join(path, ".env")
+    try:
+        with open(env_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    if k.strip() == key:
+                        return v.strip()
+    except (OSError, IOError):
+        pass
+    return None
+
+
 def _resolve_compose_cmd(inst):
     """Resolve the compose command for an instance.
 
     Returns the command as a list of tokens (e.g. ["docker", "compose"]
     or ["podman-compose"]). The instance's ``composeCommand`` registry
-    field overrides the default; when absent the classic Docker form is
-    used. The value is split on whitespace so that a single-token
+    field overrides the default; when absent, the instance's ``.env``
+    file is checked for ``compose_command=``. Falls back to the classic
+    Docker form. The value is split on whitespace so that a single-token
     override like ``podman-compose`` works, while the default
     ``docker compose`` naturally yields two tokens.
     """
     raw = inst.get("composeCommand")
     if raw:
         return raw.split()
+    path = inst.get("path", "")
+    if path:
+        raw = _read_env(path, "compose_command")
+        if raw:
+            return raw.split()
     return ["docker", "compose"]
 
 
@@ -956,9 +984,18 @@ def _resolve_inspect_cmd(inst):
 
     Returns the command as a string (e.g. ``"docker"`` or ``"podman"``).
     The instance's ``inspectCommand`` registry field overrides the
-    default.
+    default; when absent, the instance's ``.env`` file is checked for
+    ``inspect_command=``.
     """
-    return inst.get("inspectCommand") or "docker"
+    raw = inst.get("inspectCommand")
+    if raw:
+        return raw
+    path = inst.get("path", "")
+    if path:
+        raw = _read_env(path, "inspect_command")
+        if raw:
+            return raw
+    return "docker"
 
 
 def _is_localhost(host):
