@@ -82,6 +82,16 @@ if [[ -f "$PINNED_TAG_FILE" ]]; then
 fi
 IMAGE="${CANASTA_CLI_IMAGE:-${CANASTA_ANSIBLE_IMAGE:-ghcr.io/canastawiki/canasta-ansible:$DEFAULT_TAG}}"
 
+# Choose container engine: prefer docker if available, fall back to podman.
+if command -v docker &>/dev/null; then
+    CONTAINER_ENGINE=docker
+elif command -v podman &>/dev/null; then
+    CONTAINER_ENGINE=podman
+else
+    echo "Error: neither docker nor podman found on PATH. Install one and try again." >&2
+    exit 1
+fi
+
 # Base mounts: Docker socket + registry + current directory + $HOME.
 # The container runs as the invoking user's UID/GID so that any files
 # written to mounted paths end up owned by the host user, not root.
@@ -728,16 +738,6 @@ DOCKER_RUN_FLAGS+=(-e "CANASTA_CLI_BIN=$CANASTA_CLI_BIN")
 # host crontab; the dispatch below installs it on the host afterward.
 if [[ -n "$SCHEDULE_CRONTAB_FILE" ]]; then
     DOCKER_RUN_FLAGS+=(-e "CANASTA_HOST_CRONTAB=$SCHEDULE_CRONTAB_FILE")
-fi
-
-# Choose container engine: prefer docker if available, fall back to podman.
-if command -v docker &>/dev/null; then
-    CONTAINER_ENGINE=docker
-elif command -v podman &>/dev/null; then
-    CONTAINER_ENGINE=podman
-else
-    echo "Error: neither docker nor podman found on PATH. Install one and try again." >&2
-    exit 1
 fi
 
 # Detect if the engine is actually a podman shim (e.g. the podman-docker
