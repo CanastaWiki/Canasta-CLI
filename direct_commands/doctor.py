@@ -301,16 +301,18 @@ def _gather_runtime(path, host):
     comments; empty when not gitops / no env.template."""
     d = _helpers._SENTINEL
     qpath = _helpers._shell_quote(path)
+    compose_cmd = _helpers._resolve_compose_cmd(inst)
+    compose_str = " ".join(compose_cmd)
     script = (
         "cd %(p)s 2>/dev/null && "
-        "docker compose ps --services --status running 2>/dev/null; "
+        "%(c)s ps --services --status running 2>/dev/null; "
         "echo '%(d)s'; "
         "grep -rqi cirrussearch %(p)s/config/settings 2>/dev/null "
         "&& echo USES_CIRRUS || echo NO_CIRRUS; "
         "echo '%(d)s'; "
         "grep -E '^[A-Za-z_][A-Za-z0-9_]*=' %(p)s/env.template 2>/dev/null "
         "| grep -v '={{'"
-    ) % {"p": qpath, "d": d}
+    ) % {"p": qpath, "d": d, "c": compose_str}
     if _helpers._is_localhost(host):
         try:
             out = subprocess.run(

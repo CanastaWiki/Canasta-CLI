@@ -171,10 +171,12 @@ def _read_instance_image(inst_id, inst):
             % (_helpers._shell_quote(ns), _helpers._shell_quote(ns))
         )
     else:
+        compose_cmd = _helpers._resolve_compose_cmd(inst)
+        compose_str = " ".join(compose_cmd)
         probe_cmd = (
-            "cd %s && docker compose exec -T web sh -c "
+            "cd %s && %s exec -T web sh -c "
             "\"cat /tmp/canasta-version 2>/dev/null | sed -n '2p'\" 2>/dev/null"
-            % _helpers._shell_quote(path)
+            % (_helpers._shell_quote(path), compose_str)
         )
 
     if _helpers._is_localhost(host):
@@ -413,13 +415,14 @@ def cmd_status(args):
         return 0
 
     # Compose
+    compose_cmd = _helpers._resolve_compose_cmd(inst)
     running = _helpers._check_running_compose(path, host)
     print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
     if not path:
         print("\n(no path on file — cannot inspect containers)")
         return 0
 
-    ps_cmd = "docker compose ps"
+    ps_cmd = compose_cmd + ["ps"]
     if _helpers._is_localhost(host):
         try:
             r = subprocess.run(
