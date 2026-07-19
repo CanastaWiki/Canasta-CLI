@@ -97,6 +97,15 @@ fi
 # written to mounted paths end up owned by the host user, not root.
 if [[ "${DOCKER_HOST:-}" == unix://* ]]; then
     DOCKER_SOCK_PATH="${DOCKER_HOST#unix://}"
+elif [[ "$CONTAINER_ENGINE" == "podman" ]]; then
+    runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    if [[ -S "$runtime/podman/podman.sock" ]]; then
+        DOCKER_SOCK_PATH="$runtime/podman/podman.sock"
+    elif [[ -S "/run/podman/podman.sock" ]]; then
+        DOCKER_SOCK_PATH="/run/podman/podman.sock"
+    else
+        DOCKER_SOCK_PATH="/var/run/docker.sock"
+    fi
 else
     DOCKER_SOCK_PATH="/var/run/docker.sock"
 fi
