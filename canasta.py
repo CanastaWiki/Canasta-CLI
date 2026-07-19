@@ -1475,23 +1475,21 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # When the registry lacks composeCommand/inspectCommand (e.g.
     # instances created before Podman support), fall back to reading
     # from the instance's .env file so Ansible gets the values.
-    instance_id = getattr(args, "id", None)
-    if instance_id and "compose_command" not in extra_vars:
+    if "compose_command" not in extra_vars:
         try:
-            conf_file = get_config_file_path()
-            if os.path.isfile(conf_file):
-                instances = canasta_config.read_config(
-                    get_config_dir()
-                ).get("Instances", {})
-                inst = instances.get(instance_id, {})
-                path = inst.get("path", "")
-                if path:
-                    env_val = _read_env_file_value(path, "compose_command")
-                    if env_val:
-                        extra_vars["compose_command"] = env_val
-                    env_val = _read_env_file_value(path, "inspect_command")
-                    if env_val:
-                        extra_vars["inspect_command"] = env_val
+            inst = resolve_instance(
+                getattr(args, "id", None)
+            ) if os.path.isfile(get_config_file_path()) else {}
+            path = inst.get("path", "")
+            if path:
+                env_val = _read_env_file_value(path, "compose_command")
+                if env_val:
+                    extra_vars["compose_command"] = env_val
+                env_val = _read_env_file_value(path, "inspect_command")
+                if env_val:
+                    extra_vars["inspect_command"] = env_val
+        except SystemExit:
+            pass
         except Exception:
             pass
     vars_file = tempfile.NamedTemporaryFile(
