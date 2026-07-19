@@ -10,7 +10,7 @@
 - name: Copy file into container (Compose)
   ansible.builtin.command:
     cmd: >-
-      docker compose cp {{ copy_src | quote }}
+      {{ compose_command }} cp {{ copy_src | quote }}
       {{ (copy_service + ':' + copy_dest) | quote }}
     chdir: "{{ instance_path }}"
   changed_when: true

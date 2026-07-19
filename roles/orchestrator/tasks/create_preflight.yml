@@ -24,17 +24,24 @@
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/detect_docker_socket.yml"
       when: (docker_host | default('')) == ''
 
-    - name: Check Docker is available
+    # Probe the available container runtime (Docker or Podman) before
+    # any state mutation. When compose_command is set to a Podman-based
+    # command (e.g. podman-compose), probe podman info instead of
+    # docker info so Podman-only hosts pass the preflight gate.
+    - name: Check container runtime is available
       ansible.builtin.command:
-        cmd: docker info
+        cmd: >-
+          {{ (compose_command | default('docker compose') is search('podman'))
+             | ternary('podman info', 'docker info') }}
       register: _docker_check
       changed_when: false
-      ignore_errors: true  # OK if Docker not installed
+      ignore_errors: true  # OK if runtime not installed
 
-    - name: Fail if Docker not available
+    - name: Fail if container runtime not available
       ansible.builtin.fail:
         msg: >-
-          Docker is not available on this host.
+          No container runtime is available on this host.
+          Docker and Podman are both absent or unreachable.
           Run 'canasta doctor' to check all dependencies.
       when: _docker_check.rc | default(0) != 0
 
