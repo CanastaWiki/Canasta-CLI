@@ -38,7 +38,7 @@ RUN curl -fsSL --retry 3 --retry-delay 5 \
 WORKDIR /opt/canasta-ansible
 COPY requirements.txt requirements.yml ./
 RUN pip install -vv --no-cache-dir -r requirements.txt --root-user-action=ignore
-RUN ansible-galaxy collection install -vv -r requirements.yml -p /usr/share/ansible/collections
+RUN ansible-galaxy -vv collection install -r requirements.yml -p /usr/share/ansible/collections
 
 COPY . .
 
