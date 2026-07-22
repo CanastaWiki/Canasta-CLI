@@ -5,8 +5,12 @@
 # Output: _running_services (newline-separated names, may be empty)
 
 - name: Get service list (Compose)
-  ansible.builtin.command:
-    cmd: "{{ compose_command }} ps --services --filter status=running"
+  ansible.builtin.shell:
+    cmd: >-
+      {{ inspect_command | default('docker') }}
+      ps --filter status=running
+      --filter label=com.docker.compose.project
+      --format {% raw %}{{.Label "com.docker.compose.service"}}{% endraw %}
     chdir: "{{ instance_path }}"
   register: _list_services_compose
   changed_when: false
