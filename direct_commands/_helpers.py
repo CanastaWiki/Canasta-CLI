@@ -1151,7 +1151,7 @@ def _print_table(details):
         print("  %-14s%s" % (d["orchestrator"], d["status"]))
         if d["wikis"]:
             for w in d["wikis"]:
-                url = w.get("url", "")
+                url = w.get("url") or ""
                 if "/" not in url:
                     url = url + "/"
                 print("  %-14s%s" % (w.get("id", "?"), url))
