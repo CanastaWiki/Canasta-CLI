@@ -275,6 +275,10 @@ services:
       - ./config/crowdsec/whitelists.yaml:/etc/crowdsec/parsers/s02-enrich/canasta-whitelists.yaml:ro
       - caddy-logs:/var/log/caddy:ro
 
+networks:
+  default:
+    driver: bridge
+
 volumes:
   mysql-data-volume:
   elasticsearch:
