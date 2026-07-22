@@ -68,20 +68,15 @@
             - _docker_check.rc | default(1) != 0
             - _podman_check.rc | default(1) == 0
 
-        - name: Prefer podman info result if Docker absent but Podman present
-          ansible.builtin.set_fact:
-            _docker_check: "{{ _podman_check }}"
-          when:
-            - _docker_check.rc | default(1) != 0
-            - _podman_check.rc | default(1) == 0
-
     - name: Fail if container runtime not available
       ansible.builtin.fail:
         msg: >-
           No container runtime is available on this host.
           Docker and Podman are both absent or unreachable.
           Run 'canasta doctor' to check all dependencies.
-      when: _docker_check.rc | default(0) != 0
+      when: >-
+        (_docker_check.rc | default(1) != 0)
+        and (_podman_check.rc | default(1) != 0)
 
     # Port 80/443 conflict detection for Compose. Compose's caddy
     # service binds host ports 80 and 443; if anything else is
