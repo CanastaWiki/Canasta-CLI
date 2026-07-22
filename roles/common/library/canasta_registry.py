@@ -84,6 +84,16 @@ options:
       Docker daemon endpoint (DOCKER_HOST) for the instance's containers,
       stored as dockerHost in the registry.
     type: str
+  compose_command:
+    description: >-
+      Compose command override (e.g. "podman-compose" for Podman).
+      Stored as composeCommand in the registry.
+    type: str
+  inspect_command:
+    description: >-
+      Inspect command override (e.g. "podman" for Podman).
+      Stored as inspectCommand in the registry.
+    type: str
 """
 
 import json
@@ -133,6 +143,10 @@ def instance_to_dict(instance):
         result["buildArgs"] = instance["buildArgs"]
     if instance.get("dockerHost"):
         result["dockerHost"] = instance["dockerHost"]
+    if instance.get("composeCommand"):
+        result["composeCommand"] = instance["composeCommand"]
+    if instance.get("inspectCommand"):
+        result["inspectCommand"] = instance["inspectCommand"]
     return result
 
 
@@ -155,6 +169,8 @@ def run_module():
         build_args=dict(type="list", elements="str", required=False),
         host=dict(type="str", required=False),
         docker_host=dict(type="str", required=False),
+        compose_command=dict(type="str", required=False),
+        inspect_command=dict(type="str", required=False),
         filter_host=dict(type="str", required=False),
         config_dir=dict(type="str", required=False),
     )
@@ -238,6 +254,8 @@ def run_module():
             "buildFrom": module.params.get("build_from"),
             "buildArgs": module.params.get("build_args"),
             "dockerHost": module.params.get("docker_host"),
+            "composeCommand": module.params.get("compose_command"),
+            "inspectCommand": module.params.get("inspect_command"),
         })
 
         if inst_id in instances:

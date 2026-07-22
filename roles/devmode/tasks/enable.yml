@@ -63,31 +63,31 @@
 
     - name: Pull base image if from registry
       ansible.builtin.command:
-        cmd: "docker pull {{ _dev_base_image }}"
+        cmd: "{{ inspect_command }} pull {{ _dev_base_image }}"
       changed_when: true
       when: "'/' in _dev_base_image"
 
     - name: Create temporary container for code extraction
       ansible.builtin.command:
-        cmd: "docker create --name canasta-dev-extract {{ _dev_base_image }} sleep infinity"
+        cmd: "{{ inspect_command }} create --name canasta-dev-extract {{ _dev_base_image }} sleep infinity"
       register: _extract_container
       changed_when: true
 
     - name: Run create-symlinks.sh in temp container
       ansible.builtin.command:
-        cmd: "docker start canasta-dev-extract && docker exec canasta-dev-extract /create-symlinks.sh"
+        cmd: "{{ inspect_command }} start canasta-dev-extract && {{ inspect_command }} exec canasta-dev-extract /create-symlinks.sh"
       changed_when: true
       ignore_errors: true  # OK if script missing in image
 
     - name: Extract code from container
       ansible.builtin.shell:
-        cmd: "docker exec canasta-dev-extract tar -cf - -C /var/www/mediawiki/w . | tar -xf - -C mediawiki-code/"
+        cmd: "{{ inspect_command }} exec canasta-dev-extract tar -cf - -C /var/www/mediawiki/w . | tar -xf - -C mediawiki-code/"
         chdir: "{{ instance_path }}"
       changed_when: true
 
     - name: Remove temporary container
       ansible.builtin.command:
-        cmd: "docker rm -f canasta-dev-extract"
+        cmd: "{{ inspect_command }} rm -f canasta-dev-extract"
       changed_when: true
 
 # --- Consolidate user extensions/skins ---
@@ -174,7 +174,7 @@
 # --- Build xdebug image ---
 - name: Build xdebug-enabled image
   ansible.builtin.command:
-    cmd: "docker compose -f docker-compose.yml -f docker-compose.dev.yml build"
+    cmd: "{{ compose_command }} -f docker-compose.yml -f docker-compose.dev.yml build"
     chdir: "{{ instance_path }}"
   changed_when: true
 

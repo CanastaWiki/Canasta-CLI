@@ -24,19 +24,59 @@
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/detect_docker_socket.yml"
       when: (docker_host | default('')) == ''
 
-    - name: Check Docker is available
-      ansible.builtin.command:
-        cmd: docker info
-      register: _docker_check
-      changed_when: false
-      ignore_errors: true  # OK if Docker not installed
+    # Probe the available container runtime (Docker or Podman) before
+    # any state mutation. When compose_command is set to a Podman-based
+    # command (e.g. podman-compose), probe podman info instead of
+    # docker info so Podman-only hosts pass the preflight gate.
+    #
+    # For remote operations (--host), compose_command may not reflect
+    # what's actually on the remote host (local auto-detection was
+    # skipped). Probe both runtimes and set facts so downstream tasks
+    # get the correct command.
+    - name: Check container runtime is available
+      when: (compose_command | default('docker compose') is search('podman'))
+      block:
+        - name: Probe podman info (compose_command is podman-based)
+          ansible.builtin.command:
+            cmd: podman info
+          register: _docker_check
+          changed_when: false
+          ignore_errors: true
 
-    - name: Fail if Docker not available
+    - name: Probe Docker then Podman for remote/detected runtime
+      when: not (compose_command | default('docker compose') is search('podman'))
+      block:
+        - name: Probe docker info
+          ansible.builtin.command:
+            cmd: docker info
+          register: _docker_check
+          changed_when: false
+          ignore_errors: true
+
+        - name: Probe podman info (fallback)
+          ansible.builtin.command:
+            cmd: podman info
+          register: _podman_check
+          changed_when: false
+          ignore_errors: true
+
+        - name: Set compose_command to podman-compose if Docker absent but Podman present
+          ansible.builtin.set_fact:
+            compose_command: podman-compose
+            inspect_command: podman
+          when:
+            - _docker_check.rc | default(1) != 0
+            - _podman_check.rc | default(1) == 0
+
+    - name: Fail if container runtime not available
       ansible.builtin.fail:
         msg: >-
-          Docker is not available on this host.
+          No container runtime is available on this host.
+          Docker and Podman are both absent or unreachable.
           Run 'canasta doctor' to check all dependencies.
-      when: _docker_check.rc | default(0) != 0
+      when: >-
+        (_docker_check.rc | default(1) != 0)
+        and (_podman_check.rc | default(1) != 0)
 
     # Port 80/443 conflict detection for Compose. Compose's caddy
     # service binds host ports 80 and 443; if anything else is

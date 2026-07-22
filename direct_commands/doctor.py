@@ -33,7 +33,8 @@ runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/p
 command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo OK || echo BROKEN; } || echo MISSING; echo "$D"
 cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi; echo "$D"
 command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
-command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING
+command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
+podman --version 2>&1 || echo MISSING
 """
 
 
@@ -73,6 +74,7 @@ def _parse_doctor(stdout, hostname):
     # controller.
     sops = p(20) if len(parts) > 20 else "MISSING"
     age = p(21) if len(parts) > 21 else "MISSING"
+    podman_version = p(22) if len(parts) > 22 else "MISSING"
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -120,6 +122,34 @@ def _parse_doctor(stdout, hostname):
             "  Rootless socket: none detected "
             "(default /var/run/docker.sock)"
         )
+
+    if podman_version != "MISSING":
+        ver = podman_version
+        # Parse "podman version 4.3.1" → "4.3.1"
+        m = re.search(r'(\d+\.\d+\.\d+)', ver)
+        if m:
+            ver_str = m.group(1)
+            parts = [int(x) for x in ver_str.split(".")]
+            # Pad to 3 components for comparison
+            while len(parts) < 3:
+                parts.append(0)
+            if parts < [4, 4, 0]:
+                lines.append(
+                    "  Podman:          %s — WARNING: podman < 4.4 has a "
+                    "known Docker API bug that causes 'docker compose up' to "
+                    "fail with EOF on container start. "
+                    "Install podman >= 4.4 or set compose_command=podman-compose "
+                    "in the instance .env."
+                    % ver_str
+                )
+            else:
+                lines.append(
+                    "  Podman:          %s (OK)" % ver_str
+                )
+        else:
+            lines.append(
+                "  Podman:          %s (version unknown)" % ver
+            )
 
     lines.append("")
     lines.append("Kubernetes (optional):")
@@ -301,16 +331,18 @@ def _gather_runtime(path, host):
     comments; empty when not gitops / no env.template."""
     d = _helpers._SENTINEL
     qpath = _helpers._shell_quote(path)
+    compose_cmd = _helpers._resolve_compose_cmd(inst)
+    compose_str = " ".join(compose_cmd)
     script = (
         "cd %(p)s 2>/dev/null && "
-        "docker compose ps --services --status running 2>/dev/null; "
+        "%(c)s ps --services --status running 2>/dev/null; "
         "echo '%(d)s'; "
         "grep -rqi cirrussearch %(p)s/config/settings 2>/dev/null "
         "&& echo USES_CIRRUS || echo NO_CIRRUS; "
         "echo '%(d)s'; "
         "grep -E '^[A-Za-z_][A-Za-z0-9_]*=' %(p)s/env.template 2>/dev/null "
         "| grep -v '={{'"
-    ) % {"p": qpath, "d": d}
+    ) % {"p": qpath, "d": d, "c": compose_str}
     if _helpers._is_localhost(host):
         try:
             out = subprocess.run(
@@ -625,8 +657,13 @@ def cmd_doctor(args):
     docker = parts[1].strip() if len(parts) > 1 else "MISSING"
     compose = parts[2].strip() if len(parts) > 2 else "MISSING"
     daemon = parts[3].strip() if len(parts) > 3 else "NOT_RUNNING"
-    if "Docker" not in docker or "Docker Compose" not in compose or daemon != "OK":
-        print("\nMissing core dependencies. Install Docker and ensure the daemon is running.",
+    podman_version = parts[22].strip() if len(parts) > 22 else "MISSING"
+    if "Docker" in docker and "Docker Compose" in compose and daemon == "OK":
+        pass
+    elif podman_version != "MISSING":
+        pass
+    else:
+        print("\nMissing core dependencies. Install Docker or Podman and ensure a runtime is running.",
               file=sys.stderr)
         return 1
 

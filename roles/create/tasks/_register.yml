@@ -21,6 +21,8 @@
     orchestrator: "{{ orchestrator | default('compose') }}"
     host: "{{ _registry_host }}"
     docker_host: "{{ docker_host | default(_detected_docker_host | default(''), true) | default(omit, true) }}"
+    compose_command: "{{ compose_command | default(omit, true) }}"
+    inspect_command: "{{ inspect_command | default(omit, true) }}"
     managed_cluster: false
     build_from: "{{ build_from | default(omit) }}"
     build_args: "{{ build_arg | default(omit, true) }}"
@@ -36,6 +38,8 @@
     path: "{{ instance_path }}"
     orchestrator: "{{ orchestrator | default('compose') }}"
     docker_host: "{{ docker_host | default(_detected_docker_host | default(''), true) | default(omit, true) }}"
+    compose_command: "{{ compose_command | default(omit, true) }}"
+    inspect_command: "{{ inspect_command | default(omit, true) }}"
     managed_cluster: false
     build_from: "{{ build_from | default(omit) }}"
     build_args: "{{ build_arg | default(omit, true) }}"

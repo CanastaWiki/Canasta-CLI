@@ -343,7 +343,7 @@ def _compose_file_args(path, host, devmode=False, include_sidecars=False):
 
 
 def _run_compose(inst_id, inst, action_args, include_sidecars=False):
-    """Run a docker compose command for an instance. Returns exit code.
+    """Run a compose command for an instance. Returns exit code.
 
     Output streams to the terminal and there is NO timeout: the actions
     routed here (`up -d` with image pulls, `down`, `build` from rebuild)
@@ -356,9 +356,10 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     path = inst.get("path", "")
     devmode = inst.get("devMode", False)
     file_args = _compose_file_args(path, host, devmode, include_sidecars)
+    compose_cmd = _resolve_compose_cmd(inst)
 
     if _is_localhost(host):
-        cmd = ["docker", "compose"] + file_args + action_args
+        cmd = compose_cmd + file_args + action_args
         try:
             return subprocess.call(cmd, cwd=path)
         except OSError as e:
@@ -367,8 +368,9 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
 
     file_str = " ".join(file_args)
     action_str = " ".join(action_args)
-    remote_cmd = "cd %s && docker compose %s %s" % (
-        _shell_quote(path), file_str, action_str,
+    compose_str = " ".join(compose_cmd)
+    remote_cmd = "cd %s && %s %s %s" % (
+        _shell_quote(path), compose_str, file_str, action_str,
     )
     # SSH does not pass env; propagate DOCKER_HOST like _ssh_run does so a
     # rootless socket on the target is honored.
@@ -536,28 +538,29 @@ def _sync_compose_profiles(inst):
 
 
 def _dump_compose_failure(inst, include_sidecars=False):
-    """Print docker compose ps + logs to stderr after a failed 'up'.
+    """Print compose ps + logs to stderr after a failed 'up'.
 
     Matches the diagnostic block in roles/orchestrator/tasks/start.yml:
-    the caller usually rolls back (docker compose down) on failure,
-    which wipes the containers — so capturing ps/logs here, right
-    after the failed 'up' and before the rollback, is the only
-    reliable way to see why a container was unhealthy.
+    the caller usually rolls back (compose down) on failure, which wipes
+    the containers — so capturing ps/logs here, right after the failed
+    'up' and before the rollback, is the only reliable way to see why a
+    container was unhealthy.
     """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     devmode = inst.get("devMode", False)
     file_args = _compose_file_args(path, host, devmode, include_sidecars)
+    compose_cmd = _resolve_compose_cmd(inst)
 
     steps = [
-        (["ps", "-a"], "docker compose ps -a"),
-        (["logs", "--tail=200", "--no-color"], "docker compose logs (last 200)"),
+        (["ps", "-a"], "compose ps -a"),
+        (["logs", "--tail=200", "--no-color"], "compose logs (last 200)"),
     ]
     for action, label in steps:
         if _is_localhost(host):
             try:
                 result = subprocess.run(
-                    ["docker", "compose"] + file_args + action,
+                    compose_cmd + file_args + action,
                     cwd=path, capture_output=True, text=True, timeout=30,
                 )
                 output = result.stdout or result.stderr
@@ -566,10 +569,11 @@ def _dump_compose_failure(inst, include_sidecars=False):
         else:
             action_str = " ".join(action)
             file_str = " ".join(file_args)
+            compose_str = " ".join(compose_cmd)
             _rc, output = _ssh_run(
                 host,
-                "cd %s && docker compose %s %s" % (
-                    _shell_quote(path), file_str, action_str,
+                "cd %s && %s %s %s" % (
+                    _shell_quote(path), compose_str, file_str, action_str,
                 ),
             )
         print("--- %s ---" % label, file=sys.stderr)
@@ -642,10 +646,11 @@ def _exec_in_container(inst_id, inst, command, service="web"):
         except (subprocess.TimeoutExpired, OSError):
             return 1, ""
 
+    compose_cmd = _resolve_compose_cmd(inst)
     if _is_localhost(host):
         try:
             result = subprocess.run(
-                ["docker", "compose", "exec", "-T", service,
+                compose_cmd + ["exec", "-T", service,
                  "/bin/bash", "-c", command],
                 cwd=path, capture_output=True, text=True, timeout=30,
             )
@@ -653,10 +658,11 @@ def _exec_in_container(inst_id, inst, command, service="web"):
         except (subprocess.TimeoutExpired, OSError):
             return 1, ""
 
+    compose_str = " ".join(compose_cmd)
     rc, stdout = _ssh_run(
         host,
-        "cd %s && docker compose exec -T %s /bin/bash -c %s" % (
-            _shell_quote(path), service, _shell_quote(command),
+        "cd %s && %s exec -T %s /bin/bash -c %s" % (
+            _shell_quote(path), compose_str, service, _shell_quote(command),
         ),
     )
     return rc, stdout
@@ -720,17 +726,21 @@ def _stream_in_container(inst_id, inst, command, service="web",
             ]
             cwd = None
     elif _is_localhost(host):
-        argv = [
-            "docker", "compose", "exec", "-T", service,
+        compose_cmd = _resolve_compose_cmd(inst)
+        argv = compose_cmd + [
+            "exec", "-T", service,
             "/bin/bash", "-c", wrapped,
         ]
         cwd = path or None
     else:
+        compose_cmd = _resolve_compose_cmd(inst)
+        compose_str = " ".join(compose_cmd)
         target = _resolve_ssh_target(host)
         argv = ["ssh"] + _ssh_args() + [
             target,
-            "cd %s && docker compose exec -T %s /bin/bash -c %s" % (
-                _shell_quote(path), service, _shell_quote(wrapped),
+            "cd %s && %s exec -T %s /bin/bash -c %s" % (
+                _shell_quote(path), compose_str, service,
+                _shell_quote(wrapped),
             ),
         ]
         cwd = None
@@ -925,6 +935,69 @@ def _retry_on_ssh_reset(run, attempts=3):
     return rc
 
 
+def _read_env(path, key):
+    """Read a single value from an instance's .env file.
+
+    Parses KEY=VALUE lines (Docker Compose / Ansible format). Returns
+    the value string or None if the key is not found.
+    """
+    env_file = os.path.join(path, ".env")
+    try:
+        with open(env_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    if k.strip() == key:
+                        return v.strip()
+    except (OSError, IOError):
+        pass
+    return None
+
+
+def _resolve_compose_cmd(inst):
+    """Resolve the compose command for an instance.
+
+    Returns the command as a list of tokens (e.g. ["docker", "compose"]
+    or ["podman-compose"]). The instance's ``composeCommand`` registry
+    field overrides the default; when absent, the instance's ``.env``
+    file is checked for ``compose_command=``. Falls back to the classic
+    Docker form. The value is split on whitespace so that a single-token
+    override like ``podman-compose`` works, while the default
+    ``docker compose`` naturally yields two tokens.
+    """
+    raw = inst.get("composeCommand")
+    if raw:
+        return raw.split()
+    path = inst.get("path", "")
+    if path:
+        raw = _read_env(path, "compose_command")
+        if raw:
+            return raw.split()
+    return ["docker", "compose"]
+
+
+def _resolve_inspect_cmd(inst):
+    """Resolve the inspect (docker/podman) command for an instance.
+
+    Returns the command as a string (e.g. ``"docker"`` or ``"podman"``).
+    The instance's ``inspectCommand`` registry field overrides the
+    default; when absent, the instance's ``.env`` file is checked for
+    ``inspect_command=``.
+    """
+    raw = inst.get("inspectCommand")
+    if raw:
+        return raw
+    path = inst.get("path", "")
+    if path:
+        raw = _read_env(path, "inspect_command")
+        if raw:
+            return raw
+    return "docker"
+
+
 def _is_localhost(host):
     return host in ("localhost", "", None)
 
@@ -972,17 +1045,26 @@ def _docker_env(docker_host):
     return env
 
 
-def _check_running(instance_id, path, orchestrator, host, docker_host=None):
+def _check_running(instance_id, path, orchestrator, host, docker_host=None,
+                    compose_cmd=None):
     if orchestrator in ("kubernetes", "k8s"):
         return _check_running_k8s(instance_id, host)
-    return _check_running_compose(path, host, docker_host)
+    return _check_running_compose(path, host, docker_host, compose_cmd)
 
 
-def _check_running_compose(path, host, docker_host=None):
+def _check_running_compose(path, host, docker_host=None, compose_cmd=None):
+    if compose_cmd is None:
+        compose_cmd = ["docker", "compose"]
+    # Use the native runtime's ps with compose labels (podman-compose
+    # ps doesn't accept service names as positional args).
+    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
+    ps_cmd = [runtime, "ps", "--filter",
+              "label=com.docker.compose.service=web",
+              "--format", "{{.ID}}"]
     if _is_localhost(host):
         try:
             result = subprocess.run(
-                ["docker", "compose", "ps", "-q", "web"],
+                ps_cmd,
                 cwd=path, capture_output=True, text=True, timeout=10,
                 env=_docker_env(docker_host),
             )
@@ -990,7 +1072,8 @@ def _check_running_compose(path, host, docker_host=None):
         except (subprocess.TimeoutExpired, OSError):
             return False
     else:
-        cmd = "cd %s && docker compose ps -q web" % _shell_quote(path)
+        ps_str = " ".join(ps_cmd)
+        cmd = "cd %s && %s" % (_shell_quote(path), ps_str)
         if docker_host:
             cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
         rc, stdout = _ssh_run(host, cmd)
@@ -1050,15 +1133,23 @@ def _gather_instance_info(inst_id, inst):
     # this one's rootless socket via a per-command DOCKER_HOST rather than the
     # process-global env another thread might read.
     docker_host = inst.get("dockerHost")
+    compose_cmd = _resolve_compose_cmd(inst)
     qpath = _shell_quote(path)
 
     if _is_localhost(host):
-        return _gather_local(inst_id, path, orchestrator, host, docker_host)
+        return _gather_local(inst_id, path, orchestrator, host, docker_host,
+                             compose_cmd)
 
     if orchestrator in ("kubernetes", "k8s"):
         return _gather_k8s(inst_id, path, host)
 
-    compose_ps = "cd %(p)s && docker compose ps -q web 2>/dev/null || true"
+    compose_str = " ".join(compose_cmd)
+    # Use native runtime ps with compose labels (podman-compose ps
+    # doesn't accept service names as positional args).
+    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
+    compose_ps = "cd %(p)s && %(r)s ps --filter label=com.docker.compose.service=web --format '{{.ID}}' 2>/dev/null || true" % {
+        "p": qpath, "r": runtime,
+    }
     if docker_host:
         compose_ps = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), compose_ps)
     script = (
@@ -1096,13 +1187,15 @@ def _gather_instance_info(inst_id, inst):
     return _make_detail(inst_id, host, path, orchestrator, status, wikis)
 
 
-def _gather_local(inst_id, path, orchestrator, host, docker_host=None):
+def _gather_local(inst_id, path, orchestrator, host, docker_host=None,
+                   compose_cmd=None):
     dir_exists = os.path.isdir(path)
     wikis = _read_wikis(path, host) if dir_exists else []
 
     if not dir_exists:
         status = "NOT FOUND"
-    elif _check_running(inst_id, path, orchestrator, host, docker_host):
+    elif _check_running(inst_id, path, orchestrator, host, docker_host,
+                        compose_cmd):
         status = "RUNNING"
     else:
         status = "STOPPED"

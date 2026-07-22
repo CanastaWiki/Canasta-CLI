@@ -30,14 +30,14 @@
 
     - name: Destroy containers and volumes
       ansible.builtin.command:
-        cmd: "docker compose {{ _destroy_compose_files | join(' ') }} down -v --remove-orphans"
+        cmd: "{{ compose_command }} {{ _destroy_compose_files | join(' ') }} down -v --remove-orphans"
         chdir: "{{ instance_path }}"
       changed_when: true
       ignore_errors: true  # OK if containers already removed
 
     - name: Remove backup staging volume
       ansible.builtin.command:
-        cmd: "docker volume rm canasta-backup-{{ instance_path | basename }}"
+        cmd: "{{ inspect_command }} volume rm canasta-backup-{{ instance_path | basename }}"
       changed_when: true
       ignore_errors: true  # OK if volume doesn't exist
 

@@ -31,7 +31,7 @@
 
     - name: Render merged compose config as JSON
       ansible.builtin.command:
-        cmd: "docker compose {{ _upgrade_compose_files | join(' ') }} config --format json"
+        cmd: "{{ compose_command }} {{ _upgrade_compose_files | join(' ') }} config --format json"
         chdir: "{{ instance_path }}"
       register: _upgrade_compose_config
       changed_when: false
@@ -61,7 +61,9 @@
     - name: Get running web container image ID
       ansible.builtin.shell:
         cmd: >-
-          docker compose ps web --format {% raw %}'{{.Image}}'{% endraw %}
+          {{ inspect_command | default('docker') }}
+          ps --filter label=com.docker.compose.service=web
+          --format {% raw %}'{{.Image}}'{% endraw %}
         chdir: "{{ instance_path }}"
       register: _running_image
       changed_when: false
@@ -74,9 +76,9 @@
         key: CANASTA_IMAGE
       register: _configured_image
 
-    - name: Pull configured image if not on disk (handles buildable services skipped by docker compose pull)
+    - name: Pull configured image if not on disk (handles buildable services skipped by compose pull)
       ansible.builtin.command:
-        cmd: "docker pull {{ _configured_image.value }}"
+        cmd: "{{ inspect_command }} pull {{ _configured_image.value }}"
       register: _ensure_pull
       changed_when: "'Downloaded newer image' in (_ensure_pull.stdout | default(''))"
       ignore_errors: true
@@ -84,14 +86,14 @@
 
     - name: Get configured image ID
       ansible.builtin.command:
-        cmd: "docker image inspect {{ _configured_image.value }} --format {% raw %}{{.Id}}{% endraw %}"
+        cmd: "{{ inspect_command }} image inspect {{ _configured_image.value }} --format {% raw %}{{.Id}}{% endraw %}"
       register: _configured_id
       changed_when: false
       ignore_errors: true
 
     - name: Get running image ID
       ansible.builtin.command:
-        cmd: "docker image inspect {{ _running_image.stdout | trim }} --format {% raw %}{{.Id}}{% endraw %}"
+        cmd: "{{ inspect_command }} image inspect {{ _running_image.stdout | trim }} --format {% raw %}{{.Id}}{% endraw %}"
       register: _running_id
       changed_when: false
       ignore_errors: true
@@ -112,7 +114,7 @@
 # image when other services updated.
 - name: Rebuild buildable services if image was bumped (Compose)
   ansible.builtin.command:
-    cmd: "docker compose {{ _upgrade_compose_files | join(' ') }} build {{ item }}"
+    cmd: "{{ compose_command }} {{ _upgrade_compose_files | join(' ') }} build {{ item }}"
     chdir: "{{ instance_path }}"
   loop: "{{ _buildable_services | default([]) }}"
   changed_when: true
