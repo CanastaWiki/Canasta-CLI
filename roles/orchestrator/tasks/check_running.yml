@@ -5,7 +5,7 @@
 
 - name: Build check command for orchestrator
   ansible.builtin.set_fact:
-    _check_cmd: "{{ compose_command }} ps -q web"
+    _check_cmd: "{{ inspect_command | default('docker') }} ps --filter label=com.docker.compose.service=web --format {% raw %}{{.ID}}{% endraw %}"
     _check_chdir: "{{ instance_path }}"
   when: instance_orchestrator | default('compose') == 'compose'
 

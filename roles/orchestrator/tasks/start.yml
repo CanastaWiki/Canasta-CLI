@@ -121,7 +121,7 @@
     # gracefully in that case.
     - name: Get web container id
       ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} ps -q web"
+        cmd: "{{ _inspect_cmd }} ps --filter label=com.docker.compose.service=web --format {% raw %}{{.ID}}{% endraw %}"
         chdir: "{{ instance_path }}"
       register: _start_web_cid
       changed_when: false

@@ -1055,10 +1055,16 @@ def _check_running(instance_id, path, orchestrator, host, docker_host=None,
 def _check_running_compose(path, host, docker_host=None, compose_cmd=None):
     if compose_cmd is None:
         compose_cmd = ["docker", "compose"]
+    # Use the native runtime's ps with compose labels (podman-compose
+    # ps doesn't accept service names as positional args).
+    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
+    ps_cmd = [runtime, "ps", "--filter",
+              "label=com.docker.compose.service=web",
+              "--format", "{{.ID}}"]
     if _is_localhost(host):
         try:
             result = subprocess.run(
-                compose_cmd + ["ps", "-q", "web"],
+                ps_cmd,
                 cwd=path, capture_output=True, text=True, timeout=10,
                 env=_docker_env(docker_host),
             )
@@ -1066,8 +1072,8 @@ def _check_running_compose(path, host, docker_host=None, compose_cmd=None):
         except (subprocess.TimeoutExpired, OSError):
             return False
     else:
-        compose_str = " ".join(compose_cmd)
-        cmd = "cd %s && %s ps -q web" % (_shell_quote(path), compose_str)
+        ps_str = " ".join(ps_cmd)
+        cmd = "cd %s && %s" % (_shell_quote(path), ps_str)
         if docker_host:
             cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
         rc, stdout = _ssh_run(host, cmd)
@@ -1138,8 +1144,11 @@ def _gather_instance_info(inst_id, inst):
         return _gather_k8s(inst_id, path, host)
 
     compose_str = " ".join(compose_cmd)
-    compose_ps = "cd %(p)s && %(c)s ps -q web 2>/dev/null || true" % {
-        "p": qpath, "c": compose_str,
+    # Use native runtime ps with compose labels (podman-compose ps
+    # doesn't accept service names as positional args).
+    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
+    compose_ps = "cd %(p)s && %(r)s ps --filter label=com.docker.compose.service=web --format '{{.ID}}' 2>/dev/null || true" % {
+        "p": qpath, "r": runtime,
     }
     if docker_host:
         compose_ps = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), compose_ps)
