@@ -113,7 +113,7 @@
     - name: Probe for existing docker volumes
       ansible.builtin.command:
         argv:
-          - docker
+          - "{{ inspect_command | default('docker') }}"
           - volume
           - ls
           - --filter
@@ -133,8 +133,8 @@
           behind. Re-running would generate fresh DB passwords that
           do not match the existing volumes, producing an unrecoverable
           auth mismatch. To recover, list and remove the stale volumes
-          ('docker volume ls --filter name={{ id }}_' to list, then
-          'docker volume rm <name>' for each), then re-run.
+          ('{{ inspect_command | default("docker") }} volume ls --filter name={{ id }}_' to list, then
+          '{{ inspect_command | default("docker") }} volume rm <name>' for each), then re-run.
       when:
         - _stale_volumes.stdout is defined
         - _stale_volumes.stdout | trim | length > 0
