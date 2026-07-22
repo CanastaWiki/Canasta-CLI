@@ -1499,7 +1499,11 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # manual .env setup. Sets a default even when Docker is available
     # to shield downstream templates that reference compose_command
     # from outside the orchestrator role's variable scope.
-    if "compose_command" not in extra_vars:
+    #
+    # Skip for remote operations (--host): the local machine's PATH
+    # doesn't reflect what's installed on the remote. Ansible's
+    # create_preflight.yml will probe the remote and set facts.
+    if "compose_command" not in extra_vars and not host_value:
         docker_avail = shutil.which("docker") is not None
         podman_avail = shutil.which("podman") is not None
         if not docker_avail and podman_avail:

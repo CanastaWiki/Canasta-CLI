@@ -28,14 +28,52 @@
     # any state mutation. When compose_command is set to a Podman-based
     # command (e.g. podman-compose), probe podman info instead of
     # docker info so Podman-only hosts pass the preflight gate.
+    #
+    # For remote operations (--host), compose_command may not reflect
+    # what's actually on the remote host (local auto-detection was
+    # skipped). Probe both runtimes and set facts so downstream tasks
+    # get the correct command.
     - name: Check container runtime is available
-      ansible.builtin.command:
-        cmd: >-
-          {{ (compose_command | default('docker compose') is search('podman'))
-             | ternary('podman info', 'docker info') }}
-      register: _docker_check
-      changed_when: false
-      ignore_errors: true  # OK if runtime not installed
+      when: (compose_command | default('docker compose') is search('podman'))
+      block:
+        - name: Probe podman info (compose_command is podman-based)
+          ansible.builtin.command:
+            cmd: podman info
+          register: _docker_check
+          changed_when: false
+          ignore_errors: true
+
+    - name: Probe Docker then Podman for remote/detected runtime
+      when: not (compose_command | default('docker compose') is search('podman'))
+      block:
+        - name: Probe docker info
+          ansible.builtin.command:
+            cmd: docker info
+          register: _docker_check
+          changed_when: false
+          ignore_errors: true
+
+        - name: Probe podman info (fallback)
+          ansible.builtin.command:
+            cmd: podman info
+          register: _podman_check
+          changed_when: false
+          ignore_errors: true
+
+        - name: Set compose_command to podman-compose if Docker absent but Podman present
+          ansible.builtin.set_fact:
+            compose_command: podman-compose
+            inspect_command: podman
+          when:
+            - _docker_check.rc | default(1) != 0
+            - _podman_check.rc | default(1) == 0
+
+        - name: Prefer podman info result if Docker absent but Podman present
+          ansible.builtin.set_fact:
+            _docker_check: "{{ _podman_check }}"
+          when:
+            - _docker_check.rc | default(1) != 0
+            - _podman_check.rc | default(1) == 0
 
     - name: Fail if container runtime not available
       ansible.builtin.fail:
