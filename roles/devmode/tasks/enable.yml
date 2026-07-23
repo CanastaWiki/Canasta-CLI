@@ -171,10 +171,28 @@
     dest: "{{ instance_path }}/.idea/runConfigurations/Listen_for_Xdebug.xml"
     mode: "0644"
 
+# podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
+# --profile flags explicitly for `build`.
+- name: Read COMPOSE_PROFILES from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _env_profiles_devmode
+  when: compose_command is search('podman')
+
+- name: Build compose profile flags
+  ansible.builtin.set_fact:
+    _devmode_profile_flags: >-
+      {{ (_env_profiles_devmode.variables.COMPOSE_PROFILES | default(''))
+         | split(',') | map('trim') | reject('equalto', '')
+         | map('regex_replace', '^', '--profile ')
+         | join(' ') }}
+  when: compose_command is search('podman')
+
 # --- Build xdebug image ---
 - name: Build xdebug-enabled image
   ansible.builtin.command:
-    cmd: "{{ compose_command }} -f docker-compose.yml -f docker-compose.dev.yml build"
+    cmd: "{{ compose_command }} -f docker-compose.yml -f docker-compose.dev.yml {{ _devmode_profile_flags | default('') }} build"
     chdir: "{{ instance_path }}"
   changed_when: true
 

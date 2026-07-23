@@ -52,9 +52,27 @@
       ansible.builtin.set_fact:
         _build_instance_dir: "{{ _build_instance_realpath.stdout }}"
 
+    # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
+    # --profile flags explicitly for `config`.
+    - name: Read COMPOSE_PROFILES from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _env_profiles_backup
+      when: compose_command is search('podman')
+
+    - name: Build compose profile flags
+      ansible.builtin.set_fact:
+        _backup_profile_flags: >-
+          {{ (_env_profiles_backup.variables.COMPOSE_PROFILES | default(''))
+             | split(',') | map('trim') | reject('equalto', '')
+             | map('regex_replace', '^', '--profile ')
+             | join(' ') }}
+      when: compose_command is search('podman')
+
     - name: Render merged compose config as JSON
       ansible.builtin.command:
-        cmd: "{{ compose_command }} config --format json"
+        cmd: "{{ compose_command }} {{ _backup_profile_flags | default('') }} config --format json"
         chdir: "{{ instance_path }}"
       register: _build_compose_config
       changed_when: false

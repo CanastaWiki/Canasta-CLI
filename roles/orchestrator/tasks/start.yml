@@ -51,9 +51,28 @@
         _compose_cmd: "{{ compose_command }}"
         _inspect_cmd: "{{ inspect_command }}"
 
+    # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
+    # --profile flags explicitly.  Docker Compose reads .env automatically,
+    # so the flags are empty for Docker.
+    - name: Read COMPOSE_PROFILES from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _env_profiles_start
+      when: compose_command is search('podman')
+
+    - name: Build compose profile flags
+      ansible.builtin.set_fact:
+        _compose_profile_flags: >-
+          {{ (_env_profiles_start.variables.COMPOSE_PROFILES | default(''))
+             | split(',') | map('trim') | reject('equalto', '')
+             | map('regex_replace', '^', '--profile ')
+             | join(' ') }}
+      when: compose_command is search('podman')
+
     - name: Start containers
       ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} up -d"
+        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} up -d"
         chdir: "{{ instance_path }}"
       register: _start_result
       changed_when: true
@@ -67,7 +86,7 @@
     # only reliable way to see WHY a container was unhealthy.
     - name: Capture compose state on failure
       ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} ps -a"
+        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} ps -a"
         chdir: "{{ instance_path }}"
       register: _start_ps
       changed_when: false
@@ -76,7 +95,7 @@
 
     - name: Capture compose logs on failure
       ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} logs --tail=200 --no-color"
+        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} logs --tail=200 --no-color"
         chdir: "{{ instance_path }}"
       register: _start_logs
       changed_when: false
