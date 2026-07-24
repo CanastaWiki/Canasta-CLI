@@ -90,14 +90,32 @@
 # The fetch module handles overwriting if the file already exists.
 
 # --- Step 4: Validate remote is empty (unless --force) ---
-- name: Check remote is empty
+# Runs under the deploy-key env, so it authenticates exactly like the eventual
+# push. Inspect the rc ourselves rather than letting ignore_errors swallow it:
+# an unreachable/unauthorized remote (rc != 0, empty stdout) must not look the
+# same as a reachable empty remote, or init would do all the local work
+# (submodule conversion, git init, commit) and only discover the problem at the
+# final push — leaving a committed .git that forces a --reinit.
+- name: Check remote is reachable and empty
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
   environment: "{{ gitops_git_env }}"
   register: _remote_check
   changed_when: false
-  ignore_errors: true  # OK if remote unreachable
+  failed_when: false
   when: not (force | default(false) | bool)
+
+- name: Fail early if the remote is unreachable or unauthorized
+  ansible.builtin.fail:
+    msg: >-
+      Cannot access remote '{{ repo }}' (git ls-remote failed:
+      {{ _remote_check.stderr | default('') | trim }}). Check the deploy key
+      and that it has push permission to the repo, then retry. init stops
+      here, before the local git repository is created.
+  when:
+    - not (force | default(false) | bool)
+    - _remote_check is defined
+    - _remote_check.rc | default(1) != 0
 
 - name: Fail if remote is not empty
   ansible.builtin.fail:

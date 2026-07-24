@@ -137,15 +137,37 @@
       loop_control:
         label: "{{ item.item }}"
 
-    - name: Append recovered entries to .gitmodules
-      ansible.builtin.blockinfile:
-        path: "{{ instance_path }}/.gitmodules"
-        create: true
-        marker: "# {mark} ANSIBLE MANAGED BLOCK (fix-submodules {{ item.item }})"
-        block: |
-          [submodule "{{ item.item }}"]
-          	path = {{ item.item }}
-          	url = {{ item.stdout | trim }}
+    # Write clean [submodule] stanzas with git's own config writer rather than
+    # blockinfile, which would wrap every entry in
+    # "# BEGIN/END ANSIBLE MANAGED BLOCK" comments — noise in a machine-read,
+    # git-managed file. git config creates .gitmodules if absent and updates
+    # the entry in place on a re-run.
+    - name: Register recovered submodule path in .gitmodules
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - -f
+          - .gitmodules
+          - "submodule.{{ item.item }}.path"
+          - "{{ item.item }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      loop: "{{ _orphan_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Register recovered submodule url in .gitmodules
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - -f
+          - .gitmodules
+          - "submodule.{{ item.item }}.url"
+          - "{{ item.stdout | trim }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
       loop: "{{ _orphan_urls.results }}"
       loop_control:
         label: "{{ item.item }}"
