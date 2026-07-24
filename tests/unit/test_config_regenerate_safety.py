@@ -1,4 +1,4 @@
-"""Regression guard for #1164: `canasta config regenerate` must not take down a
+"""Regression guard: `canasta config regenerate` must not take down a
 gitops Compose instance.
 
 Two structural invariants:
@@ -58,7 +58,7 @@ class TestConfigRegenerateProfiles:
         assert sync_i > render_i, (
             "config_regenerate.yml must reconcile COMPOSE_PROFILES "
             "(sync_compose_profiles) AFTER the render, like gitops pull, or the "
-            "render drops the profile set (#1164)")
+            "render drops the profile set")
 
 
 class TestRenderRefusesEmptyUrl:
@@ -71,7 +71,7 @@ class TestRenderRefusesEmptyUrl:
         assert guards, (
             "render_compose.yml must fail (before writing config/wikis.yaml) "
             "when a wiki url rendered empty — rejectattr('url') on the rendered "
-            "wikis list (#1164)")
+            "wikis list")
 
     def test_wikis_yaml_written_from_validated_fact(self):
         # The render must go through a fact it can validate, not copy the
@@ -80,4 +80,4 @@ class TestRenderRefusesEmptyUrl:
         assert "_render_wikis_content" in text, (
             "render_compose.yml must render wikis.yaml into a fact "
             "(_render_wikis_content) so it can be validated before it replaces "
-            "the live file (#1164)")
+            "the live file")

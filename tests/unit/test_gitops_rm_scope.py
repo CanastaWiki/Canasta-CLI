@@ -5,8 +5,8 @@ test_gitops_add_scope). It must:
   * untrack a named path with `git rm --cached` — `--cached` so git never
     touches the working tree (the on-disk delete is a separate, explicit step);
   * NOT use `--ignore-unmatch` on the explicit-path rm — that flag exits 0 on
-    a path that matches nothing, which silently no-ops while reporting success
-    (#1163). Instead the path is validated with `git ls-files --error-unmatch`
+    a path that matches nothing, which silently no-ops while reporting success.
+    Instead the path is validated with `git ls-files --error-unmatch`
     first, so a non-matching path fails loudly with actionable guidance;
   * gate the on-disk delete on an explicit path (never a whole-tree wipe); and
   * stage pending deletions with `git add -u` (deletions only), never a
@@ -60,7 +60,7 @@ class TestGitopsRmScope:
                 "working tree (the on-disk delete is a separate step): %r" % c)
             assert "--ignore-unmatch" not in c, (
                 "the explicit-path `git rm` must NOT use --ignore-unmatch — it "
-                "hides a non-matching path as a silent no-op (#1163): %r" % c)
+                "hides a non-matching path as a silent no-op: %r" % c)
 
     def test_path_validated_before_removal(self):
         """A non-matching path must fail loudly, so rm.yml validates the path
@@ -69,7 +69,7 @@ class TestGitopsRmScope:
                       if "ls-files" in _cmd(t) and "--error-unmatch" in _cmd(t)]
         assert validators, (
             "rm.yml must validate the path with "
-            "`git ls-files --error-unmatch` before removing it (#1163)")
+            "`git ls-files --error-unmatch` before removing it")
 
     def test_disk_delete_is_path_scoped(self):
         """The on-disk file removal must be guarded by an explicit path so it

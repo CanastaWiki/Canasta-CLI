@@ -1,4 +1,4 @@
-"""Regression guard for #1150: a failed DB import must fail loudly with the
+"""Regression guard: a failed DB import must fail loudly with the
 real mariadb error, never a silent success that leaves an empty database.
 
 Two structural invariants keep the fix in place:
@@ -49,7 +49,7 @@ class TestResilientExecFailsFast:
                 "the completion poll must set `failed_when: false` so a "
                 "completed job's non-zero rc reaches 'Report failure' instead "
                 "of aborting the poll / retrying a deterministic failure "
-                "(#1150): %r" % t.get("name"))
+                ": %r" % t.get("name"))
 
     def test_report_failure_task_present(self):
         tasks = _load(RESILIENT_EXEC)
@@ -80,11 +80,11 @@ class TestImportSurfacesError:
         for t, _v, cmd in cmds:
             assert "import_db_password" not in cmd, (
                 "the DB load must not inline import_db_password on the command "
-                "line (forces no_log, which redacts the SQL error) (#1150): %r"
+                "line (forces no_log, which redacts the SQL error): %r"
                 % cmd)
             assert "-p'" not in cmd and "-p{{" not in cmd, (
                 "the DB load must not pass -p<password> on the command line "
-                "(#1150): %r" % cmd)
+                ": %r" % cmd)
 
     def test_password_sourced_from_container_env(self):
         for _t, _v, cmd in self._load_commands():
@@ -96,4 +96,4 @@ class TestImportSurfacesError:
         for t, v, _cmd in self._load_commands():
             assert not v.get("exec_no_log"), (
                 "the DB load must not set exec_no_log, so the mariadb stderr "
-                "(the SQL error) surfaces on failure (#1150): %r" % t.get("name"))
+                "(the SQL error) surfaces on failure: %r" % t.get("name"))

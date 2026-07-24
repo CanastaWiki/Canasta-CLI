@@ -2331,7 +2331,7 @@ class TestParseGitopsStatus:
 
     def test_fetch_failed_reports_unknown_not_in_sync(self):
         # A failed fetch left origin stale; rev-list may still print 0\t0
-        # against the stale ref. Must NOT read as in-sync (issue #1161).
+        # against the stale ref. Must NOT read as in-sync.
         out = self._make_output(fetch="fail", revcount="0\t0")
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Remote status unknown" in result
@@ -2428,7 +2428,7 @@ class TestGitopsSshKey:
     def test_prefix_without_key_still_sets_host_key_convention(self):
         # Even without an explicit key the prefix must apply the gitops
         # host-key convention (accept-new) and fall back to a staged
-        # .gitops-deploy-key, so a status fetch authenticates like push (#1161).
+        # .gitops-deploy-key, so a status fetch authenticates like push.
         for prefix in (direct_commands._git_ssh_env_prefix(None),
                        direct_commands._git_ssh_env_prefix("")):
             assert "GIT_SSH_COMMAND" in prefix
@@ -2449,7 +2449,7 @@ class TestGitopsSshKey:
     def test_status_script_sets_ssh_env_without_key(self):
         # Without --ssh-key the fetch still runs under the host-key convention
         # (accept-new) with a .gitops-deploy-key fallback, so it authenticates
-        # wherever push does (#1161).
+        # wherever push does.
         script = direct_commands._gitops_status_script("/srv/mysite")
         assert "GIT_SSH_COMMAND" in script
         assert ".gitops-deploy-key" in script
