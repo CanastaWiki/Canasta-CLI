@@ -74,9 +74,13 @@
         src: "{{ instance_path }}/wikis.yaml.template"
       register: _render_wikis_template_raw
 
-    - name: Render config/wikis.yaml from template
-      ansible.builtin.copy:
-        content: |
+    # Render into a fact first so we can validate it BEFORE it replaces the
+    # live config/wikis.yaml. A missing wiki_url_<id> var renders url empty,
+    # which makes MediaWiki's FarmConfigLoader fatal on every request — refuse
+    # to write that rather than take the wiki down.
+    - name: Render wikis.yaml content from template
+      ansible.builtin.set_fact:
+        _render_wikis_content: |
           {% for line in (_render_wikis_template_raw.content | b64decode).split('\n') %}
           {% if '{{' in line and '}}' in line %}
           {% set before = line.split('{{', 1)[0] %}
@@ -87,6 +91,25 @@
           {{ line }}
           {% endif %}
           {% endfor %}
+
+    - name: Fail if any wiki url rendered empty (missing wiki_url_<id> var)
+      ansible.builtin.fail:
+        msg: >-
+          Refusing to write config/wikis.yaml: the url for wiki(s)
+          {{ _render_empty_url_wikis | join(', ') }} rendered empty because a
+          wiki_url_<id> var is not defined in this host's vars.yaml or
+          hosts/_shared/vars.yaml. Add e.g.
+          'wiki_url_{{ _render_empty_url_wikis[0] }}' to the host vars — a
+          blank url makes MediaWiki fatal on every request.
+      vars:
+        _render_empty_url_wikis: >-
+          {{ (_render_wikis_content | from_yaml).wikis | default([])
+             | rejectattr('url') | map(attribute='id') | list }}
+      when: _render_empty_url_wikis | length > 0
+
+    - name: Write config/wikis.yaml
+      ansible.builtin.copy:
+        content: "{{ _render_wikis_content }}"
         dest: "{{ instance_path }}/config/wikis.yaml"
         mode: "0644"
 
