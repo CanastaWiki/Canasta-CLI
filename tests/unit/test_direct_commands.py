@@ -222,7 +222,7 @@ class TestBuildUrls:
 class TestCmdWikiCheckNullUrl:
     def test_null_url_reports_missing_not_crash(self, monkeypatch, capsys):
         # A present-but-null url must reach the missing-url guard, not crash on
-        # None.strip() before it (#1187). No _check_url call, so no network.
+        # None.strip() before it. No _check_url call, so no network.
         monkeypatch.setattr(
             direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", {"path": "/srv/mysite", "host": "localhost"}),
