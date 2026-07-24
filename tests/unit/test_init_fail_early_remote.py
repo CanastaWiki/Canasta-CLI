@@ -52,23 +52,27 @@ class TestInitFailsEarlyOnUnreachableRemote:
     def test_each_init_path_fails_on_unreachable_remote(self):
         for path in INIT_FILES:
             tasks = list(_walk(_load(path)))
-            checks = [t for t in tasks if "ls-remote" in _cmd_text(t)]
+            # An init file may run more than one `git ls-remote` (e.g. a
+            # deploy-key authorization probe that legitimately uses
+            # ignore_errors). We only require that the *empty/reachability*
+            # check — the one whose registered rc a fail task keys on — inspects
+            # rc via failed_when: false and hard-fails when it is non-zero.
+            checks = [t for t in tasks
+                      if "ls-remote" in _cmd_text(t) and t.get("register")]
             assert checks, (
-                "%s must probe the remote with git ls-remote" % path)
-            reg = checks[0].get("register")
-            assert reg, "%s: the ls-remote check must register its result" % path
-
-            # The rc must be inspectable (not aborted mid-play): the check uses
-            # failed_when: false rather than plain success.
-            assert checks[0].get("failed_when") is False, (
-                "%s: the ls-remote check must use `failed_when: false` so its "
-                "rc can be inspected instead of aborting (#1157)" % path)
-
+                "%s must probe the remote with a registered git ls-remote"
+                % path)
             fails = [t for t in tasks
                      if "ansible.builtin.fail" in t or "fail" in t]
-            rc_guard = [t for t in fails
-                        if reg in _when_text(t) and "rc" in _when_text(t)]
-            assert rc_guard, (
-                "%s must fail early when the remote is unreachable — a fail "
-                "task keyed on %s.rc != 0, before any local mutation (#1157)"
-                % (path, reg))
+
+            reachability = [
+                c for c in checks
+                if c.get("failed_when") is False
+                and any(c["register"] in _when_text(f) and "rc" in _when_text(f)
+                        for f in fails)
+            ]
+            assert reachability, (
+                "%s must fail early when the remote is unreachable — an "
+                "ls-remote check with `failed_when: false` plus a fail task "
+                "keyed on its rc != 0, before any local mutation (#1157)"
+                % path)
