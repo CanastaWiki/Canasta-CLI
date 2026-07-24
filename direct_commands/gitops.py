@@ -536,7 +536,7 @@ def cmd_gitops_status(args):
         print(_parse_gitops_status(stdout, inst_id))
     return 0
 
-def _gitops_diff_script(path, stat=False):
+def _gitops_diff_script(path, stat=False, ssh_key=None):
     # For each of the three boundaries we emit two sections: a
     # --name-only list (for the file count and the restart/update
     # heuristics) followed by the actual patch the user asked to see.
@@ -545,11 +545,18 @@ def _gitops_diff_script(path, stat=False):
     # remote use three-dot ranges so each side shows what its own
     # commits introduced since the branches diverged, rather than the
     # symmetric two-dot file set.
+    #
+    # Fetch first (authenticated like push/pull, via the same SSH prefix as
+    # status) so the @{upstream} boundaries reflect the real remote rather
+    # than a stale origin ref. The fetch outcome is emitted as a final
+    # section so the reporter can flag a stale comparison.
     d = _helpers._SENTINEL
     qp = _helpers._shell_quote(path)
     fmt = "--stat" if stat else "-p"
     return (
         "cd %(p)s; "
+        "%(ssh)s"
+        "git fetch 2>/dev/null && _fetch=ok || _fetch=fail; "
         "git diff --name-only HEAD 2>/dev/null; "
         "echo '%(d)s'; "
         "git diff %(f)s HEAD 2>/dev/null; "
@@ -562,8 +569,10 @@ def _gitops_diff_script(path, stat=False):
         "echo '%(d)s'; "
         "git diff %(f)s HEAD...@{upstream} 2>/dev/null; "
         "echo '%(d)s'; "
-        "git submodule status 2>/dev/null"
-    ) % {"p": qp, "d": d, "f": fmt}
+        "git submodule status 2>/dev/null; "
+        "echo '%(d)s'; "
+        'echo "FETCH:$_fetch"'
+    ) % {"p": qp, "d": d, "f": fmt, "ssh": _git_ssh_env_prefix(ssh_key)}
 
 
 def _parse_gitops_diff(stdout):
@@ -580,8 +589,13 @@ def _parse_gitops_diff(stdout):
     lc_files, lc_patch = _names(2), _patch(3)
     rc_files, rc_patch = _names(4), _patch(5)
     submodules_raw = parts[6].strip() if len(parts) > 6 else ""
+    fetch_status = parts[7].strip() if len(parts) > 7 else ""
 
     lines = []
+    if fetch_status and fetch_status != "FETCH:ok":
+        lines.append("Note: could not fetch from the remote — the remote "
+                     "comparison below is against the last-known state.")
+        lines.append("")
 
     def _section(title, files, patch):
         lines.append("%s: %d file(s)" % (title, len(files)))
@@ -626,7 +640,9 @@ def cmd_gitops_diff(args):
 
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    script = _gitops_diff_script(path, stat=bool(getattr(args, "stat", False)))
+    script = _gitops_diff_script(
+        path, stat=bool(getattr(args, "stat", False)),
+        ssh_key=getattr(args, "ssh_key", None))
 
     if _helpers._is_localhost(host):
         try:

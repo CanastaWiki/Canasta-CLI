@@ -381,9 +381,19 @@
     src: "{{ instance_path }}/argocd/application.yaml"
 
 # --- Commit and push ---
-- name: Stage all changes
+# Stage only the join's own artifacts: the host registration, this host's
+# vars, its rendered values, and the Argo CD Application for this instance. A
+# blind `git add -A` also sweeps in the fresh instance's untracked create-time
+# files (values.yaml and friends), pushing them into the shared repo. All other
+# tracked files were already reconciled to HEAD by the checkout above, so there
+# is nothing else to stage (.gitops-host is gitignored).
+- name: Stage the host registration and this host's artifacts
   ansible.builtin.command:
-    cmd: "git add -A"
+    cmd: >-
+      git add -- hosts/hosts.yaml
+      hosts/{{ host_name }}/vars.yaml
+      hosts/{{ host_name }}/rendered-values.yaml
+      argocd/application.yaml
     chdir: "{{ instance_path }}"
   changed_when: true
 
