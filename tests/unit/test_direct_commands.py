@@ -2151,12 +2151,35 @@ class TestHostRemove:
 # Gitops status tests
 # ---------------------------------------------------------------------------
 
+class TestParseRemoteSync:
+    def test_in_sync(self):
+        assert direct_commands._parse_remote_sync("FETCH:ok\n0\t0") == (0, 0, "ok")
+
+    def test_ahead_behind(self):
+        assert direct_commands._parse_remote_sync("FETCH:ok\n3\t2") == (3, 2, "ok")
+
+    def test_fetch_failed_even_with_zero_revcount(self):
+        # rev-list against a stale ref can print 0\t0; a failed fetch still wins.
+        assert direct_commands._parse_remote_sync("FETCH:fail\n0\t0") == (
+            0, 0, "fetch_failed")
+
+    def test_no_upstream(self):
+        assert direct_commands._parse_remote_sync("FETCH:ok\nREVLIST:fail") == (
+            0, 0, "no_upstream")
+
+    def test_missing_markers_treated_as_fetch_failed(self):
+        # Defensive: an old/garbled section with no FETCH marker is not in-sync.
+        assert direct_commands._parse_remote_sync("0\t0")[2] == "fetch_failed"
+
+
 class TestParseGitopsStatus:
     def _make_output(self, hostname="myhost", hosts_yaml="MISSING",
                      commit="abc1234", applied="abc1234",
-                     staged="", unstaged="", revcount="0\t0",
+                     staged="", unstaged="", revcount="0\t0", fetch="ok",
                      wikis=None, template=None, untracked=None):
         d = direct_commands._SENTINEL
+        # parts[6] is the fetch-status marker followed by the rev-list line.
+        remote = "FETCH:%s\n%s" % (fetch, revcount)
         out = (
             hostname + "\n" + d + "\n"
             + hosts_yaml + "\n" + d + "\n"
@@ -2164,7 +2187,7 @@ class TestParseGitopsStatus:
             + applied + "\n" + d + "\n"
             + staged + "\n" + d + "\n"
             + unstaged + "\n" + d + "\n"
-            + revcount + "\n"
+            + remote + "\n"
         )
         if wikis is not None or template is not None or untracked is not None:
             out += (
@@ -2288,6 +2311,26 @@ class TestParseGitopsStatus:
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Behind remote by 2 commit(s)." in result
 
+    def test_fetch_failed_reports_unknown_not_in_sync(self):
+        # A failed fetch left origin stale; rev-list may still print 0\t0
+        # against the stale ref. Must NOT read as in-sync (issue #1161).
+        out = self._make_output(fetch="fail", revcount="0\t0")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Remote status unknown" in result
+        assert "Up to date with remote." not in result
+
+    def test_no_upstream_reports_unknown(self):
+        out = self._make_output(fetch="ok", revcount="REVLIST:fail")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Remote status unknown" in result
+        assert "no upstream tracking" in result
+        assert "Up to date with remote." not in result
+
+    def test_in_sync_only_when_fetch_ok_and_zero(self):
+        out = self._make_output(fetch="ok", revcount="0\t0")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Up to date with remote." in result
+
     def test_with_hosts_yaml(self):
         hosts_yaml = "hosts:\n  - role: production\n    pull_requests: true"
         out = self._make_output(hosts_yaml=hosts_yaml)
@@ -2364,9 +2407,15 @@ class TestCmdGitopsStatus:
 class TestGitopsSshKey:
     """--ssh-key builds GIT_SSH_COMMAND for the status fetch."""
 
-    def test_prefix_empty_without_key(self):
-        assert direct_commands._git_ssh_env_prefix(None) == ""
-        assert direct_commands._git_ssh_env_prefix("") == ""
+    def test_prefix_without_key_still_sets_host_key_convention(self):
+        # Even without an explicit key the prefix must apply the gitops
+        # host-key convention (accept-new) and fall back to a staged
+        # .gitops-deploy-key, so a status fetch authenticates like push (#1161).
+        for prefix in (direct_commands._git_ssh_env_prefix(None),
+                       direct_commands._git_ssh_env_prefix("")):
+            assert "GIT_SSH_COMMAND" in prefix
+            assert "StrictHostKeyChecking=accept-new" in prefix
+            assert ".gitops-deploy-key" in prefix
 
     def test_prefix_sets_git_ssh_command(self):
         prefix = direct_commands._git_ssh_env_prefix("/home/u/.ssh/id_ed25519")
@@ -2379,9 +2428,13 @@ class TestGitopsSshKey:
         prefix = direct_commands._git_ssh_env_prefix("/tmp/my key")
         assert "'/tmp/my key'" in prefix
 
-    def test_status_script_omits_prefix_without_key(self):
+    def test_status_script_sets_ssh_env_without_key(self):
+        # Without --ssh-key the fetch still runs under the host-key convention
+        # (accept-new) with a .gitops-deploy-key fallback, so it authenticates
+        # wherever push does (#1161).
         script = direct_commands._gitops_status_script("/srv/mysite")
-        assert "GIT_SSH_COMMAND" not in script
+        assert "GIT_SSH_COMMAND" in script
+        assert ".gitops-deploy-key" in script
         assert "git fetch" in script
 
     def test_status_script_includes_prefix_with_key(self):
@@ -2420,7 +2473,7 @@ class TestDirectCommandRegistry:
             + "abc1234\n" + d + "\n"
             + "\n" + d + "\n"
             + "\n" + d + "\n"
-            + "0\t0\n"
+            + "FETCH:ok\n0\t0\n"
         )
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", {
@@ -2581,12 +2634,13 @@ class TestGitopsArgocdStatus:
 
 class TestParseGitopsStatusK8s:
     def _make_output(self, hostname="myhost", commit="abc1234", revcount="0\t0",
-                     staged="", unstaged="", wikis=None, template=None,
-                     untracked=None):
+                     fetch="ok", staged="", unstaged="", wikis=None,
+                     template=None, untracked=None):
         d = direct_commands._SENTINEL
         # Parts: hostname (0), hosts.yaml (1), commit (2), applied (3),
-        # staged (4), unstaged (5), revcount (6), then optionally
+        # staged (4), unstaged (5), fetch-status + rev-list (6), then optionally
         # wikis (7), template (8), git-status porcelain (9).
+        remote = "FETCH:%s\n%s" % (fetch, revcount)
         out = (
             hostname + "\n" + d + "\n"
             + "\n" + d + "\n"
@@ -2594,7 +2648,7 @@ class TestParseGitopsStatusK8s:
             + "\n" + d + "\n"
             + staged + "\n" + d + "\n"
             + unstaged + "\n" + d + "\n"
-            + revcount + "\n"
+            + remote + "\n"
         )
         if wikis is not None or template is not None or untracked is not None:
             out += (
@@ -2637,6 +2691,14 @@ class TestParseGitopsStatusK8s:
         result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
         assert "Ahead of remote:  3" in result
         assert "Behind remote:    2" in result
+
+    def test_fetch_failed_shows_unknown(self):
+        # A failed fetch must not print "Ahead/Behind: 0" as if in sync.
+        out = self._make_output(fetch="fail", revcount="0\t0")
+        argocd = ("Synced", "Healthy", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Remote status:    unknown" in result
+        assert "Ahead of remote:" not in result
 
     def test_untracked_files_surfaced(self):
         # A K8s instance with an uncaptured file (e.g. wikis.yaml.template
