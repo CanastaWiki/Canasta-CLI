@@ -20,11 +20,25 @@ class TestValidateName:
     def test_valid(self):
         assert canasta_settings_yaml.validate_name("VisualEditor") is None
 
+    def test_valid_submodule_subpath(self):
+        # A single sub-path segment for extensions with sub-modules.
+        assert canasta_settings_yaml.validate_name(
+            "ConfirmEdit/ReCaptchaNoCaptcha") is None
+
     def test_empty(self):
         assert canasta_settings_yaml.validate_name("") is not None
 
     def test_invalid_start(self):
         assert canasta_settings_yaml.validate_name(".bad") is not None
+
+    def test_invalid_double_slash(self):
+        assert canasta_settings_yaml.validate_name("A/B/C") is not None
+
+    def test_invalid_trailing_slash(self):
+        assert canasta_settings_yaml.validate_name("ConfirmEdit/") is not None
+
+    def test_invalid_subpath_bad_start(self):
+        assert canasta_settings_yaml.validate_name("ConfirmEdit/.bad") is not None
 
 
 class TestReadWriteConfig:

@@ -517,6 +517,27 @@ class TestRemainderArgs:
         assert args.exec_args == []
 
 
+class TestSplitPassthrough:
+    """Args after `--` must keep their word boundaries, so a quoted argument
+    with spaces stays one argv element instead of being shredded."""
+
+    def test_quoted_arg_stays_one_token(self):
+        before, passthrough = canasta_cli.split_passthrough(
+            ["-s", "db", "--", "mariadb", "-e", "CREATE DATABASE foo; GRANT x;"])
+        assert before == ["-s", "db"]
+        assert passthrough == ["mariadb", "-e", "CREATE DATABASE foo; GRANT x;"]
+
+    def test_no_separator(self):
+        assert canasta_cli.split_passthrough(["a", "b"]) == (["a", "b"], [])
+
+    def test_separator_at_end(self):
+        assert canasta_cli.split_passthrough(["a", "--"]) == (["a"], [])
+
+    def test_only_first_separator_splits(self):
+        _, passthrough = canasta_cli.split_passthrough(["--", "sh", "-c", "a -- b"])
+        assert passthrough == ["sh", "-c", "a -- b"]
+
+
 class TestRemainderFlagHoisting:
     """Canasta flags trapped inside script_args/exec_args by REMAINDER
     should be lifted back out (#279)."""

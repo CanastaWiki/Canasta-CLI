@@ -49,7 +49,11 @@ import yaml
 from ansible.module_utils.basic import AnsibleModule
 
 
-VALID_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$")
+# Allows an optional single sub-path segment (e.g. ConfirmEdit/ReCaptchaNoCaptcha)
+# for extensions that expose sub-modules loaded by sub-path, which the settings
+# loader accepts.
+VALID_NAME_PATTERN = re.compile(
+    r"^[a-zA-Z0-9][a-zA-Z0-9_.\-]*(/[a-zA-Z0-9][a-zA-Z0-9_.\-]*)?$")
 HEADER = "# Canasta will add and remove lines from this file as extensions and skins are enabled and disabled.\n"
 
 

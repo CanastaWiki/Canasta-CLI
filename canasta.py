@@ -1552,6 +1552,21 @@ def should_prompt_confirmation(cmd_def, yes_passed):
     return has_yes_param and not yes_passed
 
 
+def split_passthrough(remaining):
+    """Split argv at the first ``--``.
+
+    Returns ``(args_before, passthrough_tokens)``. The passthrough tokens are
+    kept as a list so a quoted argument containing spaces (a SQL string via
+    ``-e``, a ``--summary``, a page title) stays a single argv element; joining
+    them into one string here would lose the boundaries a later shell-split
+    cannot recover.
+    """
+    if "--" in remaining:
+        idx = remaining.index("--")
+        return remaining[:idx], remaining[idx + 1:]
+    return remaining, []
+
+
 def main():
     data = load_definitions()
     parser = build_parser(data)
@@ -1603,12 +1618,10 @@ def main():
     # Recombine: unused pre-command args + all post-command args
     remaining = pre_remaining + post_cmd
 
-    # Handle -- separator for pass-through args
-    passthrough = ""
-    if "--" in remaining:
-        idx = remaining.index("--")
-        passthrough = " ".join(remaining[idx + 1:])
-        remaining = remaining[:idx]
+    # Handle -- separator for pass-through args. Consumers already accept a list
+    # (the exec handler uses it directly; the Ansible path space-joins it to the
+    # same string a string passthrough would have produced).
+    remaining, passthrough = split_passthrough(remaining)
 
     # Parse with the full parser (subcommands + flags)
     args = parser.parse_args(remaining)
