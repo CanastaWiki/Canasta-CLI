@@ -39,6 +39,41 @@ canasta_known_keys:
     description: Days between sitemap refreshes
     default: "1"
 
+  - name: MW_ENABLE_JOB_RUNNER
+    group: Maintenance scripts
+    description: Run the background job runner
+    default: "true"
+
+  - name: MW_JOB_RUNNER_PAUSE
+    group: Maintenance scripts
+    description: Seconds the job runner sleeps between passes
+    default: "2"
+
+  - name: MW_JOB_RUNNER_MEMORY_LIMIT
+    group: Maintenance scripts
+    description: Memory limit for runJobs.php
+    default: 512M
+
+  - name: MW_ENABLE_TRANSCODER
+    group: Maintenance scripts
+    description: Run the video transcoder job runner
+    default: "true"
+
+  - name: MW_JOB_TRANSCODER_PAUSE
+    group: Maintenance scripts
+    description: Seconds the transcoder runner sleeps between passes
+    default: "60"
+
+  - name: MW_ENABLE_LOG_ROTATOR
+    group: Maintenance scripts
+    description: Run the log rotator
+    default: "true"
+
+  - name: MW_AUTOUPDATE
+    group: Maintenance scripts
+    description: Run update.php on container start
+    default: "true"
+
   - name: CANASTA_ENABLE_CROWDSEC
     group: Features
     description: Enable CrowdSec behavioral threat detection (Compose only)
