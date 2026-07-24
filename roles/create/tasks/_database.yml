@@ -35,7 +35,6 @@
       vars:
         import_wiki_id: "{{ wiki }}"
         import_database_path: "{{ database }}"
-        import_db_password: "{{ _rootdbpass }}"
 
     - name: Generate and save MW_SECRET_KEY
       ansible.builtin.include_role:
