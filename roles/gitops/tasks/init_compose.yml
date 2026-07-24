@@ -373,7 +373,7 @@
 # entry. Committing that loses the extension: a later clone / pull leaves the
 # directory empty. Recover a .gitmodules entry for each such orphan from its
 # clone's origin URL before committing, or fail loudly when the URL is
-# unavailable — never commit a broken submodule (#1155). (This mirrors
+# unavailable — never commit a broken submodule. (This mirrors
 # fix_submodules.yml's orphan recovery; a follow-up can DRY them into one task.)
 - name: List staged gitlinks
   ansible.builtin.shell:

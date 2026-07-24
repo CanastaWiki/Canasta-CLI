@@ -1,4 +1,4 @@
-"""Regression guard for #1162: `gitops join` (Compose) must not push the fresh
+"""Regression guard: `gitops join` (Compose) must not push the fresh
 instance's create-time default settings back into the shared repo.
 
 A fresh `canasta create` generates Canasta's default config/settings/global/*.php
@@ -50,7 +50,7 @@ class TestJoinStagingScope:
         assert not offenders, (
             "gitops join must not `git add -A` — it sweeps the fresh instance's "
             "untracked create-time default settings into the shared repo "
-            "(#1162): %r" % offenders)
+            ": %r" % offenders)
 
     def test_stages_only_host_registration_and_vars(self):
         adds = [_cmd_text(t) for t in _walk(_load(JOIN))

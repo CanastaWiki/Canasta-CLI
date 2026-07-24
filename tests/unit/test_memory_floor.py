@@ -1,4 +1,4 @@
-"""Regression guard for #1147: the host memory floor is profile-aware and
+"""Regression guard: the host memory floor is profile-aware and
 enforced in both `create` and `config set`.
 
 Elasticsearch and the observability stack each raise the requirement, so the
@@ -59,7 +59,7 @@ class TestCheckHostMemory:
         for mib in ("7000", "3500", "1600"):
             assert mib in text, (
                 "check_host_memory.yml must encode the %s MiB floor "
-                "(~2/4/8 GiB by profile) (#1147)" % mib)
+                "(~2/4/8 GiB by profile)" % mib)
 
     def test_has_a_fail_gated_on_measured_memory(self):
         fails = [t for t in _walk(_load(CHECK))
@@ -67,19 +67,19 @@ class TestCheckHostMemory:
                  and "_mem_floor_mib" in _when_text(t)]
         assert fails, (
             "check_host_memory.yml must fail when measured memory is below the "
-            "required floor (#1147)")
+            "required floor")
 
 
 class TestWiredIntoCreateAndConfigSet:
     def test_create_enforces_floor(self):
         assert any("check_host_memory.yml" in inc for inc in _includes(ENV_UPDATE)), (
             "create (_env_update.yml) must include check_host_memory.yml once "
-            ".env is finalized (#1147)")
+            ".env is finalized")
 
     def test_config_set_enforces_on_enable(self):
         assert any("check_host_memory.yml" in inc for inc in _includes(SIDE_EFFECTS)), (
             "config set (_side_effects.yml) must include check_host_memory.yml "
-            "when enabling a profile (#1147)")
+            "when enabling a profile")
         # The include must be reachable only when enabling ES/observability.
         text = open(SIDE_EFFECTS).read()
         assert "CANASTA_ENABLE_ELASTICSEARCH" in text
@@ -91,4 +91,4 @@ class TestOldFlatFloorRemoved:
         text = open(PREFLIGHT).read()
         assert "3500" not in text, (
             "the old flat 3500 MiB preflight floor must be removed — the "
-            "profile-aware check replaces it (#1147)")
+            "profile-aware check replaces it")

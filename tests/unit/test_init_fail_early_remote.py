@@ -1,4 +1,4 @@
-"""Regression guard for #1157: `gitops init` must fail early on an
+"""Regression guard: `gitops init` must fail early on an
 unreachable/unauthorized remote, before any local mutation.
 
 The Step 4 `git ls-remote` must not swallow access failures — a permission /
@@ -74,5 +74,5 @@ class TestInitFailsEarlyOnUnreachableRemote:
             assert reachability, (
                 "%s must fail early when the remote is unreachable — an "
                 "ls-remote check with `failed_when: false` plus a fail task "
-                "keyed on its rc != 0, before any local mutation (#1157)"
+                "keyed on its rc != 0, before any local mutation"
                 % path)

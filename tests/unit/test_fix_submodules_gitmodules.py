@@ -1,4 +1,4 @@
-"""Regression guard for #1156: `gitops fix-submodules` must write clean
+"""Regression guard: `gitops fix-submodules` must write clean
 .gitmodules stanzas, not blockinfile with "ANSIBLE MANAGED BLOCK" comments.
 
 .gitmodules is a machine-read, git-managed file; the wrapper comments are noise
@@ -46,7 +46,7 @@ class TestFixSubmodulesGitmodules:
             if isinstance(bi, dict) and ".gitmodules" in bi.get("path", ""):
                 raise AssertionError(
                     "fix-submodules must not write .gitmodules with blockinfile "
-                    "— it injects '# ANSIBLE MANAGED BLOCK' comments (#1156): %r"
+                    "— it injects '# ANSIBLE MANAGED BLOCK' comments: %r"
                     % t.get("name"))
 
     def test_writes_gitmodules_with_git_config(self):
@@ -56,4 +56,4 @@ class TestFixSubmodulesGitmodules:
         ]
         assert writers, (
             "fix-submodules must write .gitmodules entries with "
-            "`git config -f .gitmodules submodule.<name>.path/.url` (#1156)")
+            "`git config -f .gitmodules submodule.<name>.path/.url`")
