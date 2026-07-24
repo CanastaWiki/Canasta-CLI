@@ -219,6 +219,24 @@ class TestBuildUrls:
         ]
 
 
+class TestCmdWikiCheckNullUrl:
+    def test_null_url_reports_missing_not_crash(self, monkeypatch, capsys):
+        # A present-but-null url must reach the missing-url guard, not crash on
+        # None.strip() before it (#1187). No _check_url call, so no network.
+        monkeypatch.setattr(
+            direct_commands._helpers, "_resolve_instance",
+            lambda args: ("mysite", {"path": "/srv/mysite", "host": "localhost"}),
+        )
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_wikis",
+            lambda path, host: [{"id": "dev", "url": None}],
+        )
+        args = type("Args", (), {"id": "mysite", "host": None})()
+        rc = direct_commands.cmd_wiki_check(args)
+        assert rc == 1
+        assert "missing wiki URL" in capsys.readouterr().out
+
+
 class TestShellQuote:
     def test_simple(self):
         assert direct_commands._shell_quote("hello") == "'hello'"
