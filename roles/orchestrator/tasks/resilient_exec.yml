@@ -61,6 +61,13 @@
   # until-loop simply retries — transient resets during the wait don't
   # abort the operation, which keeps running on the target.
   ignore_unreachable: true
+  # A completed job with a non-zero rc makes async_status return the wrapped
+  # failure, which would abort this poll (and, on older ansible, retry the
+  # deterministic failure until retries drain) before "Report failure" runs.
+  # Keep the rc decision in "Report failure" so the loop only waits for the
+  # job to finish, deterministic failures stop immediately, and rx_fail is
+  # honored.
+  failed_when: false
   # async_status returns the wrapped job's result, including its `cmd`, so
   # honor rx_no_log here too — otherwise a secret in rx_cmd (e.g. the k3s
   # join token) surfaces in this task's output under -v.

@@ -240,7 +240,11 @@
     - not (_deploy_key_authorized | bool)
     - not (non_interactive | default(false) | bool)
 
-- name: Check remote is empty
+# Inspect the rc ourselves rather than letting ignore_errors swallow it: an
+# unreachable/unauthorized remote must not look the same as a reachable empty
+# remote, or init would do all the local work (git init, submodule conversion,
+# commit at lines below) and only discover the problem at the final push.
+- name: Check remote is reachable and empty
   ansible.builtin.command:
     cmd: "git ls-remote {{ repo }}"
   environment:
@@ -250,7 +254,16 @@
       -o UserKnownHostsFile=~/.ssh/known_hosts
   register: _gitops_remote
   changed_when: false
-  ignore_errors: true
+  failed_when: false
+
+- name: Fail early if the remote is unreachable or unauthorized
+  ansible.builtin.fail:
+    msg: >-
+      Cannot access remote '{{ repo }}' (git ls-remote failed:
+      {{ _gitops_remote.stderr | default('') | trim }}). Check the deploy key
+      and that it has push permission to the repo, then retry. init stops here,
+      before the local git repository is created.
+  when: _gitops_remote.rc | default(1) != 0
 
 - name: Fail if remote is not empty
   ansible.builtin.fail:

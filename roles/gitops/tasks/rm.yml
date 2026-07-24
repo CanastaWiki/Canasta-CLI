@@ -5,14 +5,39 @@
 - name: Remove specific file
   when: path is defined and path != ''
   block:
+    # Paths are resolved relative to the repo root (chdir below), not the
+    # caller's CWD. Verify the path matches a tracked file BEFORE deleting or
+    # staging: git rm --ignore-unmatch would exit 0 on a non-matching path
+    # (e.g. a bare filename run from a subdirectory), so the command silently
+    # no-ops while reporting success.
+    - name: Check the path matches a tracked file
+      ansible.builtin.command:
+        cmd: "git ls-files --error-unmatch -- {{ path }}"
+        chdir: "{{ instance_path }}"
+      register: _rm_tracked
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if the path matches no tracked file
+      ansible.builtin.fail:
+        msg: >-
+          gitops rm: path '{{ path }}' does not match any tracked file. Paths
+          are relative to the repo root ({{ instance_path }}); pass a
+          repo-root-relative path (e.g.
+          config/settings/global/{{ path | basename }}).
+      when: _rm_tracked.rc != 0
+
     - name: Delete file from disk
       ansible.builtin.file:
         path: "{{ instance_path }}/{{ path }}"
         state: absent
 
+    # No --ignore-unmatch here: the path is confirmed tracked above, so a
+    # non-zero rc now means a real failure worth surfacing. -r allows a
+    # tracked directory path to be removed as well as a single file.
     - name: Stage file deletion
       ansible.builtin.command:
-        cmd: "git rm --cached --ignore-unmatch {{ path }}"
+        cmd: "git rm -r --cached -- {{ path }}"
         chdir: "{{ instance_path }}"
       changed_when: true
 
