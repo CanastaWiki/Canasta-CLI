@@ -159,6 +159,13 @@
         name: mediawiki
         tasks_from: wait_for_db.yml
 
+    # A large dump import runs detached and polled, producing no incremental
+    # output, so announce the phase up front — otherwise `canasta add` sits
+    # silently for the whole import and reads as hung (mirrors create). (#1152)
+    - name: Report importing database
+      ansible.builtin.debug:
+        msg: "Importing database (this can take a while for a large dump)..."
+
     - name: Create empty wiki database
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/orchestrator/tasks/exec.yml

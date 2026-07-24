@@ -367,6 +367,104 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+# An extension/skin whose Step-13 conversion didn't run — its .git is a gitlink
+# file the directory-only find missed, or it is a loose clone with no origin
+# remote — is now staged as a bare gitlink (mode 160000) with no .gitmodules
+# entry. Committing that loses the extension: a later clone / pull leaves the
+# directory empty. Recover a .gitmodules entry for each such orphan from its
+# clone's origin URL before committing, or fail loudly when the URL is
+# unavailable — never commit a broken submodule (#1155). (This mirrors
+# fix_submodules.yml's orphan recovery; a follow-up can DRY them into one task.)
+- name: List staged gitlinks
+  ansible.builtin.shell:
+    cmd: "git ls-files --stage | awk '$1 == \"160000\" {print $4}'"
+    chdir: "{{ instance_path }}"
+  register: _init_gitlinks
+  changed_when: false
+
+- name: Read .gitmodules registered paths (may not exist)
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitmodules"
+  register: _init_gitmodules_raw
+  failed_when: false
+
+- name: Identify orphan gitlinks (staged 160000 not in .gitmodules)
+  ansible.builtin.set_fact:
+    _init_orphan_gitlinks: >-
+      {{ _init_gitlinks.stdout_lines
+         | reject('in',
+             (_init_gitmodules_raw.content | default('') | b64decode).splitlines()
+             | select('match', '^\s*path\s*=')
+             | map('regex_replace', '^\s*path\s*=\s*', '') | map('trim') | list)
+         | list }}
+
+- name: Recover .gitmodules for orphan gitlinks
+  when: _init_orphan_gitlinks | length > 0
+  block:
+    - name: Get origin URL from each orphan's clone
+      ansible.builtin.command:
+        cmd: "git -C {{ instance_path }}/{{ item }} config --get remote.origin.url"
+        chdir: "{{ instance_path }}"
+      register: _init_orphan_urls
+      changed_when: false
+      failed_when: false
+      loop: "{{ _init_orphan_gitlinks }}"
+
+    - name: Fail if any orphan has no recoverable URL
+      ansible.builtin.fail:
+        msg: >-
+          Cannot register submodule '{{ item.item }}' in .gitmodules — its
+          directory has no remote.origin.url, so committing it would lose the
+          extension/skin on the next clone. Ensure extensions/skins are clones
+          with an 'origin' remote, then re-run with --reinit.
+      when: item.rc != 0 or (item.stdout | default('') | trim | length == 0)
+      loop: "{{ _init_orphan_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Register orphan submodule path in .gitmodules
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - -f
+          - .gitmodules
+          - "submodule.{{ item.item }}.path"
+          - "{{ item.item }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      loop: "{{ _init_orphan_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Register orphan submodule url in .gitmodules
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - -f
+          - .gitmodules
+          - "submodule.{{ item.item }}.url"
+          - "{{ item.stdout | trim }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      loop: "{{ _init_orphan_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Sync recovered submodules into git config
+      ansible.builtin.command:
+        cmd: "git submodule sync -- {{ item.item }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      loop: "{{ _init_orphan_gitlinks }}"
+
+    - name: Stage the recovered .gitmodules
+      ansible.builtin.command:
+        cmd: "git add .gitmodules"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
 - name: Initial commit
   ansible.builtin.command:
     cmd: "git -c commit.gpgsign=false commit -m 'Initial gitops configuration'"
