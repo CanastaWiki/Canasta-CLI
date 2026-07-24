@@ -1,0 +1,108 @@
+---
+# Recover .gitmodules entries for orphan gitlinks — paths staged or committed
+# as submodules (mode 160000) but missing from .gitmodules. A later clone/pull
+# would leave such a directory empty, losing the extension/skin. For each
+# orphan, recover its URL from the local clone's remote.origin.url and write a
+# clean [submodule] stanza with git config, then sync and stage .gitmodules.
+# Fails loudly when a URL is unavailable rather than commit a broken submodule.
+#
+# Does NOT commit — the caller owns that (gitops init folds it into its initial
+# commit; fix-submodules commits it separately).
+#
+# Input:  instance_path
+# Output: _orphan_gitlinks — the recovered paths (empty list when none)
+
+- name: List staged/committed gitlinks in the index
+  ansible.builtin.shell:
+    cmd: "git ls-files --stage | awk '$1 == \"160000\" {print $4}'"
+    chdir: "{{ instance_path }}"
+  register: _rog_gitlinks
+  changed_when: false
+
+- name: Read .gitmodules registered paths (may not exist)
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitmodules"
+  register: _rog_gitmodules
+  failed_when: false
+
+- name: Identify orphan gitlinks (160000 not in .gitmodules)
+  ansible.builtin.set_fact:
+    _orphan_gitlinks: >-
+      {{ _rog_gitlinks.stdout_lines
+         | reject('in',
+             (_rog_gitmodules.content | default('') | b64decode).splitlines()
+             | select('match', '^\s*path\s*=')
+             | map('regex_replace', '^\s*path\s*=\s*', '') | map('trim') | list)
+         | list }}
+
+- name: Recover .gitmodules entries for orphan gitlinks
+  when: _orphan_gitlinks | length > 0
+  block:
+    - name: Get origin URL from each orphan's clone
+      ansible.builtin.command:
+        cmd: "git -C {{ instance_path }}/{{ item }} config --get remote.origin.url"
+        chdir: "{{ instance_path }}"
+      register: _rog_urls
+      changed_when: false
+      failed_when: false
+      loop: "{{ _orphan_gitlinks }}"
+
+    - name: Fail if any orphan has no recoverable URL
+      ansible.builtin.fail:
+        msg: >-
+          Cannot recover the submodule URL for '{{ item.item }}' — its
+          directory has no remote.origin.url, so committing it as a gitlink
+          would lose the extension/skin on the next clone. Give it an 'origin'
+          remote, delete the gitlink ('git rm --cached {{ item.item }}' and
+          commit), or add a [submodule] block for it to .gitmodules.
+      when: item.rc != 0 or (item.stdout | default('') | trim | length == 0)
+      loop: "{{ _rog_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # Write clean [submodule] stanzas with git's own config writer (never
+    # blockinfile, which injects "# ANSIBLE MANAGED BLOCK" comments into this
+    # machine-read file). git config creates .gitmodules if absent and updates
+    # an entry in place on a re-run.
+    - name: Register recovered submodule path in .gitmodules
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - -f
+          - .gitmodules
+          - "submodule.{{ item.item }}.path"
+          - "{{ item.item }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      loop: "{{ _rog_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Register recovered submodule url in .gitmodules
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - -f
+          - .gitmodules
+          - "submodule.{{ item.item }}.url"
+          - "{{ item.stdout | trim }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      loop: "{{ _rog_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Sync recovered submodules into git config
+      ansible.builtin.command:
+        cmd: "git submodule sync -- {{ item }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      loop: "{{ _orphan_gitlinks }}"
+
+    - name: Stage the recovered .gitmodules
+      ansible.builtin.command:
+        cmd: "git add .gitmodules"
+        chdir: "{{ instance_path }}"
+      changed_when: true

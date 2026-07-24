@@ -18,6 +18,8 @@ TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 HEAL = os.path.join(TASKS, "_heal_dangling_submodules.yml")
 JOIN = os.path.join(TASKS, "join.yml")
 FIX = os.path.join(TASKS, "fix_submodules.yml")
+# The orphan-recovery .gitmodules parse lives in the shared task.
+RECOVER = os.path.join(TASKS, "_recover_orphan_gitlinks.yml")
 
 
 def _load(path):
@@ -125,17 +127,20 @@ class TestGitmodulesParseSplitsOnNewlines:
     dangling one. The parse must use `.splitlines()`."""
 
     def test_no_split_backslash_n_in_gitmodules_parse(self):
-        with open(FIX) as f:
-            text = f.read()
-        assert ".split('\\n')" not in text, (
-            "fix_submodules.yml must not use .split('\\n') in a folded scalar; "
-            "use .splitlines() so .gitmodules parses line by line"
-        )
+        for path in (FIX, RECOVER):
+            with open(path) as f:
+                text = f.read()
+            assert ".split('\\n')" not in text, (
+                "%s must not use .split('\\n') in a folded scalar; use "
+                ".splitlines() so .gitmodules parses line by line" % path
+            )
 
     def test_registered_paths_use_splitlines(self):
-        with open(FIX) as f:
-            text = f.read()
-        # Both _registered_paths parses (initial + refreshed) read .gitmodules.
-        assert text.count("| b64decode).splitlines()") >= 2, (
-            "both .gitmodules parses must use .splitlines()"
-        )
+        # The .gitmodules parses (fix-submodules' conversion parse + the shared
+        # orphan-recovery parse) must both use .splitlines().
+        for path in (FIX, RECOVER):
+            with open(path) as f:
+                text = f.read()
+            assert "| b64decode).splitlines()" in text, (
+                "%s must parse .gitmodules with .splitlines()" % path
+            )
