@@ -1,11 +1,11 @@
-"""Regression guard for #1177: `gitops pull` must not overwrite config/wikis.yaml
+"""Regression guard: `gitops pull` must not overwrite config/wikis.yaml
 with a blank url.
 
 pull_compose.yml renders wikis.yaml from wikis.yaml.template with the same
 `{{wiki_url_<id>}} | default('')` pattern as render_compose.yml. If a wiki's
 wiki_url_<id> var is absent on the pulling host, the url renders empty and
 MediaWiki's FarmConfigLoader fatals on every request. pull must render into a
-fact and refuse to write when any url came out empty (sibling of #1164).
+fact and refuse to write when any url came out empty.
 """
 
 import os
@@ -42,11 +42,11 @@ class TestPullRefusesEmptyUrl:
         assert guards, (
             "pull_compose.yml must fail (before writing config/wikis.yaml) when "
             "a wiki url rendered empty — rejectattr('url') on the rendered "
-            "wikis list (#1177)")
+            "wikis list")
 
     def test_wikis_yaml_written_from_validated_fact(self):
         text = open(PULL_COMPOSE).read()
         assert "_pull_wikis_content" in text, (
             "pull_compose.yml must render wikis.yaml into a fact "
             "(_pull_wikis_content) so it can be validated before it replaces "
-            "the live file (#1177)")
+            "the live file")

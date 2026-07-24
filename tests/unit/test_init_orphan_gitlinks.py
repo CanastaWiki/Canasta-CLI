@@ -1,4 +1,4 @@
-"""Regression guard for #1155: `gitops init` must never commit an orphan
+"""Regression guard: `gitops init` must never commit an orphan
 gitlink (a staged mode-160000 submodule with no .gitmodules entry), which
 silently loses the extension/skin on the next clone.
 
@@ -62,13 +62,13 @@ class TestInitRecoversOrphanGitlinks:
     def test_lists_staged_gitlinks(self):
         assert any("160000" in _text(t) for t in self.tasks), (
             "init_compose.yml must inspect staged gitlinks (mode 160000) so it "
-            "can catch unconverted extensions/skins (#1155)")
+            "can catch unconverted extensions/skins")
 
     def test_writes_gitmodules_for_orphans(self):
         assert any("config" in _text(t) and ".gitmodules" in _text(t)
                    for t in self.tasks), (
             "init must register recovered orphans in .gitmodules via "
-            "`git config -f .gitmodules` (#1155)")
+            "`git config -f .gitmodules`")
 
     def test_fails_loudly_when_url_unrecoverable(self):
         guards = [t for t in self.tasks
@@ -76,7 +76,7 @@ class TestInitRecoversOrphanGitlinks:
                   and ".gitmodules" in _fail_msg(t)]
         assert guards, (
             "init must fail loudly when an orphan gitlink has no recoverable "
-            "URL, rather than commit a broken submodule (#1155)")
+            "URL, rather than commit a broken submodule")
 
     def test_recovery_runs_before_initial_commit(self):
         gitmodules_i = self._index(
@@ -86,4 +86,4 @@ class TestInitRecoversOrphanGitlinks:
         assert gitmodules_i >= 0 and commit_i >= 0
         assert gitmodules_i < commit_i, (
             "the orphan-gitlink recovery must run before the initial commit, "
-            "so the commit records proper submodules (#1155)")
+            "so the commit records proper submodules")
