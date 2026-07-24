@@ -176,7 +176,6 @@
       vars:
         import_wiki_id: "{{ wiki }}"
         import_database_path: "{{ database }}"
-        import_db_password: "{{ _add_dbpass.value }}"
 
 # --skip-install: the external database already holds this wiki's schema,
 # so register it in the farm without running install.php. Still wait for
