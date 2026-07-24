@@ -76,6 +76,17 @@ services:
       - CANASTA_ENABLE_WIKI_DIRECTORY=${CANASTA_ENABLE_WIKI_DIRECTORY:-false}
       - CANASTA_ENABLE_VERY_SHORT_URLS=${CANASTA_ENABLE_VERY_SHORT_URLS:-false}
       - MW_SITEMAP_PAUSE_DAYS=${MW_SITEMAP_PAUSE_DAYS:-1}
+      # Maintenance-script controls. Defaults mirror the image ENV
+      # (CanastaBase Dockerfile) so an unset .env value keeps image behavior;
+      # config set can then override them (e.g. disable the job runner during a
+      # bulk maintenance operation).
+      - MW_ENABLE_JOB_RUNNER=${MW_ENABLE_JOB_RUNNER:-true}
+      - MW_JOB_RUNNER_PAUSE=${MW_JOB_RUNNER_PAUSE:-2}
+      - MW_JOB_RUNNER_MEMORY_LIMIT=${MW_JOB_RUNNER_MEMORY_LIMIT:-512M}
+      - MW_ENABLE_TRANSCODER=${MW_ENABLE_TRANSCODER:-true}
+      - MW_JOB_TRANSCODER_PAUSE=${MW_JOB_TRANSCODER_PAUSE:-60}
+      - MW_ENABLE_LOG_ROTATOR=${MW_ENABLE_LOG_ROTATOR:-true}
+      - MW_AUTOUPDATE=${MW_AUTOUPDATE:-true}
     volumes:
       - ./extensions:/var/www/mediawiki/w/user-extensions
       - ./skins:/var/www/mediawiki/w/user-skins
