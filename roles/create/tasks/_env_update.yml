@@ -166,3 +166,28 @@
   when: >-
     'This is the configuration file for Canasta'
     not in (_env_header_check.content | b64decode)
+
+# Profile-aware host memory floor. .env now reflects the final feature flags
+# (defaults + any -e overrides merged in _envfile.yml), so enforce the minimum
+# for the enabled profiles before the stack starts: ~2 GiB base, ~4 GiB with
+# Elasticsearch or observability, ~8 GiB with both. Compose only — the K8s
+# per-node capacity check lives in k8s_preflight.yml.
+- name: Read feature flags for the memory floor
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: "{{ item }}"
+  loop:
+    - CANASTA_ENABLE_ELASTICSEARCH
+    - CANASTA_ENABLE_OBSERVABILITY
+  register: _create_mem_flags
+  when: orchestrator | default('compose') == 'compose'
+
+- name: Enforce the profile-aware host memory floor
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_host_memory.yml"
+  vars:
+    _mem_es_enabled: >-
+      {{ _create_mem_flags.results[0].value | default('false') | lower == 'true' }}
+    _mem_obs_enabled: >-
+      {{ _create_mem_flags.results[1].value | default('false') | lower == 'true' }}
+  when: orchestrator | default('compose') == 'compose'
