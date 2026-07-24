@@ -34,6 +34,18 @@
     {{ canasta_root }}/roles/orchestrator/tasks/render_gitops_config.yml
   when: _regen_gitops_stat.stat.exists | default(false)
 
+# .env is re-rendered verbatim from env.template, which has no
+# COMPOSE_PROFILES line, so the render drops it. Reconcile COMPOSE_PROFILES
+# from the rendered feature flags + DB mode — exactly as gitops pull does
+# (pull_compose.yml Step 7b) — so a subsequent down/up still starts the
+# database and feature containers instead of leaving them unmanaged.
+- name: Reconcile COMPOSE_PROFILES after render
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
+  when:
+    - _regen_gitops_stat.stat.exists | default(false)
+    - instance_orchestrator | default('compose') == 'compose'
+
 - name: Regenerate orchestrator config (e.g. Caddyfile)
   ansible.builtin.include_role:
     name: orchestrator
