@@ -33,6 +33,21 @@ def _cmd(t):
     return c.get("cmd", "") if isinstance(c, dict) else str(c)
 
 
+def _exec_commands(tasks):
+    # exec_command values passed to included exec.yml tasks.
+    return [(t.get("vars") or {}).get("exec_command", "")
+            for t in _walk(tasks) if (t.get("vars") or {}).get("exec_command")]
+
+
+def _fail_msgs(tasks):
+    out = []
+    for t in _walk(tasks):
+        f = t.get("ansible.builtin.fail") or t.get("fail") or {}
+        if isinstance(f, dict) and f.get("msg"):
+            out.append(f["msg"])
+    return out
+
+
 class TestExtensionSetVersion:
     def setup_method(self):
         self.cmds = [_cmd(t) for t in _walk(_load(TASK)) if _cmd(t)]
@@ -61,6 +76,27 @@ class TestExtensionSetVersion:
             t.get("when") if isinstance(t.get("when"), list) else [str(t.get("when"))])
             for t in fails if t.get("when")), (
             "set-version must validate the extension name (reject path escapes)")
+
+    def test_probes_container_for_bundled_extension(self):
+        tasks = _load(TASK)
+        assert any("/var/www/mediawiki/w/extensions" in c
+                   for c in _exec_commands(tasks)), (
+            "set-version must probe the container's bundled extensions dir to "
+            "distinguish a bundled extension from a typo")
+
+    def test_has_bundled_specific_error(self):
+        assert any("bundled" in m.lower() for m in _fail_msgs(_load(TASK))), (
+            "set-version must give a bundled-specific error message")
+
+    def test_probe_tolerates_stopped_container(self):
+        # A block/rescue guards the container probe so a stopped instance
+        # doesn't abort with an opaque error.
+        assert any("rescue" in t for t in _walk(_load(TASK))), (
+            "the bundled probe must have a rescue for a stopped container")
+
+    def test_run_update_runs_update_php(self):
+        assert any("update.php" in c for c in _exec_commands(_load(TASK))), (
+            "--run-update must run update.php to apply schema changes")
 
 
 class TestCommandRegistered:

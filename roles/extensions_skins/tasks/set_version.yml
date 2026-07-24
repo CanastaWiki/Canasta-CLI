@@ -3,7 +3,8 @@
 # 'canasta gitops push'. Fills the "choose the version" gap between gitops add
 # (capture) and gitops pull (distribute), so version pinning is CLI-driven
 # rather than raw `git checkout` inside the submodule.
-# Input: id (via resolve), name (extension), ref (branch|tag|sha)
+# Input: id (via resolve), name (extension), ref (branch|tag|sha),
+#        run_update (bool)
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -29,14 +30,52 @@
   changed_when: false
   failed_when: false
 
-- name: Fail if the extension is not a registered submodule
-  ansible.builtin.fail:
-    msg: >-
-      '{{ name }}' is not a registered extension submodule in this instance
-      ({{ _ext_path }} is not in .gitmodules). Version pinning applies to
-      gitops-managed user extensions; check the name, or run
-      'canasta gitops fix-submodules' if the submodule registration is missing.
+# When it's not a host submodule, distinguish a bundled (in-image) extension
+# from a typo/missing registration so the error is actionable. Bundled
+# extensions are real directories in the container's extensions dir; user
+# extensions are symlinks into ../user-extensions. The probe needs the
+# container, so tolerate a stopped one and fall back to the generic message.
+- name: Diagnose a non-submodule extension name
   when: _ext_submodule.rc != 0
+  block:
+    - name: Probe whether the name is a bundled (in-image) extension
+      block:
+        - name: Check the container's bundled extensions directory
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+          vars:
+            exec_service: web
+            exec_command: >-
+              if [ -d /var/www/mediawiki/w/extensions/{{ name | quote }} ] &&
+              [ ! -L /var/www/mediawiki/w/extensions/{{ name | quote }} ]; then
+              echo bundled; else echo other; fi
+        - name: Record the probe result
+          ansible.builtin.set_fact:
+            _ext_bundled: "{{ (exec_result.stdout | default('') | trim) == 'bundled' }}"
+      rescue:
+        - name: Treat an unreachable container as inconclusive
+          ansible.builtin.set_fact:
+            _ext_bundled: false
+
+    - name: Fail — a bundled extension cannot be version-pinned per instance
+      ansible.builtin.fail:
+        msg: >-
+          '{{ name }}' is a bundled Canasta extension (shipped inside the image
+          at /var/www/mediawiki/w/extensions), not a per-instance user
+          extension. Its version is fixed by the Canasta image and can't be
+          pinned here — build/use a custom Canasta image, or vendor it as a
+          user extension, to change its version.
+      when: _ext_bundled | bool
+
+    - name: Fail — not a user-extension submodule
+      ansible.builtin.fail:
+        msg: >-
+          '{{ name }}' is not a gitops-managed user-extension submodule
+          (extensions/{{ name }} is not in .gitmodules). Version pinning applies
+          to user extensions vendored as submodules. Check the name; if it is a
+          bundled Canasta extension its version is set by the image (not
+          pinnable here); or run 'canasta gitops fix-submodules' if the
+          submodule registration is missing.
+      when: not (_ext_bundled | bool)
 
 - name: Record the current ref
   ansible.builtin.command:
@@ -76,6 +115,28 @@
   register: _ext_new
   changed_when: false
 
+# Apply DB schema changes for the new version when asked. Runs update.php for
+# every wiki in the farm (the version change is instance-wide), mirroring
+# canasta maintenance update.
+- name: Apply schema changes with update.php
+  when: run_update | default(false) | bool
+  block:
+    - name: Read wikis for update.php
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _ext_wikis
+
+    - name: Run update.php for each wiki
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: "php maintenance/update.php --wiki={{ item.id | quote }}"
+        exec_long: true
+      loop: "{{ _ext_wikis.wikis | default([]) }}"
+      loop_control:
+        label: "{{ item.id }}"
+
 - name: Report the version change
   ansible.builtin.debug:
     msg: >-
@@ -83,3 +144,7 @@
       ({{ _ext_current.stdout | default('') | trim | default('unknown', true) }}
       -> {{ _ext_new.stdout | trim }}). Staged — run 'canasta gitops push' to
       distribute it to other hosts.
+      {{ '' if (run_update | default(false) | bool)
+         else "If this version changes the database schema, apply it with
+         'canasta maintenance update -i " ~ instance_id ~ "' (or re-run with
+         --run-update)." }}
