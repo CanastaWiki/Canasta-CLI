@@ -124,7 +124,10 @@ def cmd_wiki_check(args):
     all_ok = True
     for wiki in wikis:
         wiki_id = wiki.get("id")
-        wiki_url = wiki.get("url", "").strip()
+        # .get("url", "") returns the default only when the key is absent; a
+        # present url: null still yields None, and None.strip() would crash
+        # before the missing-url guard below can report it.
+        wiki_url = (wiki.get("url") or "").strip()
         if not wiki_url:
             print("Wiki '%s' failed: missing wiki URL in wikis.yaml." % wiki_id)
             all_ok = False
