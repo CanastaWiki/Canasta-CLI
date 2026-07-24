@@ -413,7 +413,7 @@ def _gitops_argocd_status(instance_id, host="localhost"):
 
 
 def _parse_gitops_status_k8s(stdout, instance_id, argocd):
-    """Format K8s gitops status. Matches roles/gitops/tasks/status_kubernetes.yml."""
+    """Format K8s gitops status output (gitops status is direct-only)."""
     parts = stdout.split(_helpers._SENTINEL + "\n")
     hostname = parts[0].strip() if len(parts) > 0 else "unknown"
     if hostname == "MISSING":
