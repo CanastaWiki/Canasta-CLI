@@ -126,54 +126,11 @@
         _k3s_active.stdout_lines | default([])
         | select('eq', 'active') | length > 0
 
-    # Compose-only host memory preflight. The K8s path has its own
-    # per-node memory check in k8s_preflight.yml — running this on a K8s
-    # create would measure the controller host, not the cluster nodes,
-    # which is the wrong thing.
-    #
-    # Elasticsearch is no longer required, so a no-ES instance runs in ~2 GiB.
-    # Print MemTotal (MiB) once, then gate on it: hard-fail below ~2 GiB, and
-    # warn below ~8 GiB (where enabling Elasticsearch or the observability
-    # stack would be tight). Thresholds sit below the marketed size because
-    # cloud instances expose less to the kernel after firmware/hypervisor
-    # reserves — a "2 GiB" instance reports ~1700-1900 MiB, an "8 GiB" one
-    # ~7600-7900 — so 1600/7000 accept a real 2 GiB / 8 GiB host respectively.
-    - name: Measure target host total memory (MiB)
-      ansible.builtin.command:
-        cmd: >-
-          python3 -c "import os;
-          print(os.sysconf('SC_PAGE_SIZE')
-          * os.sysconf('SC_PHYS_PAGES') // (1024**2))"
-      register: _mem_check
-      changed_when: false
-      ignore_errors: true  # OK if memory check unavailable
-
-    - name: Record measured host memory
-      ansible.builtin.set_fact:
-        _host_mem_mib: "{{ _mem_check.stdout | default('') | trim }}"
-
-    - name: Fail if target host has less than ~2 GiB total memory
-      ansible.builtin.fail:
-        msg: >-
-          Canasta requires at least about 2 GiB of total memory on the target
-          host. This host reports {{ _host_mem_mib }} MiB.
-      when:
-        - _host_mem_mib | length > 0
-        - _host_mem_mib | int < 1600
-
-    - name: Warn when memory is below the comfortable ~8 GiB threshold
-      ansible.builtin.debug:
-        msg: >-
-          Warning: this host reports {{ _host_mem_mib }} MiB of total memory.
-          That is enough to run Canasta without Elasticsearch and the
-          observability stack, but may not be enough with them: Elasticsearch
-          (CirrusSearch) is recommended to have at least ~4 GiB and the
-          OpenSearch observability stack at least ~8 GiB. Use a larger host if
-          you plan to enable those.
-      when:
-        - _host_mem_mib | length > 0
-        - _host_mem_mib | int >= 1600
-        - _host_mem_mib | int < 7000
+    # The host memory floor is profile-aware (~2 GiB base, ~4 GiB with
+    # Elasticsearch or observability, ~8 GiB with both), so it can't be checked
+    # here: preflight runs before the -e envfile is merged, so the intended
+    # feature flags aren't known yet. create enforces it in _env_update.yml
+    # once .env is finalized, via roles/orchestrator/tasks/check_host_memory.yml.
 
     # Compose-only host-gateway compatibility probe. The web service maps
     # gateway.docker.internal to the magic "host-gateway" value, which
