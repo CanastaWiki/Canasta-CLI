@@ -12,20 +12,29 @@ from ._helpers import register
 
 
 def _git_ssh_env_prefix(ssh_key):
-    """Shell `export GIT_SSH_COMMAND=...; ` prefix for a given SSH key.
+    """Shell `export GIT_SSH_COMMAND=...; ` prefix that authenticates read-side
+    git operations (fetch/ls-remote) the same way push/pull do.
 
-    Mirrors the Ansible gitops_git_env convention (accept-new host keys,
-    explicit known_hosts). Returns an empty string when no key is given,
-    leaving git's ambient SSH config (agent forwarding / deploy key)
-    untouched.
+    Always applies the Ansible gitops_git_env host-key convention (accept-new,
+    explicit known_hosts) — even without an explicit key — so a status `git
+    fetch` doesn't fail host-key verification on a host that has never talked
+    to the forge, which push (running under gitops_git_env) survives.
+
+    Key precedence mirrors the Ansible flows: an explicit --ssh-key, else the
+    instance's staged .gitops-deploy-key (Kubernetes), else ambient ssh (the
+    operator's forwarded agent on Compose). The .gitops-deploy-key fallback is
+    a relative path, so callers must have cd'd into the instance path first.
     """
-    if not ssh_key:
-        return ""
+    opts = ("-o StrictHostKeyChecking=accept-new "
+            "-o UserKnownHostsFile=~/.ssh/known_hosts")
+    if ssh_key:
+        return ('export GIT_SSH_COMMAND="ssh -i %s %s"; '
+                % (_helpers._shell_quote(ssh_key), opts))
     return (
-        'export GIT_SSH_COMMAND="ssh -i %s '
-        '-o StrictHostKeyChecking=accept-new '
-        '-o UserKnownHostsFile=~/.ssh/known_hosts"; '
-        % _helpers._shell_quote(ssh_key)
+        'if [ -f .gitops-deploy-key ]; then '
+        'export GIT_SSH_COMMAND="ssh -i .gitops-deploy-key %(o)s"; '
+        'else export GIT_SSH_COMMAND="ssh %(o)s"; fi; '
+        % {"o": opts}
     )
 
 
@@ -48,8 +57,11 @@ def _gitops_status_script(path, ssh_key=None):
         "echo '%(d)s'; "
         "git diff --name-status 2>/dev/null; "
         "echo '%(d)s'; "
-        "git fetch 2>/dev/null; "
-        "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'; "
+        # Report fetch and rev-list outcomes distinctly instead of collapsing
+        # any failure into '0\t0' — a failed fetch or an unresolved @{upstream}
+        # must not read as "in sync". The parser keys on these markers.
+        "git fetch 2>/dev/null && echo 'FETCH:ok' || echo 'FETCH:fail'; "
+        "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo 'REVLIST:fail'; "
         "echo '%(d)s'; "
         "cat config/wikis.yaml 2>/dev/null; "
         "echo '%(d)s'; "
@@ -205,6 +217,41 @@ def _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift):
     return lines
 
 
+def _parse_remote_sync(section):
+    """Parse the fetch-status + rev-list section into (ahead, behind, state).
+
+    state is one of:
+      'ok'           - fetch succeeded and @{upstream} resolved; ahead/behind
+                       are meaningful.
+      'fetch_failed' - `git fetch` did not reach the remote; any ahead/behind
+                       would be against a stale ref, so it is not reported.
+      'no_upstream'  - fetch was fine but @{upstream} does not resolve (no
+                       tracking ref / detached HEAD).
+    ahead/behind are 0 unless state == 'ok'.
+    """
+    fetch_ok = False
+    revline = None
+    for ln in (section or "").split("\n"):
+        s = ln.strip()
+        if not s:
+            continue
+        if s == "FETCH:ok":
+            fetch_ok = True
+        elif s == "FETCH:fail":
+            fetch_ok = False
+        else:
+            revline = s
+    if not fetch_ok:
+        return 0, 0, "fetch_failed"
+    if revline is None or revline == "REVLIST:fail":
+        return 0, 0, "no_upstream"
+    try:
+        fields = revline.split("\t")
+        return int(fields[0]), int(fields[1]), "ok"
+    except (ValueError, IndexError):
+        return 0, 0, "no_upstream"
+
+
 def _parse_gitops_status(stdout, instance_id):
     """Parse the batched gitops status output into a formatted string."""
     parts = stdout.split(_helpers._SENTINEL + "\n")
@@ -227,16 +274,11 @@ def _parse_gitops_status(stdout, instance_id):
 
     commit = parts[2].strip() if len(parts) > 2 else "none"
     applied = parts[3].strip() if len(parts) > 3 else "none"
-    revcount_raw = parts[6].strip() if len(parts) > 6 else "0\t0"
 
     staged, unstaged, untracked, wikis_drift = _parse_working_tree_changes(parts)
 
-    try:
-        revcount_parts = revcount_raw.split("\t")
-        ahead = int(revcount_parts[0])
-        behind = int(revcount_parts[1]) if len(revcount_parts) > 1 else 0
-    except (ValueError, IndexError):
-        ahead, behind = 0, 0
+    ahead, behind, remote_state = _parse_remote_sync(
+        parts[6] if len(parts) > 6 else "")
 
     # No .gitops-host marker and no git repository means the instance is simply
     # not under GitOps management. Reporting "No changes / Up to date with
@@ -270,7 +312,12 @@ def _parse_gitops_status(stdout, instance_id):
         lines.append("No changes.")
         lines.append("")
 
-    if ahead > 0:
+    if remote_state == "fetch_failed":
+        lines.append("Remote status unknown (could not fetch from the remote — "
+                     "check the deploy key / network).")
+    elif remote_state == "no_upstream":
+        lines.append("Remote status unknown (no upstream tracking configured).")
+    elif ahead > 0:
         lines.append("Ahead of remote by %d commit(s)." % ahead)
     elif behind > 0:
         lines.append("Behind remote by %d commit(s)." % behind)
@@ -372,13 +419,8 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     if hostname == "MISSING":
         hostname = "unknown"
     commit = parts[2].strip() if len(parts) > 2 else "none"
-    revcount_raw = parts[6].strip() if len(parts) > 6 else "0\t0"
-    try:
-        revcount_parts = revcount_raw.split("\t")
-        ahead = int(revcount_parts[0])
-        behind = int(revcount_parts[1]) if len(revcount_parts) > 1 else 0
-    except (ValueError, IndexError):
-        ahead, behind = 0, 0
+    ahead, behind, remote_state = _parse_remote_sync(
+        parts[6] if len(parts) > 6 else "")
 
     sync_status, health, last_sync, revision = argocd[:4]
     sops_hint = argocd[4] if len(argocd) > 4 else None
@@ -392,10 +434,16 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
         "Host:             %s" % hostname,
         "Canasta ID:       %s" % instance_id,
         "Current commit:   %s" % commit,
-        "Ahead of remote:  %d" % ahead,
-        "Behind remote:    %d" % behind,
-        "",
     ]
+    if remote_state == "ok":
+        lines.append("Ahead of remote:  %d" % ahead)
+        lines.append("Behind remote:    %d" % behind)
+    else:
+        reason = ("could not fetch from the remote"
+                  if remote_state == "fetch_failed"
+                  else "no upstream tracking configured")
+        lines.append("Remote status:    unknown (%s)" % reason)
+    lines.append("")
     lines.extend(
         _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift)
     )
