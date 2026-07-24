@@ -216,12 +216,35 @@
       changed_when: true
       when: _push_has_staged
 
+    # The commit above is already made, so on a rejection the operator's work
+    # is safe locally. Catch the push failure and translate git's raw
+    # non-fast-forward hint (which points at raw `git pull`) into canasta-native
+    # guidance; surface any other failure verbatim.
     - name: Push to main
       ansible.builtin.command:
         cmd: "git push origin main"
         chdir: "{{ instance_path }}"
       environment: "{{ gitops_git_env }}"
+      register: _push_result
       changed_when: true
+      failed_when: false
+
+    - name: Explain a non-fast-forward rejection in canasta terms
+      ansible.builtin.fail:
+        msg: >-
+          The remote has changes this host does not have yet, so the push was
+          rejected. Your local commit is safe. Run 'canasta gitops pull' to
+          integrate the remote changes, then 'canasta gitops push' again.
+      when:
+        - _push_result.rc != 0
+        - >-
+          'non-fast-forward' in (_push_result.stderr | default(''))
+          or 'rejected' in (_push_result.stderr | default(''))
+
+    - name: Fail if the push failed for another reason
+      ansible.builtin.fail:
+        msg: "git push failed: {{ _push_result.stderr | default('') | trim }}"
+      when: _push_result.rc != 0
 
     - name: Report pushed
       ansible.builtin.debug:

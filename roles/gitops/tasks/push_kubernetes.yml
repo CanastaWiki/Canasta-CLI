@@ -167,7 +167,32 @@
       ssh -i {{ ssh_key | default(instance_path + '/.gitops-deploy-key', true) }}
       -o StrictHostKeyChecking=accept-new
       -o UserKnownHostsFile=~/.ssh/known_hosts
+  register: _push_result
   changed_when: true
+  failed_when: false
+
+# The commit is already in place, so on a rejection the operator's work is safe
+# locally. Translate git's raw non-fast-forward hint into canasta-native
+# guidance; surface any other failure verbatim.
+- name: Explain a non-fast-forward rejection in canasta terms
+  ansible.builtin.fail:
+    msg: >-
+      The remote has changes this host does not have yet, so the push was
+      rejected. Your local commit is safe. Run 'canasta gitops pull' to
+      integrate the remote changes, then 'canasta gitops push' again.
+  when:
+    - _push_result is defined
+    - _push_result.rc | default(0) != 0
+    - >-
+      'non-fast-forward' in (_push_result.stderr | default(''))
+      or 'rejected' in (_push_result.stderr | default(''))
+
+- name: Fail if the push failed for another reason
+  ansible.builtin.fail:
+    msg: "git push failed: {{ _push_result.stderr | default('') | trim }}"
+  when:
+    - _push_result is defined
+    - _push_result.rc | default(0) != 0
 
 - name: Report result
   ansible.builtin.debug:
