@@ -2968,11 +2968,12 @@ class TestExtensionSkinList:
 class TestParseGitopsDiff:
     def _make_output(self, uncommitted="", uncommitted_patch="",
                      local="", local_patch="", remote="", remote_patch="",
-                     submodules=""):
-        # Seven sentinel-separated sections: for each boundary a
-        # --name-only list followed by the patch, then submodule status.
+                     submodules="", fetch=None):
+        # Sentinel-separated sections: for each boundary a --name-only list
+        # followed by the patch, then submodule status, then (optionally) the
+        # fetch-status marker.
         d = direct_commands._SENTINEL
-        return (
+        out = (
             uncommitted + "\n" + d + "\n"
             + uncommitted_patch + "\n" + d + "\n"
             + local + "\n" + d + "\n"
@@ -2981,6 +2982,23 @@ class TestParseGitopsDiff:
             + remote_patch + "\n" + d + "\n"
             + submodules + "\n"
         )
+        if fetch is not None:
+            out += d + "\n" + "FETCH:%s" % fetch
+        return out
+
+    def test_fetch_failed_flags_stale_comparison(self):
+        result = direct_commands._parse_gitops_diff(self._make_output(fetch="fail"))
+        assert "could not fetch from the remote" in result
+
+    def test_fetch_ok_has_no_stale_note(self):
+        result = direct_commands._parse_gitops_diff(self._make_output(fetch="ok"))
+        assert "could not fetch" not in result
+
+    def test_diff_script_fetches_authenticated(self):
+        script = direct_commands._gitops_diff_script("/srv/mysite")
+        assert "git fetch" in script
+        assert "StrictHostKeyChecking=accept-new" in script
+        assert ".gitops-deploy-key" in script
 
     def test_no_changes(self):
         out = self._make_output()
