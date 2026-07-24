@@ -21,7 +21,7 @@ class TestValidateName:
         assert canasta_settings_yaml.validate_name("VisualEditor") is None
 
     def test_valid_submodule_subpath(self):
-        # A single sub-path segment for extensions with sub-modules (#1151).
+        # A single sub-path segment for extensions with sub-modules.
         assert canasta_settings_yaml.validate_name(
             "ConfirmEdit/ReCaptchaNoCaptcha") is None
 
