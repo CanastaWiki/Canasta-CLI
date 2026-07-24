@@ -1,7 +1,12 @@
 ---
 # Import a SQL dump into a wiki database.
 # Input: instance_path, instance_orchestrator, instance_id,
-#        import_wiki_id, import_database_path, import_db_password
+#        import_wiki_id, import_database_path
+#
+# The mariadb client reads the root password from the db container's own
+# MYSQL_PWD/$MYSQL_ROOT_PASSWORD env, so the secret never enters the command
+# line. That keeps these execs off no_log, so a load failure surfaces the
+# actual mariadb stderr (the SQL error) instead of a redacted message.
 
 - name: Check if database file is gzipped
   ansible.builtin.set_fact:
@@ -12,8 +17,7 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: db
-    exec_command: "mariadb -u root -p'{{ import_db_password }}' -e 'CREATE DATABASE IF NOT EXISTS `{{ import_wiki_id }}`'"
-    exec_no_log: true
+    exec_command: "MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root -e 'CREATE DATABASE IF NOT EXISTS `{{ import_wiki_id }}`'"
 
 # Transfer the dump file from the controller to the target host if remote.
 # For localhost this is a no-op (same filesystem). For remote hosts, ansible
@@ -45,8 +49,7 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: db
-    exec_command: "gunzip -c /tmp/import.sql.gz | mariadb -u root -p'{{ import_db_password }}' '{{ import_wiki_id }}'"
-    exec_no_log: true
+    exec_command: "gunzip -c /tmp/import.sql.gz | MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root '{{ import_wiki_id }}'"
     exec_long: true
   when: _is_gzipped | bool
 
@@ -54,8 +57,7 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: db
-    exec_command: "mariadb -u root -p'{{ import_db_password }}' '{{ import_wiki_id }}' < /tmp/import.sql"
-    exec_no_log: true
+    exec_command: "MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root '{{ import_wiki_id }}' < /tmp/import.sql"
     exec_long: true
   when: not (_is_gzipped | bool)
 
