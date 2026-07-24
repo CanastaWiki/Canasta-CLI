@@ -1,0 +1,85 @@
+---
+# Pin a user extension's submodule to a specific ref and stage the gitlink for
+# 'canasta gitops push'. Fills the "choose the version" gap between gitops add
+# (capture) and gitops pull (distribute), so version pinning is CLI-driven
+# rather than raw `git checkout` inside the submodule.
+# Input: id (via resolve), name (extension), ref (branch|tag|sha)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+# Reject a name that could escape the extensions dir or name a sub-path — this
+# pins the top-level extension submodule (extensions/<name>).
+- name: Validate the extension name
+  ansible.builtin.fail:
+    msg: >-
+      Invalid extension name '{{ name }}': use a plain extension directory
+      name (letters, digits, '.', '_', '-').
+  when: name is not match('^[A-Za-z0-9][A-Za-z0-9_.-]*$')
+
+- name: Set the extension submodule path
+  ansible.builtin.set_fact:
+    _ext_path: "extensions/{{ name }}"
+
+- name: Verify the extension is a registered submodule
+  ansible.builtin.command:
+    cmd: "git submodule status {{ _ext_path | quote }}"
+    chdir: "{{ instance_path }}"
+  register: _ext_submodule
+  changed_when: false
+  failed_when: false
+
+- name: Fail if the extension is not a registered submodule
+  ansible.builtin.fail:
+    msg: >-
+      '{{ name }}' is not a registered extension submodule in this instance
+      ({{ _ext_path }} is not in .gitmodules). Version pinning applies to
+      gitops-managed user extensions; check the name, or run
+      'canasta gitops fix-submodules' if the submodule registration is missing.
+  when: _ext_submodule.rc != 0
+
+- name: Record the current ref
+  ansible.builtin.command:
+    cmd: "git -C {{ _ext_path | quote }} rev-parse --short HEAD"
+    chdir: "{{ instance_path }}"
+  register: _ext_current
+  changed_when: false
+  failed_when: false
+
+# Fetch branches and tags so the requested ref is available locally, then check
+# it out. git records the resulting commit in the gitlink regardless of whether
+# the ref is a branch (tracking), tag, or SHA (detached).
+- name: Fetch the extension's remote
+  ansible.builtin.command:
+    cmd: "git -C {{ _ext_path | quote }} fetch --tags origin"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Check out the requested ref
+  ansible.builtin.command:
+    cmd: "git -C {{ _ext_path | quote }} checkout {{ ref | quote }}"
+    chdir: "{{ instance_path }}"
+  register: _ext_checkout
+  changed_when: true
+  failed_when: _ext_checkout.rc != 0
+
+- name: Stage the updated gitlink
+  ansible.builtin.command:
+    cmd: "git add -- {{ _ext_path | quote }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Record the new ref
+  ansible.builtin.command:
+    cmd: "git -C {{ _ext_path | quote }} rev-parse --short HEAD"
+    chdir: "{{ instance_path }}"
+  register: _ext_new
+  changed_when: false
+
+- name: Report the version change
+  ansible.builtin.debug:
+    msg: >-
+      Extension '{{ name }}' set to '{{ ref }}'
+      ({{ _ext_current.stdout | default('') | trim | default('unknown', true) }}
+      -> {{ _ext_new.stdout | trim }}). Staged — run 'canasta gitops push' to
+      distribute it to other hosts.

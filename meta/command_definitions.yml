@@ -1337,6 +1337,36 @@ commands:
         required: true
         description: "Comma-separated extension names"
 
+  - name: extension_set_version
+    description: "Pin a user extension to a specific version"
+    long_description: |
+      Move a gitops-managed user extension's submodule to a specific
+      version (branch, tag, or commit) and stage the change, ready for
+      `canasta gitops push` to distribute it to every host. This replaces
+      the raw `git checkout` inside the submodule that changing an
+      extension's version otherwise requires.
+
+      Pass the release branch matching your MediaWiki version (e.g.
+      `REL1_43`) rather than a development branch like `master`, which is
+      the common cause of version-mismatch regressions.
+    examples:
+      - "canasta extension set-version UserPageEditProtection --ref REL1_43"
+    playbook: extension_set_version.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: name
+        type: string
+        positional: true
+        required: true
+        description: "Extension name (the extensions/<name> submodule)"
+      - name: ref
+        type: string
+        required: true
+        description: "Version to pin to: a branch, tag, or commit SHA"
+
   # ---------------------------------------------------------------------------
   # Skins
   # ---------------------------------------------------------------------------

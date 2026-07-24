@@ -1,0 +1,7 @@
+---
+# canasta extension set-version - Pin a user extension submodule to a ref.
+
+- name: Set extension version
+  ansible.builtin.include_role:
+    name: extensions_skins
+    tasks_from: set_version.yml
