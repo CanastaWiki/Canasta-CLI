@@ -401,9 +401,16 @@
   ignore_errors: true  # OK if no submodules configured
 
 # --- Step 11: Commit and push ---
-- name: Stage all changes
+# Stage only the join's own artifacts — the host registration and this host's
+# vars. A blind `git add -A` also sweeps in the fresh instance's untracked
+# create-time default settings (e.g. config/settings/global/*.php that this
+# repo intentionally deleted) and pushes them back into the shared repo. All
+# other tracked files were already reconciled to HEAD by the checkout above, so
+# there is nothing else to stage. (config/wikis.yaml, .env, Caddyfile and
+# .gitops-host are gitignored and never committed.)
+- name: Stage the host registration and this host's vars
   ansible.builtin.command:
-    cmd: "git add -A"
+    cmd: "git add -- hosts/hosts.yaml hosts/{{ host_name }}/vars.yaml"
     chdir: "{{ instance_path }}"
   changed_when: true
 
