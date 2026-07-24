@@ -1,0 +1,36 @@
+---
+# Heal submodules registered in the index (gitlink, mode 160000) whose backing
+# .git/modules/<path> is missing. This is the state a backup/restore move leaves
+# behind: the snapshot carries each submodule's .git gitlink file (which points
+# at ../../.git/modules/<path>) but not the top-level .git/modules it resolves
+# to. Any git command that touches such a gitlink then aborts with
+# "fatal: not a git repository: <path>/../../.git/modules/<path>".
+#
+# Removing the stale working tree lets the caller's subsequent
+# `git submodule update --init` re-clone the pinned commit cleanly.
+# Requires: instance_path. The caller MUST run `git submodule update --init`
+# afterward to repopulate the removed submodules.
+
+- name: List submodule gitlinks in the index
+  ansible.builtin.shell:
+    cmd: "git ls-files --stage | awk '$1 == \"160000\" {print $4}'"
+    chdir: "{{ instance_path }}"
+  register: _heal_gitlinks
+  changed_when: false
+
+- name: Check each submodule's .git/modules backing
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git/modules/{{ item }}"
+  register: _heal_backing
+  loop: "{{ _heal_gitlinks.stdout_lines }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Remove stale working tree for dangling submodules (backing missing)
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ item.item }}"
+    state: absent
+  loop: "{{ _heal_backing.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not item.stat.exists

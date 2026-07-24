@@ -1,0 +1,36 @@
+---
+# Fail fast when git-crypt is locked in this checkout.
+#
+# hosts/hosts.yaml is git-crypt encrypted; a checkout cloned/reset/restored
+# without `git-crypt unlock` has it on disk as ciphertext (\0GITCRYPT\0
+# header). Parsing it (from_yaml) or catting it then crashes on the non-UTF-8
+# bytes, so detect the header with od (no decode) and stop with a clear
+# message. A no-op on decrypted or non-git-crypt checkouts.
+#
+# Requires: instance_path.
+
+- name: Read hosts.yaml git-crypt header
+  ansible.builtin.shell:
+    cmd: "head -c 10 hosts/hosts.yaml 2>/dev/null | od -An -tx1 | tr -d ' \\n'"
+  args:
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+  register: _gitcrypt_lock_hdr
+  changed_when: false
+  failed_when: false
+
+- name: Fail when git-crypt is locked
+  ansible.builtin.fail:
+    msg: |-
+      git-crypt is locked in this checkout: hosts/hosts.yaml is still
+      encrypted (ciphertext) on disk, so gitops cannot read the host topology.
+      This happens when the repo was cloned, reset, or restored without
+      running `git-crypt unlock` (the encrypt/decrypt filters and key live in
+      .git and are not part of a clone). Unlock with the instance's git-crypt
+      key and retry:
+
+        git-crypt unlock /path/to/gitops.key
+
+      Verify with: head -c 20 hosts/hosts.yaml | od -An -c
+      (it should read as plaintext YAML, not the GITCRYPT header).
+  when: _gitcrypt_lock_hdr.stdout | default('') == '00474954435259505400'

@@ -23,6 +23,12 @@ DEFINITIONS_PATH = os.path.join(SCRIPT_DIR, "meta", "command_definitions.yml")
 CANASTA_YML = os.path.join(SCRIPT_DIR, "canasta.yml")
 ANSIBLE_CFG = os.path.join(SCRIPT_DIR, "ansible.cfg")
 
+# Exit codes a wrapping script can branch on. 0 success; 1 unexpected
+# error; 2 usage error (argparse). 3 flags an expected precondition
+# refusal — the target already exists — so CI can special-case it
+# instead of treating it like a crash.
+EXIT_ALREADY_EXISTS = 3
+
 # Registry-location and lookup helpers are shared with the
 # canasta_registry Ansible module (which reads/writes conf.json), so the
 # CLI and the module never disagree about where the registry lives. The
@@ -864,6 +870,41 @@ def resolve_instance(instance_id=None):
     sys.exit(1)
 
 
+def check_create_precondition(args):
+    """For `create`, refuse a duplicate instance ID before Ansible runs.
+
+    Mirrors the `_validate_inputs.yml` registry check so an existing ID
+    fails in milliseconds with exit code 3 (EXIT_ALREADY_EXISTS) — a
+    distinct, expected refusal a wrapping script can branch on, rather
+    than the generic Ansible task-failure code. The playbook's own
+    `fail:` stays as the backstop. Returns without acting when the
+    registry is absent or the ID is free.
+    """
+    instance_id = getattr(args, "id", None)
+    if not instance_id:
+        return
+    conf_file = get_config_file_path()
+    if not os.path.isfile(conf_file):
+        return
+    instances = canasta_config.read_config(get_config_dir()).get("Instances", {})
+    existing = instances.get(instance_id)
+    if existing is None:
+        return
+    print(
+        "Error: Instance '%s' already exists in the registry "
+        "(path: %s, host: %s). "
+        "Run 'canasta delete --id %s' to remove it first."
+        % (
+            instance_id,
+            existing.get("path", "unknown"),
+            existing.get("host", "localhost"),
+            instance_id,
+        ),
+        file=sys.stderr,
+    )
+    sys.exit(EXIT_ALREADY_EXISTS)
+
+
 def _redirect_stdin_from_file(path):
     """Point fd 0 at `path` so the about-to-be-exec'd command reads it as
     stdin. Used by `maintenance exec --stdin-file`. No-op when path is unset.
@@ -1628,6 +1669,13 @@ def main():
     for code, message in collect_cli_param_errors(cmd_def, args):
         print(message, file=sys.stderr)
         sys.exit(code)
+
+    # Pre-flight: a duplicate instance ID is an expected refusal, not a
+    # crash. Catch it here so it exits with EXIT_ALREADY_EXISTS instead
+    # of the opaque Ansible task-failure code (the playbook still checks
+    # as a backstop).
+    if command_name == "create":
+        check_create_precondition(args)
 
     # Interactive exec: bypass Ansible for TTY support.
     if command_name == "maintenance_exec":

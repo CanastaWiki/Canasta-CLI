@@ -2151,12 +2151,35 @@ class TestHostRemove:
 # Gitops status tests
 # ---------------------------------------------------------------------------
 
+class TestParseRemoteSync:
+    def test_in_sync(self):
+        assert direct_commands._parse_remote_sync("FETCH:ok\n0\t0") == (0, 0, "ok")
+
+    def test_ahead_behind(self):
+        assert direct_commands._parse_remote_sync("FETCH:ok\n3\t2") == (3, 2, "ok")
+
+    def test_fetch_failed_even_with_zero_revcount(self):
+        # rev-list against a stale ref can print 0\t0; a failed fetch still wins.
+        assert direct_commands._parse_remote_sync("FETCH:fail\n0\t0") == (
+            0, 0, "fetch_failed")
+
+    def test_no_upstream(self):
+        assert direct_commands._parse_remote_sync("FETCH:ok\nREVLIST:fail") == (
+            0, 0, "no_upstream")
+
+    def test_missing_markers_treated_as_fetch_failed(self):
+        # Defensive: an old/garbled section with no FETCH marker is not in-sync.
+        assert direct_commands._parse_remote_sync("0\t0")[2] == "fetch_failed"
+
+
 class TestParseGitopsStatus:
     def _make_output(self, hostname="myhost", hosts_yaml="MISSING",
                      commit="abc1234", applied="abc1234",
-                     staged="", unstaged="", revcount="0\t0",
+                     staged="", unstaged="", revcount="0\t0", fetch="ok",
                      wikis=None, template=None, untracked=None):
         d = direct_commands._SENTINEL
+        # parts[6] is the fetch-status marker followed by the rev-list line.
+        remote = "FETCH:%s\n%s" % (fetch, revcount)
         out = (
             hostname + "\n" + d + "\n"
             + hosts_yaml + "\n" + d + "\n"
@@ -2164,7 +2187,7 @@ class TestParseGitopsStatus:
             + applied + "\n" + d + "\n"
             + staged + "\n" + d + "\n"
             + unstaged + "\n" + d + "\n"
-            + revcount + "\n"
+            + remote + "\n"
         )
         if wikis is not None or template is not None or untracked is not None:
             out += (
@@ -2288,6 +2311,26 @@ class TestParseGitopsStatus:
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Behind remote by 2 commit(s)." in result
 
+    def test_fetch_failed_reports_unknown_not_in_sync(self):
+        # A failed fetch left origin stale; rev-list may still print 0\t0
+        # against the stale ref. Must NOT read as in-sync (issue #1161).
+        out = self._make_output(fetch="fail", revcount="0\t0")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Remote status unknown" in result
+        assert "Up to date with remote." not in result
+
+    def test_no_upstream_reports_unknown(self):
+        out = self._make_output(fetch="ok", revcount="REVLIST:fail")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Remote status unknown" in result
+        assert "no upstream tracking" in result
+        assert "Up to date with remote." not in result
+
+    def test_in_sync_only_when_fetch_ok_and_zero(self):
+        out = self._make_output(fetch="ok", revcount="0\t0")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Up to date with remote." in result
+
     def test_with_hosts_yaml(self):
         hosts_yaml = "hosts:\n  - role: production\n    pull_requests: true"
         out = self._make_output(hosts_yaml=hosts_yaml)
@@ -2364,9 +2407,15 @@ class TestCmdGitopsStatus:
 class TestGitopsSshKey:
     """--ssh-key builds GIT_SSH_COMMAND for the status fetch."""
 
-    def test_prefix_empty_without_key(self):
-        assert direct_commands._git_ssh_env_prefix(None) == ""
-        assert direct_commands._git_ssh_env_prefix("") == ""
+    def test_prefix_without_key_still_sets_host_key_convention(self):
+        # Even without an explicit key the prefix must apply the gitops
+        # host-key convention (accept-new) and fall back to a staged
+        # .gitops-deploy-key, so a status fetch authenticates like push (#1161).
+        for prefix in (direct_commands._git_ssh_env_prefix(None),
+                       direct_commands._git_ssh_env_prefix("")):
+            assert "GIT_SSH_COMMAND" in prefix
+            assert "StrictHostKeyChecking=accept-new" in prefix
+            assert ".gitops-deploy-key" in prefix
 
     def test_prefix_sets_git_ssh_command(self):
         prefix = direct_commands._git_ssh_env_prefix("/home/u/.ssh/id_ed25519")
@@ -2379,9 +2428,13 @@ class TestGitopsSshKey:
         prefix = direct_commands._git_ssh_env_prefix("/tmp/my key")
         assert "'/tmp/my key'" in prefix
 
-    def test_status_script_omits_prefix_without_key(self):
+    def test_status_script_sets_ssh_env_without_key(self):
+        # Without --ssh-key the fetch still runs under the host-key convention
+        # (accept-new) with a .gitops-deploy-key fallback, so it authenticates
+        # wherever push does (#1161).
         script = direct_commands._gitops_status_script("/srv/mysite")
-        assert "GIT_SSH_COMMAND" not in script
+        assert "GIT_SSH_COMMAND" in script
+        assert ".gitops-deploy-key" in script
         assert "git fetch" in script
 
     def test_status_script_includes_prefix_with_key(self):
@@ -2420,7 +2473,7 @@ class TestDirectCommandRegistry:
             + "abc1234\n" + d + "\n"
             + "\n" + d + "\n"
             + "\n" + d + "\n"
-            + "0\t0\n"
+            + "FETCH:ok\n0\t0\n"
         )
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", {
@@ -2446,7 +2499,7 @@ class TestGitopsArgocdStatus:
             raise OSError("kubectl not found")
         monkeypatch.setattr(subprocess, "run", fake_run)
         result = direct_commands._gitops_argocd_status("mysite")
-        assert result == ("Not registered", "N/A", "never", "unknown")
+        assert result == ("Not registered", "N/A", "never", "unknown", None)
 
     def test_no_application_returns_not_registered(self, monkeypatch):
         monkeypatch.setattr(
@@ -2457,7 +2510,7 @@ class TestGitopsArgocdStatus:
             })(),
         )
         result = direct_commands._gitops_argocd_status("mysite")
-        assert result == ("Not registered", "N/A", "never", "unknown")
+        assert result == ("Not registered", "N/A", "never", "unknown", None)
 
     def test_parses_synced_application(self, monkeypatch):
         app = {
@@ -2473,11 +2526,12 @@ class TestGitopsArgocdStatus:
                 "returncode": 0, "stdout": json.dumps(app),
             })(),
         )
-        sync, health, last, rev = direct_commands._gitops_argocd_status("mysite")
+        sync, health, last, rev, hint = direct_commands._gitops_argocd_status("mysite")
         assert sync == "Synced"
         assert health == "Healthy"
         assert last == "2026-04-23T10:00:00Z"
         assert rev == "abcdef1"  # truncated to 7 chars
+        assert hint is None
 
     def test_malformed_json_returns_unknown(self, monkeypatch):
         monkeypatch.setattr(
@@ -2487,7 +2541,7 @@ class TestGitopsArgocdStatus:
             })(),
         )
         result = direct_commands._gitops_argocd_status("mysite")
-        assert result == ("Unknown", "Unknown", "never", "unknown")
+        assert result == ("Unknown", "Unknown", "never", "unknown", None)
 
     def test_remote_host_queries_over_ssh(self, monkeypatch):
         app = {
@@ -2509,7 +2563,7 @@ class TestGitopsArgocdStatus:
 
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh)
         monkeypatch.setattr(subprocess, "run", fail_run)
-        sync, health, last, rev = direct_commands._gitops_argocd_status(
+        sync, health, last, rev, _ = direct_commands._gitops_argocd_status(
             "mysite", "admin@remote",
         )
         assert sync == "Synced"
@@ -2529,18 +2583,64 @@ class TestGitopsArgocdStatus:
 
         monkeypatch.setattr(subprocess, "run", fake_run)
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fail_ssh)
-        sync, _, _, _ = direct_commands._gitops_argocd_status("mysite", "localhost")
+        sync, _, _, _, _ = direct_commands._gitops_argocd_status("mysite", "localhost")
         assert sync == "Synced"
+
+    def test_sops_decrypt_error_returns_hint(self, monkeypatch):
+        app = {
+            "status": {
+                "sync": {"status": "Unknown", "revision": "abc"},
+                "health": {"status": "Unknown"},
+                "conditions": [
+                    {"type": "ComparisonError",
+                     "message": "Failed to load target state: failed to "
+                                "generate manifest: sops: no identity matched "
+                                "any of the recipients"},
+                ],
+            }
+        }
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": json.dumps(app),
+            })(),
+        )
+        sync, _, _, _, hint = direct_commands._gitops_argocd_status("mysite")
+        assert sync == "Unknown"
+        assert hint is not None
+        assert "sops-age" in hint
+
+    def test_non_sops_error_returns_no_hint(self, monkeypatch):
+        app = {
+            "status": {
+                "sync": {"status": "OutOfSync", "revision": "abc"},
+                "health": {"status": "Degraded"},
+                "conditions": [
+                    {"type": "ComparisonError",
+                     "message": "Failed to load target state: connection "
+                                "refused"},
+                ],
+            }
+        }
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": json.dumps(app),
+            })(),
+        )
+        _, _, _, _, hint = direct_commands._gitops_argocd_status("mysite")
+        assert hint is None
 
 
 class TestParseGitopsStatusK8s:
     def _make_output(self, hostname="myhost", commit="abc1234", revcount="0\t0",
-                     staged="", unstaged="", wikis=None, template=None,
-                     untracked=None):
+                     fetch="ok", staged="", unstaged="", wikis=None,
+                     template=None, untracked=None):
         d = direct_commands._SENTINEL
         # Parts: hostname (0), hosts.yaml (1), commit (2), applied (3),
-        # staged (4), unstaged (5), revcount (6), then optionally
+        # staged (4), unstaged (5), fetch-status + rev-list (6), then optionally
         # wikis (7), template (8), git-status porcelain (9).
+        remote = "FETCH:%s\n%s" % (fetch, revcount)
         out = (
             hostname + "\n" + d + "\n"
             + "\n" + d + "\n"
@@ -2548,7 +2648,7 @@ class TestParseGitopsStatusK8s:
             + "\n" + d + "\n"
             + staged + "\n" + d + "\n"
             + unstaged + "\n" + d + "\n"
-            + revcount + "\n"
+            + remote + "\n"
         )
         if wikis is not None or template is not None or untracked is not None:
             out += (
@@ -2592,6 +2692,14 @@ class TestParseGitopsStatusK8s:
         assert "Ahead of remote:  3" in result
         assert "Behind remote:    2" in result
 
+    def test_fetch_failed_shows_unknown(self):
+        # A failed fetch must not print "Ahead/Behind: 0" as if in sync.
+        out = self._make_output(fetch="fail", revcount="0\t0")
+        argocd = ("Synced", "Healthy", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Remote status:    unknown" in result
+        assert "Ahead of remote:" not in result
+
     def test_untracked_files_surfaced(self):
         # A K8s instance with an uncaptured file (e.g. wikis.yaml.template
         # backfilled by an upgrade) must flag it, not just report Ahead: 0.
@@ -2623,6 +2731,22 @@ class TestParseGitopsStatusK8s:
         assert "Untracked files" not in result
         assert "Uncaptured config/wikis.yaml edits" not in result
         assert "Argo CD:" in result
+
+    def test_sops_hint_surfaced(self):
+        out = self._make_output()
+        argocd = ("Unknown", "Unknown", "never", "unknown",
+                  "Argo CD reported a SOPS/age decryption error. Check the "
+                  "sops-age Secret.")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "SOPS/age decryption error" in result
+        assert "sops-age" in result
+
+    def test_four_tuple_argocd_still_supported(self):
+        # Back-compat: a 4-tuple (no hint slot) must not raise.
+        out = self._make_output()
+        argocd = ("Synced", "Healthy", "never", "abcdef1")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Sync status:    Synced" in result
 
 
 class TestCmdGitopsStatusK8s:

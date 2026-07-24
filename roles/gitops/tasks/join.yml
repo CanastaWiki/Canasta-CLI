@@ -176,6 +176,28 @@
     cmd: "mv {{ _join_tmpdir.path }}/.git {{ instance_path }}/.git"
   changed_when: true
 
+# When joining a host that was populated by a backup/restore move, the working
+# tree carries each submodule's .git gitlink file but not the .git/modules
+# backing (the snapshot never captures the top-level .git). Every git op below —
+# starting with the diff — would then abort on the dangling gitlink. Restore
+# .gitmodules, drop the stale submodule working trees, and re-clone them first.
+- name: Restore .gitmodules from the cloned repo
+  ansible.builtin.command:
+    cmd: "git checkout HEAD -- .gitmodules"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  failed_when: false  # repo may have no submodules
+
+- name: Heal dangling submodule gitlinks left by a move
+  ansible.builtin.include_tasks: _heal_dangling_submodules.yml
+
+- name: Re-clone healed submodules
+  ansible.builtin.command:
+    cmd: "git submodule update --init --recursive"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  ignore_errors: true  # OK if no submodules configured
+
 # Joining overlays the repo's tracked files onto a working tree that
 # already holds this host's instance files. A blind `git checkout HEAD
 # -- .` rewrites *every* tracked path, so it unlinks files under config/
@@ -379,9 +401,16 @@
   ignore_errors: true  # OK if no submodules configured
 
 # --- Step 11: Commit and push ---
-- name: Stage all changes
+# Stage only the join's own artifacts — the host registration and this host's
+# vars. A blind `git add -A` also sweeps in the fresh instance's untracked
+# create-time default settings (e.g. config/settings/global/*.php that this
+# repo intentionally deleted) and pushes them back into the shared repo. All
+# other tracked files were already reconciled to HEAD by the checkout above, so
+# there is nothing else to stage. (config/wikis.yaml, .env, Caddyfile and
+# .gitops-host are gitignored and never committed.)
+- name: Stage the host registration and this host's vars
   ansible.builtin.command:
-    cmd: "git add -A"
+    cmd: "git add -- hosts/hosts.yaml hosts/{{ host_name }}/vars.yaml"
     chdir: "{{ instance_path }}"
   changed_when: true
 

@@ -1,0 +1,52 @@
+---
+# Guard: never commit a git-crypt path as plaintext.
+#
+# git-crypt's clean/smudge filters and key live in .git and are not part of a
+# clone, so a checkout obtained by clone/reset/restore without `git-crypt
+# unlock` has no clean filter: `git add` stages the .gitattributes-encrypted
+# files (hosts/**/vars.yaml, hosts/hosts.yaml) as cleartext, and a push would
+# leak them into remote history. Check the actually-staged blobs and stop
+# before the commit rather than trust that the filter ran.
+#
+# Requires: instance_path.
+
+# For each staged file whose git-crypt attribute is set, emit its path when the
+# staged blob is missing the git-crypt magic header (\0GITCRYPT\0). Deletions
+# are skipped (no index blob to inspect).
+- name: Detect staged git-crypt files stored as plaintext
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      git diff --cached --name-only --diff-filter=ACMRT -z \
+        | while IFS= read -r -d '' f; do
+            attr="$(git check-attr filter -- "$f" 2>/dev/null | sed 's/.*: //')"
+            [ "$attr" = "git-crypt" ] || continue
+            magic="$(git cat-file -p ":$f" 2>/dev/null | head -c 10 \
+                     | od -An -tx1 | tr -d ' \n')"
+            [ "$magic" = "00474954435259505400" ] || printf '%s\n' "$f"
+          done
+  args:
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+  register: _gitcrypt_plaintext
+  changed_when: false
+
+- name: Refuse to commit unencrypted git-crypt files
+  ansible.builtin.fail:
+    msg: |-
+      Refusing to commit: git-crypt is not active in this checkout, so the
+      file(s) below — which .gitattributes marks as encrypted — would be
+      committed and pushed in CLEARTEXT:
+      {% for f in _gitcrypt_plaintext.stdout_lines %}
+        - {{ f }}
+      {% endfor %}
+      This happens when the repo was cloned, reset, or restored without running
+      `git-crypt unlock` (the encrypt/decrypt filters and key live in .git and
+      are not part of a clone). Unlock with the instance's git-crypt key, then
+      retry the push:
+
+        git-crypt unlock /path/to/gitops.key
+
+      Verify with: head -c 20 hosts/hosts.yaml | od -An -c
+      (it should read as plaintext YAML, not the GITCRYPT header).
+  when: _gitcrypt_plaintext.stdout | trim | length > 0

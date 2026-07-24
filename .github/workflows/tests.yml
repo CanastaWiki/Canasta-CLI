@@ -119,7 +119,17 @@ jobs:
     name: "Integration: Features"
     if: github.event_name != 'pull_request'  # See #67
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
+    # Two parallel legs so the suite doesn't approach the step timeout and the
+    # whole workflow's long pole is ~halved. Legs are balanced by measured
+    # per-test runtime; keep the two backup tests together on one leg. The job
+    # name is static (no matrix expression) so GitHub renders the leg suffix
+    # correctly even when the job is skipped on pull_request events; the step
+    # below maps each leg label to its test set.
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: ["config & farms", "backup & ops"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -143,12 +153,17 @@ jobs:
           done
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
-      - name: Run feature tests
-        run: >-
-          .venv/bin/python tests/integration/run_tests.py
-          extension-skin wiki-farm config-side-effects backup backup-advanced
-          sitemap maintenance
-        timeout-minutes: 30
+      - name: Run feature tests (${{ matrix.leg }})
+        env:
+          LEG: ${{ matrix.leg }}
+        run: |
+          case "$LEG" in
+            "config & farms") tests="extension-skin wiki-farm config-side-effects" ;;
+            "backup & ops")   tests="backup backup-advanced sitemap maintenance" ;;
+            *) echo "unknown feature leg: $LEG" >&2; exit 1 ;;
+          esac
+          .venv/bin/python tests/integration/run_tests.py $tests
+        timeout-minutes: 20
 
   integration-gitops:
     name: "Integration: GitOps"

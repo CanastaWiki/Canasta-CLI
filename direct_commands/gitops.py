@@ -12,20 +12,29 @@ from ._helpers import register
 
 
 def _git_ssh_env_prefix(ssh_key):
-    """Shell `export GIT_SSH_COMMAND=...; ` prefix for a given SSH key.
+    """Shell `export GIT_SSH_COMMAND=...; ` prefix that authenticates read-side
+    git operations (fetch/ls-remote) the same way push/pull do.
 
-    Mirrors the Ansible gitops_git_env convention (accept-new host keys,
-    explicit known_hosts). Returns an empty string when no key is given,
-    leaving git's ambient SSH config (agent forwarding / deploy key)
-    untouched.
+    Always applies the Ansible gitops_git_env host-key convention (accept-new,
+    explicit known_hosts) — even without an explicit key — so a status `git
+    fetch` doesn't fail host-key verification on a host that has never talked
+    to the forge, which push (running under gitops_git_env) survives.
+
+    Key precedence mirrors the Ansible flows: an explicit --ssh-key, else the
+    instance's staged .gitops-deploy-key (Kubernetes), else ambient ssh (the
+    operator's forwarded agent on Compose). The .gitops-deploy-key fallback is
+    a relative path, so callers must have cd'd into the instance path first.
     """
-    if not ssh_key:
-        return ""
+    opts = ("-o StrictHostKeyChecking=accept-new "
+            "-o UserKnownHostsFile=~/.ssh/known_hosts")
+    if ssh_key:
+        return ('export GIT_SSH_COMMAND="ssh -i %s %s"; '
+                % (_helpers._shell_quote(ssh_key), opts))
     return (
-        'export GIT_SSH_COMMAND="ssh -i %s '
-        '-o StrictHostKeyChecking=accept-new '
-        '-o UserKnownHostsFile=~/.ssh/known_hosts"; '
-        % _helpers._shell_quote(ssh_key)
+        'if [ -f .gitops-deploy-key ]; then '
+        'export GIT_SSH_COMMAND="ssh -i .gitops-deploy-key %(o)s"; '
+        'else export GIT_SSH_COMMAND="ssh %(o)s"; fi; '
+        % {"o": opts}
     )
 
 
@@ -48,8 +57,11 @@ def _gitops_status_script(path, ssh_key=None):
         "echo '%(d)s'; "
         "git diff --name-status 2>/dev/null; "
         "echo '%(d)s'; "
-        "git fetch 2>/dev/null; "
-        "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo '0\t0'; "
+        # Report fetch and rev-list outcomes distinctly instead of collapsing
+        # any failure into '0\t0' — a failed fetch or an unresolved @{upstream}
+        # must not read as "in sync". The parser keys on these markers.
+        "git fetch 2>/dev/null && echo 'FETCH:ok' || echo 'FETCH:fail'; "
+        "git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo 'REVLIST:fail'; "
         "echo '%(d)s'; "
         "cat config/wikis.yaml 2>/dev/null; "
         "echo '%(d)s'; "
@@ -205,6 +217,41 @@ def _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift):
     return lines
 
 
+def _parse_remote_sync(section):
+    """Parse the fetch-status + rev-list section into (ahead, behind, state).
+
+    state is one of:
+      'ok'           - fetch succeeded and @{upstream} resolved; ahead/behind
+                       are meaningful.
+      'fetch_failed' - `git fetch` did not reach the remote; any ahead/behind
+                       would be against a stale ref, so it is not reported.
+      'no_upstream'  - fetch was fine but @{upstream} does not resolve (no
+                       tracking ref / detached HEAD).
+    ahead/behind are 0 unless state == 'ok'.
+    """
+    fetch_ok = False
+    revline = None
+    for ln in (section or "").split("\n"):
+        s = ln.strip()
+        if not s:
+            continue
+        if s == "FETCH:ok":
+            fetch_ok = True
+        elif s == "FETCH:fail":
+            fetch_ok = False
+        else:
+            revline = s
+    if not fetch_ok:
+        return 0, 0, "fetch_failed"
+    if revline is None or revline == "REVLIST:fail":
+        return 0, 0, "no_upstream"
+    try:
+        fields = revline.split("\t")
+        return int(fields[0]), int(fields[1]), "ok"
+    except (ValueError, IndexError):
+        return 0, 0, "no_upstream"
+
+
 def _parse_gitops_status(stdout, instance_id):
     """Parse the batched gitops status output into a formatted string."""
     parts = stdout.split(_helpers._SENTINEL + "\n")
@@ -227,16 +274,11 @@ def _parse_gitops_status(stdout, instance_id):
 
     commit = parts[2].strip() if len(parts) > 2 else "none"
     applied = parts[3].strip() if len(parts) > 3 else "none"
-    revcount_raw = parts[6].strip() if len(parts) > 6 else "0\t0"
 
     staged, unstaged, untracked, wikis_drift = _parse_working_tree_changes(parts)
 
-    try:
-        revcount_parts = revcount_raw.split("\t")
-        ahead = int(revcount_parts[0])
-        behind = int(revcount_parts[1]) if len(revcount_parts) > 1 else 0
-    except (ValueError, IndexError):
-        ahead, behind = 0, 0
+    ahead, behind, remote_state = _parse_remote_sync(
+        parts[6] if len(parts) > 6 else "")
 
     # No .gitops-host marker and no git repository means the instance is simply
     # not under GitOps management. Reporting "No changes / Up to date with
@@ -270,7 +312,12 @@ def _parse_gitops_status(stdout, instance_id):
         lines.append("No changes.")
         lines.append("")
 
-    if ahead > 0:
+    if remote_state == "fetch_failed":
+        lines.append("Remote status unknown (could not fetch from the remote — "
+                     "check the deploy key / network).")
+    elif remote_state == "no_upstream":
+        lines.append("Remote status unknown (no upstream tracking configured).")
+    elif ahead > 0:
         lines.append("Ahead of remote by %d commit(s)." % ahead)
     elif behind > 0:
         lines.append("Behind remote by %d commit(s)." % behind)
@@ -280,13 +327,49 @@ def _parse_gitops_status(stdout, instance_id):
     return "\n".join(lines)
 
 
+# Argo condition / operation messages that indicate the repo-server CMP could
+# not SOPS-decrypt Secrets (operator age key missing or not matching
+# .sops.yaml). Lowercased substrings; 'age' alone is too broad to match on.
+_SOPS_DECRYPT_MARKERS = (
+    "sops",
+    "no identity matched",
+    "failed to decrypt",
+    "cannot decrypt",
+)
+
+
+def _sops_decrypt_hint(status):
+    """Advisory string when Argo reports a SOPS/age decryption failure, else None.
+
+    Scans the Application's conditions and last operation message for decrypt
+    markers so 'gitops status' can point at the operator age key instead of
+    showing a bare OutOfSync.
+    """
+    conditions = status.get("conditions") or []
+    messages = [c.get("message", "") for c in conditions if isinstance(c, dict)]
+    op = status.get("operationState") or {}
+    messages.append(op.get("message") or "")
+    blob = " ".join(messages).lower()
+    if any(m in blob for m in _SOPS_DECRYPT_MARKERS):
+        return (
+            "Argo CD reported a SOPS/age decryption error. The operator age "
+            "key (the 'sops-age' Secret in the argocd namespace) may be missing "
+            "or may not match this repo's .sops.yaml recipient. Re-provision it "
+            "from the controller key, or re-run 'canasta gitops join --key "
+            "<path>' with the repo's operator key."
+        )
+    return None
+
+
 def _gitops_argocd_status(instance_id, host="localhost"):
     """Query Argo CD Application for this instance; return parsed status.
 
-    Returns a tuple (sync_status, health, last_sync, revision). Falls
-    back to 'Not registered' / 'N/A' sentinels when Argo CD isn't
-    installed or no Application exists — matches the Ansible path's
-    behavior for K8s instances without Argo CD.
+    Returns a tuple (sync_status, health, last_sync, revision, sops_hint).
+    sops_hint is a short advisory when Argo reports a SOPS/age decryption
+    failure (missing/mismatched operator key), else None. Falls back to
+    'Not registered' / 'N/A' sentinels when Argo CD isn't installed or no
+    Application exists — matches the Ansible path's behavior for K8s instances
+    without Argo CD.
 
     For remote hosts, SSH and run kubectl on the host — its kubeconfig
     points at the cluster it's part of. Running kubectl on the laptop
@@ -302,7 +385,7 @@ def _gitops_argocd_status(instance_id, host="localhost"):
             )
             rc, stdout = result.returncode, result.stdout
         except (subprocess.TimeoutExpired, OSError):
-            return ("Not registered", "N/A", "never", "unknown")
+            return ("Not registered", "N/A", "never", "unknown", None)
     else:
         rc, stdout = _helpers._ssh_run(
             host,
@@ -310,11 +393,11 @@ def _gitops_argocd_status(instance_id, host="localhost"):
             % instance_id,
         )
     if rc != 0:
-        return ("Not registered", "N/A", "never", "unknown")
+        return ("Not registered", "N/A", "never", "unknown", None)
     try:
         app = json.loads(stdout)
     except ValueError:
-        return ("Unknown", "Unknown", "never", "unknown")
+        return ("Unknown", "Unknown", "never", "unknown", None)
     status = app.get("status") or {}
     sync = status.get("sync") or {}
     health = status.get("health") or {}
@@ -325,25 +408,22 @@ def _gitops_argocd_status(instance_id, host="localhost"):
         health.get("status") or "Unknown",
         op.get("finishedAt") or "never",
         revision[:7],
+        _sops_decrypt_hint(status),
     )
 
 
 def _parse_gitops_status_k8s(stdout, instance_id, argocd):
-    """Format K8s gitops status. Matches roles/gitops/tasks/status_kubernetes.yml."""
+    """Format K8s gitops status output (gitops status is direct-only)."""
     parts = stdout.split(_helpers._SENTINEL + "\n")
     hostname = parts[0].strip() if len(parts) > 0 else "unknown"
     if hostname == "MISSING":
         hostname = "unknown"
     commit = parts[2].strip() if len(parts) > 2 else "none"
-    revcount_raw = parts[6].strip() if len(parts) > 6 else "0\t0"
-    try:
-        revcount_parts = revcount_raw.split("\t")
-        ahead = int(revcount_parts[0])
-        behind = int(revcount_parts[1]) if len(revcount_parts) > 1 else 0
-    except (ValueError, IndexError):
-        ahead, behind = 0, 0
+    ahead, behind, remote_state = _parse_remote_sync(
+        parts[6] if len(parts) > 6 else "")
 
-    sync_status, health, last_sync, revision = argocd
+    sync_status, health, last_sync, revision = argocd[:4]
+    sops_hint = argocd[4] if len(argocd) > 4 else None
 
     # Uncommitted/untracked working-tree changes and uncaptured config/wikis.yaml
     # edits apply to K8s gitops too (e.g. an upgrade backfilling
@@ -354,10 +434,16 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
         "Host:             %s" % hostname,
         "Canasta ID:       %s" % instance_id,
         "Current commit:   %s" % commit,
-        "Ahead of remote:  %d" % ahead,
-        "Behind remote:    %d" % behind,
-        "",
     ]
+    if remote_state == "ok":
+        lines.append("Ahead of remote:  %d" % ahead)
+        lines.append("Behind remote:    %d" % behind)
+    else:
+        reason = ("could not fetch from the remote"
+                  if remote_state == "fetch_failed"
+                  else "no upstream tracking configured")
+        lines.append("Remote status:    unknown (%s)" % reason)
+    lines.append("")
     lines.extend(
         _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift)
     )
@@ -371,7 +457,37 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     if sync_status == "OutOfSync":
         lines.append("")
         lines.append("Note: Run 'canasta gitops sync' to apply pending changes immediately.")
+    if sops_hint:
+        lines.append("")
+        lines.append("Note: " + sops_hint)
     return "\n".join(lines)
+
+
+def _gitops_gitcrypt_locked(path, host, ssh_key=None):
+    """True when the gitops checkout's git-crypt files are still ciphertext.
+
+    hosts/hosts.yaml is git-crypt encrypted; a checkout that was never
+    unlocked (cloned/reset/restored without `git-crypt unlock`) has it on disk
+    as ciphertext, beginning with the git-crypt magic header. Reading or
+    YAML-parsing it then crashes on the non-UTF-8 bytes, so callers bail out
+    with an actionable message first. Returns False when the file is absent or
+    already decrypted (including non-git-crypt instances), so it is safe to
+    call unconditionally.
+    """
+    magic = b"\x00GITCRYPT\x00"
+    target = "%s/hosts/hosts.yaml" % path.rstrip("/")
+    if _helpers._is_localhost(host):
+        try:
+            with open(target, "rb") as fh:
+                return fh.read(len(magic)) == magic
+        except OSError:
+            return False
+    rc, out = _helpers._ssh_run(
+        host,
+        "head -c 10 %s | od -An -tx1 | tr -d ' \\n'"
+        % _helpers._shell_quote(target),
+    )
+    return rc == 0 and out.strip() == "00474954435259505400"
 
 
 @register("gitops_status")
@@ -380,6 +496,20 @@ def cmd_gitops_status(args):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     orchestrator = inst.get("orchestrator", "compose")
+
+    # A locked git-crypt checkout has hosts/hosts.yaml on disk as ciphertext;
+    # the status script cats it, and decoding those bytes would crash. Report
+    # the lock clearly instead. (Compose-only: K8s gitops does not git-crypt.)
+    if orchestrator not in ("kubernetes", "k8s") and _gitops_gitcrypt_locked(
+        path, host, getattr(args, "ssh_key", None)
+    ):
+        print(
+            "git-crypt is locked in this checkout: the encrypted host files "
+            "(hosts/**) are still ciphertext, so gitops cannot read them.\n"
+            "Run 'git-crypt unlock <key>' in %s and retry." % path,
+            file=sys.stderr,
+        )
+        return 1
 
     script = _gitops_status_script(path, ssh_key=getattr(args, "ssh_key", None))
 
