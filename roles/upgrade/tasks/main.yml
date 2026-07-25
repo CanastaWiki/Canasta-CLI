@@ -23,6 +23,16 @@
     - name: End upgrade for missing instance
       ansible.builtin.meta: end_role
 
+# Record whether the instance is up before anything runs, so the restart step
+# never starts an instance the operator had stopped. Config and image refreshes
+# still land on disk; they apply on the next start.
+- name: Check pre-upgrade running state
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_running.yml"
+
+- name: Record pre-upgrade running state
+  ansible.builtin.set_fact:
+    _was_running: "{{ _container_running | default(false) | bool }}"
+
 # --- Migrations ---
 - name: Report checking migrations
   ansible.builtin.debug:
@@ -166,7 +176,9 @@
          or (_upgrade_inst.instance.buildFrom | default('') != '') }}
 
 - name: Restart containers
-  when: _restart_needed | bool
+  when:
+    - _restart_needed | bool
+    - _was_running | bool
   block:
     - name: Report restarting
       ansible.builtin.debug:
@@ -195,6 +207,17 @@
     - name: Report instance upgraded
       ansible.builtin.debug:
         msg: "Canasta upgraded successfully!"
+
+# A stopped instance keeps its refreshed config/image on disk but is left
+# stopped, so upgrade never starts something the operator had brought down.
+- name: Report config refreshed on a stopped instance
+  ansible.builtin.debug:
+    msg: >-
+      Config refreshed. Instance '{{ instance_id }}' was stopped, so it was
+      left stopped — the changes apply the next time it starts.
+  when:
+    - _restart_needed | bool
+    - not (_was_running | bool)
 
 - name: Report already up to date
   ansible.builtin.debug:
