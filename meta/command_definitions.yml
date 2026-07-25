@@ -1350,11 +1350,12 @@ commands:
       `REL1_43`) rather than a development branch like `master`, which is
       the common cause of version-mismatch regressions.
       Only user extensions (vendored as submodules) can be pinned. A
-      bundled extension's version is fixed by the Canasta image, so this
-      refuses one with a clear message. Pass `--run-update` to apply any
-      database schema changes for the new version immediately; otherwise
-      run `canasta maintenance update` afterward if the version touches
-      the schema.
+      bundled extension has no per-instance submodule, so this refuses it —
+      to use a different version, add it to your extensions/ directory,
+      where a user copy overrides the bundled one. Pass `--run-update` to
+      apply any database schema changes for the new version immediately;
+      otherwise run `canasta maintenance update` afterward if the version
+      touches the schema.
     examples:
       - "canasta extension set-version UserPageEditProtection --ref REL1_43"
     playbook: extension_set_version.yml

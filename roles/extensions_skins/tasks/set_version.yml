@@ -56,14 +56,14 @@
           ansible.builtin.set_fact:
             _ext_bundled: false
 
-    - name: Fail — a bundled extension cannot be version-pinned per instance
+    - name: Fail — a bundled extension has no per-instance submodule to pin
       ansible.builtin.fail:
         msg: >-
-          '{{ name }}' is a bundled Canasta extension (shipped inside the image
-          at /var/www/mediawiki/w/extensions), not a per-instance user
-          extension. Its version is fixed by the Canasta image and can't be
-          pinned here — build/use a custom Canasta image, or vendor it as a
-          user extension, to change its version.
+          '{{ name }}' is a bundled Canasta extension (shipped in the image),
+          not a per-instance user-extension submodule, so there is no submodule
+          to pin here. To use a different version, add that version to this
+          instance's extensions/ directory — a user copy there overrides the
+          bundled one — and manage its version from there.
       when: _ext_bundled | bool
 
     - name: Fail — not a user-extension submodule
