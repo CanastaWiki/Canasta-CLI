@@ -387,6 +387,13 @@
     name: gitops
     tasks_from: render_compose.yml
 
+# env.template carries no COMPOSE_PROFILES literal — the reconcile materializes
+# it from the feature flags and DB mode. Without it a joined .env has no
+# COMPOSE_PROFILES until the next start/reconcile. Mirrors pull_compose.yml.
+- name: Reconcile COMPOSE_PROFILES after render
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
+
 - name: Regenerate orchestrator config (Caddyfile)
   ansible.builtin.include_role:
     name: orchestrator
