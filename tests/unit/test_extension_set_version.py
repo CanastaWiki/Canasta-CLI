@@ -98,6 +98,18 @@ class TestExtensionSetVersion:
         assert any("update.php" in c for c in _exec_commands(_load(TASK))), (
             "--run-update must run update.php to apply schema changes")
 
+    def test_consults_extension_json_for_schema_updates(self):
+        cmds = [_cmd(t) for t in _walk(_load(TASK))]
+        assert any("LoadExtensionSchemaUpdates" in c for c in cmds), (
+            "--run-update must consult the new version's extension.json for "
+            "LoadExtensionSchemaUpdates to decide whether update.php is needed")
+
+    def test_can_skip_update_when_no_schema_change(self):
+        text = open(TASK).read()
+        assert "_ext_run_update" in text, (
+            "--run-update must be able to skip update.php when the pinned "
+            "version registers no schema updates")
+
 
 class TestCommandRegistered:
     def test_command_defined(self):

@@ -115,27 +115,63 @@
   register: _ext_new
   changed_when: false
 
-# Apply DB schema changes for the new version when asked. Runs update.php for
-# every wiki in the farm (the version change is instance-wide), mirroring
-# canasta maintenance update.
+# Apply DB schema changes for the new version when asked — but skip update.php
+# when the pinned version clearly needs no schema update, i.e. its extension.json
+# registers no LoadExtensionSchemaUpdates hook. If extension.json is absent (an
+# older PHP-registered extension) or does register the hook, run update.php
+# (idempotent) to be safe. Runs for every wiki in the farm (the version change
+# is instance-wide), mirroring canasta maintenance update.
 - name: Apply schema changes with update.php
   when: run_update | default(false) | bool
   block:
-    - name: Read wikis for update.php
-      canasta_wikis_yaml:
-        instance_path: "{{ instance_path }}"
-        state: read
-      register: _ext_wikis
+    - name: Stat the new version's extension.json
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/{{ _ext_path }}/extension.json"
+      register: _ext_json
+
+    - name: Check whether the new version registers schema updates
+      ansible.builtin.command:
+        cmd: >-
+          grep -q LoadExtensionSchemaUpdates
+          {{ (instance_path ~ '/' ~ _ext_path ~ '/extension.json') | quote }}
+      register: _ext_schema
+      changed_when: false
+      failed_when: false
+      when: _ext_json.stat.exists
+
+    # Skip only when we're confident: extension.json exists and doesn't
+    # register the schema-update hook (grep rc 1). Otherwise run update.php.
+    - name: Decide whether update.php is needed
+      ansible.builtin.set_fact:
+        _ext_run_update: >-
+          {{ (not _ext_json.stat.exists)
+             or ((_ext_schema.rc | default(0)) != 1) }}
 
     - name: Run update.php for each wiki
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-      vars:
-        exec_service: web
-        exec_command: "php maintenance/update.php --wiki={{ item.id | quote }}"
-        exec_long: true
-      loop: "{{ _ext_wikis.wikis | default([]) }}"
-      loop_control:
-        label: "{{ item.id }}"
+      when: _ext_run_update | bool
+      block:
+        - name: Read wikis for update.php
+          canasta_wikis_yaml:
+            instance_path: "{{ instance_path }}"
+            state: read
+          register: _ext_wikis
+
+        - name: Run update.php for each wiki
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+          vars:
+            exec_service: web
+            exec_command: "php maintenance/update.php --wiki={{ item.id | quote }}"
+            exec_long: true
+          loop: "{{ _ext_wikis.wikis | default([]) }}"
+          loop_control:
+            label: "{{ item.id }}"
+
+    - name: Report that update.php was skipped (no schema updates)
+      ansible.builtin.debug:
+        msg: >-
+          '{{ name }}' registers no schema updates in extension.json, so
+          update.php was skipped.
+      when: not (_ext_run_update | bool)
 
 - name: Report the version change
   ansible.builtin.debug:
