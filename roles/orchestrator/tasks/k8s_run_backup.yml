@@ -34,6 +34,16 @@
   ansible.builtin.set_fact:
     _restic_local_repo: "{{ _restic_repo is match('^/') }}"
 
+# restic runs as root (to read every backup source), so a local-path repo it
+# writes is root-owned and the operator can't remove it without sudo. Record
+# the repo's parent-dir owner (the user who created it) so the Job can chown
+# the repo back to them afterward.
+- name: Stat the local repo's parent directory for its owner
+  ansible.builtin.stat:
+    path: "{{ _restic_repo | dirname }}"
+  register: _restic_repo_parent
+  when: _restic_local_repo | bool
+
 # The backup snapshots the instance's on-disk config/ and .env from the
 # control-plane node via hostPath (parity with Compose, which stages the
 # host config dir), so every backup must land on the cp node where those
@@ -231,6 +241,24 @@
 - name: Apply backup-env Secret before the backup Job
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_apply_backup_env_secret.yml"
 
+- name: Build the restic container command
+  ansible.builtin.set_fact:
+    _restic_command: "restic --cache-dir /tmp/restic-cache {{ backup_args | join(' ') }}"
+
+# chown the local-path repo back to its parent-dir owner after restic runs, so
+# the operator (not root) owns it and can remove it without sudo. Runs for any
+# repo-touching op (init writes lock/config files too), tolerates a missing
+# chown, and preserves restic's exit code so a failure still surfaces.
+- name: Reclaim local-path repo ownership after the op
+  ansible.builtin.set_fact:
+    _restic_command: >-
+      {{ _restic_command }}; _rc=$?; chown -R
+      {{ _restic_repo_parent.stat.uid }}:{{ _restic_repo_parent.stat.gid }}
+      {{ _restic_repo | quote }} 2>/dev/null || true; exit "$_rc"
+  when:
+    - _restic_local_repo | bool
+    - _restic_repo_parent.stat.exists | default(false)
+
 - name: Create restic Job
   kubernetes.core.k8s:
     state: present
@@ -261,7 +289,7 @@
                 command:
                   - sh
                   - -c
-                  - "restic --cache-dir /tmp/restic-cache {{ backup_args | join(' ') }}"
+                  - "{{ _restic_command }}"
                 # canasta-<id>-backup-env carries RESTIC_*, AWS_*,
                 # B2_*, AZURE_*, GOOGLE_*, OS_*, ST_* — every cloud-
                 # backend credential restic might need (#497). Mirrors
