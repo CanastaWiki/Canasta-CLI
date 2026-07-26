@@ -9,3 +9,5 @@ collections:
   # which can hang indefinitely under podman/buildah.
   - name: kubernetes.core
     version: "6.5.0"
+  - name: ansible.posix
+    version: "2.2.2"

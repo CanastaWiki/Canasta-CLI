@@ -38,17 +38,22 @@ RUN curl -fsSL --retry 3 --retry-delay 5 \
 WORKDIR /opt/canasta-ansible
 COPY requirements.txt requirements.yml ./
 RUN pip install --only-binary :all: --no-cache-dir -r requirements.txt --root-user-action=ignore
-# Download kubernetes.core collection tarball directly (avoids ansible-galaxy
-# network hangs during build; consistent with curl pattern used for Docker,
-# kubectl, and Helm above). Uses galaxy.ansible.com/download URL
-# (the /api/v2 endpoint returned 404). Pinned version must match requirements.yml.
+# Download collections directly via curl (avoids ansible-galaxy network hangs
+# under podman/buildah; consistent with curl pattern used for Docker, kubectl,
+# and Helm above). Pinned versions must match requirements.yml.
 RUN K8S_CORE_VERSION="6.5.0" && \
+    ANSIBLE_POSIX_VERSION="2.2.2" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 120 \
          "https://galaxy.ansible.com/download/kubernetes-core-${K8S_CORE_VERSION}.tar.gz" \
          -o /tmp/kubernetes-core.tar.gz && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 120 \
+         "https://galaxy.ansible.com/download/ansible-posix-${ANSIBLE_POSIX_VERSION}.tar.gz" \
+         -o /tmp/ansible-posix.tar.gz && \
     ansible-galaxy collection install /tmp/kubernetes-core.tar.gz \
          -p /usr/share/ansible/collections --no-deps && \
-    rm -f /tmp/kubernetes-core.tar.gz
+    ansible-galaxy collection install /tmp/ansible-posix.tar.gz \
+         -p /usr/share/ansible/collections --no-deps && \
+    rm -f /tmp/kubernetes-core.tar.gz /tmp/ansible-posix.tar.gz
 
 COPY . .
 
