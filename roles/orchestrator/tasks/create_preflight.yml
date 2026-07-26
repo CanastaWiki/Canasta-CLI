@@ -245,12 +245,10 @@
         - _docker_storage_avail.stdout | default('') | trim | length > 0
         - (_docker_storage_avail.stdout | trim | int) < 20 * 1024 * 1024
 
-# Rootless Podman preflight: ensure unprivileged ports start at 80
+# Rootless container preflight: ensure unprivileged ports start at 80
 # so caddy can bind host port 80 without --privileged.
-- name: Probe rootless Podman port range
-  when:
-    - compose_command | default('docker compose') is search('podman')
-    - ansible_user_id != 'root'
+- name: Raise unprivileged port floor to 80 for rootless runtimes
+  when: ansible_user_id != 'root'
   become: yes
   block:
     - name: Read current unprivileged port start
