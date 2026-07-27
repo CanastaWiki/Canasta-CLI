@@ -37,6 +37,9 @@ RUN curl -fsSL --retry 3 --retry-delay 5 \
 # Copy application
 WORKDIR /opt/canasta-ansible
 COPY requirements.txt requirements.yml ./
+# --only-binary: never build from source — this image has no compiler,
+# and cryptography/cffi/rpds-py et al. would need one. Requires a glibc
+# base and a Python version all pinned wheels publish for.
 RUN pip install --only-binary :all: --no-cache-dir -r requirements.txt --root-user-action=ignore
 # Download collections directly via curl (avoids ansible-galaxy network hangs
 # under podman/buildah; consistent with curl pattern used for Docker, kubectl,
