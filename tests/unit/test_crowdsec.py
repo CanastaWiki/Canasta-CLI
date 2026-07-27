@@ -1200,6 +1200,15 @@ class TestCrowdsecResolveCscli:
         content = self._content()
         assert "{{ compose_command }} exec -T crowdsec" in content
 
+    def test_compose_argv_splits_the_compose_command(self):
+        # _cscli_argv is consumed by `command:` with argv:, which execs
+        # directly without a shell. compose_command defaults to the
+        # two-word "docker compose", so embedding it as a single list
+        # element would look for a binary of that literal name.
+        content = self._content()
+        assert "compose_command.split()" in content
+        assert "['{{ compose_command }}'," not in content
+
     def test_k8s_prefix_targets_the_sidecar_container(self):
         # kubectl exec into the caddy pod, selecting the crowdsec sidecar.
         content = self._content()
