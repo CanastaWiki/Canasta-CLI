@@ -190,39 +190,135 @@ class TestReadWikis:
 
 class TestBuildUrls:
     def test_url_with_https_protocol(self):
-        urls = direct_commands.wiki_check._build_urls("https://example-wiki.com")
+        urls = direct_commands._helpers._wiki_probe_urls("https://example-wiki.com")
         assert urls == ["https://example-wiki.com/w/api.php?action=query&meta=siteinfo&format=json"]
 
     def test_url_with_http_protocol(self):
-        urls = direct_commands.wiki_check._build_urls("http://example-wiki.com")
+        urls = direct_commands._helpers._wiki_probe_urls("http://example-wiki.com")
         assert urls == ["http://example-wiki.com/w/api.php?action=query&meta=siteinfo&format=json"]
 
     def test_url_without_protocol(self):
-        urls = direct_commands.wiki_check._build_urls("example-wiki.com")
+        urls = direct_commands._helpers._wiki_probe_urls("example-wiki.com")
         assert urls == [
             "https://example-wiki.com/w/api.php?action=query&meta=siteinfo&format=json",
             "http://example-wiki.com/w/api.php?action=query&meta=siteinfo&format=json"
         ]
 
     def test_url_without_protocol_with_path(self):
-        urls = direct_commands.wiki_check._build_urls("example-wiki.com/wiki")
+        urls = direct_commands._helpers._wiki_probe_urls("example-wiki.com/wiki")
         assert urls == [
             "https://example-wiki.com/wiki/w/api.php?action=query&meta=siteinfo&format=json",
             "http://example-wiki.com/wiki/w/api.php?action=query&meta=siteinfo&format=json"
         ]
 
     def test_url_without_protocol_with_port(self):
-        urls = direct_commands.wiki_check._build_urls("example-wiki.com:8080")
+        urls = direct_commands._helpers._wiki_probe_urls("example-wiki.com:8080")
         assert urls == [
             "https://example-wiki.com:8080/w/api.php?action=query&meta=siteinfo&format=json",
             "http://example-wiki.com:8080/w/api.php?action=query&meta=siteinfo&format=json"
         ]
 
 
+class TestProbeWiki:
+    """_probe_wiki's three-way verdict (shared by wiki-check and list)."""
+
+    def test_localhost_reachable(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands._helpers, "_probe_wiki_local",
+            lambda url, path: True,
+        )
+        assert direct_commands._helpers._probe_wiki(
+            "example-wiki.com", "localhost"
+        ) == direct_commands._helpers.WIKI_REACHABLE
+
+    def test_localhost_unreachable(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands._helpers, "_probe_wiki_local",
+            lambda url, path: False,
+        )
+        assert direct_commands._helpers._probe_wiki(
+            "example-wiki.com", "localhost"
+        ) == direct_commands._helpers.WIKI_UNREACHABLE
+
+    def test_empty_url_is_indeterminate(self):
+        assert direct_commands._helpers._probe_wiki(
+            "", "localhost"
+        ) == direct_commands._helpers.WIKI_INDETERMINATE
+
+    def test_ssh_transport_failure_is_indeterminate(self, monkeypatch):
+        # rc=255 is OpenSSH's own transport failure: the wiki was never
+        # reached, so it must not be reported as down.
+        monkeypatch.setattr(
+            direct_commands._helpers, "_ssh_run",
+            lambda host, cmd: (255, ""),
+        )
+        assert direct_commands._helpers._probe_wiki(
+            "example-wiki.com", "prod1"
+        ) == direct_commands._helpers.WIKI_INDETERMINATE
+
+    def test_remote_curl_failure_is_unreachable(self, monkeypatch):
+        # curl ran and failed on its own terms — a real answer.
+        monkeypatch.setattr(
+            direct_commands._helpers, "_ssh_run",
+            lambda host, cmd: (7, ""),
+        )
+        assert direct_commands._helpers._probe_wiki(
+            "example-wiki.com", "prod1"
+        ) == direct_commands._helpers.WIKI_UNREACHABLE
+
+    def test_remote_reachable(self, monkeypatch):
+        monkeypatch.setattr(
+            direct_commands._helpers, "_ssh_run",
+            lambda host, cmd: (0, '{"batchcomplete":""}'),
+        )
+        assert direct_commands._helpers._probe_wiki(
+            "example-wiki.com", "prod1"
+        ) == direct_commands._helpers.WIKI_REACHABLE
+
+    def test_readapidenied_counts_as_reachable(self):
+        body = '{"error":{"code":"readapidenied","info":"denied"}}'
+        assert direct_commands._helpers._is_mediawiki_response(body) is True
+
+
+class TestListCheckWikis:
+    def test_probes_only_running_instances(self, monkeypatch):
+        details = [
+            {"id": "up", "host": "localhost", "status": "RUNNING",
+             "wikis": [{"id": "main", "url": "up.example.com"}]},
+            {"id": "down", "host": "localhost", "status": "STOPPED",
+             "wikis": [{"id": "main", "url": "down.example.com"}]},
+        ]
+        instances = {"up": {"path": "/srv/up"}, "down": {"path": "/srv/down"}}
+
+        probed = []
+
+        def fake_probe(url, host, instance_path=""):
+            probed.append(url)
+            return direct_commands._helpers.WIKI_REACHABLE
+
+        monkeypatch.setattr(direct_commands._helpers, "_probe_wiki", fake_probe)
+        direct_commands.info._annotate_wiki_liveness(details, instances)
+
+        assert probed == ["up.example.com"]
+        assert details[0]["wikis"][0]["liveness"] == "reachable"
+        assert "liveness" not in details[1]["wikis"][0]
+
+    def test_table_shows_verdict(self, capsys):
+        direct_commands._helpers._print_table([{
+            "id": "mysite", "host": "localhost", "path": "/srv/mysite",
+            "orchestrator": "COMPOSE", "status": "RUNNING",
+            "wikis": [{
+                "id": "main", "url": "mysite.example.com/",
+                "liveness": direct_commands._helpers.WIKI_UNREACHABLE,
+            }],
+        }])
+        assert "NOT REACHABLE" in capsys.readouterr().out
+
+
 class TestCmdWikiCheckNullUrl:
     def test_null_url_reports_missing_not_crash(self, monkeypatch, capsys):
         # A present-but-null url must reach the missing-url guard, not crash on
-        # None.strip() before it. No _check_url call, so no network.
+        # None.strip() before it. No probe call, so no network.
         monkeypatch.setattr(
             direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", {"path": "/srv/mysite", "host": "localhost"}),
@@ -1104,6 +1200,72 @@ class TestCmdVersionInstanceModes:
         # comes from _read_instance_image's runtime query, which
         # is intentionally skipped for the fast default.
         assert "running:" not in out
+
+    def test_running_container_that_cannot_answer_is_unavailable(
+        self, tmp_path, monkeypatch
+    ):
+        """A failed version read on a running instance is not 'not running'.
+
+        The version file is written at startup, so a healthy instance can
+        still miss the read; reporting that as stopped contradicts what
+        `canasta list` says about the same instance.
+        """
+        inst = {"path": str(tmp_path), "host": "localhost"}
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_env_file",
+            lambda path, host: {"CANASTA_IMAGE": "canasta:3.6.3"},
+        )
+        monkeypatch.setattr(
+            direct_commands.info.subprocess, "run",
+            lambda *a, **k: type("R", (), {"returncode": 1, "stdout": ""})(),
+        )
+        monkeypatch.setattr(
+            direct_commands._helpers, "_check_running",
+            lambda *a, **k: True,
+        )
+        image, running = direct_commands.info._read_instance_image("site", inst)
+        assert image == "canasta:3.6.3"
+        assert running == "(unavailable)"
+
+    def test_stopped_instance_still_reports_not_running(
+        self, tmp_path, monkeypatch
+    ):
+        inst = {"path": str(tmp_path), "host": "localhost"}
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_env_file",
+            lambda path, host: {"CANASTA_IMAGE": "canasta:3.6.3"},
+        )
+        monkeypatch.setattr(
+            direct_commands.info.subprocess, "run",
+            lambda *a, **k: type("R", (), {"returncode": 1, "stdout": ""})(),
+        )
+        monkeypatch.setattr(
+            direct_commands._helpers, "_check_running",
+            lambda *a, **k: False,
+        )
+        _, running = direct_commands.info._read_instance_image("site", inst)
+        assert running == "(not running)"
+
+    def test_unreachable_host_is_not_reported_as_stopped(
+        self, tmp_path, monkeypatch
+    ):
+        """SSH rc 255 is a transport failure: the container was never asked."""
+        inst = {"path": "/srv/site", "host": "prod1"}
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_env_file",
+            lambda path, host: {"CANASTA_IMAGE": "canasta:3.6.3"},
+        )
+        monkeypatch.setattr(
+            direct_commands._helpers, "_ssh_run",
+            lambda host, cmd: (255, ""),
+        )
+
+        def fail(*a, **k):
+            raise AssertionError("must not ask the orchestrator over a dead link")
+
+        monkeypatch.setattr(direct_commands._helpers, "_check_running", fail)
+        _, running = direct_commands.info._read_instance_image("site", inst)
+        assert running == "(host unreachable)"
 
     def test_inside_instance_dir_shows_current_full(
         self, tmp_path, monkeypatch, capsys

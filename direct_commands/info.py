@@ -70,6 +70,39 @@ def _classify_for_cleanup(inst_id, inst):
     return "missing"
 
 
+def _annotate_wiki_liveness(details, instances):
+    """Record a liveness verdict on each wiki of every RUNNING instance.
+
+    Only RUNNING instances are probed: for anything else the orchestrator
+    has already given a definitive answer, and probing a stopped instance
+    just waits out connection timeouts.
+    """
+    targets = []
+    for detail in details:
+        if detail["status"] != "RUNNING":
+            continue
+        inst = instances.get(detail["id"], {})
+        for wiki in detail["wikis"]:
+            targets.append((wiki, detail["host"], inst.get("path", "")))
+
+    if not targets:
+        return
+
+    with ThreadPoolExecutor(max_workers=min(len(targets), 16)) as pool:
+        futures = {
+            pool.submit(
+                _helpers._probe_wiki, (wiki.get("url") or "").strip(), host, path
+            ): wiki
+            for wiki, host, path in targets
+        }
+        for future in as_completed(futures):
+            wiki = futures[future]
+            try:
+                wiki["liveness"] = future.result()
+            except Exception:
+                wiki["liveness"] = _helpers.WIKI_INDETERMINATE
+
+
 @register("list")
 def cmd_list(args):
     config_dir = _helpers._get_config_dir()
@@ -138,15 +171,35 @@ def cmd_list(args):
 
     details = _gather_all_instances(instances)
 
+    if getattr(args, "check_wikis", False):
+        _annotate_wiki_liveness(details, instances)
+
     _helpers._print_table(details)
     return 0
+
+def _describe_unread_version(inst_id, inst, path, orchestrator, host):
+    """Why the running version could not be read.
+
+    Asks the orchestrator the same question `canasta list` asks, so the
+    two commands cannot disagree about whether an instance is up. A
+    container that is running but did not answer is unavailable, not
+    stopped — the version file is written at startup, so a healthy
+    instance can still miss the read.
+    """
+    docker_host = inst.get("dockerHost")
+    if _helpers._check_running(inst_id, path, orchestrator, host, docker_host):
+        return "(unavailable)"
+    return "(not running)"
+
 
 def _read_instance_image(inst_id, inst):
     """Return 'CANASTA_IMAGE (running: X)' for a single instance entry.
 
-    'running' comes from /tmp/canasta-version inside the web container;
-    absent when the container isn't up or the command fails for any
-    reason. Never raises.
+    'running' comes from /tmp/canasta-version inside the web container.
+    When that read fails the orchestrator decides which of three answers
+    to give — the instance is down, it is up but the version could not be
+    read, or its host could not be reached — so a failed read is never
+    reported as a stopped instance. Never raises.
     """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
@@ -154,10 +207,9 @@ def _read_instance_image(inst_id, inst):
     image = env_vars.get("CANASTA_IMAGE", "(unset)")
 
     # Running Canasta version — line 2 of /tmp/canasta-version inside the web
-    # container/pod. Best effort; falls back silently to "(not running)".
-    # The probe depends on the orchestrator: Compose execs the web service, K8s
-    # execs the Running web pod (mirroring the dispatch in `canasta exec`).
-    running = "(not running)"
+    # container/pod. The probe depends on the orchestrator: Compose execs the
+    # web service, K8s execs the Running web pod (mirroring `canasta exec`).
+    running = None
     orchestrator = (inst.get("orchestrator") or "compose").lower()
     if orchestrator in ("kubernetes", "k8s"):
         ns = "canasta-%s" % inst_id
@@ -191,6 +243,13 @@ def _read_instance_image(inst_id, inst):
         rc, stdout = _helpers._ssh_run(host, probe_cmd)
         if rc == 0 and stdout.strip():
             running = stdout.strip()
+        elif rc == 255:
+            # OpenSSH's own transport failure — the container was never
+            # asked, so nothing is known about the instance.
+            return image, "(host unreachable)"
+
+    if running is None:
+        running = _describe_unread_version(inst_id, inst, path, orchestrator, host)
 
     return image, running
 

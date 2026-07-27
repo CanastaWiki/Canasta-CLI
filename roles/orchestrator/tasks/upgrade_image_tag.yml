@@ -69,6 +69,26 @@
         state: present
       when: _upgrade_k8s_gitops_stat.stat.exists | default(false)
 
+    # Leaving the edit unstaged blocks the next 'canasta gitops pull' (which
+    # refuses to run on a dirty tree) and hides the bump from 'canasta gitops
+    # push' (which only commits what is staged). Stage it, as the config role
+    # does for its own gitops edits.
+    - name: Stage the bumped image_tag
+      ansible.builtin.command:
+        cmd: >-
+          git add hosts/{{ _upgrade_k8s_host.content | b64decode | trim }}/vars.yaml
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      when: _upgrade_k8s_gitops_stat.stat.exists | default(false)
+
+    - name: Report the pending gitops push
+      ansible.builtin.debug:
+        msg: >-
+          Staged the new image tag in hosts/{{ _upgrade_k8s_host.content
+          | b64decode | trim }}/vars.yaml. Run 'canasta gitops push' to share
+          it with the other hosts.
+      when: _upgrade_k8s_gitops_stat.stat.exists | default(false)
+
 # --- Update Compose CANASTA_IMAGE tag ---
 # Bump the tag if it's the default ghcr.io image,
 # leave it alone if user set a custom/local-build image.
@@ -106,4 +126,23 @@
         regexp: "^CANASTA_IMAGE="
         line: "CANASTA_IMAGE={{ canasta_default_image }}"
         state: present
+      when: _upgrade_image_gitops_stat.stat.exists | default(false)
+
+    # Leaving the edit unstaged blocks the next 'canasta gitops pull' (which
+    # refuses to run on a dirty tree) and hides the bump from 'canasta gitops
+    # push' (which only commits what is staged). Stage it, as the config role
+    # does for its own env.template edits.
+    - name: Stage the bumped env.template
+      ansible.builtin.command:
+        cmd: "git add env.template"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      when: _upgrade_image_gitops_stat.stat.exists | default(false)
+
+    - name: Report the pending gitops push
+      ansible.builtin.debug:
+        msg: >-
+          Staged CANASTA_IMAGE={{ canasta_default_image }} in env.template.
+          Run 'canasta gitops push' to share the new image pin with the other
+          hosts.
       when: _upgrade_image_gitops_stat.stat.exists | default(false)

@@ -41,3 +41,7 @@ config/persistent/
 .gitops-applied
 .gitops-host
 .gitops-deploy-key
+
+# Host-local settings overrides — apply on this host only, never shared
+config/settings/global/*.local.php
+config/settings/wikis/*/*.local.php

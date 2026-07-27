@@ -76,6 +76,47 @@
                  }),
            }, recursive=True) }}
 
+# --- Per-host wiki identity ---
+# configData is carried verbatim from the shared values.template.yaml, which
+# `gitops push` rebuilds from whichever host pushed last. Two of its entries are
+# this host's identity, not shared config: wikis.yaml, which FarmConfigLoader
+# matches the incoming request host against, and the Caddyfile, whose site
+# blocks gate the request before MediaWiki ever sees it. Left shared, a host
+# serves another host's URL set — a blank 200 from Caddy on its own domain.
+# Both files live outside the repo (gitignored) and already describe this host,
+# so overlay them onto what the template supplied.
+- name: Stat this host's wiki identity files
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ item }}"
+  loop:
+    - config/wikis.yaml
+    - config/Caddyfile
+  loop_control:
+    label: "{{ item }}"
+  register: _render_identity
+
+- name: Read this host's wikis.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/wikis.yaml"
+  register: _render_local_wikis
+  when: _render_identity.results[0].stat.exists
+
+- name: Read this host's Caddyfile
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/Caddyfile"
+  register: _render_local_caddy
+  when: _render_identity.results[1].stat.exists
+
+- name: Overlay this host's wiki identity onto the rendered configData
+  ansible.builtin.set_fact:
+    _rendered_values: >-
+      {{ _rendered_values | combine({'configData': {
+           'web': ({'wikis.yaml': _render_local_wikis.content | b64decode}
+                   if _render_identity.results[0].stat.exists else {}),
+           'caddy': ({'Caddyfile': _render_local_caddy.content | b64decode}
+                     if _render_identity.results[1].stat.exists else {}),
+         }}, recursive=True) }}
+
 - name: Write rendered-values.yaml
   ansible.builtin.copy:
     content: "{{ _rendered_values | to_nice_yaml(indent=2) }}"

@@ -8,8 +8,11 @@ import json
 import os
 import re
 import shlex
+import ssl
 import subprocess
 import sys
+import urllib.parse
+import urllib.request
 
 import yaml
 
@@ -1034,6 +1037,138 @@ def _check_running_k8s(instance_id, host):
     return rc == 0 and stdout.strip() not in ("", "0")
 
 
+# --- wiki liveness probe (shared by wiki-check and list) ---
+#
+# The orchestrator checks above answer "is the workload up"; this one
+# answers "is the wiki actually serving MediaWiki", which is what a
+# reader experiences. A container can be up while MediaWiki 500s.
+
+WIKI_REACHABLE = "reachable"
+WIKI_UNREACHABLE = "unreachable"
+# The probe could not be run at all — nothing was learned about the wiki.
+WIKI_INDETERMINATE = "indeterminate"
+
+_WIKI_PROTOCOLS = ("https", "http")
+_WIKI_LOCAL_DOMAINS = {"localhost", "127.0.0.1"}
+_SITEINFO_QUERY = "/w/api.php?action=query&meta=siteinfo&format=json"
+
+
+def _wiki_probe_urls(wiki_url):
+    """Candidate siteinfo URLs for a wikis.yaml url, most likely first.
+
+    A url with no scheme is tried over https then http.
+    """
+    base = wiki_url.rstrip("/")
+    if base.startswith("http://") or base.startswith("https://"):
+        return [base + _SITEINFO_QUERY]
+
+    parsed = urllib.parse.urlsplit("http://" + base)
+    host = parsed.netloc
+    path = parsed.path.rstrip("/")
+    if path:
+        host = host + path
+
+    return ["%s://%s%s" % (p, host, _SITEINFO_QUERY) for p in _WIKI_PROTOCOLS]
+
+
+def _is_mediawiki_response(body):
+    """True if body is a MediaWiki API reply.
+
+    A wiki with a private read API answers `readapidenied`, which still
+    proves MediaWiki is serving.
+    """
+    if not body:
+        return False
+    try:
+        if isinstance(body, bytes):
+            body = body.decode("utf-8", errors="ignore")
+        data = json.loads(body)
+        if "query" in data or "batchcomplete" in data:
+            return True
+        if (
+            "error" in data
+            and isinstance(data["error"], dict)
+            and data["error"].get("code") == "readapidenied"
+        ):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _fetch_is_mediawiki(url, host_header, scheme):
+    req = urllib.request.Request(url)
+    if host_header:
+        req.add_header("Host", host_header)
+    context = ssl._create_unverified_context() if scheme == "https" else None
+    try:
+        with urllib.request.urlopen(req, timeout=15, context=context) as resp:
+            return _is_mediawiki_response(resp.read())
+    except Exception:
+        return False
+
+
+def _probe_wiki_local(url, instance_path):
+    """True if the wiki answers from this machine.
+
+    An instance published on a non-default port is reached through that
+    port on localhost, carrying the configured domain in the Host header
+    — the instance's own domain need not resolve here.
+    """
+    parsed = urllib.parse.urlsplit(url)
+    scheme = parsed.scheme
+    domain = parsed.netloc
+    url_path = parsed.path or "/"
+
+    # Already a localhost URL with an explicit port: use it as-is.
+    if domain.split(":")[0] in _WIKI_LOCAL_DOMAINS and ":" in domain:
+        return _fetch_is_mediawiki(url, None, scheme)
+
+    env = _read_env_file(instance_path, "localhost") if instance_path else {}
+    port = (
+        env.get("HTTPS_PORT", "") if scheme == "https" else env.get("HTTP_PORT", "")
+    )
+
+    if port:
+        query = "?%s" % parsed.query if parsed.query else ""
+        check_url = "%s://localhost:%s%s%s" % (scheme, port, url_path, query)
+    else:
+        check_url = url
+
+    return _fetch_is_mediawiki(check_url, domain, scheme)
+
+
+def _probe_wiki(wiki_url, host, instance_path=""):
+    """Liveness verdict for one wiki: does it answer the MediaWiki API?
+
+    Returns WIKI_REACHABLE, WIKI_UNREACHABLE or WIKI_INDETERMINATE.
+    INDETERMINATE covers an SSH transport failure reaching the instance's
+    host, where nothing was learned about the wiki — callers must not
+    report that as down.
+    """
+    if not (wiki_url or "").strip():
+        return WIKI_INDETERMINATE
+
+    if _is_localhost(host):
+        for url in _wiki_probe_urls(wiki_url):
+            if _probe_wiki_local(url, instance_path):
+                return WIKI_REACHABLE
+        return WIKI_UNREACHABLE
+
+    transport_failed = False
+    for url in _wiki_probe_urls(wiki_url):
+        rc, stdout = _ssh_run(host, "curl -sSLk " + _shell_quote(url))
+        # OpenSSH reserves 255 for its own transport failures; any other
+        # non-zero rc means curl ran and failed on its own terms.
+        if rc == 255:
+            transport_failed = True
+            continue
+        if rc == 0 and _is_mediawiki_response(stdout):
+            return WIKI_REACHABLE
+
+    return WIKI_INDETERMINATE if transport_failed else WIKI_UNREACHABLE
+
+
 _SENTINEL = "---CANASTA_DELIM---"
 
 
@@ -1135,6 +1270,13 @@ def _make_detail(inst_id, host, path, orchestrator, status, wikis):
     }
 
 
+_LIVENESS_LABELS = {
+    WIKI_REACHABLE: "REACHABLE",
+    WIKI_UNREACHABLE: "NOT REACHABLE",
+    WIKI_INDETERMINATE: "UNKNOWN",
+}
+
+
 def _print_table(details):
     host_lengths = [len(d["host"]) for d in details] + [16]
     hw = max(host_lengths) + 2
@@ -1154,6 +1296,11 @@ def _print_table(details):
                 url = w.get("url") or ""
                 if "/" not in url:
                     url = url + "/"
+                liveness = w.get("liveness")
+                if liveness:
+                    url = "%s  [%s]" % (
+                        url, _LIVENESS_LABELS.get(liveness, liveness)
+                    )
                 print("  %-14s%s" % (w.get("id", "?"), url))
         else:
             print("  (no wikis)")
