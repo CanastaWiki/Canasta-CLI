@@ -553,10 +553,11 @@ def _dump_compose_failure(inst, include_sidecars=False):
     devmode = inst.get("devMode", False)
     file_args = _compose_file_args(path, host, devmode, include_sidecars)
     compose_cmd = _resolve_compose_cmd(inst)
+    compose_label = " ".join(compose_cmd)
 
     steps = [
-        (["ps", "-a"], "compose ps -a"),
-        (["logs", "--tail=200", "--no-color"], "compose logs (last 200)"),
+        (["ps", "-a"], "%s ps -a" % compose_label),
+        (["logs", "--tail=200", "--no-color"], "%s logs (last 200)" % compose_label),
     ]
     for action, label in steps:
         if _is_localhost(host):
