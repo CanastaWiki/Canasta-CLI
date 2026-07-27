@@ -620,8 +620,17 @@ commands:
       a transient network problem shouldn't cause entries to be
       silently dropped. Pass --force to remove unreachable entries
       too, or --dry-run to preview without removing anything.
+
+      The STATUS column reports what the orchestrator says about the
+      web container, which can read RUNNING while MediaWiki itself is
+      failing. With --check-wikis, each wiki of every running instance
+      is also probed over HTTP and annotated REACHABLE, NOT REACHABLE
+      or UNKNOWN — the last meaning the instance's host could not be
+      reached, so the wiki's state is unknown rather than known-bad.
+      This costs one request per wiki, so it is off by default.
     examples:
       - "canasta list"
+      - "canasta list --check-wikis"
       - "canasta list --cleanup"
       - "canasta list --cleanup --dry-run"
       - "canasta list --cleanup --force"
@@ -631,6 +640,10 @@ commands:
         short: H
         type: string
         description: "Filter output by host (default: all hosts)"
+      - name: check_wikis
+        type: bool
+        default: false
+        description: "Probe each wiki over HTTP and report whether it responds"
       - name: cleanup
         type: bool
         default: false

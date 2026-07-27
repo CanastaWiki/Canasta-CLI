@@ -70,6 +70,39 @@ def _classify_for_cleanup(inst_id, inst):
     return "missing"
 
 
+def _annotate_wiki_liveness(details, instances):
+    """Record a liveness verdict on each wiki of every RUNNING instance.
+
+    Only RUNNING instances are probed: for anything else the orchestrator
+    has already given a definitive answer, and probing a stopped instance
+    just waits out connection timeouts.
+    """
+    targets = []
+    for detail in details:
+        if detail["status"] != "RUNNING":
+            continue
+        inst = instances.get(detail["id"], {})
+        for wiki in detail["wikis"]:
+            targets.append((wiki, detail["host"], inst.get("path", "")))
+
+    if not targets:
+        return
+
+    with ThreadPoolExecutor(max_workers=min(len(targets), 16)) as pool:
+        futures = {
+            pool.submit(
+                _helpers._probe_wiki, (wiki.get("url") or "").strip(), host, path
+            ): wiki
+            for wiki, host, path in targets
+        }
+        for future in as_completed(futures):
+            wiki = futures[future]
+            try:
+                wiki["liveness"] = future.result()
+            except Exception:
+                wiki["liveness"] = _helpers.WIKI_INDETERMINATE
+
+
 @register("list")
 def cmd_list(args):
     config_dir = _helpers._get_config_dir()
@@ -137,6 +170,9 @@ def cmd_list(args):
         return 0
 
     details = _gather_all_instances(instances)
+
+    if getattr(args, "check_wikis", False):
+        _annotate_wiki_liveness(details, instances)
 
     _helpers._print_table(details)
     return 0
