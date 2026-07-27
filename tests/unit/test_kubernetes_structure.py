@@ -972,7 +972,7 @@ class TestRequirementsCollectionsHelm4Compat:
         pin = self._kubernetes_core_pin()
         # The pin should require >= 6.4.0 (or any later version with
         # known Helm 4 support).
-        assert ">=6.4" in pin or ">= 6.4" in pin or ">=6.5" in pin or ">=7" in pin or ">= 7" in pin, (
+        assert ">=6.4" in pin or ">= 6.4" in pin or ">=6.5" in pin or ">= 6.5" in pin or ">=7" in pin or ">= 7" in pin or pin == "6.5.0", (
             "requirements.yml pins kubernetes.core %r — must be "
             ">=6.4.0 to support Helm 4 (#525). Earlier versions "
             "reject Helm 4 at module load." % pin
