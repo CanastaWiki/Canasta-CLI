@@ -44,7 +44,7 @@ def _removed_volume_name():
     for task in _walk(_tasks("destroy.yml")):
         cmd_mod = task.get("ansible.builtin.command") or task.get("command")
         cmd = cmd_mod.get("cmd", "") if isinstance(cmd_mod, dict) else ""
-        m = re.search(r"docker volume rm\s+(.+)$", cmd)
+        m = re.search(r"\{\{ inspect_command \}\} volume rm\s+(.+)$", cmd)
         if m:
             return m.group(1).strip()
     raise AssertionError("no `docker volume rm` command found in destroy.yml")

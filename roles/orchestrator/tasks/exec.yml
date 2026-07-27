@@ -33,7 +33,7 @@
 - name: Build exec command (Compose)
   ansible.builtin.set_fact:
     _exec_full_cmd: >-
-      docker compose exec -T
+      {{ compose_command }} exec -T
       {{ exec_service | default('web') }}
       {{ _exec_shell }} {{ exec_command | quote }}
     _exec_chdir: "{{ instance_path }}"

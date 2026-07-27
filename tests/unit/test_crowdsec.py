@@ -1177,7 +1177,7 @@ class TestCrowdsecRestartEngine:
 
     def test_compose_restarts_only_the_service(self):
         content = self._content()
-        assert "docker compose restart crowdsec" in content
+        assert "{{ compose_command }} restart crowdsec" in content
 
     def test_k8s_rolls_the_caddy_deployment(self):
         # The engine is a sidecar in the caddy pod, so the K8s equivalent is a
@@ -1198,7 +1198,7 @@ class TestCrowdsecResolveCscli:
 
     def test_compose_prefix(self):
         content = self._content()
-        assert "docker compose exec -T crowdsec" in content
+        assert "{{ compose_command }} exec -T crowdsec" in content
 
     def test_k8s_prefix_targets_the_sidecar_container(self):
         # kubectl exec into the caddy pod, selecting the crowdsec sidecar.

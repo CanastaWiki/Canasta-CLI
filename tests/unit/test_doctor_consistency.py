@@ -161,7 +161,7 @@ class TestInstanceConsistencyLines:
                                "COMPOSE_PROFILES=varnish\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",
-            lambda path, host: (["web", "varnish", "db"], True, {}))
+            lambda path, host, inst=None: (["web", "varnish", "db"], True, {}))
         lines = doctor._instance_consistency_lines(inst)
         assert lines[1] == "Instance consistency (site):"
         body = " ".join(lines)
@@ -179,7 +179,7 @@ class TestInstanceConsistencyLines:
                                "COMPOSE_PROFILES=internal-db,varnish,crowdsec\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",
-            lambda path, host: (["web", "varnish", "crowdsec", "db"], False, {}))
+            lambda path, host, inst=None: (["web", "varnish", "crowdsec", "db"], False, {}))
         lines = doctor._instance_consistency_lines(inst)
         assert any("OK (" in line for line in lines)
 
@@ -193,7 +193,7 @@ class TestInstanceConsistencyLines:
                                "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:3.5.12\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",
-            lambda path, host: (["web", "varnish", "db"], False,
+            lambda path, host, inst=None: (["web", "varnish", "db"], False,
                                 {"CANASTA_IMAGE":
                                  "ghcr.io/canastawiki/canasta:3.5.1"}))
         body = " ".join(doctor._instance_consistency_lines(inst))
@@ -213,7 +213,7 @@ class TestInstanceConsistencyLines:
                                "HTTP_PORT=8090\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",
-            lambda path, host: (["web", "db"], False, {"HTTP_PORT": "80"}))
+            lambda path, host, inst=None: (["web", "db"], False, {"HTTP_PORT": "80"}))
         body = " ".join(doctor._instance_consistency_lines(inst))
         assert "env.template disagrees with .env" in body
         assert "canasta reconcile" in body

@@ -22,7 +22,7 @@
 
     - name: Ensure backup volume exists
       ansible.builtin.command:
-        cmd: "docker volume create {{ _bvol }}"
+        cmd: "{{ inspect_command }} volume create {{ _bvol }}"
       changed_when: true
 
     - name: Stage files into backup volume
@@ -33,7 +33,7 @@
         - name: Build and run staging container
           ansible.builtin.shell:
             cmd: |
-              docker run --rm \
+              {{ inspect_command }} run --rm \
                 -v {{ _bvol }}:/currentsnapshot \
               {% for src, dst in backup_volumes.items() %}
                 -v {{ src }}:/src{{ loop.index0 }}:ro \
@@ -109,7 +109,7 @@
     - name: Run restic container
       ansible.builtin.shell:
         cmd: |
-          docker run --rm -i \
+          {{ inspect_command }} run --rm -i \
             --env-file {{ instance_path }}/.env \
             -v {{ _bvol }}:/currentsnapshot \
           {% if _backup_local_repo %}

@@ -7,6 +7,13 @@ canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
 # Wait-for-it timeout (seconds)
 canasta_db_wait_timeout: 10
 
+# Container runtime commands. Override for rootless Podman deployments:
+#   compose_command: "podman-compose"
+#   inspect_command: "podman"
+# The defaults use Docker; the compose_command is prefixed to -f arguments.
+compose_command: "docker compose"
+inspect_command: "docker"
+
 # Pinned k3s and helm versions for Kubernetes installs. Pinning keeps the
 # control plane and any workers on the same version (a later-joining worker
 # must not outpace the cp — Kubernetes version-skew policy) and avoids
