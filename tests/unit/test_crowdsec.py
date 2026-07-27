@@ -580,7 +580,7 @@ class TestCrowdsecEnrollRole:
         assert "not in ['compose']" not in preflight, (
             "the Compose-only refusal must be gone — K8s is supported"
         )
-        assert "docker compose ps" in preflight
+        assert "{{ inspect_command | default('docker') }}" in preflight
         assert "kubectl get pods" in preflight
         assert "crowdsec=true" in preflight
 

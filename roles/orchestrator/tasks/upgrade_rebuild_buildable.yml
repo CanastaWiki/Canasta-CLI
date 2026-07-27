@@ -61,7 +61,9 @@
     - name: Get running web container image ID
       ansible.builtin.shell:
         cmd: >-
-          {{ compose_command }} ps web --format {% raw %}'{{.Image}}'{% endraw %}
+          {{ inspect_command | default('docker') }}
+          ps --filter label=com.docker.compose.service=web
+          --format {% raw %}'{{.Image}}'{% endraw %}
         chdir: "{{ instance_path }}"
       register: _running_image
       changed_when: false
