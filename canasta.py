@@ -1473,13 +1473,25 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         except (OSError, IOError, KeyError):
             pass
 
-    # Always set a value, even the default one: the variables are
-    # declared in the orchestrator role's defaults, so tasks in other
-    # roles (crowdsec, devmode, upgrade) that reference them are out of
-    # that scope and would otherwise see them undefined.
-    if "compose_command" not in extra_vars:
-        extra_vars["compose_command"] = "docker compose"
-        extra_vars["inspect_command"] = "docker"
+    # Auto-detect container runtime: when compose_command was not set
+    # (no registry field, no .env, no CLI override), probe Docker then
+    # Podman and inject the right runtime so create/start work without
+    # manual .env setup. Sets a default even when Docker is available
+    # to shield downstream templates that reference compose_command
+    # from outside the orchestrator role's variable scope.
+    #
+    # Skip for remote operations (--host): the local machine's PATH
+    # doesn't reflect what's installed on the remote. Ansible's
+    # create_preflight.yml will probe the remote and set facts.
+    if "compose_command" not in extra_vars and not host_value:
+        docker_avail = shutil.which("docker") is not None
+        podman_avail = shutil.which("podman") is not None
+        if not docker_avail and podman_avail:
+            extra_vars["compose_command"] = "podman-compose"
+            extra_vars["inspect_command"] = "podman"
+        else:
+            extra_vars["compose_command"] = "docker compose"
+            extra_vars["inspect_command"] = "docker"
     vars_file = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="canasta-vars-",
         delete=False,
