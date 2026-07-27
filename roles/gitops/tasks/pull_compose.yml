@@ -13,9 +13,15 @@
   ansible.builtin.include_tasks: "_detect_gitcrypt_lock.yml"
 
 # --- Step 1: Check for uncommitted changes ---
-- name: Check for uncommitted changes
+# Only tracked files are a hazard: a pull can overwrite a locally modified
+# tracked file. Untracked files cannot be clobbered unless an incoming commit
+# adds the same path, which git itself refuses with a clear message — so
+# --untracked-files=no keeps a host-local settings override or a scratch file
+# from blocking every pull. (It also kept the old advice from being a dead
+# end: plain `git stash` does not stash untracked files.)
+- name: Check for uncommitted changes to tracked files
   ansible.builtin.command:
-    cmd: "git status --porcelain"
+    cmd: "git status --porcelain --untracked-files=no"
     chdir: "{{ instance_path }}"
   register: _pull_uncommitted
   changed_when: false
@@ -23,8 +29,10 @@
 - name: Fail if uncommitted changes exist
   ansible.builtin.fail:
     msg: >-
-      Cannot pull: there are uncommitted changes in the instance
-      directory. Commit or stash them first, then retry.
+      Cannot pull: the instance directory has local changes to tracked
+      files that a pull could overwrite. Share them with
+      'canasta gitops add <file>' then 'canasta gitops push', or discard
+      them with 'git checkout -- <file>', then retry.
       Changed files: {{ _pull_uncommitted.stdout }}
   when: _pull_uncommitted.stdout | trim | length > 0
 
@@ -49,13 +57,46 @@
   ignore_errors: true  # OK if wikis.yaml doesn't exist yet
 
 # --- Step 3: Pull and update submodules ---
+# Rebase, not merge or fast-forward-only. Hosts contribute small config commits
+# to one shared branch, so replaying this host's commits on top of the remote is
+# the right semantic — and it is the only one that resolves the diverged state
+# 'gitops push' sends the operator here to fix. A plain 'git pull' honors the
+# host's ambient pull.rebase / pull.ff config, so it could abort on divergence
+# with nothing but git's own hints; --rebase is explicit and always applies.
 - name: Pull from remote
   ansible.builtin.command:
-    cmd: "git pull"
+    cmd: "git -c commit.gpgsign=false pull --rebase"
     chdir: "{{ instance_path }}"
   environment: "{{ gitops_git_env }}"
   register: _pull_result
   changed_when: "'Already up to date' not in _pull_result.stdout"
+  failed_when: false
+
+# A conflicting replay stops mid-rebase, which strands the instance in a state
+# no canasta command understands. Roll back to exactly where the pull started —
+# local commits intact — so the operator has one clear problem to solve.
+- name: Abort an incomplete rebase
+  ansible.builtin.command:
+    cmd: "git rebase --abort"
+    chdir: "{{ instance_path }}"
+  register: _pull_abort
+  changed_when: _pull_abort.rc == 0
+  failed_when: false
+  when: _pull_result.rc != 0
+
+- name: Fail if the pull could not be replayed
+  ansible.builtin.fail:
+    msg: >-
+      Cannot pull: this host's local commit(s) conflict with the remote
+      changes, so they could not be replayed on top. The rebase was rolled
+      back — the instance is exactly as it was and the local commit(s) are
+      intact. Resolve the conflict in the file(s) named below, either by
+      re-applying this host's change on top of the remote version, or by
+      discarding the local commit(s) with
+      'git reset --hard origin/main' (this throws them away).
+      git said: {{ (_pull_result.stdout | default('') ~ ' '
+                    ~ _pull_result.stderr | default('')) | trim }}
+  when: _pull_result.rc != 0
 
 - name: Update submodules
   ansible.builtin.command:
