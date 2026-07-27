@@ -4,12 +4,40 @@
 # Use 'gitops push' to commit and push any rendered changes.
 # Requires: instance_path, instance_id (set by dispatcher)
 
+# Rebase, not merge or fast-forward-only — see pull_compose.yml. --rebase is
+# explicit so the outcome does not depend on the host's ambient pull config.
 - name: Pull values repo
   ansible.builtin.command:
-    cmd: "git pull"
+    cmd: "git -c commit.gpgsign=false pull --rebase"
     chdir: "{{ instance_path }}"
   register: _git_pull
   changed_when: "'Already up to date' not in _git_pull.stdout"
+  failed_when: false
+
+# Never leave the repo mid-rebase: roll back to where the pull started so the
+# operator has one clear problem to solve, with local commits intact.
+- name: Abort an incomplete rebase
+  ansible.builtin.command:
+    cmd: "git rebase --abort"
+    chdir: "{{ instance_path }}"
+  register: _git_pull_abort
+  changed_when: _git_pull_abort.rc == 0
+  failed_when: false
+  when: _git_pull.rc != 0
+
+- name: Fail if the pull could not be replayed
+  ansible.builtin.fail:
+    msg: >-
+      Cannot pull: this host's local commit(s) conflict with the remote
+      changes, so they could not be replayed on top. The rebase was rolled
+      back — the instance is exactly as it was and the local commit(s) are
+      intact. Resolve the conflict in the file(s) named below, either by
+      re-applying this host's change on top of the remote version, or by
+      discarding the local commit(s) with
+      'git reset --hard origin/main' (this throws them away).
+      git said: {{ (_git_pull.stdout | default('') ~ ' '
+                    ~ _git_pull.stderr | default('')) | trim }}
+  when: _git_pull.rc != 0
 
 # Keep extensions/skins submodules in sync with the pulled pointers.
 - name: Update submodules
