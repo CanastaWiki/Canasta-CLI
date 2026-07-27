@@ -247,6 +247,11 @@
 
 # Rootless container preflight: ensure unprivileged ports start at 80
 # so caddy can bind host port 80 without --privileged.
+- name: Get current user (targeted fact, avoids full gathering)
+  ansible.builtin.setup:
+    filter: ansible_user_id
+  when: ansible_user_id is not defined
+
 - name: Raise unprivileged port floor to 80 for rootless runtimes
   when: ansible_user_id != 'root'
   become: yes
