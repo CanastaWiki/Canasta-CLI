@@ -114,6 +114,25 @@
       {{ (_ext_db_check.found and _ext_db_check.value | lower == 'true')
          | ternary('', 'internal-db') }}
 
+# Pin the bundled DB defaults so podman-compose (which can't resolve
+# ${VAR:-default} syntax in docker-compose.yml) gets the correct
+# values.  Only set when using the internal DB — external-DB setups
+# supply their own via the -e envfile and the validation above ensures
+# MYSQL_HOST is present.  This runs AFTER the external-DB validation
+# block so _ext_db_check is already registered.
+- name: Set bundled DB MySQL defaults
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop:
+    - { key: "MYSQL_HOST", value: "db" }
+    - { key: "MYSQL_PORT", value: "3306" }
+    - { key: "MYSQL_USER", value: "root" }
+    - { key: "MYSQL_SSL", value: "false" }
+  when: not (_ext_db_check.found and _ext_db_check.value | lower == 'true')
+
 # --skip-install only makes sense against an external database that was
 # provisioned separately and already holds a MediaWiki schema. The bundled
 # database starts from an empty volume, so skipping install.php there would

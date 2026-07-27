@@ -30,10 +30,32 @@
     _exec_shell: >-
       /bin/sh -c 'if command -v bash >/dev/null 2>&1; then exec bash -c "$0"; else exec sh -c "$0"; fi'
 
+# podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
+# --profile flags explicitly for `exec`.
+- name: Read COMPOSE_PROFILES from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _env_profiles_exec
+  when:
+    - compose_command is search('podman')
+    - instance_orchestrator | default('compose') == 'compose'
+
+- name: Build compose profile flags
+  ansible.builtin.set_fact:
+    _exec_profile_flags: >-
+      {{ (_env_profiles_exec.variables.COMPOSE_PROFILES | default(''))
+         | split(',') | map('trim') | reject('equalto', '')
+         | map('regex_replace', '^', '--profile ')
+         | join(' ') }}
+  when:
+    - compose_command is search('podman')
+    - instance_orchestrator | default('compose') == 'compose'
+
 - name: Build exec command (Compose)
   ansible.builtin.set_fact:
     _exec_full_cmd: >-
-      {{ compose_command }} exec -T
+      {{ compose_command }} {{ _exec_profile_flags | default('') }} exec -T
       {{ exec_service | default('web') }}
       {{ _exec_shell }} {{ exec_command | quote }}
     _exec_chdir: "{{ instance_path }}"
