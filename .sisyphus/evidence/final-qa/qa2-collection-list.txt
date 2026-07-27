@@ -1,0 +1,21 @@
+kubernetes.core 6.5.0  
+RIBUTING.md
+FILES.json
+LICENSE
+MANIFEST.json
+Makefile
+PSF-license.txt
+README.md
+SONARCLOUD.md
+bindep.txt
+changelogs
+codecov.yml
+docs
+meta
+plugins
+requirements.txt
+setup.cfg
+sonar-project.properties
+test-requirements.txt
+tests
+tox.ini

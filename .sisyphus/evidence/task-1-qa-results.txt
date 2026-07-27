@@ -1,0 +1,27 @@
+=== QA Scenario 1: Build completes without hanging ===
+Command: podman build --progress=plain --no-cache -t canasta-cli-test .
+Result: SUCCESS - exit code 0
+Key output from STEP 10:
+  Starting galaxy collection install process
+  Process install dependency map
+  Starting collection install process
+  Installing 'kubernetes.core:6.5.0' to '/usr/share/ansible/collections/ansible_collections/kubernetes/core'
+  kubernetes.core:6.5.0 was installed successfully
+No hanging observed. curl downloaded 361KB tarball, ansible-galaxy installed from local file.
+Total build time: ~2-3 minutes (pip install is the slowest step)
+
+=== QA Scenario 2: Collection is installed in image ===
+Command: podman run --rm --entrypoint bash --user root canasta-cli-test -c "ansible-galaxy collection list"
+Result: "kubernetes.core 6.5.0" confirmed in collection list
+
+Command: podman run --rm --entrypoint bash canasta-cli-test -c "ls /usr/share/ansible/collections/ansible_collections/kubernetes/core/"
+Result: All collection files present:
+  CHANGELOG.rst, CI.md, CONTRIBUTING.md, FILES.json, LICENSE, MANIFEST.json, Makefile,
+  PSF-license.txt, README.md, SONARCLOUD.md, bindep.txt, changelogs/, codecov.yml,
+  docs/, meta/, plugins/, requirements.txt, setup.cfg, sonar-project.properties,
+  test-requirements.txt, tests/, tox.ini
+
+=== QA Scenario 3: Network failure fails fast ===
+Command: curl -fsSL ... "https://galaxy.ansible.com/api/v2/collections/kubernetes/core/versions/6.5.0/download/"
+Result: curl: (22) The requested URL returned error: 404
+Build failed immediately with exit status 22. Did NOT hang.

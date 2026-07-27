@@ -1,0 +1,135 @@
+{
+  "schema_version": 2,
+  "active_work_id": "fix-mysql-env-defaults-3f782d38",
+  "works": {
+    "fix-ansible-galaxy-hang-d9b91c03": {
+      "work_id": "fix-ansible-galaxy-hang-d9b91c03",
+      "active_plan": "/home/mah/work/code/Canasta-CLI/.sisyphus/plans/fix-ansible-galaxy-hang.md",
+      "plan_name": "fix-ansible-galaxy-hang",
+      "status": "completed",
+      "started_at": "2026-07-26T18:48:39.434Z",
+      "updated_at": "2026-07-26T19:03:53.634Z",
+      "session_ids": [
+        "ses_063929f96ffeKpEIUHmDbeLYt2",
+        "ses_060362ba1ffeH34Ed3EzCDjYoY",
+        "ses_0603546e1ffeEXd53MVA2dKfhL",
+        "ses_0603531cbffe4hLQpN92Mrv3iJ",
+        "ses_0603523caffeW5pY7xv66o8maz"
+      ],
+      "session_origins": {
+        "ses_063929f96ffeKpEIUHmDbeLYt2": "direct",
+        "ses_060362ba1ffeH34Ed3EzCDjYoY": "appended",
+        "ses_0603546e1ffeEXd53MVA2dKfhL": "appended",
+        "ses_0603531cbffe4hLQpN92Mrv3iJ": "appended",
+        "ses_0603523caffeW5pY7xv66o8maz": "appended"
+      },
+      "agent": "atlas",
+      "task_sessions": {
+        "todo:1": {
+          "task_key": "todo:1",
+          "task_label": "1",
+          "task_title": "Replace ansible-galaxy network install with curl download + local install",
+          "session_id": "ses_0603d4ff5ffewT80eFEZc8DEWI",
+          "agent": "Sisyphus-Junior",
+          "started_at": "2026-07-26T18:50:17.060Z",
+          "status": "completed",
+          "updated_at": "2026-07-26T18:56:06.685Z",
+          "ended_at": "2026-07-26T18:56:06.685Z",
+          "elapsed_ms": 349625
+        },
+        "final-wave:f1": {
+          "task_key": "final-wave:f1",
+          "task_label": "F1",
+          "task_title": "**Plan Compliance Audit** — `oracle`",
+          "session_id": "ses_0603531cbffe4hLQpN92Mrv3iJ",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "started_at": "2026-07-26T18:58:02.217Z",
+          "status": "completed",
+          "updated_at": "2026-07-26T19:03:21.114Z",
+          "ended_at": "2026-07-26T19:03:21.114Z",
+          "elapsed_ms": 318897
+        }
+      },
+      "ended_at": "2026-07-26T19:03:53.634Z",
+      "elapsed_ms": 914200
+    },
+    "fix-mysql-env-defaults-3f782d38": {
+      "work_id": "fix-mysql-env-defaults-3f782d38",
+      "active_plan": "/home/mah/work/code/Canasta-CLI/.sisyphus/plans/fix-mysql-env-defaults.md",
+      "plan_name": "fix-mysql-env-defaults",
+      "status": "completed",
+      "started_at": "2026-07-27T01:12:42.343Z",
+      "updated_at": "2026-07-27T01:17:31.424Z",
+      "session_ids": [
+        "ses_063929f96ffeKpEIUHmDbeLYt2",
+        "ses_05eda71fcffeoh32oz9gxTsed5",
+        "ses_05eda699bffeBcczVaHQmz4MRX",
+        "ses_05eda5f4affeqWGDPXJZr7alx3",
+        "ses_05eda5857ffew3jvyXu26pkoRj"
+      ],
+      "session_origins": {
+        "ses_063929f96ffeKpEIUHmDbeLYt2": "direct",
+        "ses_05eda71fcffeoh32oz9gxTsed5": "appended",
+        "ses_05eda699bffeBcczVaHQmz4MRX": "appended",
+        "ses_05eda5f4affeqWGDPXJZr7alx3": "appended",
+        "ses_05eda5857ffew3jvyXu26pkoRj": "appended"
+      },
+      "agent": "atlas",
+      "task_sessions": {
+        "todo:1": {
+          "task_key": "todo:1",
+          "task_label": "1",
+          "task_title": "Add MySQL bundled-DB defaults to `_env_update.yml`",
+          "session_id": "ses_05edd923dffe4P5EpKDywoW4oR",
+          "agent": "Sisyphus-Junior",
+          "category": "quick",
+          "updated_at": "2026-07-27T01:15:42.050Z",
+          "started_at": "2026-07-27T01:15:11.484Z",
+          "status": "completed",
+          "ended_at": "2026-07-27T01:15:42.050Z",
+          "elapsed_ms": 30566
+        }
+      },
+      "ended_at": "2026-07-27T01:17:31.424Z",
+      "elapsed_ms": 289081
+    }
+  },
+  "active_plan": "/home/mah/work/code/Canasta-CLI/.sisyphus/plans/fix-mysql-env-defaults.md",
+  "started_at": "2026-07-27T01:12:42.343Z",
+  "status": "completed",
+  "updated_at": "2026-07-27T01:17:31.424Z",
+  "session_ids": [
+    "ses_063929f96ffeKpEIUHmDbeLYt2",
+    "ses_05eda71fcffeoh32oz9gxTsed5",
+    "ses_05eda699bffeBcczVaHQmz4MRX",
+    "ses_05eda5f4affeqWGDPXJZr7alx3",
+    "ses_05eda5857ffew3jvyXu26pkoRj"
+  ],
+  "session_origins": {
+    "ses_063929f96ffeKpEIUHmDbeLYt2": "direct",
+    "ses_05eda71fcffeoh32oz9gxTsed5": "appended",
+    "ses_05eda699bffeBcczVaHQmz4MRX": "appended",
+    "ses_05eda5f4affeqWGDPXJZr7alx3": "appended",
+    "ses_05eda5857ffew3jvyXu26pkoRj": "appended"
+  },
+  "plan_name": "fix-mysql-env-defaults",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "Add MySQL bundled-DB defaults to `_env_update.yml`",
+      "session_id": "ses_05edd923dffe4P5EpKDywoW4oR",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-07-27T01:15:42.050Z",
+      "started_at": "2026-07-27T01:15:11.484Z",
+      "status": "completed",
+      "ended_at": "2026-07-27T01:15:42.050Z",
+      "elapsed_ms": 30566
+    }
+  },
+  "agent": "atlas",
+  "ended_at": "2026-07-27T01:17:31.424Z",
+  "elapsed_ms": 289081
+}

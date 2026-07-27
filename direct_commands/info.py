@@ -426,7 +426,7 @@ def cmd_status(args):
     if _helpers._is_localhost(host):
         try:
             r = subprocess.run(
-                ps_cmd.split(),
+                ps_cmd,
                 cwd=path, capture_output=True, text=True, timeout=15,
             )
             rc, out = r.returncode, r.stdout

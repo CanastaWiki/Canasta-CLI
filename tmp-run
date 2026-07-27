@@ -1,0 +1,27 @@
+#!/bin/bash -e
+
+docker run --userns=keep-id --rm -i -t \
+       -e CANASTA_RUN_MODE=docker      \
+       -e CANASTA_CLI_IMAGE_TAG=latest \
+       -e CANASTA_CLI_BIN=/home/mah/work/code/Canasta-CLI/canasta-docker \
+       -v /run/user/1000/podman/podman.sock:/var/run/docker.sock \
+       -e DOCKER_HOST=unix:///var/run/docker.sock \
+       -v /home/mah/.config/canasta:/home/mah/.config/canasta \
+       -e CANASTA_CONFIG_DIR=/home/mah/.config/canasta \
+       -v /home/mah:/home/mah \
+       -e HOME=/home/mah \
+       -v /home/mah/.ssh/config:/etc/ssh/ssh_config.d/user.conf \
+       -v /home/mah/work/code/Canasta-CLI:/home/mah/work/code/Canasta-CLI \
+       -w /home/mah/work/code/Canasta-CLI \
+       -e CANASTA_HOST_PWD=/home/mah/work/code/Canasta-CLI \
+       --user 1000:1000 \
+       -e ANSIBLE_HOME=/tmp/ansible-home \
+       -e ANSIBLE_LOCAL_TEMP=/tmp/ansible-local \
+       -e ANSIBLE_REMOTE_TEMP=/tmp/ansible-remote \
+       -v /home/mah/.config/canasta/.canasta-passwd:/etc/passwd:ro \
+       --group-add 1000 \
+       --group-add 33 \
+       -v /run/user/1000/keyring/ssh:/tmp/ssh-agent.sock \
+       -e SSH_AUTH_SOCK=/tmp/ssh-agent.sock \
+       --entrypoint bash \
+       ghcr.io/canastawiki/canasta-ansible:latest -c "ansible all -m ansible.builtin.shell -a hostname"

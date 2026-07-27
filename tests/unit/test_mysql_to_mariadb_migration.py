@@ -117,7 +117,7 @@ class TestDetectionMarker:
             None,
         )
         assert detect is not None, "detection must be a `test -f` on the volume"
-        assert "docker run" in detect and "-v" in detect, (
+        assert "{{ inspect_command }} run" in detect and "-v" in detect, (
             "detection must read the data volume from a throwaway container so "
             "it works even when the DB container is not running"
         )
@@ -133,7 +133,7 @@ class TestDumpFromDedicatedContainer:
 
     def test_temp_container_is_always_removed(self):
         # It must be torn down on both the happy path and the failure path.
-        removals = [c for c in _command_strings() if "docker rm -f" in c]
+        removals = [c for c in _command_strings() if "{{ inspect_command }} rm -f" in c]
         assert len(removals) >= 2, (
             "the temporary container must be removed on success and cleaned up "
             "again in the rescue path"
@@ -225,7 +225,7 @@ class TestVolumeExistenceCheck:
 
     def test_existence_check_uses_volume_inspect(self):
         assert any(
-            "docker volume inspect" in c for c in _command_strings()
+            "{{ inspect_command }} volume inspect" in c for c in _command_strings()
         ), "existence must be checked with docker volume inspect, not a run"
 
     def test_detection_skipped_when_volume_missing(self):
