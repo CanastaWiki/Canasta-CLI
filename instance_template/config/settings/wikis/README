@@ -41,6 +41,20 @@ For settings that apply to ALL wikis, add files to:
 
     config/settings/global/
 
+## Host-Local Overrides (GitOps, Docker Compose)
+
+On a GitOps-managed instance every file here is shared with the other hosts in
+the repo. For settings that must apply on THIS host only, name the file with a
+.local.php suffix:
+
+    zz-debug.local.php
+
+Files matching *.local.php are ignored by git, so they stay on this host, are
+never pushed to the other hosts, and never block a `canasta gitops pull`.
+Loading is still lexicographic and the suffix alone does not sort last, so give
+a local override a name that sorts after the shared file it overrides. See
+config/settings/global/README for the full convention (Docker Compose only).
+
 ## Notes
 
 - All .php files in this directory are loaded automatically
