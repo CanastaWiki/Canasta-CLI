@@ -1201,6 +1201,72 @@ class TestCmdVersionInstanceModes:
         # is intentionally skipped for the fast default.
         assert "running:" not in out
 
+    def test_running_container_that_cannot_answer_is_unavailable(
+        self, tmp_path, monkeypatch
+    ):
+        """A failed version read on a running instance is not 'not running'.
+
+        The version file is written at startup, so a healthy instance can
+        still miss the read; reporting that as stopped contradicts what
+        `canasta list` says about the same instance.
+        """
+        inst = {"path": str(tmp_path), "host": "localhost"}
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_env_file",
+            lambda path, host: {"CANASTA_IMAGE": "canasta:3.6.3"},
+        )
+        monkeypatch.setattr(
+            direct_commands.info.subprocess, "run",
+            lambda *a, **k: type("R", (), {"returncode": 1, "stdout": ""})(),
+        )
+        monkeypatch.setattr(
+            direct_commands._helpers, "_check_running",
+            lambda *a, **k: True,
+        )
+        image, running = direct_commands.info._read_instance_image("site", inst)
+        assert image == "canasta:3.6.3"
+        assert running == "(unavailable)"
+
+    def test_stopped_instance_still_reports_not_running(
+        self, tmp_path, monkeypatch
+    ):
+        inst = {"path": str(tmp_path), "host": "localhost"}
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_env_file",
+            lambda path, host: {"CANASTA_IMAGE": "canasta:3.6.3"},
+        )
+        monkeypatch.setattr(
+            direct_commands.info.subprocess, "run",
+            lambda *a, **k: type("R", (), {"returncode": 1, "stdout": ""})(),
+        )
+        monkeypatch.setattr(
+            direct_commands._helpers, "_check_running",
+            lambda *a, **k: False,
+        )
+        _, running = direct_commands.info._read_instance_image("site", inst)
+        assert running == "(not running)"
+
+    def test_unreachable_host_is_not_reported_as_stopped(
+        self, tmp_path, monkeypatch
+    ):
+        """SSH rc 255 is a transport failure: the container was never asked."""
+        inst = {"path": "/srv/site", "host": "prod1"}
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_env_file",
+            lambda path, host: {"CANASTA_IMAGE": "canasta:3.6.3"},
+        )
+        monkeypatch.setattr(
+            direct_commands._helpers, "_ssh_run",
+            lambda host, cmd: (255, ""),
+        )
+
+        def fail(*a, **k):
+            raise AssertionError("must not ask the orchestrator over a dead link")
+
+        monkeypatch.setattr(direct_commands._helpers, "_check_running", fail)
+        _, running = direct_commands.info._read_instance_image("site", inst)
+        assert running == "(host unreachable)"
+
     def test_inside_instance_dir_shows_current_full(
         self, tmp_path, monkeypatch, capsys
     ):
