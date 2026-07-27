@@ -157,6 +157,12 @@ MOUNTS=(
     --user "$(id -u):$(id -g)"
 )
 
+# We want the user's config to be available, but the ssh configuration doesn't read it even though it is already
+# mounted.  So we'll mount the user's .ssh/config to somewhere where it is read.
+if [[ -f "$HOME/.ssh/config" ]]; then
+    MOUNTS+=(-v "$HOME/.ssh/config:/etc/ssh/ssh_config.d/zz-user.conf")
+fi
+
 # Set Ansible temp + home directories to /tmp when running as a non-root user
 # in rootless Docker. On rootless Docker, the UID/GID mapping causes directory
 # ownership to appear as nobody:nogroup to the container process even though
