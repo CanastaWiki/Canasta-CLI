@@ -49,7 +49,9 @@
 
     - name: Render merged compose config as JSON
       ansible.builtin.command:
-        cmd: "{{ compose_command }} {{ _upgrade_compose_files | join(' ') }} {{ _upgrade_profile_flags | default('') }} config --format json"
+        cmd: >-
+          {{ compose_command }} {{ _upgrade_compose_files | join(' ') }}
+          {{ _upgrade_profile_flags | default('') }} config --format json
         chdir: "{{ instance_path }}"
       register: _upgrade_compose_config
       changed_when: false

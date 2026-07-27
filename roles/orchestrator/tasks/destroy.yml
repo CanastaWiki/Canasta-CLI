@@ -48,7 +48,9 @@
 
     - name: Destroy containers and volumes
       ansible.builtin.command:
-        cmd: "{{ compose_command }} {{ _destroy_compose_files | join(' ') }} {{ _destroy_profile_flags | default('') }} down -v --remove-orphans"
+        cmd: >-
+          {{ compose_command }} {{ _destroy_compose_files | join(' ') }}
+          {{ _destroy_profile_flags | default('') }} down -v --remove-orphans
         chdir: "{{ instance_path }}"
       changed_when: true
       ignore_errors: true  # OK if containers already removed
