@@ -399,9 +399,11 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+# Match what `canasta gitops pull` does (git pull --rebase), so an operator
+# who runs raw git in the instance directory gets the same result.
 - name: Configure git pull strategy
   ansible.builtin.command:
-    cmd: "git config pull.rebase false"
+    cmd: "git config pull.rebase true"
     chdir: "{{ instance_path }}"
   changed_when: true
 
