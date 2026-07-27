@@ -49,13 +49,46 @@
   ignore_errors: true  # OK if wikis.yaml doesn't exist yet
 
 # --- Step 3: Pull and update submodules ---
+# Rebase, not merge or fast-forward-only. Hosts contribute small config commits
+# to one shared branch, so replaying this host's commits on top of the remote is
+# the right semantic — and it is the only one that resolves the diverged state
+# 'gitops push' sends the operator here to fix. A plain 'git pull' honors the
+# host's ambient pull.rebase / pull.ff config, so it could abort on divergence
+# with nothing but git's own hints; --rebase is explicit and always applies.
 - name: Pull from remote
   ansible.builtin.command:
-    cmd: "git pull"
+    cmd: "git -c commit.gpgsign=false pull --rebase"
     chdir: "{{ instance_path }}"
   environment: "{{ gitops_git_env }}"
   register: _pull_result
   changed_when: "'Already up to date' not in _pull_result.stdout"
+  failed_when: false
+
+# A conflicting replay stops mid-rebase, which strands the instance in a state
+# no canasta command understands. Roll back to exactly where the pull started —
+# local commits intact — so the operator has one clear problem to solve.
+- name: Abort an incomplete rebase
+  ansible.builtin.command:
+    cmd: "git rebase --abort"
+    chdir: "{{ instance_path }}"
+  register: _pull_abort
+  changed_when: _pull_abort.rc == 0
+  failed_when: false
+  when: _pull_result.rc != 0
+
+- name: Fail if the pull could not be replayed
+  ansible.builtin.fail:
+    msg: >-
+      Cannot pull: this host's local commit(s) conflict with the remote
+      changes, so they could not be replayed on top. The rebase was rolled
+      back — the instance is exactly as it was and the local commit(s) are
+      intact. Resolve the conflict in the file(s) named below, either by
+      re-applying this host's change on top of the remote version, or by
+      discarding the local commit(s) with
+      'git reset --hard origin/main' (this throws them away).
+      git said: {{ (_pull_result.stdout | default('') ~ ' '
+                    ~ _pull_result.stderr | default('')) | trim }}
+  when: _pull_result.rc != 0
 
 - name: Update submodules
   ansible.builtin.command:
