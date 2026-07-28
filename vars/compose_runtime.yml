@@ -1,0 +1,9 @@
+---
+# Container runtime commands, play-global so crowdsec/devmode/upgrade
+# see them too (roles/*/defaults are role-scoped). Loaded by canasta.yml.
+#
+# Precedence is the point: include_vars sits above role defaults but
+# below set_fact, so create_preflight.yml's runtime probe can override
+# these, and an explicit -e still wins over both.
+compose_command: "docker compose"
+inspect_command: "docker"

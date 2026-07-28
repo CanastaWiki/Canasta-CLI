@@ -61,6 +61,11 @@
       ansible.builtin.include_vars:
         file: vars/tool_versions.yml
 
+    # Container runtime commands, shared across roles — one source.
+    - name: Load container runtime commands
+      ansible.builtin.include_vars:
+        file: vars/compose_runtime.yml
+
     - name: Validate command exists
       ansible.builtin.assert:
         that: command in (canasta_commands.commands | map(attribute='name'))

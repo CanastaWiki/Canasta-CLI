@@ -24,15 +24,11 @@
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/detect_docker_socket.yml"
       when: (docker_host | default('')) == ''
 
-    # Probe the available container runtime (Docker or Podman) before
-    # any state mutation. When compose_command is set to a Podman-based
-    # command (e.g. podman-compose), probe podman info instead of
-    # docker info so Podman-only hosts pass the preflight gate.
-    #
-    # For remote operations (--host), compose_command may not reflect
-    # what's actually on the remote host (local auto-detection was
-    # skipped). Probe both runtimes and set facts so downstream tasks
-    # get the correct command.
+    # Probe the target's runtime before any state mutation. This is the
+    # only place detection happens — the CLI never guesses, so the
+    # set_fact below is what makes a Podman-only host work, local or
+    # remote. When compose_command already names a Podman command (from
+    # the registry or .env), probe podman directly instead.
     - name: Check container runtime is available
       when: (compose_command | default('docker compose') is search('podman'))
       block:
