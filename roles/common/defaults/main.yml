@@ -1,5 +1,0 @@
----
-# Default values for the common role.
-
-# Default Canasta image (overridden by canasta.yml from CANASTA_VERSION)
-canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
