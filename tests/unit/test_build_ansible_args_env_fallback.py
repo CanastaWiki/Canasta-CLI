@@ -82,13 +82,16 @@ class TestEnvFallbackExecutes:
             "ansible-playbook", "reconcile", _args(id="demo"), _definitions())
         assert _extra_vars(argv)["compose_command"] == "podman-compose"
 
-    def test_defaults_to_docker_without_an_override(self, registry):
+    def test_no_override_injects_nothing(self, registry):
+        # Without an instance-specific value there must be no extra-var:
+        # the default now lives in vars/compose_runtime.yml, at a
+        # precedence create_preflight.yml's probe can still override.
         argv = canasta.build_ansible_args(
             "ansible-playbook", "reconcile", _args(id="demo"), _definitions())
-        assert _extra_vars(argv)["compose_command"] == "docker compose"
+        assert "compose_command" not in _extra_vars(argv)
 
     def test_missing_env_file_is_not_fatal(self, registry):
-        # No .env at all: the fallback must degrade to the default.
+        # No .env at all: the lookup must degrade quietly, not raise.
         argv = canasta.build_ansible_args(
             "ansible-playbook", "reconcile", _args(id="demo"), _definitions())
-        assert _extra_vars(argv)["inspect_command"] == "docker"
+        assert "inspect_command" not in _extra_vars(argv)

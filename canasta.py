@@ -1452,34 +1452,35 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # execvp replaces this process. Stale files are cleaned up by
     # _cleanup_stale_vars_files() at the start of each invocation.
 
-    # When the registry lacks composeCommand/inspectCommand (e.g.
-    # instances created before Podman support), fall back to reading
-    # from the instance's .env file so Ansible gets the values.
+    # Runtime resolution: a registry entry (composeCommand /
+    # inspectCommand) wins, then the instance's .env for instances
+    # created before those fields existed.
+    #
+    # Nothing else is injected. An extra-var outranks every other
+    # source, including the set_fact that create_preflight.yml's
+    # runtime probe uses, so guessing a runtime here would silently
+    # override a probe that actually asked the target what it runs.
+    # Detection belongs to that probe; the play-scope default in
+    # vars/compose_runtime.yml covers everything in between.
     if "compose_command" not in extra_vars:
         try:
             inst = resolve_instance(
                 getattr(args, "id", None)
             ) if os.path.isfile(get_config_file_path()) else {}
             path = inst.get("path", "")
-            if path:
-                env_val = _read_env(path, "compose_command")
-                if env_val:
-                    extra_vars["compose_command"] = env_val
-                env_val = _read_env(path, "inspect_command")
-                if env_val:
-                    extra_vars["inspect_command"] = env_val
+            # The .env sits on the instance's host, so it is only
+            # readable from here when that host is this machine.
+            is_local = (inst.get("host") or "localhost") in ("localhost", "")
+            if path and is_local and not host_value:
+                for _key in ("compose_command", "inspect_command"):
+                    env_val = _read_env(path, _key)
+                    if env_val:
+                        extra_vars[_key] = env_val
         except SystemExit:
             pass
         except (OSError, IOError, KeyError):
             pass
 
-    # Always set a value, even the default one: the variables are
-    # declared in the orchestrator role's defaults, so tasks in other
-    # roles (crowdsec, devmode, upgrade) that reference them are out of
-    # that scope and would otherwise see them undefined.
-    if "compose_command" not in extra_vars:
-        extra_vars["compose_command"] = "docker compose"
-        extra_vars["inspect_command"] = "docker"
     vars_file = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="canasta-vars-",
         delete=False,
