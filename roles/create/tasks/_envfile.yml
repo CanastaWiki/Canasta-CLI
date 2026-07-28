@@ -50,6 +50,7 @@
         state: read
         key: MYSQL_PASSWORD
       register: _ext_db_password
+      no_log: true  # holds the external database's password
 
     - name: Override root DB password with external DB password
       ansible.builtin.set_fact:
@@ -63,6 +64,7 @@
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _env_for_port
+  no_log: true  # registers the whole .env, including passwords
 
 - name: Determine which port (if any) to append to the domain
   ansible.builtin.set_fact:

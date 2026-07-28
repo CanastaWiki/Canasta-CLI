@@ -7,6 +7,7 @@
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _wait_db_env
+  no_log: true  # registers the whole .env, including passwords
 
 - name: Set DB host and port
   ansible.builtin.set_fact:
