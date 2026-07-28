@@ -1028,14 +1028,21 @@ def main():
             print("ERROR uploading %s: %s" % (title, e), file=sys.stderr)
             errors += 1
 
-    if args.prune:
-        errors += prune_orphans(client, pages)
+    publish_errors = errors
+    prune_errors = prune_orphans(client, pages) if args.prune else 0
 
-    if errors:
-        print(
-            "Failed to publish %d of %d pages" % (errors, len(pages)),
-            file=sys.stderr,
-        )
+    if publish_errors or prune_errors:
+        if publish_errors:
+            print(
+                "Failed to publish %d of %d pages"
+                % (publish_errors, len(pages)),
+                file=sys.stderr,
+            )
+        if prune_errors:
+            print(
+                "Failed to prune %d orphaned page(s)" % prune_errors,
+                file=sys.stderr,
+            )
         sys.exit(1)
     print("Done: %d pages published" % len(pages))
 
@@ -1104,16 +1111,20 @@ def prune_orphans(client, pages):
             print("Deleted orphan %s" % title)
         except PermissionDeniedError as e:
             # The bot can't delete (needs Administrators). Every orphan
-            # would fail the same way, so warn once with the full list
-            # for manual cleanup and don't fail the publish job.
+            # would fail the same way, so stop after the first and report
+            # the whole list at once. Counted as an error: a green job
+            # with a stale page still live reads as "nothing to do", and
+            # the page then survives indefinitely. Clears itself once the
+            # orphans are deleted or the bot is granted the right.
             remaining = orphans[i:]
             print(
-                "WARNING: cannot delete orphaned %s pages (%s). "
-                "%d page(s) need manual deletion by an administrator: %s"
+                "ERROR: cannot delete orphaned %s pages (%s). "
+                "%d page(s) need manual deletion by an administrator, or "
+                "grant the publish account the delete right: %s"
                 % (PAGE_PREFIX, e, len(remaining), ", ".join(remaining)),
                 file=sys.stderr,
             )
-            return errors
+            return errors + len(remaining)
         except Exception as e:
             print(
                 "ERROR deleting %s: %s" % (title, e), file=sys.stderr

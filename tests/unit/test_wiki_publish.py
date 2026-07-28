@@ -784,9 +784,13 @@ class TestPruneOrphans:
         assert errors == 0
         assert client.deleted == []
 
-    def test_permission_denied_warns_not_fails(self):
-        """If the bot lacks delete rights, prune must not fail the
-        publish job — warn and leave the orphans for an admin."""
+    def test_permission_denied_counts_every_undeleted_orphan(self):
+        """If the bot lacks delete rights the orphans survive, so this
+        is an error, not a warning. A green job with a stale page still
+        live reads as 'nothing to do', and the page then survives
+        indefinitely — which is how 'CLI:Canasta wiki check' outlived
+        its rename. Clears itself once the orphans are gone or the
+        account is granted the right."""
         generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
         existing = [
             wp.PAGE_PREFIX + "canasta create",
@@ -800,10 +804,21 @@ class TestPruneOrphans:
             ),
         )
         errors = wp.prune_orphans(client, generated)
-        assert errors == 0
+        assert errors == 2, "both surviving orphans must be counted"
         # Stops after the first denial (all would fail identically).
         assert len(client.delete_attempts) == 1
         assert client.deleted == []
+
+    def test_permission_denied_with_no_orphans_is_not_an_error(self):
+        """Nothing to delete means the missing right cost nothing, so a
+        publish with no orphans must stay green regardless of rights."""
+        generated = [(wp.PAGE_PREFIX + "canasta create", "x")]
+        client = _StubClient(
+            100, [wp.PAGE_PREFIX + "canasta create"],
+            delete_exc=wp.PermissionDeniedError("not an admin"),
+        )
+        assert wp.prune_orphans(client, generated) == 0
+        assert client.delete_attempts == []
 
     def test_non_permission_error_still_counts(self):
         """A non-permission deletion failure is still a real error."""

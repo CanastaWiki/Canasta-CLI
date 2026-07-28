@@ -332,6 +332,8 @@ install_docker_mode() {
 # --- Native mode install (Linux) --------------------------------------------
 
 install_native_linux() {
+    # The canasta-ansible name is pinned, not stale: it matches the
+    # published image tag and the prefix on already-installed hosts.
     local install_dir="${PREFIX:-/opt/canasta-ansible}"
 
     need_sudo
@@ -411,6 +413,8 @@ install_native_linux() {
 # --- Native mode install (macOS) --------------------------------------------
 
 install_native_macos() {
+    # The canasta-ansible name is pinned, not stale: it matches the
+    # published image tag and the prefix on already-installed hosts.
     local install_dir="${PREFIX:-${HOME}/canasta-ansible}"
 
     need_cmd git
