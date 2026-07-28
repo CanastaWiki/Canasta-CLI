@@ -1,4 +1,4 @@
-.PHONY: test-unit test-integration test lint docs validate audit-coverage clean build-info
+.PHONY: test-unit test-integration test lint docs validate validate-wiki audit-coverage clean build-info
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
@@ -44,6 +44,12 @@ docs: venv
 
 validate: venv
 	$(PYTHON) scripts/validate_definitions.py
+
+# Check the canasta examples on canasta.wiki against the command
+# definitions. Hits the network; not part of 'lint' for that reason.
+# Exit 1 = a stale example, exit 2 = the wiki was unreachable.
+validate-wiki: venv
+	$(PYTHON) scripts/validate_wiki_examples.py
 
 # --- Coverage audit ----------------------------------------------------------
 # Static report of which canasta commands have at least one integration

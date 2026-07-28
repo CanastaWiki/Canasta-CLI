@@ -1,0 +1,49 @@
+---
+# Check that the canasta examples on canasta.wiki still run.
+#
+# The CLI: namespace is generated and correct by construction; the
+# hand-written Help: pages drift. Both directions are caught here:
+#
+#   - pull_request on the command definitions: a PR that renames or
+#     removes a flag fails until the wiki examples using it are updated.
+#   - schedule: catches drift introduced by a wiki edit, which no repo
+#     event would ever trigger. This is the more common direction.
+#
+# Deliberately separate from wiki-publish.yml: publishing the generated
+# CLI: reference must not be blocked by a stale hand-written example.
+
+name: Wiki Examples
+
+on:
+  pull_request:
+    paths:
+      - 'meta/command_definitions.yml'
+      - 'scripts/validate_wiki_examples.py'
+      - '.github/workflows/wiki-examples.yml'
+  schedule:
+    # Mondays, 07:00 UTC.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      # Exit 1 means real drift; exit 2 means the wiki was unreachable
+      # and nothing was checked. Both fail the job — a skipped run must
+      # never look like a clean one.
+      - name: Validate wiki examples
+        run: python scripts/validate_wiki_examples.py
