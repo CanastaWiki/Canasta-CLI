@@ -2114,9 +2114,13 @@ commands:
       policy and reclaim disk space. At least one retention flag
       (e.g. `--keep-within` or `--keep-last`) is required. The
       retention flags mirror restic's `forget` options.
+
+      Deleting snapshots cannot be undone, so preview the effect of a
+      retention policy with `--dry-run` before running it for real.
     examples:
       - "canasta backup purge --keep-last 5"
       - "canasta backup purge --keep-within 30d"
+      - "canasta backup purge --keep-within 30d --dry-run"
     playbook: backup_purge.yml
     parameters:
       - name: id
@@ -2147,6 +2151,11 @@ commands:
       - name: keep_tag
         type: string
         description: "Keep backups that have this tag"
+      - name: dry_run
+        long: dry-run
+        type: bool
+        default: false
+        description: "Report what would be removed without deleting anything"
 
   - name: backup_schedule_set
     description: "Set a recurring backup schedule"
