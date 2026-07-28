@@ -36,7 +36,7 @@
 
     - name: Stop containers
       ansible.builtin.command:
-        cmd: "docker compose {{ _compose_files | join(' ') }} down"
+        cmd: "{{ compose_command }} {{ _compose_files | join(' ') }} down"
         chdir: "{{ instance_path }}"
       changed_when: true
 

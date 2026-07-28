@@ -23,6 +23,9 @@ def _text(path):
         return f.read()
 
 
+I = "{{ inspect_command | default('docker') }}"
+
+
 def test_image_push_exposes_repeatable_build_arg():
     with open(CMD_DEFS) as f:
         defs = yaml.safe_load(f)
@@ -39,5 +42,5 @@ def test_playbook_validates_key_value():
 
 def test_build_args_forwarded_to_the_build_before_the_context():
     txt = _text(PLAYBOOK)
-    assert "docker build -t localhost:5000/{{ _img_ref }}" in txt
+    assert "%s build -t localhost:5000/{{ _img_ref }}" % I in txt
     assert "{{ _img_build_arg_flags }} {{ context | quote }}" in txt

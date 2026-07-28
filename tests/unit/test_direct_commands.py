@@ -3592,7 +3592,7 @@ class TestCanastaStatus:
             },
         )
         monkeypatch.setattr(direct_commands._helpers, "_check_running_compose",
-            lambda p, h: False,
+            lambda p, h, *a, **kw: False,
         )
         captured = {}
 
@@ -3620,7 +3620,8 @@ class TestCanastaStatus:
                 },
             },
         )
-        monkeypatch.setattr(direct_commands._helpers, "_check_running_compose", lambda p, h: True)
+        monkeypatch.setattr(direct_commands._helpers, "_check_running_compose",
+                            lambda p, h, *a, **kw: True)
         monkeypatch.setattr(
             subprocess, "run",
             lambda *a, **k: type("R", (), {"returncode": 0, "stdout": ""})(),

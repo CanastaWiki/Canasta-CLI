@@ -294,23 +294,25 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
     return warns
 
 
-def _gather_runtime(path, host):
+def _gather_runtime(path, host, inst=None):
     """(running_services, uses_cirrus, env_template_literals) for an instance,
     localhost or remote. env_template_literals maps each KEY to the literal
     value pinned in env.template, excluding placeholder (KEY={{...}}) lines and
     comments; empty when not gitops / no env.template."""
     d = _helpers._SENTINEL
     qpath = _helpers._shell_quote(path)
+    compose_cmd = _helpers._resolve_compose_cmd(inst or {"path": path})
+    compose_str = " ".join(compose_cmd)
     script = (
         "cd %(p)s 2>/dev/null && "
-        "docker compose ps --services --status running 2>/dev/null; "
+        "%(c)s ps --services --status running 2>/dev/null; "
         "echo '%(d)s'; "
         "grep -rqi cirrussearch %(p)s/config/settings 2>/dev/null "
         "&& echo USES_CIRRUS || echo NO_CIRRUS; "
         "echo '%(d)s'; "
         "grep -E '^[A-Za-z_][A-Za-z0-9_]*=' %(p)s/env.template 2>/dev/null "
         "| grep -v '={{'"
-    ) % {"p": qpath, "d": d}
+    ) % {"p": qpath, "d": d, "c": compose_str}
     if _helpers._is_localhost(host):
         try:
             out = subprocess.run(
@@ -362,7 +364,7 @@ def _instance_consistency_lines(inst):
         p.strip() for p in env.get("COMPOSE_PROFILES", "").split(",")
         if p.strip()
     ]
-    running, uses_cirrus, template_literals = _gather_runtime(path, host)
+    running, uses_cirrus, template_literals = _gather_runtime(path, host, inst)
     warns = _consistency_warnings(
         env, current, running, uses_cirrus, template_literals)
     lines = ["", "Instance consistency (%s):" % inst.get("id", "?")]

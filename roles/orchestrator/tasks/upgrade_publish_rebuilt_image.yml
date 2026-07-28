@@ -8,12 +8,12 @@
 
 - name: Tag rebuilt image for the in-cluster registry (Kubernetes)
   ansible.builtin.command:
-    cmd: "docker tag {{ _built_image }} localhost:5000/{{ _built_image }}"
+    cmd: "{{ inspect_command | default('docker') }} tag {{ _built_image }} localhost:5000/{{ _built_image }}"
   changed_when: true
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
 - name: Push rebuilt image to the in-cluster registry (Kubernetes)
   ansible.builtin.command:
-    cmd: "docker push localhost:5000/{{ _built_image }}"
+    cmd: "{{ inspect_command | default('docker') }} push localhost:5000/{{ _built_image }}"
   changed_when: true
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']

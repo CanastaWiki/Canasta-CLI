@@ -13,7 +13,7 @@
 
 - name: Get image ID before pull
   ansible.builtin.command:
-    cmd: "docker image inspect {{ _pull_image_env.value }} --format {% raw %}{{.Id}}{% endraw %}"
+    cmd: "{{ inspect_command }} image inspect {{ _pull_image_env.value }} --format {% raw %}{{.Id}}{% endraw %}"
   register: _pre_pull_id
   changed_when: false
   ignore_errors: true
@@ -28,12 +28,12 @@
     rx_name: "pull Compose images"
     rx_chdir: "{{ instance_path }}"
     rx_async: 1800
-    rx_cmd: "docker compose pull --ignore-buildable --ignore-pull-failures"
+    rx_cmd: "{{ compose_command }} pull --ignore-buildable --ignore-pull-failures"
   when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Get image ID after pull
   ansible.builtin.command:
-    cmd: "docker image inspect {{ _pull_image_env.value }} --format {% raw %}{{.Id}}{% endraw %}"
+    cmd: "{{ inspect_command }} image inspect {{ _pull_image_env.value }} --format {% raw %}{{.Id}}{% endraw %}"
   register: _post_pull_id
   changed_when: false
   ignore_errors: true
