@@ -482,6 +482,60 @@ def _shell_quote(s):
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+class TestPasswdEntryWinsOverImageAccount:
+    """The image ships accounts at UIDs 0-10, 13, 33, 34, 38, 39, 42 and
+    65534. When the operator's UID collides with one, our entry has to
+    replace it — getpwuid() otherwise returns that account's home, so
+    OpenSSH reads the wrong ~/.ssh/config (it resolves ~ from the passwd
+    entry, not $HOME) and ansible_user_id names the image account. See
+    #1235.
+    """
+
+    def _passwd_after_run(self, seeded):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        passwd_path = os.path.join(config_dir, ".canasta-passwd")
+        with open(passwd_path, "w") as f:
+            f.write(seeded)
+        run_dry(["version"], env={"CANASTA_CONFIG_DIR": config_dir})
+        with open(passwd_path) as f:
+            return [
+                line.strip() for line in f
+                if line.strip() and not line.startswith("#")
+            ]
+
+    def test_colliding_image_entry_is_replaced(self):
+        uid = str(os.getuid())
+        # An image account squatting on the operator's UID.
+        seeded = "www-data:x:%s:33:www-data:/var/www:/usr/sbin/nologin\n" % uid
+        entries = self._passwd_after_run(seeded)
+
+        mine = [e for e in entries if e.split(":")[2] == uid]
+        assert len(mine) == 1, (
+            "expected exactly one entry for UID %s, got %d:\n%s"
+            % (uid, len(mine), "\n".join(entries))
+        )
+        home = mine[0].split(":")[5]
+        assert home == os.environ["HOME"], (
+            "passwd home is %r, not the operator's %r — ssh would read "
+            "%s/.ssh/config instead of the mounted one"
+            % (home, os.environ["HOME"], home)
+        )
+
+    def test_other_image_accounts_are_left_alone(self):
+        uid = str(os.getuid())
+        seeded = (
+            "root:x:0:0:root:/root:/bin/bash\n"
+            "www-data:x:%s:33:www-data:/var/www:/usr/sbin/nologin\n"
+            "nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n"
+        ) % uid
+        entries = self._passwd_after_run(seeded)
+        uids = [e.split(":")[2] for e in entries]
+        assert "0" in uids and "65534" in uids, (
+            "unrelated image accounts must survive:\n%s" % "\n".join(entries)
+        )
+
+
 class TestPasswdEntryUsesHostUsername:
     """The /etc/passwd that canasta-docker bind-mounts into the
     container has to carry the host operator's actual login name as
