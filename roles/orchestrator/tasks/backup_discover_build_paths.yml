@@ -71,15 +71,26 @@
              | join(' ') }}
       when: compose_command is search('podman')
 
-    - name: Render merged compose config as JSON
+    # podman-compose has no --format option and exits 2 on it; its default
+    # output is YAML. Ask Docker for JSON as before and parse both with
+    # from_yaml, which reads JSON too.
+    - name: Select compose config format flag
+      ansible.builtin.set_fact:
+        _backup_config_format: >-
+          {{ '' if compose_command is search('podman') else '--format json' }}
+
+    - name: Render merged compose config
       ansible.builtin.command:
-        cmd: "{{ compose_command }} {{ _backup_profile_flags | default('') }} config --format json"
+        cmd: >-
+          {{ compose_command }} {{ _backup_profile_flags | default('') }}
+          config {{ _backup_config_format }}
         chdir: "{{ instance_path }}"
       register: _build_compose_config
       changed_when: false
-      # The rendered config interpolates .env values (including
+      # Docker's rendered config interpolates .env values (including
       # MYSQL_PASSWORD); keep it out of task logs. The variable is still
-      # usable below - only its display is suppressed.
+      # usable below - only its display is suppressed. (podman-compose
+      # leaves ${VAR} uninterpolated, but the guard costs nothing.)
       no_log: true
 
     # Pull out just the build sections. The secret-bearing remainder of the
@@ -88,7 +99,7 @@
     - name: Extract build sections
       ansible.builtin.set_fact:
         _build_specs: >-
-          {{ (_build_compose_config.stdout | from_json).services | dict2items
+          {{ (_build_compose_config.stdout | from_yaml).services | dict2items
              | map(attribute='value.build') | select('defined') | list }}
 
     # `docker compose config` resolves build.context to an absolute path and
