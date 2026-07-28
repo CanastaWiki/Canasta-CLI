@@ -1,6 +1,9 @@
 ---
 # Build and push canasta-ansible Docker image.
 #
+# The canasta-ansible image name is pinned, not stale: it is a published
+# artifact that existing installs pull by tag.
+#
 # Triggers:
 #   - push to main: builds image, tags it 'main' + 'latest'. If the
 #     pushed commit changed VERSION, additionally tags 'X.Y.Z' / 'X.Y'

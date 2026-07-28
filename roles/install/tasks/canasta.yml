@@ -2,6 +2,9 @@
 # Install canasta-native on the target host.
 # Clones the repo, sets up venv + deps, creates symlinks.
 # Idempotent — skips if canasta is already installed.
+#
+# The /opt/canasta-ansible prefix is pinned, not stale: it matches the
+# published image name and the path on already-installed hosts.
 
 - name: Fail if targeting localhost
   ansible.builtin.fail:
