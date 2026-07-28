@@ -17,6 +17,8 @@ htmlcov/
 # Instance data (never commit credentials or test instances)
 *.env
 admin-password_*
+# git-crypt export-key output unlocks every encrypted file in a gitops repo
+*.key
 values-configdata.yaml
 values-domains.yaml
 inventory/hosts.yml
