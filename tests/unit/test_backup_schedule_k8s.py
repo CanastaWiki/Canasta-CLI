@@ -538,7 +538,7 @@ class TestSharedBackupRBAC:
 
 
 class TestK8sRestoreImportRegexNotDoubleEscaped:
-    """The restore loop's regex `'^db_.*\.sql$'` and the secrets-
+    r"""The restore loop's regex `'^db_.*\.sql$'` and the secrets-
     filename regex `'^secrets-.+\.yaml$'` must use a SINGLE backslash
     in the YAML block scalar context. With `\\.` (two), Ansible's
     Jinja parses the literal `\\.` regex which is "literal backslash
