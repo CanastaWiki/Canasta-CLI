@@ -4,6 +4,10 @@
 # Compose: optional safety backup -> restic restore into the backup
 #   volume -> copy files to host -> preserve DB password -> import DB
 #   dumps -> re-render gitops templates.
+#
+# The DB import replaces the tables present in the dump; tables added
+# since the snapshot (a later extension install, a MediaWiki upgrade)
+# remain. Config files are replaced outright.
 # Kubernetes: delegate to restore_k8s.yml (pod-based restore + DB and
 #   Secret handling) -> preserve DB password in the restored .env.
 #
@@ -261,6 +265,10 @@
         state: read
       register: _restore_wikis
 
+    # The dump carries DROP TABLE + CREATE TABLE per table, so tables it
+    # contains are replaced wholesale. Tables created after the snapshot
+    # are absent from it and survive the import — a restore rewinds the
+    # snapshot's tables, it does not reset the database.
     - name: Import each wiki database dump
       when: wiki is not defined
       ansible.builtin.include_tasks: exec.yml
