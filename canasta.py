@@ -36,7 +36,7 @@ EXIT_ALREADY_EXISTS = 3
 # so `import canasta_config` resolves the same file Ansible ships.
 sys.path.append(os.path.join(SCRIPT_DIR, "roles", "common", "module_utils"))
 import canasta_config  # noqa: E402
-from direct_commands import _helpers  # noqa: E402
+from direct_commands._helpers import _read_env, _resolve_compose_cmd  # noqa: E402
 
 # Ensure Ansible uses the repo's config regardless of working directory
 os.environ.setdefault("ANSIBLE_CONFIG", ANSIBLE_CFG)
@@ -1045,7 +1045,7 @@ def handle_interactive_exec(args):
         # payload reaches the command: `docker compose exec -T` (no TTY).
         # Without it, omit -T to preserve the interactive shell behavior.
         stdin_file = getattr(args, "stdin_file", None)
-        docker_cmd = _helpers._resolve_compose_cmd(inst) + ["exec"]
+        docker_cmd = _resolve_compose_cmd(inst) + ["exec"]
         if stdin_file:
             docker_cmd.append("-T")
         docker_cmd += [service] + command
@@ -1462,10 +1462,10 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
             ) if os.path.isfile(get_config_file_path()) else {}
             path = inst.get("path", "")
             if path:
-                env_val = _helpers._read_env(path, "compose_command")
+                env_val = _read_env(path, "compose_command")
                 if env_val:
                     extra_vars["compose_command"] = env_val
-                env_val = _helpers._read_env(path, "inspect_command")
+                env_val = _read_env(path, "inspect_command")
                 if env_val:
                     extra_vars["inspect_command"] = env_val
         except SystemExit:
