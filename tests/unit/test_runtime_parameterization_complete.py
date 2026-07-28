@@ -50,14 +50,6 @@ ALLOW = {
         "probes for Docker by name and reports the result",
     "direct_commands/_helpers.py":
         "defines the ['docker', 'compose'] default the overrides fall back to",
-    # Converted in the follow-up that reworks container-state queries;
-    # keeping them here would mean changing the same lines twice.
-    "roles/orchestrator/tasks/check_running.yml":
-        "container-state query, parameterized in the follow-up PR",
-    "roles/orchestrator/tasks/list_running_services.yml":
-        "container-state query, parameterized in the follow-up PR",
-    "roles/crowdsec/tasks/_preflight.yml":
-        "container-state query, parameterized in the follow-up PR",
 }
 
 
