@@ -19,11 +19,27 @@ Run `make help` to see the available targets.
 
 ```bash
 make test-unit            # Unit tests
-make test-integration     # Integration tests (requires Docker)
+make test-integration     # Integration tests (requires Docker or Podman)
 make lint                 # ansible-lint + yamllint
 make validate             # Validate command_definitions.yml structure
 make docs                 # Regenerate docs/commands/*.md
 ```
+
+### Container runtimes in CI
+
+The integration suite runs against whichever runtime the host provides.
+The `Integration: Podman` job runs the create/start/stop and upgrade legs
+under rootless `podman` with `podman-compose` 1.3.0 and Docker removed
+from the runner; every other integration job runs on Docker. A few tests
+reach past the CLI with Docker-specific invocations and report SKIPPED
+under Podman.
+
+`podman-compose` 1.6.0 is not covered yet. It differs from 1.3.0 in ways
+the CLI depends on — notably whether `pull` skips services with a
+`build:` section by default.
+
+Integration jobs are skipped on pull requests (cost, secrets); run the
+workflow manually against a branch to exercise them before merging.
 
 ## Architecture
 
