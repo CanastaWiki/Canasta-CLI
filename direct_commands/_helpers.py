@@ -971,6 +971,42 @@ def _unquote(value):
     return value
 
 
+# Cache per (host, path, key): _resolve_compose_cmd is called on every
+# compose invocation, and an ssh round-trip each time would be felt in
+# `canasta list` across several remote instances.
+_REMOTE_ENV_CACHE = {}
+
+
+def _read_env_for(inst, key):
+    """Read a key from an instance's .env, wherever that instance lives.
+
+    The file sits on the instance's host, so a remote instance has to be
+    read over ssh. Reading the controller's filesystem for a remote path
+    silently returns nothing, which the caller cannot distinguish from
+    "not set" — that is how remote podman instances lost their compose
+    profiles entirely.
+    """
+    path = inst.get("path", "")
+    if not path:
+        return None
+    host = inst.get("host") or "localhost"
+    if _is_localhost(host):
+        return _read_env(path, key)
+
+    ck = (host, path, key)
+    if ck in _REMOTE_ENV_CACHE:
+        return _REMOTE_ENV_CACHE[ck]
+    rc, out = _ssh_run(host, "sed -n %s %s 2>/dev/null" % (
+        _shell_quote("s/^%s=//p" % key),
+        _shell_quote(path.rstrip("/") + "/.env"),
+    ))
+    value = None
+    if rc == 0 and out.strip():
+        value = _unquote(out.strip().split("\n")[0].strip()) or None
+    _REMOTE_ENV_CACHE[ck] = value
+    return value
+
+
 def _compose_project(path):
     """The compose project name for an instance directory.
 
@@ -999,10 +1035,7 @@ def _compose_profile_args(inst):
     """
     if not _is_podman_compose(inst):
         return []
-    path = inst.get("path", "")
-    if not path:
-        return []
-    raw = _read_env(path, "COMPOSE_PROFILES")
+    raw = _read_env_for(inst, "COMPOSE_PROFILES")
     if not raw:
         return []
     profiles = [p.strip() for p in raw.split(",") if p.strip()]
@@ -1026,9 +1059,13 @@ def _resolve_compose_cmd(inst):
     raw = inst.get("composeCommand")
     if raw:
         return raw.split()
-    path = inst.get("path", "")
-    if path:
-        raw = _read_env(path, "compose_command")
+    # The .env fallback is deliberately local-only. These resolvers run
+    # on every compose invocation, so they must not do I/O; and reading
+    # the controller's filesystem for a remote instance's path is at
+    # best useless, at worst the wrong file. Remote instances carry the
+    # value in the registry.
+    if _is_localhost(inst.get("host") or "localhost"):
+        raw = _read_env(inst.get("path", ""), "compose_command")
         if raw:
             return raw.split()
     return ["docker", "compose"]
@@ -1045,9 +1082,13 @@ def _resolve_inspect_cmd(inst):
     raw = inst.get("inspectCommand")
     if raw:
         return raw
-    path = inst.get("path", "")
-    if path:
-        raw = _read_env(path, "inspect_command")
+    # The .env fallback is deliberately local-only. These resolvers run
+    # on every compose invocation, so they must not do I/O; and reading
+    # the controller's filesystem for a remote instance's path is at
+    # best useless, at worst the wrong file. Remote instances carry the
+    # value in the registry.
+    if _is_localhost(inst.get("host") or "localhost"):
+        raw = _read_env(inst.get("path", ""), "inspect_command")
         if raw:
             return raw
     return "docker"
