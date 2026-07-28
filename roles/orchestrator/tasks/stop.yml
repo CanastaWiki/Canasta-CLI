@@ -34,9 +34,27 @@
              ((_override_exists.stat.exists) | ternary(['-f', 'docker-compose.override.yml'], [])) +
              ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
 
+    # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
+    # --profile flags explicitly for `down` to tear down all profiled services.
+    - name: Read COMPOSE_PROFILES from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _env_profiles_stop
+      when: compose_command is search('podman')
+
+    - name: Build compose profile flags
+      ansible.builtin.set_fact:
+        _compose_profile_flags: >-
+          {{ (_env_profiles_stop.variables.COMPOSE_PROFILES | default(''))
+             | split(',') | map('trim') | reject('equalto', '')
+             | map('regex_replace', '^', '--profile ')
+             | join(' ') }}
+      when: compose_command is search('podman')
+
     - name: Stop containers
       ansible.builtin.command:
-        cmd: "{{ compose_command }} {{ _compose_files | join(' ') }} down"
+        cmd: "{{ compose_command }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} down"
         chdir: "{{ instance_path }}"
       changed_when: true
 

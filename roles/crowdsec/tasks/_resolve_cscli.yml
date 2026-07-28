@@ -11,11 +11,50 @@
 # Input: instance_id, instance_path, instance_orchestrator
 # Output: _cscli_prefix (str), _cscli_argv (list), _cscli_chdir (str or null)
 
+# podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
+# --profile flags explicitly for `exec`.
+- name: Read COMPOSE_PROFILES from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _env_profiles_cscli
+  when:
+    - compose_command is search('podman')
+    - instance_orchestrator | default('compose') == 'compose'
+
+- name: Build compose profile flags for exec
+  ansible.builtin.set_fact:
+    _cscli_profile_flags: >-
+      {{ (_env_profiles_cscli.variables.COMPOSE_PROFILES | default(''))
+         | split(',') | map('trim') | reject('equalto', '')
+         | map('regex_replace', '^', '--profile ')
+         | join(' ') }}
+    _cscli_profile_list: >-
+      {{ (_env_profiles_cscli.variables.COMPOSE_PROFILES | default(''))
+         | split(',') | map('trim') | reject('equalto', '')
+         | list }}
+  when:
+    - compose_command is search('podman')
+    - instance_orchestrator | default('compose') == 'compose'
+
 - name: Build cscli prefix (Compose)
   ansible.builtin.set_fact:
-    _cscli_prefix: "{{ compose_command }} exec -T crowdsec"
-    _cscli_argv: "{{ compose_command.split() + ['exec', '-T', 'crowdsec'] }}"
+    _cscli_prefix: "{{ compose_command }} {{ _cscli_profile_flags | default('') }} exec -T crowdsec"
+    _cscli_argv: "{{ compose_command.split() }}"
     _cscli_chdir: "{{ instance_path }}"
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Append profile flags to cscli argv
+  ansible.builtin.set_fact:
+    _cscli_argv: "{{ _cscli_argv + ['--profile', item] }}"
+  loop: "{{ _cscli_profile_list | default([]) }}"
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - _cscli_profile_list | default([]) | length > 0
+
+- name: Append exec args to cscli argv
+  ansible.builtin.set_fact:
+    _cscli_argv: "{{ _cscli_argv + ['exec', '-T', 'crowdsec'] }}"
   when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Build cscli prefix (Kubernetes)

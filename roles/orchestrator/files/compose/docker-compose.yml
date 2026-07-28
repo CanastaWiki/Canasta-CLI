@@ -12,11 +12,16 @@ x-logging: &default-logging
     max-size: "50m"
     max-file: "3"
 
+x-canasta-network: &default-network
+  networks:
+    - default
+
 services:
   db:
     profiles:
       - internal-db
     image: docker.io/library/mariadb:11.4
+    <<: *default-network
     command: >
       bash -c "
         chown -R mysql:mysql /var/log/mysql &&
@@ -51,6 +56,7 @@ services:
     # set explicitly.
     user: root
     restart: unless-stopped
+    <<: *default-network
     logging: *default-logging
     extra_hosts:
       # "host-gateway" is a magic value resolved by the container engine.
@@ -100,6 +106,7 @@ services:
     profiles:
       - elasticsearch
     restart: unless-stopped
+    <<: *default-network
     logging: *default-logging
     environment:
       - discovery.type=single-node
@@ -128,6 +135,7 @@ services:
     # behaves identically to upstream Caddy otherwise.
     image: ${CANASTA_CADDY_IMAGE:-docker.io/library/caddy:2.10.2-alpine}
     restart: unless-stopped
+    <<: *default-network
     logging: *default-logging
     ports:
       - "${HTTP_PORT:-80}:80"
@@ -159,6 +167,7 @@ services:
     profiles:
       - varnish
     restart: unless-stopped
+    <<: *default-network
     logging: *default-logging
     # service_started, not service_healthy: the web image's HEALTHCHECK
     # is declared in the CanastaBase Dockerfile, but podman-compose does
@@ -185,6 +194,7 @@ services:
     profiles:
       - observable
     restart: unless-stopped
+    <<: *default-network
     logging: *default-logging
     environment:
       - discovery.type=single-node
@@ -205,6 +215,7 @@ services:
     profiles:
       - observable
     restart: unless-stopped
+    <<: *default-network
     logging: *default-logging
     entrypoint: >
       bash -c "mkdir -p /usr/share/logstash/data/sincedb && exec /usr/local/bin/docker-entrypoint"
@@ -224,6 +235,7 @@ services:
     profiles:
       - observable
     restart: unless-stopped
+    <<: *default-network
     logging: *default-logging
     depends_on:
       - opensearch
@@ -238,6 +250,7 @@ services:
     profiles:
       - observable
     restart: "no"
+    <<: *default-network
     logging: *default-logging
     depends_on:
       - opensearch
@@ -256,6 +269,7 @@ services:
     profiles:
       - crowdsec
     restart: unless-stopped
+    <<: *default-network
     logging: *default-logging
     environment:
       # Installed at container start. The caddy collection ships the
@@ -274,6 +288,10 @@ services:
       # Loaded as a parser whitelist; takes effect on restart.
       - ./config/crowdsec/whitelists.yaml:/etc/crowdsec/parsers/s02-enrich/canasta-whitelists.yaml:ro
       - caddy-logs:/var/log/caddy:ro
+
+networks:
+  default:
+    driver: bridge
 
 volumes:
   mysql-data-volume:

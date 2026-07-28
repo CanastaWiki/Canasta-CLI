@@ -22,13 +22,29 @@
 # Launched detached and polled (resilient_exec): an image pull can run for
 # minutes, and a controller-side SSH reset mid-pull would otherwise abort it.
 # `docker compose pull` is idempotent, so a re-run after a reset is safe.
+- name: Read COMPOSE_PROFILES from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _env_profiles_pull
+  when: compose_command is search('podman')
+
+- name: Build compose profile flags
+  ansible.builtin.set_fact:
+    _pull_profile_flags: >-
+      {{ (_env_profiles_pull.variables.COMPOSE_PROFILES | default(''))
+         | split(',') | map('trim') | reject('equalto', '')
+         | map('regex_replace', '^', '--profile ')
+         | join(' ') }}
+  when: compose_command is search('podman')
+
 - name: Pull images (Compose)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
   vars:
     rx_name: "pull Compose images"
     rx_chdir: "{{ instance_path }}"
     rx_async: 1800
-    rx_cmd: "{{ compose_command }} pull --ignore-buildable --ignore-pull-failures"
+    rx_cmd: "{{ compose_command }} {{ _pull_profile_flags | default('') }} pull --ignore-buildable --ignore-pull-failures"
   when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Get image ID after pull

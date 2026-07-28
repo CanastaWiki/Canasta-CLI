@@ -162,7 +162,7 @@ class TestStdinFlagParity:
             id="x", service="web", exec_args=["php"], stdin_file="/tmp/p.txt"))
         assert "-T" in captured["argv"]
         # Ansible compose build is always non-interactive (-T).
-        assert "{{ compose_command }} exec -T" in EXEC_YML
+        assert "{{ compose_command }} {{ _exec_profile_flags | default('') }} exec -T" in EXEC_YML
 
 
 def _python_exec_argv(monkeypatch, service, exec_args, orchestrator="compose"):
