@@ -186,6 +186,7 @@
   ansible.builtin.slurp:
     src: "/tmp/canasta-gitcrypt-key"
   register: _gitcrypt_key_b64
+  no_log: true  # unlocks every encrypted file in the gitops repo
 
 - name: Save connection state before local key write
   ansible.builtin.set_fact:
@@ -235,6 +236,7 @@
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _gitops_env
+  no_log: true  # registers the whole .env, including passwords
 
 - name: Generate env.template with placeholder syntax
   ansible.builtin.copy:

@@ -13,6 +13,7 @@
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _env_caddy
+  no_log: true  # registers the whole .env, including passwords
 
 - name: Determine Caddyfile parameters
   ansible.builtin.set_fact:
