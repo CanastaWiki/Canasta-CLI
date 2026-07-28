@@ -6,8 +6,12 @@ wiki constructs that look like drift but are not (passthrough args,
 placeholders, prose, non-shell blocks).
 """
 
+import json
 import os
 import sys
+import urllib.error
+
+import pytest
 
 SCRIPTS_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "scripts"),
@@ -249,3 +253,133 @@ class TestAgainstRealDefinitions:
                 assert tokens, example
                 problem = v.validate_example(tokens, table, definitions)
                 assert problem is None, "%s -> %s" % (example, problem)
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = json.dumps(payload).encode()
+
+    def read(self):
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _FakeUrlopen:
+    """Replays a scripted sequence of responses/exceptions."""
+
+    def __init__(self, *outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = []
+
+    def __call__(self, request, timeout=None):
+        self.calls.append(request.full_url)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return _FakeResponse(outcome)
+
+
+def _http_error(code):
+    return urllib.error.HTTPError("u", code, "boom", {}, None)
+
+
+class TestRequestRetry:
+    """Connect timeouts from CI runners to this wiki are a known
+    recurring failure — the first CI run of this validator hit one."""
+
+    def test_retries_then_succeeds(self, monkeypatch):
+        fake = _FakeUrlopen(
+            urllib.error.URLError("timed out"),
+            urllib.error.URLError("timed out"),
+            {"ok": True},
+        )
+        monkeypatch.setattr(v.urllib.request, "urlopen", fake)
+        slept = []
+        assert v._get("https://w/api.php", {"action": "query"},
+                      sleep=slept.append) == {"ok": True}
+        assert len(fake.calls) == 3
+        assert slept == [15, 30], "backoff must match the publish script"
+
+    def test_gives_up_after_the_cap(self, monkeypatch):
+        fake = _FakeUrlopen(*[urllib.error.URLError("timed out")] * 20)
+        monkeypatch.setattr(v.urllib.request, "urlopen", fake)
+        with pytest.raises(urllib.error.URLError):
+            v._get("https://w/api.php", {}, sleep=lambda _: None)
+        assert len(fake.calls) == v.MAX_RETRIES + 1
+
+    def test_backoff_is_capped(self, monkeypatch):
+        fake = _FakeUrlopen(*([urllib.error.URLError("x")] * 5 + [{"ok": 1}]))
+        monkeypatch.setattr(v.urllib.request, "urlopen", fake)
+        slept = []
+        v._get("https://w/api.php", {}, sleep=slept.append)
+        assert slept == [15, 30, 60, 120, 120]
+
+    def test_server_errors_are_retried(self, monkeypatch):
+        for code in (500, 503, 429):
+            fake = _FakeUrlopen(_http_error(code), {"ok": True})
+            monkeypatch.setattr(v.urllib.request, "urlopen", fake)
+            assert v._get("https://w/api.php", {},
+                          sleep=lambda _: None) == {"ok": True}
+            assert len(fake.calls) == 2, "HTTP %d should retry" % code
+
+    def test_client_errors_are_not_retried(self, monkeypatch):
+        """A 4xx means the request arrived and was rejected; retrying
+        only delays the failure."""
+        fake = _FakeUrlopen(_http_error(404), {"ok": True})
+        monkeypatch.setattr(v.urllib.request, "urlopen", fake)
+        with pytest.raises(urllib.error.HTTPError):
+            v._get("https://w/api.php", {}, sleep=lambda _: None)
+        assert len(fake.calls) == 1
+
+
+class TestBatchedFetch:
+    """Every request is another chance to hit the timeout above, so
+    content is fetched in batches rather than one call per page."""
+
+    @staticmethod
+    def _listing(n):
+        return {"query": {"allpages": [
+            {"title": "Help:Page %d" % i} for i in range(n)
+        ]}}
+
+    @staticmethod
+    def _content(titles):
+        return {"query": {"pages": [
+            {"title": t, "revisions": [
+                {"slots": {"main": {"content": "text of %s" % t}}}
+            ]} for t in titles
+        ]}}
+
+    def test_batches_titles(self, monkeypatch):
+        n = v.TITLES_PER_REQUEST * 2 + 1
+        titles = ["Help:Page %d" % i for i in range(n)]
+        fake = _FakeUrlopen(
+            self._listing(n),
+            self._content(titles[:v.TITLES_PER_REQUEST]),
+            self._content(titles[v.TITLES_PER_REQUEST:v.TITLES_PER_REQUEST * 2]),
+            self._content(titles[v.TITLES_PER_REQUEST * 2:]),
+        )
+        monkeypatch.setattr(v.urllib.request, "urlopen", fake)
+        pages = list(v.fetch_pages("https://w/api.php", sleep=lambda _: None))
+        assert len(pages) == n
+        # One listing plus ceil(n / batch) content requests — not one per page.
+        assert len(fake.calls) == 4
+
+    def test_pages_without_content_are_skipped(self, monkeypatch):
+        fake = _FakeUrlopen(
+            self._listing(2),
+            {"query": {"pages": [
+                {"title": "Help:Page 0", "missing": True},
+                {"title": "Help:Page 1", "revisions": [
+                    {"slots": {"main": {"content": "body"}}}
+                ]},
+            ]}},
+        )
+        monkeypatch.setattr(v.urllib.request, "urlopen", fake)
+        pages = list(v.fetch_pages("https://w/api.php", sleep=lambda _: None))
+        assert pages == [("Help:Page 1", "body")]

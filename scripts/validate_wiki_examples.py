@@ -28,6 +28,7 @@ import os
 import re
 import shlex
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -37,6 +38,14 @@ import yaml
 DEFAULT_API = "https://canasta.wiki/w/api.php"
 HELP_NAMESPACE = 12
 USER_AGENT = "canasta-cli-example-validator"
+HTTP_TIMEOUT = 30  # seconds
+# Backoff schedule shared with the publish script: 15s, 30s, 60s, 120s, 120s.
+MAX_RETRIES = 5
+RETRY_BACKOFF_BASE = 15
+RETRY_BACKOFF_MAX = 120
+# The API caps content fetches per request; 20 keeps every batch a single
+# round trip with no continuation.
+TITLES_PER_REQUEST = 20
 
 DEFINITIONS_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..",
@@ -236,25 +245,62 @@ def validate_page(page, wikitext, table, definitions):
 # --- Page sources ------------------------------------------------------
 
 
-def _get(url):
+def _get(api_url, params, sleep=time.sleep):
+    """GET a MediaWiki API query, retrying when the API does not answer.
+
+    Connect timeouts from CI runners to this wiki are a known, recurring
+    failure that the publish script hit too, so the backoff schedule
+    matches the one there: 15s, 30s, 60s, 120s, 120s. A 4xx is not
+    retried — the request arrived and was rejected.
+    """
+    url = api_url + "?" + urllib.parse.urlencode(dict(params, format="json",
+                                                      formatversion=2))
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
-
-
-def fetch_pages(api_url, namespace=HELP_NAMESPACE):
-    """Yield (title, wikitext) for every page in the namespace."""
-    listing = _get(
-        "%s?action=query&list=allpages&apnamespace=%d&aplimit=500&format=json"
-        % (api_url, namespace)
-    )
-    for page in listing["query"]["allpages"]:
-        title = page["title"]
-        parsed = _get(
-            "%s?action=parse&page=%s&prop=wikitext&format=json"
-            % (api_url, urllib.parse.quote(title))
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 and exc.code != 429:
+                raise
+            failure = exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            failure = exc
+        if attempt == MAX_RETRIES:
+            raise failure
+        delay = min(RETRY_BACKOFF_BASE * (2 ** attempt), RETRY_BACKOFF_MAX)
+        print(
+            "  wiki did not answer (%s); retrying in %ds" % (failure, delay),
+            file=sys.stderr,
         )
-        yield title, parsed["parse"]["wikitext"]["*"]
+        sleep(delay)
+
+
+def fetch_pages(api_url, namespace=HELP_NAMESPACE, sleep=time.sleep):
+    """Yield (title, wikitext) for every page in the namespace.
+
+    Content is fetched in batches rather than one parse call per page:
+    38 pages is 3 requests instead of 39, which matters mostly because
+    every request is another chance to hit the timeout above.
+    """
+    listing = _get(api_url, {
+        "action": "query", "list": "allpages",
+        "apnamespace": namespace, "aplimit": 500,
+    }, sleep=sleep)
+    titles = [p["title"] for p in listing["query"]["allpages"]]
+
+    for start in range(0, len(titles), TITLES_PER_REQUEST):
+        batch = titles[start:start + TITLES_PER_REQUEST]
+        result = _get(api_url, {
+            "action": "query", "prop": "revisions",
+            "rvprop": "content", "rvslots": "main",
+            "titles": "|".join(batch),
+        }, sleep=sleep)
+        for page in result.get("query", {}).get("pages", []):
+            revisions = page.get("revisions")
+            if not revisions:
+                continue  # missing or empty page
+            yield page["title"], revisions[0]["slots"]["main"]["content"]
 
 
 def read_pages(directory):
