@@ -22,7 +22,7 @@
         cmd: >-
           {{ inspect_command | default('docker') }}
           ps --filter status=running
-          --filter label=com.docker.compose.project
+          --filter label=com.docker.compose.project={{ instance_path | basename | lower }}
           --format {% raw %}{{.Label "com.docker.compose.service"}}{% endraw %}
         chdir: "{{ instance_path }}"
       register: _crowdsec_running

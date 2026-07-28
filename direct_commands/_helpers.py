@@ -969,6 +969,19 @@ def _unquote(value):
     return value
 
 
+def _compose_project(path):
+    """The compose project name for an instance directory.
+
+    Compose derives it from the directory basename, lowercased — and
+    rejects uppercase outright, so the lowering is not optional. The
+    CLI creates instance directories named after the instance id, whose
+    other permitted characters are already valid to compose.
+    """
+    if not path:
+        return ""
+    return os.path.basename(os.path.abspath(path)).lower()
+
+
 def _resolve_compose_cmd(inst):
     """Resolve the compose command for an instance.
 
@@ -1067,7 +1080,17 @@ def _check_running(instance_id, path, orchestrator, host, docker_host=None,
 def _check_running_compose(path, host, docker_host=None, compose_cmd=None):
     if compose_cmd is None:
         compose_cmd = ["docker", "compose"]
-    ps_cmd = compose_cmd + ["ps", "-q", "web"]
+    # podman-compose's `ps` takes no service argument, so query the
+    # native runtime by label instead. `ps` is a daemon-level call —
+    # cwd does not scope it — so the project filter is what keeps this
+    # from matching another instance's web container.
+    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
+    ps_cmd = [
+        runtime, "ps",
+        "--filter", "label=com.docker.compose.project=%s" % _compose_project(path),
+        "--filter", "label=com.docker.compose.service=web",
+        "--format", "{{.ID}}",
+    ]
     if _is_localhost(host):
         try:
             result = subprocess.run(
@@ -1283,9 +1306,12 @@ def _gather_instance_info(inst_id, inst):
         return _gather_k8s(inst_id, path, host)
 
     compose_str = " ".join(compose_cmd)
-    compose_ps = "cd %(p)s && %(c)s ps -q web 2>/dev/null || true" % {
-        "p": qpath, "c": compose_str,
-    }
+    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
+    compose_ps = (
+        "%(r)s ps --filter label=com.docker.compose.project=%(proj)s "
+        "--filter label=com.docker.compose.service=web "
+        "--format '{{.ID}}' 2>/dev/null || true"
+    ) % {"r": runtime, "proj": _shell_quote(_compose_project(path))}
     if docker_host:
         compose_ps = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), compose_ps)
     script = (

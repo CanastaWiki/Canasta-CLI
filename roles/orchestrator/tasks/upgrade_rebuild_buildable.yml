@@ -62,7 +62,8 @@
       ansible.builtin.shell:
         cmd: >-
           {{ inspect_command | default('docker') }}
-          ps --filter label=com.docker.compose.service=web
+          ps --filter label=com.docker.compose.project={{ instance_path | basename | lower }}
+          --filter label=com.docker.compose.service=web
           --format {% raw %}'{{.Image}}'{% endraw %}
         chdir: "{{ instance_path }}"
       register: _running_image
