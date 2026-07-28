@@ -1,0 +1,322 @@
+#!/usr/bin/env python3
+"""Check that the `canasta` examples on canasta.wiki still run.
+
+The CLI: namespace is generated from meta/command_definitions.yml and is
+correct by construction. The hand-written Help: pages are not: a renamed
+flag or a removed command leaves copy-paste examples that fail, and
+nothing notices. This validates every shell example on every Help: page
+against the same command definitions the CLI is built from.
+
+Only fenced shell blocks are scanned — those are the copy-pasteable
+examples. Prose mentions of a command in <code> tags are not commands
+and would produce noise.
+
+Usage:
+    # Against the live wiki
+    python scripts/validate_wiki_examples.py
+
+    # Against a directory of .txt files holding page wikitext
+    python scripts/validate_wiki_examples.py --pages-dir /tmp/pages
+
+Exits non-zero if any example names a command or flag that does not
+exist.
+"""
+
+import argparse
+import json
+import os
+import re
+import shlex
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+import yaml
+
+DEFAULT_API = "https://canasta.wiki/w/api.php"
+HELP_NAMESPACE = 12
+USER_AGENT = "canasta-cli-example-validator"
+
+DEFINITIONS_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..",
+    "meta", "command_definitions.yml",
+)
+
+# Positionals that swallow everything after them: whatever follows is
+# passed to another program (php, a maintenance script), so its flags
+# are not ours to validate.
+PASSTHROUGH_POSITIONALS = ("exec_args", "script_args")
+
+SHELL_BLOCK = re.compile(
+    r"<syntaxhighlight\b[^>]*\blang=\"(?:bash|sh|shell|console)\"[^>]*>"
+    r"(.*?)</syntaxhighlight>",
+    re.DOTALL | re.IGNORECASE,
+)
+
+INVOCATION = re.compile(r"^(?:sudo\s+)?canasta(?:-native|-docker)?(?:\s|$)")
+
+
+def canasta_segment(text):
+    """The `canasta ...` part of a shell line, or None.
+
+    Handles a `$ ` prompt and compound lines: the invocation is not
+    always the first thing on the line (`cd /path && canasta delete`),
+    and anything downstream of a pipe is another program.
+    """
+    text = re.sub(r"^\s*\$\s+", "", text.strip())
+    for segment in re.split(r"\|\||&&|[|;]", text):
+        segment = segment.strip()
+        if INVOCATION.match(segment):
+            return segment
+    return None
+
+
+# --- Command table -----------------------------------------------------
+
+
+def load_definitions(path=DEFINITIONS_PATH):
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+def build_command_table(definitions):
+    """Map a tuple of CLI tokens -> command definition.
+
+    Group commands are stored as `group_sub`, and a group name may
+    itself contain an underscore (`storage_setup`), so the group has to
+    be matched longest-first before the remainder is treated as the
+    subcommand.
+    """
+    groups = sorted(
+        (g["name"] for g in definitions.get("command_groups", [])),
+        key=len, reverse=True,
+    )
+    table = {}
+    for command in definitions["commands"]:
+        name = command["name"]
+        for group in groups:
+            if name.startswith(group + "_"):
+                sub = name[len(group) + 1:].replace("_", "-")
+                table[tuple(group.split("_") + [sub])] = command
+                break
+        else:
+            table[(name.replace("_", "-"),)] = command
+    return table
+
+
+def flag_spec(command, definitions):
+    """Return (long flags, short flags, has_passthrough) for a command."""
+    longs = {"--help", "--verbose"}
+    shorts = {"-h", "-v"}
+    passthrough = False
+    for param in command.get("parameters") or []:
+        if param.get("positional"):
+            if param["name"] in PASSTHROUGH_POSITIONALS:
+                passthrough = True
+            continue
+        # `long:` overrides the flag spelling (host_name -> --name).
+        longs.add("--" + (param.get("long") or param["name"]).replace("_", "-"))
+        if param.get("short"):
+            shorts.add("-" + param["short"])
+    for param in definitions.get("global_flags") or []:
+        longs.add("--" + param["name"].replace("_", "-"))
+        if param.get("short"):
+            shorts.add("-" + param["short"])
+    return longs, shorts, passthrough
+
+
+# --- Extraction --------------------------------------------------------
+
+
+def iter_shell_lines(wikitext):
+    """Yield (line number, command line) for each canasta invocation in a
+    fenced shell block.
+
+    Backslash continuations are joined first: a flag sitting alone on a
+    continuation line is part of the command above it, and skipping
+    those was how a whole class of examples went unchecked.
+    """
+    for match in SHELL_BLOCK.finditer(wikitext):
+        first_line = wikitext.count("\n", 0, match.start(1)) + 1
+        raw = match.group(1)
+        joined, offsets, buffer, start = [], [], "", None
+        for offset, line in enumerate(raw.split("\n")):
+            stripped = line.strip()
+            if start is None:
+                start = offset
+            if stripped.endswith("\\"):
+                buffer += stripped[:-1].strip() + " "
+                continue
+            joined.append((buffer + stripped).strip())
+            offsets.append(start)
+            buffer, start = "", None
+        if buffer:
+            joined.append(buffer.strip())
+            offsets.append(start or 0)
+        for text, offset in zip(joined, offsets):
+            if canasta_segment(text):
+                yield first_line + offset, text
+
+
+def tokenize(line):
+    """Split a shell example into argv, or None if it cannot be parsed.
+
+    Placeholders (<domain>, <NODE1_IP>) become a literal so shlex does
+    not choke, and only the first command of a pipeline is ours.
+    """
+    text = canasta_segment(line)
+    if text is None:
+        return None
+    text = re.sub(r"<[^>\s]*>", "PLACEHOLDER", text)
+    text = re.sub(r"\s+#.*$", "", text)
+    try:
+        tokens = shlex.split(text)
+    except ValueError:
+        return None
+    tokens = [t for t in tokens if t != "sudo"]
+    return tokens[1:] if tokens else None  # drop the `canasta` itself
+
+
+# --- Validation --------------------------------------------------------
+
+
+class Finding:
+    def __init__(self, page, line, kind, detail, example):
+        self.page = page
+        self.line = line
+        self.kind = kind
+        self.detail = detail
+        self.example = example
+
+    def __str__(self):
+        return "%s:%s: %s %s\n    %s" % (
+            self.page, self.line, self.kind, self.detail, self.example,
+        )
+
+
+def validate_example(tokens, table, definitions):
+    """Return (kind, detail) for the first problem found, else None."""
+    command = rest = None
+    for width in (3, 2, 1):
+        if tuple(tokens[:width]) in table:
+            command = table[tuple(tokens[:width])]
+            rest = tokens[width:]
+            break
+    if command is None:
+        return "unknown command:", " ".join(tokens[:2]) or "(empty)"
+
+    longs, shorts, passthrough = flag_spec(command, definitions)
+    for token in rest:
+        if token == "--":
+            break
+        if passthrough and not token.startswith("-"):
+            # First bare token starts the passed-through command line.
+            break
+        if token.startswith("--"):
+            if token.split("=")[0] not in longs:
+                return "unknown flag:", token.split("=")[0]
+        elif re.match(r"^-[A-Za-z]$", token) and token not in shorts:
+            return "unknown flag:", token
+    return None
+
+
+def validate_page(page, wikitext, table, definitions):
+    findings = []
+    for line_no, line in iter_shell_lines(wikitext):
+        tokens = tokenize(line)
+        if not tokens:
+            continue
+        problem = validate_example(tokens, table, definitions)
+        if problem:
+            findings.append(Finding(page, line_no, problem[0], problem[1], line))
+    return findings
+
+
+# --- Page sources ------------------------------------------------------
+
+
+def _get(url):
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)
+
+
+def fetch_pages(api_url, namespace=HELP_NAMESPACE):
+    """Yield (title, wikitext) for every page in the namespace."""
+    listing = _get(
+        "%s?action=query&list=allpages&apnamespace=%d&aplimit=500&format=json"
+        % (api_url, namespace)
+    )
+    for page in listing["query"]["allpages"]:
+        title = page["title"]
+        parsed = _get(
+            "%s?action=parse&page=%s&prop=wikitext&format=json"
+            % (api_url, urllib.parse.quote(title))
+        )
+        yield title, parsed["parse"]["wikitext"]["*"]
+
+
+def read_pages(directory):
+    for name in sorted(os.listdir(directory)):
+        if not name.endswith(".txt"):
+            continue
+        with open(os.path.join(directory, name)) as f:
+            yield name[:-4].replace("__", "/"), f.read()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Validate canasta.wiki shell examples against the CLI"
+    )
+    parser.add_argument("--api", default=DEFAULT_API, help="MediaWiki API URL")
+    parser.add_argument(
+        "--pages-dir",
+        help="Read page wikitext from .txt files instead of the network",
+    )
+    parser.add_argument(
+        "--namespace", type=int, default=HELP_NAMESPACE,
+        help="Namespace id to scan (default: %d, Help:)" % HELP_NAMESPACE,
+    )
+    args = parser.parse_args()
+
+    definitions = load_definitions()
+    table = build_command_table(definitions)
+
+    source = (read_pages(args.pages_dir) if args.pages_dir
+              else fetch_pages(args.api, args.namespace))
+
+    findings, pages, examples = [], 0, 0
+    try:
+        for title, wikitext in source:
+            pages += 1
+            examples += sum(1 for _ in iter_shell_lines(wikitext))
+            findings.extend(validate_page(title, wikitext, table, definitions))
+    except (urllib.error.URLError, OSError, KeyError, ValueError) as exc:
+        # Exit 2, not 1: an unreachable wiki is an infrastructure problem,
+        # and reporting it as "no findings" would be a false green.
+        print(
+            "ERROR: could not read pages from %s (%s). No examples were "
+            "checked." % (args.api, exc),
+            file=sys.stderr,
+        )
+        return 2
+
+    print("Checked %d examples across %d pages" % (examples, pages))
+    if not findings:
+        print("All examples match the current command definitions.")
+        return 0
+
+    print("", file=sys.stderr)
+    for finding in findings:
+        print(finding, file=sys.stderr)
+    print(
+        "\n%d example(s) reference a command or flag that does not exist."
+        % len(findings),
+        file=sys.stderr,
+    )
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
