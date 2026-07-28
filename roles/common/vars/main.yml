@@ -1,8 +1,0 @@
----
-# Reserved wiki IDs that cannot be used
-canasta_reserved_wiki_ids:
-  - settings
-  - images
-  - w
-  - wiki
-  - wikis
