@@ -901,6 +901,11 @@ commands:
           host. Canasta SSHs there after stopping the agent and runs
           'kubectl delete node <hostname>' so the Node entry is cleaned
           up. Ignored on control-plane uninstalls.
+      - name: force
+        type: bool
+        description: >-
+          Proceed even when the target node holds PersistentVolumes whose
+          data the uninstall would destroy.
       - name: "yes"
         short: "y"
         type: bool

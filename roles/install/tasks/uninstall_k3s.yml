@@ -66,6 +66,67 @@
   changed_when: false
   when: _k3s_role_label == 'worker'
 
+# A local-path PV lives on the node that provisioned it, and the k3s
+# uninstall removes /var/lib/rancher/k3s — so detaching a worker deletes
+# any volume bound there. The database of a multi-node instance is the
+# common case: it uses local-path by default and lands wherever the
+# scheduler put it. Ask the control plane what would be lost, first.
+- name: Guard volumes pinned to a worker being removed
+  when: _k3s_role_label == 'worker'
+  block:
+    - name: Resolve cp-host SSH target for the volume check
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_cp_host_ssh.yml"
+
+    - name: List PersistentVolumes pinned to a node
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -o
+          - StrictHostKeyChecking=accept-new
+          - "{{ _cp_ssh_target }}"
+          - >-
+            sudo k3s kubectl get pv -o
+            jsonpath='{range .items[?(@.spec.nodeAffinity)]}
+            {.spec.claimRef.namespace}/{.spec.claimRef.name}{"\t"}
+            {.spec.nodeAffinity.required.nodeSelectorTerms[*].matchExpressions[*].values[*]}
+            {"\n"}{end}'
+      delegate_to: localhost
+      register: _pinned_pvs
+      changed_when: false
+      failed_when: false
+
+    - name: Select the volumes this uninstall would destroy
+      ansible.builtin.set_fact:
+        _doomed_volumes: >-
+          {{ (_pinned_pvs.stdout_lines | default([]))
+             | map('trim') | reject('equalto', '')
+             | select('search', '(^|\s)'
+                      ~ (_worker_hostname_raw.stdout | trim) ~ '(\s|$)')
+             | map('regex_replace', '\s.*$', '')
+             | list }}
+
+    - name: Refuse to destroy volumes bound to this node
+      ansible.builtin.fail:
+        msg: >-
+          Uninstalling k3s from '{{ _worker_hostname_raw.stdout | trim }}'
+          would destroy {{ _doomed_volumes | length }} PersistentVolume(s)
+          stored on it: {{ _doomed_volumes | join(', ') }}.
+          Their data lives under /var/lib/rancher/k3s on that node and the
+          uninstall removes it. Back up or migrate the affected instances
+          first, or pass --force to proceed and lose the data.
+      when:
+        - _doomed_volumes | length > 0
+        - not (force | default(false) | bool)
+
+    - name: Warn that pinned volumes are being destroyed
+      ansible.builtin.debug:
+        msg: >-
+          --force given: destroying {{ _doomed_volumes | length }}
+          PersistentVolume(s) on this node: {{ _doomed_volumes | join(', ') }}.
+      when:
+        - _doomed_volumes | length > 0
+        - force | default(false) | bool
+
 - name: Uninstall k3s
   when: _k3s_uninstall_script | length > 0
   become: true
