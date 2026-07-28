@@ -23,26 +23,24 @@ exist.
 """
 
 import argparse
-import json
 import os
 import re
 import shlex
 import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 import yaml
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import wiki_http  # noqa: E402
+
 DEFAULT_API = "https://canasta.wiki/w/api.php"
 HELP_NAMESPACE = 12
 USER_AGENT = "canasta-cli-example-validator"
-HTTP_TIMEOUT = 30  # seconds
-# Backoff schedule shared with the publish script: 15s, 30s, 60s, 120s, 120s.
-MAX_RETRIES = 5
-RETRY_BACKOFF_BASE = 15
-RETRY_BACKOFF_MAX = 120
+# Backoff and timeout are shared with the publish script via wiki_http.
+MAX_RETRIES = wiki_http.MAX_CONNECT_RETRIES
 # The API caps content fetches per request; 20 keeps every batch a single
 # round trip with no continuation.
 TITLES_PER_REQUEST = 20
@@ -245,38 +243,21 @@ def validate_page(page, wikitext, table, definitions):
 # --- Page sources ------------------------------------------------------
 
 
-def _get(api_url, params, sleep=time.sleep):
+def _get(api_url, params, sleep=None):
     """GET a MediaWiki API query, retrying when the API does not answer.
 
-    Connect timeouts from CI runners to this wiki are a known, recurring
-    failure that the publish script hit too, so the backoff schedule
-    matches the one there: 15s, 30s, 60s, 120s, 120s. A 4xx is not
-    retried — the request arrived and was rejected.
+    Shares wiki_http's opener so this and the publish script keep one
+    backoff schedule between them.
     """
     url = api_url + "?" + urllib.parse.urlencode(dict(params, format="json",
                                                       formatversion=2))
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as resp:
-                return json.load(resp)
-        except urllib.error.HTTPError as exc:
-            if exc.code < 500 and exc.code != 429:
-                raise
-            failure = exc
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            failure = exc
-        if attempt == MAX_RETRIES:
-            raise failure
-        delay = min(RETRY_BACKOFF_BASE * (2 ** attempt), RETRY_BACKOFF_MAX)
-        print(
-            "  wiki did not answer (%s); retrying in %ds" % (failure, delay),
-            file=sys.stderr,
-        )
-        sleep(delay)
+    return wiki_http.open_json(
+        urllib.request.urlopen, request, api_url=api_url, sleep=sleep,
+    )
 
 
-def fetch_pages(api_url, namespace=HELP_NAMESPACE, sleep=time.sleep):
+def fetch_pages(api_url, namespace=HELP_NAMESPACE, sleep=None):
     """Yield (title, wikitext) for every page in the namespace.
 
     Content is fetched in batches rather than one parse call per page:
@@ -338,7 +319,8 @@ def main():
             pages += 1
             examples += sum(1 for _ in iter_shell_lines(wikitext))
             findings.extend(validate_page(title, wikitext, table, definitions))
-    except (urllib.error.URLError, OSError, KeyError, ValueError) as exc:
+    except (RuntimeError, urllib.error.URLError, OSError,
+            KeyError, ValueError) as exc:
         # Exit 2, not 1: an unreachable wiki is an infrastructure problem,
         # and reporting it as "no findings" would be a false green.
         print(
