@@ -150,6 +150,22 @@
       register: _start_web_cid
       changed_when: false
 
+    # `ps` without -a lists only running containers, so an empty result
+    # means the stack is not up. `up -d` exiting 0 does not rule that out:
+    # with rootless podman and no lingering, systemd kills the containers
+    # the moment the ssh session ends. Without this check the health gate
+    # below is merely skipped and the run reports success.
+    - name: Fail when no web container is running after start
+      ansible.builtin.fail:
+        msg: >-
+          Started the containers, but no running 'web' container is present
+          for instance '{{ instance_id }}'. The instance is not up — check
+          'canasta list' and the container logs on the host. On rootless
+          Podman this is usually lingering: without
+          'sudo loginctl enable-linger <user>', systemd stops the
+          containers as soon as the session that started them ends.
+      when: _start_web_cid.stdout | trim == ''
+
     - name: Probe whether web declares a healthcheck
       ansible.builtin.command:
         argv:
