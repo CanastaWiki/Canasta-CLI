@@ -157,12 +157,6 @@ MOUNTS=(
     --user "$(id -u):$(id -g)"
 )
 
-# We want the user's config to be available, but the ssh configuration doesn't read it even though it is already
-# mounted.  So we'll mount the user's .ssh/config to somewhere where it is read.
-if [[ -f "$HOME/.ssh/config" ]]; then
-    MOUNTS+=(-v "$HOME/.ssh/config:/etc/ssh/ssh_config.d/zz-user.conf")
-fi
-
 # Set Ansible temp + home directories to /tmp when running as a non-root user
 # in rootless Docker. On rootless Docker, the UID/GID mapping causes directory
 # ownership to appear as nobody:nogroup to the container process even though
@@ -314,9 +308,18 @@ fi
 # sshd rejects after too many auth failures because no `canasta` user
 # exists there. See #478.
 _CANASTA_DOCKER_USER="$(id -un 2>/dev/null || echo "${USER:-canasta}")"
-if ! grep -q "^[^:]*:[^:]*:$(id -u):" "$CANASTA_PASSWD" 2>/dev/null; then
-    echo "${_CANASTA_DOCKER_USER}:x:$(id -u):$(id -g):${_CANASTA_DOCKER_USER}:$HOME:/bin/sh" >> "$CANASTA_PASSWD"
-fi
+# Ours must replace, not defer to, any entry the image already has for
+# this UID. The image ships accounts at 0-10, 13, 33, 34, 38, 39, 42 and
+# 65534; on a collision getpwuid() would return that account's home, so
+# ssh reads the wrong ~/.ssh/config and ansible_user_id names the image
+# account instead of the operator. $HOME being mounted does not help —
+# OpenSSH resolves ~ from the passwd entry, not from $HOME.
+_PASSWD_TMP="$(mktemp)"
+awk -F: -v uid="$(id -u)" '$1 ~ /^#/ || $3 != uid' "$CANASTA_PASSWD" > "$_PASSWD_TMP" 2>/dev/null || true
+printf '%s:x:%s:%s:%s:%s:/bin/sh\n' \
+    "$_CANASTA_DOCKER_USER" "$(id -u)" "$(id -g)" \
+    "$_CANASTA_DOCKER_USER" "$HOME" >> "$_PASSWD_TMP"
+mv "$_PASSWD_TMP" "$CANASTA_PASSWD"
 MOUNTS+=(-v "$CANASTA_PASSWD:/etc/passwd:ro")
 # Add only the groups the container actually needs: the Docker socket
 # GID (for docker commands) and www-data (for writing to container-
