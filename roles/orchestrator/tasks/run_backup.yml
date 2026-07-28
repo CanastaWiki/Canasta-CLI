@@ -60,6 +60,15 @@
               is match('^/'))
              | ternary(_backup_repo_env.value, '') }}
 
+    # restic runs as root in the container, so a local-path repo ends up
+    # root-owned and the operator cannot prune or remove their own
+    # backups. Record the parent directory's owner to hand it back.
+    - name: Stat the local repo's parent directory
+      ansible.builtin.stat:
+        path: "{{ _backup_local_repo | dirname }}"
+      register: _backup_repo_parent
+      when: _backup_local_repo | length > 0
+
     - name: Read RESTIC_PASSWORD from .env
       canasta_env:
         path: "{{ instance_path }}/.env"
@@ -106,24 +115,48 @@
           and use LF line endings.
       when: _backup_env_warn | length > 0
 
-    - name: Run restic container
-      ansible.builtin.shell:
-        cmd: |
-          {{ inspect_command }} run --rm -i \
-            --env-file {{ instance_path }}/.env \
-            -v {{ _bvol }}:/currentsnapshot \
-          {% if _backup_local_repo %}
-            -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
-          {% endif %}
-            restic/restic \
-            --cache-dir /tmp/restic-cache \
-            {{ backup_args | join(' ') }}
-        chdir: "{{ instance_path }}"
-      register: _compose_restic_result
-      changed_when: true
+    - name: Run restic and hand the repo back to its owner
+      block:
+        - name: Run restic container
+          ansible.builtin.shell:
+            cmd: |
+              {{ inspect_command }} run --rm -i \
+                --env-file {{ instance_path }}/.env \
+                -v {{ _bvol }}:/currentsnapshot \
+              {% if _backup_local_repo %}
+                -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
+              {% endif %}
+                restic/restic \
+                --cache-dir /tmp/restic-cache \
+                {{ backup_args | join(' ') }}
+            chdir: "{{ instance_path }}"
+          register: _compose_restic_result
+          changed_when: true
 
-    - name: Set restic result from Compose
-      ansible.builtin.set_fact:
-        _restic_result:
-          stdout: "{{ _compose_restic_result.stdout }}"
-          rc: "{{ _compose_restic_result.rc }}"
+        - name: Set restic result from Compose
+          ansible.builtin.set_fact:
+            _restic_result:
+              stdout: "{{ _compose_restic_result.stdout }}"
+              rc: "{{ _compose_restic_result.rc }}"
+      always:
+        # `always`, not a following task: restic failing aborts the block,
+        # and a repo left root-owned after a failed run is exactly when the
+        # operator needs to inspect it. Mirrors the K8s path (#1205).
+        - name: Reclaim local-path repo ownership
+          ansible.builtin.command:
+            argv:
+              - "{{ inspect_command }}"
+              - run
+              - --rm
+              - -v
+              - "{{ _backup_local_repo }}:{{ _backup_local_repo }}"
+              - alpine
+              - chown
+              - -R
+              - "{{ _backup_repo_parent.stat.uid }}:{{ _backup_repo_parent.stat.gid }}"
+              - "{{ _backup_local_repo }}"
+          changed_when: true
+          failed_when: false
+          when:
+            - _backup_local_repo | length > 0
+            - _backup_repo_parent.stat.exists | default(false)

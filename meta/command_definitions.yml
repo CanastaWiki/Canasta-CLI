@@ -733,8 +733,14 @@ commands:
   - name: wiki_check
     description: "Check that configured wikis are accessible"
     long_description: |
-      Verify that wiki is running correctly by reading the instance's configured wikis from `config/wikis.yaml` and
-      verify that each wiki responds successfully over HTTP.
+      Read the instance's configured wikis from `config/wikis.yaml` and
+      check that each one is serving MediaWiki. Each wiki's MediaWiki API
+      is queried from the instance's host; a wiki whose read API is
+      private still counts as reachable, because the denial proves
+      MediaWiki answered. A container can be up while MediaWiki returns
+      errors, so this reports what a reader sees rather than whether the
+      workload is running. Exits non-zero if any wiki fails. `canasta
+      list --check-wikis` runs the same probe across every instance.
     examples:
       - "canasta wiki-check -i mysite"
       - "canasta wiki-check --host prod1.example.com -i mysite"
