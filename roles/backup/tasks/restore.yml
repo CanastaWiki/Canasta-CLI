@@ -122,3 +122,6 @@
     msg: >-
       Restored {{ ("wiki '" ~ wiki ~ "' from") if wiki is defined else "from" }}
       snapshot {{ _resolved_snapshot }}.
+      Database tables present in the snapshot were replaced; any table
+      created since it was taken (a later extension install, a MediaWiki
+      upgrade) still exists.
