@@ -166,8 +166,13 @@ jobs:
         run: |
           sudo systemctl stop docker.socket docker.service || true
           sudo systemctl mask docker.socket docker.service || true
+          # /bin is a symlink to /usr/bin, so `type -a -P` reports the
+          # same binary twice; the second path is already gone once the
+          # first is moved.
           for d in $(type -a -P docker || true); do
-            sudo mv "$d" "$d.disabled"
+            if [ -e "$d" ]; then
+              sudo mv "$d" "$d.disabled"
+            fi
           done
           hash -r
           if command -v docker; then
