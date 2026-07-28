@@ -10,6 +10,7 @@ import os
 import sys
 
 import pytest
+import urllib.error
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -944,6 +945,92 @@ class TestEditRetry:
         assert wp._retry_delay(1) == wp.RETRY_BACKOFF_BASE * 2
         # Far-out attempts saturate at the cap.
         assert wp._retry_delay(20) == wp.RETRY_BACKOFF_MAX
+
+
+class TestConnectRetry:
+    """The publish job died twice at the login token fetch with
+    `URLError: <urlopen error timed out>`, before a single page was
+    written, leaving the CLI: reference stale. Transport failures must
+    back off and retry like the API-level ones already do."""
+
+    class _Resp:
+        def __init__(self, body):
+            self._body = body
+
+        def read(self):
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _client(self, responses):
+        """Client whose opener yields `responses` in order; an exception
+        instance in the list is raised instead of returned."""
+        c = object.__new__(wp.MediaWikiClient)
+        c.api_url = "https://wiki.example/w/api.php"
+        calls = []
+
+        class FakeOpener:
+            def open(self, req, timeout=None):
+                calls.append(req)
+                item = responses[len(calls) - 1]
+                if isinstance(item, Exception):
+                    raise item
+                return TestConnectRetry._Resp(item)
+
+        c.opener = FakeOpener()
+        return c, calls
+
+    def _timeout(self):
+        return urllib.error.URLError(TimeoutError("timed out"))
+
+    def _http_error(self, code):
+        return urllib.error.HTTPError(
+            "https://wiki.example/w/api.php", code, "boom", {}, None,
+        )
+
+    def test_retries_timeout_then_succeeds(self, monkeypatch):
+        c, calls = self._client([
+            self._timeout(), self._timeout(), b'{"ok": true}',
+        ])
+        sleeps = []
+        monkeypatch.setattr(wp.time, "sleep", sleeps.append)
+        assert c._open(c.api_url) == {"ok": True}
+        assert len(calls) == 3
+        assert sleeps == [wp._retry_delay(0), wp._retry_delay(1)]
+
+    def test_gives_up_after_max_retries(self, monkeypatch):
+        c, calls = self._client(
+            [self._timeout()] * (wp.MAX_CONNECT_RETRIES + 1)
+        )
+        monkeypatch.setattr(wp.time, "sleep", lambda s: None)
+        with pytest.raises(RuntimeError, match="Could not reach the wiki API"):
+            c._open(c.api_url)
+        assert len(calls) == wp.MAX_CONNECT_RETRIES + 1
+
+    def test_server_error_is_retried(self, monkeypatch):
+        c, calls = self._client([self._http_error(503), b'{"ok": true}'])
+        monkeypatch.setattr(wp.time, "sleep", lambda s: None)
+        assert c._open(c.api_url) == {"ok": True}
+        assert len(calls) == 2
+
+    def test_client_error_is_not_retried(self, monkeypatch):
+        c, calls = self._client([self._http_error(404)])
+        monkeypatch.setattr(wp.time, "sleep", lambda s: None)
+        with pytest.raises(urllib.error.HTTPError):
+            c._open(c.api_url)
+        assert len(calls) == 1
+
+    def test_login_token_fetch_retries(self, monkeypatch):
+        """The exact failure seen in CI: the run's first request."""
+        token = b'{"query": {"tokens": {"logintoken": "abc123+"}}}'
+        c, calls = self._client([self._timeout(), token])
+        monkeypatch.setattr(wp.time, "sleep", lambda s: None)
+        assert c._get_token("login") == "abc123+"
+        assert len(calls) == 2
 
 
 class TestReflowProse:

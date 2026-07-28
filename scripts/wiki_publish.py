@@ -27,8 +27,10 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
+import http.client
 import http.cookiejar
 
 import yaml
@@ -49,6 +51,15 @@ RETRYABLE_ERROR_CODES = {"ratelimited", "maxlag"}
 MAX_EDIT_RETRIES = 5
 RETRY_BACKOFF_BASE = 15  # seconds; doubled each retry, capped at the max
 RETRY_BACKOFF_MAX = 120
+
+# Transport-level failures worth retrying: the request never reached the
+# API, or the wiki answered with a status that means "try again". These
+# are distinct from RETRYABLE_ERROR_CODES, which are API replies to a
+# request that did arrive. The first request a run makes is the login
+# token fetch, so without this a momentary blip fails the publish before
+# a single page is written and silently leaves the reference stale.
+RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
+MAX_CONNECT_RETRIES = 5
 
 
 def _retry_delay(attempt):
@@ -802,18 +813,60 @@ class MediaWikiClient:
         )
         self._login(user, password)
 
+    def _open(self, target, data=None):
+        """Open `target` and return the decoded JSON body, retrying
+        transient transport failures with backoff.
+
+        `target` is a URL string or a prepared Request. Anything that
+        means the API never answered — connection timeout, reset, DNS,
+        a 5xx or 429 — is retried; a 4xx is a real error and is not.
+        """
+        req = (
+            urllib.request.Request(target, data=data)
+            if isinstance(target, str) else target
+        )
+        last = None
+        for attempt in range(MAX_CONNECT_RETRIES + 1):
+            try:
+                with self.opener.open(req, timeout=HTTP_TIMEOUT) as resp:
+                    return json.loads(resp.read())
+            except urllib.error.HTTPError as exc:
+                # HTTPError is a URLError subclass, so it must be caught
+                # first to keep 4xx from being retried.
+                if exc.code not in RETRYABLE_HTTP_STATUS:
+                    raise
+                last = exc
+            except (
+                urllib.error.URLError,
+                http.client.HTTPException,
+                TimeoutError,
+                ConnectionError,
+            ) as exc:
+                last = exc
+            if attempt >= MAX_CONNECT_RETRIES:
+                break
+            delay = _retry_delay(attempt)
+            print(
+                "Cannot reach %s (%s); retrying in %ds (%d/%d)"
+                % (self.api_url, last, delay, attempt + 1,
+                   MAX_CONNECT_RETRIES),
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+        raise RuntimeError(
+            "Could not reach the wiki API at %s after %d attempts: %s"
+            % (self.api_url, MAX_CONNECT_RETRIES + 1, last)
+        )
+
     def _post(self, params):
         data = urllib.parse.urlencode(params).encode()
-        req = urllib.request.Request(self.api_url, data=data)
-        with self.opener.open(req, timeout=HTTP_TIMEOUT) as resp:
-            return json.loads(resp.read())
+        return self._open(self.api_url, data=data)
 
     def _get_token(self, token_type):
         url = "%s?action=query&meta=tokens&type=%s&format=json" % (
             self.api_url, token_type,
         )
-        with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
-            data = json.loads(resp.read())
+        data = self._open(url)
         return data["query"]["tokens"][token_type + "token"]
 
     def _login(self, user, password):
@@ -870,8 +923,7 @@ class MediaWikiClient:
             "%s?action=query&meta=siteinfo&siprop=namespaces&format=json"
             % self.api_url
         )
-        with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
-            data = json.loads(resp.read())
+        data = self._open(url)
         for ns in data["query"]["namespaces"].values():
             if name in (ns.get("*"), ns.get("canonical")):
                 return ns["id"]
@@ -888,8 +940,7 @@ class MediaWikiClient:
             )
             if apcontinue:
                 url += "&apcontinue=" + urllib.parse.quote(apcontinue)
-            with self.opener.open(url, timeout=HTTP_TIMEOUT) as resp:
-                data = json.loads(resp.read())
+            data = self._open(url)
             titles.extend(
                 p["title"] for p in data["query"]["allpages"]
             )
