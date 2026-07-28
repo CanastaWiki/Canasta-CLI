@@ -39,13 +39,24 @@
          | join(' ') }}
   when: compose_command is search('podman')
 
+# Both flags are Docker Compose v2 only; podman-compose rejects them and
+# exits 2. podman-compose already skips services with a `build:` section
+# unless --force-local is given, so --ignore-buildable needs no
+# counterpart. --ignore-pull-failures has none, which leaves the podman
+# path stricter: a failed pull fails the run rather than being tolerated.
+- name: Select pull compatibility flags
+  ansible.builtin.set_fact:
+    _pull_compat_flags: >-
+      {{ '' if compose_command is search('podman')
+         else '--ignore-buildable --ignore-pull-failures' }}
+
 - name: Pull images (Compose)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
   vars:
     rx_name: "pull Compose images"
     rx_chdir: "{{ instance_path }}"
     rx_async: 1800
-    rx_cmd: "{{ compose_command }} {{ _pull_profile_flags | default('') }} pull --ignore-buildable --ignore-pull-failures"
+    rx_cmd: "{{ compose_command }} {{ _pull_profile_flags | default('') }} pull {{ _pull_compat_flags }}"
   when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Get image ID after pull
