@@ -22,7 +22,6 @@ Usage:
 """
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -36,35 +35,31 @@ import http.cookiejar
 import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
+import wiki_http  # noqa: E402
 REPO_ROOT = os.path.dirname(SCRIPT_DIR)
 DEFINITIONS_PATH = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
 PAGE_PREFIX = "CLI:"
 EDIT_DELAY = 2  # seconds between edits
-HTTP_TIMEOUT = 30  # seconds; a hung wiki API must not stall the publish
 
 # Transient API errors worth retrying rather than failing the publish:
 # 'ratelimited' is the wiki throttling the bot when a single run changes
 # many pages; 'maxlag' is the DB-replication backpressure guard. Without
 # backoff a single throttle leaves the rest of the namespace stale.
+# These are API replies to a request that did arrive, unlike the
+# transport failures wiki_http retries.
 RETRYABLE_ERROR_CODES = {"ratelimited", "maxlag"}
 MAX_EDIT_RETRIES = 5
-RETRY_BACKOFF_BASE = 15  # seconds; doubled each retry, capped at the max
-RETRY_BACKOFF_MAX = 120
 
-# Transport-level failures worth retrying: the request never reached the
-# API, or the wiki answered with a status that means "try again". These
-# are distinct from RETRYABLE_ERROR_CODES, which are API replies to a
-# request that did arrive. The first request a run makes is the login
-# token fetch, so without this a momentary blip fails the publish before
-# a single page is written and silently leaves the reference stale.
-RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
-MAX_CONNECT_RETRIES = 5
-
-
-def _retry_delay(attempt):
-    """Backoff (seconds) before retry number `attempt` (0-based)."""
-    return min(RETRY_BACKOFF_BASE * (2 ** attempt), RETRY_BACKOFF_MAX)
+# Re-exported so the edit-retry path below and the transport retries in
+# wiki_http share one backoff schedule instead of two copies of it.
+HTTP_TIMEOUT = wiki_http.HTTP_TIMEOUT
+RETRY_BACKOFF_BASE = wiki_http.RETRY_BACKOFF_BASE
+RETRY_BACKOFF_MAX = wiki_http.RETRY_BACKOFF_MAX
+MAX_CONNECT_RETRIES = wiki_http.MAX_CONNECT_RETRIES
+RETRYABLE_HTTP_STATUS = wiki_http.RETRYABLE_HTTP_STATUS
+_retry_delay = wiki_http.retry_delay
 
 
 class PermissionDeniedError(RuntimeError):
@@ -815,47 +810,9 @@ class MediaWikiClient:
 
     def _open(self, target, data=None):
         """Open `target` and return the decoded JSON body, retrying
-        transient transport failures with backoff.
-
-        `target` is a URL string or a prepared Request. Anything that
-        means the API never answered — connection timeout, reset, DNS,
-        a 5xx or 429 — is retried; a 4xx is a real error and is not.
-        """
-        req = (
-            urllib.request.Request(target, data=data)
-            if isinstance(target, str) else target
-        )
-        last = None
-        for attempt in range(MAX_CONNECT_RETRIES + 1):
-            try:
-                with self.opener.open(req, timeout=HTTP_TIMEOUT) as resp:
-                    return json.loads(resp.read())
-            except urllib.error.HTTPError as exc:
-                # HTTPError is a URLError subclass, so it must be caught
-                # first to keep 4xx from being retried.
-                if exc.code not in RETRYABLE_HTTP_STATUS:
-                    raise
-                last = exc
-            except (
-                urllib.error.URLError,
-                http.client.HTTPException,
-                TimeoutError,
-                ConnectionError,
-            ) as exc:
-                last = exc
-            if attempt >= MAX_CONNECT_RETRIES:
-                break
-            delay = _retry_delay(attempt)
-            print(
-                "Cannot reach %s (%s); retrying in %ds (%d/%d)"
-                % (self.api_url, last, delay, attempt + 1,
-                   MAX_CONNECT_RETRIES),
-                file=sys.stderr,
-            )
-            time.sleep(delay)
-        raise RuntimeError(
-            "Could not reach the wiki API at %s after %d attempts: %s"
-            % (self.api_url, MAX_CONNECT_RETRIES + 1, last)
+        transient transport failures with backoff."""
+        return wiki_http.open_json(
+            self.opener.open, target, data=data, api_url=self.api_url,
         )
 
     def _post(self, params):

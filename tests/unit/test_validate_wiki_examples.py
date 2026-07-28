@@ -308,7 +308,7 @@ class TestRequestRetry:
     def test_gives_up_after_the_cap(self, monkeypatch):
         fake = _FakeUrlopen(*[urllib.error.URLError("timed out")] * 20)
         monkeypatch.setattr(v.urllib.request, "urlopen", fake)
-        with pytest.raises(urllib.error.URLError):
+        with pytest.raises(RuntimeError, match="Could not reach the wiki API"):
             v._get("https://w/api.php", {}, sleep=lambda _: None)
         assert len(fake.calls) == v.MAX_RETRIES + 1
 
