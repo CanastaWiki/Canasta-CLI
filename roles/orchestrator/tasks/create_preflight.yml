@@ -74,6 +74,59 @@
         (_docker_check.rc | default(1) != 0)
         and (_podman_check.rc | default(1) != 0)
 
+    # Rootless Podman has two prerequisites that are invisible until the
+    # instance silently fails: systemd reaps the containers when the
+    # session that started them ends unless the user lingers, and
+    # rootlessport cannot bind 80/443 while the unprivileged port floor
+    # sits above them. Both are cheap to check and confusing to diagnose.
+    - name: Check rootless Podman prerequisites
+      when: compose_command | default('docker compose') is search('podman')
+      block:
+        - name: Ask Podman whether it is rootless
+          ansible.builtin.command:
+            cmd: podman info --format {% raw %}{{.Host.Security.Rootless}}{% endraw %}
+          register: _podman_rootless
+          changed_when: false
+          failed_when: false
+
+        - name: Read lingering and the unprivileged port floor
+          ansible.builtin.shell:
+            cmd: |
+              printf '%s\n' "$(loginctl show-user "$(id -un)" --property=Linger 2>/dev/null | cut -d= -f2)"
+              printf '%s\n' "$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null)"
+          register: _rootless_facts
+          changed_when: false
+          failed_when: false
+          when: _podman_rootless.stdout | default('') | trim == 'true'
+
+        - name: Fail when lingering is off
+          ansible.builtin.fail:
+            msg: >-
+              Rootless Podman on this host has lingering disabled, so
+              systemd stops the containers as soon as the session that
+              started them ends — the instance would be created and then
+              immediately die. Enable it with
+              'sudo loginctl enable-linger "$(id -un)"' on the target,
+              then retry.
+          when:
+            - _podman_rootless.stdout | default('') | trim == 'true'
+            - (_rootless_facts.stdout_lines | default([]))[0] | default('') | trim != 'yes'
+
+        - name: Fail when privileged ports are out of reach
+          ansible.builtin.fail:
+            msg: >-
+              Rootless Podman cannot bind ports 80 and 443 on this host:
+              net.ipv4.ip_unprivileged_port_start is
+              {{ (_rootless_facts.stdout_lines | default([]))[1] | default('?') }}.
+              Caddy would fail to start with "rootlessport cannot expose
+              privileged port 80". Either lower the floor with
+              'sudo sysctl net.ipv4.ip_unprivileged_port_start=80' (persist
+              it in /etc/sysctl.d/), or set HTTP_PORT and HTTPS_PORT above
+              1024 for this instance.
+          when:
+            - _podman_rootless.stdout | default('') | trim == 'true'
+            - ((_rootless_facts.stdout_lines | default([]))[1] | default('0') | trim | int) > 80
+
     # Port 80/443 conflict detection for Compose. Compose's caddy
     # service binds host ports 80 and 443; if anything else is
     # already serving on them, `docker compose up` will either fail
