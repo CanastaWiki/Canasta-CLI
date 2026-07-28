@@ -277,6 +277,7 @@
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _join_env
+  no_log: true  # registers the whole .env, including passwords
 
 - name: Read wikis for URL and password extraction
   canasta_wikis_yaml:
