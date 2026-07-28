@@ -57,6 +57,13 @@
       {{ _delete_query.instance.devMode | default(false) }}
     instance_managed_cluster: >-
       {{ _delete_query.instance.managedCluster | default(false) }}
+    # Without these, destroy.yml tears the instance down with the wrong
+    # runtime: `docker compose down` against a podman host removes
+    # nothing, and the containers outlive the instance.
+    compose_command: >-
+      {{ _delete_query.instance.composeCommand | default(compose_command) }}
+    inspect_command: >-
+      {{ _delete_query.instance.inspectCommand | default(inspect_command) }}
     _instance_registered: true
     _instance_host: >-
       {{ _delete_query.instance.host | default('localhost') }}
@@ -309,9 +316,30 @@
 # 'length > 5' rejects '/', '/a', '/ab', '/abc' — values short enough to
 # be plausibly the result of a corrupted registry or unset variable, and
 # 'find / -mindepth 1 -delete' is unrecoverable.
+# Rootless Podman maps the container's root to a subuid, so files the
+# containers wrote into the instance directory are owned by that subuid
+# and the operator's own `rm` cannot touch them. `podman unshare` enters
+# the namespace where those ids map back, which is the only way to
+# remove them without root.
+- name: Detect rootless Podman before cleaning the directory
+  ansible.builtin.command:
+    cmd: podman info --format {% raw %}{{.Host.Security.Rootless}}{% endraw %}
+  register: _delete_podman_rootless
+  changed_when: false
+  failed_when: false
+  when: inspect_command | default('docker') is search('podman')
+
+- name: Note whether the directory needs namespace-aware removal
+  ansible.builtin.set_fact:
+    _delete_unshare: >-
+      {{ 'podman unshare '
+         if (_delete_podman_rootless.stdout | default('') | trim) == 'true'
+         else '' }}
+
 - name: Remove instance directory contents
   ansible.builtin.command:
-    cmd: "find {{ instance_path | quote }} -mindepth 1 -delete"
+    cmd: >-
+      {{ _delete_unshare }}find {{ instance_path | quote }} -mindepth 1 -delete
     chdir: "/"
   changed_when: true
   when:
@@ -322,7 +350,7 @@
 
 - name: Remove empty instance directory
   ansible.builtin.command:
-    cmd: "rmdir {{ instance_path | quote }}"
+    cmd: "{{ _delete_unshare }}rmdir {{ instance_path | quote }}"
     chdir: "/"
   changed_when: true
   when:
@@ -336,8 +364,11 @@
     msg: >-
       Instance '{{ instance_id }}' deleted from registry. Note: the
       instance directory '{{ instance_path }}' could not be fully removed
-      (likely because it is the current working directory). Run 'cd ..'
-      then 'rmdir {{ instance_path }}' to clean it up.
+      — usually because it is the current working directory, in which case
+      'cd ..' then 'rmdir {{ instance_path }}' clears it. Under rootless
+      Podman the leftovers are owned by a subuid instead, and only
+      'podman unshare rm -rf {{ instance_path }}' can remove them.
+      Leaving them in place blocks recreating an instance with this id.
   when:
     - instance_path | default('') | length > 0
     - _rmdir is failed
