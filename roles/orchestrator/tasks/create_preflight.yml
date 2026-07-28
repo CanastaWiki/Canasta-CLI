@@ -93,25 +93,51 @@
     # sudo. The k3s probe also catches a stopped-but-not-cleaned k3s
     # (rules may still be present after `systemctl stop` alone), so
     # the message points at k3s-killall too.
+    # ss is iproute2 (Linux only); lsof is the macOS default and common
+    # on Linux. Try both, and make "no probe available" its own outcome —
+    # an unrunnable check must not read as "port is free", which is what
+    # `failed_when: false` plus an empty stdout used to produce.
     - name: Probe for userspace listener on port 80
-      ansible.builtin.command:
-        argv:
-          - ss
-          - -tlnH
-          - sport = :80
+      ansible.builtin.shell:
+        cmd: |
+          if command -v ss >/dev/null 2>&1; then
+            ss -tlnH "sport = :80"
+          elif command -v lsof >/dev/null 2>&1; then
+            lsof -nP -iTCP:80 -sTCP:LISTEN 2>/dev/null | tail -n +2
+          else
+            echo "CANASTA_PORT_PROBE_UNAVAILABLE"
+          fi
       register: _port80_listener
       changed_when: false
       failed_when: false
 
     - name: Probe for userspace listener on port 443
-      ansible.builtin.command:
-        argv:
-          - ss
-          - -tlnH
-          - sport = :443
+      ansible.builtin.shell:
+        cmd: |
+          if command -v ss >/dev/null 2>&1; then
+            ss -tlnH "sport = :443"
+          elif command -v lsof >/dev/null 2>&1; then
+            lsof -nP -iTCP:443 -sTCP:LISTEN 2>/dev/null | tail -n +2
+          else
+            echo "CANASTA_PORT_PROBE_UNAVAILABLE"
+          fi
       register: _port443_listener
       changed_when: false
       failed_when: false
+
+    # Neither tool present: say so rather than let a check that never ran
+    # look like a clean result. Not fatal — a missing lsof/ss should not
+    # block a create on an otherwise healthy host.
+    - name: Warn when the port check could not run
+      ansible.builtin.debug:
+        msg: >-
+          Could not check whether ports 80 and 443 are free: neither `ss`
+          nor `lsof` is available on this host. If something else is
+          already serving on them, compose will fail to bind (or caddy
+          will start while traffic lands on the other service).
+      when: >-
+        "CANASTA_PORT_PROBE_UNAVAILABLE" in
+        (_port80_listener.stdout | default(''))
 
     - name: Fail if port 80 is already in use
       ansible.builtin.fail:
@@ -121,7 +147,9 @@
           `canasta create` (Compose) needs ports 80 and 443 free for
           the caddy service. Stop the conflicting service or use a
           different host.
-      when: _port80_listener.stdout | default('') | trim | length > 0
+      when:
+        - _port80_listener.stdout | default('') | trim | length > 0
+        - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port80_listener.stdout | default(""))'
 
     - name: Fail if port 443 is already in use
       ansible.builtin.fail:
@@ -131,7 +159,9 @@
           `canasta create` (Compose) needs ports 80 and 443 free for
           the caddy service. Stop the conflicting service or use a
           different host.
-      when: _port443_listener.stdout | default('') | trim | length > 0
+      when:
+        - _port443_listener.stdout | default('') | trim | length > 0
+        - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port443_listener.stdout | default(""))'
 
     - name: Probe whether k3s is running
       ansible.builtin.command:
