@@ -36,6 +36,7 @@ EXIT_ALREADY_EXISTS = 3
 # so `import canasta_config` resolves the same file Ansible ships.
 sys.path.append(os.path.join(SCRIPT_DIR, "roles", "common", "module_utils"))
 import canasta_config  # noqa: E402
+from direct_commands import _helpers  # noqa: E402
 
 # Ensure Ansible uses the repo's config regardless of working directory
 os.environ.setdefault("ANSIBLE_CONFIG", ANSIBLE_CFG)
@@ -1044,7 +1045,7 @@ def handle_interactive_exec(args):
         # payload reaches the command: `docker compose exec -T` (no TTY).
         # Without it, omit -T to preserve the interactive shell behavior.
         stdin_file = getattr(args, "stdin_file", None)
-        docker_cmd = ["docker", "compose", "exec"]
+        docker_cmd = _helpers._resolve_compose_cmd(inst) + ["exec"]
         if stdin_file:
             docker_cmd.append("-T")
         docker_cmd += [service] + command

@@ -24,6 +24,9 @@ def _text(path):
         return handle.read()
 
 
+I = "{{ inspect_command | default('docker') }}"
+
+
 def test_start_renders_sidecars_for_both_orchestrators():
     body = _text(START)
     assert "canasta_render_sidecars" in body
@@ -77,7 +80,7 @@ def test_build_task_pushes_to_in_cluster_registry():
                         "k8s_build_sidecars.yml")
     body = _text(path)
     assert "k8s_ensure_registry.yml" in body
-    assert "docker build" in body and "docker push" in body
+    assert "%s build" % I in body and "%s push" % I in body
     assert "localhost:5000/canasta-{{ instance_id }}-{{ item.name }}:local" in body
 
 

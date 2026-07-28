@@ -28,16 +28,18 @@ def cmd_backup_list(args):
         local_mount = "-v %s:%s" % (qrepo, qrepo)
 
     qpath = _helpers._shell_quote(path)
+    runtime = _helpers._resolve_inspect_cmd(inst)
     cmd = (
-        "docker volume create %(vol)s >/dev/null 2>&1; "
-        "docker run --rm -i "
+        "%(rt)s volume create %(vol)s >/dev/null 2>&1; "
+        "%(rt)s run --rm -i "
         "--env-file %(path)s/.env "
         "-v %(vol)s:/currentsnapshot "
         "%(local_mount)s "
         "restic/restic "
         "--cache-dir /tmp/restic-cache "
         "snapshots"
-    ) % {"vol": _helpers._shell_quote(bvol), "path": qpath, "local_mount": local_mount}
+    ) % {"vol": _helpers._shell_quote(bvol), "path": qpath,
+         "local_mount": local_mount, "rt": runtime}
 
     if _helpers._is_localhost(host):
         try:

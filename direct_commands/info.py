@@ -475,7 +475,8 @@ def cmd_status(args):
 
     # Compose
     compose_cmd = _helpers._resolve_compose_cmd(inst)
-    running = _helpers._check_running_compose(path, host)
+    running = _helpers._check_running_compose(
+        path, host, compose_cmd=compose_cmd)
     print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
     if not path:
         print("\n(no path on file — cannot inspect containers)")

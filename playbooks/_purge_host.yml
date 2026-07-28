@@ -49,7 +49,7 @@
     # dangling by the upgrade actually get removed.
     - name: Remove superseded Canasta image tags no container references
       ansible.builtin.command:
-        cmd: "docker image rm {{ _purge_image_ref }}"
+        cmd: "{{ inspect_command | default('docker') }} image rm {{ _purge_image_ref }}"
       loop: >-
         {{ _purge_images.stdout_lines
            | reject('search', ':<none>')
@@ -66,7 +66,7 @@
     # this cannot affect a stopped instance or any volume.
     - name: Prune dangling images (sidecar rebuild orphans)
       ansible.builtin.command:
-        cmd: docker image prune -f
+        cmd: "{{ inspect_command | default('docker') }} image prune -f"
       register: _purge_dangling
       changed_when: "'Total reclaimed space: 0B' not in _purge_dangling.stdout"
 

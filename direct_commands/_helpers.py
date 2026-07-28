@@ -942,8 +942,9 @@ def _retry_on_ssh_reset(run, attempts=3):
 def _read_env(path, key):
     """Read a single value from an instance's .env file.
 
-    Parses KEY=VALUE lines (Docker Compose / Ansible format). Returns
-    the value string or None if the key is not found.
+    Parses KEY=VALUE lines and strips surrounding quotes, matching the
+    read semantics of roles/common/library/canasta_env.py — the module
+    that writes these files. Returns None if the key is not found.
     """
     env_file = os.path.join(path, ".env")
     try:
@@ -955,10 +956,17 @@ def _read_env(path, key):
                 if "=" in line:
                     k, v = line.split("=", 1)
                     if k.strip() == key:
-                        return v.strip()
+                        return _unquote(v.strip())
     except (OSError, IOError):
         pass
     return None
+
+
+def _unquote(value):
+    """Strip one layer of surrounding single or double quotes."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        return value[1:-1]
+    return value
 
 
 def _resolve_compose_cmd(inst):

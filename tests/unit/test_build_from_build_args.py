@@ -32,6 +32,9 @@ def _text(path):
         return f.read()
 
 
+I = "{{ inspect_command | default('docker') }}"
+
+
 def test_create_exposes_repeatable_build_arg():
     with open(CMD_DEFS) as f:
         defs = yaml.safe_load(f)
@@ -48,13 +51,15 @@ def test_build_from_validates_key_value():
 
 def test_build_args_forwarded_to_canasta_base_build():
     txt = _text(BUILD_FROM)
-    assert "docker build {{ _build_arg_flags }} -t canasta-base:local" in txt
+    assert "%s build {{ _build_arg_flags }} -t canasta-base:local" % I in txt
 
 
 def test_build_args_forwarded_to_canasta_build_after_base_image():
     # user args come AFTER --build-arg BASE_IMAGE so a user BASE_IMAGE wins
     # (docker uses the last value for a repeated key).
-    txt = _text(BUILD_FROM)
+    # Whitespace-normalized: the cmd is a folded scalar, so the argument
+    # order is what matters, not how the line happens to wrap.
+    txt = " ".join(_text(BUILD_FROM).split())
     assert ("--build-arg BASE_IMAGE={{ _base_image_arg }} "
             "{{ _build_arg_flags }} -t canasta:local") in txt
 

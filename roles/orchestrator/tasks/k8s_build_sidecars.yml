@@ -32,7 +32,7 @@
     - name: Build each sidecar image from its context
       ansible.builtin.command:
         cmd: >-
-          docker build
+          {{ inspect_command | default('docker') }} build
           -t localhost:5000/canasta-{{ instance_id }}-{{ item.name }}:local
           {{ (instance_path ~ '/' ~ item.build) | quote }}
       loop: "{{ _bs_build }}"
@@ -43,7 +43,7 @@
     - name: Push each sidecar image to the registry
       ansible.builtin.command:
         cmd: >-
-          docker push
+          {{ inspect_command | default('docker') }} push
           localhost:5000/canasta-{{ instance_id }}-{{ item.name }}:local
       loop: "{{ _bs_build }}"
       loop_control:

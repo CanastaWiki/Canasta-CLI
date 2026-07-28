@@ -11,7 +11,7 @@
 - name: Clean up container-owned files (Compose)
   ansible.builtin.command:
     cmd: >-
-      docker compose run --rm --no-deps -T web
+      {{ compose_command }} run --rm --no-deps -T web
       find /mediawiki/images /mediawiki/config /mediawiki/public_assets
       -mindepth 1 -delete
     chdir: "{{ instance_path }}"
