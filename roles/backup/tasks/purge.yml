@@ -57,11 +57,23 @@
       {{ _purge_list + ['--keep-tag', keep_tag] }}
   when: keep_tag is defined and keep_tag != ''
 
+# restic reports what forget/prune would remove and exits without
+# touching the repository, so the preview costs a run but no snapshots.
+- name: Add dry-run
+  ansible.builtin.set_fact:
+    _purge_list: "{{ _purge_list + ['--dry-run'] }}"
+  when: dry_run | default(false) | bool
+
 - name: Purge old backups
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
   vars:
     backup_args: "{{ _purge_list }}"
+
+- name: Note that nothing was deleted
+  ansible.builtin.debug:
+    msg: "Dry run — the repository was not modified. Listing what a real purge would remove:"
+  when: dry_run | default(false) | bool
 
 - name: Display result
   ansible.builtin.debug:
