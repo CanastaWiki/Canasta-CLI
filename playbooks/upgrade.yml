@@ -39,6 +39,15 @@
 - name: Upgrade each instance
   when: not (dry_run | default(false) | bool)
   block:
+    # Each iteration overwrites compose_command/inspect_command, so the
+    # per-instance fallback cannot reference them: an instance with no
+    # recorded runtime would inherit the previous instance's. Keep the
+    # play-scope defaults under names the loop never assigns.
+    - name: Remember the default container runtime
+      ansible.builtin.set_fact:
+        _upgrade_default_compose_command: "{{ compose_command }}"
+        _upgrade_default_inspect_command: "{{ inspect_command }}"
+
     - name: Upgrade instances
       ansible.builtin.include_tasks: _upgrade_single.yml
       loop: "{{ _upgrade_instances.instances | dict2items }}"
