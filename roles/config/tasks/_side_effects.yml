@@ -235,6 +235,7 @@
         path: "{{ instance_path }}/.env"
         state: read_all
       register: _se_caddy_env
+      no_log: true  # registers the whole .env, including passwords
 
     - name: Compute new active scheme/port/default
       vars:
@@ -359,6 +360,7 @@
         state: read
         key: CROWDSEC_BOUNCER_API_KEY
       register: _se_crowdsec_key
+      no_log: true  # holds the bouncer's API key
 
     - name: Advise on bouncer enrollment
       ansible.builtin.debug:

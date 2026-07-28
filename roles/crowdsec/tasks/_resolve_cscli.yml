@@ -18,6 +18,7 @@
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _env_profiles_cscli
+  no_log: true  # registers the whole .env, including passwords
   when:
     - compose_command is search('podman')
     - instance_orchestrator | default('compose') == 'compose'

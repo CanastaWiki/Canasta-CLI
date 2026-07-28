@@ -740,7 +740,12 @@ def generate_all_pages(data):
             # page) followed by per-subcommand links.
             if name in cmd_index:
                 link = cmd_page_title(name)
-                menu_lines.append("*** %s | canasta %s" % (link, name))
+                # Label from the display name, not the internal one, so
+                # 'wiki_check' reads 'canasta wiki-check' and matches the
+                # page the link points at.
+                menu_lines.append(
+                    "*** %s | canasta %s" % (link, cmd_display_name(name))
+                )
             elif name in SUBCOMMAND_GROUPS:
                 # Synthetic group page (hand-curated, not auto-generated).
                 menu_lines.append(
