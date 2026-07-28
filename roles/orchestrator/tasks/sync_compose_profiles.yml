@@ -7,6 +7,7 @@
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _env_profiles
+  no_log: true  # registers the whole .env, including passwords
 
 - name: Parse current profiles
   ansible.builtin.set_fact:
