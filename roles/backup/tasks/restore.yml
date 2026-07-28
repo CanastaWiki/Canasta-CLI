@@ -86,10 +86,29 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/restore_instance.yml
 
+# Everything above this point is the restore proper: the snapshot's files
+# and databases are already in place once it completes. A failure in the
+# restart therefore means "restored but not running", which is a very
+# different situation from "restore failed" — and re-running the restore
+# is the wrong response to it.
 - name: Restart instance after restore
-  ansible.builtin.include_role:
-    name: instance_lifecycle
-    tasks_from: restart.yml
+  block:
+    - name: Start the instance with the restored state
+      ansible.builtin.include_role:
+        name: instance_lifecycle
+        tasks_from: restart.yml
+  rescue:
+    - name: Report a restore that succeeded with a failed restart
+      ansible.builtin.fail:
+        msg: >-
+          The restore completed: files and databases from snapshot
+          {{ _resolved_snapshot }} are in place. Only the post-restore
+          restart failed (see the error above).
+
+          Do not re-run the restore — the data is already restored.
+          Bring the instance up with
+          'canasta start --id {{ instance_id }}' and confirm with
+          'canasta list'.
 
 # The snapshot restored config/backup-schedule.yml (if the instance had a
 # schedule); re-materialize the crontab on the instance's host so the
