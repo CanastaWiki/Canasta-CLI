@@ -34,8 +34,20 @@ command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo 
 cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi; echo "$D"
 command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
-podman --version 2>&1 || echo MISSING
+command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSING
 """
+
+
+def _has_container_runtime(docker, compose, daemon, podman_version):
+    """True when the host can actually run containers.
+
+    podman_version is matched on the expected output rather than on the
+    absence of the MISSING sentinel — a failed probe still prints text
+    containing the word "podman".
+    """
+    if "Docker" in docker and "Docker Compose" in compose and daemon == "OK":
+        return True
+    return "podman version" in podman_version.lower()
 
 
 def _parse_doctor(stdout, hostname):
@@ -123,23 +135,26 @@ def _parse_doctor(stdout, hostname):
             "(default /var/run/docker.sock)"
         )
 
-    if podman_version != "MISSING":
+    if "podman version" in podman_version.lower():
         ver = podman_version
         # Parse "podman version 4.3.1" → "4.3.1"
         m = re.search(r'(\d+\.\d+\.\d+)', ver)
         if m:
             ver_str = m.group(1)
-            parts = [int(x) for x in ver_str.split(".")]
-            # Pad to 3 components for comparison
-            while len(parts) < 3:
-                parts.append(0)
-            if parts < [4, 4, 0]:
+            # Not `parts` — that name is the split doctor output the
+            # p() helper above reads.
+            ver_parts = [int(x) for x in ver_str.split(".")]
+            while len(ver_parts) < 3:
+                ver_parts.append(0)
+            if ver_parts < [4, 4, 0]:
                 lines.append(
                     "  Podman:          %s — WARNING: podman < 4.4 has a "
                     "known Docker API bug that causes 'docker compose up' to "
                     "fail with EOF on container start. "
-                    "Install podman >= 4.4 or set compose_command=podman-compose "
-                    "in the instance .env."
+                    "Install podman >= 4.4, or pin the runtime for one "
+                    "instance: compose_command=podman-compose in a local "
+                    "instance's .env, or composeCommand in its registry "
+                    "entry for a remote one."
                     % ver_str
                 )
             else:
@@ -658,11 +673,7 @@ def cmd_doctor(args):
     compose = parts[2].strip() if len(parts) > 2 else "MISSING"
     daemon = parts[3].strip() if len(parts) > 3 else "NOT_RUNNING"
     podman_version = parts[22].strip() if len(parts) > 22 else "MISSING"
-    if "Docker" in docker and "Docker Compose" in compose and daemon == "OK":
-        pass
-    elif podman_version != "MISSING":
-        pass
-    else:
+    if not _has_container_runtime(docker, compose, daemon, podman_version):
         print("\nMissing core dependencies. Install Docker or Podman and ensure a runtime is running.",
               file=sys.stderr)
         return 1
