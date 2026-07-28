@@ -12,6 +12,16 @@
     instance_path: "{{ _inst.value.path }}"
     instance_orchestrator: "{{ _inst.value.orchestrator | default('compose') }}"
     instance_devmode: "{{ _inst.value.devMode | default(false) }}"
+    # Without these, every step of the upgrade uses the play-scope
+    # default runtime: `docker compose pull` against a podman host fails
+    # on a missing Docker socket, and the profile flags pull.yml builds
+    # for podman are never applied.
+    compose_command: >-
+      {{ _inst.value.composeCommand
+         | default(_upgrade_default_compose_command) }}
+    inspect_command: >-
+      {{ _inst.value.inspectCommand
+         | default(_upgrade_default_inspect_command) }}
     _instance_host: "{{ _inst.value.host | default('localhost') }}"
 
 - name: Switch connection to instance host
