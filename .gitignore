@@ -17,6 +17,7 @@ htmlcov/
 # Instance data (never commit credentials or test instances)
 *.env
 admin-password_*
+*.key
 values-configdata.yaml
 values-domains.yaml
 inventory/hosts.yml
