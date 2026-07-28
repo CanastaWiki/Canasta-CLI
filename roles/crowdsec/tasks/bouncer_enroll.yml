@@ -14,6 +14,7 @@
     state: read
     key: CROWDSEC_BOUNCER_API_KEY
   register: _crowdsec_key
+  no_log: true  # holds the bouncer's API key
 
 # Poll until the LAPI answers; `cscli bouncers` calls fail until the engine
 # is up (it may still be booting straight after a start).
