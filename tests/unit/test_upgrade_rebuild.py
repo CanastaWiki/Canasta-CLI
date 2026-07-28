@@ -38,13 +38,18 @@ class TestDynamicBuildableServiceDetection:
             "rather than hardcoding `web` (#562, gap 2)"
         )
 
-    def test_uses_merged_compose_config_json(self):
+    def test_uses_merged_compose_config(self):
+        # The point is that detection queries the *merged* model (main +
+        # override + dev), not the override file alone. The output format
+        # is incidental and now varies by runtime: podman-compose has no
+        # --format option, so the flag is chosen per runtime and both
+        # outputs are read with from_yaml. See
+        # test_compose_config_format_by_runtime.py.
         with open(REBUILD_TASKS) as f:
             content = f.read()
-        assert "config --format json" in content, (
-            "Buildable-service detection must use `docker compose "
-            "config --format json` so the main + override + dev "
-            "merge is what's queried, not just the override file"
+        assert "config {{ _upgrade_config_format }}" in content, (
+            "Buildable-service detection must query the merged compose "
+            "config, not just the override file"
         )
 
     def test_extract_uses_build_attribute(self):

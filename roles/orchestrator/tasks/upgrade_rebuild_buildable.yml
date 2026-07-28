@@ -48,11 +48,22 @@
              | join(' ') }}
       when: compose_command is search('podman')
 
-    - name: Render merged compose config as JSON
+    # podman-compose has no --format option and exits 2 on it; its default
+    # output is YAML. Ask Docker for JSON as before and parse both with
+    # from_yaml, which reads JSON too. Without this the command failed and
+    # `failed_when: false` turned that into an empty service list, so
+    # buildable services were silently never rebuilt on Podman.
+    - name: Select compose config format flag
+      ansible.builtin.set_fact:
+        _upgrade_config_format: >-
+          {{ '' if compose_command is search('podman') else '--format json' }}
+
+    - name: Render merged compose config
       ansible.builtin.command:
         cmd: >-
           {{ compose_command }} {{ _upgrade_compose_files | join(' ') }}
-          {{ _upgrade_profile_flags | default('') }} config --format json
+          {{ _upgrade_profile_flags | default('') }}
+          config {{ _upgrade_config_format }}
         chdir: "{{ instance_path }}"
       register: _upgrade_compose_config
       changed_when: false
@@ -61,7 +72,7 @@
     - name: Extract buildable service names
       ansible.builtin.set_fact:
         _buildable_services: >-
-          {{ ((_upgrade_compose_config.stdout | from_json).services
+          {{ ((_upgrade_compose_config.stdout | from_yaml).services
               | default({})
               | dict2items
               | selectattr('value.build', 'defined')
