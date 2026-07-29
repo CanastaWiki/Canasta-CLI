@@ -140,7 +140,7 @@
         nodeSelector: "{{ _restore_node_selector }}"
         containers:
           - name: restic
-            image: restic/restic:latest
+            image: docker.io/restic/restic:latest
             command:
               - sh
               - -c

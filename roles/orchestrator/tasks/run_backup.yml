@@ -20,10 +20,18 @@
       ansible.builtin.set_fact:
         _bvol: "canasta-backup-{{ instance_path | basename }}"
 
+    # `docker volume create` is idempotent; `podman volume create` exits
+    # 125 when the volume is already there. Tolerate only that, so a real
+    # failure — bad name, no space — still stops the backup rather than
+    # letting it run against a volume that was never created.
     - name: Ensure backup volume exists
       ansible.builtin.command:
         cmd: "{{ inspect_command }} volume create {{ _bvol }}"
-      changed_when: true
+      register: _bvol_create
+      changed_when: _bvol_create.rc == 0
+      failed_when:
+        - _bvol_create.rc != 0
+        - "'already exists' not in (_bvol_create.stderr | default(''))"
 
     - name: Stage files into backup volume
       when: >-
@@ -38,7 +46,7 @@
               {% for src, dst in backup_volumes.items() %}
                 -v {{ src }}:/src{{ loop.index0 }}:ro \
               {% endfor %}
-                alpine sh -c \
+                docker.io/library/alpine sh -c \
                 "rm -rf /currentsnapshot/* && \
               {% for src, dst in backup_volumes.items() %}
                 cp -a /src{{ loop.index0 }} {{ dst }}{{ ' && ' if not loop.last else '' }} \
@@ -59,6 +67,17 @@
           {{ (_backup_repo_env.value | default('')
               is match('^/'))
              | ternary(_backup_repo_env.value, '') }}
+
+    # Docker creates a missing bind-mount source directory; podman fails
+    # with "statfs ...: no such file or directory". Create it rather than
+    # depending on a runtime side effect, as the connecting user — which
+    # also makes the ownership reclaim below a no-op in the common case.
+    - name: Ensure the local repo directory exists
+      ansible.builtin.file:
+        path: "{{ _backup_local_repo }}"
+        state: directory
+        mode: "0755"
+      when: _backup_local_repo | length > 0
 
     # restic runs as root in the container, so a local-path repo ends up
     # root-owned and the operator cannot prune or remove their own
@@ -126,7 +145,7 @@
               {% if _backup_local_repo %}
                 -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
               {% endif %}
-                restic/restic \
+                docker.io/restic/restic \
                 --cache-dir /tmp/restic-cache \
                 {{ backup_args | join(' ') }}
             chdir: "{{ instance_path }}"
@@ -150,7 +169,7 @@
               - --rm
               - -v
               - "{{ _backup_local_repo }}:{{ _backup_local_repo }}"
-              - alpine
+              - docker.io/library/alpine
               - chown
               - -R
               - "{{ _backup_repo_parent.stat.uid }}:{{ _backup_repo_parent.stat.gid }}"
