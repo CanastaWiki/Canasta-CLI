@@ -150,3 +150,4 @@ from .argocd import (  # noqa: F401
 )
 from .rebuild import cmd_rebuild, _list_buildable_services  # noqa: F401
 from .wiki_check import cmd_wiki_check  # noqa: F401
+from .fix_sysctl import cmd_fix_sysctl  # noqa: F401

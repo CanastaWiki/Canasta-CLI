@@ -114,7 +114,7 @@ def _group_subcommands(group_name):
     return []
 
 CMD_GROUPS = [
-    ("System", ["install", "doctor", "host", "storage", "argocd", "uninstall"]),
+    ("System", ["install", "doctor", "host", "storage", "argocd", "uninstall", "fix_sysctl"]),
     ("Instance management", [
         "create", "delete", "list", "status", "wiki_check", "upgrade",
         "version", "config",

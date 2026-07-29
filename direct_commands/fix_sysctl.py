@@ -119,7 +119,7 @@ def cmd_fix_sysctl(args):
             "  echo 'net.ipv4.ip_unprivileged_port_start=80' | "
             "sudo tee /etc/sysctl.d/canasta-privport.conf" % hostname
         )
-        return 0
+        return 1
 
     print("Unexpected output from fix script:\n%s" % stdout, file=sys.stderr)
     return 1
