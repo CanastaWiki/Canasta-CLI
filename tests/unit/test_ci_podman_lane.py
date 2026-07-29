@@ -57,7 +57,7 @@ class TestPodmanLane:
         assert "run_tests.py" in runs, (
             "the Podman lane must run the integration suite"
         )
-        for test in ("lifecycle", "upgrade"):
+        for test in ("lifecycle", "upgrade", "rebuild"):
             assert test in runs, (
                 "the Podman lane must cover the %s leg -- it is where the "
                 "known Podman defects surfaced" % test
