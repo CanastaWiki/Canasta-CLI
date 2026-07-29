@@ -1,7 +1,7 @@
 ---
 # canasta install - Install dependencies on the target host.
 # Accepts one or more package names: docker, k8s-cp, k8s-worker,
-# git-crypt, canasta.
+# git-crypt, sops, canasta.
 
 # When --id is given without --host, resolve the instance's registered
 # host and switch the connection to it. This lets `canasta install

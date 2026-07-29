@@ -722,6 +722,20 @@ def hoist_flags_from_remainder(args):
         setattr(args, pos_name, new_args)
 
 
+def _positional_choices(param, name):
+    """argparse kwargs constraining a positional to a fixed set of values.
+
+    A positional with `choices` deliberately drops `metavar`: argparse
+    prints the choice set in the usage line only when no metavar shadows
+    it, and advertising the valid values is the point. Without choices,
+    the uppercase metavar is kept.
+    """
+    choices = param.get("choices")
+    if choices:
+        return {"choices": choices}
+    return {"metavar": name.upper()}
+
+
 def add_params_to_parser(parser, params):
     """Add command parameters to an argparse parser based on definitions."""
     for param in params:
@@ -769,7 +783,7 @@ def add_params_to_parser(parser, params):
                     nargs="+" if required else "*",
                     default=default,
                     help=desc,
-                    metavar=name.upper(),
+                    **_positional_choices(param, name)
                 )
             else:
                 parser.add_argument(
@@ -777,7 +791,7 @@ def add_params_to_parser(parser, params):
                     nargs="?",
                     default=default,
                     help=desc,
-                    metavar=name.upper(),
+                    **_positional_choices(param, name)
                 )
         elif ptype == "bool":
             parser.add_argument(
