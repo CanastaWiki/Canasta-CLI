@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import types
 
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -258,11 +259,11 @@ class TestListBuildableServices:
         })
         assert sorted(result) == ["extra", "web"]
 
-    def test_returns_empty_on_invalid_json(self, monkeypatch):
+    def test_returns_none_on_unparseable_output(self, monkeypatch):
         def fake_subprocess_run(cmd, **kw):
             class R:
                 returncode = 0
-                stdout = "not json"
+                stdout = "\t- not: [valid"
                 stderr = ""
             return R()
 
@@ -277,9 +278,11 @@ class TestListBuildableServices:
             "host": "localhost",
             "devMode": False,
         })
-        assert result == []
+        # None, not []: a failed render must stay distinguishable from an
+        # instance that genuinely has no buildable service.
+        assert result is None
 
-    def test_returns_empty_on_compose_config_failure(self, monkeypatch, capsys):
+    def test_returns_none_on_compose_config_failure(self, monkeypatch, capsys):
         def fake_subprocess_run(cmd, **kw):
             class R:
                 returncode = 1
@@ -298,6 +301,92 @@ class TestListBuildableServices:
             "host": "localhost",
             "devMode": False,
         })
-        assert result == []
+        # None, not []: a failed render must stay distinguishable from an
+        # instance that genuinely has no buildable service.
+        assert result is None
         err = capsys.readouterr().err
         assert "compose config failed" in err
+
+
+class TestListBuildableServicesOnPodman:
+    """The enumeration has to work on podman-compose, not just Docker.
+
+    `--format json` is Docker Compose v2 only — podman-compose has no
+    such option and exits 2 — and podman-compose ignores
+    COMPOSE_PROFILES from .env. Either one alone produced an empty
+    service list, which `canasta rebuild` reported as "nothing to
+    rebuild" while exiting 0.
+    """
+
+    def _capture(self, monkeypatch, podman, profiles=None):
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+
+            class R:
+                returncode = 0
+                stdout = (
+                    "services:\n"
+                    "  web:\n"
+                    "    build:\n"
+                    "      context: .\n"
+                    "  db:\n"
+                    "    image: mariadb:11.4\n"
+                )
+                stderr = ""
+            return R()
+
+        monkeypatch.setattr(direct_commands._helpers, "_is_localhost", lambda h: True)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_compose_file_args", lambda *a, **kw: [])
+        monkeypatch.setattr(
+            direct_commands._helpers, "_is_podman_compose", lambda i: podman)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_compose_profile_args",
+            lambda i: list(profiles or []))
+        monkeypatch.setattr(direct_commands.rebuild.subprocess, "run", fake_run)
+
+        result = direct_commands._list_buildable_services(
+            {"path": "/srv/test", "host": "localhost", "devMode": False})
+        return result, seen["cmd"]
+
+    def test_podman_gets_no_format_flag(self, monkeypatch):
+        result, cmd = self._capture(monkeypatch, podman=True)
+        assert "--format" not in cmd, (
+            "podman-compose has no --format option and exits 2 on it"
+        )
+        assert result == ["web"], (
+            "podman-compose renders YAML; the parser must read it"
+        )
+
+    def test_docker_keeps_the_format_flag(self, monkeypatch):
+        _, cmd = self._capture(monkeypatch, podman=False)
+        assert "--format" in cmd and "json" in cmd
+
+    def test_podman_profiles_are_passed_explicitly(self, monkeypatch):
+        _, cmd = self._capture(
+            monkeypatch, podman=True, profiles=["--profile", "internal-db"])
+        assert "--profile" in cmd and "internal-db" in cmd, (
+            "podman-compose ignores COMPOSE_PROFILES from .env, so profiled "
+            "services vanish from the rendered config without these flags"
+        )
+
+
+class TestRebuildFailsLoudlyWhenEnumerationBreaks:
+    def test_enumeration_failure_is_not_reported_as_nothing_to_rebuild(
+        self, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(
+            direct_commands.rebuild, "_list_buildable_services",
+            lambda *a, **kw: None)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_resolve_instance",
+            lambda a: ("mysite", {"path": "/srv/mysite", "orchestrator": "compose"}))
+        monkeypatch.setattr(
+            direct_commands._helpers, "_instance_has_sidecars", lambda i: False)
+
+        rc = direct_commands.rebuild.cmd_rebuild(
+            types.SimpleNamespace(id="mysite", no_cache=False, no_restart=False))
+        assert rc == 1, "a failed enumeration must not exit 0"
+        assert "nothing was rebuilt" in capsys.readouterr().err
