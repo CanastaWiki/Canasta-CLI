@@ -123,16 +123,29 @@ jobs:
   # Docker is taken away rather than left idle: a hardcoded `docker` call has
   # to fail here instead of quietly reaching a live daemon.
   #
-  # Versions under test: Ubuntu's podman package with podman-compose pinned
-  # to 1.3.0 — the pairing the Podman runtime fixes were verified against.
-  # podman-compose 1.6.0 is not covered; the pull step's reliance on
-  # podman-compose skipping buildable services by default is confirmed for
-  # 1.3.0 only.
+  # Both runtimes are pinned to exact versions (see the job's env below):
+  # podman 4.9.3 with podman-compose 1.3.0, the pairing the Podman runtime
+  # fixes were verified against. podman-compose 1.6.0 is not covered; the
+  # pull step's reliance on podman-compose skipping buildable services by
+  # default is confirmed for 1.3.0 only.
+  #
+  # A pin the lane cannot enforce is worse than none, because the workflow
+  # then claims a version it is not running. Runner image
+  # ubuntu24/20260726.254 ships its own podman ahead of /usr/bin on PATH:
+  # apt installed 4.9.3 and `podman --version` reported 5.8.4, which failed
+  # the 4.14.1 release on a commit that touched only VERSION and
+  # RELEASE_NOTES (#1333). So the pinned binary is forced onto PATH and the
+  # result confirmed before any test runs. Whether 5.8.4 breaks create at
+  # all is #1334.
   integration-podman:
     name: "Integration: Podman"
     if: github.event_name != 'pull_request'  # See #67
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # Job-scoped so the install and the PATH check cannot disagree.
+    env:
+      PODMAN_VERSION: "4.9.3+ds1-1ubuntu0.2"
+      PODMAN_COMPOSE_VERSION: "1.3.0"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -142,12 +155,65 @@ jobs:
       - name: Install Podman and podman-compose
         run: |
           sudo apt-get update
-          sudo apt-get install -y git-crypt podman uidmap
+          sudo apt-get install -y git-crypt uidmap
+
+          if ! sudo apt-get install -y "podman=$PODMAN_VERSION"; then
+            echo "::error::podman $PODMAN_VERSION is no longer installable" \
+                 "from the archive. Available:"
+            apt-cache madison podman || true
+            echo "Pick a 4.x version from that list, update PODMAN_VERSION," \
+                 "and note the change — this lane's results are only" \
+                 "comparable across runs at a fixed runtime (#1333)."
+            exit 1
+          fi
+
           # Onto PATH, not into the repo venv: the CLI shells out to
           # `podman-compose` by name, so it has to resolve like an
           # operator's install would.
-          python -m pip install --user podman-compose==1.3.0
+          python -m pip install --user "podman-compose==$PODMAN_COMPOSE_VERSION"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # Installing the pinned package is not enough on its own. Runner image
+      # ubuntu24/20260726.254 ships its own podman ahead of /usr/bin on PATH,
+      # so apt installed 4.9.3 while `podman --version` reported 5.8.4 — and
+      # the lane failed the 4.14.1 release on a commit that touched only
+      # VERSION and RELEASE_NOTES (#1333). Move any such binary aside so the
+      # pinned one is what runs, then confirm it.
+      - name: Make the pinned podman the one on PATH
+        run: |
+          apt_podman="$(dpkg -L podman | grep -E '^/usr/bin/podman$' | head -1)"
+          [ -n "$apt_podman" ] || {
+            echo "::error::the podman package does not own /usr/bin/podman"
+            exit 1
+          }
+
+          for p in $(type -a -P podman || true); do
+            if [ "$p" != "$apt_podman" ] && [ -e "$p" ]; then
+              echo "Shadowing $p ($("$p" --version 2>/dev/null || echo unknown))"
+              sudo mv "$p" "$p.shadowed"
+            fi
+          done
+          hash -r
+
+          resolved="$(command -v podman)"
+          version="$(podman --version | awk '{print $3}')"
+          echo "podman under test: $resolved ($version)"
+          echo "podman-compose:    $(podman-compose --version 2>&1 | tail -1)"
+
+          # The pin is the mechanism; this only proves it took effect. It can
+          # still fail if the image overwrites /usr/bin/podman itself, which
+          # leaves nothing to shadow.
+          case "$version" in
+            "${PODMAN_VERSION%%+*}") ;;
+            *)
+              echo "::error::expected podman ${PODMAN_VERSION%%+*} but" \
+                   "$version resolved from $resolved. The pinned package is" \
+                   "installed, so something on PATH is still shadowing it" \
+                   "(#1333). Whether this version works at all is #1334 —" \
+                   "do not read this as a product regression."
+              exit 1
+              ;;
+          esac
 
       # Rootless Podman prerequisites the create pre-flight enforces: without
       # lingering, systemd reaps the containers when the session ends; with
