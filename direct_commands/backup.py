@@ -35,7 +35,7 @@ def cmd_backup_list(args):
         "--env-file %(path)s/.env "
         "-v %(vol)s:/currentsnapshot "
         "%(local_mount)s "
-        "restic/restic "
+        "docker.io/restic/restic "
         "--cache-dir /tmp/restic-cache "
         "snapshots"
     ) % {"vol": _helpers._shell_quote(bvol), "path": qpath,

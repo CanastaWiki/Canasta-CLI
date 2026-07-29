@@ -38,7 +38,7 @@
               {% for src, dst in backup_volumes.items() %}
                 -v {{ src }}:/src{{ loop.index0 }}:ro \
               {% endfor %}
-                alpine sh -c \
+                docker.io/library/alpine sh -c \
                 "rm -rf /currentsnapshot/* && \
               {% for src, dst in backup_volumes.items() %}
                 cp -a /src{{ loop.index0 }} {{ dst }}{{ ' && ' if not loop.last else '' }} \
@@ -126,7 +126,7 @@
               {% if _backup_local_repo %}
                 -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
               {% endif %}
-                restic/restic \
+                docker.io/restic/restic \
                 --cache-dir /tmp/restic-cache \
                 {{ backup_args | join(' ') }}
             chdir: "{{ instance_path }}"
@@ -150,7 +150,7 @@
               - --rm
               - -v
               - "{{ _backup_local_repo }}:{{ _backup_local_repo }}"
-              - alpine
+              - docker.io/library/alpine
               - chown
               - -R
               - "{{ _backup_repo_parent.stat.uid }}:{{ _backup_repo_parent.stat.gid }}"
