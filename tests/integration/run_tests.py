@@ -463,6 +463,96 @@ def test_upgrade_rebuilds_buildable(inst):
     wait_for_wiki(inst.http_port)
 
 
+def test_rebuild(inst):
+    """`canasta rebuild` must actually rebuild, and fail loudly if it can't.
+
+    The standalone rebuild enumerates buildable services with its own
+    compose invocation rather than the upgrade path's. When that
+    enumeration broke, it returned an empty list, printed "nothing to
+    rebuild", and exited 0 — a no-op reported as a success. Assert the
+    rebuild by changing the Dockerfile's canary label and reading it back
+    off the image, the same way the upgrade path is asserted.
+    """
+    runtime = container_runtime()
+    inst_path = inst.instance_path()
+    custom_image = "%s:custom" % inst.id
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    base_image = read_env(inst.env_path())["CANASTA_IMAGE"]
+
+    def write_dockerfile(canary):
+        with open(os.path.join(inst_path, "Dockerfile.custom"), "w") as f:
+            f.write(
+                "FROM %s\nLABEL canasta.canary=%s\n" % (base_image, canary)
+            )
+
+    def image_canary():
+        result = subprocess.run(
+            [runtime, "image", "inspect", custom_image, "--format",
+             '{{ index .Config.Labels "canasta.canary" }}'],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            "could not inspect %s: %s" % (custom_image, result.stderr)
+        )
+        return result.stdout.strip()
+
+    print("Layering a custom web build over the instance image...")
+    with open(os.path.join(inst_path, "docker-compose.override.yml"), "w") as f:
+        f.write(
+            "services:\n"
+            "  web:\n"
+            "    image: %s\n"
+            "    build:\n"
+            "      context: .\n"
+            "      dockerfile: Dockerfile.custom\n" % custom_image
+        )
+    write_dockerfile("before")
+
+    print("Building the custom image...")
+    build = subprocess.run(
+        [runtime, "build", "-t", custom_image, "-f", "Dockerfile.custom", "."],
+        cwd=inst_path, capture_output=True, text=True,
+    )
+    assert build.returncode == 0, (
+        "could not build %s:\n%s" % (custom_image, build.stderr)
+    )
+    assert image_canary() == "before", "precondition: canary label not set"
+
+    print("Restarting onto the custom image...")
+    inst.run_ok("restart", "-i", inst.id)
+    wait_for_wiki(inst.http_port)
+
+    print("Editing the Dockerfile so a rebuild is observable...")
+    write_dockerfile("after")
+
+    print("Running rebuild...")
+    output = inst.run_ok("rebuild", "-i", inst.id)
+
+    # The failure mode was a success report over skipped work, so the
+    # claim itself is worth asserting, not just the exit code.
+    assert "nothing to rebuild" not in output, (
+        "rebuild found no buildable services on an instance that has one:\n%s"
+        % output
+    )
+
+    print("Verifying the buildable service was rebuilt...")
+    assert image_canary() == "after", (
+        "rebuild did not rebuild the buildable web service — %s still "
+        "carries the pre-rebuild canary label" % custom_image
+    )
+
+    print("Verifying wiki still accessible...")
+    wait_for_wiki(inst.http_port)
+
+
 def _mysql_data_volume(inst):
     """Name of the instance's MySQL data volume, as Compose derives it."""
     return "%s_mysql-data-volume" % re.sub(
@@ -3736,6 +3826,7 @@ ALL_TESTS = {
     "import": test_import_export,
     "upgrade": test_upgrade,
     "upgrade-rebuilds-buildable": test_upgrade_rebuilds_buildable,
+    "rebuild": test_rebuild,
     "upgrade-mysql-to-mariadb": test_upgrade_mysql_to_mariadb,
     "upgrade-mysql-to-mariadb-recovery": test_upgrade_mysql_to_mariadb_recovery,
     "reconcile": test_reconcile,
