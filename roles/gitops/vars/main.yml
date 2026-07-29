@@ -24,6 +24,11 @@
 # decrypts the repository named by the per-host restic_repository, so
 # sharing it would hand every host a password for a repository it does
 # not back up to.
+# Name of the merge driver registered in .gitattributes (shared) and in each
+# host's .git/config (local). Encrypted paths are stored as ciphertext, which
+# git cannot merge on its own.
+gitops_merge_driver: canasta-gitcrypt
+
 gitops_shared_keys:
   - aws_access_key_id
   - aws_secret_access_key

@@ -12,6 +12,12 @@
 - name: Detect a locked git-crypt checkout
   ansible.builtin.include_tasks: "_detect_gitcrypt_lock.yml"
 
+# Host-local, touches no tracked file, so it is safe ahead of the dirty-tree
+# check below. Registering here is what lets a repo created before the driver
+# existed start merging encrypted paths on its next pull.
+- name: Install and register the git-crypt merge driver
+  ansible.builtin.include_tasks: "_ensure_merge_driver.yml"
+
 # --- Step 1: Check for uncommitted changes ---
 # Only tracked files are a hazard: a pull can overwrite a locally modified
 # tracked file. Untracked files cannot be clobbered unless an incoming commit

@@ -50,6 +50,9 @@
       does not allow pushing. Only 'source' and 'both' roles can push.
   when: _push_role not in ['source', 'both']
 
+- name: Install and register the git-crypt merge driver
+  ansible.builtin.include_tasks: "_ensure_merge_driver.yml"
+
 # --- Migrate pre-classifier cleartext secret literals into vars.yaml ---
 # Runs before the shared-key migration so a freshly-encrypted secret can still
 # be promoted to _shared if it qualifies.
