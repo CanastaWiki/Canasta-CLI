@@ -1,0 +1,63 @@
+#!/bin/bash
+# Merge driver for the git-crypt encrypted paths in a Canasta gitops repo.
+#
+# Git hands a merge driver the three stage blobs exactly as stored, which for
+# an encrypted path is ciphertext — and ciphertext never merges, so without
+# this every concurrent edit to hosts/** is a conflict no operator can resolve
+# with ordinary git. Decrypt the stages, merge the plaintext, re-encrypt.
+#
+# The re-encryption is not optional: the clean filter does NOT run on a merge
+# result. Git stages what this script leaves in %A verbatim, so handing back
+# plaintext would commit the secrets in cleartext.
+#
+# Exit non-zero on any decrypt/encrypt failure. Git then keeps the conflict
+# and the three index stages, which is recoverable; staging a guess is not.
+#
+# Args: %O base   %A ours (result goes here)   %B theirs   %L marker size
+set -u
+
+base=$1
+ours=$2
+theirs=$3
+markers=${4:-7}
+
+MAGIC=00474954435259505400
+
+# is_encrypted below cannot tell "plaintext" from "could not look", and a
+# wrong answer skips decryption, merges ciphertext, and re-encrypts the
+# garbage under a zero exit — the one path that corrupts a vars file
+# silently. Refuse to run at all rather than guess.
+for tool in git git-crypt head od tr grep mv rm; do
+    command -v "$tool" >/dev/null 2>&1 || exit 1
+done
+
+is_encrypted() {
+    [ -s "$1" ] || return 1
+    head -c 10 "$1" | od -An -tx1 | tr -d ' \n' | grep -q "^$MAGIC"
+}
+
+# A stage can legitimately arrive as plaintext — an empty ancestor when both
+# sides added the file, or a path committed before it was encrypted — and
+# smudging that would corrupt it. The magic header decides, not the path.
+for stage in "$base" "$ours" "$theirs"; do
+    is_encrypted "$stage" || continue
+    if ! git-crypt smudge < "$stage" > "$stage.plain" 2>/dev/null; then
+        rm -f "$stage.plain"
+        exit 1
+    fi
+    mv "$stage.plain" "$stage"
+done
+
+# Labels describe a rebase, which is how gitops always pulls: the side being
+# replayed onto is the remote's, the commit being replayed is this host's.
+git merge-file --marker-size="$markers" \
+    -L remote -L base -L local "$ours" "$base" "$theirs"
+merged=$?
+
+if ! git-crypt clean < "$ours" > "$ours.enc" 2>/dev/null; then
+    rm -f "$ours.enc"
+    exit 1
+fi
+mv "$ours.enc" "$ours"
+
+exit $merged

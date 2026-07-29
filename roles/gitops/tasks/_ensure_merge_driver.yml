@@ -1,0 +1,56 @@
+---
+# Install and register the git-crypt aware merge driver on this host.
+#
+# The driver name in .gitattributes is shared through the repo, but the driver
+# itself is not: git resolves it through merge.<name>.driver in .git/config,
+# which no clone carries. Every host has to register it locally, so this runs
+# from init, join, pull and push — an in-the-wild repo self-heals on its next
+# pull rather than needing an operator to visit each host.
+#
+# Host-local only: nothing here touches a tracked file, so it is safe to run
+# before a pull, which refuses to proceed on a dirty tree.
+#
+# An unregistered driver is not a failure — git falls back to the ordinary
+# binary conflict, which is what these repos do today.
+#
+# Requires: instance_path.
+
+- name: Install the git-crypt merge driver
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/git-crypt-merge"
+    dest: "{{ instance_path }}/.git/canasta-git-crypt-merge"
+    mode: "0755"
+
+- name: Register the merge driver name
+  ansible.builtin.command:
+    cmd: >-
+      git config merge.{{ gitops_merge_driver }}.name
+      "Canasta git-crypt aware merge"
+    chdir: "{{ instance_path }}"
+  register: _merge_driver_name
+  changed_when: _merge_driver_name.rc == 0
+
+# %L is the conflict marker size; passing it keeps a nested conflict from
+# producing markers git cannot tell apart.
+- name: Register the merge driver command
+  ansible.builtin.command:
+    cmd: >-
+      git config merge.{{ gitops_merge_driver }}.driver
+      "{{ instance_path }}/.git/canasta-git-crypt-merge %O %A %B %L"
+    chdir: "{{ instance_path }}"
+  register: _merge_driver_cmd
+  changed_when: _merge_driver_cmd.rc == 0
+
+# Git only calls the driver if an attribute names it, and the tracked
+# .gitattributes in a repo created before the driver existed does not.
+# .git/info/attributes says it host-locally: not tracked, not cloned, and
+# merged per-attribute with the tracked file, which keeps supplying filter
+# and diff. That closes the window without committing anything — and without
+# two hosts racing to edit the same tracked line.
+- name: Name the merge driver for this checkout
+  ansible.builtin.lineinfile:
+    path: "{{ instance_path }}/.git/info/attributes"
+    regexp: '^hosts/\*\*\s+merge='
+    line: "hosts/** merge={{ gitops_merge_driver }}"
+    create: true
+    mode: "0644"
