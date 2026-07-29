@@ -1,0 +1,134 @@
+---
+# Install Podman + podman-compose and configure rootless prerequisites.
+# Idempotent — skips if podman is already installed.
+#
+# Rootless Podman needs two host-level settings that are confusing to
+# diagnose post-install:
+#   1. `loginctl enable-linger $USER` — without it, systemd reaps the
+#      containers when the session that started them ends.
+#   2. `net.ipv4.ip_unprivileged_port_start=80` — without it, rootless
+#      containers cannot bind ports 80 and 443.
+
+- name: Determine operator (SSH) user
+  ansible.builtin.command: id -un
+  become: false
+  changed_when: false
+  register: _install_user_cmd
+
+- name: Set install user fact
+  ansible.builtin.set_fact:
+    _install_user: >-
+      {{ ansible_user | default(_install_user_cmd.stdout, true) }}
+
+- name: Warn on unsupported platforms
+  ansible.builtin.fail:
+    msg: >-
+      'canasta install podman' is for Linux servers only.
+  when: ansible_system | default(lookup('pipe', 'uname -s')) not in ['Linux']
+
+- name: Check if podman is already installed
+  ansible.builtin.command:
+    cmd: podman --version
+  register: _podman_installed
+  changed_when: false
+  ignore_errors: true
+
+- name: Skip if podman already available
+  ansible.builtin.debug:
+    msg: "Podman is already installed."
+  when: _podman_installed.rc == 0
+
+- name: Install Podman
+  when: _podman_installed.rc != 0
+  become: true
+  block:
+    - name: Report installing Podman
+      ansible.builtin.debug:
+        msg: "Installing Podman + podman-compose..."
+
+    - name: Gather OS and hardware facts
+      ansible.builtin.setup:
+        gather_subset:
+          - distribution
+          - hardware
+
+    - name: Install Podman (Debian/Ubuntu)
+      when: ansible_os_family == 'Debian'
+      ansible.builtin.apt:
+        name:
+          - podman
+          - podman-compose
+        state: present
+        update_cache: true
+
+    - name: Install Podman (RHEL/CentOS/Fedora)
+      when: ansible_os_family == 'RedHat'
+      ansible.builtin.dnf:
+        name:
+          - podman
+          - podman-compose
+        state: present
+
+- name: Configure rootless prerequisites
+  become: true
+  block:
+    - name: Report configuring rootless prerequisites
+      ansible.builtin.debug:
+        msg: "Enabling lingering and lowering unprivileged port floor..."
+
+    - name: Enable lingering for the operator user
+      ansible.builtin.command:
+        cmd: "loginctl enable-linger {{ _install_user }}"
+      changed_when: true
+      register: _linger_result
+      failed_when: false
+
+    - name: Warn if lingering could not be enabled
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Could not enable lingering for '{{ _install_user }}'.
+          Without linger, systemd stops containers when the session ends.
+          Enable it manually: sudo loginctl enable-linger {{ _install_user }}
+      when: _linger_result.rc | default(1) != 0
+
+    - name: Read the current unprivileged port floor
+      ansible.builtin.shell:
+        cmd: cat /proc/sys/net/ipv4/ip_unprivileged_port_start
+      register: _current_floor
+      changed_when: false
+      failed_when: false
+
+    - name: Set unprivileged port floor to 80
+      ansible.builtin.command:
+        cmd: sysctl -w net.ipv4.ip_unprivileged_port_start=80
+      changed_when: true
+      when:
+        - _current_floor.stdout | default('0') | trim | int > 80
+
+    - name: Persist the port floor setting
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/canasta-privport.conf
+        content: |
+          # Lowered by 'canasta install podman' so rootless containers
+          # can bind privileged ports (80, 443).
+          net.ipv4.ip_unprivileged_port_start=80
+        mode: "0644"
+      register: _persist_result
+      failed_when: false
+
+    - name: Warn if the port floor could not be persisted
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Runtime fix applied but could not write
+          /etc/sysctl.d/canasta-privport.conf. The fix is active now
+          but will not survive a reboot. To persist manually:
+          echo 'net.ipv4.ip_unprivileged_port_start=80' |
+          sudo tee /etc/sysctl.d/canasta-privport.conf
+      when: _persist_result is failed
+
+- name: Report Podman installed
+  ansible.builtin.debug:
+    msg: >-
+      Podman installed and configured. Rootless containers on this host
+      can now bind ports 80 and 443, and lingering is enabled so they
+      survive session logout.

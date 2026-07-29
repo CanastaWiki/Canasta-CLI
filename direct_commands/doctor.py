@@ -115,13 +115,9 @@ def _parse_doctor(stdout, hostname):
         if port_floor is not None and port_floor > 80:
             lines.append(
                 "  Privileged ports: BLOCKED — "
-                "net.ipv4.ip_unprivileged_port_start=%d. Rootless Docker "
+                "net.ipv4.ip_unprivileged_port_start=%d. Rootless containers "
                 "cannot bind Canasta's port 80/443. Fix with:\n"
-                "                     sudo sysctl "
-                "net.ipv4.ip_unprivileged_port_start=80\n"
-                "                     echo "
-                "net.ipv4.ip_unprivileged_port_start=80 | sudo tee "
-                "/etc/sysctl.d/canasta-privport.conf"
+                "                     canasta install podman"
                 % port_floor
             )
         elif port_floor is not None:

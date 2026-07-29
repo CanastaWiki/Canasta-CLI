@@ -3493,8 +3493,7 @@ class TestDoctor:
         result = direct_commands._parse_doctor(stdout, "myhost")
         assert "Privileged ports: BLOCKED" in result
         assert "ip_unprivileged_port_start=1024" in result
-        assert "sudo sysctl net.ipv4.ip_unprivileged_port_start=80" in result
-        assert "/etc/sysctl.d/canasta-privport.conf" in result
+        assert "canasta install podman" in result
 
     def test_parse_doctor_rootless_with_priv_ports_ok(self):
         d = direct_commands._SENTINEL
