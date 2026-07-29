@@ -903,6 +903,7 @@ commands:
         positional: true
         multi: true
         required: true
+        choices: [k8s]
         description: "Dependencies to uninstall (k8s)"
       - name: cp_host
         type: string
