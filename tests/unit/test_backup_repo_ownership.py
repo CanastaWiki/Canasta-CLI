@@ -66,10 +66,24 @@ class TestComposeReclaimsOwnership:
             "ansible.builtin.command", {}).get("argv", [])]
         assert "chown" in argv, "the reclaim task does not chown"
         joined = " ".join(argv)
-        assert "_backup_repo_parent.stat.uid" in joined, (
+        # The target is computed per runtime rather than interpolated here.
+        # The chown runs inside a container, and rootless Podman maps
+        # container uid N to subuid_base + N - 1, so passing the host uid
+        # through hands the repo to a subuid nobody can use. The Docker
+        # branch still derives from the parent directory, asserted below;
+        # both branches are covered in
+        # test_backup_ownership_reclaim_namespace.py.
+        assert "_backup_chown_target" in joined, (
             "ownership must come from the repo's parent directory, not a "
             "guess at who ran the command"
         )
+        chooser = next(
+            t for t in _tasks(COMPOSE_BACKUP)
+            if "Choose the in-container ownership target"
+            in str(t.get("name", ""))
+        )
+        assert "_backup_repo_parent.stat.uid" in str(
+            chooser["ansible.builtin.set_fact"]["_backup_chown_target"])
         assert "-R" in argv, "the whole repo tree needs chowning, not just its root"
 
     def test_it_runs_even_when_restic_fails(self):

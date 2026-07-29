@@ -158,6 +158,33 @@
               stdout: "{{ _compose_restic_result.stdout }}"
               rc: "{{ _compose_restic_result.rc }}"
       always:
+        # The chown below runs inside the container, so its uid is read
+        # through the runtime's user namespace. Rootless Podman maps
+        # container uid 0 to the operator and container uid N to
+        # subuid_base + N - 1 — so passing the host uid straight through
+        # hands the repo to a subuid nobody can use. Docker has no such
+        # mapping and wants the host uid.
+        - name: Detect rootless Podman for the ownership handback
+          ansible.builtin.command:
+            cmd: podman info --format {% raw %}{{.Host.Security.Rootless}}{% endraw %}
+          register: _backup_podman_rootless
+          changed_when: false
+          failed_when: false
+          when:
+            - _backup_local_repo | length > 0
+            - inspect_command | default('docker') is search('podman')
+
+        - name: Choose the in-container ownership target
+          ansible.builtin.set_fact:
+            _backup_chown_target: >-
+              {{ '0:0'
+                 if (_backup_podman_rootless.stdout | default('') | trim) == 'true'
+                 else (_backup_repo_parent.stat.uid | string) + ':'
+                      + (_backup_repo_parent.stat.gid | string) }}
+          when:
+            - _backup_local_repo | length > 0
+            - _backup_repo_parent.stat.exists | default(false)
+
         # `always`, not a following task: restic failing aborts the block,
         # and a repo left root-owned after a failed run is exactly when the
         # operator needs to inspect it. Mirrors the K8s path (#1205).
@@ -172,10 +199,27 @@
               - docker.io/library/alpine
               - chown
               - -R
-              - "{{ _backup_repo_parent.stat.uid }}:{{ _backup_repo_parent.stat.gid }}"
+              - "{{ _backup_chown_target }}"
               - "{{ _backup_local_repo }}"
+          register: _backup_reclaim
           changed_when: true
           failed_when: false
           when:
             - _backup_local_repo | length > 0
             - _backup_repo_parent.stat.exists | default(false)
+
+        # The reclaim is best-effort by design — it must not turn a good
+        # backup into a failure — but a silent one leaves the operator
+        # locked out of their own repo with nothing to go on.
+        - name: Warn when repo ownership was not restored
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: could not restore ownership of {{ _backup_local_repo }}.
+              The backup itself is unaffected, but pruning or removing it may
+              need elevated access
+              {{ "(on rootless Podman: 'podman unshare rm -rf " ~ _backup_local_repo ~ "')"
+                 if (_backup_podman_rootless.stdout | default('') | trim) == 'true'
+                 else "(try sudo)" }}.
+          when:
+            - _backup_reclaim is defined
+            - _backup_reclaim.rc | default(0) != 0
