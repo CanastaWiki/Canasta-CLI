@@ -85,7 +85,7 @@ jobs:
     # See #67.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -112,8 +112,103 @@ jobs:
       - name: Run core tests
         run: >-
           .venv/bin/python tests/integration/run_tests.py
-          lifecycle import upgrade version doctor host-management
-        timeout-minutes: 20
+          lifecycle import upgrade upgrade-rebuilds-buildable
+          version doctor host-management
+        timeout-minutes: 25
+
+  # Podman is a supported container runtime, but every other integration job
+  # runs on Docker — so a Podman-only regression ships with a green suite.
+  # This lane mirrors integration-core's compose legs on podman-compose.
+  #
+  # Docker is taken away rather than left idle: a hardcoded `docker` call has
+  # to fail here instead of quietly reaching a live daemon.
+  #
+  # Versions under test: Ubuntu's podman package with podman-compose pinned
+  # to 1.3.0 — the pairing the Podman runtime fixes were verified against.
+  # podman-compose 1.6.0 is not covered; the pull step's reliance on
+  # podman-compose skipping buildable services by default is confirmed for
+  # 1.3.0 only.
+  integration-podman:
+    name: "Integration: Podman"
+    if: github.event_name != 'pull_request'  # See #67
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Podman and podman-compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-crypt podman uidmap
+          # Onto PATH, not into the repo venv: the CLI shells out to
+          # `podman-compose` by name, so it has to resolve like an
+          # operator's install would.
+          python -m pip install --user podman-compose==1.3.0
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # Rootless Podman prerequisites the create pre-flight enforces: without
+      # lingering, systemd reaps the containers when the session ends; with
+      # the unprivileged port floor above 80, the pre-flight refuses to run
+      # at all (it cannot see the instance's HTTP_PORT that early).
+      - name: Satisfy rootless Podman prerequisites
+        run: |
+          sudo loginctl enable-linger "$(id -un)"
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80
+          grep -q "^$(id -un):" /etc/subuid || sudo usermod \
+            --add-subuids 100000-165535 --add-subgids 100000-165535 \
+            "$(id -un)"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+
+      - name: Remove Docker so only Podman is reachable
+        run: |
+          sudo systemctl stop docker.socket docker.service || true
+          sudo systemctl mask docker.socket docker.service || true
+          # /bin is a symlink to /usr/bin, so `type -a -P` reports the
+          # same binary twice; the second path is already gone once the
+          # first is moved.
+          for d in $(type -a -P docker || true); do
+            if [ -e "$d" ]; then
+              sudo mv "$d" "$d.disabled"
+            fi
+          done
+          hash -r
+          if command -v docker; then
+            echo "docker is still on PATH" >&2
+            exit 1
+          fi
+
+      - name: Show runtime versions
+        run: |
+          podman --version
+          podman-compose --version
+          podman info >/dev/null
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+
+      - name: Run Podman tests
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          lifecycle upgrade upgrade-rebuilds-buildable doctor
+        timeout-minutes: 35
 
   integration-features:
     name: "Integration: Features"
