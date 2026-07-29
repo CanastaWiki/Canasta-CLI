@@ -20,9 +20,40 @@ TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 PULLS = ("pull_compose.yml", "pull_kubernetes.yml")
 
 
-def _tasks(name):
+def _load(name):
     with open(os.path.join(TASKS, name)) as fh:
-        return yaml.safe_load(fh)
+        return yaml.safe_load(fh) or []
+
+
+def _tasks(name, _seen=None):
+    """Every task the file runs, following blocks and same-role includes.
+
+    The rollback and its explanation live in _explain_pull_failure.yml, shared
+    by both pull variants, so the assertions below have to look through the
+    include rather than only at the top level.
+    """
+    seen = set() if _seen is None else _seen
+    if name in seen:
+        return []
+    seen.add(name)
+
+    def walk(tasks):
+        out = []
+        for task in tasks or []:
+            out.append(task)
+            for key in ("block", "rescue", "always"):
+                out.extend(walk(task.get(key)))
+            inc = (task.get("ansible.builtin.include_tasks")
+                   or task.get("include_tasks"))
+            target = inc if isinstance(inc, str) else (inc or {}).get("file", "")
+            target = os.path.basename(str(target).strip())
+            if target.endswith(".yml") and os.path.isfile(
+                os.path.join(TASKS, target)
+            ):
+                out.extend(_tasks(target, seen))
+        return out
+
+    return walk(_load(name))
 
 
 def _cmds(tasks):
