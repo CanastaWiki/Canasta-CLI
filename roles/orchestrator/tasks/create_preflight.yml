@@ -120,7 +120,6 @@
           changed_when: false
           failed_when: false
           when:
-            - ansible_system == 'Linux'
             - _podman_rootless.stdout | default('') | trim == 'true'
             - ((_rootless_facts.stdout_lines | default([]))[1] | default('0') | trim | int) > 80
 
