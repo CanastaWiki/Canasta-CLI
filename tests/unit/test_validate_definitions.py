@@ -140,6 +140,110 @@ class TestExampleChecks:
         assert not offenders, "\n  ".join([""] + offenders)
 
 
+class TestDispatchChecks:
+    """A command's accepted values and the branches its playbook takes
+    have to be the same set.
+
+    Both directions are bugs and neither is visible at runtime: a choice
+    nothing branches on exits 0 having done nothing, and a branch no
+    choice can reach is dead code that looks live — which is how
+    `when: "'podman' in _install_packages"` sat in install.yml while
+    `choices:` still rejected `podman`.
+    """
+
+    REPO_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..")
+    )
+
+    def _playbook(self, name):
+        return os.path.join(self.REPO_ROOT, "playbooks", name)
+
+    def _write(self, tmpdir, body):
+        path = os.path.join(tmpdir, "pb.yml")
+        with open(path, "w") as f:
+            f.write(body)
+        return path
+
+    IDIOM = """---
+- name: Split the requested packages
+  ansible.builtin.set_fact:
+    _pkgs: "{{ packages.split() }}"
+
+- name: Install one
+  ansible.builtin.debug:
+    msg: one
+  when: "'one' in _pkgs"
+
+- name: Install two
+  ansible.builtin.debug:
+    msg: two
+  when:
+    - "'two' in _pkgs"
+    - some_other_condition
+"""
+
+    def test_the_fact_and_its_branches_are_found(self, tmp_dir):
+        path = self._write(tmp_dir, self.IDIOM)
+        fact, literals = validate_definitions.dispatch_literals(path, "packages")
+        assert fact == "_pkgs"
+        assert literals == {"one", "two"}
+
+    def test_a_branch_with_no_matching_choice_is_reported(self, tmp_dir):
+        path = self._write(tmp_dir, self.IDIOM)
+        param = {"name": "packages", "choices": ["one"]}
+        assert validate_definitions.check_dispatch({}, param, path) == [
+            "_pkgs branches on 'two', which is not an accepted choice"
+        ]
+
+    def test_a_choice_nothing_branches_on_is_reported(self, tmp_dir):
+        path = self._write(tmp_dir, self.IDIOM)
+        param = {"name": "packages", "choices": ["one", "two", "three"]}
+        assert validate_definitions.check_dispatch({}, param, path) == [
+            "'three' is an accepted choice but nothing dispatches on it"
+        ]
+
+    def test_agreement_is_silent(self, tmp_dir):
+        path = self._write(tmp_dir, self.IDIOM)
+        param = {"name": "packages", "choices": ["one", "two"]}
+        assert validate_definitions.check_dispatch({}, param, path) == []
+
+    def test_a_playbook_without_the_idiom_is_not_checked(self, tmp_dir):
+        # create --orchestrator and gitops init --role consume their
+        # value rather than branching on it; demanding a branch per
+        # choice would be a false positive.
+        path = self._write(tmp_dir, "---\n- name: Noop\n  ansible.builtin.debug:\n"
+                                    "    msg: hi\n")
+        param = {"name": "packages", "choices": ["one"]}
+        assert validate_definitions.dispatch_literals(path, "packages") == (
+            None, set())
+        assert validate_definitions.check_dispatch({}, param, path) == []
+
+    def test_an_unrelated_membership_test_is_not_a_dispatch(self, tmp_dir):
+        # _purge_host.yml has `'Deleted' in _purge_crictl.stdout`, which
+        # is a string test on command output, not a package branch.
+        path = self._write(tmp_dir, self.IDIOM + """
+- name: Unrelated
+  ansible.builtin.debug:
+    msg: x
+  changed_when: "'Deleted' in _other.stdout"
+  when: "'Deleted' in _other.stdout"
+""")
+        _, literals = validate_definitions.dispatch_literals(path, "packages")
+        assert literals == {"one", "two"}
+
+    def test_install_choices_and_branches_agree(self):
+        param = {"name": "packages",
+                 "choices": ["docker", "k8s-cp", "k8s-worker", "git-crypt",
+                             "sops", "podman", "canasta"]}
+        assert validate_definitions.check_dispatch(
+            {}, param, self._playbook("install.yml")) == []
+
+    def test_uninstall_choices_and_branches_agree(self):
+        param = {"name": "packages", "choices": ["k8s"]}
+        assert validate_definitions.check_dispatch(
+            {}, param, self._playbook("uninstall.yml")) == []
+
+
 class TestDirectOnlyInvariants:
     """Invariants that have to hold for 'direct_only: true' commands.
 

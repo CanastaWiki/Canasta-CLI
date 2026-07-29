@@ -1,7 +1,11 @@
 ---
 # canasta install - Install dependencies on the target host.
 # Accepts one or more package names: docker, k8s-cp, k8s-worker,
-# git-crypt, sops, canasta.
+# git-crypt, sops, canasta, podman.
+#
+# Package names are the CLI's own, dispatched on as-is. The task files
+# below keep the name of the software they install (k3s), which is not
+# the name the operator asks for (k8s-cp).
 
 # When --id is given without --host, resolve the instance's registered
 # host and switch the connection to it. This lets `canasta install
@@ -13,20 +17,16 @@
     - id is defined and id != ''
     - target_host is not defined or target_host == '' or target_host == 'localhost'
 
-- name: Normalize package names
+- name: Split the requested packages
   ansible.builtin.set_fact:
-    _install_packages: >-
-      {{ packages.split()
-         | map('regex_replace', '^k8s-cp$', 'k3s')
-         | map('regex_replace', '^k8s-worker$', 'k3s-worker')
-         | list }}
+    _install_packages: "{{ packages.split() }}"
 
 - name: Validate packages
   ansible.builtin.fail:
     msg: >-
       Unknown package '{{ item }}'. Supported: docker, k8s-cp,
       k8s-worker, git-crypt, sops, canasta, podman.
-  when: item not in ['docker', 'k3s', 'k3s-worker', 'git-crypt', 'sops', 'canasta', 'podman']
+  when: item not in ['docker', 'k8s-cp', 'k8s-worker', 'git-crypt', 'sops', 'canasta', 'podman']
   loop: "{{ _install_packages }}"
 
 - name: Validate k8s-cp + k8s-worker not requested together
@@ -36,8 +36,8 @@
       A node is either the cluster's control plane or a worker, not
       both.
   when:
-    - "'k3s' in _install_packages"
-    - "'k3s-worker' in _install_packages"
+    - "'k8s-cp' in _install_packages"
+    - "'k8s-worker' in _install_packages"
 
 - name: Validate --cp-host is provided for k8s-worker
   ansible.builtin.fail:
@@ -46,7 +46,7 @@
       control plane host registered via 'canasta host add'. Canasta
       SSHs to that host to fetch the join token and cluster API URL.
   when:
-    - "'k3s-worker' in _install_packages"
+    - "'k8s-worker' in _install_packages"
     - not (cp_host is defined and (cp_host | length > 0))
 
 - name: Install Docker
@@ -59,13 +59,13 @@
   ansible.builtin.include_role:
     name: install
     tasks_from: k3s.yml
-  when: "'k3s' in _install_packages"
+  when: "'k8s-cp' in _install_packages"
 
 - name: Install Kubernetes worker (k3s agent joined to control plane)
   ansible.builtin.include_role:
     name: install
     tasks_from: k3s_worker.yml
-  when: "'k3s-worker' in _install_packages"
+  when: "'k8s-worker' in _install_packages"
 
 - name: Install git-crypt
   ansible.builtin.include_role:

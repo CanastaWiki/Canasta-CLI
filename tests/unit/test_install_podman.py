@@ -68,13 +68,12 @@ class TestTheCommandIsReachable:
         )
 
     def test_the_choices_match_what_the_playbook_dispatches_on(self):
+        # The playbook dispatches on the CLI's own package names, so this
+        # is a literal match — no translation table to keep in step.
         with open(INSTALL) as f:
             body = f.read()
         for pkg in _install_param()["choices"]:
-            # k8s-cp/k8s-worker are normalized to k3s names before dispatch.
-            expected = {"k8s-cp": "k3s", "k8s-worker": "k3s-worker"}.get(
-                pkg, pkg)
-            assert "'%s' in _install_packages" % expected in body, (
+            assert "'%s' in _install_packages" % pkg in body, (
                 "'%s' is accepted but nothing dispatches on it" % pkg
             )
 

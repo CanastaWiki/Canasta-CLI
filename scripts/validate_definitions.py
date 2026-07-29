@@ -119,6 +119,77 @@ def check_example(command, example, table, definitions):
     return errors
 
 
+def iter_tasks(node):
+    """Yield every task mapping in a playbook body, blocks included."""
+    if isinstance(node, list):
+        for item in node:
+            for task in iter_tasks(item):
+                yield task
+    elif isinstance(node, dict):
+        yield node
+        for key in ("block", "rescue", "always"):
+            if key in node:
+                for task in iter_tasks(node[key]):
+                    yield task
+
+
+def dispatch_literals(playbook_path, param_name):
+    """(fact name, values dispatched on) for a parameter's playbook.
+
+    A command dispatches on a parameter by deriving a fact from it and
+    branching with `'<value>' in <fact>`. The set_fact is what ties the
+    two together — anchoring on the fact name is what keeps an unrelated
+    `'Deleted' in _purge_crictl.stdout` out of the results.
+
+    Returns (None, set()) when the playbook does not use the idiom;
+    `create --orchestrator` and `gitops init --role` are consumed as
+    values rather than branched on, and must not be forced into it.
+    """
+    with open(playbook_path) as f:
+        tasks = yaml.safe_load(f) or []
+
+    reads_param = re.compile(r"\{\{\s*%s\b" % re.escape(param_name))
+    fact = None
+    for task in iter_tasks(tasks):
+        assignments = task.get("set_fact") or task.get("ansible.builtin.set_fact")
+        for key, value in (assignments or {}).items():
+            if isinstance(value, str) and reads_param.search(value):
+                fact = key
+    if fact is None:
+        return None, set()
+
+    branch = re.compile(r"'([^']+)'\s+in\s+%s\b" % re.escape(fact))
+    literals = set()
+    for task in iter_tasks(tasks):
+        when = task.get("when")
+        for clause in (when if isinstance(when, list) else [when]):
+            if isinstance(clause, str):
+                literals.update(branch.findall(clause))
+    return fact, literals
+
+
+def check_dispatch(cmd, param, playbook_path):
+    """Errors where a parameter's `choices:` and its playbook disagree.
+
+    Both directions are bugs, with different fixes: a choice nothing
+    branches on exits 0 having done nothing, and a branch no choice can
+    reach is dead code that looks live.
+    """
+    fact, dispatched = dispatch_literals(playbook_path, param["name"])
+    if fact is None:
+        return []
+    choices = set(param.get("choices") or [])
+    errors = []
+    for value in sorted(choices - dispatched):
+        errors.append(
+            "'%s' is an accepted choice but nothing dispatches on it" % value)
+    for value in sorted(dispatched - choices):
+        errors.append(
+            "%s branches on '%s', which is not an accepted choice"
+            % (fact, value))
+    return errors
+
+
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(script_dir)
@@ -181,6 +252,11 @@ def main():
                     ppfx, ptype, ", ".join(sorted(VALID_TYPES))))
             if ptype == "choice" and not param.get("choices"):
                 errors.append("%s: type 'choice' requires 'choices' list" % ppfx)
+            # Needs the playbook on disk; a missing one is already an error.
+            pb_path = os.path.join(playbooks_dir, playbook) if playbook else ""
+            if param.get("choices") and pb_path and os.path.exists(pb_path):
+                for problem in check_dispatch(cmd, param, pb_path):
+                    errors.append("%s: %s" % (ppfx, problem))
 
         # Check the documented examples actually parse
         for example in cmd.get("examples") or []:
