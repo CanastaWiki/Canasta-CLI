@@ -730,6 +730,40 @@ commands:
           registered. Mutually exclusive with --host; --host wins if
           both are given.
 
+  - name: fix_sysctl
+    description: "Fix the unprivileged port floor for rootless runtimes"
+    long_description: |
+      Lower the host's unprivileged port floor
+      (`net.ipv4.ip_unprivileged_port_start`) to 80, so rootless
+      container runtimes (Podman, rootless Docker) can bind ports 80
+      and 443 without running as root.
+
+      Applies the change immediately with `sysctl -w` and persists it
+      to `/etc/sysctl.d/canasta-privport.conf` so it survives a reboot.
+      Idempotent — if the port floor is already 80 or lower, reports
+      nothing to fix.
+
+      Requires passwordless sudo on the target host. Use `--host` to
+      fix a remote host, or `--id` to fix the host where a specific
+      instance is registered.
+    examples:
+      - "canasta fix-sysctl"
+      - "canasta fix-sysctl --host prod1.example.com"
+      - "canasta fix-sysctl -i mysite"
+    direct_only: true
+    parameters:
+      - name: host
+        short: H
+        type: string
+        description: "Target host (default: localhost)"
+      - name: id
+        short: i
+        type: string
+        description: >-
+          Canasta instance ID — fix the host where this instance is
+          registered. Mutually exclusive with --host; --host wins if
+          both are given.
+
   - name: wiki_check
     description: "Check that configured wikis are accessible"
     long_description: |

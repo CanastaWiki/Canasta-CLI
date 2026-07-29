@@ -112,6 +112,28 @@
             - _podman_rootless.stdout | default('') | trim == 'true'
             - (_rootless_facts.stdout_lines | default([]))[0] | default('') | trim != 'yes'
 
+        - name: Attempt runtime fix for unprivileged port floor
+          ansible.builtin.shell:
+            cmd: sysctl -w net.ipv4.ip_unprivileged_port_start=80
+          become: yes
+          register: _sysctl_fix
+          changed_when: false
+          failed_when: false
+          when:
+            - ansible_system == 'Linux'
+            - _podman_rootless.stdout | default('') | trim == 'true'
+            - ((_rootless_facts.stdout_lines | default([]))[1] | default('0') | trim | int) > 80
+
+        - name: Warn about temporary sysctl fix
+          ansible.builtin.debug:
+            msg: >-
+              Temporarily set net.ipv4.ip_unprivileged_port_start=80 for
+              this session. This change will not survive a reboot. Run
+              'canasta fix-sysctl' to make it permanent.
+          when:
+            - _sysctl_fix is defined
+            - _sysctl_fix.rc | default(1) == 0
+
         - name: Fail when privileged ports are out of reach
           ansible.builtin.fail:
             msg: >-
@@ -126,6 +148,7 @@
           when:
             - _podman_rootless.stdout | default('') | trim == 'true'
             - ((_rootless_facts.stdout_lines | default([]))[1] | default('0') | trim | int) > 80
+            - _sysctl_fix is not defined or _sysctl_fix.rc | default(1) != 0
 
     # Port 80/443 conflict detection for Compose. Compose's caddy
     # service binds host ports 80 and 443; if anything else is
