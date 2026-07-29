@@ -96,3 +96,68 @@ class TestHealthWaitIsGatedOnANonEmptyStatus:
             "the gate must still wait for 'healthy' — it exists to stop "
             "install.php racing composer"
         )
+
+
+class TestPodmanDrivesTheHealthcheck:
+    """Skipping the gate on Podman is not an option -- it must be driven.
+
+    Podman inherits the image's healthcheck but never runs it under
+    podman-compose: checks are scheduled with systemd transient timers
+    that compose does not create, so `.State.Health.Status` stays empty
+    for every container and the Docker-shaped wait is always skipped.
+
+    That left Podman with no readiness gate at all, and `create` raced
+    composer -- install.php crashing on a half-written vendor/ is the
+    exact failure the gate exists to prevent. `podman healthcheck run`
+    executes the check on demand, so the loop polls that instead.
+    """
+
+    def test_a_podman_wait_exists(self):
+        wait = _task("Wait for web to pass its healthcheck (Podman)")
+        assert wait is not None, (
+            "Podman needs its own readiness wait; without one the gate is "
+            "skipped for every container and create races composer"
+        )
+        argv = " ".join(str(a) for a in wait["ansible.builtin.command"]["argv"])
+        assert "healthcheck" in argv and "run" in argv, (
+            "poll `podman healthcheck run`, which executes the check, "
+            "rather than a status field nothing updates"
+        )
+
+    def test_it_waits_for_success_not_a_status_string(self):
+        wait = _task("Wait for web to pass its healthcheck (Podman)")
+        assert "rc == 0" in str(wait.get("until", "")), (
+            "healthcheck run signals health through its exit code"
+        )
+
+    def test_it_gets_the_same_budget_as_the_docker_path(self):
+        wait = _task("Wait for web to pass its healthcheck (Podman)")
+        docker = _task("Wait for web container to report healthy")
+        assert wait.get("retries") == docker.get("retries")
+        assert wait.get("delay") == docker.get("delay"), (
+            "the healthcheck's 5 min start period applies on both runtimes"
+        )
+
+    def test_it_only_runs_when_no_status_is_reported(self):
+        conditions = [
+            str(c) for c
+            in _task("Wait for web to pass its healthcheck (Podman)")["when"]
+        ]
+        assert any("_start_web_has_health" in c and "== ''" in c
+                   for c in conditions), (
+            "when the runtime does report a status, the existing wait "
+            "handles it -- do not run the check twice"
+        )
+        assert any("podman" in c for c in conditions), (
+            "Docker reports a real status and must keep its own path"
+        )
+
+    def test_a_custom_image_without_a_healthcheck_still_skips(self):
+        conditions = [
+            str(c) for c
+            in _task("Wait for web to pass its healthcheck (Podman)")["when"]
+        ]
+        assert any("no defined healthcheck" in c for c in conditions), (
+            "an image that declares no HEALTHCHECK must skip rather than "
+            "burn the full 10-minute budget failing a check that cannot pass"
+        )

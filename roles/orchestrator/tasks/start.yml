@@ -198,6 +198,53 @@
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim != ''
 
+    # Podman inherits the image's healthcheck but never runs it under
+    # podman-compose: it schedules checks with systemd transient timers
+    # that compose does not create, so .State.Health.Status stays empty
+    # and the wait above is skipped for every container. Skipping it is
+    # right for a custom image that declares no healthcheck, and wrong
+    # here — it restores the composer race the gate exists to prevent.
+    # `podman healthcheck run` executes the configured check on demand,
+    # so poll that instead of a status nothing updates.
+    - name: Probe whether web defines a healthcheck (Podman)
+      ansible.builtin.command:
+        argv:
+          - "{{ _inspect_cmd }}"
+          - healthcheck
+          - run
+          - "{{ _start_web_cid.stdout | trim }}"
+      register: _start_web_hc_probe
+      changed_when: false
+      failed_when: false
+      when:
+        - _start_web_cid.stdout | trim != ''
+        - (_start_web_has_health.stdout | default('') | trim) == ''
+        - _inspect_cmd | default('docker') is search('podman')
+
+    # Same budget as the Docker path: 60 × 10s, over the healthcheck's
+    # 5 min start period plus a slow first composer install. A container
+    # with no healthcheck at all must skip rather than spend that budget
+    # failing, and podman distinguishes the two cases in its message.
+    - name: Wait for web to pass its healthcheck (Podman)
+      ansible.builtin.command:
+        argv:
+          - "{{ _inspect_cmd }}"
+          - healthcheck
+          - run
+          - "{{ _start_web_cid.stdout | trim }}"
+      register: _start_web_podman_health
+      changed_when: false
+      retries: 60
+      delay: 10
+      until: _start_web_podman_health.rc == 0
+      when:
+        - _start_web_cid.stdout | trim != ''
+        - (_start_web_has_health.stdout | default('') | trim) == ''
+        - _inspect_cmd | default('docker') is search('podman')
+        - >-
+          'no defined healthcheck'
+          not in (_start_web_hc_probe.stderr | default(''))
+
     # Register CAPI + auto-enroll the bouncer when CrowdSec is on. Shared
     # with the K8s start path and create. crowdsec_autoenroll is false only
     # for create's first start, which defers enrollment until after the
