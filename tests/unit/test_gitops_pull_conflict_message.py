@@ -168,3 +168,33 @@ def test_tracked_binaries_are_not_called_mergeable():
     msg = _fail_msg()
     assert "_pull_conflict_binary" in msg
     assert "are binary, so git cannot merge them either" in msg
+
+
+def test_an_editable_conflict_is_not_given_the_long_recipe():
+    # A merge driver leaves ordinary markers in the working tree, so the
+    # decrypt-by-hand recipe would be busywork.
+    task = _named(_explainer(), "Collect conflicted paths before the rebase is rolled back")
+    cmd = task["ansible.builtin.shell"]["cmd"]
+    assert "grep -q '^<<<<<<< '" in cmd, (
+        "the file itself says whether it can be edited in place"
+    )
+
+
+def test_classification_is_on_the_file_not_on_what_is_registered():
+    cmd = _named(_explainer(), "Collect conflicted paths before the rebase is rolled back")["ansible.builtin.shell"]["cmd"]
+    # A registered driver that failed closed leaves no markers and one side
+    # only. Trusting the registration would call that editable, and the
+    # operator would save it and silently drop the other host's change.
+    assert "git config --get" not in cmd, (
+        "a driver can be registered and still not have run"
+    )
+    assert "check-attr merge" not in cmd
+
+
+def test_the_long_recipe_survives_for_conflicts_with_no_markers():
+    cmd = _named(_explainer(), "Collect conflicted paths before the rebase is rolled back")["ansible.builtin.shell"]["cmd"]
+    assert "printf 'encrypted" in cmd, (
+        "an older CLI, or a driver that failed closed, still needs the full "
+        "recipe — the file holds one side and no markers"
+    )
+    assert "git merge-file" in _fail_msg()

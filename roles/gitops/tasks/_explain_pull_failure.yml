@@ -19,7 +19,16 @@
         | while IFS= read -r -d '' f; do
             attr="$(git check-attr filter -- "$f" 2>/dev/null | sed 's/.*: //')"
             if [ "$attr" = "git-crypt" ]; then
-              printf 'encrypted\t%s\n' "$f"
+              # A merge driver leaves an editable marker conflict here, so the
+              # decrypt-by-hand recipe would be busywork. Decide on the file
+              # itself rather than on whether a driver is registered: a
+              # registered driver that failed closed leaves no markers and one
+              # side only, and calling that editable loses the other side.
+              if grep -q '^<<<<<<< ' "$f" 2>/dev/null; then
+                printf 'text\t%s\n' "$f"
+              else
+                printf 'encrypted\t%s\n' "$f"
+              fi
               continue
             fi
             # A tracked binary (a public_assets logo) is just as unmergeable as
