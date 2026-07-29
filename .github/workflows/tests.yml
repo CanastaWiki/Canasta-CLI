@@ -187,15 +187,28 @@ jobs:
             exit 1
           }
 
+          # Compare canonical paths, not strings: /bin is a symlink to
+          # /usr/bin, so `type -a -P` lists the pinned binary twice and a
+          # string compare moves it aside as if it were a foreign one —
+          # which is what broke this step on its first run. The Docker
+          # removal below hits the same symlink and handles it by checking
+          # `-e` after each move.
+          pinned="$(readlink -f "$apt_podman")"
           for p in $(type -a -P podman || true); do
-            if [ "$p" != "$apt_podman" ] && [ -e "$p" ]; then
+            [ -e "$p" ] || continue
+            if [ "$(readlink -f "$p")" != "$pinned" ]; then
               echo "Shadowing $p ($("$p" --version 2>/dev/null || echo unknown))"
               sudo mv "$p" "$p.shadowed"
             fi
           done
           hash -r
 
-          resolved="$(command -v podman)"
+          resolved="$(command -v podman || true)"
+          [ -n "$resolved" ] || {
+            echo "::error::no podman on PATH after shadowing — the pinned" \
+                 "binary at $apt_podman was moved aside by mistake (#1333)."
+            exit 1
+          }
           version="$(podman --version | awk '{print $3}')"
           echo "podman under test: $resolved ($version)"
           echo "podman-compose:    $(podman-compose --version 2>&1 | tail -1)"
