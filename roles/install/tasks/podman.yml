@@ -72,13 +72,17 @@
           - podman-compose
         state: present
 
+# Deliberately unconditional, and deliberately without `become`: it has to
+# report the operator's rootless status, and it has to run whether podman
+# was installed just now or was already present — re-running
+# `canasta install podman` is how an existing host gets its prerequisites
+# configured.
 - name: Check whether Podman is running rootless
   ansible.builtin.command:
     cmd: podman info --format {% raw %}{{.Host.Security.Rootless}}{% endraw %}
   register: _podman_rootless
   changed_when: false
   failed_when: false
-  when: _podman_installed.rc == 0 or _podman_installed.rc | default(1) != 0
 
 - name: Configure rootless prerequisites
   become: true
