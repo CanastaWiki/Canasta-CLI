@@ -72,7 +72,7 @@ class TestStartFailsWhenNothingIsRunning:
         check_at = next(
             i for i, n in enumerate(names) if "no web container is running" in n)
         probe_at = next(
-            i for i, n in enumerate(names) if "declares a healthcheck" in n)
+            i for i, n in enumerate(names) if "health status" in n)
         assert get_at < check_at < probe_at, (
             "the check belongs between reading the container id and the "
             "health probe that is skipped when it is empty"

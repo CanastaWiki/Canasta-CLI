@@ -133,12 +133,12 @@
     # HEALTHCHECK skip the wait (we trust them to define their own
     # readiness contract).
     #
-    # Podman note: `podman inspect -f '{{.State.Health.Status}}'`
-    # returns the same Go template output as Docker for containers
-    # with a HEALTHCHECK.  Validated with Podman 4.3.1 (Debian 12
-    # Bookworm ARM64).  Earlier rootless Podman (<4.0) may not
-    # populate .State.Health at all; the `has` probe below skips
-    # gracefully in that case.
+    # Runtimes disagree on what "no health data" looks like: Podman
+    # 4.9.3 reports a non-nil .State.Health whose Status is empty, older
+    # Podman omits .State.Health entirely, and Docker reports a real
+    # status. So the probe renders the status itself rather than testing
+    # the struct for presence — an empty render means "nothing to wait
+    # on" on every runtime, with no version knowledge encoded.
     - name: Get web container id
       ansible.builtin.command:
         cmd: >-
@@ -166,13 +166,13 @@
           containers as soon as the session that started them ends.
       when: _start_web_cid.stdout | trim == ''
 
-    - name: Probe whether web declares a healthcheck
+    - name: Probe whether web reports a health status
       ansible.builtin.command:
         argv:
           - "{{ _inspect_cmd }}"
           - inspect
           - "-f"
-          - "{% raw %}{{if .State.Health}}has{{end}}{% endraw %}"
+          - "{% raw %}{{if .State.Health}}{{.State.Health.Status}}{{end}}{% endraw %}"
           - "{{ _start_web_cid.stdout | trim }}"
       register: _start_web_has_health
       changed_when: false
@@ -196,7 +196,7 @@
       until: _start_web_health.stdout | trim == 'healthy'
       when:
         - _start_web_cid.stdout | trim != ''
-        - _start_web_has_health.stdout | default('') | trim == 'has'
+        - _start_web_has_health.stdout | default('') | trim != ''
 
     # Register CAPI + auto-enroll the bouncer when CrowdSec is on. Shared
     # with the K8s start path and create. crowdsec_autoenroll is false only
