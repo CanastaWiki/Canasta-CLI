@@ -47,17 +47,31 @@ def _probe_tasks():
     return [
         t for t in _tasks()
         if isinstance(t.get("name"), str)
-        and re.match(r"Probe for userspace listener on port \d+", t["name"])
+        and re.match(
+            r"Probe for userspace listener on the HTTPS? port", t["name"])
     ]
 
 
 class TestProbeIsPortable:
     def test_both_ports_are_probed(self):
-        ports = sorted(
-            re.search(r"port (\d+)", t["name"]).group(1)
-            for t in _probe_tasks()
-        )
-        assert ports == ["443", "80"], "expected probes for 80 and 443, got %s" % ports
+        names = sorted(t["name"] for t in _probe_tasks())
+        assert len(names) == 2, (
+            "expected an HTTP and an HTTPS probe, got %s" % names)
+        assert any("HTTPS port" in n for n in names)
+        assert any(n.endswith("the HTTP port") for n in names)
+
+    def test_probes_use_the_resolved_ports_not_the_defaults(self):
+        # A second Compose instance on one host moves off 80/443 via the
+        # -e envfile. Hardcoding the defaults here rejected that create
+        # before the envfile was ever read.
+        for task in _probe_tasks():
+            cmd = task.get("ansible.builtin.shell", {}).get("cmd", "")
+            assert (
+                "_preflight_http_port" in cmd
+                or "_preflight_https_port" in cmd
+            ), (
+                "%s probes a literal port; it must probe the port this "
+                "instance will actually bind" % task["name"])
 
     def test_probe_falls_back_when_ss_is_absent(self):
         for task in _probe_tasks():
@@ -84,7 +98,8 @@ class TestFailureGateIgnoresTheSentinel:
         return [
             t for t in _tasks()
             if isinstance(t.get("name"), str)
-            and t["name"].startswith("Fail if port")
+            and re.match(r"Fail if the HTTPS? port is already in use",
+                         t["name"])
         ]
 
     def test_both_gates_exist(self):
@@ -105,3 +120,44 @@ class TestFailureGateIgnoresTheSentinel:
             "nothing tells the operator the check was skipped; a guard that "
             "silently does nothing is worse than no guard"
         )
+
+
+class TestPortsComeFromTheEnvFile:
+    """The documented way to run a second Compose instance on one host is
+    `canasta create -e <file>` with HTTP_PORT/HTTPS_PORT. Preflight runs
+    long before the envfile is merged into .env, so it has to read the
+    controller-side file itself or it rejects that create on the ports
+    the instance was never going to bind.
+    """
+
+    def _named(self, needle):
+        return [
+            t for t in _tasks()
+            if isinstance(t.get("name"), str) and needle in t["name"]
+        ]
+
+    def test_envfile_is_read_on_the_controller(self):
+        tasks = self._named("custom env file for port overrides")
+        assert tasks, "preflight never reads the -e envfile"
+        task = tasks[0]
+        assert task.get("delegate_to") == "localhost", (
+            "envfile is a controller-side path; slurping it on the target "
+            "looks for the controller's path on the remote filesystem")
+
+    def test_ports_are_resolved_with_defaults(self):
+        tasks = self._named("Resolve the ports this instance will bind")
+        assert tasks, "preflight never resolves the ports to probe"
+        facts = tasks[0]["ansible.builtin.set_fact"]
+        assert "HTTP_PORT=80" in facts["_preflight_http_port"], (
+            "no default; an absent envfile must still probe 80")
+        assert "HTTPS_PORT=443" in facts["_preflight_https_port"], (
+            "no default; an absent envfile must still probe 443")
+
+    def test_k3s_gate_only_fires_for_the_traefik_ports(self):
+        tasks = self._named("Fail if k3s is running")
+        assert tasks, "k3s gate disappeared"
+        when = tasks[0].get("when")
+        when_text = " ".join(when) if isinstance(when, list) else str(when)
+        assert "_preflight_http_port" in when_text, (
+            "Traefik claims 80 and 443 only; an instance binding neither "
+            "must not be blocked by a running k3s")
