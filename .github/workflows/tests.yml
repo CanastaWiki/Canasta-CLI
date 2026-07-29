@@ -112,7 +112,7 @@ jobs:
       - name: Run core tests
         run: >-
           .venv/bin/python tests/integration/run_tests.py
-          lifecycle import upgrade upgrade-rebuilds-buildable
+          lifecycle import upgrade upgrade-rebuilds-buildable rebuild
           version doctor host-management
         timeout-minutes: 25
 
@@ -207,7 +207,7 @@ jobs:
       - name: Run Podman tests
         run: >-
           .venv/bin/python tests/integration/run_tests.py
-          lifecycle upgrade upgrade-rebuilds-buildable doctor
+          lifecycle upgrade upgrade-rebuilds-buildable rebuild doctor
         timeout-minutes: 35
 
   integration-features:
