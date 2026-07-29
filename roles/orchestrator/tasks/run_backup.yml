@@ -60,6 +60,17 @@
               is match('^/'))
              | ternary(_backup_repo_env.value, '') }}
 
+    # Docker creates a missing bind-mount source directory; podman fails
+    # with "statfs ...: no such file or directory". Create it rather than
+    # depending on a runtime side effect, as the connecting user — which
+    # also makes the ownership reclaim below a no-op in the common case.
+    - name: Ensure the local repo directory exists
+      ansible.builtin.file:
+        path: "{{ _backup_local_repo }}"
+        state: directory
+        mode: "0755"
+      when: _backup_local_repo | length > 0
+
     # restic runs as root in the container, so a local-path repo ends up
     # root-owned and the operator cannot prune or remove their own
     # backups. Record the parent directory's owner to hand it back.
