@@ -762,7 +762,7 @@ commands:
     description: "Install dependencies on the target host"
     long_description: |
       Install one or more dependencies on the target host. Supported
-      packages: docker, k8s-cp, k8s-worker, git-crypt, sops, canasta.
+      packages: docker, k8s-cp, k8s-worker, git-crypt, sops, canasta, podman.
 
       `k8s-cp` installs k3s as a control-plane node — the cluster's
       API server, scheduler, etc., plus kubectl + helm on the same
@@ -803,6 +803,13 @@ commands:
       only through the controller. Idempotent — skips if canasta is
       already present.
 
+      `podman` installs Podman and podman-compose, enables lingering for
+      the operator user, and lowers the unprivileged port floor to 80 so
+      rootless Podman can bind ports 80 and 443. This covers the two
+      prerequisites that `canasta create` checks during preflight for
+      rootless Podman targets. Idempotent — skips if podman is already
+      installed.
+
       Multiple packages can be combined in a single command, except
       that `k8s-cp` and `k8s-worker` are mutually exclusive on a given
       host.
@@ -815,6 +822,8 @@ commands:
       - "canasta install -i mysite git-crypt"
       - "canasta install -i mysite sops"
       - "canasta install -i mysite canasta"
+      - "canasta install podman"
+      - "canasta install --host prod1.example.com podman"
     playbook: install.yml
     parameters:
       - name: host
@@ -841,10 +850,10 @@ commands:
         positional: true
         multi: true
         required: true
-        choices: [docker, k8s-cp, k8s-worker, git-crypt, sops, canasta]
+        choices: [docker, k8s-cp, k8s-worker, git-crypt, sops, podman, canasta]
         description: >-
           Dependencies to install (docker, k8s-cp, k8s-worker,
-          git-crypt, sops, canasta)
+          git-crypt, sops, podman, canasta)
       - name: public_ip
         type: string
         multi: true

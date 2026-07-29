@@ -119,9 +119,10 @@
               net.ipv4.ip_unprivileged_port_start is
               {{ (_rootless_facts.stdout_lines | default([]))[1] | default('?') }}.
               Caddy would fail to start with "rootlessport cannot expose
-              privileged port 80". Either lower the floor with
-              'sudo sysctl net.ipv4.ip_unprivileged_port_start=80' (persist
-              it in /etc/sysctl.d/), or set HTTP_PORT and HTTPS_PORT above
+              privileged port 80". Fix it with
+              'canasta install podman' (or manually:
+              'sudo sysctl net.ipv4.ip_unprivileged_port_start=80' and persist
+              in /etc/sysctl.d/), or set HTTP_PORT and HTTPS_PORT above
               1024 for this instance.
           when:
             - _podman_rootless.stdout | default('') | trim == 'true'
