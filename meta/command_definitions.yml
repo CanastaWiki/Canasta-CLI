@@ -841,9 +841,10 @@ commands:
         positional: true
         multi: true
         required: true
+        choices: [docker, k8s-cp, k8s-worker, git-crypt, sops, canasta]
         description: >-
           Dependencies to install (docker, k8s-cp, k8s-worker,
-          git-crypt, canasta)
+          git-crypt, sops, canasta)
       - name: public_ip
         type: string
         multi: true
