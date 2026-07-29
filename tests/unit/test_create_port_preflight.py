@@ -38,12 +38,15 @@ def _fail_tasks():
 class TestPortPreflight:
     def test_fails_when_required_ports_in_use(self):
         fails = _fail_tasks()
-        for port in ("80", "443"):
+        # The ports are resolved from the -e envfile (defaulting to
+        # 80/443), so the messages name the fact rather than a literal.
+        for fact in ("_preflight_http_port", "_preflight_https_port"):
             hits = [t for t in fails
-                    if ("%s is already in use" % port)
-                    in str(t.get("ansible.builtin.fail")
-                           or t.get("fail"))]
-            assert hits, "no hard-fail for port %s already in use" % port
+                    if "is already in use" in str(t.get("ansible.builtin.fail")
+                                                  or t.get("fail"))
+                    and fact in str(t.get("ansible.builtin.fail")
+                                    or t.get("fail"))]
+            assert hits, "no hard-fail for %s already in use" % fact
 
     def test_port_fail_is_gated_on_a_listener_probe(self):
         # Each port fail must be conditional on its probe register having

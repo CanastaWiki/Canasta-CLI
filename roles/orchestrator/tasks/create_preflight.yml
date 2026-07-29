@@ -128,11 +128,16 @@
             - _podman_rootless.stdout | default('') | trim == 'true'
             - ((_rootless_facts.stdout_lines | default([]))[1] | default('0') | trim | int) > 80
 
-    # Port 80/443 conflict detection for Compose. Compose's caddy
-    # service binds host ports 80 and 443; if anything else is
-    # already serving on them, `docker compose up` will either fail
-    # the bind or — worse — appear to start while external traffic
-    # silently lands on the foreign service.
+    # Port conflict detection for Compose. Compose's caddy service
+    # binds HTTP_PORT and HTTPS_PORT (80 and 443 by default); if
+    # anything else is already serving on them, `docker compose up`
+    # will either fail the bind or — worse — appear to start while
+    # external traffic silently lands on the foreign service.
+    #
+    # A second instance on one host is expected to move off the
+    # defaults, so probe the ports this instance will actually bind.
+    # Its .env does not exist yet, but the -e envfile is a
+    # controller-side path, so the overrides can be read here.
     #
     # Two probes catch the common cases:
     #  1. `ss -tln` for a userspace listener (apache, nginx, haproxy,
@@ -151,13 +156,40 @@
     # on Linux. Try both, and make "no probe available" its own outcome —
     # an unrunnable check must not read as "port is free", which is what
     # `failed_when: false` plus an empty stdout used to produce.
-    - name: Probe for userspace listener on port 80
+    - name: Read the custom env file for port overrides
+      ansible.builtin.slurp:
+        src: "{{ envfile }}"
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+      register: _preflight_envfile
+      when: envfile is defined and envfile != ''
+
+    # Appending the default keeps [0] defined when the envfile is absent
+    # or sets neither key, so no branch is needed for the common case.
+    - name: Resolve the ports this instance will bind
+      ansible.builtin.set_fact:
+        _preflight_http_port: >-
+          {{ ((_preflight_port_lines | select('match', '^HTTP_PORT=') | list)
+              + ['HTTP_PORT=80'])[0].split('=', 1)[1] }}
+        _preflight_https_port: >-
+          {{ ((_preflight_port_lines | select('match', '^HTTPS_PORT=') | list)
+              + ['HTTPS_PORT=443'])[0].split('=', 1)[1] }}
+      vars:
+        # splitlines(), not split('\n'): a folded scalar hands Jinja a
+        # literal backslash-n, so the split would never match and every
+        # instance would silently fall back to 80/443.
+        _preflight_port_lines: >-
+          {{ (_preflight_envfile.content | default('') | b64decode).splitlines()
+             | map('trim') | select('match', '^HTTPS?_PORT=[0-9]+$') | list }}
+
+    - name: Probe for userspace listener on the HTTP port
       ansible.builtin.shell:
         cmd: |
           if command -v ss >/dev/null 2>&1; then
-            ss -tlnH "sport = :80"
+            ss -tlnH "sport = :{{ _preflight_http_port }}"
           elif command -v lsof >/dev/null 2>&1; then
-            lsof -nP -iTCP:80 -sTCP:LISTEN 2>/dev/null | tail -n +2
+            lsof -nP -iTCP:{{ _preflight_http_port }} -sTCP:LISTEN 2>/dev/null | tail -n +2
           else
             echo "CANASTA_PORT_PROBE_UNAVAILABLE"
           fi
@@ -165,13 +197,13 @@
       changed_when: false
       failed_when: false
 
-    - name: Probe for userspace listener on port 443
+    - name: Probe for userspace listener on the HTTPS port
       ansible.builtin.shell:
         cmd: |
           if command -v ss >/dev/null 2>&1; then
-            ss -tlnH "sport = :443"
+            ss -tlnH "sport = :{{ _preflight_https_port }}"
           elif command -v lsof >/dev/null 2>&1; then
-            lsof -nP -iTCP:443 -sTCP:LISTEN 2>/dev/null | tail -n +2
+            lsof -nP -iTCP:{{ _preflight_https_port }} -sTCP:LISTEN 2>/dev/null | tail -n +2
           else
             echo "CANASTA_PORT_PROBE_UNAVAILABLE"
           fi
@@ -185,34 +217,39 @@
     - name: Warn when the port check could not run
       ansible.builtin.debug:
         msg: >-
-          Could not check whether ports 80 and 443 are free: neither `ss`
-          nor `lsof` is available on this host. If something else is
-          already serving on them, compose will fail to bind (or caddy
-          will start while traffic lands on the other service).
+          Could not check whether ports {{ _preflight_http_port }} and
+          {{ _preflight_https_port }} are free: neither `ss` nor `lsof`
+          is available on this host. If something else is already
+          serving on them, compose will fail to bind (or caddy will
+          start while traffic lands on the other service).
       when: >-
         "CANASTA_PORT_PROBE_UNAVAILABLE" in
         (_port80_listener.stdout | default(''))
 
-    - name: Fail if port 80 is already in use
+    - name: Fail if the HTTP port is already in use
       ansible.builtin.fail:
         msg: >-
-          Port 80 is already in use on this host:
+          Port {{ _preflight_http_port }} is already in use on this host:
           {{ _port80_listener.stdout | trim }}.
-          `canasta create` (Compose) needs ports 80 and 443 free for
-          the caddy service. Stop the conflicting service or use a
-          different host.
+          `canasta create` (Compose) needs ports {{ _preflight_http_port }}
+          and {{ _preflight_https_port }} free for the caddy service.
+          Stop the conflicting service, use a different host, or give
+          this instance its own ports by passing an env file that sets
+          HTTP_PORT and HTTPS_PORT ('canasta create -e <file>').
       when:
         - _port80_listener.stdout | default('') | trim | length > 0
         - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port80_listener.stdout | default(""))'
 
-    - name: Fail if port 443 is already in use
+    - name: Fail if the HTTPS port is already in use
       ansible.builtin.fail:
         msg: >-
-          Port 443 is already in use on this host:
+          Port {{ _preflight_https_port }} is already in use on this host:
           {{ _port443_listener.stdout | trim }}.
-          `canasta create` (Compose) needs ports 80 and 443 free for
-          the caddy service. Stop the conflicting service or use a
-          different host.
+          `canasta create` (Compose) needs ports {{ _preflight_http_port }}
+          and {{ _preflight_https_port }} free for the caddy service.
+          Stop the conflicting service, use a different host, or give
+          this instance its own ports by passing an env file that sets
+          HTTP_PORT and HTTPS_PORT ('canasta create -e <file>').
       when:
         - _port443_listener.stdout | default('') | trim | length > 0
         - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port443_listener.stdout | default(""))'
@@ -230,6 +267,8 @@
 
     # `systemctl is-active` prints one line per service. Treat any
     # 'active' line as a positive — even if only k3s-agent is active.
+    # Traefik claims 80 and 443, so an instance that binds neither is
+    # unaffected and must not be blocked.
     - name: Fail if k3s is running
       ansible.builtin.fail:
         msg: >-
@@ -240,11 +279,16 @@
           to start but external requests will land on Traefik (and
           404). Stop k3s with 'sudo systemctl stop k3s' followed by
           'sudo /usr/local/bin/k3s-killall.sh' (the latter also
-          flushes the lingering iptables rules), or use a different
-          host for Compose installs.
-      when: >-
-        _k3s_active.stdout_lines | default([])
-        | select('eq', 'active') | length > 0
+          flushes the lingering iptables rules), use a different
+          host for Compose installs, or give this instance ports
+          other than 80 and 443 via 'canasta create -e <file>'.
+      when:
+        - >-
+          _k3s_active.stdout_lines | default([])
+          | select('eq', 'active') | length > 0
+        - >-
+          '80' in [_preflight_http_port, _preflight_https_port]
+          or '443' in [_preflight_http_port, _preflight_https_port]
 
     # The host memory floor is profile-aware (~2 GiB base, ~4 GiB with
     # Elasticsearch or observability, ~8 GiB with both), so it can't be checked
