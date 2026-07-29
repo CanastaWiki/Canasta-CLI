@@ -144,7 +144,7 @@
         cmd: >-
           {{ inspect_command }} run --rm
           -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot"
-          alpine sh -c 'rm -rf /currentsnapshot/* /currentsnapshot/.[!.]* 2>/dev/null || true'
+          docker.io/library/alpine sh -c 'rm -rf /currentsnapshot/* /currentsnapshot/.[!.]* 2>/dev/null || true'
       changed_when: true
 
     - name: Restore snapshot into backup volume
@@ -177,7 +177,7 @@
           {{ inspect_command }} run --rm \
             -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
             -v "{{ instance_path }}:/install" \
-            alpine sh -c '
+            docker.io/library/alpine sh -c '
             std="config extensions images skins public_assets";
             for d in $std; do
               if [ -d /currentsnapshot/$d ]; then
@@ -213,7 +213,7 @@
           {{ inspect_command }} run --rm
           -e W={{ wiki | quote }}
           -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
-          alpine sh -c 'test -f "/currentsnapshot/config/backup/db_$W.sql"'
+          docker.io/library/alpine sh -c 'test -f "/currentsnapshot/config/backup/db_$W.sql"'
       register: _restore_wiki_in_snapshot
       changed_when: false
       failed_when: false
@@ -235,7 +235,7 @@
             -e W={{ wiki | quote }} \
             -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
             -v "{{ instance_path }}:/install" \
-            alpine sh -c '
+            docker.io/library/alpine sh -c '
             for rel in "config/settings/wikis/$W" "images/$W" "public_assets/$W"; do
               if [ -d "/currentsnapshot/$rel" ]; then
                 mkdir -p "/install/$rel";
