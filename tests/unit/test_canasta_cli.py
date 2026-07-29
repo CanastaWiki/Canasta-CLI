@@ -1015,9 +1015,32 @@ class TestInstallCommand:
         assert args.packages == ["docker"]
 
     def test_install_multiple_packages(self, parser):
-        args = parser.parse_args(["install", "docker", "k3s", "git-crypt"])
+        # Was `k3s` — the internal name k8s-cp maps to, and the
+        # user-facing name back when install shipped. It kept parsing
+        # after the rename only because nothing constrained the argument.
+        args = parser.parse_args(["install", "docker", "k8s-cp", "git-crypt"])
         assert args.command == "install"
-        assert args.packages == ["docker", "k3s", "git-crypt"]
+        assert args.packages == ["docker", "k8s-cp", "git-crypt"]
+
+    def test_install_rejects_an_unknown_package(self, parser, capsys):
+        # argparse rejects it outright: before, anything parsed and only
+        # the playbook caught it, after a venv + Ansible startup.
+        with pytest.raises(SystemExit):
+            parser.parse_args(["install", "dokcer"])
+        assert "invalid choice" in capsys.readouterr().err
+
+    def test_install_usage_names_every_package(self, parser, capsys):
+        # The point of the choices list: `canasta install` with no
+        # arguments has to answer "what can I install?".
+        with pytest.raises(SystemExit):
+            parser.parse_args(["install"])
+        err = capsys.readouterr().err
+        for pkg in ("docker", "k8s-cp", "k8s-worker",
+                    "git-crypt", "sops", "canasta"):
+            assert pkg in err, (
+                "usage must list %s; an opaque PACKAGES metavar leaves the "
+                "valid values undiscoverable" % pkg
+            )
 
     def test_install_with_host(self, data):
         from argparse import Namespace
