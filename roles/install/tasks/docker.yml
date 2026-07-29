@@ -18,12 +18,22 @@
     _install_user: >-
       {{ ansible_user | default(_install_user_cmd.stdout, true) }}
 
+# Read the OS from the target. The play runs with gather_facts: false and
+# this role gathers facts further down, so ansible_system is undefined
+# here — and a lookup() fallback would run on the controller, refusing a
+# Linux target whenever the operator drives it from a Mac.
+- name: Determine target OS
+  ansible.builtin.command: uname -s
+  become: false
+  changed_when: false
+  register: _target_uname
+
 - name: Warn on unsupported platforms
   ansible.builtin.fail:
     msg: >-
       'canasta install docker' is for Linux servers only. On macOS or
       Windows, install Docker Desktop from https://www.docker.com/products/docker-desktop/
-  when: ansible_system | default(lookup('pipe', 'uname -s')) not in ['Linux']
+  when: _target_uname.stdout | trim not in ['Linux']
 
 - name: Check if Docker is already installed
   ansible.builtin.command:
