@@ -24,7 +24,7 @@
 - name: Validate packages
   ansible.builtin.fail:
     msg: >-
-      Unknown package '{{ item }}'.       Supported: docker, k8s-cp,
+      Unknown package '{{ item }}'. Supported: docker, k8s-cp,
       k8s-worker, git-crypt, sops, canasta, podman.
   when: item not in ['docker', 'k3s', 'k3s-worker', 'git-crypt', 'sops', 'canasta', 'podman']
   loop: "{{ _install_packages }}"

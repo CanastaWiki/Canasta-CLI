@@ -125,7 +125,7 @@
           net.ipv4.ip_unprivileged_port_start=80
         mode: "0644"
       register: _persist_result
-      failed_when: false
+      ignore_errors: true
 
     - name: Warn if the port floor could not be persisted
       ansible.builtin.debug:
