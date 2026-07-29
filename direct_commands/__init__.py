@@ -102,7 +102,7 @@ from . import doctor      # noqa: F401
 from . import argocd      # noqa: F401
 from . import rebuild     # noqa: F401
 from . import wiki_check  # noqa: F401
-from . import fix_sysctl  # noqa: F401
+
 
 # Per-handler symbols re-exported so test code can reach
 # direct_commands.cmd_list, direct_commands.cmd_doctor, etc.
@@ -150,4 +150,4 @@ from .argocd import (  # noqa: F401
 )
 from .rebuild import cmd_rebuild, _list_buildable_services  # noqa: F401
 from .wiki_check import cmd_wiki_check  # noqa: F401
-from .fix_sysctl import cmd_fix_sysctl  # noqa: F401
+

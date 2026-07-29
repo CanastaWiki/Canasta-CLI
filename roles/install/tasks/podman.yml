@@ -1,6 +1,9 @@
 ---
 # Install Podman + podman-compose and configure rootless prerequisites.
-# Idempotent — skips if podman is already installed.
+# Rootless prerequisites (lingering, port floor) are checked on every
+# run, not only when podman is freshly installed — re-running
+# `canasta install podman` on an already-configured host re-enforces
+# them, so it doubles as a fix-up command.
 #
 # Rootless Podman needs two host-level settings that are confusing to
 # diagnose post-install:
@@ -20,7 +23,7 @@
     _install_user: >-
       {{ ansible_user | default(_install_user_cmd.stdout, true) }}
 
-- name: Warn on unsupported platforms
+- name: Fail on unsupported platforms
   ansible.builtin.fail:
     msg: >-
       'canasta install podman' is for Linux servers only.
@@ -69,8 +72,18 @@
           - podman-compose
         state: present
 
+- name: Check whether Podman is running rootless
+  ansible.builtin.command:
+    cmd: podman info --format {% raw %}{{.Host.Security.Rootless}}{% endraw %}
+  register: _podman_rootless
+  changed_when: false
+  failed_when: false
+  when: _podman_installed.rc == 0 or _podman_installed.rc | default(1) != 0
+
 - name: Configure rootless prerequisites
   become: true
+  when:
+    - _podman_rootless.stdout | default('') | trim == 'true'
   block:
     - name: Report configuring rootless prerequisites
       ansible.builtin.debug:
@@ -109,8 +122,6 @@
       ansible.builtin.copy:
         dest: /etc/sysctl.d/canasta-privport.conf
         content: |
-          # Lowered by 'canasta install podman' so rootless containers
-          # can bind privileged ports (80, 443).
           net.ipv4.ip_unprivileged_port_start=80
         mode: "0644"
       register: _persist_result
@@ -129,6 +140,6 @@
 - name: Report Podman installed
   ansible.builtin.debug:
     msg: >-
-      Podman installed and configured. Rootless containers on this host
-      can now bind ports 80 and 443, and lingering is enabled so they
-      survive session logout.
+      {{ 'Podman installed and configured.' if _podman_installed.rc != 0 else 'Podman already available.' }}
+      Rootless prerequisites were
+      {{ 'configured.' if (_podman_rootless.stdout | default('') | trim) == 'true' else 'skipped (rootful or unreachable).' }}
