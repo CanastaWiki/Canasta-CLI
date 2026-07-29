@@ -63,24 +63,32 @@
       so they could not be replayed on top. The rebase was rolled back — the
       instance is exactly as it was and the local commit(s) are intact.
       {% if _pull_conflict_encrypted | length > 0 %}
-      Encrypted (git-crypt) — git compares ciphertext, so there is no
-      line-by-line merge for these:
+      These conflicting file(s) are git-crypt encrypted:
       {%- for f in _pull_conflict_encrypted %}
         - {{ f }}
       {%- endfor %}
 
-      Take one side of each whole file, then continue the rebase:
+      Git compares them as ciphertext, so it cannot merge them and writes no
+      conflict markers. Do not simply edit the file: the working copy holds
+      one side only, and saving it drops the other host's change silently.
 
-        cd {{ instance_path }}
+      To merge the two versions, for each file above, in
+      {{ instance_path }} on a git-crypt unlocked checkout:
+
+        d=$(mktemp -d)
         git pull --rebase
-        git checkout --theirs -- <file>
-        git add -- <file>
-        git rebase --continue
+        for s in 1 2 3; do git cat-file -p ":${s}:<file>" | git-crypt smudge > "$d/$s"; done
+        git merge-file -L remote -L base -L local "$d/2" "$d/1" "$d/3"
+        <if it reports a conflict, edit "$d/2" to resolve it>
+        cp "$d/2" <file> && git add -- <file> && git rebase --continue
+        rm -rf "$d"
 
-      --theirs keeps this host's version and --ours keeps the remote's ('ours'
-      is the remote during a rebase). To read both sides first, on an unlocked
-      checkout: 'git show :2:<file> | git-crypt smudge' for the remote's and
-      ':3:<file>' for this host's.
+      Stage 1 is the common ancestor, 2 the remote's version, 3 this host's.
+      $d holds decrypted secrets until you remove it.
+
+      To take one side whole instead of merging, replace the middle steps with
+      'git checkout --ours -- <file>' for the remote's version, or '--theirs'
+      for this host's.
       {% endif %}
       {% if _pull_conflict_plain | length > 0 %}
       Mergeable — resolve these the usual way:

@@ -101,16 +101,42 @@ def test_dirty_tree_gets_the_add_and_push_route():
     )
 
 
-def test_encrypted_conflicts_get_whole_file_advice():
+def test_encrypted_conflicts_warn_against_editing_in_place():
     msg = _fail_msg()
     assert "_pull_conflict_encrypted" in msg
-    assert "ciphertext" in msg, "say why no line-by-line merge exists"
-    assert "--theirs" in msg and "--ours" in msg, (
-        "taking one side wholesale is the only resolution available"
+    assert "ciphertext" in msg, "say why git cannot merge them"
+    # git leaves no markers and checks out one side decrypted, so the file
+    # looks resolvable and editing it drops the other host's change.
+    flat = " ".join(msg.split())
+    assert "writes no conflict markers" in flat
+    assert "one side only" in flat
+
+
+def test_encrypted_conflicts_offer_a_real_three_way_merge():
+    msg = _fail_msg()
+    # Both hosts may have edited different parts of the same file; taking one
+    # side wholesale would be data loss, so a real merge has to come first.
+    assert "git merge-file" in msg, "a true merge must be the primary route"
+    assert "git-crypt smudge" in msg, "the stages have to be decrypted first"
+    for stage in (":${s}:", '"$d/1"', '"$d/2"', '"$d/3"'):
+        assert stage in msg, "missing stage handling: %s" % stage
+    assert "Stage 1 is the common ancestor" in msg, (
+        "an operator who mixes up the stages merges the wrong pair"
     )
-    assert "is the remote during a rebase" in msg, (
-        "ours/theirs invert under rebase; an operator who gets it backwards "
-        "silently keeps the wrong credentials"
+
+
+def test_decrypted_scratch_copies_are_flagged():
+    msg = _fail_msg()
+    assert "rm -rf" in msg and "decrypted secrets" in msg, (
+        "the recipe writes cleartext credentials to disk; say so and clean up"
+    )
+
+
+def test_taking_one_side_stays_available_as_the_shortcut():
+    msg = _fail_msg()
+    assert "--ours" in msg and "--theirs" in msg
+    assert "remote's version" in msg, (
+        "ours/theirs invert under rebase; label them rather than assume"
     )
 
 
