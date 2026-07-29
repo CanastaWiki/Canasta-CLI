@@ -11,7 +11,7 @@ Usage:
     python tests/integration/run_tests.py --list        # list tests
 
 Requirements:
-    - Docker running
+    - A container runtime running (Docker or Podman)
     - Canasta CLI installed (.venv with ansible)
     - Run from repo root or set CANASTA_ROOT
 """
@@ -45,6 +45,47 @@ def next_port():
     global _port_counter
     _port_counter += 10
     return str(_port_counter), str(_port_counter + 1)
+
+
+_runtime = None
+
+
+def container_runtime():
+    """Return the runtime serving this host: 'docker', 'podman', or ''.
+
+    Probed in the same order the CLI's own create pre-flight uses, so a
+    test run resolves to whatever the CLI will resolve to. Cached — the
+    answer cannot change mid-run.
+    """
+    global _runtime
+    if _runtime is None:
+        _runtime = ""
+        for candidate in ("docker", "podman"):
+            try:
+                probe = subprocess.run(
+                    [candidate, "info"], capture_output=True,
+                )
+            except OSError:
+                continue
+            if probe.returncode == 0:
+                _runtime = candidate
+                break
+    return _runtime
+
+
+def require_docker():
+    """Skip a test that drives `docker` directly on a non-Docker host.
+
+    Most tests only call the CLI and are runtime-agnostic. A few reach
+    past it to seed volumes or exec into containers with Docker-specific
+    invocations; those report SKIPPED under Podman rather than failing on
+    a missing binary.
+    """
+    if container_runtime() != "docker":
+        raise SkipTest(
+            "test drives `docker` directly; this host runs %s"
+            % (container_runtime() or "no container runtime")
+        )
 
 
 class TestInstance:
@@ -190,7 +231,8 @@ def wait_for_wiki_at_path(http_port, api_path="/w/api.php", timeout=300):
         time.sleep(5)
     # Dump diagnostics
     print("  TIMEOUT waiting for wiki (last: %s)" % last_err)
-    subprocess.run(["docker", "ps", "-a"], capture_output=False)
+    if container_runtime():
+        subprocess.run([container_runtime(), "ps", "-a"], capture_output=False)
     raise AssertionError(
         "Wiki did not become ready at port %s within %ds" % (http_port, timeout)
     )
@@ -329,6 +371,98 @@ def test_upgrade(inst):
     wait_for_wiki(inst.http_port)
 
 
+def test_upgrade_rebuilds_buildable(inst):
+    """Upgrade must actually rebuild services carrying a `build:` directive.
+
+    The rebuild step enumerates buildable services out of the merged
+    compose config. When that render fails, an empty service list is
+    indistinguishable from "nothing to rebuild": the loop runs over
+    nothing and the upgrade reports success while the custom image stays
+    stale. That silent skip is invisible to a hand-run, so assert it —
+    the Dockerfile's canary label is changed between the two builds and
+    read back off the image after the upgrade.
+    """
+    runtime = container_runtime()
+    inst_path = inst.instance_path()
+    custom_image = "%s:custom" % inst.id
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    base_image = read_env(inst.env_path())["CANASTA_IMAGE"]
+
+    def write_dockerfile(canary):
+        # One LABEL over the instance's own base image: the build is a
+        # single metadata layer, so it needs no network and finishes
+        # instantly, while still producing a distinct image ID.
+        with open(os.path.join(inst_path, "Dockerfile.custom"), "w") as f:
+            f.write(
+                "FROM %s\nLABEL canasta.canary=%s\n" % (base_image, canary)
+            )
+
+    def image_canary():
+        result = subprocess.run(
+            [runtime, "image", "inspect", custom_image, "--format",
+             '{{ index .Config.Labels "canasta.canary" }}'],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            "could not inspect %s: %s" % (custom_image, result.stderr)
+        )
+        return result.stdout.strip()
+
+    print("Layering a custom web build over the instance image...")
+    override_path = os.path.join(inst_path, "docker-compose.override.yml")
+    with open(override_path, "w") as f:
+        f.write(
+            "services:\n"
+            "  web:\n"
+            "    image: %s\n"
+            "    build:\n"
+            "      context: .\n"
+            "      dockerfile: Dockerfile.custom\n" % custom_image
+        )
+    write_dockerfile("before")
+
+    # Build the first image directly rather than leaning on compose's
+    # implicit build-on-up: the point under test is the *rebuild* the CLI
+    # performs during upgrade, so the starting state should not depend on
+    # another compose behavior.
+    print("Building the custom image...")
+    build = subprocess.run(
+        [runtime, "build", "-t", custom_image, "-f", "Dockerfile.custom", "."],
+        cwd=inst_path, capture_output=True, text=True,
+    )
+    assert build.returncode == 0, (
+        "could not build %s:\n%s" % (custom_image, build.stderr)
+    )
+    assert image_canary() == "before", "precondition: canary label not set"
+
+    print("Restarting onto the custom image...")
+    inst.run_ok("restart", "-i", inst.id)
+    wait_for_wiki(inst.http_port)
+
+    print("Editing the Dockerfile so a rebuild is observable...")
+    write_dockerfile("after")
+
+    print("Running upgrade...")
+    inst.run_ok("upgrade")
+
+    print("Verifying the buildable service was rebuilt...")
+    assert image_canary() == "after", (
+        "upgrade did not rebuild the buildable web service — %s still "
+        "carries the pre-upgrade canary label" % custom_image
+    )
+
+    print("Verifying wiki still accessible...")
+    wait_for_wiki(inst.http_port)
+
+
 def _mysql_data_volume(inst):
     """Name of the instance's MySQL data volume, as Compose derives it."""
     return "%s_mysql-data-volume" % re.sub(
@@ -446,6 +580,9 @@ def test_upgrade_mysql_to_mariadb(inst):
     must then be idempotent: the datadir is already MariaDB, so detection does
     not fire and no re-migration touches the data.
     """
+    # Seeds a genuine MySQL 8 datadir with throwaway `docker run`
+    # containers.
+    require_docker()
     volume = _mysql_data_volume(inst)
 
     print("Creating instance...")
@@ -511,6 +648,9 @@ def test_upgrade_mysql_to_mariadb_recovery(inst):
     still detect and migrate here. A successful MariaDB query afterward proves
     the recovery path fired (MariaDB physically cannot boot on MySQL 8 data).
     """
+    # Seeds a genuine MySQL 8 datadir with throwaway `docker run`
+    # containers.
+    require_docker()
     volume = _mysql_data_volume(inst)
 
     print("Creating instance (compose already pins MariaDB)...")
@@ -669,6 +809,8 @@ def test_upgrade_backfill_hosts_yaml(inst):
 
 def test_backup(inst):
     """Init repo, create snapshot, drop DB, restore, verify."""
+    # Drops the database through `docker compose exec`.
+    require_docker()
     print("Creating instance...")
     inst.run_ok(
         "create", "-i", inst.id, "-w", "main",
@@ -2460,6 +2602,8 @@ def test_gitops_push_reporting(inst):
 
 def test_backup_restore_excludes_safety(inst):
     """Verify --snapshot latest skips safety-before-restore snapshots (#147)."""
+    # Stages a fake safety snapshot with `docker run`.
+    require_docker()
     print("Creating instance...")
     inst.run_ok(
         "create", "-i", inst.id, "-w", "main",
@@ -2749,6 +2893,8 @@ def test_crowdsec(inst):
     sees the Docker bridge gateway as the client, which makes a 403 assertion
     environment-fragile. This pins the deterministic behavior (backfill +
     command/decision plumbing)."""
+    # Drives cscli through `docker compose exec`.
+    require_docker()
     print("Creating instance...")
     inst.run_ok(
         "create", "-i", inst.id, "-w", "main",
@@ -3434,6 +3580,8 @@ def test_sidecar_lifecycle(inst):
     manual e2e: the orphan container left behind after removal, and the
     stop/restart wedge from k8s-notation resources.
     """
+    # Queries sidecar containers and volumes through the Docker CLI.
+    require_docker()
     print("Creating instance...")
     inst.run_ok(
         "create", "-i", inst.id, "-w", "main",
@@ -3503,6 +3651,8 @@ def test_sidecar_migrate(inst):
     docker-compose.override.yml (a left-behind override entry would shadow
     the migrated sidecar). --dry-run must change nothing.
     """
+    # Queries sidecar containers and volumes through the Docker CLI.
+    require_docker()
     print("Creating instance...")
     inst.run_ok(
         "create", "-i", inst.id, "-w", "main",
@@ -3585,6 +3735,7 @@ ALL_TESTS = {
     "lifecycle": test_lifecycle,
     "import": test_import_export,
     "upgrade": test_upgrade,
+    "upgrade-rebuilds-buildable": test_upgrade_rebuilds_buildable,
     "upgrade-mysql-to-mariadb": test_upgrade_mysql_to_mariadb,
     "upgrade-mysql-to-mariadb-recovery": test_upgrade_mysql_to_mariadb_recovery,
     "reconcile": test_reconcile,
@@ -3633,13 +3784,13 @@ def main():
     requested = [a for a in sys.argv[1:] if not a.startswith("-")]
     tests = {n: ALL_TESTS[n] for n in requested} if requested else ALL_TESTS
 
-    # Check Docker
-    result = subprocess.run(
-        ["docker", "info"], capture_output=True
-    )
-    if result.returncode != 0:
-        print("ERROR: Docker not available")
+    # Check a container runtime is reachable. Podman is a supported
+    # runtime, so requiring Docker here would make the suite unrunnable
+    # on exactly the hosts that need the most coverage.
+    if not container_runtime():
+        print("ERROR: no container runtime available (tried docker, podman)")
         sys.exit(1)
+    print("Container runtime: %s" % container_runtime())
 
     passed = 0
     failed = 0

@@ -21,7 +21,8 @@ test-unit: venv
 	$(PYTEST) tests/unit/ -v
 
 # Integration tests call ./canasta commands as subprocesses. Requires
-# Docker and git-crypt. Pass a test name to run a single test, e.g.
+# git-crypt and a container runtime (Docker or Podman). Pass a test name
+# to run a single test, e.g.
 # 'python tests/integration/run_tests.py lifecycle'.
 test-integration: venv
 	$(PYTHON) tests/integration/run_tests.py
