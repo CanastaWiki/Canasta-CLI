@@ -168,3 +168,30 @@ def test_tracked_binaries_are_not_called_mergeable():
     msg = _fail_msg()
     assert "_pull_conflict_binary" in msg
     assert "are binary, so git cannot merge them either" in msg
+
+
+def test_encrypted_paths_the_merge_driver_handled_are_not_given_the_long_recipe():
+    # With a merge driver registered, the driver has already decrypted,
+    # merged and re-encrypted the path, so the working tree holds an ordinary
+    # marker conflict. Printing the decrypt-the-stages recipe for it tells the
+    # operator to redo work that is done.
+    task = _named(_explainer(), "Collect conflicted paths before the rebase is rolled back")
+    cmd = task["ansible.builtin.shell"]["cmd"]
+    assert "check-attr merge" in cmd, (
+        "encryption alone does not decide the advice; whether a driver ran does"
+    )
+    assert 'git config --get "merge.$m.driver"' in cmd, (
+        "the attribute can name a driver this host has not registered, and "
+        "then git falls back to the binary conflict the long recipe is for"
+    )
+    # Both conditions, not either: named AND registered.
+    assert '[ "$m" != "unspecified" ]' in cmd
+
+
+def test_the_long_recipe_survives_for_hosts_without_the_driver():
+    cmd = _named(_explainer(), "Collect conflicted paths before the rebase is rolled back")["ansible.builtin.shell"]["cmd"]
+    assert "printf 'encrypted" in cmd, (
+        "a host on an older CLI, or one where git-crypt is unavailable and "
+        "the driver failed closed, still needs the full recipe"
+    )
+    assert "git merge-file" in _fail_msg()
