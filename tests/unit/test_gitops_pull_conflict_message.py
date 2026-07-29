@@ -75,11 +75,12 @@ def test_conflicted_paths_are_collected_with_their_filter():
     )
 
 
-def test_encrypted_and_plain_conflicts_are_split():
+def test_conflicts_are_split_three_ways():
     task = _named(_explainer(), "Classify the conflicted paths")
     facts = task["ansible.builtin.set_fact"]
-    assert "git-crypt" in str(facts["_pull_conflict_encrypted"])
-    assert "_pull_conflict_plain" in facts
+    for fact in ("_pull_conflict_encrypted", "_pull_conflict_binary",
+                 "_pull_conflict_plain"):
+        assert fact in facts, "missing bucket: %s" % fact
     assert "cannot pull with rebase" in str(facts["_pull_dirty_tree"]), (
         "the dirty-tree refusal must be told apart from a real conflict"
     )
@@ -118,11 +119,12 @@ def test_encrypted_conflicts_offer_a_real_three_way_merge():
     # side wholesale would be data loss, so a real merge has to come first.
     assert "git merge-file" in msg, "a true merge must be the primary route"
     assert "git-crypt smudge" in msg, "the stages have to be decrypted first"
-    for stage in (":${s}:", '"$d/1"', '"$d/2"', '"$d/3"'):
+    for stage in (":1:", ":2:", ":3:", '"$d/base"', '"$d/remote"', '"$d/local"'):
         assert stage in msg, "missing stage handling: %s" % stage
-    assert "Stage 1 is the common ancestor" in msg, (
-        "an operator who mixes up the stages merges the wrong pair"
-    )
+    # Named scratch files, not :1:/:2:/:3: positional temp names — an operator
+    # who mixes up the stages merges the wrong pair.
+    assert '"$d/merged"' in msg, "the file to edit and install must be named"
+    assert "base is the common ancestor" in msg
 
 
 def test_decrypted_scratch_copies_are_flagged():
@@ -154,3 +156,15 @@ def test_local_commits_are_still_reported_safe():
     assert "git reset --hard origin/main" in msg, (
         "the escape hatch must stay documented"
     )
+
+
+def test_tracked_binaries_are_not_called_mergeable():
+    # A public_assets logo is as unmergeable as ciphertext but has nothing to
+    # decrypt; calling it "resolve the usual way" sends the operator to edit a
+    # PNG in a text editor.
+    task = _named(_explainer(), "Collect conflicted paths before the rebase is rolled back")
+    cmd = task["ansible.builtin.shell"]["cmd"]
+    assert "tr -d '\\000'" in cmd, "expected a NUL-byte test to spot binaries"
+    msg = _fail_msg()
+    assert "_pull_conflict_binary" in msg
+    assert "are binary, so git cannot merge them either" in msg
