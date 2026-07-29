@@ -1481,12 +1481,24 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
             inst = resolve_instance(
                 getattr(args, "id", None)
             ) if os.path.isfile(get_config_file_path()) else {}
+            # The registry is on the controller, so it reads the same
+            # whatever host the instance runs on — unlike the .env below,
+            # and it is where create records the runtime it probed.
+            for _key, _field in (("compose_command", "composeCommand"),
+                                 ("inspect_command", "inspectCommand")):
+                reg_val = inst.get(_field)
+                if reg_val:
+                    extra_vars[_key] = reg_val
             path = inst.get("path", "")
             # The .env sits on the instance's host, so it is only
-            # readable from here when that host is this machine.
+            # readable from here when that host is this machine. Kept as
+            # a fallback for instances created before the registry
+            # carried the runtime fields.
             is_local = (inst.get("host") or "localhost") in ("localhost", "")
             if path and is_local and not host_value:
                 for _key in ("compose_command", "inspect_command"):
+                    if _key in extra_vars:
+                        continue
                     env_val = _read_env(path, _key)
                     if env_val:
                         extra_vars[_key] = env_val
