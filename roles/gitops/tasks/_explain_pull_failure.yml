@@ -1,0 +1,147 @@
+---
+# Turn a failed `git pull --rebase` into a message the operator can act on,
+# then roll the rebase back.
+#
+# Three failures reach here and they need different advice: a dirty working
+# tree (git refused before replaying anything), a conflict in files git can
+# merge, and a conflict in git-crypt paths — where git compares ciphertext, so
+# no line-by-line resolution exists at all.
+#
+# The conflicted paths must be read before the abort clears them.
+#
+# Requires: instance_path, _pull_failure (the registered failed pull result).
+
+- name: Collect conflicted paths before the rebase is rolled back
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      git diff --name-only --diff-filter=U -z \
+        | while IFS= read -r -d '' f; do
+            attr="$(git check-attr filter -- "$f" 2>/dev/null | sed 's/.*: //')"
+            if [ "$attr" = "git-crypt" ]; then
+              printf 'encrypted\t%s\n' "$f"
+              continue
+            fi
+            # A tracked binary (a public_assets logo) is just as unmergeable as
+            # ciphertext, and needs the same take-one-side advice — minus the
+            # decryption. NUL bytes in the head of the blob are git's own test.
+            raw="$(git cat-file -p ":2:$f" 2>/dev/null | head -c 8000 | wc -c)"
+            txt="$(git cat-file -p ":2:$f" 2>/dev/null | head -c 8000 \
+                   | tr -d '\000' | wc -c)"
+            if [ "$raw" != "$txt" ]; then
+              printf 'binary\t%s\n' "$f"
+            else
+              printf 'text\t%s\n' "$f"
+            fi
+          done
+  args:
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+  register: _pull_conflicted
+  changed_when: false
+  failed_when: false
+
+- name: Classify the conflicted paths
+  ansible.builtin.set_fact:
+    _pull_conflict_encrypted: >-
+      {{ _pull_conflicted.stdout_lines | default([])
+         | select('match', '^encrypted\t')
+         | map('regex_replace', '^[^\t]*\t', '') | list }}
+    _pull_conflict_binary: >-
+      {{ _pull_conflicted.stdout_lines | default([])
+         | select('match', '^binary\t')
+         | map('regex_replace', '^[^\t]*\t', '') | list }}
+    _pull_conflict_plain: >-
+      {{ _pull_conflicted.stdout_lines | default([])
+         | select('match', '^text\t')
+         | map('regex_replace', '^[^\t]*\t', '') | list }}
+    _pull_dirty_tree: >-
+      {{ 'cannot pull with rebase' in (_pull_failure.stderr | default('')) }}
+
+# Never leave the repo mid-rebase: roll back to where the pull started so the
+# operator has one clear problem to solve, with local commits intact.
+- name: Abort an incomplete rebase
+  ansible.builtin.command:
+    cmd: "git rebase --abort"
+    chdir: "{{ instance_path }}"
+  register: _pull_abort
+  changed_when: _pull_abort.rc == 0
+  failed_when: false
+
+- name: Fail with an explanation of what blocked the pull
+  ansible.builtin.fail:
+    msg: |-
+      {% if _pull_dirty_tree | bool %}
+      Cannot pull: this host has local changes to tracked files, so the remote
+      changes cannot be replayed on top of them. Share them with
+      'canasta gitops add <file>' then 'canasta gitops push', or discard them
+      with 'git checkout -- <file>', then retry.
+      {% elif _pull_conflict_encrypted | length > 0 or _pull_conflict_binary | length > 0 or _pull_conflict_plain | length > 0 %}
+      Cannot pull: this host's local commit(s) conflict with the remote changes,
+      so they could not be replayed on top. The rebase was rolled back — the
+      instance is exactly as it was and the local commit(s) are intact.
+      {% if _pull_conflict_encrypted | length > 0 %}
+      These conflicting file(s) are git-crypt encrypted:
+      {%- for f in _pull_conflict_encrypted %}
+        - {{ f }}
+      {%- endfor %}
+
+      Git compares them as ciphertext, so it cannot merge them and writes no
+      conflict markers. Do not simply edit the file: the working copy holds
+      one side only, and saving it drops the other host's change silently.
+
+      To merge the two versions, for each file above, in
+      {{ instance_path }} on a git-crypt unlocked checkout:
+
+        d=$(mktemp -d)
+        git pull --rebase
+        git cat-file -p ':1:<file>' | git-crypt smudge > "$d/base"
+        git cat-file -p ':2:<file>' | git-crypt smudge > "$d/remote"
+        git cat-file -p ':3:<file>' | git-crypt smudge > "$d/local"
+        cp "$d/remote" "$d/merged"
+        git merge-file -L remote -L base -L local "$d/merged" "$d/base" "$d/local"
+        <if it reports a conflict, edit "$d/merged" to resolve it>
+        cp "$d/merged" <file> && git add -- <file> && git rebase --continue
+        rm -rf "$d"
+
+      base is the common ancestor both versions started from. $d holds
+      decrypted secrets until you remove it.
+
+      To take one side whole instead of merging, replace the middle steps with
+      'git checkout --ours -- <file>' for the remote's version, or '--theirs'
+      for this host's.
+      {% endif %}
+      {% if _pull_conflict_binary | length > 0 %}
+      These conflicting file(s) are binary, so git cannot merge them either:
+      {%- for f in _pull_conflict_binary %}
+        - {{ f }}
+      {%- endfor %}
+
+      Keep one version whole, then continue the rebase:
+
+        cd {{ instance_path }}
+        git pull --rebase
+        git checkout --ours -- <file>
+        git add -- <file> && git rebase --continue
+
+      --ours is the remote's version and --theirs is this host's.
+      {% endif %}
+      {% if _pull_conflict_plain | length > 0 %}
+      Mergeable — resolve these the usual way:
+      {%- for f in _pull_conflict_plain %}
+        - {{ f }}
+      {%- endfor %}
+
+        cd {{ instance_path }}
+        git pull --rebase
+        (edit each file, then 'git add' it)
+        git rebase --continue
+      {% endif %}
+      To throw this host's local commit(s) away instead:
+      'git reset --hard origin/main'.
+      {% else %}
+      Cannot pull: the rebase could not be completed and was rolled back — the
+      instance is exactly as it was and the local commit(s) are intact.
+      git said: {{ (_pull_failure.stdout | default('') ~ ' '
+                    ~ _pull_failure.stderr | default('')) | trim }}
+      {% endif %}
