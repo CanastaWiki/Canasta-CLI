@@ -2571,10 +2571,11 @@ def test_gitops_push_shared_vars(inst):
     with open(vars_file) as f:
         vars_data = yaml.safe_load(f) or {}
     # Should migrate to shared (in gitops_shared_keys):
-    vars_data["restic_password"] = "test-password"
     vars_data["aws_access_key_id"] = "AKIATEST"
     vars_data["aws_secret_access_key"] = "secrettest"
-    # Should stay per-host (environment-specific identifiers):
+    # Should stay per-host (environment-specific identifiers, plus the
+    # password that unlocks the per-host restic repository):
+    vars_data["restic_password"] = "test-password"
     vars_data["restic_repository"] = "s3:s3.example.com/test-backup"
     vars_data["aws_bucket_name"] = "test-bucket"
     with open(vars_file, "w") as f:
@@ -2593,9 +2594,6 @@ def test_gitops_push_shared_vars(inst):
     )
     with open(shared_file) as f:
         shared_data = yaml.safe_load(f) or {}
-    assert shared_data.get("restic_password") == "test-password", (
-        "restic_password not in shared vars: %s" % shared_data
-    )
     assert shared_data.get("aws_access_key_id") == "AKIATEST", (
         "aws_access_key_id not in shared vars: %s" % shared_data
     )
@@ -2604,6 +2602,10 @@ def test_gitops_push_shared_vars(inst):
     )
 
     print("Checking environment-specific keys stayed per-host...")
+    assert "restic_password" not in shared_data, (
+        "restic_password should NOT be in shared (unlocks the per-host "
+        "restic_repository): %s" % shared_data
+    )
     assert "restic_repository" not in shared_data, (
         "restic_repository should NOT be in shared (per-host): %s"
         % shared_data
@@ -2616,13 +2618,12 @@ def test_gitops_push_shared_vars(inst):
     print("Checking host vars: shared-list keys removed, host-specific kept...")
     with open(vars_file) as f:
         host_data = yaml.safe_load(f) or {}
-    assert "restic_password" not in host_data, (
-        "restic_password should have moved to shared, still in host: %s"
-        % host_data
-    )
     assert "aws_access_key_id" not in host_data, (
         "aws_access_key_id should have moved to shared, still in host: %s"
         % host_data
+    )
+    assert host_data.get("restic_password") == "test-password", (
+        "restic_password should remain per-host: %s" % host_data
     )
     assert host_data.get("restic_repository") == "s3:s3.example.com/test-backup", (
         "restic_repository should remain per-host: %s" % host_data

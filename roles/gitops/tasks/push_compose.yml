@@ -57,6 +57,39 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/_migrate_reclassified_secrets.yml
 
+# --- Is this host up to date with the remote? ---
+# The migration below rewrites hosts/_shared/vars.yaml, which .gitattributes
+# encrypts with git-crypt. Git merges the stored ciphertext, so a rewrite made
+# from a stale base can never be replayed on top of another host's version and
+# leaves a conflict no canasta command resolves. Defer the migration instead —
+# the keys move on the next push, once the operator has pulled.
+#
+# A fetch that fails (no network, no credentials) leaves the host treated as up
+# to date: the push that follows reports the real problem.
+- name: Fetch the remote to compare against
+  ansible.builtin.command:
+    cmd: "git fetch origin main"
+    chdir: "{{ instance_path }}"
+  environment: "{{ gitops_git_env }}"
+  register: _push_fetch
+  changed_when: false
+  failed_when: false
+
+- name: Count commits this host is missing
+  ansible.builtin.command:
+    cmd: "git rev-list --count HEAD..@{upstream}"
+    chdir: "{{ instance_path }}"
+  register: _push_behind
+  changed_when: false
+  failed_when: false
+
+- name: Record whether this host is behind the remote
+  ansible.builtin.set_fact:
+    _push_is_behind: >-
+      {{ (_push_fetch.rc | default(1)) == 0
+         and (_push_behind.rc | default(1)) == 0
+         and (_push_behind.stdout | default('0', true) | trim | int) > 0 }}
+
 # --- Auto-migrate shared-category keys to _shared/vars.yaml ---
 # Keys named in gitops_shared_keys (vars/main.yml) belong in the
 # shared file so all hosts inherit them. On every push, any such key
@@ -95,8 +128,21 @@
          | selectattr('key', 'in', gitops_shared_keys)
          | list }}
 
+- name: Defer the migration while this host is behind
+  ansible.builtin.debug:
+    msg: >-
+      Holding back {{ _push_keys_to_migrate | length }} shared credential
+      key(s) from hosts/_shared/vars.yaml: this host is behind the remote,
+      and that file is encrypted, so a rewrite from a stale base could not
+      be merged. Run 'canasta gitops pull', then push again.
+  when:
+    - _push_keys_to_migrate | length > 0
+    - _push_is_behind | bool
+
 - name: Write migrated shared vars
-  when: _push_keys_to_migrate | length > 0
+  when:
+    - _push_keys_to_migrate | length > 0
+    - not (_push_is_behind | bool)
   block:
     - name: Create _shared directory
       ansible.builtin.file:

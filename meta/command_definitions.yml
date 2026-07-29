@@ -2366,6 +2366,15 @@ commands:
       The instance must already exist and have a working `.env`
       file. Use `canasta gitops init` to bootstrap a new gitops
       repository instead.
+
+      Account-wide credentials (the AWS keys, SMTP) are shared across
+      every host in the repo. Backup credentials are not: a password
+      that unlocks one specific repository belongs with the per-host
+      `RESTIC_REPOSITORY` it opens, so `RESTIC_PASSWORD` stays on the
+      host that generated it. If the hosts in this repo all back up to
+      one restic repository, set the joining host's password to match
+      it — `canasta config set -i <id> RESTIC_PASSWORD=<password>` —
+      or its backups will fail against a repository it cannot open.
     examples:
       - "canasta gitops join -n staging --repo git@github.com:org/config.git --key /tmp/gc.key"
     playbook: gitops_join.yml
