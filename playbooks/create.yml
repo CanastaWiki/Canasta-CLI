@@ -57,6 +57,43 @@
         - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
       ignore_errors: true  # Best-effort cleanup on failure
 
+    # Rootless Podman maps the container's root to a subuid, so files the
+    # containers wrote into the instance directory are owned by that
+    # subuid. The `file` module below removes them from this process's
+    # namespace and gets EACCES, leaving a directory the operator cannot
+    # delete either — and a non-empty one blocks the next create. Clear
+    # them from inside the namespace first; `file` then finds only what
+    # it can remove. Same approach delete takes.
+    - name: Detect rootless Podman before cleaning up
+      ansible.builtin.command:
+        cmd: podman info --format {% raw %}{{.Host.Security.Rootless}}{% endraw %}
+      register: _create_podman_rootless
+      changed_when: false
+      failed_when: false
+      when:
+        - instance_path is defined
+        - not (keep_config | default(false) | bool)
+        - instance_dir_was_created | default(false) | bool
+        - inspect_command | default('docker') is search('podman')
+
+    # Guarded like delete's equivalent: an absolute path of non-trivial
+    # length, so a corrupted registry or unset variable cannot turn this
+    # into a destructive `find -delete` near the filesystem root.
+    - name: Clean up on failure (remove id-mapped files)
+      ansible.builtin.command:
+        cmd: >-
+          podman unshare find {{ instance_path | quote }} -mindepth 1 -delete
+        chdir: "/"
+      changed_when: true
+      when:
+        - instance_path is defined
+        - not (keep_config | default(false) | bool)
+        - instance_dir_was_created | default(false) | bool
+        - (_create_podman_rootless.stdout | default('') | trim) == 'true'
+        - instance_path | default('') | length > 5
+        - instance_path | default('') is match('^/')
+      ignore_errors: true  # Best-effort cleanup on failure
+
     # Only remove the directory if this run created it. A pre-existing
     # directory (e.g., the operator was using it as a staging area for
     # an upgrade) belongs to the operator and must not be deleted.
