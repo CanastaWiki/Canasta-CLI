@@ -163,6 +163,11 @@
     dest: "{{ instance_path }}/.gitattributes"
     mode: "0644"
 
+# .gitattributes names the merge driver; .git/config has to resolve it, and
+# no clone carries that, so every host registers it for itself.
+- name: Install and register the git-crypt merge driver
+  ansible.builtin.include_tasks: "_ensure_merge_driver.yml"
+
 # --- Step 8: Initialize git-crypt and export key ---
 - name: Initialize git-crypt
   ansible.builtin.command:

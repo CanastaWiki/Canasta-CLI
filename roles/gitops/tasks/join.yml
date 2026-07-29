@@ -215,6 +215,11 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+# The joined repo may already name a merge driver this host cannot resolve
+# yet; register it now so the first pull can merge encrypted paths.
+- name: Install and register the git-crypt merge driver
+  ansible.builtin.include_tasks: "_ensure_merge_driver.yml"
+
 - name: Find tracked files whose content differs from the repo
   ansible.builtin.command:
     cmd: "git diff --name-only HEAD"
