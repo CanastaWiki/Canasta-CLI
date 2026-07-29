@@ -1,22 +1,23 @@
 ---
 # canasta uninstall - Uninstall dependencies from the target host.
+#
+# Package names are the CLI's own, dispatched on as-is. The task file
+# below keeps the name of the software it removes (k3s), which is not
+# the name the operator asks for (k8s).
 
-- name: Normalize package names
+- name: Split the requested packages
   ansible.builtin.set_fact:
-    _uninstall_packages: >-
-      {{ packages.split()
-         | map('regex_replace', '^(k8s|kubernetes)$', 'k3s')
-         | list }}
+    _uninstall_packages: "{{ packages.split() }}"
 
 - name: Validate packages
   ansible.builtin.fail:
     msg: >-
       Unknown package '{{ item }}'. Supported: k8s.
-  when: item not in ['k3s']
+  when: item not in ['k8s']
   loop: "{{ _uninstall_packages }}"
 
 - name: Uninstall Kubernetes (k3s, kubectl, helm)
   ansible.builtin.include_role:
     name: install
     tasks_from: uninstall_k3s.yml
-  when: "'k3s' in _uninstall_packages"
+  when: "'k8s' in _uninstall_packages"
