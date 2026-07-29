@@ -6,23 +6,117 @@ Checks:
 2. Every playbook file in playbooks/ has a corresponding command definition
 3. All required fields are present in each command definition
 4. Parameter types are valid
+5. Every `examples:` entry is an invocation the CLI would accept
 
 Usage:
     python scripts/validate_definitions.py
 """
 
 import os
+import re
 import sys
 
 import yaml
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cli_examples  # noqa: E402
+
 
 VALID_TYPES = {"string", "path", "bool", "choice", "integer"}
+SHORT_FLAG = re.compile(r"^-[A-Za-z]$")
 # A command must have either a playbook or direct_only: true — not both,
 # not neither. 'playbook' is conditional, so it's not in the unconditional
 # required-fields set; its presence is enforced separately below.
 REQUIRED_CMD_FIELDS = {"name", "description", "parameters"}
 REQUIRED_PARAM_FIELDS = {"name", "type", "description"}
+
+
+def flag_table(command, definitions):
+    """Map flag spelling -> parameter, plus the positionals in order."""
+    longs, shorts, positionals = {}, {}, []
+    for param in command.get("parameters") or []:
+        if param.get("positional"):
+            positionals.append(param)
+            continue
+        # `long:` overrides the flag spelling (host_name -> --name).
+        longs["--" + (param.get("long") or param["name"]).replace("_", "-")] = param
+        if param.get("short"):
+            shorts["-" + param["short"]] = param
+    for param in definitions.get("global_flags") or []:
+        longs["--" + param["name"].replace("_", "-")] = param
+        if param.get("short"):
+            shorts["-" + param["short"]] = param
+    return longs, shorts, positionals
+
+
+def check_choices(param, value, label):
+    """Errors if `value` is one a `choices:` list would reject."""
+    choices = param.get("choices")
+    if not choices or value is None or value == cli_examples.PLACEHOLDER:
+        return []
+    if value in choices:
+        return []
+    return ["%s: '%s' is not one of %s" % (label, value, ", ".join(choices))]
+
+
+def check_example(command, example, table, definitions):
+    """Errors for one `examples:` entry the CLI would refuse to parse.
+
+    The examples also feed the generated command reference, so an
+    invocation that argparse rejects ships as published documentation.
+    Walking the tokens has to track which flags take a value, because
+    otherwise a flag's value is indistinguishable from a positional.
+    """
+    tokens = cli_examples.tokenize(example)
+    if not tokens:
+        if cli_examples.canasta_segment(example) is None:
+            return ["not a canasta invocation"]
+        return ["cannot be parsed as a shell command line"]
+
+    invoked, rest = cli_examples.resolve_command(tokens, table)
+    if invoked is None:
+        return ["unknown command: %s" % " ".join(tokens[:3])]
+    if invoked is not command:
+        return ["invokes '%s'" % invoked["name"]]
+
+    longs, shorts, positionals = flag_table(command, definitions)
+    errors = []
+    index, next_positional = 0, 0
+    while index < len(rest):
+        token = rest[index]
+        index += 1
+        if token == "--":
+            break  # everything after is passed through verbatim
+
+        if token.startswith("--") or SHORT_FLAG.match(token):
+            flag, sep, inline = token.partition("=")
+            param = longs.get(flag) if flag.startswith("--") else shorts.get(flag)
+            if param is None:
+                # Without the parameter there is no telling whether the
+                # next token is its value, so stop rather than guess.
+                errors.append("unknown flag: %s" % flag)
+                break
+            if param.get("type") == "bool":
+                continue
+            value = inline if sep else None
+            if value is None and index < len(rest):
+                value = rest[index]
+                index += 1
+            errors.extend(check_choices(param, value, flag))
+            continue
+
+        if next_positional >= len(positionals):
+            errors.append("extra argument: %s" % token)
+            break
+        param = positionals[next_positional]
+        if param["name"] in cli_examples.PASSTHROUGH_POSITIONALS:
+            break  # the rest is another program's command line
+        errors.extend(check_choices(param, token, param["name"]))
+        # A multi positional keeps consuming; a single one is now filled.
+        if not param.get("multi"):
+            next_positional += 1
+
+    return errors
 
 
 def main():
@@ -39,6 +133,8 @@ def main():
 
     # Collect defined playbook names
     defined_playbooks = set()
+    table = cli_examples.build_command_table(data)
+    example_count = 0
 
     for i, cmd in enumerate(commands):
         prefix = "commands[%d] (%s)" % (i, cmd.get("name", "?"))
@@ -86,6 +182,12 @@ def main():
             if ptype == "choice" and not param.get("choices"):
                 errors.append("%s: type 'choice' requires 'choices' list" % ppfx)
 
+        # Check the documented examples actually parse
+        for example in cmd.get("examples") or []:
+            example_count += 1
+            for problem in check_example(cmd, example, table, data):
+                errors.append("%s: example '%s': %s" % (prefix, example, problem))
+
     # Check for orphan playbooks (files with no matching definition)
     if os.path.isdir(playbooks_dir):
         for fname in sorted(os.listdir(playbooks_dir)):
@@ -106,8 +208,8 @@ def main():
             print("  - %s" % e, file=sys.stderr)
         sys.exit(1)
     else:
-        print("Validation passed: %d commands, %d playbooks" % (
-            len(commands), len(defined_playbooks)))
+        print("Validation passed: %d commands, %d playbooks, %d examples" % (
+            len(commands), len(defined_playbooks), example_count))
 
 
 if __name__ == "__main__":

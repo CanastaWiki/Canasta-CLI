@@ -22,6 +22,124 @@ class TestValidateMain:
             )
 
 
+class TestExampleChecks:
+    """A documented example has to be an invocation the CLI accepts.
+
+    The examples feed the generated command reference, so one that
+    argparse rejects ships as published documentation. The case that
+    got through: `install` gained a `podman` example and a `podman`
+    mention in three descriptions, but not in the `choices:` list that
+    is actually enforced.
+    """
+
+    INSTALL = {
+        "name": "install",
+        "description": "Install dependencies",
+        "playbook": "install.yml",
+        "parameters": [
+            {"name": "host", "type": "string", "short": "H",
+             "description": "Target host"},
+            {"name": "verbose_output", "type": "bool", "long": "loud",
+             "description": "Chatter"},
+            {"name": "packages", "type": "string", "description": "Packages",
+             "positional": True, "multi": True,
+             "choices": ["docker", "sops", "canasta"]},
+        ],
+    }
+    CREATE = {
+        "name": "create",
+        "description": "Create an instance",
+        "playbook": "create.yml",
+        "parameters": [
+            {"name": "id", "type": "string", "short": "i", "description": "ID"},
+            {"name": "orchestrator", "type": "choice",
+             "choices": ["compose", "k8s"], "description": "Orchestrator"},
+        ],
+    }
+
+    def _defs(self):
+        return {"commands": [self.INSTALL, self.CREATE], "command_groups": [],
+                "global_flags": [{"name": "verbose", "short": "v",
+                                  "type": "bool", "description": "Verbose"}]}
+
+    def _check(self, command, example):
+        import cli_examples
+        data = self._defs()
+        table = cli_examples.build_command_table(data)
+        return validate_definitions.check_example(command, example, table, data)
+
+    def test_positional_outside_choices_is_rejected(self):
+        errors = self._check(self.INSTALL, "canasta install podman")
+        assert errors and "'podman' is not one of" in errors[0]
+
+    def test_positional_in_choices_passes(self):
+        assert self._check(self.INSTALL, "canasta install docker") == []
+
+    def test_every_value_of_a_multi_positional_is_checked(self):
+        errors = self._check(self.INSTALL, "canasta install docker podman")
+        assert len(errors) == 1 and "'podman'" in errors[0]
+
+    def test_choice_flag_outside_choices_is_rejected(self):
+        errors = self._check(self.CREATE, "canasta create -i x --orchestrator nomad")
+        assert errors and "--orchestrator: 'nomad' is not one of" in errors[0]
+
+    def test_choice_flag_accepts_inline_value_form(self):
+        assert self._check(self.CREATE, "canasta create --orchestrator=k8s") == []
+
+    def test_flag_value_is_not_mistaken_for_a_positional(self):
+        # -H takes a value; 'prod1' must not be checked against packages.
+        assert self._check(self.INSTALL, "canasta install -H prod1 docker") == []
+
+    def test_bool_flag_does_not_consume_the_next_token(self):
+        errors = self._check(self.INSTALL, "canasta install --loud podman")
+        assert errors and "'podman' is not one of" in errors[0]
+
+    def test_global_flags_are_accepted(self):
+        assert self._check(self.INSTALL, "canasta install -v docker") == []
+
+    def test_unknown_flag_is_reported(self):
+        assert self._check(self.INSTALL, "canasta install --nope docker") == [
+            "unknown flag: --nope"
+        ]
+
+    def test_unknown_command_is_reported(self):
+        errors = self._check(self.INSTALL, "canasta instal docker")
+        assert errors and errors[0].startswith("unknown command:")
+
+    def test_example_listed_under_the_wrong_command_is_reported(self):
+        assert self._check(self.INSTALL, "canasta create -i x") == [
+            "invokes 'create'"
+        ]
+
+    def test_placeholder_values_are_not_checked(self):
+        # <package> is the author deferring to the reader, not a value.
+        assert self._check(self.INSTALL, "canasta install <package>") == []
+
+    def test_compound_line_is_unwrapped_before_checking(self):
+        errors = self._check(self.INSTALL, "cd /tmp && canasta install podman")
+        assert errors and "'podman' is not one of" in errors[0]
+
+    def test_real_examples_all_parse(self):
+        """Every example in the real definitions is a valid invocation."""
+        import cli_examples
+        repo_root = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        ))
+        with open(os.path.join(repo_root, "meta",
+                               "command_definitions.yml")) as f:
+            data = yaml.safe_load(f)
+        table = cli_examples.build_command_table(data)
+        offenders = []
+        for cmd in data["commands"]:
+            for example in cmd.get("examples") or []:
+                for problem in validate_definitions.check_example(
+                    cmd, example, table, data
+                ):
+                    offenders.append("%s: %s -- %s"
+                                     % (cmd["name"], example, problem))
+        assert not offenders, "\n  ".join([""] + offenders)
+
+
 class TestDirectOnlyInvariants:
     """Invariants that have to hold for 'direct_only: true' commands.
 
