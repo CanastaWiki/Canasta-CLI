@@ -60,11 +60,26 @@ class TestInstance:
                 % (self.http_port, self.https_port)
             )
 
-    def run(self, *args):
-        """Run a canasta command in verbose mode. Returns (stdout, returncode)."""
+    def cli_env(self):
+        """Environment for a CLI invocation under test.
+
+        CANASTA_SELF_UPDATED pins the suite to the checked-out tree.
+        `canasta upgrade` otherwise self-updates before running its
+        playbook: it decides whether to move with `git merge-base
+        --is-ancestor <latest tag> HEAD`, which cannot succeed in CI's
+        depth-1 clone, so it checks out the release tag and re-execs.
+        Every later test — and the upgrade path itself — would then run
+        the released CLI instead of the code under test.
+        """
         env = os.environ.copy()
         env["CANASTA_CONFIG_DIR"] = self.config_dir
         env["ANSIBLE_CONFIG"] = os.path.join(REPO_ROOT, "ansible.cfg")
+        env["CANASTA_SELF_UPDATED"] = "1"
+        return env
+
+    def run(self, *args):
+        """Run a canasta command in verbose mode. Returns (stdout, returncode)."""
+        env = self.cli_env()
         # Run in verbose mode for CI feedback
         cmd = [CANASTA_BIN, "--verbose"] + list(args)
         print("  $ canasta %s" % " ".join(args), flush=True)
@@ -80,9 +95,7 @@ class TestInstance:
 
     def run_quiet(self, *args):
         """Run without --verbose for parseable output."""
-        env = os.environ.copy()
-        env["CANASTA_CONFIG_DIR"] = self.config_dir
-        env["ANSIBLE_CONFIG"] = os.path.join(REPO_ROOT, "ansible.cfg")
+        env = self.cli_env()
         cmd = [CANASTA_BIN] + list(args)
         print("  $ canasta %s" % " ".join(args), flush=True)
         result = subprocess.run(
