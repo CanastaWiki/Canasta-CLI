@@ -20,10 +20,18 @@
       ansible.builtin.set_fact:
         _bvol: "canasta-backup-{{ instance_path | basename }}"
 
+    # `docker volume create` is idempotent; `podman volume create` exits
+    # 125 when the volume is already there. Tolerate only that, so a real
+    # failure — bad name, no space — still stops the backup rather than
+    # letting it run against a volume that was never created.
     - name: Ensure backup volume exists
       ansible.builtin.command:
         cmd: "{{ inspect_command }} volume create {{ _bvol }}"
-      changed_when: true
+      register: _bvol_create
+      changed_when: _bvol_create.rc == 0
+      failed_when:
+        - _bvol_create.rc != 0
+        - "'already exists' not in (_bvol_create.stderr | default(''))"
 
     - name: Stage files into backup volume
       when: >-
