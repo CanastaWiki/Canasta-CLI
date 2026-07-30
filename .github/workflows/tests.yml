@@ -157,8 +157,6 @@ jobs:
           url="https://github.com/mgoltzsche/podman-static/releases/download/v${{ matrix.podman_version }}/podman-linux-amd64.tar.gz"
           curl -sL "$url" -o /tmp/podman-static.tar.gz
           sudo tar -xzf /tmp/podman-static.tar.gz -C /usr/local --strip-components=3
-          sudo tar -xzf /tmp/podman-static.tar.gz -C /etc --strip-components=2 \
-            podman-linux-amd64/etc/
           rm -f /tmp/podman-static.tar.gz
           echo "/usr/local/bin" >> "$GITHUB_PATH"
 
@@ -176,17 +174,34 @@ jobs:
           done
           hash -r
 
+      # Ubuntu >=24.04 ships an AppArmor profile that restricts user
+      # namespaces to processes matching specific profiles.  The static
+      # podman lives at /usr/local/bin/podman, not /usr/bin/podman, so
+      # the stock profile doesn't apply.  Widen the path glob so the
+      # downloaded binary can create user namespaces (#155).
+      - name: Relax AppArmor profile for /usr/local/bin/podman
+        run: |
+          if [ -f /etc/apparmor.d/podman ]; then
+            sudo sed -Ei \
+              's!^profile podman /usr/bin/podman !profile podman /usr/{bin,local/bin}/podman !' \
+              /etc/apparmor.d/podman
+            sudo apparmor_parser -r /etc/apparmor.d/podman 2>/dev/null || true
+          fi
+
       - name: Configure rootless Podman
         run: |
           mkdir -p ~/.config/containers
           cat > ~/.config/containers/registries.conf <<'EOF'
           unqualified-search-registries = ["docker.io"]
           EOF
+          # Point to the system fuse-overlayfs (which uses the distro's
+          # setuid fusermount3) rather than the static bundle's copy
+          # (which lacks the setuid bit needed for unprivileged FUSE).
           cat > ~/.config/containers/storage.conf <<'EOF'
           [storage]
           driver = "overlay"
           [storage.options.overlay]
-          mount_program = "/usr/local/bin/fuse-overlayfs"
+          mount_program = "/usr/bin/fuse-overlayfs"
           EOF
           cat > ~/.config/containers/containers.conf <<'EOF'
           [engine]
