@@ -49,6 +49,13 @@
     - "'k8s-worker' in _install_packages"
     - not (cp_host is defined and (cp_host | length > 0))
 
+# Every package below needs root. Refuse now, with a message naming the
+# cause, rather than letting become time out mid-install.
+- name: Check that privilege escalation will work
+  ansible.builtin.include_role:
+    name: install
+    tasks_from: _escalation_preflight.yml
+
 - name: Install Docker
   ansible.builtin.include_role:
     name: install
