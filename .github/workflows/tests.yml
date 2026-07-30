@@ -156,7 +156,7 @@ jobs:
         run: |
           url="https://github.com/mgoltzsche/podman-static/releases/download/v${{ matrix.podman_version }}/podman-linux-amd64.tar.gz"
           curl -sL "$url" -o /tmp/podman-static.tar.gz
-          sudo tar -xzf /tmp/podman-static.tar.gz -C /usr/local --strip-components=2
+          sudo tar -xzf /tmp/podman-static.tar.gz -C /usr/local --strip-components=3
           rm -f /tmp/podman-static.tar.gz
           echo "/usr/local/bin" >> "$GITHUB_PATH"
 
