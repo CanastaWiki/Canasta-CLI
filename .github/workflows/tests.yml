@@ -6,11 +6,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Manual trigger for re-running the full suite (including the
-  # integration jobs that are normally gated to push-to-main only).
-  # Useful when reviewing a PR that touches integration-relevant
-  # code. See #67.
+  # Manual trigger for re-running the full suite. See #67.
   workflow_dispatch:
+  # Weekly full version sweep so push-to-main can run a single
+  # representative leg while the matrix is still exercised regularly.
+  schedule:
+    - cron: "0 0 * * 0"
 
 # All jobs in this workflow only read the checkout to run tests and
 # linters; none push images, write back to the repo, or post comments.
@@ -131,18 +132,33 @@ jobs:
   # Known limitation: mgoltzsche/podman-static tops out at v5.8.4, so this
   # lane cannot test podman 6.x.  When ubuntu-26.04 ships with podman 6.x
   # from apt, a separate lane or runner update will be needed.
+  integration-podman-matrix:
+    name: "Integration: Podman matrix"
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set podman test matrix
+        id: set-matrix
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # On push-to-main run one representative leg to keep the
+            # long pole short; the full sweep runs on PRs, schedule, and
+            # workflow_dispatch.
+            matrix='{"podman_version":["5.3.2"],"podman_compose_version":["1.3.0"]}'
+          else
+            matrix='{"podman_version":["4.9.5","5.3.2","5.8.4"],"podman_compose_version":["1.3.0"],"include":[{"podman_version":"5.8.4","podman_compose_version":"1.6.0"}]}'
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   integration-podman:
     name: "Integration: Podman"
+    needs: integration-podman-matrix
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
       fail-fast: false
-      matrix:
-        podman_version: ["4.9.5", "5.3.2", "5.8.4"]
-        podman_compose_version: ["1.3.0"]
-        include:
-          - podman_version: "5.8.4"
-            podman_compose_version: "1.6.0"
+      matrix: ${{ fromJSON(needs.integration-podman-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -175,15 +191,23 @@ jobs:
             echo "sha256 mismatch: expected $expected, got $actual" >&2
             exit 1
           fi
+          # The archive root contains both usr/ and etc/.  Extract each
+          # tree with the strip level that lands it at the matching system
+          # path, not nested under /usr/local/local.
           sudo tar -xzf /tmp/podman-static.tar.gz \
-            -C /usr/local --strip-components=3 podman-linux-amd64/usr/
+            -C /usr --strip-components=2 podman-linux-amd64/usr/
+          # Installing etc/containers/ from the bundle replaces the runner's
+          # registries.conf with an older format, but this lane is rootless so
+          # ~/.config/containers/registries.conf (written below) wins.
           sudo tar -xzf /tmp/podman-static.tar.gz \
             -C /etc --strip-components=2 podman-linux-amd64/etc/
           rm -f /tmp/podman-static.tar.gz
           echo "/usr/local/bin" >> "$GITHUB_PATH"
 
-      # Runner image ubuntu24 ships podman ahead of /usr/local/bin on PATH.
-      # Move those aside so the downloaded one is what runs.
+      # The runner image ships its own podman binary.  Move those aside so the
+      # downloaded one is what runs.  (The /usr/local/bin entry added via
+      # GITHUB_PATH is prepended to PATH, but we keep the loop as defense-in
+      # depth in case a system path is added later.)
       - name: Shadow other podman binaries on PATH
         run: |
           downloaded="$(readlink -f /usr/local/bin/podman)"
@@ -200,7 +224,8 @@ jobs:
       # namespaces to processes matching specific profiles.  The static
       # podman lives at /usr/local/bin/podman, not /usr/bin/podman, so
       # the stock profile doesn't apply.  Widen the path glob so the
-      # downloaded binary can create user namespaces (#155).
+      # downloaded binary can create user namespaces.  See mgoltzsche/
+      # podman-static documentation for the recommended profile change.
       - name: Relax AppArmor profile for /usr/local/bin/podman
         run: |
           if [ -f /etc/apparmor.d/podman ]; then
@@ -229,13 +254,12 @@ jobs:
           [storage.options.overlay]
           mount_program = "/usr/bin/fuse-overlayfs"
           EOF
-          # Use runc instead of crun: the bundle's crun shadows the
-          # system one but podman discovers crun by a hardcoded path
-          # (/usr/bin/crun) rather than PATH lookup, so the system's
-          # crun always wins.  The static bundle's runc works fine.
+          # The bundle's own /etc/containers/containers.conf already sets
+          # runtime = "runc", cgroup_manager = "cgroupfs", and
+          # events_logger = "file".  Keep only rootless-specific overrides
+          # here so we do not duplicate (and drift from) the bundle defaults.
           cat > ~/.config/containers/containers.conf <<'EOF'
           [engine]
-          runtime = "runc"
           cgroup_manager = "cgroupfs"
           events_logger = "file"
           EOF
@@ -261,8 +285,9 @@ jobs:
             echo "podman-compose not found on PATH" >&2
             exit 1
           fi
-          version="$(pip show podman-compose 2>/dev/null \
-            | sed -n 's/^Version: //p')"
+          # --version prints both the compose version and the podman version
+          # on separate lines; the 'version' subcommand has a --short flag.
+          version="$(podman-compose version --short)"
           echo "podman-compose: $resolved ($version)"
           echo "target:  ${{ matrix.podman_compose_version }}"
           if [ "$version" != "${{ matrix.podman_compose_version }}" ]; then
@@ -291,6 +316,8 @@ jobs:
         run: |
           sudo systemctl stop docker.socket docker.service || true
           sudo systemctl mask docker.socket docker.service || true
+          # On this runner /bin is a symlink to /usr/bin, so type -a -P docker
+          # can return the same binary twice; the guard skips the second hit.
           for d in $(type -a -P docker || true); do
             if [ -e "$d" ]; then
               sudo mv "$d" "$d.disabled"
@@ -315,6 +342,7 @@ jobs:
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
           for attempt in 1 2 3 4; do
             .venv/bin/ansible-galaxy collection install kubernetes.core && break
             if [ "$attempt" -eq 4 ]; then
@@ -385,7 +413,7 @@ jobs:
 
   integration-gitops:
     name: "Integration: GitOps"
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
