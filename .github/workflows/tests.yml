@@ -177,7 +177,7 @@ jobs:
             exit 1
           fi
           sudo tar -xzf /tmp/podman-static.tar.gz \
-            -C /usr/local --strip-components=2 podman-linux-amd64/usr/
+            -C /usr/local --strip-components=3 podman-linux-amd64/usr/
           sudo tar -xzf /tmp/podman-static.tar.gz \
             -C /etc --strip-components=2 podman-linux-amd64/etc/
           rm -f /tmp/podman-static.tar.gz
