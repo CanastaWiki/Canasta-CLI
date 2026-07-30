@@ -126,12 +126,15 @@ jobs:
   # A matrix tests three podman versions (4.9.5, 5.3.2, 5.8.4) and two
   # podman-compose versions (1.3.0, 1.6.0). The full podman binary with its
   # runtime helpers (crun, conmon, netavark, fuse-overlayfs) is downloaded as
-  # a self-contained static bundle from mgoltzsche/podman-static.  No apt
-  # podman package is needed — the bundle includes everything (#1337).
+  # a self-contained static bundle from mgoltzsche/podman-static.
+  #
+  # Known limitation: mgoltzsche/podman-static tops out at v5.8.4, so this
+  # lane cannot test podman 6.x.  When ubuntu-26.04 ships with podman 6.x
+  # from apt, a separate lane or runner update will be needed.
   integration-podman:
-    name: "Integration: Podman ${{ matrix.podman_version }}"
+    name: "Integration: Podman"
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -152,11 +155,31 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git-crypt uidmap
 
+      - name: Leg details
+        run: |
+          echo "podman=${{ matrix.podman_version }} podman-compose=${{ matrix.podman_compose_version }}"
+
       - name: Download podman ${{ matrix.podman_version }} static bundle
         run: |
           url="https://github.com/mgoltzsche/podman-static/releases/download/v${{ matrix.podman_version }}/podman-linux-amd64.tar.gz"
-          curl -sL "$url" -o /tmp/podman-static.tar.gz
-          sudo tar -xzf /tmp/podman-static.tar.gz -C /usr/local --strip-components=3
+          curl -fsSL --retry 3 "$url" -o /tmp/podman-static.tar.gz
+          # Pinned sha256 — if the upstream archive changes, update these.
+          # Computed from the release asset at the time of writing.
+          case "${{ matrix.podman_version }}" in
+            4.9.5) expected="05fcac12a6777c4db5f90ecf71b859d669c7bb1a8ee39d9ab299ac9ad1f99c5d" ;;
+            5.3.2) expected="3feea505a40cba6d4940cbfcbc89e28441073685c0d93b9e1e0a69fd2379b7b5" ;;
+            5.8.4) expected="a58765fe8be6ab3fb79f892f1a027b4ce4a7e8eb589df1ef960c167cbde08d69" ;;
+            *)     echo "unknown podman version: ${{ matrix.podman_version }}" >&2; exit 1 ;;
+          esac
+          actual=$(sha256sum /tmp/podman-static.tar.gz | awk '{print $1}')
+          if [ "$actual" != "$expected" ]; then
+            echo "sha256 mismatch: expected $expected, got $actual" >&2
+            exit 1
+          fi
+          sudo tar -xzf /tmp/podman-static.tar.gz \
+            -C /usr/local --strip-components=2 podman-linux-amd64/usr/
+          sudo tar -xzf /tmp/podman-static.tar.gz \
+            -C /etc --strip-components=2 podman-linux-amd64/etc/
           rm -f /tmp/podman-static.tar.gz
           echo "/usr/local/bin" >> "$GITHUB_PATH"
 
@@ -186,6 +209,10 @@ jobs:
               's!^profile podman /usr/bin/podman !profile podman /usr/{bin,local/bin}/podman !' \
               /etc/apparmor.d/podman
             sudo apparmor_parser -r /etc/apparmor.d/podman 2>/dev/null || true
+            grep -q '/usr/{bin,local/bin}/podman' /etc/apparmor.d/podman || {
+              echo "AppArmor profile update not confirmed" >&2
+              exit 1
+            }
           fi
 
       - name: Configure rootless Podman
@@ -228,16 +255,36 @@ jobs:
             "podman-compose==${{ matrix.podman_compose_version }}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      - name: Verify podman-compose version
+        run: |
+          resolved="$(command -v podman-compose || true)"
+          if [ -z "$resolved" ]; then
+            echo "podman-compose not found on PATH" >&2
+            exit 1
+          fi
+          version="$(podman-compose --version | awk '{print $NF}')"
+          echo "podman-compose: $resolved ($version)"
+          echo "target:  ${{ matrix.podman_compose_version }}"
+          if [ "$version" != "${{ matrix.podman_compose_version }}" ]; then
+            echo "expected podman-compose ${{ matrix.podman_compose_version }}" \
+                 "but got $version from $resolved" >&2
+            exit 1
+          fi
+
       - name: Verify podman version
         run: |
           resolved="$(command -v podman || true)"
+          if [ -z "$resolved" ]; then
+            echo "podman not found on PATH after download/shadow" >&2
+            exit 1
+          fi
           version="$(podman --version | awk '{print $3}')"
           echo "podman:  $resolved ($version)"
           echo "target:  ${{ matrix.podman_version }}"
           target="${{ matrix.podman_version }}"
-          if [ "${version%.*}" != "${target%.*}" ]; then
-            echo "::warning::expected ${{ matrix.podman_version }}" \
-                 "but got $version from $resolved"
+          if [ "$version" != "$target" ]; then
+            echo "expected podman $target but got $version from $resolved" >&2
+            exit 1
           fi
 
       - name: Remove Docker so only Podman is reachable
