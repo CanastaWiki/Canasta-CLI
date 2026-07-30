@@ -203,8 +203,13 @@ jobs:
           [storage.options.overlay]
           mount_program = "/usr/bin/fuse-overlayfs"
           EOF
+          # Use runc instead of crun: the bundle's crun shadows the
+          # system one but podman discovers crun by a hardcoded path
+          # (/usr/bin/crun) rather than PATH lookup, so the system's
+          # crun always wins.  The static bundle's runc works fine.
           cat > ~/.config/containers/containers.conf <<'EOF'
           [engine]
+          runtime = "runc"
           cgroup_manager = "cgroupfs"
           events_logger = "file"
           EOF
