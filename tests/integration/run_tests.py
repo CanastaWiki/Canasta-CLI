@@ -171,15 +171,39 @@ class TestInstance:
     def env_path(self):
         return os.path.join(self.instance_path(), ".env")
 
+    def is_registered(self):
+        """True when this test's registry still lists the instance."""
+        path = os.path.join(self.config_dir, "conf.json")
+        try:
+            with open(path) as f:
+                return self.id in (json.load(f).get("Instances") or {})
+        except (OSError, ValueError):
+            return False
+
     def cleanup(self):
-        """Delete the instance and remove work directory."""
-        print("  Cleanup: deleting instance %s" % self.id)
-        self.run("delete", "-i", self.id, "--yes")
+        """Delete the instance and remove work directory.
+
+        Returns False when teardown failed. Tests that never create an
+        instance, or that delete it themselves, leave nothing to remove:
+        deleting anyway fails and fills a passing run's log with the
+        failure. A delete that fails for an instance still in the
+        registry is a real leak — containers, volumes and the entry
+        itself outlive the test, and the next one inherits them.
+        """
+        ok = True
+        if self.is_registered():
+            print("  Cleanup: deleting instance %s" % self.id)
+            _, rc = self.run("delete", "-i", self.id, "--yes")
+            if rc != 0:
+                print("  CLEANUP FAILED: canasta delete -i %s exited %d"
+                      % (self.id, rc))
+                ok = False
         subprocess.run(
             ["sudo", "rm", "-rf", self.work_dir],
             capture_output=True,
         )
         shutil.rmtree(self.config_dir, ignore_errors=True)
+        return ok
 
 
 def wait_for_wiki(http_port, timeout=300):
@@ -3887,6 +3911,7 @@ def main():
     passed = 0
     failed = 0
     skipped = 0
+    teardown_failed = []
 
     for name, test_fn in tests.items():
         inst = TestInstance("inttest-%s" % name)
@@ -3905,12 +3930,15 @@ def main():
             print("ERROR: %s: %s" % (name, e))
             failed += 1
         finally:
-            inst.cleanup()
+            if not inst.cleanup():
+                teardown_failed.append(name)
 
     print("\n=== Results: %d passed, %d failed, %d skipped ===" % (
         passed, failed, skipped,
     ))
-    sys.exit(1 if failed else 0)
+    if teardown_failed:
+        print("=== Teardown failed: %s ===" % ", ".join(teardown_failed))
+    sys.exit(1 if failed or teardown_failed else 0)
 
 
 if __name__ == "__main__":
