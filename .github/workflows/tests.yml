@@ -123,131 +123,100 @@ jobs:
   # Docker is taken away rather than left idle: a hardcoded `docker` call has
   # to fail here instead of quietly reaching a live daemon.
   #
-  # Both runtimes are pinned to exact versions (see the job's env below):
-  # podman 4.9.3 with podman-compose 1.3.0, the pairing the Podman runtime
-  # fixes were verified against. podman-compose 1.6.0 is not covered; the
-  # pull step's reliance on podman-compose skipping buildable services by
-  # default is confirmed for 1.3.0 only.
-  #
-  # A pin the lane cannot enforce is worse than none, because the workflow
-  # then claims a version it is not running. Runner image
-  # ubuntu24/20260726.254 ships its own podman ahead of /usr/bin on PATH:
-  # apt installed 4.9.3 and `podman --version` reported 5.8.4, which failed
-  # the 4.14.1 release on a commit that touched only VERSION and
-  # RELEASE_NOTES (#1333). So the pinned binary is forced onto PATH and the
-  # result confirmed before any test runs. Whether 5.8.4 breaks create at
-  # all is #1334.
+  # A matrix tests three podman versions (4.9.5, 5.3.2, 5.8.4) and two
+  # podman-compose versions (1.3.0, 1.6.0). The full podman binary with its
+  # runtime helpers (crun, conmon, netavark, fuse-overlayfs) is downloaded as
+  # a self-contained static bundle from mgoltzsche/podman-static.  No apt
+  # podman package is needed — the bundle includes everything (#1337).
   integration-podman:
-    name: "Integration: Podman"
-    if: github.event_name != 'pull_request'  # See #67
+    name: "Integration: Podman ${{ matrix.podman_version }}"
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    # Job-scoped so the install and the PATH check cannot disagree.
-    env:
-      PODMAN_VERSION: "4.9.3+ds1-1ubuntu0.2"
-      PODMAN_COMPOSE_VERSION: "1.3.0"
+    strategy:
+      fail-fast: false
+      matrix:
+        podman_version: ["4.9.5", "5.3.2", "5.8.4"]
+        podman_compose_version: ["1.3.0"]
+        include:
+          - podman_version: "5.8.4"
+            podman_compose_version: "1.6.0"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Install Podman and podman-compose
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git-crypt uidmap
 
-          if ! sudo apt-get install -y "podman=$PODMAN_VERSION"; then
-            echo "::error::podman $PODMAN_VERSION is no longer installable" \
-                 "from the archive. Available:"
-            apt-cache madison podman || true
-            echo "Pick a 4.x version from that list, update PODMAN_VERSION," \
-                 "and note the change — this lane's results are only" \
-                 "comparable across runs at a fixed runtime (#1333)."
-            exit 1
-          fi
-
-          # Onto PATH, not into the repo venv: the CLI shells out to
-          # `podman-compose` by name, so it has to resolve like an
-          # operator's install would.
-          python -m pip install --user "podman-compose==$PODMAN_COMPOSE_VERSION"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      # Installing the pinned package is not enough on its own. Runner image
-      # ubuntu24/20260726.254 ships its own podman ahead of /usr/bin on PATH,
-      # so apt installed 4.9.3 while `podman --version` reported 5.8.4 — and
-      # the lane failed the 4.14.1 release on a commit that touched only
-      # VERSION and RELEASE_NOTES (#1333). Move any such binary aside so the
-      # pinned one is what runs, then confirm it.
-      - name: Make the pinned podman the one on PATH
+      - name: Download podman ${{ matrix.podman_version }} static bundle
         run: |
-          apt_podman="$(dpkg -L podman | grep -E '^/usr/bin/podman$' | head -1)"
-          [ -n "$apt_podman" ] || {
-            echo "::error::the podman package does not own /usr/bin/podman"
-            exit 1
-          }
+          url="https://github.com/mgoltzsche/podman-static/releases/download/v${{ matrix.podman_version }}/podman-linux-amd64.tar.gz"
+          curl -sL "$url" -o /tmp/podman-static.tar.gz
+          sudo tar -xzf /tmp/podman-static.tar.gz -C /usr/local --strip-components=2
+          rm -f /tmp/podman-static.tar.gz
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
 
-          # Compare canonical paths, not strings: /bin is a symlink to
-          # /usr/bin, so `type -a -P` lists the pinned binary twice and a
-          # string compare moves it aside as if it were a foreign one —
-          # which is what broke this step on its first run. The Docker
-          # removal below hits the same symlink and handles it by checking
-          # `-e` after each move.
-          pinned="$(readlink -f "$apt_podman")"
+      # Runner image ubuntu24 ships podman ahead of /usr/local/bin on PATH.
+      # Move those aside so the downloaded one is what runs.
+      - name: Shadow other podman binaries on PATH
+        run: |
+          downloaded="$(readlink -f /usr/local/bin/podman)"
           for p in $(type -a -P podman || true); do
             [ -e "$p" ] || continue
-            if [ "$(readlink -f "$p")" != "$pinned" ]; then
+            if [ "$(readlink -f "$p")" != "$downloaded" ]; then
               echo "Shadowing $p ($("$p" --version 2>/dev/null || echo unknown))"
               sudo mv "$p" "$p.shadowed"
             fi
           done
           hash -r
 
-          resolved="$(command -v podman || true)"
-          [ -n "$resolved" ] || {
-            echo "::error::no podman on PATH after shadowing — the pinned" \
-                 "binary at $apt_podman was moved aside by mistake (#1333)."
-            exit 1
-          }
-          version="$(podman --version | awk '{print $3}')"
-          echo "podman under test: $resolved ($version)"
-          echo "podman-compose:    $(podman-compose --version 2>&1 | tail -1)"
-
-          # The pin is the mechanism; this only proves it took effect. It can
-          # still fail if the image overwrites /usr/bin/podman itself, which
-          # leaves nothing to shadow.
-          case "$version" in
-            "${PODMAN_VERSION%%+*}") ;;
-            *)
-              echo "::error::expected podman ${PODMAN_VERSION%%+*} but" \
-                   "$version resolved from $resolved. The pinned package is" \
-                   "installed, so something on PATH is still shadowing it" \
-                   "(#1333). Whether this version works at all is #1334 —" \
-                   "do not read this as a product regression."
-              exit 1
-              ;;
-          esac
-
-      # Rootless Podman prerequisites the create pre-flight enforces: without
-      # lingering, systemd reaps the containers when the session ends; with
-      # the unprivileged port floor above 80, the pre-flight refuses to run
-      # at all (it cannot see the instance's HTTP_PORT that early).
-      - name: Satisfy rootless Podman prerequisites
+      - name: Configure rootless Podman
         run: |
+          mkdir -p ~/.config/containers
+          cat > ~/.config/containers/registries.conf <<'EOF'
+          unqualified-search-registries = ["docker.io"]
+          EOF
+          cat > ~/.config/containers/storage.conf <<'EOF'
+          [storage]
+          driver = "overlay"
+          [storage.options.overlay]
+          mount_program = "/usr/bin/fuse-overlayfs"
+          EOF
+          # Rootless Podman prerequisites
           sudo loginctl enable-linger "$(id -un)"
           sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80
-          grep -q "^$(id -un):" /etc/subuid || sudo usermod \
-            --add-subuids 100000-165535 --add-subgids 100000-165535 \
-            "$(id -un)"
+          grep -q "^$(id -un):" /etc/subuid 2>/dev/null || \
+            echo "$(id -un):100000:65536" | sudo tee -a /etc/subuid
+          grep -q "^$(id -un):" /etc/subgid 2>/dev/null || \
+            echo "$(id -un):100000:65536" | sudo tee -a /etc/subgid
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+
+      - name: Install podman-compose ${{ matrix.podman_compose_version }}
+        run: |
+          python -m pip install --user \
+            "podman-compose==${{ matrix.podman_compose_version }}"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify podman version
+        run: |
+          resolved="$(command -v podman || true)"
+          version="$(podman --version | awk '{print $3}')"
+          echo "podman:  $resolved ($version)"
+          echo "target:  ${{ matrix.podman_version }}"
+          target="${{ matrix.podman_version }}"
+          if [ "${version%.*}" != "${target%.*}" ]; then
+            echo "::warning::expected ${{ matrix.podman_version }}" \
+                 "but got $version from $resolved"
+          fi
 
       - name: Remove Docker so only Podman is reachable
         run: |
           sudo systemctl stop docker.socket docker.service || true
           sudo systemctl mask docker.socket docker.service || true
-          # /bin is a symlink to /usr/bin, so `type -a -P` reports the
-          # same binary twice; the second path is already gone once the
-          # first is moved.
           for d in $(type -a -P docker || true); do
             if [ -e "$d" ]; then
               sudo mv "$d" "$d.disabled"
@@ -259,18 +228,19 @@ jobs:
             exit 1
           fi
 
-      - name: Show runtime versions
+      - name: Smoke test podman
         run: |
           podman --version
           podman-compose --version
           podman info >/dev/null
+          podman run --rm docker.io/library/alpine:latest true
+          echo "Podman ${{ matrix.podman_version }} smoke test passed"
 
       - name: Install Python dependencies
         run: |
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install kubernetes
-          # Retry to ride out transient Ansible Galaxy CDN timeouts.
           for attempt in 1 2 3 4; do
             .venv/bin/ansible-galaxy collection install kubernetes.core && break
             if [ "$attempt" -eq 4 ]; then
