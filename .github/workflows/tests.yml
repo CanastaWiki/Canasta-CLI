@@ -133,7 +133,6 @@ jobs:
   # from apt, a separate lane or runner update will be needed.
   integration-podman:
     name: "Integration: Podman"
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
