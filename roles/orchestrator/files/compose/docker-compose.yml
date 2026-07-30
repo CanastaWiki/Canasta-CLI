@@ -58,6 +58,22 @@ services:
     restart: unless-stopped
     <<: *default-network
     logging: *default-logging
+    # Declared here rather than left to the image's own HEALTHCHECK:
+    # podman ignores that field in an OCI-format image config, so the
+    # container reports no health at all and start.yml's readiness gate
+    # skips both of its arms. Compose passes this one through as
+    # --health-cmd on either runtime.
+    #
+    # 127.0.0.1, not localhost: mediawiki.conf serves /server-status
+    # only when REMOTE_ADDR is exactly '127.0.0.1', and localhost
+    # resolves to ::1 first under rootless podman, which falls through
+    # to MediaWiki as a 404.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --method=HEAD 127.0.0.1/server-status"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 300s
     extra_hosts:
       # "host-gateway" is a magic value resolved by the container engine.
       # Docker and podman >= 4.4 understand it; podman < 4.4 rejects it.
