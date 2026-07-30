@@ -119,20 +119,34 @@ class TestInstance:
         return env
 
     def run(self, *args):
-        """Run a canasta command in verbose mode. Returns (stdout, returncode)."""
+        """Run a canasta command in verbose mode. Returns (stdout, returncode).
+
+        Streams each line as it arrives instead of collecting the whole
+        run and printing it at the end. A command that outlives the CI
+        step timeout is killed outright, and buffered output dies with
+        it — a create that stalled produced 35 minutes of nothing, while
+        Ansible had been printing a retry line every 10 seconds naming
+        the task it was stuck on.
+        """
         env = self.cli_env()
         # Run in verbose mode for CI feedback
         cmd = [CANASTA_BIN, "--verbose"] + list(args)
         print("  $ canasta %s" % " ".join(args), flush=True)
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, cwd=self.work_dir, env=env,
+        # stderr folded into stdout so the two stay in order; they were
+        # concatenated before, which put every warning after the run.
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1, cwd=self.work_dir, env=env,
         )
-        output = result.stdout + result.stderr
-        if output.strip():
-            for line in output.strip().split("\n"):
-                print("    %s" % line)
+        lines = []
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            lines.append(line)
+            print("    %s" % line, flush=True)
+        proc.stdout.close()
+        returncode = proc.wait()
         sys.stdout.flush()
-        return output, result.returncode
+        return "\n".join(lines), returncode
 
     def run_quiet(self, *args):
         """Run without --verbose for parseable output."""
