@@ -157,6 +157,8 @@ jobs:
           url="https://github.com/mgoltzsche/podman-static/releases/download/v${{ matrix.podman_version }}/podman-linux-amd64.tar.gz"
           curl -sL "$url" -o /tmp/podman-static.tar.gz
           sudo tar -xzf /tmp/podman-static.tar.gz -C /usr/local --strip-components=3
+          sudo tar -xzf /tmp/podman-static.tar.gz -C /etc --strip-components=2 \
+            podman-linux-amd64/etc/
           rm -f /tmp/podman-static.tar.gz
           echo "/usr/local/bin" >> "$GITHUB_PATH"
 
@@ -184,7 +186,12 @@ jobs:
           [storage]
           driver = "overlay"
           [storage.options.overlay]
-          mount_program = "/usr/bin/fuse-overlayfs"
+          mount_program = "/usr/local/bin/fuse-overlayfs"
+          EOF
+          cat > ~/.config/containers/containers.conf <<'EOF'
+          [engine]
+          cgroup_manager = "cgroupfs"
+          events_logger = "file"
           EOF
           # Rootless Podman prerequisites
           sudo loginctl enable-linger "$(id -un)"
