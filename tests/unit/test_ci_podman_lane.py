@@ -63,13 +63,13 @@ class TestPodmanLane:
                 "known Podman defects surfaced" % test
             )
 
-    def test_podman_lane_runs_on_pull_requests(self):
+    def test_podman_lane_is_gated_like_the_other_integration_jobs(self):
         jobs = _jobs()
-        podman_if = jobs["integration-podman"].get("if")
-        assert podman_if is None or podman_if != "github.event_name != 'pull_request'", (
-            "the Podman lane must run on pull requests so it can be "
-            "verified before merge (see #67 and the discussion on #1340); "
-            "it is the only integration job that can be exercised on a PR"
+        assert (jobs["integration-podman"].get("if")
+                == jobs["integration-core"].get("if")), (
+            "the Podman lane must carry the same event gate as the other "
+            "integration jobs (see #67), so it is not accidentally the "
+            "only one running on pull requests"
         )
 
 

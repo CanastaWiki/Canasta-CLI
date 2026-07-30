@@ -134,7 +134,8 @@ jobs:
   # from apt, a separate lane or runner update will be needed.
   integration-podman-matrix:
     name: "Integration: Podman matrix"
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'  # See #67.
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -143,7 +144,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
             # On push-to-main run one representative leg to keep the
-            # long pole short; the full sweep runs on PRs, schedule, and
+            # long pole short; the full sweep runs on schedule and
             # workflow_dispatch.
             matrix='{"podman_version":["5.3.2"],"podman_compose_version":["1.3.0"]}'
           else
@@ -153,6 +154,7 @@ jobs:
 
   integration-podman:
     name: "Integration: Podman"
+    if: github.event_name != 'pull_request'  # See #67.
     needs: integration-podman-matrix
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -367,7 +369,7 @@ jobs:
 
   integration-features:
     name: "Integration: Features"
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # Two parallel legs so the suite doesn't approach the step timeout and the
@@ -417,7 +419,7 @@ jobs:
 
   integration-gitops:
     name: "Integration: GitOps"
-    if: github.event_name != 'pull_request'  # See #67.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -453,7 +455,7 @@ jobs:
 
   integration-k8s:
     name: "Integration: Kubernetes"
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -508,7 +510,7 @@ jobs:
   # than serializing behind k8s-lifecycle on a shared 2-CPU runner.
   integration-k8s-crowdsec:
     name: "Integration: Kubernetes CrowdSec"
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -555,7 +557,7 @@ jobs:
   # the other k8s jobs rather than serializing behind them.
   integration-k8s-backup:
     name: "Integration: Kubernetes Backup"
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -599,7 +601,7 @@ jobs:
 
   remote-integration:
     name: Remote Host Integration Tests
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
