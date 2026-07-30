@@ -6,11 +6,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Manual trigger for re-running the full suite (including the
-  # integration jobs that are normally gated to push-to-main only).
-  # Useful when reviewing a PR that touches integration-relevant
-  # code. See #67.
+  # Manual trigger for re-running the full suite. See #67.
   workflow_dispatch:
+  # Weekly full version sweep so push-to-main can run a single
+  # representative leg while the matrix is still exercised regularly.
+  schedule:
+    - cron: "0 0 * * 0"
 
 # All jobs in this workflow only read the checkout to run tests and
 # linters; none push images, write back to the repo, or post comments.
@@ -81,9 +82,9 @@ jobs:
 
   integration-core:
     name: "Integration: Core Lifecycle"
-    # Skip on PRs (run only on push to main and manual workflow_dispatch).
-    # See #67.
-    if: github.event_name != 'pull_request'
+    # Skip on PRs and schedule runs (run only on push to main and manual
+    # workflow_dispatch). See #67.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -123,131 +124,206 @@ jobs:
   # Docker is taken away rather than left idle: a hardcoded `docker` call has
   # to fail here instead of quietly reaching a live daemon.
   #
-  # Both runtimes are pinned to exact versions (see the job's env below):
-  # podman 4.9.3 with podman-compose 1.3.0, the pairing the Podman runtime
-  # fixes were verified against. podman-compose 1.6.0 is not covered; the
-  # pull step's reliance on podman-compose skipping buildable services by
-  # default is confirmed for 1.3.0 only.
+  # A matrix tests three podman versions (4.9.5, 5.3.2, 5.8.4) and two
+  # podman-compose versions (1.3.0, 1.6.0). The full podman binary with its
+  # runtime helpers (crun, conmon, netavark, fuse-overlayfs) is downloaded as
+  # a self-contained static bundle from mgoltzsche/podman-static.
   #
-  # A pin the lane cannot enforce is worse than none, because the workflow
-  # then claims a version it is not running. Runner image
-  # ubuntu24/20260726.254 ships its own podman ahead of /usr/bin on PATH:
-  # apt installed 4.9.3 and `podman --version` reported 5.8.4, which failed
-  # the 4.14.1 release on a commit that touched only VERSION and
-  # RELEASE_NOTES (#1333). So the pinned binary is forced onto PATH and the
-  # result confirmed before any test runs. Whether 5.8.4 breaks create at
-  # all is #1334.
+  # Known limitation: mgoltzsche/podman-static tops out at v5.8.4, so this
+  # lane cannot test podman 6.x.  When ubuntu-26.04 ships with podman 6.x
+  # from apt, a separate lane or runner update will be needed.
+  integration-podman-matrix:
+    name: "Integration: Podman matrix"
+    if: github.event_name != 'pull_request'  # See #67.
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set podman test matrix
+        id: set-matrix
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # On push-to-main run one representative leg to keep the
+            # long pole short; the full sweep runs on schedule and
+            # workflow_dispatch.
+            matrix='{"podman_version":["5.3.2"],"podman_compose_version":["1.3.0"]}'
+          else
+            matrix='{"podman_version":["4.9.5","5.3.2","5.8.4"],"podman_compose_version":["1.3.0"],"include":[{"podman_version":"5.8.4","podman_compose_version":"1.6.0"}]}'
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   integration-podman:
     name: "Integration: Podman"
-    if: github.event_name != 'pull_request'  # See #67
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'  # See #67.
+    needs: integration-podman-matrix
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
-    # Job-scoped so the install and the PATH check cannot disagree.
-    env:
-      PODMAN_VERSION: "4.9.3+ds1-1ubuntu0.2"
-      PODMAN_COMPOSE_VERSION: "1.3.0"
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.integration-podman-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Install Podman and podman-compose
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git-crypt uidmap
 
-          if ! sudo apt-get install -y "podman=$PODMAN_VERSION"; then
-            echo "::error::podman $PODMAN_VERSION is no longer installable" \
-                 "from the archive. Available:"
-            apt-cache madison podman || true
-            echo "Pick a 4.x version from that list, update PODMAN_VERSION," \
-                 "and note the change — this lane's results are only" \
-                 "comparable across runs at a fixed runtime (#1333)."
+      - name: Leg details
+        run: |
+          echo "podman=${{ matrix.podman_version }} podman-compose=${{ matrix.podman_compose_version }}"
+
+      - name: Download podman ${{ matrix.podman_version }} static bundle
+        run: |
+          url="https://github.com/mgoltzsche/podman-static/releases/download/v${{ matrix.podman_version }}/podman-linux-amd64.tar.gz"
+          curl -fsSL --retry 3 "$url" -o /tmp/podman-static.tar.gz
+          # Pinned sha256 — if the upstream archive changes, update these.
+          # Computed from the release asset at the time of writing.
+          case "${{ matrix.podman_version }}" in
+            4.9.5) expected="05fcac12a6777c4db5f90ecf71b859d669c7bb1a8ee39d9ab299ac9ad1f99c5d" ;;
+            5.3.2) expected="3feea505a40cba6d4940cbfcbc89e28441073685c0d93b9e1e0a69fd2379b7b5" ;;
+            5.8.4) expected="a58765fe8be6ab3fb79f892f1a027b4ce4a7e8eb589df1ef960c167cbde08d69" ;;
+            *)     echo "unknown podman version: ${{ matrix.podman_version }}" >&2; exit 1 ;;
+          esac
+          actual=$(sha256sum /tmp/podman-static.tar.gz | awk '{print $1}')
+          if [ "$actual" != "$expected" ]; then
+            echo "sha256 mismatch: expected $expected, got $actual" >&2
             exit 1
           fi
+          # The archive root contains both usr/ and etc/.  Extract each
+          # tree with the strip level that lands it at the matching system
+          # path, not nested under /usr/local/local.
+          sudo tar -xzf /tmp/podman-static.tar.gz \
+            -C /usr --strip-components=2 podman-linux-amd64/usr/
+          # Installing etc/containers/ from the bundle replaces the runner's
+          # registries.conf with an older format, but this lane is rootless so
+          # ~/.config/containers/registries.conf (written below) wins.
+          sudo tar -xzf /tmp/podman-static.tar.gz \
+            -C /etc --strip-components=2 podman-linux-amd64/etc/
+          rm -f /tmp/podman-static.tar.gz
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
 
-          # Onto PATH, not into the repo venv: the CLI shells out to
-          # `podman-compose` by name, so it has to resolve like an
-          # operator's install would.
-          python -m pip install --user "podman-compose==$PODMAN_COMPOSE_VERSION"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      # Installing the pinned package is not enough on its own. Runner image
-      # ubuntu24/20260726.254 ships its own podman ahead of /usr/bin on PATH,
-      # so apt installed 4.9.3 while `podman --version` reported 5.8.4 — and
-      # the lane failed the 4.14.1 release on a commit that touched only
-      # VERSION and RELEASE_NOTES (#1333). Move any such binary aside so the
-      # pinned one is what runs, then confirm it.
-      - name: Make the pinned podman the one on PATH
+      # The runner image ships its own podman binary.  Move those aside so the
+      # downloaded one is what runs.  (The /usr/local/bin entry added via
+      # GITHUB_PATH is prepended to PATH, but we keep the loop as defense-in
+      # depth in case a system path is added later.)
+      - name: Shadow other podman binaries on PATH
         run: |
-          apt_podman="$(dpkg -L podman | grep -E '^/usr/bin/podman$' | head -1)"
-          [ -n "$apt_podman" ] || {
-            echo "::error::the podman package does not own /usr/bin/podman"
-            exit 1
-          }
-
-          # Compare canonical paths, not strings: /bin is a symlink to
-          # /usr/bin, so `type -a -P` lists the pinned binary twice and a
-          # string compare moves it aside as if it were a foreign one —
-          # which is what broke this step on its first run. The Docker
-          # removal below hits the same symlink and handles it by checking
-          # `-e` after each move.
-          pinned="$(readlink -f "$apt_podman")"
+          downloaded="$(readlink -f /usr/local/bin/podman)"
           for p in $(type -a -P podman || true); do
             [ -e "$p" ] || continue
-            if [ "$(readlink -f "$p")" != "$pinned" ]; then
+            if [ "$(readlink -f "$p")" != "$downloaded" ]; then
               echo "Shadowing $p ($("$p" --version 2>/dev/null || echo unknown))"
               sudo mv "$p" "$p.shadowed"
             fi
           done
           hash -r
 
-          resolved="$(command -v podman || true)"
-          [ -n "$resolved" ] || {
-            echo "::error::no podman on PATH after shadowing — the pinned" \
-                 "binary at $apt_podman was moved aside by mistake (#1333)."
-            exit 1
-          }
-          version="$(podman --version | awk '{print $3}')"
-          echo "podman under test: $resolved ($version)"
-          echo "podman-compose:    $(podman-compose --version 2>&1 | tail -1)"
-
-          # The pin is the mechanism; this only proves it took effect. It can
-          # still fail if the image overwrites /usr/bin/podman itself, which
-          # leaves nothing to shadow.
-          case "$version" in
-            "${PODMAN_VERSION%%+*}") ;;
-            *)
-              echo "::error::expected podman ${PODMAN_VERSION%%+*} but" \
-                   "$version resolved from $resolved. The pinned package is" \
-                   "installed, so something on PATH is still shadowing it" \
-                   "(#1333). Whether this version works at all is #1334 —" \
-                   "do not read this as a product regression."
-              exit 1
-              ;;
-          esac
-
-      # Rootless Podman prerequisites the create pre-flight enforces: without
-      # lingering, systemd reaps the containers when the session ends; with
-      # the unprivileged port floor above 80, the pre-flight refuses to run
-      # at all (it cannot see the instance's HTTP_PORT that early).
-      - name: Satisfy rootless Podman prerequisites
+      # Ubuntu >=24.04 ships an AppArmor profile that restricts user
+      # namespaces to processes matching specific profiles.  The static
+      # podman lives at /usr/local/bin/podman, not /usr/bin/podman, so
+      # the stock profile doesn't apply.  Widen the path glob so the
+      # downloaded binary can create user namespaces.  See mgoltzsche/
+      # podman-static documentation for the recommended profile change.
+      - name: Relax AppArmor profile for /usr/local/bin/podman
         run: |
+          if [ -f /etc/apparmor.d/podman ]; then
+            sudo sed -Ei \
+              's!^profile podman /usr/bin/podman !profile podman /usr/{bin,local/bin}/podman !' \
+              /etc/apparmor.d/podman
+            sudo apparmor_parser -r /etc/apparmor.d/podman 2>/dev/null || true
+            grep -q '/usr/{bin,local/bin}/podman' /etc/apparmor.d/podman || {
+              echo "AppArmor profile update not confirmed" >&2
+              exit 1
+            }
+          fi
+
+      - name: Configure rootless Podman
+        run: |
+          mkdir -p ~/.config/containers
+          cat > ~/.config/containers/registries.conf <<'EOF'
+          unqualified-search-registries = ["docker.io"]
+          EOF
+          # Point to the system fuse-overlayfs (which uses the distro's
+          # setuid fusermount3) rather than the static bundle's copy
+          # (which lacks the setuid bit needed for unprivileged FUSE).
+          cat > ~/.config/containers/storage.conf <<'EOF'
+          [storage]
+          driver = "overlay"
+          [storage.options.overlay]
+          mount_program = "/usr/bin/fuse-overlayfs"
+          EOF
+          # The bundle's own /etc/containers/containers.conf sets
+          # cgroup_manager = "cgroupfs" and events_logger = "file".  Add
+          # a user-level override that points the crun runtime at the bundle
+          # copy; otherwise podman searches a built-in absolute-path list
+          # that puts /usr/bin/crun ahead of /usr/local/bin/crun and the
+          # system crun is too old for podman 5.x.
+          cat > ~/.config/containers/containers.conf <<'EOF'
+          [engine]
+          cgroup_manager = "cgroupfs"
+          events_logger = "file"
+          [engine.runtimes]
+          crun = ["/usr/local/bin/crun"]
+          EOF
+          # Rootless Podman prerequisites
           sudo loginctl enable-linger "$(id -un)"
           sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80
-          grep -q "^$(id -un):" /etc/subuid || sudo usermod \
-            --add-subuids 100000-165535 --add-subgids 100000-165535 \
-            "$(id -un)"
+          grep -q "^$(id -un):" /etc/subuid 2>/dev/null || \
+            echo "$(id -un):100000:65536" | sudo tee -a /etc/subuid
+          grep -q "^$(id -un):" /etc/subgid 2>/dev/null || \
+            echo "$(id -un):100000:65536" | sudo tee -a /etc/subgid
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+
+      - name: Install podman-compose ${{ matrix.podman_compose_version }}
+        run: |
+          python -m pip install --user \
+            "podman-compose==${{ matrix.podman_compose_version }}"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify podman-compose version
+        run: |
+          resolved="$(command -v podman-compose || true)"
+          if [ -z "$resolved" ]; then
+            echo "podman-compose not found on PATH" >&2
+            exit 1
+          fi
+          # --version prints both the compose version and the podman version
+          # on separate lines; the 'version' subcommand has a --short flag.
+          version="$(podman-compose version --short)"
+          echo "podman-compose: $resolved ($version)"
+          echo "target:  ${{ matrix.podman_compose_version }}"
+          if [ "$version" != "${{ matrix.podman_compose_version }}" ]; then
+            echo "expected podman-compose ${{ matrix.podman_compose_version }}" \
+                 "but got $version from $resolved" >&2
+            exit 1
+          fi
+
+      - name: Verify podman version
+        run: |
+          resolved="$(command -v podman || true)"
+          if [ -z "$resolved" ]; then
+            echo "podman not found on PATH after download/shadow" >&2
+            exit 1
+          fi
+          version="$(podman --version | awk '{print $3}')"
+          echo "podman:  $resolved ($version)"
+          echo "target:  ${{ matrix.podman_version }}"
+          target="${{ matrix.podman_version }}"
+          if [ "$version" != "$target" ]; then
+            echo "expected podman $target but got $version from $resolved" >&2
+            exit 1
+          fi
 
       - name: Remove Docker so only Podman is reachable
         run: |
           sudo systemctl stop docker.socket docker.service || true
           sudo systemctl mask docker.socket docker.service || true
-          # /bin is a symlink to /usr/bin, so `type -a -P` reports the
-          # same binary twice; the second path is already gone once the
-          # first is moved.
+          # On this runner /bin is a symlink to /usr/bin, so type -a -P docker
+          # can return the same binary twice; the guard skips the second hit.
           for d in $(type -a -P docker || true); do
             if [ -e "$d" ]; then
               sudo mv "$d" "$d.disabled"
@@ -259,11 +335,13 @@ jobs:
             exit 1
           fi
 
-      - name: Show runtime versions
+      - name: Smoke test podman
         run: |
           podman --version
           podman-compose --version
           podman info >/dev/null
+          podman run --rm docker.io/library/alpine:latest true
+          echo "Podman ${{ matrix.podman_version }} smoke test passed"
 
       - name: Install Python dependencies
         run: |
@@ -291,7 +369,7 @@ jobs:
 
   integration-features:
     name: "Integration: Features"
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # Two parallel legs so the suite doesn't approach the step timeout and the
@@ -341,7 +419,7 @@ jobs:
 
   integration-gitops:
     name: "Integration: GitOps"
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -377,7 +455,7 @@ jobs:
 
   integration-k8s:
     name: "Integration: Kubernetes"
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -432,7 +510,7 @@ jobs:
   # than serializing behind k8s-lifecycle on a shared 2-CPU runner.
   integration-k8s-crowdsec:
     name: "Integration: Kubernetes CrowdSec"
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -479,7 +557,7 @@ jobs:
   # the other k8s jobs rather than serializing behind them.
   integration-k8s-backup:
     name: "Integration: Kubernetes Backup"
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -523,7 +601,7 @@ jobs:
 
   remote-integration:
     name: Remote Host Integration Tests
-    if: github.event_name != 'pull_request'  # See #67
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
