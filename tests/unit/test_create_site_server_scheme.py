@@ -19,6 +19,9 @@ ENVFILE = os.path.join(
     REPO_ROOT, "roles", "create", "tasks", "_envfile.yml"
 )
 CREATE_MAIN = os.path.join(REPO_ROOT, "roles", "create", "tasks", "main.yml")
+SETTINGS_FILES = os.path.join(
+    REPO_ROOT, "roles", "create", "tasks", "_settings_files.yml"
+)
 
 
 def _load_tasks(path):
@@ -29,6 +32,15 @@ def _load_tasks(path):
 def _read(path):
     with open(path) as f:
         return f.read()
+
+
+def _http_only_expr():
+    """Return the expression _envfile.yml assigns to the _http_only fact."""
+    for task in _load_tasks(ENVFILE):
+        fact = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+        if isinstance(fact, dict) and "_http_only" in fact:
+            return fact["_http_only"]
+    raise AssertionError("_envfile.yml does not set the _http_only fact")
 
 
 def _site_server_value():
@@ -67,4 +79,62 @@ class TestSiteServerScheme:
         assert main.index("_envfile.yml") < main.index("_env_update.yml"), (
             "_envfile.yml must be included before _env_update.yml so "
             "_http_only is defined when MW_SITE_SERVER is built"
+        )
+
+
+class TestSkipTlsScheme:
+    """Guards against #1338, the ordering variant of #666.
+
+    #666's fix derives the scheme from _http_only, which _envfile.yml
+    reads out of CADDY_AUTO_HTTPS. That works when the operator supplies
+    CADDY_AUTO_HTTPS=off via --envfile, because the merge happens before
+    the fact is set. It does NOT work for --skip-tls: _settings_files.yml
+    writes CADDY_AUTO_HTTPS=off for the flag, and that runs after the
+    scheme has already been decided. So --skip-tls produced an https://
+    MW_SITE_SERVER against a Caddy serving plain HTTP.
+    """
+
+    def test_http_only_accounts_for_skip_tls(self):
+        expr = _http_only_expr()
+        assert "skip_tls" in expr, (
+            "_http_only must account for --skip-tls directly; the flag's "
+            "own CADDY_AUTO_HTTPS=off write happens later in create, so "
+            "reading .env alone cannot see it"
+        )
+        assert "CADDY_AUTO_HTTPS" in expr, (
+            "_http_only must still honor an operator-supplied "
+            "CADDY_AUTO_HTTPS (e.g. via --envfile)"
+        )
+
+    def test_http_only_is_not_forced_by_orchestrator(self):
+        """K8s must keep https://, or #1094 comes back.
+
+        _settings_files.yml sets CADDY_AUTO_HTTPS=off for Kubernetes too,
+        but there Caddy runs http-only behind an ingress that terminates
+        TLS, so https:// is the correct $wgServer.
+        """
+        expr = _http_only_expr()
+        for token in ("orchestrator", "kubernetes", "k8s"):
+            assert token not in expr, (
+                "_http_only must not key off the orchestrator: on K8s the "
+                "ingress terminates TLS and MW_SITE_SERVER stays https"
+            )
+
+    def test_skip_tls_env_write_happens_after_the_scheme_is_derived(self):
+        """Pins the ordering that makes the fix necessary.
+
+        If a future change moves the CADDY_AUTO_HTTPS write before
+        _env_update.yml, reading .env would suffice and this guard should
+        be revisited rather than silently left in place.
+        """
+        main = _read(CREATE_MAIN)
+        assert "skip_tls" in _read(SETTINGS_FILES), (
+            "_settings_files.yml is expected to own the --skip-tls "
+            "CADDY_AUTO_HTTPS write"
+        )
+        assert main.index("_env_update.yml") < main.index(
+            "_settings_files.yml"
+        ), (
+            "_settings_files.yml still runs after _env_update.yml, so the "
+            "--skip-tls flag must be read directly rather than via .env"
         )

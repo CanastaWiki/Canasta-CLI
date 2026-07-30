@@ -848,24 +848,33 @@ def get_config_file_path():
     return canasta_config.config_path(get_config_dir())
 
 
-def resolve_instance(instance_id=None):
+def resolve_instance(instance_id=None, required=True):
     """Resolve an instance from the registry by ID or working directory.
 
     Returns a dict with id, path, orchestrator keys, or exits on error.
+
+    With required=False, a failed lookup returns None instead of
+    reporting and exiting. Best-effort callers must use it: the error
+    text is printed before the exit, so catching SystemExit suppresses
+    the exit but still leaves a spurious "Error:" line on stderr for a
+    command that neither needs nor uses an instance.
     """
+    def _unresolved(message):
+        if not required:
+            return None
+        print(message, file=sys.stderr)
+        sys.exit(1)
+
     conf_file = get_config_file_path()
     if not os.path.isfile(conf_file):
-        print("Error: no registry found at %s" % conf_file, file=sys.stderr)
-        sys.exit(1)
+        return _unresolved("Error: no registry found at %s" % conf_file)
     instances = canasta_config.read_config(get_config_dir()).get("Instances", {})
 
     if instance_id:
         if instance_id not in instances:
-            print(
-                "Error: instance '%s' not found in registry" % instance_id,
-                file=sys.stderr,
+            return _unresolved(
+                "Error: instance '%s' not found in registry" % instance_id
             )
-            sys.exit(1)
         inst = instances[instance_id]
         inst["id"] = instance_id
         return inst
@@ -879,10 +888,7 @@ def resolve_instance(instance_id=None):
         inst["id"] = iid
         return inst
 
-    print(
-        "Error: no instance found for current directory", file=sys.stderr
-    )
-    sys.exit(1)
+    return _unresolved("Error: no instance found for current directory")
 
 
 def check_create_precondition(args):
@@ -1478,9 +1484,13 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # vars/compose_runtime.yml covers everything in between.
     if "compose_command" not in extra_vars:
         try:
+            # required=False: this lookup is opportunistic — plenty of
+            # commands legitimately run with no resolvable instance — so
+            # it must not print an error the caller then swallows.
             inst = resolve_instance(
-                getattr(args, "id", None)
-            ) if os.path.isfile(get_config_file_path()) else {}
+                getattr(args, "id", None), required=False
+            ) if os.path.isfile(get_config_file_path()) else None
+            inst = inst or {}
             # The registry is on the controller, so it reads the same
             # whatever host the instance runs on — unlike the .env below,
             # and it is where create records the runtime it probed.
@@ -1502,8 +1512,6 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
                     env_val = _read_env(path, _key)
                     if env_val:
                         extra_vars[_key] = env_val
-        except SystemExit:
-            pass
         except (OSError, IOError, KeyError):
             pass
 

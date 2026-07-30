@@ -66,9 +66,22 @@
   register: _env_for_port
   no_log: true  # registers the whole .env, including passwords
 
+# --skip-tls is folded in here, not read from CADDY_AUTO_HTTPS alone:
+# _settings_files.yml writes CADDY_AUTO_HTTPS=off for the flag, but that
+# runs *after* this file and after _env_update.yml has already derived
+# MW_SITE_SERVER from _http_only. Reading .env only would leave the flag
+# invisible at the point the scheme is chosen, so a --skip-tls instance
+# got an https:// MW_SITE_SERVER while Caddy served plain HTTP.
+#
+# Deliberately not keyed off the orchestrator, even though the same task
+# sets CADDY_AUTO_HTTPS=off for Kubernetes: there Caddy runs http-only
+# behind an ingress that terminates TLS, so https:// is the correct
+# $wgServer and forcing http:// would recreate #1094.
 - name: Determine which port (if any) to append to the domain
   ansible.builtin.set_fact:
-    _http_only: "{{ _env_for_port.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off' }}"
+    _http_only: >-
+      {{ (_env_for_port.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off')
+         or (skip_tls | default(false) | bool) }}
     _https_port: "{{ _env_for_port.variables.HTTPS_PORT | default('443') }}"
     _http_port: "{{ _env_for_port.variables.HTTP_PORT | default('80') }}"
 
