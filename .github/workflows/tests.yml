@@ -254,14 +254,18 @@ jobs:
           [storage.options.overlay]
           mount_program = "/usr/bin/fuse-overlayfs"
           EOF
-          # The bundle's own /etc/containers/containers.conf already sets
-          # runtime = "runc", cgroup_manager = "cgroupfs", and
-          # events_logger = "file".  Keep only rootless-specific overrides
-          # here so we do not duplicate (and drift from) the bundle defaults.
+          # The bundle's own /etc/containers/containers.conf sets
+          # cgroup_manager = "cgroupfs" and events_logger = "file".  Add
+          # a user-level override that points the crun runtime at the bundle
+          # copy; otherwise podman searches a built-in absolute-path list
+          # that puts /usr/bin/crun ahead of /usr/local/bin/crun and the
+          # system crun is too old for podman 5.x.
           cat > ~/.config/containers/containers.conf <<'EOF'
           [engine]
           cgroup_manager = "cgroupfs"
           events_logger = "file"
+          [engine.runtimes]
+          crun = ["/usr/local/bin/crun"]
           EOF
           # Rootless Podman prerequisites
           sudo loginctl enable-linger "$(id -un)"
