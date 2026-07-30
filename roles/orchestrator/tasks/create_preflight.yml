@@ -37,24 +37,27 @@
             cmd: podman info
           register: _docker_check
           changed_when: false
-          ignore_errors: true
+          failed_when: false
 
     - name: Probe Docker then Podman for remote/detected runtime
       when: not (compose_command | default('docker compose') is search('podman'))
       block:
+        # failed_when, not ignore_errors: a Podman-only host is expected
+        # to miss here, and ignore_errors would print a docker failure
+        # block before the fallback below succeeds. Callers read .rc.
         - name: Probe docker info
           ansible.builtin.command:
             cmd: docker info
           register: _docker_check
           changed_when: false
-          ignore_errors: true
+          failed_when: false
 
         - name: Probe podman info (fallback)
           ansible.builtin.command:
             cmd: podman info
           register: _podman_check
           changed_when: false
-          ignore_errors: true
+          failed_when: false
 
         - name: Set compose_command to podman-compose if Docker absent but Podman present
           ansible.builtin.set_fact:
