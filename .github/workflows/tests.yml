@@ -262,7 +262,8 @@ jobs:
             echo "podman-compose not found on PATH" >&2
             exit 1
           fi
-          version="$(podman-compose --version | awk '{print $NF}')"
+          version="$(pip show podman-compose 2>/dev/null \
+            | sed -n 's/^Version: //p')"
           echo "podman-compose: $resolved ($version)"
           echo "target:  ${{ matrix.podman_compose_version }}"
           if [ "$version" != "${{ matrix.podman_compose_version }}" ]; then
