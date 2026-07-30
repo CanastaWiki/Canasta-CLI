@@ -1,0 +1,57 @@
+---
+# Refuse early when Ansible's become cannot escalate on this host.
+#
+# Every package `canasta install` offers needs root. Ansible's become
+# drives GNU sudo: it passes its own prompt string via -p and waits for
+# that exact text before writing the password. sudo-rs — the Rust
+# reimplementation shipped as the default sudo on recent Ubuntu — does
+# not present that prompt, so become times out whether the password is
+# cached, typed at an ANSIBLE_BECOME_ASK_PASS prompt, or absent. The
+# failure surfaces as "Timed out waiting for become success" reported as
+# "Host unreachable", which names neither sudo nor the way out.
+#
+# Passwordless sudo needs no prompt at all, so it works regardless of
+# which sudo is installed — hence that check comes first.
+#
+# Deliberately `become: false`: these probes establish whether escalation
+# is possible, so they must not attempt it.
+
+- name: Check for passwordless sudo
+  ansible.builtin.command:
+    cmd: sudo -n true
+  become: false
+  register: _sudo_noninteractive
+  changed_when: false
+  failed_when: false
+
+- name: Identify the sudo implementation
+  ansible.builtin.command:
+    cmd: sudo --version
+  become: false
+  register: _sudo_version
+  changed_when: false
+  failed_when: false
+  when: _sudo_noninteractive.rc != 0
+
+- name: Fail with an actionable message when become cannot escalate
+  ansible.builtin.fail:
+    msg: |
+      'canasta install' cannot obtain root on {{ inventory_hostname }}.
+
+      This host uses sudo-rs and sudo requires a password:
+        {{ (_sudo_version.stdout_lines | default(['sudo-rs']))[0] }}
+
+      Ansible's become drives GNU sudo's password prompt, which sudo-rs
+      does not present, so escalation times out however the password is
+      supplied — ANSIBLE_BECOME_ASK_PASS does not help.
+
+      Either:
+        * configure passwordless sudo for this user, or
+        * install the packages with the system package manager. The
+          install roles are thin wrappers around apt/dnf, e.g.
+          'sudo apt-get install -y git-crypt'.
+
+      Then re-run 'canasta doctor' to confirm.
+  when:
+    - _sudo_noninteractive.rc != 0
+    - "'sudo-rs' in (_sudo_version.stdout | default('') | lower)"

@@ -34,8 +34,25 @@ command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo 
 cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi; echo "$D"
 command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
-command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSING
+command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSING; echo "$D"
+command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo MISSING; echo "$D"
+command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING
 """
+
+
+def _install_escalation_blocked(sudo_version, sudo_nopasswd):
+    """True when `canasta install` cannot escalate on this host.
+
+    Ansible's become drives GNU sudo: it passes its own prompt via -p and
+    waits for that exact string before sending the password. sudo-rs, the
+    Rust reimplementation shipped as the default sudo on recent Ubuntu,
+    does not present that prompt, so become times out whether or not a
+    password is supplied. With passwordless sudo there is no prompt to
+    match and escalation succeeds regardless of the implementation.
+    """
+    if sudo_nopasswd == "OK":
+        return False
+    return "sudo-rs" in (sudo_version or "").lower()
 
 
 def _has_container_runtime(docker, compose, daemon, podman_version):
@@ -87,6 +104,9 @@ def _parse_doctor(stdout, hostname):
     sops = p(20) if len(parts) > 20 else "MISSING"
     age = p(21) if len(parts) > 21 else "MISSING"
     podman_version = p(22) if len(parts) > 22 else "MISSING"
+    # Privilege escalation, appended so the indices above are unchanged.
+    sudo_version = p(23) if len(parts) > 23 else "MISSING"
+    sudo_nopasswd = p(24) if len(parts) > 24 else "MISSING"
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -265,6 +285,22 @@ def _parse_doctor(stdout, hostname):
         )
     elif selfupdate == "WRITABLE":
         lines.append("  Self-update:     OK (install dir writable)")
+
+    # Every `canasta install` package needs root. Report when Ansible's
+    # become cannot get it, rather than letting install time out with
+    # "Host unreachable" and an Ansible-internal message.
+    if _install_escalation_blocked(sudo_version, sudo_nopasswd):
+        lines.append(
+            "  Privilege esc.:  BLOCKED for 'canasta install' — this host "
+            "uses sudo-rs (%s) and sudo asks for a password. Ansible's "
+            "become drives GNU sudo's prompt, which sudo-rs does not "
+            "present, so install times out however the password is "
+            "supplied. Configure passwordless sudo, or install packages "
+            "with the system package manager (the install roles are thin "
+            "wrappers around apt/dnf)." % sudo_version
+        )
+    elif sudo_nopasswd == "OK":
+        lines.append("  Privilege esc.:  OK (passwordless sudo)")
 
     return "\n".join(lines)
 
