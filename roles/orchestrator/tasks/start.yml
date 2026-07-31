@@ -198,52 +198,59 @@
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim != ''
 
-    # Podman inherits the image's healthcheck but never runs it under
-    # podman-compose: it schedules checks with systemd transient timers
-    # that compose does not create, so .State.Health.Status stays empty
-    # and the wait above is skipped for every container. Skipping it is
-    # right for a custom image that declares no healthcheck, and wrong
-    # here — it restores the composer race the gate exists to prevent.
-    # `podman healthcheck run` executes the configured check on demand,
-    # so poll that instead of a status nothing updates.
-    - name: Probe whether web defines a healthcheck (Podman)
+    # Podman renders an empty status for the stock image, so the wait
+    # above skips and the composer race comes back. Two reasons, both
+    # outside our control: the published image is OCI-format and podman
+    # ignores Healthcheck in an OCI config, and podman runs healthchecks
+    # from systemd transient timers that compose never creates — the
+    # static builds used in CI have no systemd at all.
+    #
+    # So ask the container the question the healthcheck would ask,
+    # rather than asking the runtime for an answer it cannot produce.
+    # This depends on nothing but `exec`.
+    #
+    # 127.0.0.1, not localhost: mediawiki.conf serves /server-status
+    # only when REMOTE_ADDR is exactly '127.0.0.1', and localhost
+    # resolves to ::1 first under rootless podman, which falls through
+    # to MediaWiki as a 404.
+    #
+    # Best-effort on purpose. A custom image that never serves
+    # /server-status must not turn a missing signal into a failed
+    # create — the gate did not run on Podman at all before this, so
+    # warning and continuing is never worse than the old behavior,
+    # while a wait that cannot pass would be far worse. 30 × 10s
+    # matches the image healthcheck's 5 min --start-period.
+    - name: Wait for web to answer on Podman
       ansible.builtin.command:
         argv:
           - "{{ _inspect_cmd }}"
-          - healthcheck
-          - run
+          - exec
           - "{{ _start_web_cid.stdout | trim }}"
-      register: _start_web_hc_probe
+          - wget
+          - "-q"
+          - "--method=HEAD"
+          - "127.0.0.1/server-status"
+      register: _start_web_podman_ready
       changed_when: false
       failed_when: false
+      retries: 30
+      delay: 10
+      until: _start_web_podman_ready.rc == 0
       when:
         - _start_web_cid.stdout | trim != ''
         - (_start_web_has_health.stdout | default('') | trim) == ''
         - _inspect_cmd | default('docker') is search('podman')
 
-    # Same budget as the Docker path: 60 × 10s, over the healthcheck's
-    # 5 min start period plus a slow first composer install. A container
-    # with no healthcheck at all must skip rather than spend that budget
-    # failing, and podman distinguishes the two cases in its message.
-    - name: Wait for web to pass its healthcheck (Podman)
-      ansible.builtin.command:
-        argv:
-          - "{{ _inspect_cmd }}"
-          - healthcheck
-          - run
-          - "{{ _start_web_cid.stdout | trim }}"
-      register: _start_web_podman_health
-      changed_when: false
-      retries: 60
-      delay: 10
-      until: _start_web_podman_health.rc == 0
-      when:
-        - _start_web_cid.stdout | trim != ''
-        - (_start_web_has_health.stdout | default('') | trim) == ''
-        - _inspect_cmd | default('docker') is search('podman')
-        - >-
-          'no defined healthcheck'
-          not in (_start_web_hc_probe.stderr | default(''))
+    - name: Report that web never answered on Podman
+      ansible.builtin.debug:
+        msg: >-
+          web did not answer /server-status within 5 minutes, so the
+          readiness gate is being skipped. A custom image that does not
+          serve /server-status is expected here. On the stock image this
+          means web is still starting, and the MediaWiki installer may
+          race composer — check the container logs if create then fails
+          on a missing vendor/ file.
+      when: (_start_web_podman_ready.rc | default(0)) != 0
 
     # Register CAPI + auto-enroll the bouncer when CrowdSec is on. Shared
     # with the K8s start path and create. crowdsec_autoenroll is false only
