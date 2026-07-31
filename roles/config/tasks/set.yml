@@ -38,6 +38,13 @@
   ansible.builtin.include_tasks: _set_config.yml
   when: not (secret | default(false) | bool)
 
+# The restart is a side effect here, not what the operator asked for, so
+# say it is coming before the instance goes down.
+- name: Report restarting to apply changes
+  when: not (no_restart | default(false) | bool)
+  ansible.builtin.debug:
+    msg: "Restarting instance to apply changes..."
+
 - name: Restart instance to apply changes
   when: not (no_restart | default(false) | bool)
   ansible.builtin.include_role:

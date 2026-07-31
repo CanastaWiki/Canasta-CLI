@@ -2,6 +2,12 @@
 # Stop containers for an instance.
 # Input: instance_path, instance_devmode (bool), instance_orchestrator
 
+# Announced before the orchestrator dispatch so both Compose and K8s report
+# it, and every caller (stop, restart, config set) gets the message once.
+- name: Report stopping containers
+  ansible.builtin.debug:
+    msg: "Stopping containers..."
+
 - name: Stop (Docker Compose)
   when: instance_orchestrator | default('compose') == 'compose'
   block:
