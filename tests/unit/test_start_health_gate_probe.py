@@ -99,49 +99,78 @@ class TestHealthWaitIsGatedOnANonEmptyStatus:
 
 
 class TestPodmanDrivesTheHealthcheck:
-    """Skipping the gate on Podman is not an option -- it must be driven.
+    """Skipping the gate on Podman is not an option -- it must be driven,
+    and it must never be able to fail the create.
 
-    Podman inherits the image's healthcheck but never runs it under
-    podman-compose: checks are scheduled with systemd transient timers
-    that compose does not create, so `.State.Health.Status` stays empty
-    for every container and the Docker-shaped wait is always skipped.
+    Podman renders an empty status for the stock image, so the
+    Docker-shaped wait is always skipped and `create` races composer --
+    install.php crashing on a half-written vendor/ is the exact failure
+    the gate exists to prevent. Two independent reasons, both outside
+    this repo: the published image is OCI-format and podman ignores
+    `Healthcheck` in an OCI config, and podman runs healthchecks from
+    systemd transient timers that compose never creates.
 
-    That left Podman with no readiness gate at all, and `create` raced
-    composer -- install.php crashing on a half-written vendor/ is the
-    exact failure the gate exists to prevent. `podman healthcheck run`
-    executes the check on demand, so the loop polls that instead.
+    Asking the runtime to run the check therefore cannot work. An
+    earlier attempt declared the healthcheck in the compose file so a
+    status would render; podman then reported `starting` forever
+    wherever it could not run the check, the wait spent its whole
+    budget, and every create failed. That is worse than the race it
+    replaced, and it is why the wait below is best-effort: the play
+    makes the request itself, and a signal that never arrives costs a
+    warning rather than a failure.
     """
 
     def test_a_podman_wait_exists(self):
-        wait = _task("Wait for web to pass its healthcheck (Podman)")
+        wait = _task("Wait for web to answer on Podman")
         assert wait is not None, (
             "Podman needs its own readiness wait; without one the gate is "
             "skipped for every container and create races composer"
         )
         argv = " ".join(str(a) for a in wait["ansible.builtin.command"]["argv"])
-        assert "healthcheck" in argv and "run" in argv, (
-            "poll `podman healthcheck run`, which executes the check, "
-            "rather than a status field nothing updates"
+        assert "exec" in argv and "server-status" in argv, (
+            "make the request from the play; podman cannot be asked to run "
+            "the image's healthcheck"
+        )
+
+    def test_it_addresses_loopback_numerically(self):
+        wait = _task("Wait for web to answer on Podman")
+        argv = " ".join(str(a) for a in wait["ansible.builtin.command"]["argv"])
+        assert "127.0.0.1/server-status" in argv, (
+            "mediawiki.conf serves /server-status only when REMOTE_ADDR is "
+            "exactly '127.0.0.1'; localhost resolves to ::1 first under "
+            "rootless podman and falls through to MediaWiki as a 404"
+        )
+        assert "localhost" not in argv, (
+            "a name here reintroduces the ::1 404"
         )
 
     def test_it_waits_for_success_not_a_status_string(self):
-        wait = _task("Wait for web to pass its healthcheck (Podman)")
+        wait = _task("Wait for web to answer on Podman")
         assert "rc == 0" in str(wait.get("until", "")), (
-            "healthcheck run signals health through its exit code"
+            "the request signals readiness through its exit code"
         )
 
-    def test_it_gets_the_same_budget_as_the_docker_path(self):
-        wait = _task("Wait for web to pass its healthcheck (Podman)")
-        docker = _task("Wait for web container to report healthy")
-        assert wait.get("retries") == docker.get("retries")
-        assert wait.get("delay") == docker.get("delay"), (
-            "the healthcheck's 5 min start period applies on both runtimes"
+    def test_it_cannot_fail_the_create(self):
+        wait = _task("Wait for web to answer on Podman")
+        assert wait.get("failed_when") is False, (
+            "a readiness signal that never arrives -- a custom image that "
+            "does not serve /server-status, or a runtime quirk -- must cost "
+            "a warning, not a failed create. Making this wait fatal is what "
+            "broke every Podman create once before"
+        )
+
+    def test_its_budget_is_bounded(self):
+        wait = _task("Wait for web to answer on Podman")
+        budget = wait.get("retries", 0) * wait.get("delay", 0)
+        assert 0 < budget <= 300, (
+            "bound the wait to the image healthcheck's 5 min --start-period: "
+            "past that the signal is not coming, and since overrunning only "
+            "warns, waiting longer just delays the real error"
         )
 
     def test_it_only_runs_when_no_status_is_reported(self):
         conditions = [
-            str(c) for c
-            in _task("Wait for web to pass its healthcheck (Podman)")["when"]
+            str(c) for c in _task("Wait for web to answer on Podman")["when"]
         ]
         assert any("_start_web_has_health" in c and "== ''" in c
                    for c in conditions), (
@@ -152,12 +181,8 @@ class TestPodmanDrivesTheHealthcheck:
             "Docker reports a real status and must keep its own path"
         )
 
-    def test_a_custom_image_without_a_healthcheck_still_skips(self):
-        conditions = [
-            str(c) for c
-            in _task("Wait for web to pass its healthcheck (Podman)")["when"]
-        ]
-        assert any("no defined healthcheck" in c for c in conditions), (
-            "an image that declares no HEALTHCHECK must skip rather than "
-            "burn the full 10-minute budget failing a check that cannot pass"
+    def test_a_silent_skip_is_reported(self):
+        assert _task("Report that web never answered on Podman") is not None, (
+            "continuing without the gate is a real loss of protection; say so "
+            "rather than proceeding silently"
         )
