@@ -708,9 +708,10 @@ commands:
 
       When an instance is resolved (from -i, or from the current
       directory), also checks that instance: config and runtime
-      agreement, whether local config edits have been applied, and the
-      certificate the origin is actually serving (expired, or silently
-      reissued by Caddy's internal CA after ACME failed).
+      agreement, whether local config edits have been applied, whether
+      CrowdSec is enabled behind a proxy with no CADDY_TRUSTED_PROXIES,
+      and the certificate the origin is actually serving (expired, or
+      silently reissued by Caddy's internal CA after ACME failed).
     examples:
       - "canasta doctor"
       - "canasta doctor --host prod1.example.com"

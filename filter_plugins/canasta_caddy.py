@@ -189,9 +189,32 @@ def meld_caddy_global_blocks(text):
     return result.strip("\n") + "\n"
 
 
+def caddy_explicit_http_hosts(text):
+    """Hostnames the given Caddyfile text serves with an `http://` address.
+
+    A bare `host` label is not one of these: it yields the https server plus
+    Caddy's automatic redirect, which the generated redirect server displaces
+    rather than collides with.
+    """
+    if not isinstance(text, str):
+        text = "" if text is None else str(text)
+    hosts = []
+    blocks, _ = _parse_top_level(text.replace("\r\n", "\n"))
+    for block in blocks:
+        if block["is_global"]:
+            continue
+        for addr in block["label"].replace(",", " ").split():
+            if addr.startswith("http://"):
+                host = addr[len("http://"):].split("/")[0].strip()
+                if host and host not in hosts:
+                    hosts.append(host)
+    return hosts
+
+
 class FilterModule(object):
     def filters(self):
         return {
             "meld_caddy_global_blocks": meld_caddy_global_blocks,
             "caddy_unsafe": caddy_unsafe,
+            "caddy_explicit_http_hosts": caddy_explicit_http_hosts,
         }

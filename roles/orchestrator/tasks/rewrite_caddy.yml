@@ -159,6 +159,18 @@
     # re-evaluated.
     _caddyfile_global_content: "{{ _caddy_global_raw.content | default('') | b64decode | caddy_unsafe }}"
 
+# Names the generated redirect server claims from Caddy's automatic one (see
+# Caddyfile.j2). Names the user's Caddyfile.global already serves over http://
+# are left to it — Caddy refuses to load a config that claims one twice.
+- name: Determine port-80 redirect server names
+  ansible.builtin.set_fact:
+    _redirect_server_names: >-
+      {{ (_server_names
+          | reject('in', _caddyfile_global_content | caddy_explicit_http_hosts)
+          | list)
+         if ((not (_http_only | bool)) and (_trusted_proxies_enabled | bool))
+         else [] }}
+
 # Render the template (CLI global block + inlined Caddyfile.global, which may
 # leave two global blocks) and meld them into one on the way out.
 - name: Write Caddyfile (rendered + global blocks melded)

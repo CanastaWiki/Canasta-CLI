@@ -67,7 +67,24 @@
 
 {% endif %}
 {{ _caddyfile_global_content | default('') }}
+{#
+  Caddy's automatic HTTP->HTTPS redirect server is built after the adapter has
+  applied the global `servers` options, so it honors neither trusted_proxies
+  nor client_ip_headers. Declaring it here puts it where those options reach.
+#}
+{% if (_redirect_server_names | default([]) | length) > 0 %}
+{{ _redirect_server_names | map('regex_replace', '^', 'http://') | join(', ') }} {
+{% if _crowdsec_active | default(false) %}
+    crowdsec
+{% endif %}
+    redir https://{host}{uri} 308
 
+    log {
+        output file /var/log/caddy/access.log
+    }
+}
+
+{% endif %}
 {{ _site_address }} {
     import /etc/caddy/Caddyfile.site
 
