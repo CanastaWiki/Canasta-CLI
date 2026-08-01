@@ -205,9 +205,6 @@ class TestExplicitHttpHosts:
         assert hosts == ["a.example.com", "b.example.com", "a.example.com:8080"]
 
     def test_bare_and_https_addresses_are_not_clashes(self):
-        # A bare label yields the https server plus Caddy's own automatic
-        # redirect, which our generated http:// server displaces rather than
-        # collides with. An explicit https:// label never touches :80.
         hosts = caddy_explicit_http_hosts(
             "bare.example.com {\n    respond ok\n}\n"
             "https://tls.example.com {\n    respond ok\n}\n"

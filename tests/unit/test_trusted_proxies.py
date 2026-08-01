@@ -186,24 +186,12 @@ class TestCaddyPluginImage:
 
 
 class TestPortEightyRedirectServer:
-    """Caddy's automatic HTTP->HTTPS redirect server is built after the
-    Caddyfile adapter applies the global `servers` options, so it honors
-    neither trusted_proxies nor client_ip_headers and logs every :80 request
-    with the CDN edge as client_ip. Canasta declares the redirect server
-    explicitly so those options reach it."""
-
-    def _render_redirect(self, names, **ctx):
-        return _render_proxy_with(
-            _redirect_server_names=names, **ctx
-        )
-
     def test_redirect_server_is_declared_for_each_name(self):
         out = _render_proxy_with(
             _redirect_server_names=["a.example.com", "b.example.com"])
         assert "http://a.example.com, http://b.example.com {" in out
         assert "redir https://{host}{uri} 308" in out
-        # It must log to the file CrowdSec reads, else the corrected client_ip
-        # never reaches the engine.
+        # Both servers must log to the file CrowdSec reads.
         assert out.count("output file /var/log/caddy/access.log") == 2
 
     def test_redirect_server_enforces_crowdsec_when_active(self):
@@ -218,7 +206,6 @@ class TestPortEightyRedirectServer:
         assert "redir " not in out
 
     def test_absent_variable_renders_nothing(self):
-        # Older instances re-rendered by a task that predates the new fact.
         out = _render_proxy("cloudflare", "Cf-Connecting-Ip", dynamic=True)
         assert "redir " not in out
 

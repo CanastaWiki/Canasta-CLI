@@ -159,14 +159,9 @@
     # re-evaluated.
     _caddyfile_global_content: "{{ _caddy_global_raw.content | default('') | b64decode | caddy_unsafe }}"
 
-# Names the generated port-80 redirect server takes over from Caddy's
-# automatic redirect, so the global trusted_proxies/client_ip_headers options
-# apply to :80 too (see the comment in Caddyfile.j2). Nothing to take over
-# when Caddy serves plain HTTP (K8s, or CADDY_AUTO_HTTPS=off) — there is no
-# redirect then — or when no trusted proxy is configured, where the built-in
-# redirect already logs the true client IP. Names the user's Caddyfile.global
-# already serves over http:// are left to it; claiming one twice is an
-# "ambiguous site definition" error that stops Caddy from loading at all.
+# Names the generated redirect server claims from Caddy's automatic one (see
+# Caddyfile.j2). Names the user's Caddyfile.global already serves over http://
+# are left to it — Caddy refuses to load a config that claims one twice.
 - name: Determine port-80 redirect server names
   ansible.builtin.set_fact:
     _redirect_server_names: >-

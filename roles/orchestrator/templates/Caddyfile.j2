@@ -68,15 +68,9 @@
 {% endif %}
 {{ _caddyfile_global_content | default('') }}
 {#
-  Explicit port-80 redirect server. Caddy's automatic HTTP->HTTPS redirect is
-  synthesized at provision time, after the Caddyfile adapter has applied the
-  global `servers` options, so it inherits neither trusted_proxies nor
-  client_ip_headers: every :80 request is logged with the CDN edge address as
-  client_ip. CrowdSec parses that same access log, so a scenario firing on
-  port-80 traffic bans a CDN edge node and cuts off every visitor behind it.
-  Declaring the redirect server here puts it in the adapter's server map, where
-  the global options do reach it. Only rendered when trusted proxies are in
-  play; otherwise Caddy's built-in redirect is equivalent and stays in charge.
+  Caddy's automatic HTTP->HTTPS redirect server is built after the adapter has
+  applied the global `servers` options, so it honors neither trusted_proxies
+  nor client_ip_headers. Declaring it here puts it where those options reach.
 #}
 {% if (_redirect_server_names | default([]) | length) > 0 %}
 {{ _redirect_server_names | map('regex_replace', '^', 'http://') | join(', ') }} {

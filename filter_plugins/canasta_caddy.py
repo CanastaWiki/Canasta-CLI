@@ -190,18 +190,11 @@ def meld_caddy_global_blocks(text):
 
 
 def caddy_explicit_http_hosts(text):
-    """Hostnames the given Caddyfile text already serves with an `http://`
-    site address.
+    """Hostnames the given Caddyfile text serves with an `http://` address.
 
-    Canasta generates its own `http://…` redirect server so the port-80
-    HTTP->HTTPS redirect is a real Caddyfile server (see Caddyfile.j2). Caddy
-    rejects the whole config with "ambiguous site definition" if a hostname is
-    claimed twice, so any name the user's Caddyfile.global already declares
-    that way has to be left alone.
-
-    Matching is on the exact `http://host` token; a bare `host` label is not a
-    clash, because that address only ever produces the https server plus
-    Caddy's own automatic redirect.
+    A bare `host` label is not one of these: it yields the https server plus
+    Caddy's automatic redirect, which the generated redirect server displaces
+    rather than collides with.
     """
     if not isinstance(text, str):
         text = "" if text is None else str(text)
