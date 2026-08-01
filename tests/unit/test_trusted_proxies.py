@@ -9,11 +9,18 @@ Rendering tests evaluate the real Jinja template so a wrong header,
 wrong provider source, or misplaced strict flag is caught.
 """
 
+import ast
 import os
 import re
+import sys
 
 import jinja2
 import yaml
+
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "..", "..", "filter_plugins")
+)
+from canasta_caddy import caddy_explicit_http_hosts  # noqa: E402
 
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -61,6 +68,21 @@ def _render_proxy(mode, header, dynamic, cidrs=None, strict=False):
         _trusted_proxies_cidrs=cidrs or [],
         _trusted_proxies_strict=strict,
     )
+
+
+
+def _render_proxy_with(**ctx):
+    """Cloudflare mode plus whatever the caller overrides."""
+    base = dict(
+        _trusted_proxies_enabled=True,
+        _tp_mode="cloudflare",
+        _tp_dynamic=True,
+        _trusted_proxies_headers="Cf-Connecting-Ip",
+        _trusted_proxies_cidrs=[],
+        _trusted_proxies_strict=False,
+    )
+    base.update(ctx)
+    return _render(**base)
 
 
 class TestTrustedProxiesConfigKey:
@@ -161,3 +183,73 @@ class TestCaddyPluginImage:
         assert not os.path.exists(
             os.path.join(REPO_ROOT, "scripts", "update_proxy_ips.py")
         )
+
+
+class TestPortEightyRedirectServer:
+    def test_redirect_server_is_declared_for_each_name(self):
+        out = _render_proxy_with(
+            _redirect_server_names=["a.example.com", "b.example.com"])
+        assert "http://a.example.com, http://b.example.com {" in out
+        assert "redir https://{host}{uri} 308" in out
+        # Both servers must log to the file CrowdSec reads.
+        assert out.count("output file /var/log/caddy/access.log") == 2
+
+    def test_redirect_server_enforces_crowdsec_when_active(self):
+        out = _render_proxy_with(
+            _redirect_server_names=["a.example.com"], _crowdsec_active=True)
+        redirect_block = out[out.index("http://a.example.com {"):]
+        assert "crowdsec" in redirect_block.split("}")[0]
+
+    def test_no_redirect_server_when_no_names(self):
+        out = _render_proxy_with(_redirect_server_names=[])
+        assert "http://" not in out
+        assert "redir " not in out
+
+    def test_absent_variable_renders_nothing(self):
+        out = _render_proxy("cloudflare", "Cf-Connecting-Ip", dynamic=True)
+        assert "redir " not in out
+
+
+def _redirect_names(http_only, trusted, names, user_global=""):
+    """Evaluate rewrite_caddy.yml's real _redirect_server_names expression."""
+    tasks = yaml.safe_load(_read(os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "rewrite_caddy.yml",
+    )))
+    expr = next(
+        t["ansible.builtin.set_fact"]["_redirect_server_names"]
+        for t in tasks
+        if "_redirect_server_names" in (t.get("ansible.builtin.set_fact") or {})
+    )
+    env = _ansible_jinja_env()
+    env.filters["caddy_explicit_http_hosts"] = caddy_explicit_http_hosts
+    out = env.from_string(expr).render(
+        _http_only=http_only,
+        _trusted_proxies_enabled=trusted,
+        _server_names=names,
+        _caddyfile_global_content=user_global,
+    )
+    return ast.literal_eval(out.strip())
+
+
+class TestRedirectServerNameSelection:
+    def test_claims_every_wiki_server_name(self):
+        assert _redirect_names(
+            False, True, ["a.example.com", "b.example.com"],
+        ) == ["a.example.com", "b.example.com"]
+
+    def test_empty_without_trusted_proxies(self):
+        # Caddy's built-in redirect already logs the true client IP when
+        # nothing is in front of it.
+        assert _redirect_names(False, False, ["a.example.com"]) == []
+
+    def test_empty_in_plain_http_mode(self):
+        # K8s / CADDY_AUTO_HTTPS=off: there is no redirect to take over.
+        assert _redirect_names(True, True, ["a.example.com"]) == []
+
+    def test_skips_names_the_user_already_serves_over_http(self):
+        # Claiming one twice is "ambiguous site definition" — Caddy refuses to
+        # load the config at all.
+        assert _redirect_names(
+            False, True, ["a.example.com", "b.example.com"],
+            user_global="http://a.example.com {\n    respond ok\n}\n",
+        ) == ["b.example.com"]
