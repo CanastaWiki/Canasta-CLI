@@ -18,6 +18,14 @@
   changed_when: false
   register: _install_user_cmd
 
+# become: false — the operator's uid, not root's, is the one whose
+# /run/user/<uid> holds the rootless socket.
+- name: Determine operator uid
+  ansible.builtin.command: id -u
+  become: false
+  changed_when: false
+  register: _install_uid
+
 - name: Set install user fact
   ansible.builtin.set_fact:
     _install_user: >-
@@ -150,6 +158,34 @@
           echo 'net.ipv4.ip_unprivileged_port_start=80' |
           sudo tee /etc/sysctl.d/canasta-privport.conf
       when: _persist_result is failed
+
+    # The third prerequisite, and the one an operator is most likely to
+    # need explicitly: --docker-host on `create` and `install` documents
+    # unix:///run/user/<uid>/podman/podman.sock, and nothing created it.
+    #
+    # become: false because this is a user unit — as root it would enable
+    # root's socket, not the operator's. systemctl --user needs
+    # XDG_RUNTIME_DIR, which a non-interactive SSH session does not set.
+    - name: Enable the rootless Podman socket for the operator
+      ansible.builtin.command:
+        cmd: systemctl --user enable --now podman.socket
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ _install_uid.stdout | trim }}"
+      become: false
+      changed_when: true
+      register: _podman_socket_result
+      failed_when: false
+
+    - name: Warn if the Podman socket could not be enabled
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Could not enable podman.socket for
+          '{{ _install_user }}'. Rootless Podman still works through the
+          podman CLI, but --docker-host
+          unix:///run/user/{{ _install_uid.stdout | trim }}/podman/podman.sock
+          has nothing listening. Enable it manually:
+          systemctl --user enable --now podman.socket
+      when: _podman_socket_result.rc | default(1) != 0
 
 - name: Report Podman installed
   ansible.builtin.debug:

@@ -24,6 +24,30 @@
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/detect_docker_socket.yml"
       when: (docker_host | default('')) == ''
 
+    # `docker info` is not evidence of Docker when DOCKER_HOST points at
+    # Podman's socket: the Docker CLI talks to Podman's Docker-compatible
+    # API and reports success, so the probe below concluded Docker and
+    # recorded `docker compose` for an instance that runs under Podman.
+    # The socket already answers the question, so settle it here rather
+    # than asking a command that cannot distinguish the two.
+    #
+    # Mirrors the DOCKER_HOST precedence in canasta.yml, so this reads the
+    # same socket the probes will actually use.
+    - name: Resolve the socket the runtime probes will use
+      ansible.builtin.set_fact:
+        _preflight_docker_host: >-
+          {{ docker_host
+             | default(instance_docker_host | default(''), true)
+             | default(_detected_docker_host | default(''), true) }}
+
+    - name: Use Podman when the socket in use is Podman's
+      ansible.builtin.set_fact:
+        compose_command: podman-compose
+        inspect_command: podman
+      when:
+        - not (compose_command | default('docker compose') is search('podman'))
+        - _preflight_docker_host is search('podman')
+
     # Probe the target's runtime before any state mutation. This is the
     # only place detection happens — the CLI never guesses, so the
     # set_fact below is what makes a Podman-only host work, local or

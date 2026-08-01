@@ -639,10 +639,30 @@ for arg in "$@"; do
             fi
             WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/${WRAPPER_REF}/canasta-docker"
 
+            # Say which channel this landed on. Without it, `upgrade`
+            # and `upgrade --dev` are indistinguishable in the output,
+            # and an operator who suspects the CLI did not move has
+            # nothing to check against.
+            if [[ "$ENV_IMAGE_OVERRIDE" == "true" ]]; then
+                echo "CLI image: $IMAGE (pinned by CANASTA_CLI_IMAGE; 'canasta upgrade' will not change it)."
+            elif [[ "$DEV_CHANNEL" == "true" ]]; then
+                echo "CLI channel: development (head of main), image $IMAGE."
+            else
+                echo "CLI channel: release, image $IMAGE."
+            fi
+
             echo "Pulling canasta-ansible image ($IMAGE)..."
             "$CONTAINER_ENGINE" pull "$IMAGE"
 
             # Update the wrapper script itself if the upstream differs.
+            #
+            # A wrapper that cannot replace itself is the one failure that
+            # hides every other fix: the channel written above is only
+            # honoured by a wrapper new enough to read $PINNED_TAG_FILE,
+            # so an old one keeps pulling its own baked-in tag and
+            # `--dev` appears to do nothing. Report it as an error the
+            # operator has to act on, not a passing note.
+            WRAPPER_STALE=false
             if command -v curl &>/dev/null; then
                 TMP_WRAPPER="$(mktemp)"
                 if curl -fsSL "$WRAPPER_URL" -o "$TMP_WRAPPER"; then
@@ -660,14 +680,37 @@ for arg in "$@"; do
                                 rm -f "$TMP_WRAPPER"
                                 exit 0
                             else
-                                echo "Warning: failed to update wrapper at $WRAPPER_PATH" >&2
+                                WRAPPER_STALE=true
+                                echo "ERROR: could not replace the wrapper at $WRAPPER_PATH (sudo refused)." >&2
                             fi
                         else
-                            echo "Warning: cannot write to $WRAPPER_PATH (no sudo available)" >&2
+                            WRAPPER_STALE=true
+                            echo "ERROR: cannot write to $WRAPPER_PATH and sudo is not available." >&2
                         fi
                     fi
                     rm -f "$TMP_WRAPPER"
+                else
+                    WRAPPER_STALE=true
+                    echo "ERROR: could not fetch the current wrapper from $WRAPPER_URL." >&2
                 fi
+            else
+                WRAPPER_STALE=true
+                echo "ERROR: curl is not installed, so the wrapper cannot update itself." >&2
+            fi
+
+            if [[ "$WRAPPER_STALE" == "true" ]]; then
+                echo "       This wrapper is out of date and stays out of date." >&2
+                echo "       Instances below still upgrade, but the CLI itself does not," >&2
+                echo "       so a channel change ('--dev') may not take effect and fixes" >&2
+                echo "       released since this wrapper was installed stay missing." >&2
+                # Reinstall rather than fetching the wrapper by hand: the
+                # installer places it, sets the mode, and writes
+                # cli_image_tag, so the channel survives. Preserve the
+                # channel that was asked for here.
+                REINSTALL_FLAGS="--docker"
+                [[ "$DEV_CHANNEL" == "true" ]] && REINSTALL_FLAGS="--docker --dev"
+                echo "       Reinstall the CLI:" >&2
+                echo "         curl -fsSL https://get.canasta.wiki | bash -s -- $REINSTALL_FLAGS" >&2
             fi
             break
             ;;

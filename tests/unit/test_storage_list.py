@@ -40,8 +40,8 @@ def test_reads_default_storageclass_from_controller_registry():
         and t["canasta_registry"].get("setting_key") == "defaultStorageClass"
     ]
     assert reads, "must read defaultStorageClass from the registry"
-    assert reads[0].get("delegate_to") == "localhost", (
-        "canasta_registry reads must use delegate_to: localhost"
+    assert reads[0].get("delegate_to") == "canasta_controller", (
+        "canasta_registry reads must delegate to canasta_controller"
     )
 
 

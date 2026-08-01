@@ -9,17 +9,20 @@
 # Usage:
 #   curl -fsSL https://get.canasta.wiki | bash
 #   curl -fsSL https://get.canasta.wiki | bash -s -- --native
-#   curl -fsSL https://get.canasta.wiki | bash -s -- --docker
-#   curl -fsSL https://get.canasta.wiki | bash -s -- --dev
+#   curl -fsSL https://get.canasta.wiki | bash -s -- --docker --dev
+#   curl -fsSL https://get.canasta.wiki | bash -s -- --native --prefix /opt/canasta
 #
 # Documentation: https://canasta.wiki/wiki/Help:Installation
 #
 # Flags:
 #   --native    Install canasta-native (requires Python 3.10+, git)
 #   --docker    Install canasta-docker (requires Docker only, default)
-#   --dev       Track the development branch (head of main) instead of
-#               the latest released version
-#   --prefix    Installation prefix (default: /opt/canasta-ansible for native)
+#   --dev       Track the development branch (head of main) instead of the
+#               latest released version. Independent of the mode: combine it
+#               with --native or --docker.
+#   --prefix    Directory to install canasta-native into. Native mode only;
+#               docker mode ignores it. Defaults to /opt/canasta-ansible on
+#               Linux and ~/canasta-ansible on macOS.
 #
 # Linux native installs create a 'canasta' system group. Add users with:
 #   sudo usermod -aG canasta $USER
