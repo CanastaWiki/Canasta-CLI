@@ -20,15 +20,21 @@ description:
   - Operates on the conf.json registry format.
 options:
   state:
-    description: Desired state of the instance in the registry.
+    description:
+      - Desired state of the instance in the registry.
+      - >-
+        present creates or replaces the whole record from the parameters
+        given, so it must be passed every field the record is to keep.
+        update merges only the parameters supplied onto an existing
+        record and requires the instance to be registered already.
     type: str
     choices:
       - present
+      - update
       - absent
       - query
       - query_all
       - query_by_path
-      - set_runtime
       - set_setting
       - get_setting
     default: query
@@ -121,6 +127,24 @@ __all__ = [
 ]
 
 
+# Registry key -> module parameter, for state=update. `id` and `path`
+# identify a record rather than describe it, so neither is updatable
+# here; a move is a create.
+UPDATABLE_FIELDS = (
+    ("orchestrator", "orchestrator"),
+    ("host", "host"),
+    ("devMode", "dev_mode"),
+    ("managedCluster", "managed_cluster"),
+    ("registry", "registry"),
+    ("kindCluster", "kind_cluster"),
+    ("buildFrom", "build_from"),
+    ("buildArgs", "build_args"),
+    ("dockerHost", "docker_host"),
+    ("composeCommand", "compose_command"),
+    ("inspectCommand", "inspect_command"),
+)
+
+
 def instance_to_dict(instance):
     """Convert an instance dict to the JSON-serializable registry format."""
     result = {
@@ -154,16 +178,20 @@ def instance_to_dict(instance):
 def run_module():
     module_args = dict(
         state=dict(type="str", default="query",
-                   choices=["present", "absent", "query", "query_all",
-                            "query_by_path", "set_runtime",
+                   choices=["present", "update", "absent", "query",
+                            "query_all", "query_by_path",
                             "set_setting", "get_setting"]),
         setting_key=dict(type="str", required=False),
         setting_value=dict(type="str", required=False),
         id=dict(type="str", required=False),
         path=dict(type="str", required=False),
-        orchestrator=dict(type="str", default="compose"),
-        dev_mode=dict(type="bool", default=False),
-        managed_cluster=dict(type="bool", default=False),
+        # No argument defaults on these three: state=update distinguishes
+        # "not supplied" from "supplied false" by testing for None, and a
+        # default makes every field look supplied. state=present applies
+        # the same defaults itself, below.
+        orchestrator=dict(type="str", required=False),
+        dev_mode=dict(type="bool", required=False),
+        managed_cluster=dict(type="bool", required=False),
         registry=dict(type="str", required=False),
         kind_cluster=dict(type="str", required=False),
         build_from=dict(type="str", required=False),
@@ -246,10 +274,10 @@ def run_module():
         new_instance = instance_to_dict({
             "id": inst_id,
             "path": os.path.abspath(inst_path),
-            "orchestrator": module.params["orchestrator"],
+            "orchestrator": module.params["orchestrator"] or "compose",
             "host": module.params.get("host"),
-            "devMode": module.params["dev_mode"],
-            "managedCluster": module.params["managed_cluster"],
+            "devMode": bool(module.params["dev_mode"]),
+            "managedCluster": bool(module.params["managed_cluster"]),
             "registry": module.params.get("registry"),
             "kindCluster": module.params.get("kind_cluster"),
             "buildFrom": module.params.get("build_from"),
@@ -274,23 +302,27 @@ def run_module():
         result["changed"] = changed
         result["instance"] = new_instance
 
-    elif state == "set_runtime":
+    elif state == "update":
         if not inst_id:
-            module.fail_json(msg="id is required when state=set_runtime")
+            module.fail_json(msg="id is required when state=update")
             return
         if inst_id not in instances:
             module.fail_json(
                 msg="Instance '%s' not found in registry" % inst_id)
             return
-        # Field-wise update rather than state=present: present rebuilds
-        # the whole record from module params, so writing one field
-        # through it drops every field the caller did not repeat.
+
         entry = dict(instances[inst_id])
-        for key, param in (("composeCommand", "compose_command"),
-                           ("inspectCommand", "inspect_command")):
+        for key, param in UPDATABLE_FIELDS:
             value = module.params.get(param)
+            if value is None:
+                continue
+            # Mirrors instance_to_dict: the stored format carries a key
+            # only while it holds something, so clearing a field drops
+            # the key rather than recording a false or empty value.
             if value:
                 entry[key] = value
+            else:
+                entry.pop(key, None)
 
         if entry != instances[inst_id]:
             changed = True
