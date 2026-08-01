@@ -79,7 +79,7 @@
     # command itself as a fallback.
     - name: Check with compose ps -q web
       ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} ps -a -q web"
+        cmd: "{{ _compose_cmd }} ps -q web"
         chdir: "{{ instance_path }}"
       register: _compose_ps_web
       changed_when: false
@@ -88,7 +88,7 @@
 
     - name: Check with compose ps -q (podman-compose fallback)
       ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} ps -a -q"
+        cmd: "{{ _compose_cmd }} ps -q"
         chdir: "{{ instance_path }}"
       register: _compose_ps_all
       changed_when: false

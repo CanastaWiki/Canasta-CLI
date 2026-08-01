@@ -7,7 +7,7 @@
   ansible.builtin.set_fact:
     _check_cmd: >-
       {{ inspect_command | default('docker') }}
-      ps -a --filter label=com.docker.compose.project={{ instance_path | basename | lower }}
+      ps --filter label=com.docker.compose.project={{ instance_path | basename | lower }}
       --filter label=com.docker.compose.service=web
       --format {% raw %}{{.ID}}{% endraw %}
     _check_chdir: "{{ instance_path }}"
