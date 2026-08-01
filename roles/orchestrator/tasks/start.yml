@@ -71,6 +71,14 @@
              | join(' ') }}
       when: compose_command is search('podman')
 
+    - name: Check if already running
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_running.yml"
+
+    - name: Skip start when already running
+      ansible.builtin.debug:
+        msg: "Instance is already running."
+      when: _container_running | default(false) | bool
+
     - name: Start containers
       ansible.builtin.command:
         cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} up -d"
@@ -78,6 +86,7 @@
       register: _start_result
       changed_when: true
       failed_when: false
+      when: not (_container_running | default(false) | bool)
 
     # When docker compose up fails (typically an unhealthy container),
     # capture per-service logs and state before we bail out. The caller
