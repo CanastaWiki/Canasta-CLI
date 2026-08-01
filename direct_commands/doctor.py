@@ -317,14 +317,36 @@ _SERVICE_PROFILE = {
 _SERVICE_PROFILE["db"] = "internal-db"
 
 
+# Headers that mark a request as having passed through a proxy. The two
+# vendor headers are conclusive; X-Forwarded-For is not, since any client can
+# send it, so the check below asks for it on most of the sample rather than on
+# a single request.
+_PROXIED_REQUEST_HEADERS = ("Cf-Connecting-Ip", "Cdn-Loop", "X-Forwarded-For")
+
+
+def _looks_proxied(cdn_evidence):
+    """True when the sampled Caddy access log says something is in front.
+
+    cdn_evidence is (sampled, hits) from the tail of the access log. A forged
+    X-Forwarded-For on one request must not be enough, so require the headers
+    on more than half the sample — a real CDN sets them on everything it
+    forwards, and a client cannot forge its way to a majority of the traffic.
+    """
+    if not cdn_evidence:
+        return False
+    sampled, hits = cdn_evidence
+    return sampled > 0 and hits * 2 > sampled
+
+
 def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
-                          template_literals=None):
+                          template_literals=None, cdn_evidence=None):
     """Pure: warnings about config/runtime drift for a Compose instance.
 
     - COMPOSE_PROFILES that disagrees with what sync would derive from the
       flags + DB mode.
     - A container running under a profile that isn't active (unmanaged — a
       stop/start won't restore it).
+    - CrowdSec enabled behind a CDN with no CADDY_TRUSTED_PROXIES.
     - CirrusSearch configured in settings while Elasticsearch is disabled.
     - any env.template literal that differs from .env (the durable gitops
       source and the live config have diverged; a pull would reset .env to it).
@@ -359,6 +381,31 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
             "'elasticsearch' profile is inactive — search depends on an "
             "unmanaged Elasticsearch; set CANASTA_ENABLE_ELASTICSEARCH=true")
 
+    # CrowdSec behind a CDN with nothing telling Caddy to trust it. Caddy then
+    # reports the CDN edge address as the client IP, so the engine attributes
+    # all traffic to a handful of edge nodes: per-IP scenarios can never
+    # identify a real attacker, and a scenario that does fire bans an edge node
+    # and blackholes every visitor behind it. Nothing surfaces this on its own
+    # — `canasta crowdsec status` reports the bouncer active and the community
+    # blocklist loaded, and its "No active decisions" reads as "nothing
+    # malicious detected" when it means "nothing is distinguishable".
+    crowdsec_on = env.get("CANASTA_ENABLE_CROWDSEC", "").strip().lower() == "true"
+    if (crowdsec_on and not env.get("CADDY_TRUSTED_PROXIES", "").strip()
+            and _looks_proxied(cdn_evidence)):
+        sampled, hits = cdn_evidence
+        warns.append(
+            "CrowdSec is enabled and %d of the last %d Caddy access-log "
+            "entries carry proxy headers (%s), but CADDY_TRUSTED_PROXIES is "
+            "unset — CrowdSec sees only the proxy's addresses, so its "
+            "scenarios cannot identify a real client and any ban it issues "
+            "lands on a shared edge node and blocks every visitor behind it. "
+            "Set it to the provider in front of this instance: 'canasta "
+            "config set CADDY_TRUSTED_PROXIES=cloudflare' (or imperva, or a "
+            "comma-separated CIDR list for any other proxy). Leave it unset "
+            "if Caddy really is the edge — trusting the header "
+            "unconditionally would let any client forge its own source IP"
+            % (hits, sampled, ", ".join(_PROXIED_REQUEST_HEADERS)))
+
     drifted = sorted(
         k for k, tv in (template_literals or {}).items()
         if k in env and env[k] != tv)
@@ -376,11 +423,19 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
     return warns
 
 
+# How many access-log lines to sample when deciding whether something is
+# proxying in front of Caddy. The log is JSON, one request per line, and lives
+# in a named volume, so it is read through the caddy container.
+_ACCESS_LOG_SAMPLE = 200
+
+
 def _gather_runtime(path, host, inst=None):
-    """(running_services, uses_cirrus, env_template_literals) for an instance,
-    localhost or remote. env_template_literals maps each KEY to the literal
-    value pinned in env.template, excluding placeholder (KEY={{...}}) lines and
-    comments; empty when not gitops / no env.template."""
+    """(running_services, uses_cirrus, env_template_literals, cdn_evidence) for
+    an instance, localhost or remote. env_template_literals maps each KEY to the
+    literal value pinned in env.template, excluding placeholder (KEY={{...}})
+    lines and comments; empty when not gitops / no env.template. cdn_evidence is
+    (sampled, hits) over the tail of the Caddy access log, (0, 0) when the log
+    can't be read (caddy down, no log yet)."""
     d = _helpers._SENTINEL
     qpath = _helpers._shell_quote(path)
     compose_cmd = _helpers._resolve_compose_cmd(inst or {"path": path})
@@ -393,8 +448,18 @@ def _gather_runtime(path, host, inst=None):
         "&& echo USES_CIRRUS || echo NO_CIRRUS; "
         "echo '%(d)s'; "
         "grep -E '^[A-Za-z_][A-Za-z0-9_]*=' %(p)s/env.template 2>/dev/null "
-        "| grep -v '={{'"
-    ) % {"p": qpath, "d": d, "c": compose_str}
+        "| grep -v '={{'; "
+        "echo '%(d)s'; "
+        "_al=$(%(c)s exec -T caddy tail -n %(n)d /var/log/caddy/access.log "
+        "2>/dev/null); "
+        "printf '%%s %%s\\n' "
+        "\"$(printf '%%s' \"$_al\" | grep -c . )\" "
+        "\"$(printf '%%s' \"$_al\" | grep -Ec '%(h)s')\""
+    ) % {
+        "p": qpath, "d": d, "c": compose_str,
+        "n": _ACCESS_LOG_SAMPLE,
+        "h": "|".join(_PROXIED_REQUEST_HEADERS),
+    }
     if _helpers._is_localhost(host):
         try:
             out = subprocess.run(
@@ -402,11 +467,11 @@ def _gather_runtime(path, host, inst=None):
                 capture_output=True, text=True, timeout=30,
             ).stdout
         except (subprocess.TimeoutExpired, OSError):
-            return [], False, {}
+            return [], False, {}, (0, 0)
     else:
         rc, out = _helpers._ssh_run(host, script)
         if rc != 0 and not out.strip():
-            return [], False, {}
+            return [], False, {}, (0, 0)
     parts = out.split(d + "\n")
     head = parts[0].strip() if parts else ""
     running = [s for s in head.split("\n") if s.strip()]
@@ -422,7 +487,15 @@ def _gather_runtime(path, host, inst=None):
             if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
                 val = val[1:-1]
             template_literals[key.strip()] = val
-    return running, uses_cirrus, template_literals
+    cdn_evidence = (0, 0)
+    if len(parts) > 3:
+        fields = parts[3].strip().split()
+        if len(fields) == 2:
+            try:
+                cdn_evidence = (int(fields[0]), int(fields[1]))
+            except ValueError:
+                pass
+    return running, uses_cirrus, template_literals, cdn_evidence
 
 
 def _instance_consistency_lines(inst):
@@ -446,9 +519,10 @@ def _instance_consistency_lines(inst):
         p.strip() for p in env.get("COMPOSE_PROFILES", "").split(",")
         if p.strip()
     ]
-    running, uses_cirrus, template_literals = _gather_runtime(path, host, inst)
+    running, uses_cirrus, template_literals, cdn_evidence = _gather_runtime(
+        path, host, inst)
     warns = _consistency_warnings(
-        env, current, running, uses_cirrus, template_literals)
+        env, current, running, uses_cirrus, template_literals, cdn_evidence)
     lines = ["", "Instance consistency (%s):" % inst.get("id", "?")]
     if warns:
         lines += ["  WARN: %s" % w for w in warns]

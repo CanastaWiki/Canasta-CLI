@@ -125,7 +125,7 @@ class TestGatherRuntime:
 
         monkeypatch.setattr(doctor._helpers, "_is_localhost", lambda h: True)
         monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: _R())
-        running, cirrus, lits = doctor._gather_runtime("/srv/x", "localhost")
+        running, cirrus, lits, cdn = doctor._gather_runtime("/srv/x", "localhost")
         assert running == ["web", "varnish", "db"]
         assert cirrus is True
         assert lits["CANASTA_IMAGE"] == "ghcr.io/canastawiki/canasta:3.5.1"
@@ -140,7 +140,7 @@ class TestGatherRuntime:
 
         monkeypatch.setattr(doctor._helpers, "_is_localhost", lambda h: True)
         monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: _R())
-        running, cirrus, lits = doctor._gather_runtime("/srv/x", "localhost")
+        running, cirrus, lits, cdn = doctor._gather_runtime("/srv/x", "localhost")
         assert running == ["web"]
         assert cirrus is False
         assert lits == {}
@@ -161,7 +161,7 @@ class TestInstanceConsistencyLines:
                                "COMPOSE_PROFILES=varnish\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",
-            lambda path, host, inst=None: (["web", "varnish", "db"], True, {}))
+            lambda path, host, inst=None: (["web", "varnish", "db"], True, {}, (0, 0)))
         lines = doctor._instance_consistency_lines(inst)
         assert lines[1] == "Instance consistency (site):"
         body = " ".join(lines)
@@ -179,7 +179,8 @@ class TestInstanceConsistencyLines:
                                "COMPOSE_PROFILES=internal-db,varnish,crowdsec\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",
-            lambda path, host, inst=None: (["web", "varnish", "crowdsec", "db"], False, {}))
+            lambda path, host, inst=None: (
+                ["web", "varnish", "crowdsec", "db"], False, {}, (0, 0)))
         lines = doctor._instance_consistency_lines(inst)
         assert any("OK (" in line for line in lines)
 
@@ -195,7 +196,8 @@ class TestInstanceConsistencyLines:
             doctor, "_gather_runtime",
             lambda path, host, inst=None: (["web", "varnish", "db"], False,
                                 {"CANASTA_IMAGE":
-                                 "ghcr.io/canastawiki/canasta:3.5.1"}))
+                                 "ghcr.io/canastawiki/canasta:3.5.1"},
+                                (0, 0)))
         body = " ".join(doctor._instance_consistency_lines(inst))
         assert "env.template disagrees with .env" in body
         assert "3.5.1" in body and "3.5.12" in body
@@ -213,8 +215,102 @@ class TestInstanceConsistencyLines:
                                "HTTP_PORT=8090\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",
-            lambda path, host, inst=None: (["web", "db"], False, {"HTTP_PORT": "80"}))
+            lambda path, host, inst=None: (
+                ["web", "db"], False, {"HTTP_PORT": "80"}, (0, 0)))
         body = " ".join(doctor._instance_consistency_lines(inst))
         assert "env.template disagrees with .env" in body
         assert "canasta reconcile" in body
         assert "names its own fix" in body
+
+
+class TestCrowdSecBehindCdn:
+    """CrowdSec enabled behind a CDN with CADDY_TRUSTED_PROXIES unset enforces
+    nothing: every source IP Caddy reports is a CDN edge address, so per-IP
+    scenarios cannot fire on a real client, and one that does fire bans an edge
+    node and blackholes every visitor behind it. `canasta crowdsec status`
+    looks healthy throughout."""
+
+    ENV = {
+        "CANASTA_ENABLE_CROWDSEC": "true",
+        "COMPOSE_PROFILES": "internal-db,varnish,crowdsec",
+    }
+    PROFILES = ["internal-db", "varnish", "crowdsec"]
+    RUNNING = ["web", "caddy", "varnish", "crowdsec", "db"]
+
+    def _warns(self, env=None, cdn_evidence=None):
+        return doctor._consistency_warnings(
+            env or dict(self.ENV), self.PROFILES, self.RUNNING, False,
+            None, cdn_evidence)
+
+    def test_warns_when_proxied_and_unset(self):
+        out = self._warns(cdn_evidence=(200, 200))
+        assert len(out) == 1
+        assert "CADDY_TRUSTED_PROXIES is unset" in out[0]
+        assert "200 of the last 200" in out[0]
+        assert "canasta config set CADDY_TRUSTED_PROXIES=cloudflare" in out[0]
+
+    def test_quiet_when_trusted_proxies_is_set(self):
+        env = dict(self.ENV, CADDY_TRUSTED_PROXIES="cloudflare")
+        assert self._warns(env, cdn_evidence=(200, 200)) == []
+
+    def test_quiet_on_a_direct_edge_facing_instance(self):
+        # Caddy really is the edge: nothing forwards, nothing to trust. This
+        # is the case the fix must not be "always set it" for.
+        assert self._warns(cdn_evidence=(200, 0)) == []
+
+    def test_quiet_when_crowdsec_is_disabled(self):
+        env = {"CANASTA_ENABLE_CROWDSEC": "false",
+               "COMPOSE_PROFILES": "internal-db,varnish"}
+        out = doctor._consistency_warnings(
+            env, ["internal-db", "varnish"], ["web", "caddy", "varnish", "db"],
+            False, None, (200, 200))
+        assert out == []
+
+    def test_a_forged_header_on_one_request_is_not_enough(self):
+        # Any client can send X-Forwarded-For; a real CDN sets it on
+        # everything it forwards.
+        assert self._warns(cdn_evidence=(200, 1)) == []
+        assert self._warns(cdn_evidence=(200, 100)) == []   # exactly half
+        assert self._warns(cdn_evidence=(200, 101)) != []   # a majority
+
+    def test_quiet_when_the_access_log_is_unreadable(self):
+        # caddy down, or no traffic yet — no evidence either way.
+        assert self._warns(cdn_evidence=(0, 0)) == []
+        assert self._warns(cdn_evidence=None) == []
+
+
+class TestGatherRuntimeCdnEvidence:
+    def test_parses_the_sampled_counts(self, monkeypatch):
+        d = doctor._helpers._SENTINEL
+        out = "web\n%s\nNO_CIRRUS\n%s\n\n%s\n200 187\n" % (d, d, d)
+
+        class _R:
+            stdout = out
+
+        monkeypatch.setattr(doctor._helpers, "_is_localhost", lambda h: True)
+        monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: _R())
+        assert doctor._gather_runtime("/srv/x", "localhost")[3] == (200, 187)
+
+    def test_missing_or_malformed_counts_are_no_evidence(self, monkeypatch):
+        d = doctor._helpers._SENTINEL
+
+        class _R:
+            stdout = "web\n%s\nNO_CIRRUS\n%s\n\n%s\nnope\n" % (d, d, d)
+
+        monkeypatch.setattr(doctor._helpers, "_is_localhost", lambda h: True)
+        monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: _R())
+        assert doctor._gather_runtime("/srv/x", "localhost")[3] == (0, 0)
+
+    def test_samples_the_caddy_access_log(self, monkeypatch):
+        seen = {}
+
+        class _R:
+            stdout = ""
+
+        monkeypatch.setattr(doctor._helpers, "_is_localhost", lambda h: True)
+        monkeypatch.setattr(
+            doctor.subprocess, "run",
+            lambda *a, **k: (seen.update(script=a[0][2]) or _R()))
+        doctor._gather_runtime("/srv/x", "localhost")
+        assert "exec -T caddy tail -n 200 /var/log/caddy/access.log" in seen["script"]
+        assert "Cf-Connecting-Ip|Cdn-Loop|X-Forwarded-For" in seen["script"]
