@@ -25,11 +25,11 @@
 #
 # CADDY_VERSION is set by what the bundled plugins require, so it can lead
 # the stock default caddy:<ver>-alpine in docker-compose.yml — the
-# crowdsec bouncer v0.13.1 pins Caddy v2.11.3. Keep the published image
+# crowdsec bouncer v0.14.0 pins Caddy v2.11.3. Keep the published image
 # tag in lockstep with _CADDY_PLUGIN_IMAGE / the sync_compose_profiles
 # literal.
 ARG CADDY_VERSION=2.11.3
-ARG CROWDSEC_BOUNCER_VERSION=v0.13.1
+ARG CROWDSEC_BOUNCER_VERSION=v0.14.0
 ARG CDN_RANGES_VERSION=v2.1.0
 ARG COMBINE_IP_RANGES_VERSION=v0.0.1
 
