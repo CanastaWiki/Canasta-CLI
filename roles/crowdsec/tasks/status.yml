@@ -78,15 +78,9 @@
              if (_crowdsec_capi_count.stdout | trim | int) > 0 else ''))
          if _crowdsec_capi.rc == 0
          else 'not registered (no community blocklist; auto-registers on the next start)' }}
-    # Report the console blocklists the engine is actually pulling, not whether
-    # it is enrolled. Enrollment cannot be confirmed locally (that needs PAPI, a
-    # paid feature) and the share options in console.yaml are no proxy for it —
-    # share_custom and share_tainted default to true, so any check for an
-    # enabled option matches a never-enrolled engine. Console blocklists carry
-    # origin 'lists', which is observable. These are *additional* to the CAPI
-    # community blocklist reported above, which needs no console account and is
-    # unaffected by this line — say so, or "none" reads as "unprotected". The
-    # breakdown filter returns a ready-to-append block (real newlines) or ''.
+    # Console blocklists (origin 'lists') are observable; enrollment is not —
+    # confirming it needs PAPI. They are additional to the CAPI community
+    # blocklist above, so say that is unaffected or "none" reads as unprotected.
     _crowdsec_console_line: >-
       {{ ('active' ~ _crowdsec_blocklist_lines)
          if (_crowdsec_blocklist_lines | trim) != ''
