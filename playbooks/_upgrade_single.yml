@@ -27,6 +27,16 @@
 - name: Switch connection to instance host
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"
 
+# An instance registered before the runtime became a registry field has
+# nothing for the facts above to read, so they fall back to Docker and
+# the whole upgrade runs `docker compose` — rc=127 on a Podman-only
+# host. Silence in the registry is not evidence of Docker; ask the host.
+- name: Detect the runtime for an instance that has none recorded
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/detect_runtime.yml"
+  when:
+    - instance_orchestrator == 'compose'
+    - _inst.value.composeCommand is not defined
+
 - name: Run upgrade role (migrations + refresh + restart)
   ansible.builtin.include_role:
     name: upgrade

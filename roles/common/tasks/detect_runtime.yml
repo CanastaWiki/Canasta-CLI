@@ -1,0 +1,56 @@
+---
+# Ask an instance's own host which container runtime it has, and record
+# the answer in the registry.
+#
+# The write-back is what lets the fast-path commands that read the
+# registry (list, start, exec) resolve the instance correctly too, so
+# the probe is not repeated per command.
+#
+# Only the Podman case is recorded. A working Docker host already
+# matches the default, and a Docker daemon that happens to be down
+# during this run is not evidence worth persisting.
+#
+# Runs commands on the instance's host, so include this after
+# switch_connection.yml.
+#
+# Input: instance_id
+# Output: compose_command / inspect_command facts, and the same values
+#   on the registry entry, when the host runs Podman and not Docker.
+
+- name: Probe docker info
+  ansible.builtin.command:
+    cmd: docker info
+  register: _dr_docker
+  changed_when: false
+  failed_when: false
+
+# Only asked when Docker came up short: on a Docker host the answer
+# cannot change the outcome, and this is a round trip to the target.
+- name: Probe podman info
+  ansible.builtin.command:
+    cmd: podman info
+  register: _dr_podman
+  changed_when: false
+  failed_when: false
+  when: _dr_docker.rc | default(1) != 0
+
+- name: Use Podman when Docker is absent
+  when:
+    - _dr_docker.rc | default(1) != 0
+    - _dr_podman.rc | default(1) == 0
+  block:
+    - name: Set the Podman runtime for this instance
+      ansible.builtin.set_fact:
+        compose_command: podman-compose
+        inspect_command: podman
+
+    - name: Record the detected runtime in the registry
+      canasta_registry:
+        id: "{{ instance_id }}"
+        compose_command: podman-compose
+        inspect_command: podman
+        state: set_runtime
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
