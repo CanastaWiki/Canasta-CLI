@@ -1601,6 +1601,12 @@ class TestLifecycleCommands:
         monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
+        # cmd_start now asks whether the instance is already running
+        # before starting, and gates on readiness after — stub both, or
+        # the test shells out for real.
+        monkeypatch.setattr(direct_commands._helpers, "_check_running_compose",
+            lambda *a, **kw: False,
+        )
         monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
             lambda i, inst: 0)
 
@@ -1627,6 +1633,9 @@ class TestLifecycleCommands:
         )
         monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_check_running_compose",
+            lambda *a, **kw: True,
         )
 
         args = type("Args", (), {"id": "test"})()
@@ -1718,6 +1727,8 @@ class TestLifecycleCommands:
             lambda inst: events.append("sync"))
         monkeypatch.setattr(direct_commands._helpers, "_run_compose",
             lambda inst_id, inst, action: events.append(action[0]) or 0)
+        monkeypatch.setattr(direct_commands._helpers, "_check_running_compose",
+            lambda *a, **kw: True)
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_stop(args)
         assert rc == 0

@@ -496,8 +496,9 @@ def cmd_status(args):
         except (subprocess.TimeoutExpired, OSError):
             rc, out = 1, ""
     else:
+        ps_str = " ".join(ps_cmd)
         rc, out = _helpers._ssh_run(
-            host, "cd %s && %s" % (_helpers._shell_quote(path), ps_cmd),
+            host, "cd %s && %s" % (_helpers._shell_quote(path), ps_str),
         )
     print()
     print("Containers:")
