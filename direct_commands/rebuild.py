@@ -152,4 +152,5 @@ def cmd_rebuild(args):
         inst_id, inst, ["up", "-d"], include_sidecars=has_sidecars)
     if rc != 0:
         _helpers._dump_compose_failure(inst, include_sidecars=has_sidecars)
-    return rc
+        return rc
+    return _helpers._wait_web_ready(inst_id, inst)

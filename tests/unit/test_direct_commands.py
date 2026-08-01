@@ -1578,6 +1578,8 @@ class TestLifecycleCommands:
             direct_commands._helpers, "_sync_compose_profiles", lambda inst: None)
         monkeypatch.setattr(
             direct_commands._helpers, "_run_compose", lambda *a, **kw: 0)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_wait_web_ready", lambda i, inst: 0)
         args = type("Args", (), {"id": "scsite"})()
         assert direct_commands.cmd_start(args) == 0
 
@@ -1598,6 +1600,8 @@ class TestLifecycleCommands:
         monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
+        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
+            lambda i, inst: 0)
 
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_start(args)
@@ -1649,6 +1653,9 @@ class TestLifecycleCommands:
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
 
+        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
+            lambda i, inst: 0)
+
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_restart(args)
         assert rc == 0
@@ -1693,10 +1700,12 @@ class TestLifecycleCommands:
             lambda inst: events.append("sync"))
         monkeypatch.setattr(direct_commands._helpers, "_run_compose",
             lambda inst_id, inst, action: events.append(action[0]) or 0)
+        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
+            lambda i, inst: events.append("wait") or 0)
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_restart(args)
         assert rc == 0
-        assert events == ["sync", "down", "up"]
+        assert events == ["sync", "down", "up", "wait"]
 
     def test_stop_syncs_profiles_before_down(self, monkeypatch):
         # Standalone stop reconciles too, so `down` tears down the full
@@ -1739,6 +1748,8 @@ class TestLifecycleCommands:
         monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
+        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
+            lambda i, inst: 0)
 
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_start(args)

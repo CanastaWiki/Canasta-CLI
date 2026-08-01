@@ -11,6 +11,7 @@ import shlex
 import ssl
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -584,6 +585,153 @@ def _dump_compose_failure(inst, include_sidecars=False):
             )
         print("--- %s ---" % label, file=sys.stderr)
         print(output.strip() if output else "(empty)", file=sys.stderr)
+
+
+# Readiness gate after `up -d`. Mirrors roles/orchestrator/tasks/start.yml:
+# 60 x 10s = 10 min, comfortably above the CanastaBase healthcheck's 5 min
+# --start-period plus a slow first-time composer install. The Podman fallback
+# probe's 30 x 10s matches the --start-period alone.
+_WEB_HEALTH_RETRIES = 60
+_WEB_HEALTH_DELAY = 10
+_WEB_PROBE_RETRIES = 30
+_WEB_PROBE_DELAY = 10
+
+
+def _runtime_capture(inst, argv, timeout=30):
+    """Run a native runtime (docker/podman) command for an instance, on the
+    controller or over ssh. Returns (rc, stdout)."""
+    host = inst.get("host") or "localhost"
+    docker_host = inst.get("dockerHost")
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                argv, capture_output=True, text=True, timeout=timeout,
+                env=_docker_env(docker_host),
+            )
+            return result.returncode, result.stdout
+        except (subprocess.TimeoutExpired, OSError):
+            return 1, ""
+    cmd = " ".join(_shell_quote(a) for a in argv)
+    if docker_host:
+        cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
+    return _ssh_run(host, cmd)
+
+
+def _web_container_id(inst):
+    """The running web container's id, or "" when the stack is not up.
+
+    `ps` without -a lists only running containers. A daemon-level call, so
+    the project label — not cwd — is what keeps it from matching another
+    instance's web container.
+    """
+    runtime = _resolve_inspect_cmd(inst)
+    rc, out = _runtime_capture(inst, [
+        runtime, "ps",
+        "--filter", "label=com.docker.compose.project=%s"
+                    % _compose_project(inst.get("path", "")),
+        "--filter", "label=com.docker.compose.service=web",
+        "--format", "{{.ID}}",
+    ])
+    if rc != 0:
+        return ""
+    return out.strip().split("\n")[0].strip()
+
+
+def _web_health_status(inst, cid):
+    """The web container's health status, or "" when it reports none.
+
+    Runtimes disagree on what "no health data" looks like: Podman 4.9.3
+    reports a non-nil .State.Health whose Status is empty, older Podman omits
+    .State.Health entirely, and Docker reports a real status. So the probe
+    renders the status itself rather than testing the struct for presence —
+    an empty render means "nothing to wait on" on every runtime.
+    """
+    rc, out = _runtime_capture(inst, [
+        _resolve_inspect_cmd(inst), "inspect", "-f",
+        "{{if .State.Health}}{{.State.Health.Status}}{{end}}", cid,
+    ])
+    return out.strip() if rc == 0 else ""
+
+
+def _wait_web_ready(inst_id, inst):
+    """Block until the instance's web container is ready. Returns an exit code.
+
+    /run-all.sh in the canasta image runs `composer update` synchronously
+    before starting apache, so a `canasta maintenance` (or any other
+    `compose exec web php …`) issued the moment `up -d` returns races composer
+    and crashes on a half-written vendor/. The image's HEALTHCHECK probes
+    /server-status, which answers only once composer AND apache have finished
+    — so "healthy" is the right gate. An image that declares no healthcheck
+    defines its own readiness contract and is not waited on.
+    """
+    cid = _web_container_id(inst)
+    if not cid:
+        print(
+            "Error: started the containers, but no running 'web' container is "
+            "present for instance '%s'. The instance is not up — check "
+            "'canasta list' and the container logs on the host. On rootless "
+            "Podman this is usually lingering: without 'sudo loginctl "
+            "enable-linger <user>', systemd stops the containers as soon as "
+            "the session that started them ends." % inst_id,
+            file=sys.stderr,
+        )
+        return 1
+
+    status = _web_health_status(inst, cid)
+    if status:
+        for attempt in range(_WEB_HEALTH_RETRIES):
+            if status == "healthy":
+                return 0
+            if attempt == 0:
+                print("Waiting for web to become ready...")
+            time.sleep(_WEB_HEALTH_DELAY)
+            status = _web_health_status(inst, cid)
+        print(
+            "Error: the 'web' container for instance '%s' did not report "
+            "healthy within %d minutes; its last status was '%s'. The image's "
+            "healthcheck probes /server-status, which answers only once "
+            "composer and apache have both finished — so this usually means "
+            "composer is still running, or failed. Check the container logs."
+            % (inst_id, _WEB_HEALTH_RETRIES * _WEB_HEALTH_DELAY // 60,
+               status or "(none)"),
+            file=sys.stderr,
+        )
+        return 1
+
+    runtime = _resolve_inspect_cmd(inst)
+    if "podman" not in runtime:
+        return 0
+
+    # Podman renders an empty status for the stock image — the published
+    # image is OCI-format and podman ignores Healthcheck in an OCI config,
+    # and podman runs healthchecks from systemd transient timers that compose
+    # never creates. So ask the container the question the healthcheck would
+    # ask, which depends on nothing but `exec`. 127.0.0.1, not localhost:
+    # localhost resolves to ::1 first under rootless podman, and CanastaBase
+    # before 1.3.19 served /server-status only to 127.0.0.1.
+    #
+    # Best-effort on purpose: a custom image that never serves /server-status
+    # must not turn a missing signal into a failed start.
+    print("Waiting for web to become ready...")
+    for attempt in range(_WEB_PROBE_RETRIES):
+        rc, _out = _runtime_capture(inst, [
+            runtime, "exec", cid,
+            "wget", "-q", "--method=HEAD", "127.0.0.1/server-status",
+        ])
+        if rc == 0:
+            return 0
+        if attempt < _WEB_PROBE_RETRIES - 1:
+            time.sleep(_WEB_PROBE_DELAY)
+    print(
+        "web did not answer /server-status within %d minutes, so the "
+        "readiness gate is being skipped. A custom image that does not serve "
+        "/server-status is expected here. On the stock image this means web "
+        "is still starting, and a command that runs php in the container may "
+        "race composer."
+        % (_WEB_PROBE_RETRIES * _WEB_PROBE_DELAY // 60),
+        file=sys.stderr,
+    )
+    return 0
 
 
 def _k8s_namespace(instance_id):

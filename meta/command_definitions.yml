@@ -501,6 +501,10 @@ commands:
       automatically. Use `canasta devmode enable` or `canasta devmode
       disable` to toggle development mode; use `canasta config set
       <FLAG>=true|false` to adjust the optional components.
+
+      The command returns once the web container reports healthy, so a
+      command run immediately afterward does not race the image's
+      startup. An image that declares no healthcheck is not waited on.
     examples:
       - "canasta start"
     playbook: start.yml
@@ -532,7 +536,8 @@ commands:
       Docker containers. Any pending configuration migrations are
       applied during the restart. Use `canasta devmode enable` or
       `canasta devmode disable` to change the development mode
-      setting.
+      setting. The command returns once the web container reports
+      healthy.
     examples:
       - "canasta restart"
     playbook: restart.yml
@@ -578,7 +583,8 @@ commands:
       Rebuild every service that has a `build:` directive in the
       merged compose config (docker-compose.override.yml or
       docker-compose.dev.yml) and restart the instance to pick up
-      the rebuilt image.
+      the rebuilt image. The command returns once the web container
+      reports healthy.
 
       Use this after editing a custom Dockerfile, or after changing
       the base CANASTA_IMAGE when you want to refresh a layered
@@ -709,7 +715,7 @@ commands:
       When an instance is resolved (from -i, or from the current
       directory), also checks that instance: config and runtime
       agreement, whether local config edits have been applied, whether
-      CrowdSec is enabled behind a proxy with no CADDY_TRUSTED_PROXIES,
+      CrowdSec is enabled with no CADDY_TRUSTED_PROXIES set,
       and the certificate the origin is actually serving (expired, or
       silently reissued by Caddy's internal CA after ACME failed).
     examples:
