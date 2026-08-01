@@ -13,9 +13,18 @@
 # Runs commands on the instance's host, so include this after
 # switch_connection.yml.
 #
-# Input: instance_id
+# Input: instance_id, instance_docker_host (optional)
 # Output: compose_command / inspect_command facts, and the same values
-#   on the registry entry, when the host runs Podman and not Docker.
+#   on the registry entry, when the instance runs under Podman.
+
+# `docker info` succeeds against a Podman socket — the Docker CLI is
+# talking to Podman's Docker-compatible API — so on an instance whose
+# dockerHost is Podman's, the probe below cannot tell the two apart and
+# would confirm a wrong `docker compose` record. The socket settles it
+# without asking.
+- name: Note whether this instance's socket is Podman's
+  ansible.builtin.set_fact:
+    _dr_podman_socket: "{{ instance_docker_host | default('') is search('podman') }}"
 
 - name: Probe docker info
   ansible.builtin.command:
@@ -23,9 +32,11 @@
   register: _dr_docker
   changed_when: false
   failed_when: false
+  when: not _dr_podman_socket
 
-# Only asked when Docker came up short: on a Docker host the answer
-# cannot change the outcome, and this is a round trip to the target.
+# Asked when Docker came up short, and when the socket said Podman so
+# Docker was never asked at all. On a Docker host neither holds and this
+# round trip to the target is skipped.
 - name: Probe podman info
   ansible.builtin.command:
     cmd: podman info
