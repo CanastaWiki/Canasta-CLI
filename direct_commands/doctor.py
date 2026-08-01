@@ -317,20 +317,15 @@ _SERVICE_PROFILE = {
 _SERVICE_PROFILE["db"] = "internal-db"
 
 
-# Headers that mark a request as having passed through a proxy. The two
-# vendor headers are conclusive; X-Forwarded-For is not, since any client can
-# send it, so the check below asks for it on most of the sample rather than on
-# a single request.
 _PROXIED_REQUEST_HEADERS = ("Cf-Connecting-Ip", "Cdn-Loop", "X-Forwarded-For")
 
 
 def _looks_proxied(cdn_evidence):
-    """True when the sampled Caddy access log says something is in front.
+    """True when the sampled access log says something is proxying in front.
 
-    cdn_evidence is (sampled, hits) from the tail of the access log. A forged
-    X-Forwarded-For on one request must not be enough, so require the headers
-    on more than half the sample — a real CDN sets them on everything it
-    forwards, and a client cannot forge its way to a majority of the traffic.
+    cdn_evidence is (sampled, hits). A majority rather than a single hit: any
+    client can forge X-Forwarded-For, but a proxy sets these on everything it
+    forwards.
     """
     if not cdn_evidence:
         return False
@@ -346,7 +341,7 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
       flags + DB mode.
     - A container running under a profile that isn't active (unmanaged — a
       stop/start won't restore it).
-    - CrowdSec enabled behind a CDN with no CADDY_TRUSTED_PROXIES.
+    - CrowdSec enabled behind a proxy with no CADDY_TRUSTED_PROXIES.
     - CirrusSearch configured in settings while Elasticsearch is disabled.
     - any env.template literal that differs from .env (the durable gitops
       source and the live config have diverged; a pull would reset .env to it).
@@ -381,14 +376,6 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
             "'elasticsearch' profile is inactive — search depends on an "
             "unmanaged Elasticsearch; set CANASTA_ENABLE_ELASTICSEARCH=true")
 
-    # CrowdSec behind a CDN with nothing telling Caddy to trust it. Caddy then
-    # reports the CDN edge address as the client IP, so the engine attributes
-    # all traffic to a handful of edge nodes: per-IP scenarios can never
-    # identify a real attacker, and a scenario that does fire bans an edge node
-    # and blackholes every visitor behind it. Nothing surfaces this on its own
-    # — `canasta crowdsec status` reports the bouncer active and the community
-    # blocklist loaded, and its "No active decisions" reads as "nothing
-    # malicious detected" when it means "nothing is distinguishable".
     crowdsec_on = env.get("CANASTA_ENABLE_CROWDSEC", "").strip().lower() == "true"
     if (crowdsec_on and not env.get("CADDY_TRUSTED_PROXIES", "").strip()
             and _looks_proxied(cdn_evidence)):
@@ -423,9 +410,7 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
     return warns
 
 
-# How many access-log lines to sample when deciding whether something is
-# proxying in front of Caddy. The log is JSON, one request per line, and lives
-# in a named volume, so it is read through the caddy container.
+# Read through the caddy container: the access log lives in a named volume.
 _ACCESS_LOG_SAMPLE = 200
 
 
@@ -434,8 +419,8 @@ def _gather_runtime(path, host, inst=None):
     an instance, localhost or remote. env_template_literals maps each KEY to the
     literal value pinned in env.template, excluding placeholder (KEY={{...}})
     lines and comments; empty when not gitops / no env.template. cdn_evidence is
-    (sampled, hits) over the tail of the Caddy access log, (0, 0) when the log
-    can't be read (caddy down, no log yet)."""
+    (sampled, hits) over the tail of the Caddy access log, (0, 0) when it can't
+    be read."""
     d = _helpers._SENTINEL
     qpath = _helpers._shell_quote(path)
     compose_cmd = _helpers._resolve_compose_cmd(inst or {"path": path})

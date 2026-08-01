@@ -224,12 +224,6 @@ class TestInstanceConsistencyLines:
 
 
 class TestCrowdSecBehindCdn:
-    """CrowdSec enabled behind a CDN with CADDY_TRUSTED_PROXIES unset enforces
-    nothing: every source IP Caddy reports is a CDN edge address, so per-IP
-    scenarios cannot fire on a real client, and one that does fire bans an edge
-    node and blackholes every visitor behind it. `canasta crowdsec status`
-    looks healthy throughout."""
-
     ENV = {
         "CANASTA_ENABLE_CROWDSEC": "true",
         "COMPOSE_PROFILES": "internal-db,varnish,crowdsec",
@@ -254,8 +248,6 @@ class TestCrowdSecBehindCdn:
         assert self._warns(env, cdn_evidence=(200, 200)) == []
 
     def test_quiet_on_a_direct_edge_facing_instance(self):
-        # Caddy really is the edge: nothing forwards, nothing to trust. This
-        # is the case the fix must not be "always set it" for.
         assert self._warns(cdn_evidence=(200, 0)) == []
 
     def test_quiet_when_crowdsec_is_disabled(self):
@@ -267,14 +259,11 @@ class TestCrowdSecBehindCdn:
         assert out == []
 
     def test_a_forged_header_on_one_request_is_not_enough(self):
-        # Any client can send X-Forwarded-For; a real CDN sets it on
-        # everything it forwards.
         assert self._warns(cdn_evidence=(200, 1)) == []
         assert self._warns(cdn_evidence=(200, 100)) == []   # exactly half
         assert self._warns(cdn_evidence=(200, 101)) != []   # a majority
 
     def test_quiet_when_the_access_log_is_unreadable(self):
-        # caddy down, or no traffic yet — no evidence either way.
         assert self._warns(cdn_evidence=(0, 0)) == []
         assert self._warns(cdn_evidence=None) == []
 
