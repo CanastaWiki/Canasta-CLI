@@ -75,22 +75,30 @@ def _read_back(tmp_dir):
         return json.load(f)["Instances"]["legacy"]
 
 
-class TestUpgradeProbesWhenTheRegistryIsSilent:
+CONFIRM = "Confirm the recorded runtime against the instance's host"
+
+
+class TestUpgradeChecksTheRecordedRuntime:
     def test_the_detection_is_included(self):
-        task = _named(SINGLE, "Detect the runtime")
+        task = _named(SINGLE, "Confirm the recorded runtime")
         assert task, (
-            "_upgrade_single.yml takes the registry's silence as Docker, "
-            "so an instance registered before composeCommand existed runs "
-            "the whole upgrade with `docker compose`"
+            "_upgrade_single.yml takes the registry at its word, so an "
+            "instance that records nothing — or records `docker compose` "
+            "from a create that misread a Podman socket — runs the whole "
+            "upgrade with `docker compose`"
         )
         assert task["ansible.builtin.include_tasks"].endswith(
             "roles/common/tasks/detect_runtime.yml")
 
-    def test_it_only_runs_when_nothing_is_recorded(self):
-        conds = _named(SINGLE, "Detect the runtime")["when"]
-        assert any("composeCommand is not defined" in str(c) for c in conds), (
-            "the probe runs even for instances that record their runtime, "
-            "spending two round trips per upgrade to relearn it"
+    def test_it_runs_for_every_compose_instance(self):
+        # Gating on "nothing recorded" only caught pre-field instances.
+        # A record holding the wrong runtime is the case that actually
+        # fails today, and it never re-probed.
+        cond = _named(SINGLE, "Confirm the recorded runtime")["when"]
+        conds = cond if isinstance(cond, list) else [cond]
+        assert not any("composeCommand" in str(c) for c in conds), (
+            "re-probing only when composeCommand is absent leaves an "
+            "instance that recorded the wrong runtime unrepairable"
         )
         assert any("compose" in str(c) and "orchestrator" in str(c)
                    for c in conds), (
@@ -101,18 +109,20 @@ class TestUpgradeProbesWhenTheRegistryIsSilent:
         # The controller's PATH is not evidence about the instance's host.
         names = [str(t.get("name", "")) for t in _tasks(SINGLE)]
         assert (names.index("Switch connection to instance host")
-                < names.index(
-                    "Detect the runtime for an instance that has none "
-                    "recorded"))
+                < names.index(CONFIRM))
 
     def test_the_facts_are_reset_before_the_probe(self):
         # set_fact persists across loop iterations, so a podman instance
         # detected in one pass must not leak into the next instance.
         names = [str(t.get("name", "")) for t in _tasks(SINGLE)]
-        assert (names.index("Set instance facts")
-                < names.index(
-                    "Detect the runtime for an instance that has none "
-                    "recorded"))
+        assert (names.index("Set instance facts") < names.index(CONFIRM))
+
+    def test_the_socket_is_bound_per_instance(self):
+        # canasta.yml's play-level DOCKER_HOST reads instance_docker_host;
+        # left unset in the loop it keeps the previous instance's socket.
+        facts = _named(SINGLE, "Set instance facts")["ansible.builtin.set_fact"]
+        assert "instance_docker_host" in facts
+        assert "dockerHost" in facts["instance_docker_host"]
 
 
 class TestTheProbeAsksTheHost:
@@ -155,3 +165,23 @@ class TestTheProbeAsksTheHost:
         task = _named(DETECT, "Record the detected runtime")
         assert task["delegate_to"] == "canasta_controller"
         assert task["vars"]["ansible_connection"] == "local"
+
+class TestAPodmanSocketIsNotAskedAboutDocker:
+    def test_the_socket_is_noted_before_probing(self):
+        names = [str(t.get("name", "")) for t in _tasks(DETECT)]
+        assert (names.index("Note whether this instance's socket is Podman's")
+                < names.index("Probe docker info"))
+
+    def test_docker_is_not_probed_on_a_podman_socket(self):
+        # `docker info` succeeds against Podman's Docker-compatible API,
+        # so asking it would confirm a wrong `docker compose` record
+        # rather than correct it.
+        task = _named(DETECT, "Probe docker info")
+        assert "_dr_podman_socket" in str(task["when"])
+
+    def test_the_podman_probe_still_runs_when_docker_was_skipped(self):
+        # A skipped docker probe leaves _dr_docker undefined; the podman
+        # probe must treat that as "Docker did not answer", or a Podman
+        # socket ends up with no runtime detected at all.
+        task = _named(DETECT, "Probe podman info")
+        assert "default(1)" in str(task["when"])
