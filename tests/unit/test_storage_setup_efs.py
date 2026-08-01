@@ -4,7 +4,7 @@ EFS setup needs a live AWS account + Kubernetes cluster, so it can't run in
 CI as an integration test. These assertions lock in the playbook's contract:
 it must validate the cluster up front, install the EFS CSI driver, create a
 StorageClass backed by the EFS provisioner, and persist the chosen default
-StorageClass to the controller registry (with delegate_to: localhost, per
+StorageClass to the controller registry (with delegate_to: canasta_controller, per
 the registry-lives-on-the-controller rule).
 """
 
@@ -74,6 +74,6 @@ def test_persists_default_storageclass_to_controller_registry():
     ]
     assert saves, "must persist defaultStorageClass to the registry"
     # The registry lives on the controller — the write must be delegated.
-    assert saves[0].get("delegate_to") == "localhost", (
-        "canasta_registry writes must use delegate_to: localhost"
+    assert saves[0].get("delegate_to") == "canasta_controller", (
+        "canasta_registry writes must delegate to canasta_controller"
     )

@@ -38,6 +38,25 @@
          | default(omit, true) }}
 
   pre_tasks:
+    # Registry operations must reach the controller's conf.json, never a
+    # target's. `delegate_to: localhost` cannot guarantee that: for
+    # commands that loop over instances, switch_connection.yml rebinds
+    # the play host's connection with set_fact, and set_fact outranks
+    # task vars — so a delegated task carrying
+    # `vars: ansible_connection: local` still went out over SSH and wrote
+    # the target's registry.
+    #
+    # add_host rather than an inventory entry because `--host` makes
+    # canasta.py pass `-i <host>,`, which replaces the inventory named in
+    # ansible.cfg. A host added here exists on every path.
+    - name: Add the controller as a delegation target
+      ansible.builtin.add_host:
+        name: canasta_controller
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      changed_when: false
+      run_once: true
+
     - name: Validate command parameter
       ansible.builtin.assert:
         that: command is defined and command != ''
