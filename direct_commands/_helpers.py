@@ -395,6 +395,46 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     return _retry_on_ssh_reset(_attempt)
 
 
+def _start_or_noop(inst_id, inst):
+    """Run ``up -d``, treating container-name conflicts as a no-op.
+
+    podman-compose's ``up -d`` fails with "name is already in use" when
+    containers already exist. Docker Compose treats that as a no-op; this
+    wrapper catches the podman-compose error and returns 0 so ``canasta
+    start`` on a running instance succeeds silently.
+    """
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    devmode = inst.get("devMode", False)
+    file_args = _compose_file_args(path, host, devmode)
+    compose_cmd = _resolve_compose_cmd(inst)
+    profile_args = _compose_profile_args(inst)
+    cmd = compose_cmd + file_args + profile_args + ["up", "-d"]
+
+    try:
+        result = subprocess.run(
+            cmd, cwd=path,
+            capture_output=True, text=True, timeout=None,
+        )
+    except OSError as e:
+        print("Error: %s" % e, file=sys.stderr)
+        return 1
+
+    if result.returncode == 0:
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
+        return 0
+
+    # podman-compose prints container names to stdout and the error to
+    # stderr. Treat "already in use" as success.
+    stderr = result.stderr or ""
+    if "already in use" in stderr.lower():
+        return 0
+
+    print(result.stderr or result.stdout, file=sys.stderr, end="")
+    return result.returncode
+
+
 # Profiles that Canasta derives from CANASTA_ENABLE_* feature flags.
 # (profile_name, flag_name, default_when_flag_unset)
 # Matches roles/orchestrator/tasks/sync_compose_profiles.yml.
@@ -1235,6 +1275,9 @@ def _check_running_k8s(instance_id, host):
     )
     rc, stdout = _ssh_run(host, cmd)
     return rc == 0 and stdout.strip() not in ("", "0")
+
+
+
 
 
 # --- wiki liveness probe (shared by wiki-check and list) ---
