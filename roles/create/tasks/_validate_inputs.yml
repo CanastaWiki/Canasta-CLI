@@ -31,7 +31,7 @@
   canasta_registry:
     id: "{{ id }}"
     state: query
-  delegate_to: localhost
+  delegate_to: canasta_controller
   vars:
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
