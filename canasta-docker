@@ -703,8 +703,14 @@ for arg in "$@"; do
                 echo "       Instances below still upgrade, but the CLI itself does not," >&2
                 echo "       so a channel change ('--dev') may not take effect and fixes" >&2
                 echo "       released since this wrapper was installed stay missing." >&2
-                echo "       Replace it with:" >&2
-                echo "         sudo curl -fsSL $WRAPPER_URL -o $WRAPPER_PATH && sudo chmod +x $WRAPPER_PATH" >&2
+                # Reinstall rather than fetching the wrapper by hand: the
+                # installer places it, sets the mode, and writes
+                # cli_image_tag, so the channel survives. Preserve the
+                # channel that was asked for here.
+                REINSTALL_FLAGS="--docker"
+                [[ "$DEV_CHANNEL" == "true" ]] && REINSTALL_FLAGS="--docker --dev"
+                echo "       Reinstall the CLI:" >&2
+                echo "         curl -fsSL https://get.canasta.wiki | bash -s -- $REINSTALL_FLAGS" >&2
             fi
             break
             ;;

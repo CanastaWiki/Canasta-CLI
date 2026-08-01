@@ -90,7 +90,21 @@ class TestAStaleWrapperIsReportedAsAnError:
         assert "stays out of date" in block
         assert "may not take effect" in block
         # An operator holding an unwritable wrapper needs the command.
-        assert re.search(r"sudo curl .*-o \$WRAPPER_PATH", block)
+        assert "https://get.canasta.wiki" in block
+
+    def test_the_remedy_is_a_reinstall_not_a_hand_fetch(self):
+        # Fetching the wrapper by hand replaces the file and nothing
+        # else; the installer also sets the mode and writes
+        # cli_image_tag, so the channel survives the repair.
+        block = _upgrade_block()
+        assert "bash -s --" in block
+        assert "$WRAPPER_URL -o $WRAPPER_PATH" not in block
+
+    def test_the_reinstall_keeps_the_channel(self):
+        block = _upgrade_block()
+        assert 'REINSTALL_FLAGS="--docker"' in block
+        assert '--docker --dev' in block
+        assert "$REINSTALL_FLAGS" in block
 
     def test_the_stale_notice_goes_to_stderr(self):
         block = _upgrade_block()
