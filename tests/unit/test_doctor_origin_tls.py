@@ -206,3 +206,51 @@ class TestOriginTlsGate:
             lambda *a, **k: (seen.update(script=a[0][2]) or _R()))
         doctor._origin_tls_lines(self._inst(orchestrator="kubernetes"))
         assert "127.0.0.1:'443'" in seen["script"]
+
+# Real issuer string from a Let's Encrypt staging certificate.
+LE_STAGING = ("C=US, O=(STAGING) Let's Encrypt, "
+              "CN=(STAGING) Artificial Amaranth YE1")
+
+
+class TestStagingCertificates:
+    """A staging certificate passes every other check and still breaks the site.
+
+    It is unexpired and correctly issued, so the expiry branches are
+    happy, but it chains to an untrusted root — browsers reject it just
+    as they reject the internal-CA fallback. Reporting OK meant doctor
+    passed an instance no visitor could load.
+    """
+
+    def test_a_staging_certificate_warns(self):
+        body = " ".join(_lines([
+            ("a.example.org", LE_STAGING,
+             _fmt(NOW + datetime.timedelta(days=89)))]))
+        assert "WARN" in body, (
+            "a browser-untrusted staging certificate is reported as OK"
+        )
+        assert "staging certificate" in body
+
+    def test_it_still_reports_the_remaining_days(self):
+        body = " ".join(_lines([
+            ("a.example.org", LE_STAGING,
+             _fmt(NOW + datetime.timedelta(days=89)))]))
+        assert "89 more day(s)" in body
+
+    def test_it_names_the_way_out(self):
+        body = " ".join(_lines([
+            ("a.example.org", LE_STAGING,
+             _fmt(NOW + datetime.timedelta(days=89)))]))
+        assert "CANASTA_STAGING_CERTS" in body
+
+    def test_an_expired_staging_certificate_still_reports_expiry(self):
+        # Expiry is the more urgent fact; it is checked first.
+        body = " ".join(_lines([
+            ("a.example.org", LE_STAGING,
+             _fmt(NOW - datetime.timedelta(days=3)))]))
+        assert "EXPIRED 3 day(s) ago" in body
+
+    def test_production_letsencrypt_is_unaffected(self):
+        body = " ".join(_lines([
+            ("a.example.org", LE, _fmt(NOW + datetime.timedelta(days=61)))]))
+        assert "staging" not in body.lower()
+        assert "OK (expires in 61 days" in body
