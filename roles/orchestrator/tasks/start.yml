@@ -181,6 +181,9 @@
     # Up to 60 retries × 10s = 10 min — comfortably above the
     # CanastaBase healthcheck's 5 min --start-period plus a slow
     # first-time composer install.
+    #
+    # failed_when: false so the fail below can name the last status;
+    # exhausting the retries reports only the inspect invocation.
     - name: Wait for web container to report healthy
       ansible.builtin.command:
         argv:
@@ -191,12 +194,27 @@
           - "{{ _start_web_cid.stdout | trim }}"
       register: _start_web_health
       changed_when: false
+      failed_when: false
       retries: 60
       delay: 10
       until: _start_web_health.stdout | trim == 'healthy'
       when:
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim != ''
+
+    - name: Fail when web never reported healthy
+      ansible.builtin.fail:
+        msg: >-
+          The 'web' container for instance '{{ instance_id }}' did not report
+          healthy within 10 minutes; its last status was
+          '{{ _start_web_health.stdout | default('') | trim | default('(none)', true) }}'.
+          The image's healthcheck probes /server-status, which answers only
+          once composer and apache have both finished — so this usually means
+          composer is still running, or failed. Check the container logs.
+      when:
+        - _start_web_cid.stdout | trim != ''
+        - _start_web_has_health.stdout | default('') | trim != ''
+        - (_start_web_health.stdout | default('') | trim) != 'healthy'
 
     # Podman renders an empty status for the stock image, so the wait
     # above skips and the composer race comes back. Two reasons, both
@@ -209,10 +227,9 @@
     # rather than asking the runtime for an answer it cannot produce.
     # This depends on nothing but `exec`.
     #
-    # 127.0.0.1, not localhost: mediawiki.conf serves /server-status
-    # only when REMOTE_ADDR is exactly '127.0.0.1', and localhost
-    # resolves to ::1 first under rootless podman, which falls through
-    # to MediaWiki as a 404.
+    # 127.0.0.1, not localhost: localhost resolves to ::1 first under
+    # rootless podman, and CanastaBase before 1.3.19 served
+    # /server-status only to 127.0.0.1.
     #
     # Best-effort on purpose. A custom image that never serves
     # /server-status must not turn a missing signal into a failed
