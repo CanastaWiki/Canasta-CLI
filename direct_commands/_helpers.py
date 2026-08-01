@@ -1068,6 +1068,16 @@ def _resolve_compose_cmd(inst):
         raw = _read_env(inst.get("path", ""), "compose_command")
         if raw:
             return raw.split()
+    # An instance whose inspectCommand is recorded as podman but whose
+    # composeCommand was never written shares the same runtime.
+    if inst.get("inspectCommand") == "podman":
+        return ["podman-compose"]
+    # A legacy instance whose dockerHost names a podman socket is
+    # the best evidence we have — the runtime fields didn't exist
+    # when it was created.
+    docker_host = inst.get("dockerHost") or ""
+    if "podman" in docker_host:
+        return ["podman-compose"]
     return ["docker", "compose"]
 
 
@@ -1091,6 +1101,15 @@ def _resolve_inspect_cmd(inst):
         raw = _read_env(inst.get("path", ""), "inspect_command")
         if raw:
             return raw
+    # An instance whose composeCommand is recorded as podman-compose but
+    # whose inspectCommand was never written shares the same runtime.
+    if inst.get("composeCommand") == "podman-compose":
+        return "podman"
+    # A legacy instance whose dockerHost names a podman socket is
+    # the best evidence we have.
+    docker_host = inst.get("dockerHost") or ""
+    if "podman" in docker_host:
+        return "podman"
     return "docker"
 
 
