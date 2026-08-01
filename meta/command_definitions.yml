@@ -536,7 +536,8 @@ commands:
       Docker containers. Any pending configuration migrations are
       applied during the restart. Use `canasta devmode enable` or
       `canasta devmode disable` to change the development mode
-      setting.
+      setting. The command returns once the web container reports
+      healthy.
     examples:
       - "canasta restart"
     playbook: restart.yml
@@ -582,7 +583,8 @@ commands:
       Rebuild every service that has a `build:` directive in the
       merged compose config (docker-compose.override.yml or
       docker-compose.dev.yml) and restart the instance to pick up
-      the rebuilt image.
+      the rebuilt image. The command returns once the web container
+      reports healthy.
 
       Use this after editing a custom Dockerfile, or after changing
       the base CANASTA_IMAGE when you want to refresh a layered
