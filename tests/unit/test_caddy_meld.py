@@ -15,6 +15,7 @@ sys.path.insert(
 from canasta_caddy import (  # noqa: E402
     meld_caddy_global_blocks,
     caddy_unsafe,
+    caddy_explicit_http_hosts,
     _parse_top_level,
 )
 
@@ -187,3 +188,33 @@ class TestCaddyUnsafe:
         # are not re-templated). Either way the string value is unchanged.
         s = 'respond "{{ not_evaluated }}"'
         assert str(caddy_unsafe(s)) == s
+
+
+class TestExplicitHttpHosts:
+    def test_finds_http_scheme_addresses(self):
+        hosts = caddy_explicit_http_hosts(
+            "http://a.example.com {\n    redir https://x 308\n}\n"
+        )
+        assert hosts == ["a.example.com"]
+
+    def test_multi_address_label_and_dedupe(self):
+        hosts = caddy_explicit_http_hosts(
+            "http://a.example.com, http://b.example.com {\n    respond ok\n}\n"
+            "http://a.example.com:8080 {\n    respond ok\n}\n"
+        )
+        assert hosts == ["a.example.com", "b.example.com", "a.example.com:8080"]
+
+    def test_bare_and_https_addresses_are_not_clashes(self):
+        # A bare label yields the https server plus Caddy's own automatic
+        # redirect, which our generated http:// server displaces rather than
+        # collides with. An explicit https:// label never touches :80.
+        hosts = caddy_explicit_http_hosts(
+            "bare.example.com {\n    respond ok\n}\n"
+            "https://tls.example.com {\n    respond ok\n}\n"
+        )
+        assert hosts == []
+
+    def test_global_block_and_empty_input_ignored(self):
+        assert caddy_explicit_http_hosts("{\n    debug\n}\n") == []
+        assert caddy_explicit_http_hosts("") == []
+        assert caddy_explicit_http_hosts(None) == []
