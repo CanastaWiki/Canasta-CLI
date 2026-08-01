@@ -1,5 +1,6 @@
 """doctor command — dependency checks."""
 
+import datetime
 import os
 import re
 import subprocess
@@ -520,6 +521,207 @@ def _instance_consistency_lines(inst):
     return lines
 
 
+# --- Origin TLS -------------------------------------------------------------
+#
+# A CDN in a non-strict origin mode serves visitors its own certificate
+# whatever the origin presents, so an expired or internally-issued origin
+# certificate shows no symptom until the CDN is switched to strict validation.
+
+# Caddy renews well before this, so a certificate still this close to expiry
+# means renewal is failing.
+_TLS_RENEWAL_FLOOR_DAYS = 14
+
+# Caddy's fallback when it cannot obtain a public certificate.
+_TLS_INTERNAL_ISSUER_MARKERS = ("caddy local authority",)
+
+# Names Caddy serves from its internal CA by design.
+_TLS_LOCAL_NAMES = ("localhost",)
+_TLS_LOCAL_SUFFIXES = (
+    ".localhost", ".local", ".internal", ".test", ".example", ".invalid",
+)
+
+# Probed per SNI name: a host serving several domains can have one fall back
+# while the others hold valid certificates.
+_ORIGIN_TLS_SCRIPT = r"""
+command -v openssl >/dev/null 2>&1 || { echo NO_OPENSSL; exit 0; }
+for n in %(names)s; do
+  printf '%%sNAME:%%s\n' '%(delim)s' "$n"
+  echo | openssl s_client -connect 127.0.0.1:%(port)s -servername "$n" \
+      2>/dev/null | openssl x509 -noout -issuer -enddate 2>/dev/null
+done
+"""
+
+
+def _is_public_hostname(name):
+    """True when `name` is a publicly resolvable domain, i.e. one that should
+    hold a publicly trusted certificate."""
+    n = (name or "").strip().lower().rstrip(".")
+    if not n or n in _TLS_LOCAL_NAMES or "." not in n:
+        return False
+    if any(n.endswith(suffix) for suffix in _TLS_LOCAL_SUFFIXES):
+        return False
+    if ":" in n or re.match(r"^[0-9.]+$", n):  # IPv6 / IPv4 literal
+        return False
+    return True
+
+
+def _parse_origin_tls(stdout):
+    """[(name, issuer, not_after)] from the probe output, or None when the host
+    has no openssl. issuer/not_after are empty when nothing answered."""
+    segments = stdout.split(_helpers._SENTINEL)
+    if "NO_OPENSSL" in segments[0]:
+        return None
+    entries = []
+    for seg in segments[1:]:
+        header, _, body = seg.partition("\n")
+        if not header.startswith("NAME:"):
+            continue
+        issuer = not_after = ""
+        for line in body.splitlines():
+            line = line.strip()
+            if line.startswith("issuer="):
+                issuer = line[len("issuer="):].strip()
+            elif line.startswith("notAfter="):
+                not_after = line[len("notAfter="):].strip()
+        entries.append((header[len("NAME:"):].strip(), issuer, not_after))
+    return entries
+
+
+def _parse_cert_expiry(text):
+    """openssl's 'Sep 10 12:00:00 2026 GMT' -> aware datetime, or None."""
+    raw = (text or "").strip()
+    if raw.endswith(" GMT"):
+        raw = raw[:-len(" GMT")]
+    try:
+        return datetime.datetime.strptime(
+            raw, "%b %d %H:%M:%S %Y").replace(tzinfo=datetime.timezone.utc)
+    except ValueError:
+        return None
+
+
+def _origin_tls_lines_from_entries(inst_id, entries, now):
+    """doctor lines for the probed certificates."""
+    title = ["", "Origin TLS (%s):" % inst_id]
+    if entries is None:
+        return title + [
+            "  SKIPPED — openssl is not installed on the host, so the served "
+            "certificate cannot be inspected"]
+    if not entries:
+        return []
+    lines = list(title)
+    for name, issuer, not_after in entries:
+        if not issuer and not not_after:
+            lines.append(
+                "  %s: no certificate served on this host — skipped (nothing "
+                "listening on the HTTPS port, or TLS terminates elsewhere)"
+                % name)
+            continue
+        internal = any(
+            m in issuer.lower() for m in _TLS_INTERNAL_ISSUER_MARKERS)
+        if internal and not _is_public_hostname(name):
+            # Internal-CA certificates last 12 hours, so the expiry checks
+            # below would warn about a local name on every run.
+            lines.append(
+                "  %s: OK (Caddy internal CA — expected for a name with no "
+                "public certificate)" % name)
+            continue
+        if internal:
+            lines.append(
+                "  %s: WARN — served by Caddy's internal CA (%s), not a "
+                "publicly trusted certificate. ACME is failing and Caddy fell "
+                "back to it silently; it reissues every 12 hours and logs "
+                "\"certificate renewed successfully\" each time, so nothing "
+                "else reports this. A CDN in a non-strict origin mode hides "
+                "it from visitors, and switching that CDN to strict origin "
+                "validation would take the site down. Check the caddy "
+                "container's log for the underlying ACME failure."
+                % (name, issuer))
+            continue
+        expiry = _parse_cert_expiry(not_after)
+        if expiry is None:
+            lines.append(
+                "  %s: issuer %s (expiry date unreadable: %r)"
+                % (name, issuer or "unknown", not_after))
+            continue
+        days = (expiry - now).days
+        if days < 0:
+            lines.append(
+                "  %s: WARN — certificate EXPIRED %d day(s) ago (issuer %s). "
+                "Renewal has been failing; a CDN in a non-strict origin mode "
+                "keeps serving visitors its own valid certificate, so nothing "
+                "reports this until the CDN is set to strict origin "
+                "validation, DNS changes, or someone reaches the origin "
+                "directly." % (name, -days, issuer or "unknown"))
+        elif days < _TLS_RENEWAL_FLOOR_DAYS:
+            lines.append(
+                "  %s: WARN — certificate expires in %d day(s) (issuer %s) "
+                "and has not renewed. Renewal should have happened by now, so "
+                "treat this as a broken ACME path rather than a countdown."
+                % (name, days, issuer or "unknown"))
+        else:
+            lines.append(
+                "  %s: OK (expires in %d days, issuer %s)"
+                % (name, days, issuer or "unknown"))
+    return lines
+
+
+def _origin_tls_server_names(path, host):
+    """Unique hostnames the instance serves, derived from wikis.yaml as
+    rewrite_caddy.yml derives the Caddy site address."""
+    names = []
+    for wiki in _helpers._read_wikis(path, host):
+        url = (wiki.get("url") or "").strip()
+        if not url:
+            continue
+        name = re.sub(r":[0-9]+$", "", url.split("/")[0])
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _origin_tls_lines(inst):
+    """doctor lines for the certificate the instance actually serves, or []
+    when the check does not apply (no path/names, plain-HTTP Compose)."""
+    path = inst.get("path", "")
+    if not path:
+        return []
+    host = inst.get("host") or "localhost"
+    is_k8s = inst.get("orchestrator", "compose") in ("kubernetes", "k8s")
+    if is_k8s:
+        # The ingress controller terminates TLS, not Caddy.
+        port = "443"
+    else:
+        if (_helpers._read_env_for(inst, "CADDY_AUTO_HTTPS") or "on").lower() \
+                == "off":
+            return []
+        port = _helpers._read_env_for(inst, "HTTPS_PORT") or "443"
+    names = _origin_tls_server_names(path, host)
+    if not names:
+        return []
+    script = _ORIGIN_TLS_SCRIPT % {
+        "names": " ".join(_helpers._shell_quote(n) for n in names),
+        "port": _helpers._shell_quote(str(port)),
+        "delim": _helpers._SENTINEL,
+    }
+    try:
+        if _helpers._is_localhost(host):
+            stdout = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True, text=True, timeout=60,
+            ).stdout
+        else:
+            rc, stdout = _helpers._ssh_run(host, script)
+            if rc != 0 and not stdout.strip():
+                return []
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    if not stdout.strip():
+        return []
+    return _origin_tls_lines_from_entries(
+        inst.get("id", "?"), _parse_origin_tls(stdout),
+        datetime.datetime.now(datetime.timezone.utc))
+
+
 # --- Kubernetes config drift ------------------------------------------------
 #
 # On K8s, "desired" config is the operator's local files and "actual" is what
@@ -763,6 +965,10 @@ def cmd_doctor(args):
 
     for line in _instance_consistency_lines(inst):
         print(line)
+
+    if inst:
+        for line in _origin_tls_lines(inst):
+            print(line)
 
     parts = stdout.split(_helpers._SENTINEL + "\n")
     docker = parts[1].strip() if len(parts) > 1 else "MISSING"
