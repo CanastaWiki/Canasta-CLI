@@ -464,38 +464,25 @@ def _instance_consistency_lines(inst):
 
 # --- Origin TLS -------------------------------------------------------------
 #
-# Nothing else looks at the certificate an instance actually serves. Behind a
-# CDN in a non-strict origin mode (Cloudflare "Full", the common setup) the CDN
-# presents its own valid certificate to visitors and does not care what the
-# origin serves, so an origin certificate can expire — or be silently replaced
-# by Caddy's internal CA when ACME breaks — while the site looks perfectly
-# healthy from a browser and from `canasta status`. Switching the CDN to strict
-# origin validation, the recommended posture, then takes the site down
-# instantly.
+# A CDN in a non-strict origin mode serves visitors its own certificate
+# whatever the origin presents, so an expired or internally-issued origin
+# certificate shows no symptom until the CDN is switched to strict validation.
 
-# Below this, a certificate that should have renewed by now has not: Caddy
-# renews at roughly a third of the remaining lifetime, so a Let's Encrypt
-# certificate inside two weeks of expiry means renewal is failing.
+# Caddy renews well before this, so a certificate still this close to expiry
+# means renewal is failing.
 _TLS_RENEWAL_FLOOR_DAYS = 14
 
-# Caddy falls back to its internal CA when it cannot obtain a public
-# certificate, then reissues from it every 12 hours, logging "certificate
-# renewed successfully" each time. Only the issuer reveals that the domain has
-# not held a publicly trusted certificate in months.
+# Caddy's fallback when it cannot obtain a public certificate.
 _TLS_INTERNAL_ISSUER_MARKERS = ("caddy local authority",)
 
-# Names Caddy serves from its internal CA by design — there is no public
-# certificate to fall back from, so an internal issuer is correct there.
+# Names Caddy serves from its internal CA by design.
 _TLS_LOCAL_NAMES = ("localhost",)
 _TLS_LOCAL_SUFFIXES = (
     ".localhost", ".local", ".internal", ".test", ".example", ".invalid",
 )
 
-# Ask the origin itself rather than trusting any file on disk: this is the
-# certificate a CDN switched to strict validation would see. SNI is passed per
-# name because a host serving several domains can have one fall back to the
-# internal CA while the others hold valid certificates — the case a
-# whole-instance check that probed a single hostname would pass straight over.
+# Probed per SNI name: a host serving several domains can have one fall back
+# while the others hold valid certificates.
 _ORIGIN_TLS_SCRIPT = r"""
 command -v openssl >/dev/null 2>&1 || { echo NO_OPENSSL; exit 0; }
 for n in %(names)s; do
@@ -554,7 +541,7 @@ def _parse_cert_expiry(text):
 
 
 def _origin_tls_lines_from_entries(inst_id, entries, now):
-    """doctor lines for the probed certificates (pure — the testable core)."""
+    """doctor lines for the probed certificates."""
     title = ["", "Origin TLS (%s):" % inst_id]
     if entries is None:
         return title + [
@@ -573,9 +560,8 @@ def _origin_tls_lines_from_entries(inst_id, entries, now):
         internal = any(
             m in issuer.lower() for m in _TLS_INTERNAL_ISSUER_MARKERS)
         if internal and not _is_public_hostname(name):
-            # Expected, and its certificates are short-lived by design (Caddy
-            # reissues every 12 hours), so the expiry checks below would warn
-            # about a local name every single time.
+            # Internal-CA certificates last 12 hours, so the expiry checks
+            # below would warn about a local name on every run.
             lines.append(
                 "  %s: OK (Caddy internal CA — expected for a name with no "
                 "public certificate)" % name)
@@ -621,8 +607,8 @@ def _origin_tls_lines_from_entries(inst_id, entries, now):
 
 
 def _origin_tls_server_names(path, host):
-    """Unique hostnames the instance serves, from wikis.yaml — the same
-    derivation rewrite_caddy.yml uses to build the Caddy site address."""
+    """Unique hostnames the instance serves, derived from wikis.yaml as
+    rewrite_caddy.yml derives the Caddy site address."""
     names = []
     for wiki in _helpers._read_wikis(path, host):
         url = (wiki.get("url") or "").strip()
@@ -643,8 +629,7 @@ def _origin_tls_lines(inst):
     host = inst.get("host") or "localhost"
     is_k8s = inst.get("orchestrator", "compose") in ("kubernetes", "k8s")
     if is_k8s:
-        # Caddy runs http-only behind the ingress on K8s; the ingress
-        # controller is what terminates TLS on the host's 443.
+        # The ingress controller terminates TLS, not Caddy.
         port = "443"
     else:
         if (_helpers._read_env_for(inst, "CADDY_AUTO_HTTPS") or "on").lower() \

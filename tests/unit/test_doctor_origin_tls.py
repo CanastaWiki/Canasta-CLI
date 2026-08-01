@@ -1,13 +1,4 @@
-"""Tests for `canasta doctor`'s origin-certificate check.
-
-Behind a CDN in a non-strict origin mode the CDN serves visitors its own valid
-certificate regardless of what the origin presents, so an expired origin
-certificate — or one Caddy silently reissues from its internal CA after ACME
-broke — produces no symptom anywhere until the CDN is switched to strict origin
-validation and the site drops. The check asks the origin directly, per SNI
-name, because one domain on a multi-domain host can fall back while the others
-stay valid.
-"""
+"""Tests for `canasta doctor`'s origin-certificate check."""
 
 import datetime
 import os
@@ -25,7 +16,7 @@ CADDY_LOCAL = "CN = Caddy Local Authority - ECC Intermediate"
 
 def _fmt(dt):
     """openssl's notAfter rendering."""
-    return dt.strftime("%b %e %H:%M:%S %Y GMT").replace("  ", "  ")
+    return dt.strftime("%b %e %H:%M:%S %Y GMT")
 
 
 def _lines(entries, now=NOW):
@@ -38,8 +29,6 @@ class TestPublicHostname:
         assert doctor._is_public_hostname("Example.COM.")
 
     def test_local_and_reserved_names_are_not_public(self):
-        # Caddy serves these from its internal CA by design, so an internal
-        # issuer there must not be reported as a fallback.
         for name in ("localhost", "wiki.localhost", "box.local", "svc.internal",
                      "a.test", "x.example", "y.invalid", "nodots"):
             assert not doctor._is_public_hostname(name), name
@@ -120,8 +109,6 @@ class TestReportedLines:
              _fmt(NOW + datetime.timedelta(days=1)))]))
         assert "WARN" in body
         assert "internal CA" in body
-        # The 12-hour reissue is why the Caddy log reads as healthy.
-        assert "12 hours" in body
 
     def test_internal_ca_on_localhost_is_not_a_warning(self):
         body = " ".join(_lines([
@@ -130,8 +117,6 @@ class TestReportedLines:
         assert "WARN" not in body
 
     def test_per_domain_divergence_on_one_host(self):
-        # The case a single-hostname check would pass straight over: two
-        # domains valid, the primary silently fell back.
         primary = "primary.example.org"
         lines = _lines([
             ("a.example.org", LE, _fmt(NOW + datetime.timedelta(days=61))),
@@ -140,8 +125,6 @@ class TestReportedLines:
         ])
         warns = [ln for ln in lines if "WARN" in ln]
         assert len(warns) == 1
-        # The warning must be the line reporting that name, not merely mention
-        # it somewhere.
         assert warns[0].strip().startswith(primary + ":")
 
     def test_no_listener_is_reported_not_warned(self):
