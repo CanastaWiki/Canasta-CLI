@@ -90,7 +90,11 @@ class TestAStaleWrapperIsReportedAsAnError:
         assert "stays out of date" in block
         assert "may not take effect" in block
         # An operator holding an unwritable wrapper needs the command.
-        assert "https://get.canasta.wiki" in block
+        # Matched as a command rather than as a bare URL substring:
+        # `"<url>" in text` reads to CodeQL as URL sanitization
+        # (py/incomplete-url-substring-sanitization), and asserting the
+        # whole invocation is the stronger check regardless.
+        assert re.search(r"curl -fsSL \S+get\.canasta\.wiki \| bash", block)
 
     def test_the_remedy_is_a_reinstall_not_a_hand_fetch(self):
         # Fetching the wrapper by hand replaces the file and nothing
