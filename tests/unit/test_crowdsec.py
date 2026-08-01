@@ -868,16 +868,18 @@ class TestCrowdsecStatusWiring:
 
     def test_status_reports_capi_and_console(self):
         """status must surface Central API registration (the community
-        blocklist) and console enrollment, so an un-registered engine is no
-        longer a silent failure."""
+        blocklist) so an un-registered engine is no longer a silent failure,
+        and must report the console blocklists actually pulled. Console
+        enrollment itself cannot be confirmed locally, so it is not claimed."""
         content = _read(os.path.join(
             REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
         ))
         assert "cscli capi status" in content, (
             "status must probe Central API registration (community blocklist)"
         )
-        assert "cscli console status" in content, (
-            "status must probe console enrollment state"
+        assert "--origin lists" in content, (
+            "status must report the console blocklists actually pulled, "
+            "rather than inferring enrollment from local share options"
         )
 
     def test_status_counts_blocklist_decisions(self):
@@ -906,24 +908,50 @@ class TestCrowdsecStatusWiring:
         assert "_crowdsec_console_line" in content, (
             "status must derive a one-line console summary"
         )
-        assert "Console: {{ _crowdsec_console_line }}" in content, (
+        assert "Console blocklists: {{ _crowdsec_console_line }}" in content, (
             "status must display the one-line console summary, not dump the "
             "raw cscli console table (which shows the misleading "
             "console_management row)"
         )
 
-    def test_console_enrolled_detection_is_glyph_free(self):
-        """Enrolled-detection must read the stable `-o raw` CSV (option,enabled)
-        rather than scraping the human table's ✅ glyph, which is fragile to
-        cscli formatting/locale/color changes."""
+    def test_console_summary_does_not_imply_community_blocklist_is_absent(self):
+        """The console line reports *additional* blocklists layered on the CAPI
+        community blocklist, which needs no console account. Saying only "none"
+        would read as "unprotected" on an engine already enforcing tens of
+        thousands of CAPI IPs, so the empty case must say the community
+        blocklist is unaffected."""
         content = _read(os.path.join(
             REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
         ))
-        assert "cscli console status -o raw" in content, (
-            "console status must be read as raw CSV, not the human table"
+        assert "community blocklist above is unaffected" in content, (
+            "the no-console-blocklists message must make clear the CAPI "
+            "community blocklist is still active"
+        )
+        assert "Console blocklists:" in content, (
+            "the label must scope the line to console blocklists so it is not "
+            "read as overall CrowdSec status"
+        )
+
+    def test_console_summary_not_derived_from_share_options(self):
+        """`cscli console status` lists share options, two of which
+        (share_custom, share_tainted) CrowdSec enables by default. Keying the
+        summary on "any option is true" therefore reports every engine as
+        enrolled, including one that never was. Enrollment cannot be confirmed
+        locally at all, so the summary must report the blocklists actually
+        pulled (origin `lists`) instead."""
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
+        ))
+        assert "cscli console status" not in content, (
+            "console summary must not be derived from share options, which "
+            "default to true on a never-enrolled engine"
+        )
+        assert "--origin lists" in content, (
+            "console summary must be derived from the blocklists actually "
+            "pulled, which is observable locally"
         )
         assert "✅" not in content, (
-            "enrolled-detection must not depend on the ✅ glyph"
+            "summary must not depend on cscli's human-table glyphs"
         )
 
 
