@@ -534,6 +534,12 @@ _TLS_RENEWAL_FLOOR_DAYS = 14
 # Caddy's fallback when it cannot obtain a public certificate.
 _TLS_INTERNAL_ISSUER_MARKERS = ("caddy local authority",)
 
+# Let's Encrypt's staging CA marks every issuer CN this way, e.g.
+# "(STAGING) Artificial Amaranth YE1". Staging certificates are valid and
+# unexpired but chain to an untrusted root, so browsers reject them —
+# the same visible outcome as the internal-CA case above.
+_TLS_STAGING_ISSUER_MARKERS = ("(staging)",)
+
 # Names Caddy serves from its internal CA by design.
 _TLS_LOCAL_NAMES = ("localhost",)
 _TLS_LOCAL_SUFFIXES = (
@@ -658,6 +664,20 @@ def _origin_tls_lines_from_entries(inst_id, entries, now):
                 "and has not renewed. Renewal should have happened by now, so "
                 "treat this as a broken ACME path rather than a countdown."
                 % (name, days, issuer or "unknown"))
+        elif any(m in issuer.lower()
+                 for m in _TLS_STAGING_ISSUER_MARKERS):
+            # Unexpired and correctly issued, so every check above passes
+            # — but it chains to an untrusted root, so browsers reject it
+            # exactly as they do the internal-CA case. Nothing in .env
+            # distinguishes an instance created with --staging-certs from
+            # one promoted afterwards; only the served certificate does.
+            lines.append(
+                "  %s: WARN — staging certificate (issuer %s), valid for %d "
+                "more day(s) but not publicly trusted, so browsers reject "
+                "it. Expected while testing with --staging-certs; on a live "
+                "site, re-issue against the production CA by unsetting "
+                "CANASTA_STAGING_CERTS and restarting."
+                % (name, issuer, days))
         else:
             lines.append(
                 "  %s: OK (expires in %d days, issuer %s)"
