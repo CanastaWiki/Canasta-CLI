@@ -15,13 +15,9 @@ PATH says nothing about it) and the answer has to reach the registry, or
 Docker afterwards.
 """
 
-import json
 import os
 
 import yaml
-
-import canasta_registry
-from mock_ansible import run_module_with_params
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
@@ -56,19 +52,6 @@ def _named(path, needle):
         (t for t in _tasks(path)
          if needle.lower() in str(t.get("name", "")).lower()), None)
 
-
-def _params(**kw):
-    params = {
-        "state": "query", "id": None, "path": None,
-        "orchestrator": "compose", "dev_mode": False,
-        "managed_cluster": False, "registry": None, "kind_cluster": None,
-        "build_from": None, "build_args": None, "host": None,
-        "docker_host": None, "compose_command": None,
-        "inspect_command": None, "filter_host": None,
-        "setting_key": None, "setting_value": None, "config_dir": None,
-    }
-    params.update(kw)
-    return params
 
 
 def _legacy_registry(tmp_dir):
@@ -164,7 +147,7 @@ class TestTheProbeAsksTheHost:
             "without the write-back the probe repeats every upgrade, and "
             "list/start/exec keep resolving the instance to Docker"
         )
-        assert task["canasta_registry"]["state"] == "set_runtime"
+        assert task["canasta_registry"]["state"] == "update"
         assert task["canasta_registry"]["compose_command"] == "podman-compose"
         assert task["canasta_registry"]["inspect_command"] == "podman"
 
@@ -172,55 +155,3 @@ class TestTheProbeAsksTheHost:
         task = _named(DETECT, "Record the detected runtime")
         assert task["delegate_to"] == "localhost"
         assert task["vars"]["ansible_connection"] == "local"
-
-
-class TestSetRuntimeKeepsTheRestOfTheRecord:
-    def test_it_records_the_runtime(self, tmp_dir):
-        _legacy_registry(tmp_dir)
-        _, failed, _ = run_module_with_params(canasta_registry, _params(
-            state="set_runtime", id="legacy",
-            compose_command="podman-compose", inspect_command="podman",
-            config_dir=tmp_dir))
-        assert not failed
-        entry = _read_back(tmp_dir)
-        assert entry["composeCommand"] == "podman-compose"
-        assert entry["inspectCommand"] == "podman"
-
-    def test_it_preserves_fields_it_was_not_given(self, tmp_dir):
-        # state=present rebuilds the record from module params, so
-        # backfilling through it would drop all of these.
-        before = _legacy_registry(tmp_dir)
-        run_module_with_params(canasta_registry, _params(
-            state="set_runtime", id="legacy",
-            compose_command="podman-compose", inspect_command="podman",
-            config_dir=tmp_dir))
-        entry = _read_back(tmp_dir)
-        for key, value in before.items():
-            assert entry[key] == value, "set_runtime dropped %s" % key
-
-    def test_it_is_idempotent(self, tmp_dir):
-        _legacy_registry(tmp_dir)
-        for _ in range(2):
-            result, failed, _ = run_module_with_params(
-                canasta_registry, _params(
-                    state="set_runtime", id="legacy",
-                    compose_command="podman-compose",
-                    inspect_command="podman", config_dir=tmp_dir))
-            assert not failed
-        assert result["changed"] is False
-
-    def test_it_refuses_an_unregistered_instance(self, tmp_dir):
-        _legacy_registry(tmp_dir)
-        _, failed, msg = run_module_with_params(canasta_registry, _params(
-            state="set_runtime", id="ghost",
-            compose_command="podman-compose", config_dir=tmp_dir))
-        assert failed
-        assert "not found" in msg
-
-    def test_it_requires_an_id(self, tmp_dir):
-        _legacy_registry(tmp_dir)
-        _, failed, msg = run_module_with_params(canasta_registry, _params(
-            state="set_runtime", compose_command="podman-compose",
-            config_dir=tmp_dir))
-        assert failed
-        assert "id is required" in msg

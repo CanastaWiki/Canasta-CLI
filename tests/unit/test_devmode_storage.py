@@ -61,32 +61,42 @@ class TestDevmodeGuards:
 
 
 class TestDevmodeRegistryUpdate:
-    """canasta_registry state=present rebuilds the whole record from params, so
-    the registry-update in enable/disable must forward every field it wants
-    kept — including dockerHost (set by create --docker-host or rootless
-    auto-detect), or toggling devmode silently drops it."""
+    """Toggling dev mode must touch devMode and nothing else.
+
+    canasta_registry state=present rebuilds the whole record from the
+    params given, so enable/disable used to have to forward every field
+    they wanted kept — and dropped whatever nobody had thought to add
+    yet: dockerHost until it was patched in, then composeCommand,
+    inspectCommand and buildArgs. state=update merges instead, so the
+    fix is to stop repeating fields, not to repeat more of them."""
 
     def _registry_update(self, tasks):
         for t in tasks:
             if isinstance(t, dict) and "canasta_registry" in t:
                 params = t["canasta_registry"]
-                if params.get("state") == "present":
+                if params.get("state") in ("present", "update"):
                     return params
-        raise AssertionError("no canasta_registry state=present task found")
+        raise AssertionError("no canasta_registry write task found")
 
-    def test_enable_forwards_docker_host(self):
+    def _assert_merges_only_dev_mode(self, filename, want):
         params = self._registry_update(
-            _load(os.path.join(DEVMODE_TASKS, "enable.yml")))
-        assert "docker_host" in params
-        assert "dockerHost" in params["docker_host"]
-        assert "default(omit)" in params["docker_host"]
+            _load(os.path.join(DEVMODE_TASKS, filename)))
+        assert params["state"] == "update", (
+            "state=present replaces the record, so every field %s does "
+            "not repeat is dropped" % filename
+        )
+        assert params["dev_mode"] is want
+        assert set(params) == {"id", "dev_mode", "state"}, (
+            "%s passes fields it does not mean to change; with "
+            "state=update they are noise, and each one is a chance to "
+            "write back a stale value" % filename
+        )
 
-    def test_disable_forwards_docker_host(self):
-        params = self._registry_update(
-            _load(os.path.join(DEVMODE_TASKS, "disable.yml")))
-        assert "docker_host" in params
-        assert "dockerHost" in params["docker_host"]
-        assert "default(omit)" in params["docker_host"]
+    def test_enable_merges_only_dev_mode(self):
+        self._assert_merges_only_dev_mode("enable.yml", True)
+
+    def test_disable_merges_only_dev_mode(self):
+        self._assert_merges_only_dev_mode("disable.yml", False)
 
 
 class TestNfsStorageSetup:
