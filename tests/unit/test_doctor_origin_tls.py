@@ -132,15 +132,17 @@ class TestReportedLines:
     def test_per_domain_divergence_on_one_host(self):
         # The case a single-hostname check would pass straight over: two
         # domains valid, the primary silently fell back.
+        primary = "primary.example.org"
         lines = _lines([
             ("a.example.org", LE, _fmt(NOW + datetime.timedelta(days=61))),
             ("b.example.org", LE, _fmt(NOW + datetime.timedelta(days=61))),
-            ("primary.example.org", CADDY_LOCAL,
-             _fmt(NOW + datetime.timedelta(days=1))),
+            (primary, CADDY_LOCAL, _fmt(NOW + datetime.timedelta(days=1))),
         ])
         warns = [ln for ln in lines if "WARN" in ln]
         assert len(warns) == 1
-        assert "primary.example.org" in warns[0]
+        # The warning must be the line reporting that name, not merely mention
+        # it somewhere.
+        assert warns[0].strip().startswith(primary + ":")
 
     def test_no_listener_is_reported_not_warned(self):
         body = " ".join(_lines([("a.example.org", "", "")]))
