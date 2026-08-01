@@ -35,7 +35,8 @@ def cmd_start(args):
     rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
     if rc != 0:
         _helpers._dump_compose_failure(inst)
-    return rc
+        return rc
+    return _helpers._wait_web_ready(inst_id, inst)
 
 
 @register("stop")
@@ -84,7 +85,9 @@ def cmd_restart(args):
     rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
     if rc != 0:
         _helpers._dump_compose_failure(inst)
-    return rc
+        return rc
+    return _helpers._wait_web_ready(inst_id, inst)
+
 
 _SCALE_SUPPORTED_COMPONENTS = ("web",)
 

@@ -84,6 +84,9 @@ class TestRebuildBuildAndRestart:
         monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
             lambda inst: None,
         )
+        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
+            lambda i, inst: 0,
+        )
 
         rc = direct_commands.cmd_rebuild(_args())
         assert rc == 0
@@ -145,6 +148,44 @@ class TestRebuildBuildAndRestart:
         assert "--no-restart" in out
         assert "canasta restart" in out
 
+    def test_waits_for_web_after_the_restart(self, monkeypatch):
+        # A rebuild replaces the image, so the restart it drives is the case
+        # where composer runs longest — returning before web is ready is
+        # exactly when a follow-up command races it.
+        _patch_compose_inst(monkeypatch)
+        monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
+            lambda inst, include_sidecars=False: ["web"],
+        )
+        events = []
+        monkeypatch.setattr(direct_commands._helpers, "_run_compose",
+            lambda inst_id, inst, action, include_sidecars=False:
+                events.append(action[0]) or 0,
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
+            lambda inst: None,
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
+            lambda i, inst: events.append("wait") or 1,
+        )
+        assert direct_commands.cmd_rebuild(_args()) == 1
+        assert events == ["build", "down", "up", "wait"]
+
+    def test_no_restart_does_not_wait(self, monkeypatch):
+        _patch_compose_inst(monkeypatch)
+        monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
+            lambda inst, include_sidecars=False: ["web"],
+        )
+        events = []
+        monkeypatch.setattr(direct_commands._helpers, "_run_compose",
+            lambda inst_id, inst, action, include_sidecars=False:
+                events.append(action[0]) or 0,
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
+            lambda i, inst: events.append("wait") or 0,
+        )
+        assert direct_commands.cmd_rebuild(_args(no_restart=True)) == 0
+        assert events == ["build"]
+
     def test_build_failure_skips_restart_and_returns_code(self, monkeypatch):
         _patch_compose_inst(monkeypatch)
         monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
@@ -201,6 +242,8 @@ class TestRebuildSidecars:
             direct_commands._helpers, "_run_compose", fake_run_compose)
         monkeypatch.setattr(
             direct_commands._helpers, "_sync_compose_profiles", lambda inst: None)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_wait_web_ready", lambda i, inst: 0)
         rc = direct_commands.cmd_rebuild(_args())
         return rc, listed, calls
 
