@@ -501,6 +501,10 @@ commands:
       automatically. Use `canasta devmode enable` or `canasta devmode
       disable` to toggle development mode; use `canasta config set
       <FLAG>=true|false` to adjust the optional components.
+
+      The command returns once the web container reports healthy, so a
+      command run immediately afterward does not race the image's
+      startup. An image that declares no healthcheck is not waited on.
     examples:
       - "canasta start"
     playbook: start.yml
