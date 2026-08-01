@@ -153,5 +153,5 @@ class TestTheProbeAsksTheHost:
 
     def test_the_registry_write_runs_on_the_controller(self):
         task = _named(DETECT, "Record the detected runtime")
-        assert task["delegate_to"] == "localhost"
+        assert task["delegate_to"] == "canasta_controller"
         assert task["vars"]["ansible_connection"] == "local"
