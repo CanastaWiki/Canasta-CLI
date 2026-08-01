@@ -20,6 +20,17 @@ def cmd_start(args):
         return _helpers.FALLBACK
     if _helpers._instance_has_sidecars(inst):
         return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
+    # Check if the instance is already running before attempting start.
+    # podman-compose's `up -d` fails with container name conflicts when
+    # the containers already exist, unlike Docker Compose which treats
+    # them as a no-op.
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    docker_host = inst.get("dockerHost")
+    compose_cmd = _helpers._resolve_compose_cmd(inst)
+    if _helpers._check_running_compose(path, host, docker_host, compose_cmd):
+        print("Instance '%s' is already running." % inst_id)
+        return 0
     _helpers._sync_compose_profiles(inst)
     rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
     if rc != 0:

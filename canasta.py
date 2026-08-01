@@ -1515,6 +1515,27 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         except (OSError, IOError, KeyError):
             pass
 
+    # Infer compose_command from inspect_command or dockerHost. An
+    # instance whose inspectCommand in the registry is 'podman' but
+    # whose composeCommand was never recorded (e.g. from a state=update
+    # that set only the former) would otherwise fall back to 'docker
+    # compose'. A legacy instance that predates the runtime fields
+    # entirely carries only the podman socket in dockerHost.
+    if "compose_command" not in extra_vars:
+        if extra_vars.get("inspect_command") == "podman":
+            extra_vars["compose_command"] = "podman-compose"
+        elif "compose_command" not in extra_vars:
+            try:
+                inst = resolve_instance(
+                    getattr(args, "id", None), required=False
+                ) if os.path.isfile(get_config_file_path()) else None
+                inst = inst or {}
+                docker_host = inst.get("dockerHost") or ""
+                if "podman" in docker_host:
+                    extra_vars["compose_command"] = "podman-compose"
+            except (OSError, IOError, KeyError):
+                pass
+
     vars_file = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="canasta-vars-",
         delete=False,
