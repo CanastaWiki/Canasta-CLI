@@ -27,7 +27,7 @@
     build_from: "{{ build_from | default(omit) }}"
     build_args: "{{ build_arg | default(omit, true) }}"
     state: present
-  delegate_to: localhost
+  delegate_to: canasta_controller
   vars:
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"

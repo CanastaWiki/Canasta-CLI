@@ -10,7 +10,7 @@
   canasta_registry:
     state: query_all
   register: _gitops_init_registry
-  delegate_to: localhost
+  delegate_to: canasta_controller
 
 - name: Fail with gitops-specific guidance if no instances exist
   ansible.builtin.fail:
