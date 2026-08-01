@@ -28,6 +28,7 @@ options:
       - query
       - query_all
       - query_by_path
+      - set_runtime
       - set_setting
       - get_setting
     default: query
@@ -154,7 +155,7 @@ def run_module():
     module_args = dict(
         state=dict(type="str", default="query",
                    choices=["present", "absent", "query", "query_all",
-                            "query_by_path",
+                            "query_by_path", "set_runtime",
                             "set_setting", "get_setting"]),
         setting_key=dict(type="str", required=False),
         setting_value=dict(type="str", required=False),
@@ -272,6 +273,34 @@ def run_module():
 
         result["changed"] = changed
         result["instance"] = new_instance
+
+    elif state == "set_runtime":
+        if not inst_id:
+            module.fail_json(msg="id is required when state=set_runtime")
+            return
+        if inst_id not in instances:
+            module.fail_json(
+                msg="Instance '%s' not found in registry" % inst_id)
+            return
+        # Field-wise update rather than state=present: present rebuilds
+        # the whole record from module params, so writing one field
+        # through it drops every field the caller did not repeat.
+        entry = dict(instances[inst_id])
+        for key, param in (("composeCommand", "compose_command"),
+                           ("inspectCommand", "inspect_command")):
+            value = module.params.get(param)
+            if value:
+                entry[key] = value
+
+        if entry != instances[inst_id]:
+            changed = True
+            instances[inst_id] = entry
+            if not module.check_mode:
+                data["Instances"] = instances
+                write_config(config_dir, data)
+
+        result["changed"] = changed
+        result["instance"] = entry
 
     elif state == "absent":
         if not inst_id:
