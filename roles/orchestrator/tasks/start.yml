@@ -74,38 +74,6 @@
     - name: Check if already running
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_running.yml"
 
-    # Fallback: check_running.yml uses inspect_command ps (native runtime)
-    # which may not be available inside canasta-docker. Use the compose
-    # command itself as a fallback.
-    - name: Check with compose ps -q web
-      ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} ps -q web"
-        chdir: "{{ instance_path }}"
-      register: _compose_ps_web
-      changed_when: false
-      failed_when: false
-      when: not (_container_running | default(false) | bool)
-
-    - name: Check with compose ps -q (podman-compose fallback)
-      ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} ps -q"
-        chdir: "{{ instance_path }}"
-      register: _compose_ps_all
-      changed_when: false
-      failed_when: false
-      when:
-        - not (_container_running | default(false) | bool)
-        - _compose_ps_web.rc | default(1) != 0
-
-    - name: Set running status from compose ps
-      ansible.builtin.set_fact:
-        _container_running: >-
-          {{ _container_running
-             or (_compose_ps_web.stdout | default('') | trim | length > 0)
-             or (_compose_ps_all is defined
-                 and _compose_ps_all.stdout | default('') | trim | length > 0) }}
-      when: _compose_ps_web is defined
-
     - name: Skip start when already running
       ansible.builtin.debug:
         msg: "Instance is already running."
