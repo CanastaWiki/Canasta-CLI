@@ -1533,6 +1533,7 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
                 docker_host = inst.get("dockerHost") or ""
                 if "podman" in docker_host:
                     extra_vars["compose_command"] = "podman-compose"
+                    extra_vars["inspect_command"] = "podman"
             except (OSError, IOError, KeyError):
                 pass
 
