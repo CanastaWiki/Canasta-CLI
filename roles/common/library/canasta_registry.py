@@ -288,6 +288,13 @@ def run_module():
         })
 
         if inst_id in instances:
+            # Preserve fields the caller did not supply so a caller that
+            # only sets compose_command does not silently erase a prior
+            # inspect_command (and vice versa).
+            for key in ("composeCommand", "inspectCommand", "dockerHost",
+                        "buildFrom", "buildArgs", "registry", "kindCluster"):
+                if key not in new_instance and key in instances[inst_id]:
+                    new_instance[key] = instances[inst_id][key]
             if instances[inst_id] != new_instance:
                 changed = True
                 instances[inst_id] = new_instance

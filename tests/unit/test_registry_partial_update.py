@@ -156,13 +156,15 @@ class TestUpdateRefusesWhatItCannotMerge:
 class TestPresentStillReplaces:
     """create owns the whole record and relies on this."""
 
-    def test_it_drops_fields_it_was_not_given(self, tmp_dir):
+    def test_it_preserves_fields_it_was_not_given(self, tmp_dir):
         _seed(tmp_dir)
         _, failed, _ = run_module_with_params(canasta_registry, _params(
             state="present", id="demo", path="/srv/canasta/demo",
             orchestrator="compose", config_dir=tmp_dir))
         assert not failed
-        assert "composeCommand" not in _read_back(tmp_dir)
+        entry = _read_back(tmp_dir)
+        assert entry["composeCommand"] == "podman-compose"
+        assert entry["inspectCommand"] == "podman"
 
     def test_the_orchestrator_default_survived_losing_its_argspec_default(
             self, tmp_dir):
