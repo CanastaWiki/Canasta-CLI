@@ -269,9 +269,13 @@ jobs:
           [engine.runtimes]
           crun = ["/usr/local/bin/crun"]
           EOF
-          # Rootless Podman prerequisites
-          sudo loginctl enable-linger "$(id -un)"
-          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80
+          # Subordinate id ranges are a property of the runner image, not
+          # something Canasta configures — the static bundle brings no
+          # useradd hook to write them. Lingering, the unprivileged port
+          # floor and the socket are deliberately NOT set here: they are
+          # the three rootless prerequisites `canasta install podman`
+          # exists to configure, and setting them by hand would mean this
+          # lane never tests that it does. See #1432.
           grep -q "^$(id -un):" /etc/subuid 2>/dev/null || \
             echo "$(id -un):100000:65536" | sudo tee -a /etc/subuid
           grep -q "^$(id -un):" /etc/subgid 2>/dev/null || \
@@ -335,14 +339,6 @@ jobs:
             exit 1
           fi
 
-      - name: Smoke test podman
-        run: |
-          podman --version
-          podman-compose --version
-          podman info >/dev/null
-          podman run --rm docker.io/library/alpine:latest true
-          echo "Podman ${{ matrix.podman_version }} smoke test passed"
-
       - name: Install Python dependencies
         run: |
           python -m venv .venv
@@ -361,30 +357,56 @@ jobs:
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
 
-      # Configure the rootless prerequisites the way an operator does,
-      # rather than by hand, so this lane exercises the install path and
-      # ends up in the state a real Podman host is in. The socket is the
-      # point: without it the CLI never detects a Podman socket, falls
-      # through to "Docker absent, use Podman" instead, and the whole
-      # lane silently tests a route no installed host takes. See #1432.
+      # The rootless prerequisites — lingering, the unprivileged port
+      # floor, and the socket — are configured the way an operator
+      # configures them, so the lane both exercises the install path and
+      # ends up in the state a real Podman host is in.
+      #
+      # The socket is the point. Without it the CLI detects no Podman
+      # socket, falls through to "Docker absent, use Podman" instead, and
+      # the lane silently tests a route no installed host takes. See #1432.
       - name: Configure rootless prerequisites via canasta install podman
         run: ./canasta-native install podman
 
-      # `install podman` warns rather than fails when it cannot enable
-      # the socket, which is exactly how this gap stayed invisible. Assert
-      # it here so a silent regression fails the lane instead of quietly
-      # restoring the blind spot.
-      - name: Assert the rootless Podman socket is live
+      # Every one of those three steps warns rather than fails when it
+      # cannot be applied, which is exactly how this gap stayed invisible.
+      # Assert the results so a silent regression fails the lane instead
+      # of quietly restoring the blind spot.
+      - name: Assert the rootless prerequisites are in place
         run: |
+          fail=0
           sock="/run/user/$(id -u)/podman/podman.sock"
           if [ ! -S "$sock" ]; then
             echo "No socket at $sock — 'canasta install podman' did not enable" \
                  "podman.socket, so this lane cannot reach the socket-detection" \
                  "path it exists to cover." >&2
             systemctl --user status podman.socket --no-pager 2>&1 | head -20 >&2 || true
-            exit 1
+            fail=1
           fi
-          echo "rootless Podman socket: $sock"
+          if [ "$(loginctl show-user "$(id -un)" -p Linger --value)" != "yes" ]; then
+            echo "Lingering is off — systemd would reap the containers when" \
+                 "the session ends." >&2
+            fail=1
+          fi
+          floor="$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start)"
+          if [ "$floor" -gt 80 ]; then
+            echo "Unprivileged port floor is $floor — rootless Caddy cannot" \
+                 "bind 80/443." >&2
+            fail=1
+          fi
+          [ "$fail" -eq 0 ] || exit 1
+          echo "socket=$sock linger=yes port_floor=$floor"
+
+      # After `canasta install podman`, so this confirms the environment
+      # that command produced actually runs containers — /run/user/<uid>
+      # does not exist until lingering is enabled.
+      - name: Smoke test podman
+        run: |
+          podman --version
+          podman-compose --version
+          podman info >/dev/null
+          podman run --rm docker.io/library/alpine:latest true
+          echo "Podman ${{ matrix.podman_version }} smoke test passed"
 
       - name: Run Podman tests
         run: >-
