@@ -817,6 +817,7 @@ class TestResolvePasswordHelper:
         # Walk every task (including those in `block:`) and make sure
         # at least one set_fact targets `_resolved_password` — the
         # contract the call sites depend on.
+
         def walk(items):
             for t in items or []:
                 if not isinstance(t, dict):

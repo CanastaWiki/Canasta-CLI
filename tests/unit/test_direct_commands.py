@@ -188,6 +188,7 @@ class TestReadWikis:
         wikis = direct_commands._read_wikis(str(tmp_path / "nodir"), "localhost")
         assert wikis == []
 
+
 class TestBuildUrls:
     def test_url_with_https_protocol(self):
         urls = direct_commands._helpers._wiki_probe_urls("https://example-wiki.com")
@@ -2971,6 +2972,7 @@ class TestCmdGitopsStatusK8s:
         )
         # Remote host: both the git status and the Argo CD kubectl run
         # over SSH against the host's kubeconfig, not the laptop's.
+
         def fake_ssh(host, cmd):
             if "kubectl get application" in cmd:
                 return (0, json.dumps(app))
@@ -4431,6 +4433,7 @@ class TestDockerHostPropagation:
 
         def fake_run(cmd, **kw):
             captured["argv"] = cmd
+
             class R:
                 returncode = 0
                 stdout = ""
@@ -4462,6 +4465,7 @@ class TestDockerHostPropagation:
 
         def fake_run(cmd, **kw):
             captured["argv"] = cmd
+
             class R:
                 returncode = 0
                 stdout = ""
@@ -4539,6 +4543,7 @@ class TestDockerHostPropagation:
 
         def fake_run(cmd, **kw):
             captured["env"] = kw.get("env")
+
             class R:
                 returncode = 0
                 stdout = "abc123\n"
@@ -4573,6 +4578,7 @@ class TestDockerHostPropagation:
 
         def fake_run(cmd, **kw):
             captured["env"] = kw.get("env")
+
             class R:
                 returncode = 0
                 stdout = "abc123\n"
@@ -4811,6 +4817,7 @@ class TestRemoteK8sStreamAndExec:
                             raising=False)
         # _stream_in_container drives the argv through an inner _run();
         # patch subprocess.Popen to capture without spawning.
+
         class FakeProc:
             returncode = 0
 

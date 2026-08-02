@@ -536,6 +536,7 @@ def cmd_gitops_status(args):
         print(_parse_gitops_status(stdout, inst_id))
     return 0
 
+
 def _gitops_diff_script(path, stat=False, ssh_key=None):
     # For each of the three boundaries we emit two sections: a
     # --name-only list (for the file count and the restart/update

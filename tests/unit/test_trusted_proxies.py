@@ -70,7 +70,6 @@ def _render_proxy(mode, header, dynamic, cidrs=None, strict=False):
     )
 
 
-
 def _render_proxy_with(**ctx):
     """Cloudflare mode plus whatever the caller overrides."""
     base = dict(

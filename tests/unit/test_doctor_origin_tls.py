@@ -207,6 +207,7 @@ class TestOriginTlsGate:
         doctor._origin_tls_lines(self._inst(orchestrator="kubernetes"))
         assert "127.0.0.1:'443'" in seen["script"]
 
+
 # Real issuer string from a Let's Encrypt staging certificate.
 LE_STAGING = ("C=US, O=(STAGING) Let's Encrypt, "
               "CN=(STAGING) Artificial Amaranth YE1")

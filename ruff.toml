@@ -1,7 +1,23 @@
-# Focused lint gate: catch unused imports (F401) across the Python code.
-# Other rule families are intentionally left off for now to keep the gate
-# narrow and low-noise; expand deliberately if desired.
+# Lint gate for the Python code. Kept here rather than as `--select` flags
+# in the Makefile so an editor or pre-commit hook running bare `ruff check`
+# sees exactly what CI does. A flag in the Makefile silently overrides this
+# file, which is how the two came to disagree.
+#
+# Widened in stages under #1409. Stage 1: the full pyflakes set, after
+# F401 alone passed while two unused imports went unreported, a test class
+# shadowed another (hiding 2 tests, one of them failing), and a helper
+# called an unimported module. Stage 2: whitespace and blank lines — the
+# class that let three stray blank lines through a rebase unnoticed.
 extend-exclude = [".claude"]
 
+# Several selected rules only fire under preview, including two of the
+# F401 findings the narrower gate was missing.
+preview = true
+
 [lint]
-select = ["F401"]
+# F      pyflakes in full — undefined names, redefinitions, unused imports
+# E1/E2  indentation and whitespace
+# E3     blank lines
+# W2/W3  trailing whitespace, blank line at end of file
+# W6     deprecated constructs
+select = ["F", "E1", "E2", "E3", "W2", "W3", "W6"]

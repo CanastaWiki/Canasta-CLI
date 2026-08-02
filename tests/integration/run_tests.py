@@ -37,6 +37,7 @@ class SkipTest(Exception):
     """Raised when a test's prerequisites are not met."""
     pass
 
+
 # Atomic-ish port counter (single-threaded, no need for locks)
 _port_counter = int(os.environ.get("CANASTA_TEST_PORT_BASE", "10080"))
 

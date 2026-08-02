@@ -1710,7 +1710,6 @@ def _resolve_ssh_target(host):
     return ("%s@%s" % (user, target)) if user else target
 
 
-
 def _read_remote_or_local_file(path, host):
     """Read a file from localhost or a remote host. Returns content or
     None on error."""
