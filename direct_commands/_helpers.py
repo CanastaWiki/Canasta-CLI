@@ -396,16 +396,21 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     return _retry_on_ssh_reset(_attempt)
 
 
-def _missing_db_password(inst):
+def _missing_db_password(inst, env=None):
     """True when .env has no usable MYSQL_PASSWORD.
 
-    db exits immediately without it, and healing needs to know whether a
-    database volume already exists before deciding whether generating a
-    replacement is safe. That check lives in the Ansible path
-    (orchestrator/tasks/heal_mysql_password.yml) rather than being
-    duplicated here, so this only has to detect the condition.
+    Healing needs to know whether a database volume already exists before
+    deciding whether generating a replacement is safe. That check lives
+    in the Ansible path (orchestrator/tasks/heal_mysql_password.yml)
+    rather than being duplicated here, so this only has to detect the
+    condition.
+
+    Pass ``env`` when the caller has already read .env, to avoid a second
+    read; omit it to read here.
     """
-    env = _read_env_file(inst.get("path", ""), inst.get("host") or "localhost")
+    if env is None:
+        env = _read_env_file(
+            inst.get("path", ""), inst.get("host") or "localhost")
     if not env:
         # Unreadable or absent .env is a different problem, and treating
         # it as this one would swallow the compose failure the caller is
@@ -482,12 +487,16 @@ def _sync_compose_profiles(inst):
     COMPOSE_PROFILES gets reconciled before compose is invoked. Mirrors
     roles/orchestrator/tasks/sync_compose_profiles.yml — canasta config
     set has its own copy that fires on the relevant keys.
+
+    Returns the parsed .env (empty when there is none) so a caller that
+    needs another key from it does not pay for a second read — on a
+    remote instance that is a second SSH round trip.
     """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     content = _read_env_content(path, host)
     if not content:
-        return  # No .env to sync
+        return {}  # No .env to sync
 
     entries = _parse_env_entries(content)
     env = {k: v for k, v, c in entries if not c and k}
@@ -520,7 +529,7 @@ def _sync_compose_profiles(inst):
     image_changed = image_managed and current_caddy_image != desired_caddy_image
 
     if not profiles_changed and not image_changed:
-        return  # No change needed
+        return env  # No change needed
 
     # Rewrite only the keys that changed, keeping every other line verbatim so
     # quoting (and any inline '#' inside quotes) on unrelated keys survives.
@@ -559,6 +568,8 @@ def _sync_compose_profiles(inst):
                 inst.get("id"), inst,
                 profile_flags + ["rm", "-sf"] + stale_services,
             )
+
+    return env
 
 
 def _dump_compose_failure(inst, include_sidecars=False):

@@ -31,17 +31,19 @@ def cmd_start(args):
     if _helpers._check_running_compose(path, host, docker_host, compose_cmd):
         print("Instance '%s' is already running." % inst_id)
         return 0
-    _helpers._sync_compose_profiles(inst)
+    env = _helpers._sync_compose_profiles(inst)
+    # Before 'up', not after a failure: MariaDB ignores the root-password
+    # variable once its volume holds a database, so compose comes up
+    # clean and only MediaWiki notices it cannot authenticate. Starting
+    # first would leave a wiki serving 500s and report success. Whether
+    # generating a replacement is safe depends on there being no database
+    # to lock out, which the Ansible path decides — hand the broken case
+    # over rather than duplicating that judgement here. The .env read is
+    # free: _sync_compose_profiles just parsed it.
+    if _helpers._missing_db_password(inst, env):
+        return _helpers.FALLBACK
     rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
     if rc != 0:
-        if _helpers._missing_db_password(inst):
-            # db exits immediately without it. Whether generating a
-            # replacement is safe depends on there being no database to
-            # lock out, which the Ansible path decides — hand the broken
-            # case over rather than duplicating that judgement here.
-            # Checked only on failure: on a remote instance reading .env
-            # is an SSH round trip.
-            return _helpers.FALLBACK
         _helpers._dump_compose_failure(inst)
         return rc
     return _helpers._wait_web_ready(inst_id, inst)
