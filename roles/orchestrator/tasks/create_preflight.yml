@@ -59,7 +59,7 @@
         - name: Probe podman info (compose_command is podman-based)
           ansible.builtin.command:
             cmd: podman info
-          register: _docker_check
+          register: _podman_only_probe
           changed_when: false
           failed_when: false
 
@@ -72,14 +72,14 @@
         - name: Probe docker info
           ansible.builtin.command:
             cmd: docker info
-          register: _docker_check
+          register: _docker_probe
           changed_when: false
           failed_when: false
 
         - name: Probe podman info (fallback)
           ansible.builtin.command:
             cmd: podman info
-          register: _podman_check
+          register: _podman_fallback_probe
           changed_when: false
           failed_when: false
 
@@ -88,8 +88,24 @@
             compose_command: podman-compose
             inspect_command: podman
           when:
-            - _docker_check.rc | default(1) != 0
-            - _podman_check.rc | default(1) == 0
+            - _docker_probe.rc | default(1) != 0
+            - _podman_fallback_probe.rc | default(1) == 0
+
+    # Exactly one of the two blocks above runs, and a skipped task still
+    # registers — with a result that carries no `rc` and no `stdout`. So
+    # the probes cannot share a register name, and nothing downstream may
+    # read one of them directly: collapse them here into the single
+    # result that answered. Docker comes before the Podman fallback so a
+    # host running both is described by the runtime it will actually use.
+    - name: Record the runtime probe that answered
+      ansible.builtin.set_fact:
+        _runtime_check: >-
+          {{ [_podman_only_probe | default({}),
+              _docker_probe | default({}),
+              _podman_fallback_probe | default({})]
+             | selectattr('rc', 'defined')
+             | selectattr('rc', 'equalto', 0)
+             | list | first | default({}) }}
 
     - name: Fail if container runtime not available
       ansible.builtin.fail:
@@ -97,9 +113,7 @@
           No container runtime is available on this host.
           Docker and Podman are both absent or unreachable.
           Run 'canasta doctor' to check all dependencies.
-      when: >-
-        (_docker_check.rc | default(1) != 0)
-        and (_podman_check.rc | default(1) != 0)
+      when: _runtime_check.rc is not defined
 
     # Rootless Podman has two prerequisites that are invisible until the
     # instance silently fails: systemd reaps the containers when the
@@ -377,7 +391,7 @@
     - name: Resolve container storage root
       ansible.builtin.set_fact:
         _docker_root_dir: >-
-          {{ (_docker_check.stdout | default('')
+          {{ (_runtime_check.stdout | default('')
              | regex_findall('(?:Docker Root Dir|graphRoot):\s*(.+)') | first | default('')) | trim }}
 
     # `df --output=avail` is GNU coreutils only (BusyBox/BSD lack it);
