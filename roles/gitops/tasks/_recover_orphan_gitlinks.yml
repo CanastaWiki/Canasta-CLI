@@ -14,8 +14,10 @@
 
 - name: List staged/committed gitlinks in the index
   ansible.builtin.shell:
-    cmd: "git ls-files --stage | awk '$1 == \"160000\" {print $4}'"
+    cmd: "set -o pipefail; git ls-files --stage | awk '$1 == \"160000\" {print $4}'"
     chdir: "{{ instance_path }}"
+  args:
+    executable: /bin/bash
   register: _rog_gitlinks
   changed_when: false
 

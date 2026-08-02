@@ -160,6 +160,7 @@
           ssh-keygen -t ed25519
           -f {{ _ssh_key_path }}
           -N ''
+      changed_when: true
           -C 'canasta-{{ instance_id }}'
       when: not (_existing_is_ssh_key | bool)
 

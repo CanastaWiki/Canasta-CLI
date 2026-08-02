@@ -147,6 +147,7 @@
   ansible.builtin.blockinfile:
     path: "{{ _host_crontab_file }}"
     create: true
+    mode: "0600"
     marker: "# {mark} canasta-backup-{{ instance_id }}"
     block: "{{ cron_expression }} {{ _cron_cmd }}"
   when: _sched_use_file

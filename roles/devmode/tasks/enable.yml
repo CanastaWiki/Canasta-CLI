@@ -81,8 +81,14 @@
 
     - name: Extract code from container
       ansible.builtin.shell:
-        cmd: "{{ inspect_command }} exec canasta-dev-extract tar -cf - -C /var/www/mediawiki/w . | tar -xf - -C mediawiki-code/"
+        cmd: >-
+          set -o pipefail;
+          {{ inspect_command }} exec canasta-dev-extract
+          tar -cf - -C /var/www/mediawiki/w . |
+          tar -xf - -C mediawiki-code/
         chdir: "{{ instance_path }}"
+      args:
+        executable: /bin/bash
       changed_when: true
 
     - name: Remove temporary container

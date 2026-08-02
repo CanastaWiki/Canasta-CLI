@@ -119,8 +119,11 @@
         - name: Read lingering and the unprivileged port floor
           ansible.builtin.shell:
             cmd: |
+              set -o pipefail
               printf '%s\n' "$(loginctl show-user "$(id -un)" --property=Linger 2>/dev/null | cut -d= -f2)"
               printf '%s\n' "$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null)"
+          args:
+            executable: /bin/bash
           register: _rootless_facts
           changed_when: false
           failed_when: false
@@ -213,6 +216,7 @@
     - name: Probe for userspace listener on the HTTP port
       ansible.builtin.shell:
         cmd: |
+          set -o pipefail
           if command -v ss >/dev/null 2>&1; then
             ss -tlnH "sport = :{{ _preflight_http_port }}"
           elif command -v lsof >/dev/null 2>&1; then
@@ -220,6 +224,8 @@
           else
             echo "CANASTA_PORT_PROBE_UNAVAILABLE"
           fi
+      args:
+        executable: /bin/bash
       register: _port80_listener
       changed_when: false
       failed_when: false
@@ -227,6 +233,7 @@
     - name: Probe for userspace listener on the HTTPS port
       ansible.builtin.shell:
         cmd: |
+          set -o pipefail
           if command -v ss >/dev/null 2>&1; then
             ss -tlnH "sport = :{{ _preflight_https_port }}"
           elif command -v lsof >/dev/null 2>&1; then
@@ -234,6 +241,8 @@
           else
             echo "CANASTA_PORT_PROBE_UNAVAILABLE"
           fi
+      args:
+        executable: /bin/bash
       register: _port443_listener
       changed_when: false
       failed_when: false
@@ -333,8 +342,8 @@
     - name: Probe podman version for host-gateway support
       ansible.builtin.shell:
         cmd: |
-          {% raw %}set -o pipefail
-          command -v podman >/dev/null 2>&1 || exit 0
+          set -o pipefail
+          {% raw %}command -v podman >/dev/null 2>&1 || exit 0
           ver=$(podman --version 2>/dev/null | awk '{print $3}')
           [ -n "$ver" ] || exit 0
           # Emit the bridge gateway only when podman is older than 4.4.0.
@@ -343,6 +352,8 @@
               podman network inspect podman \
                   --format '{{range .Subnets}}{{.Gateway}}{{end}}' 2>/dev/null
           fi{% endraw %}
+      args:
+        executable: /bin/bash
       register: _host_gateway_probe
       changed_when: false
       failed_when: false
@@ -378,6 +389,8 @@
         cmd: >-
           set -o pipefail && df --output=avail {{ _docker_root_dir | quote }}
           2>/dev/null | tail -1
+      args:
+        executable: /bin/bash
       register: _docker_storage_avail
       changed_when: false
       failed_when: false

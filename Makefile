@@ -6,6 +6,7 @@ PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 YAMLLINT := $(VENV)/bin/yamllint
 RUFF := $(VENV)/bin/ruff
+ANSIBLE_LINT := $(VENV)/bin/ansible-lint
 
 # --- Setup -------------------------------------------------------------------
 
@@ -34,6 +35,7 @@ test: test-unit
 lint: venv
 	$(YAMLLINT) --strict meta/ roles/ playbooks/ inventory/ canasta.yml
 	$(RUFF) check .
+	$(ANSIBLE_LINT) --offline roles/ playbooks/ canasta.yml
 	$(PYTHON) scripts/validate_definitions.py
 
 # --- Documentation -----------------------------------------------------------

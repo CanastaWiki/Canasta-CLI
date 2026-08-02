@@ -98,7 +98,7 @@
     msg: "Creating instance directories..."
 
 - name: Ensure directories exist
-  include_tasks: noisy_create_dir.yml
+  ansible.builtin.include_tasks: noisy_create_dir.yml
   loop:
     - { dir: extensions }
     - { dir: skins }
