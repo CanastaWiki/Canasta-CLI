@@ -308,6 +308,64 @@ def read_env(path):
 
 # --- Tests ---
 
+def test_podman_socket_runtime(inst):
+    """A rootless Podman socket must be what decides the runtime.
+
+    There are two ways to arrive at Podman, and only one of them is what
+    an installed host does. With no socket and Docker unreachable, the
+    pre-flight falls through to "Docker absent, Podman present" and
+    switches the runtime there. With a socket, it decides from the socket
+    before probing anything.
+
+    A lane that only ever takes the first route says nothing about the
+    second, which is the one `canasta install podman` produces and every
+    real rootless host takes. That is where #1424 broke `create` outright
+    while this suite stayed green on every push to main.
+
+    Skips where there is no socket, so Docker lanes are unaffected.
+    """
+    sock = "/run/user/%d/podman/podman.sock" % os.getuid()
+    if not os.path.exists(sock):
+        raise SkipTest("no rootless Podman socket at %s" % sock)
+
+    print("Creating instance with a Podman socket present...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+
+    with open(os.path.join(inst.config_dir, "conf.json")) as f:
+        record = (json.load(f).get("Instances") or {})[inst.id]
+
+    # The socket has to be what got recorded. Reaching Podman by the
+    # fallback leaves dockerHost unset, so this is what tells the two
+    # routes apart.
+    assert record.get("dockerHost") == "unix://%s" % sock, (
+        "create did not record the detected Podman socket; it likely "
+        "reached Podman by the Docker-absent fallback instead. "
+        "dockerHost=%r" % record.get("dockerHost")
+    )
+    assert "podman" in (record.get("composeCommand") or ""), (
+        "composeCommand=%r" % record.get("composeCommand")
+    )
+    assert record.get("inspectCommand") == "podman", (
+        "inspectCommand=%r" % record.get("inspectCommand")
+    )
+
+    print("Waiting for wiki...")
+    wait_for_wiki(inst.http_port)
+
+    # The containers must actually be Podman's, not just labelled so.
+    running = subprocess.run(
+        ["podman", "ps", "--format", "{{.Names}}"],
+        capture_output=True, text=True,
+    ).stdout
+    assert any(inst.id in line for line in running.splitlines()), (
+        "no Podman containers for %s; podman ps:\n%s" % (inst.id, running)
+    )
+
+
 def test_lifecycle(inst):
     """Create -> verify -> stop -> start -> verify -> delete."""
     print("Creating instance...")
@@ -3863,6 +3921,7 @@ ALL_TESTS = {
     "k8s-crowdsec": test_k8s_crowdsec,
     "k8s-backup": test_k8s_backup,
     "lifecycle": test_lifecycle,
+    "podman-socket-runtime": test_podman_socket_runtime,
     "import": test_import_export,
     "upgrade": test_upgrade,
     "upgrade-rebuilds-buildable": test_upgrade_rebuilds_buildable,
