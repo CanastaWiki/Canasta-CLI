@@ -175,6 +175,31 @@ def instance_to_dict(instance):
     return result
 
 
+# Fields instance_to_dict writes unconditionally. Everything else it
+# emits is optional, and `state: present` rebuilds the record from its
+# parameters — so any optional field the caller did not supply would
+# vanish, silently erasing either a runtime fact some other code path
+# discovered (composeCommand, inspectCommand, dockerHost) or an operator
+# setting (devMode).
+#
+# Derived from instance_to_dict rather than listed by hand: a field added
+# there is preserved without anyone having to remember this, which is the
+# failure mode that produced the erase in the first place.
+_ALWAYS_WRITTEN = ("id", "path", "orchestrator")
+
+
+def preserved_on_present():
+    """Optional registry fields, taken from instance_to_dict itself."""
+    probe = instance_to_dict({
+        "id": "probe", "path": "/probe", "orchestrator": "compose",
+        "host": "probe", "devMode": True, "managedCluster": True,
+        "registry": "probe", "kindCluster": "probe", "buildFrom": "/probe",
+        "buildArgs": {"probe": "1"}, "dockerHost": "probe",
+        "composeCommand": "probe", "inspectCommand": "probe",
+    })
+    return tuple(k for k in probe if k not in _ALWAYS_WRITTEN)
+
+
 def run_module():
     module_args = dict(
         state=dict(type="str", default="query",
@@ -288,6 +313,12 @@ def run_module():
         })
 
         if inst_id in instances:
+            # Preserve every optional field the caller did not supply, so
+            # a caller that sets only compose_command does not erase a
+            # prior inspect_command (and vice versa).
+            for key in preserved_on_present():
+                if key not in new_instance and key in instances[inst_id]:
+                    new_instance[key] = instances[inst_id][key]
             if instances[inst_id] != new_instance:
                 changed = True
                 instances[inst_id] = new_instance
