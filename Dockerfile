@@ -1,5 +1,12 @@
 FROM python:3.12-slim
 
+# Several RUN steps below pipe a download straight into tar or bash.
+# Without pipefail a failed or truncated download still leaves the
+# pipeline exiting 0 — the Helm step in particular would pipe nothing
+# into bash and the image would build "successfully" with no helm in it.
+# python:3.12-slim is Debian-based, so bash is present.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -12,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Docker CLI (not daemon - we use host's Docker via socket)
 RUN curl -fsSL --retry 3 --retry-delay 5 \
-        https://download.docker.com/linux/static/stable/$(uname -m)/docker-27.5.1.tgz \
+        "https://download.docker.com/linux/static/stable/$(uname -m)/docker-27.5.1.tgz" \
     | tar xz --strip-components=1 -C /usr/local/bin docker/docker
 
 # Install Docker Compose plugin (uses uname -m for arch: x86_64/aarch64)

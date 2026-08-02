@@ -2,6 +2,11 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# The Docker keyring RUN below pipes curl into gpg. Without pipefail a
+# failed download still leaves gpg exiting 0 on empty input, and the build
+# continues with a keyring that cannot verify anything.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # Install SSH server, Python 3, sudo, cron (for backup schedule tests),
 # and prerequisites for Docker CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \

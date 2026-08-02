@@ -250,7 +250,6 @@ announce_upgrade() {
 
 detect_platform() {
     OS="$(uname -s)"
-    ARCH="$(uname -m)"
 
     IS_WSL=false
     if [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>/dev/null; then
