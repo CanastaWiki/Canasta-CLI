@@ -33,7 +33,7 @@ exclude_paths:
 #                         whatever umask is in play.
 # ignore-errors           deliberately NOT enabled yet: 24 sites, each needing
 #                         a judgment call about which failure is tolerable.
-#                         Tracked in #1413.
+#                         Tracked in #1417; add it here once they are done.
 enable_list:
   - risky-shell-pipe
   - no-changed-when
