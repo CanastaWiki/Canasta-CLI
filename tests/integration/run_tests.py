@@ -394,7 +394,7 @@ def test_upgrade(inst):
     )
 
     print("Running upgrade...")
-    output = inst.run_ok("upgrade")
+    inst.run_ok("upgrade")
 
     print("Verifying CANASTA_IMAGE backfilled...")
     env_after_upgrade = read_env(inst.env_path())

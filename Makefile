@@ -33,7 +33,11 @@ test: test-unit
 
 lint: venv
 	$(YAMLLINT) --strict meta/ roles/ playbooks/ inventory/ canasta.yml
-	$(RUFF) check --select F401 .
+	# Stage 1 of #1409: the full pyflakes set. F811/F821 caught a test
+	# class shadowing 27 tests and a helper calling an unimported
+	# module. --preview because several of these only fire there —
+	# F401 alone was already missing findings without it.
+	$(RUFF) check --select F --preview .
 	$(PYTHON) scripts/validate_definitions.py
 
 # --- Documentation -----------------------------------------------------------

@@ -1089,23 +1089,42 @@ class TestCrowdsecReportFormatting:
         assert self._stray_newlines(purge) == 0, "purge note must fold to one line"
 
 
-class TestCrowdsecAutoEnroll:
+class TestStartAutoEnrollsTheBouncer:
     def test_start_auto_enrolls_when_enabled_without_key(self):
         """Enabling CrowdSec should enroll the bouncer on the next start,
-        with no separate manual step — gated on the key being absent so it
-        is a no-op once enrolled."""
+        with no separate manual step.
+
+        Idempotency lives in bouncer_enroll rather than in a key-absence
+        gate here: on K8s, disabling CrowdSec prunes the engine PVC and
+        wipes the bouncer registration while the key persists in .env, so
+        re-enabling has to re-enroll even though a key is present."""
+        # start.yml used to include bouncer_enroll.yml directly. The
+        # enroll is now one shared, orchestrator-agnostic task that both
+        # start paths and create dispatch to, so follow the indirection
+        # rather than asserting the old shape.
         content = _read(os.path.join(
             REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml",
         ))
-        assert "tasks_from: bouncer_enroll.yml" in content, (
-            "start.yml must auto-enroll the bouncer via the crowdsec role"
+        assert "crowdsec_autoenroll.yml" in content, (
+            "start.yml must auto-enroll the bouncer when CrowdSec is on"
         )
-        assert "CANASTA_ENABLE_CROWDSEC" in content, (
+        autoenroll = _read(os.path.join(
+            REPO_ROOT, "roles", "orchestrator", "tasks",
+            "crowdsec_autoenroll.yml",
+        ))
+        assert "tasks_from: bouncer_enroll.yml" in autoenroll, (
+            "auto-enroll must reach the crowdsec role's bouncer_enroll"
+        )
+        assert "CANASTA_ENABLE_CROWDSEC" in autoenroll, (
             "auto-enroll must be gated on CrowdSec being enabled"
         )
-        assert "CROWDSEC_BOUNCER_API_KEY" in content, (
-            "auto-enroll must be gated on the bouncer key being absent so it "
-            "is idempotent and does not recurse through the restart"
+        assert "bouncer_enroll_auto: true" in autoenroll, (
+            "the auto path must mark itself so bouncer_enroll suppresses "
+            "its interactive hint and no-ops when already enrolled"
+        )
+        assert "CROWDSEC_BOUNCER_API_KEY" not in autoenroll, (
+            "auto-enroll is deliberately not gated on a stored key — see "
+            "the header comment in crowdsec_autoenroll.yml"
         )
 
     def test_enroll_waits_for_lapi_ready(self):

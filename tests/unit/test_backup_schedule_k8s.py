@@ -818,7 +818,6 @@ class TestK8sRestoreUsesWebPodForDbImport:
         """The k8s_get_pod include for the import-target lookup must
         use _k8s_component: web. Pre-fix it was 'db', which doesn't
         exist for external-DB instances."""
-        c = self._content()
         with open(self.RESTORE_K8S) as f:
             tasks = yaml.safe_load(f)
         for task in tasks:
