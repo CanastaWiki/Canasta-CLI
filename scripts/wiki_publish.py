@@ -26,10 +26,8 @@ import os
 import re
 import sys
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
-import http.client
 import http.cookiejar
 
 import yaml

@@ -1543,7 +1543,6 @@ def _gather_instance_info(inst_id, inst):
     if orchestrator in ("kubernetes", "k8s"):
         return _gather_k8s(inst_id, path, host)
 
-    compose_str = " ".join(compose_cmd)
     runtime = "podman" if "podman" in compose_cmd[0] else "docker"
     compose_ps = (
         "%(r)s ps --filter label=com.docker.compose.project=%(proj)s "

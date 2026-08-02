@@ -127,7 +127,6 @@ def command_to_text(cmd, global_flags=None):
         lines.append("Flags:")
         for p in params:
             flag = format_flag_name(p)
-            ptype = format_type_default(p)
             required = " (required)" if p.get("required") else ""
             if p.get("required_unless"):
                 required = " (required unless --%s)" % p["required_unless"]

@@ -54,27 +54,6 @@ def _named(path, needle):
 
 
 
-def _legacy_registry(tmp_dir):
-    """An instance recorded before the runtime fields existed."""
-    data = {"Instances": {"legacy": {
-        "id": "legacy",
-        "path": "/srv/canasta/legacy",
-        "orchestrator": "compose",
-        "host": "host1.example.com",
-        "devMode": True,
-        "buildFrom": "/src",
-        "dockerHost": "unix:///run/user/1001/podman/podman.sock",
-    }}}
-    with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
-        json.dump(data, f)
-    return data["Instances"]["legacy"]
-
-
-def _read_back(tmp_dir):
-    with open(os.path.join(tmp_dir, "conf.json")) as f:
-        return json.load(f)["Instances"]["legacy"]
-
-
 CONFIRM = "Confirm the recorded runtime against the instance's host"
 
 
