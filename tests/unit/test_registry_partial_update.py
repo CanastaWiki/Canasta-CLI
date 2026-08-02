@@ -153,8 +153,16 @@ class TestUpdateRefusesWhatItCannotMerge:
         assert _read_back(tmp_dir) == before
 
 
-class TestPresentStillReplaces:
-    """create owns the whole record and relies on this."""
+class TestPresentKeepsWhatItWasNotGiven:
+    """`present` rebuilds the record, but must not erase by omission.
+
+    create supplies the whole record, so `present` replacing it is right.
+    What is not right is dropping an optional field the caller left
+    unset: composeCommand and inspectCommand are discovered at runtime by
+    detect_runtime, dockerHost by the socket probe, devMode by
+    `devmode enable`. A caller that supplies one and not the other would
+    otherwise erase the rest.
+    """
 
     def test_it_preserves_fields_it_was_not_given(self, tmp_dir):
         _seed(tmp_dir)
@@ -194,3 +202,41 @@ class TestEveryStoredFieldCanBeUpdated:
         stored = set(canasta_registry.instance_to_dict(FULL))
         updatable = {key for key, _param in canasta_registry.UPDATABLE_FIELDS}
         assert stored - updatable == {"id", "path"}
+
+
+class TestThePreserveListCannotGoStale:
+    """A field added to instance_to_dict must be preserved automatically.
+
+    An earlier version listed the preserved keys by hand and covered
+    seven of the ten optional fields — host, devMode and managedCluster
+    were still erasable by exactly the mechanism the list existed to
+    prevent. Deriving the list removes the chance to forget; these tests
+    keep it derived.
+    """
+
+    def test_every_optional_field_is_preserved(self):
+        emitted = canasta_registry.instance_to_dict({
+            "id": "x", "path": "/x", "orchestrator": "compose",
+            "host": "h", "devMode": True, "managedCluster": True,
+            "registry": "r", "kindCluster": "k", "buildFrom": "/b",
+            "buildArgs": {"a": "1"}, "dockerHost": "d",
+            "composeCommand": "c", "inspectCommand": "i",
+        })
+        optional = {k for k in emitted if k not in ("id", "path",
+                                                    "orchestrator")}
+        assert optional == set(canasta_registry.preserved_on_present()), (
+            "instance_to_dict emits a field that state=present would drop "
+            "when the caller omits it"
+        )
+
+    def test_the_three_always_written_are_not_in_the_list(self):
+        # They are rebuilt from required parameters every time, so
+        # preserving them would be meaningless at best.
+        assert not (set(canasta_registry.preserved_on_present())
+                    & {"id", "path", "orchestrator"})
+
+    def test_it_covers_the_fields_the_hand_list_missed(self):
+        preserved = set(canasta_registry.preserved_on_present())
+        for field in ("host", "devMode", "managedCluster"):
+            assert field in preserved, (
+                "%s was erasable under the hand-maintained list" % field)
