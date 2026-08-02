@@ -396,28 +396,6 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     return _retry_on_ssh_reset(_attempt)
 
 
-def _start_or_noop(inst_id, inst):
-    """Run ``up -d`` if the instance is not already running, then wait for
-    the web container to become ready.
-
-    podman-compose's ``up -d`` fails with container name conflicts when
-    containers already exist. Check running state first with the same
-    logic ``canasta status`` uses, and skip the compose call entirely
-    when the instance is already running.
-    """
-    path = inst.get("path", "")
-    host = inst.get("host") or "localhost"
-    compose_cmd = _resolve_compose_cmd(inst)
-    docker_host = inst.get("dockerHost")
-    if _check_running_compose(path, host, docker_host, compose_cmd):
-        print("Instance '%s' is already running." % inst_id)
-        return 0
-    rc = _run_compose(inst_id, inst, ["up", "-d"])
-    if rc != 0:
-        return rc
-    return _wait_web_ready(inst_id, inst)
-
-
 # Profiles that Canasta derives from CANASTA_ENABLE_* feature flags.
 # (profile_name, flag_name, default_when_flag_unset)
 # Matches roles/orchestrator/tasks/sync_compose_profiles.yml.

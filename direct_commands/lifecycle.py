@@ -14,36 +14,51 @@ from ._helpers import register
 def cmd_start(args):
     inst_id, inst = _helpers._resolve_instance(args)
     if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+        # K8s start requires chart copy + helm deploy + config sync;
+        # these are multi-step controller-to-remote operations that
+        # need Ansible.
         return _helpers.FALLBACK
     if _helpers._instance_has_sidecars(inst):
-        return _helpers.FALLBACK
-    _helpers._sync_compose_profiles(inst)
+        return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
+    # Check if the instance is already running before attempting start.
     # podman-compose's `up -d` fails with container name conflicts when
-    # containers already exist. _start_or_noop checks first and skips the
-    # compose call, so starting a running instance is a no-op rather than
-    # an error.
-    rc = _helpers._start_or_noop(inst_id, inst)
+    # the containers already exist, unlike Docker Compose which treats
+    # them as a no-op.
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    docker_host = inst.get("dockerHost")
+    compose_cmd = _helpers._resolve_compose_cmd(inst)
+    if _helpers._check_running_compose(path, host, docker_host, compose_cmd):
+        print("Instance '%s' is already running." % inst_id)
+        return 0
+    _helpers._sync_compose_profiles(inst)
+    rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
     if rc != 0:
         _helpers._dump_compose_failure(inst)
-    return rc
+        return rc
+    return _helpers._wait_web_ready(inst_id, inst)
 
 
 @register("stop")
 def cmd_stop(args):
     inst_id, inst = _helpers._resolve_instance(args)
     if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+        # K8s stop suspends Argo CD sync and scales the instance's
+        # workloads to 0 — kubectl must run on the instance's host
+        # (where the cluster kubeconfig lives), not the controller.
+        # Ansible resolves the host and switches the connection.
         return _helpers.FALLBACK
     if _helpers._instance_has_sidecars(inst):
-        return _helpers.FALLBACK
-    # Check if the instance is already stopped before attempting stop.
-    path = inst.get("path", "")
-    host = inst.get("host") or "localhost"
-    compose_cmd = _helpers._resolve_compose_cmd(inst)
-    docker_host = inst.get("dockerHost")
-    if not _helpers._check_running_compose(path, host, docker_host, compose_cmd):
-        print("Instance '%s' is already stopped." % inst_id)
-        return 0
+        return _helpers.FALLBACK  # Ansible includes the sidecar -f layer.
+    # Reconcile COMPOSE_PROFILES before `down`: docker compose down only tears
+    # down services in the active profiles, so a drifted profile set leaves a
+    # running container as an unmanaged orphan. Sync first so `down` covers the
+    # full intended set.
     _helpers._sync_compose_profiles(inst)
+    # --remove-orphans sweeps a sidecar container left over from a sidecar
+    # that was just removed: sidecars.yaml is now empty (so we take this
+    # non-sidecar path), but its docker-compose.sidecars.yml entry and
+    # running container still linger and a plain `down` would not touch them.
     return _helpers._run_compose(inst_id, inst, ["down", "--remove-orphans"])
 
 
