@@ -93,11 +93,82 @@ class TestItRunsBeforeTheProbes:
         )
 
     def test_the_podman_branch_still_probes_the_runtime(self):
-        # Selecting podman early must land in the branch that registers
-        # _docker_check, or 'Fail if container runtime not available'
-        # fires on a perfectly good Podman host.
         task = _named("Check container runtime is available")
         assert "podman" in task["when"]
         inner = task["block"][0]
         assert inner["ansible.builtin.command"]["cmd"] == "podman info"
-        assert inner["register"] == "_docker_check"
+
+
+class TestTheProbesDoNotClobberEachOther:
+    """Two conditional probes sharing one register name is a live failure.
+
+    Exactly one of the two probe blocks runs; the other is skipped. A
+    skipped task still registers, and the result it stores has no `rc`
+    and no `stdout`. So when both blocks registered `_docker_check`, the
+    skipped one overwrote the successful one, `rc` fell back to the
+    `default(1)`, and `create` aborted with "No container runtime is
+    available" on a host where `podman info` had just succeeded.
+
+    The same clobbering emptied the `docker info` output that the disk
+    check parses its storage root from, silently skipping it.
+    """
+
+    def _registers(self):
+        """Every register name in the preflight, with its task name."""
+        found = []
+
+        def walk(tasks):
+            for t in tasks or []:
+                if "register" in t:
+                    found.append((t["register"], t.get("name")))
+                for key in ("block", "rescue", "always"):
+                    walk(t.get(key))
+
+        walk(_block_tasks())
+        return found
+
+    def test_no_register_name_is_used_twice(self):
+        names = [r for r, _ in self._registers()]
+        dupes = {n for n in names if names.count(n) > 1}
+        assert not dupes, (
+            "these registers are set by more than one task, so whichever "
+            "task is skipped will overwrite the other's result: %s"
+            % sorted(dupes)
+        )
+
+    def test_each_probe_registers_distinctly(self):
+        by_task = dict((n, r) for r, n in self._registers())
+        assert by_task["Probe podman info (compose_command is podman-based)"] \
+            != by_task["Probe docker info"]
+        assert by_task["Probe docker info"] \
+            != by_task["Probe podman info (fallback)"]
+
+    def test_the_failure_check_reads_the_collapsed_result(self):
+        # Reading any single probe register here is what broke: the one
+        # that answered may not be the one this task can see.
+        task = _named("Fail if container runtime not available")
+        assert "_runtime_check" in str(task["when"])
+        for probe in ("_podman_only_probe", "_docker_probe",
+                      "_podman_fallback_probe"):
+            assert probe not in str(task["when"])
+
+    def test_the_collapsed_result_keeps_only_a_probe_that_succeeded(self):
+        expr = _named("Record the runtime probe that answered")[
+            "ansible.builtin.set_fact"]["_runtime_check"]
+        assert "selectattr('rc', 'defined')" in expr, (
+            "a skipped probe has no rc and must be filtered out"
+        )
+        assert "selectattr('rc', 'equalto', 0)" in expr
+
+    def test_docker_outranks_the_podman_fallback(self):
+        # On a host running both, the recorded storage root must describe
+        # the runtime create will actually use.
+        expr = _named("Record the runtime probe that answered")[
+            "ansible.builtin.set_fact"]["_runtime_check"]
+        assert expr.index("_docker_probe") < expr.index(
+            "_podman_fallback_probe")
+
+    def test_the_storage_root_reads_the_collapsed_result(self):
+        expr = _named("Resolve container storage root")[
+            "ansible.builtin.set_fact"]["_docker_root_dir"]
+        assert "_runtime_check.stdout" in expr
