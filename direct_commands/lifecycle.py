@@ -14,12 +14,9 @@ from ._helpers import register
 def cmd_start(args):
     inst_id, inst = _helpers._resolve_instance(args)
     if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
-        # K8s start requires chart copy + helm deploy + config sync;
-        # these are multi-step controller-to-remote operations that
-        # need Ansible.
         return _helpers.FALLBACK
     if _helpers._instance_has_sidecars(inst):
-        return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
+        return _helpers.FALLBACK
     _helpers._sync_compose_profiles(inst)
     # podman-compose's `up -d` fails with container name conflicts when
     # containers already exist. _start_or_noop checks first and skips the
@@ -28,10 +25,7 @@ def cmd_start(args):
     rc = _helpers._start_or_noop(inst_id, inst)
     if rc != 0:
         _helpers._dump_compose_failure(inst)
-        return rc
-    # Still gate on readiness after a no-op: the caller's next step runs
-    # against the wiki either way.
-    return _helpers._wait_web_ready(inst_id, inst)
+    return rc
 
 
 @register("stop")
