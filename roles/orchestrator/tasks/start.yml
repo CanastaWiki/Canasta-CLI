@@ -71,6 +71,12 @@
              | join(' ') }}
       when: compose_command is search('podman')
 
+    # Before anything starts: db exits immediately when MYSQL_PASSWORD is
+    # absent from .env, and the message it prints names MariaDB variables
+    # the operator never set.
+    - name: Heal a missing database password
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/heal_mysql_password.yml"
+
     - name: Check if already running
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_running.yml"
 
