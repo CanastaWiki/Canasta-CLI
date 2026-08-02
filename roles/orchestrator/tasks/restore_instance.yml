@@ -320,7 +320,7 @@
     # than fail the whole restore, which already succeeded.
     - name: Check git-crypt lock state
       ansible.builtin.shell:
-        cmd: "head -c 10 hosts/hosts.yaml 2>/dev/null | od -An -tx1 | tr -d ' \\n'"
+        cmd: "set -o pipefail; head -c 10 hosts/hosts.yaml 2>/dev/null | od -An -tx1 | tr -d ' \\n'"
       args:
         chdir: "{{ instance_path }}"
         executable: /bin/bash

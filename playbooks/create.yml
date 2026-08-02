@@ -39,6 +39,7 @@
         - instance_path is defined
         - not (keep_config | default(false) | bool)
         - (orchestrator | default('compose')) == 'compose'
+      changed_when: true
       ignore_errors: true  # Best-effort cleanup on failure
 
     - name: Clean up on failure (uninstall Helm release)
@@ -47,6 +48,7 @@
       when:
         - not (keep_config | default(false) | bool)
         - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+      changed_when: true
       ignore_errors: true  # Best-effort cleanup on failure
 
     - name: Clean up on failure (delete K8s namespace)
@@ -55,6 +57,7 @@
       when:
         - not (keep_config | default(false) | bool)
         - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+      changed_when: true
       ignore_errors: true  # Best-effort cleanup on failure
 
     # Rootless Podman maps the container's root to a subuid, so files the
@@ -105,6 +108,7 @@
         - instance_path is defined
         - not (keep_config | default(false) | bool)
         - instance_dir_was_created | default(false) | bool
+      changed_when: true
       ignore_errors: true  # Best-effort cleanup on failure
 
     - name: Deregister instance on failure

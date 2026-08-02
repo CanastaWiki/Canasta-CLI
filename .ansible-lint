@@ -1,0 +1,54 @@
+---
+# Narrow by design, in the spirit of ruff.toml. The default rule set
+# reports 1191 findings on this repo, 908 of them `no-role-prefix` — a
+# variable-naming convention whose adoption would mean renaming hundreds
+# of variables across every role for no behavioral change, and 128
+# `command-instead-of-module`, where shelling out to docker/kubectl/git is
+# the deliberate design (that is what exec.yml exists for).
+#
+# What is enabled here is the subset about correctness rather than style.
+# Widen it deliberately, the way #1409 widened ruff, rather than by
+# turning the default set on.
+#
+# See #1413.
+
+# Everything under playbooks/ is a task file included from canasta.yml,
+# not a play. Without this, ansible-lint parses each as a playbook and
+# reports every task keyword as "not a valid attribute for a Play".
+kinds:
+  - tasks: "playbooks/*.yml"
+
+exclude_paths:
+  - .claude/
+  - .venv/
+  - tests/integration/
+
+# risky-shell-pipe        a pipeline reports its LAST command's status, so a
+#                         failing command mid-pipe passes silently unless
+#                         pipefail is set. This hid a restore that could
+#                         report success having imported nothing.
+# no-changed-when         a command task that always reports "changed" makes
+#                         --check and idempotency claims meaningless.
+# risky-file-permissions  a file created without an explicit mode inherits
+#                         whatever umask is in play.
+# ignore-errors           deliberately NOT enabled yet: 24 sites, each needing
+#                         a judgment call about which failure is tolerable.
+#                         Tracked in #1413.
+enable_list:
+  - risky-shell-pipe
+  - no-changed-when
+  - risky-file-permissions
+
+skip_list:
+  # add_host in canasta.yml is inherently a once-per-run action; the rule
+  # only matters under `strategy: free`, which this repo does not use.
+  - run-once
+  - no-role-prefix
+  - command-instead-of-module
+  - command-instead-of-shell
+  - no-handler
+  - name
+  - ignore-errors
+  - jinja
+  - var-naming
+  - yaml
