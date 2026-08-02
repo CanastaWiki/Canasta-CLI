@@ -34,6 +34,14 @@ def cmd_start(args):
     _helpers._sync_compose_profiles(inst)
     rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
     if rc != 0:
+        if _helpers._missing_db_password(inst):
+            # db exits immediately without it. Whether generating a
+            # replacement is safe depends on there being no database to
+            # lock out, which the Ansible path decides — hand the broken
+            # case over rather than duplicating that judgement here.
+            # Checked only on failure: on a remote instance reading .env
+            # is an SSH round trip.
+            return _helpers.FALLBACK
         _helpers._dump_compose_failure(inst)
         return rc
     return _helpers._wait_web_ready(inst_id, inst)

@@ -396,6 +396,24 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     return _retry_on_ssh_reset(_attempt)
 
 
+def _missing_db_password(inst):
+    """True when .env has no usable MYSQL_PASSWORD.
+
+    db exits immediately without it, and healing needs to know whether a
+    database volume already exists before deciding whether generating a
+    replacement is safe. That check lives in the Ansible path
+    (orchestrator/tasks/heal_mysql_password.yml) rather than being
+    duplicated here, so this only has to detect the condition.
+    """
+    env = _read_env_file(inst.get("path", ""), inst.get("host") or "localhost")
+    if not env:
+        # Unreadable or absent .env is a different problem, and treating
+        # it as this one would swallow the compose failure the caller is
+        # about to report. A real instance's .env has many keys.
+        return False
+    return not (env.get("MYSQL_PASSWORD") or "").strip()
+
+
 # Profiles that Canasta derives from CANASTA_ENABLE_* feature flags.
 # (profile_name, flag_name, default_when_flag_unset)
 # Matches roles/orchestrator/tasks/sync_compose_profiles.yml.
