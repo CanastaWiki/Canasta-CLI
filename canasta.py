@@ -929,15 +929,17 @@ def check_create_precondition(args):
 def _runs_under_podman(instance):
     """True when this instance's compose calls need Podman tooling.
 
-    Any of the three can say so: an explicit podman compose_command, a
-    podman inspect_command, or a dockerHost pointing at Podman's socket
-    — the last because a legacy record with neither command set has its
-    runtime inferred from the socket.
+    Asks the same resolver the compose calls go through rather than
+    testing the registry fields directly. Those fields are a precedence
+    chain — an explicit composeCommand wins over .env, which wins over
+    inspectCommand, which wins over the dockerHost socket — so reading
+    them as a set disagrees with reality at both ends: an instance
+    recorded as `docker compose` against a Podman socket really does run
+    `docker compose` (which the container has), and one whose only
+    statement is `compose_command` in .env really does need
+    podman-compose.
     """
-    return any(
-        "podman" in (instance.get(key) or "")
-        for key in ("composeCommand", "inspectCommand", "dockerHost")
-    )
+    return "podman" in " ".join(_resolve_compose_cmd(instance))
 
 
 def check_docker_mode_can_reach_runtime(args):

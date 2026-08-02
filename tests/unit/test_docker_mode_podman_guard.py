@@ -112,6 +112,17 @@ class TestItRefusesALocalPodmanInstance:
         registry({"leg": legacy})
         assert _refuses(_args(id="leg")) == 1
 
+    def test_a_compose_command_stated_only_in_env_is_caught(self, registry,
+                                                            tmp_path):
+        # The registry says nothing about the runtime, but .env does, and
+        # the resolver reads it for local instances. Testing the registry
+        # fields alone would let this through to fail at runtime.
+        (tmp_path / ".env").write_text("compose_command=podman-compose\n")
+        inst = {"id": "envy", "path": str(tmp_path), "host": "localhost",
+                "orchestrator": "compose"}
+        registry({"envy": inst})
+        assert _refuses(_args(id="envy")) == 1
+
 
 class TestItDoesNotRefuseAnythingElse:
     def _ok(self, args):
@@ -125,6 +136,17 @@ class TestItDoesNotRefuseAnythingElse:
     def test_a_local_docker_instance_is_allowed(self, registry):
         registry({"doc1": DOCKER_LOCAL})
         self._ok(_args(id="doc1"))
+
+    def test_docker_compose_against_a_podman_socket_is_allowed(self, registry):
+        # The #1390 mis-recording shape, and also how canasta-docker on a
+        # Podman-only host legitimately works: the wrapper mounts the
+        # Podman socket at /var/run/docker.sock and `docker compose` --
+        # which the container has -- drives it. An explicit composeCommand
+        # outranks the socket, so this must not be blocked.
+        inst = dict(DOCKER_LOCAL, id="mixed",
+                    dockerHost="unix:///run/user/1000/podman/podman.sock")
+        registry({"mixed": inst})
+        self._ok(_args(id="mixed"))
 
     def test_native_mode_is_never_blocked(self, registry):
         # Native mode runs podman-compose from the host, where it exists.
