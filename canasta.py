@@ -64,7 +64,7 @@ def _ca_bundle_override(environ, verify_paths, path_exists, certifi_where):
         return None
     cafile = verify_paths.cafile
     capath = verify_paths.capath
-    if ( cafile and path_exists( cafile ) ) or ( capath and path_exists( capath ) ):
+    if (cafile and path_exists(cafile)) or (capath and path_exists(capath)):
         return None
     return certifi_where()
 

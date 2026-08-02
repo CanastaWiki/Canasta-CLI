@@ -111,6 +111,7 @@ def _group_subcommands(group_name):
             return list(nested[parts[1]])
     return []
 
+
 CMD_GROUPS = [
     ("System", ["install", "doctor", "host", "storage", "argocd", "uninstall"]),
     ("Instance management", [

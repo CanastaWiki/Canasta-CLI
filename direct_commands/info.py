@@ -177,6 +177,7 @@ def cmd_list(args):
     _helpers._print_table(details)
     return 0
 
+
 def _describe_unread_version(inst_id, inst, path, orchestrator, host):
     """Why the running version could not be read.
 
@@ -395,6 +396,7 @@ def cmd_version(args):
         print("Instance '%s': %s" % (iid, image))
     return 0
 
+
 def _resolve_status_instance(args):
     """Pick the instance the user wants status for: --id wins, otherwise
     detect it from the working directory, walking up parent dirs so it
@@ -428,6 +430,7 @@ def _kubectl_section(host, ns, cmd_args, label):
     if not out.strip():
         return (label, "(none)")
     return (label, out.rstrip())
+
 
 @register("status")
 def cmd_status(args):

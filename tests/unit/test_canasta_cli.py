@@ -231,7 +231,6 @@ class TestResolveCommandName:
         assert name == "gitops_fix_submodules"
 
 
-
 class TestGlobalFlags:
     def test_verbose_before_command(self):
         """--verbose before command should be parsed by the global parser."""

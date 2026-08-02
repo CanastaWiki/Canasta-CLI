@@ -53,7 +53,6 @@ def _named(path, needle):
          if needle.lower() in str(t.get("name", "")).lower()), None)
 
 
-
 CONFIRM = "Confirm the recorded runtime against the instance's host"
 
 
@@ -144,6 +143,7 @@ class TestTheProbeAsksTheHost:
         task = _named(DETECT, "Record the detected runtime")
         assert task["delegate_to"] == "canasta_controller"
         assert task["vars"]["ansible_connection"] == "local"
+
 
 class TestAPodmanSocketIsNotAskedAboutDocker:
     def test_the_socket_is_noted_before_probing(self):

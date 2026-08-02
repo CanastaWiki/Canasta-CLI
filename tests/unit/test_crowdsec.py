@@ -1649,5 +1649,3 @@ class TestBouncerEnrollForceGuard:
         when = " ".join(str(self._enroll_task().get("when", "")).split())
         assert "_crowdsec_existing" in when
         assert "_crowdsec_have_key" in when
-
-
