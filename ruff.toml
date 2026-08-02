@@ -8,16 +8,35 @@
 # shadowed another (hiding 2 tests, one of them failing), and a helper
 # called an unimported module. Stage 2: whitespace and blank lines — the
 # class that let three stray blank lines through a rebase unnoticed.
+# Stage 3: line length, as a ceiling rather than the house style.
 extend-exclude = [".claude"]
 
 # Several selected rules only fire under preview, including two of the
 # F401 findings the narrower gate was missing.
 preview = true
 
+# A ceiling, not the house style. The code already writes to about 79:
+# 95% of lines are under 76 and 99.9% under 98. Enforcing 79 would flag
+# 976 lines and 88 would flag 184 — too large to land as one reviewable
+# change, and mass-reflowing working code is a poor trade.
+#
+# 120 catches only the outliers that are genuinely hard to read; the worst
+# was 233 characters. Ratchet it down in its own change when someone wants
+# to: 100 costs 41 fixes, 88 costs 184, 79 costs 976.
+line-length = 120
+
 [lint]
 # F      pyflakes in full — undefined names, redefinitions, unused imports
 # E1/E2  indentation and whitespace
 # E3     blank lines
+# E5     line length (see the ceiling above)
 # W2/W3  trailing whitespace, blank line at end of file
 # W6     deprecated constructs
-select = ["F", "E1", "E2", "E3", "W2", "W3", "W6"]
+select = ["F", "E1", "E2", "E3", "E5", "W2", "W3", "W6"]
+
+[lint.per-file-ignores]
+# _DOCTOR_SCRIPT is a shell script embedded in a triple-quoted string. Its
+# lines are single pipelines that break if wrapped, and `# noqa` cannot
+# apply inside a string literal — it would become shell text, not a
+# directive.
+"direct_commands/doctor.py" = ["E501"]

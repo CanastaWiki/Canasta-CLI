@@ -181,7 +181,10 @@ def test_an_editable_conflict_is_not_given_the_long_recipe():
 
 
 def test_classification_is_on_the_file_not_on_what_is_registered():
-    cmd = _named(_explainer(), "Collect conflicted paths before the rebase is rolled back")["ansible.builtin.shell"]["cmd"]
+    cmd = _named(
+        _explainer(),
+        "Collect conflicted paths before the rebase is rolled back",
+    )["ansible.builtin.shell"]["cmd"]
     # A registered driver that failed closed leaves no markers and one side
     # only. Trusting the registration would call that editable, and the
     # operator would save it and silently drop the other host's change.
@@ -192,7 +195,10 @@ def test_classification_is_on_the_file_not_on_what_is_registered():
 
 
 def test_the_long_recipe_survives_for_conflicts_with_no_markers():
-    cmd = _named(_explainer(), "Collect conflicted paths before the rebase is rolled back")["ansible.builtin.shell"]["cmd"]
+    cmd = _named(
+        _explainer(),
+        "Collect conflicted paths before the rebase is rolled back",
+    )["ansible.builtin.shell"]["cmd"]
     assert "printf 'encrypted" in cmd, (
         "an older CLI, or a driver that failed closed, still needs the full "
         "recipe — the file holds one side and no markers"
