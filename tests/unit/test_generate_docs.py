@@ -23,8 +23,11 @@ SAMPLE_DEFINITIONS = {
             "playbook": "create.yml",
             "parameters": [
                 {"name": "id", "short": "i", "type": "string", "required": True, "description": "Instance ID"},
-                {"name": "wiki", "short": "w", "type": "string", "required_unless": "yamlfile", "description": "Wiki ID"},
-                {"name": "orchestrator", "short": "o", "type": "choice", "choices": ["compose", "kubernetes"], "default": "compose", "description": "Orchestrator"},
+                {"name": "wiki", "short": "w", "type": "string",
+                 "required_unless": "yamlfile", "description": "Wiki ID"},
+                {"name": "orchestrator", "short": "o", "type": "choice",
+                 "choices": ["compose", "kubernetes"],
+                 "default": "compose", "description": "Orchestrator"},
                 {"name": "password", "type": "string", "sensitive": True, "description": "Admin password"},
             ],
         },
