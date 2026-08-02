@@ -26,3 +26,6 @@ inventory/hosts.yml
 # Version metadata captured at install time (Makefile: build-info)
 BUILD_COMMIT
 BUILD_DATE
+
+# ansible-lint writes its collection/module cache here.
+.ansible/

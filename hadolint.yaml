@@ -1,0 +1,14 @@
+---
+# Fail on warnings, not just errors: the findings worth having here
+# (pipes without pipefail, bad chown/copy) are warnings.
+failure-threshold: warning
+format: tty
+no-color: true
+
+ignored:
+  # Pin versions in apt-get install. The only Dockerfiles here that
+  # install packages are throwaway integration-test images built from
+  # ubuntu:24.04 on demand; pinned versions would rot out of the archive
+  # within weeks and break CI for no safety gained. The shipped images
+  # (images/caddy) pin by digest-bearing base tag instead.
+  - DL3008

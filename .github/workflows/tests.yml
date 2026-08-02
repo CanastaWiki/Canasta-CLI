@@ -410,11 +410,11 @@ jobs:
           LEG: ${{ matrix.leg }}
         run: |
           case "$LEG" in
-            "config & farms") tests="extension-skin wiki-farm config-side-effects" ;;
-            "backup & ops")   tests="backup backup-advanced sitemap maintenance" ;;
+            "config & farms") tests=(extension-skin wiki-farm config-side-effects) ;;
+            "backup & ops")   tests=(backup backup-advanced sitemap maintenance) ;;
             *) echo "unknown feature leg: $LEG" >&2; exit 1 ;;
           esac
-          .venv/bin/python tests/integration/run_tests.py $tests
+          .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
         timeout-minutes: 20
 
   integration-gitops:
@@ -431,7 +431,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y git-crypt
           sudo groupadd -f www-data
-          sudo usermod -aG www-data $(whoami)
+          sudo usermod -aG www-data "$(whoami)"
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install kubernetes
@@ -726,13 +726,25 @@ jobs:
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install yamllint
 
-      - name: YAML lint
-        run: >-
-          .venv/bin/yamllint --strict -c .yamllint.yml
-          meta/ roles/ playbooks/ inventory/ canasta.yml
+      # One target, so CI and a local `make lint` cannot disagree. They
+      # had: this job still passed `--select F401`, which overrides
+      # ruff.toml and silently ran a weaker check than the Makefile, and
+      # it never ran ansible-lint at all.
+      - name: Lint (yamllint, ruff, ansible-lint, definitions)
+        run: make lint
 
-      - name: Python unused-import check
-        run: .venv/bin/ruff check --select F401 .
+      - name: Shell lint
+        uses: docker://koalaman/shellcheck:stable
+        with:
+          args: --severity=info canasta-docker canasta-native get-canasta.sh
 
-      - name: Validate definitions
-        run: .venv/bin/python scripts/validate_definitions.py
+      - name: Workflow lint
+        uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color=false
+
+      - name: Dockerfile lint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          recursive: true
+          config: hadolint.yaml
