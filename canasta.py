@@ -926,6 +926,91 @@ def check_create_precondition(args):
     sys.exit(EXIT_ALREADY_EXISTS)
 
 
+def _runs_under_podman(instance):
+    """True when this instance's compose calls need Podman tooling.
+
+    Asks the same resolver the compose calls go through rather than
+    testing the registry fields directly. Those fields are a precedence
+    chain — an explicit composeCommand wins over .env, which wins over
+    inspectCommand, which wins over the dockerHost socket — so reading
+    them as a set disagrees with reality at both ends: an instance
+    recorded as `docker compose` against a Podman socket really does run
+    `docker compose` (which the container has), and one whose only
+    statement is `compose_command` in .env really does need
+    podman-compose.
+    """
+    return "podman" in " ".join(_resolve_compose_cmd(instance))
+
+
+def check_docker_mode_can_reach_runtime(args):
+    """Refuse a Podman instance that is local to a Docker-mode controller.
+
+    In Docker mode the CLI runs inside the canasta-ansible container,
+    which ships docker and `docker compose` but no podman-compose. For a
+    *remote* instance that does not matter — compose runs on the target
+    over SSH, where podman-compose lives. For an instance local to the
+    controller the compose call runs in the container and dies partway
+    through with a bare `rc=127`, after stack files have already been
+    rewritten.
+
+    Installing podman-compose on the host does not help: the command
+    runs inside the container, and only the socket, the registry, $HOME
+    and the working directory are mounted — not host binaries. So the
+    honest answer is to refuse up front and name the native CLI.
+    """
+    if os.environ.get("CANASTA_RUN_MODE") != "docker":
+        return
+    conf_file = get_config_file_path()
+    if not os.path.isfile(conf_file):
+        return
+    instances = canasta_config.read_config(
+        get_config_dir()).get("Instances", {})
+
+    # Scope to the instance the command names; commands that take no
+    # target (upgrade) act on every registered instance, so check them
+    # all rather than letting one bad record fail the run halfway.
+    inst_id = getattr(args, "id", None)
+    if inst_id:
+        candidates = {inst_id: instances[inst_id]} if inst_id in instances else {}
+    else:
+        inst_path = getattr(args, "path", None)
+        if inst_path:
+            target = os.path.abspath(inst_path)
+            candidates = {
+                k: v for k, v in instances.items()
+                if os.path.abspath(v.get("path", "")) == target
+            }
+        else:
+            candidates = instances
+
+    blocked = sorted(
+        k for k, v in candidates.items()
+        if v.get("orchestrator", "compose") == "compose"
+        and v.get("host") in ("localhost", "", None)
+        and _runs_under_podman(v)
+    )
+    if not blocked:
+        return
+
+    print(
+        "Error: %s runs under Podman on this controller, which the "
+        "Docker-mode CLI cannot manage.\n"
+        "The CLI runs inside a container that has no podman-compose, and "
+        "installing one on the host does not reach it.\n"
+        "Install the native CLI to manage %s:\n"
+        "  curl -fsSL https://get.canasta.wiki | bash -s -- --native\n"
+        "Instances on remote hosts are unaffected — their compose "
+        "commands run on the target."
+        % (
+            "instance '%s'" % blocked[0] if len(blocked) == 1
+            else "instances %s" % ", ".join("'%s'" % b for b in blocked),
+            "it" if len(blocked) == 1 else "them",
+        ),
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def _redirect_stdin_from_file(path):
     """Point fd 0 at `path` so the about-to-be-exec'd command reads it as
     stdin. Used by `maintenance exec --stdin-file`. No-op when path is unset.
@@ -1776,6 +1861,11 @@ def main():
     # as a backstop).
     if command_name == "create":
         check_create_precondition(args)
+
+    # Pre-flight: the Docker-mode CLI cannot drive a Podman instance that
+    # is local to this controller. Refuse before either path starts, so
+    # the operator gets the reason instead of a mid-operation rc=127.
+    check_docker_mode_can_reach_runtime(args)
 
     # Interactive exec: bypass Ansible for TTY support.
     if command_name == "maintenance_exec":
