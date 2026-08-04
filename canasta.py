@@ -1865,7 +1865,12 @@ def main():
     # Pre-flight: the Docker-mode CLI cannot drive a Podman instance that
     # is local to this controller. Refuse before either path starts, so
     # the operator gets the reason instead of a mid-operation rc=127.
-    check_docker_mode_can_reach_runtime(args)
+    # `install` is exempt: it never drives an instance's compose stack —
+    # in Docker mode the wrapper only lets it through when it targets a
+    # remote host (booting canasta-native there to run the install), so
+    # a local Podman instance is irrelevant to it.
+    if command_name != "install":
+        check_docker_mode_can_reach_runtime(args)
 
     # Interactive exec: bypass Ansible for TTY support.
     if command_name == "maintenance_exec":

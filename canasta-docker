@@ -24,30 +24,6 @@ set -euo pipefail
 CANASTA_CLI_BIN="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 export CANASTA_CLI_BIN
 
-# `canasta install` provisions software ON THE HOST — k3s as a systemd
-# unit, the docker engine package, etc. That work can't run inside the
-# canasta-ansible container, which has no systemd and no privilege over
-# the host package manager. Reject these commands early with a clear
-# pointer to the supported alternatives, instead of failing later with
-# a cryptic "Can not find systemd" from the k3s installer.
-if [[ "${1:-}" == "install" ]]; then
-    cat >&2 <<'INSTALL_GUARD_EOF'
-Error: 'canasta install' is not supported in canasta-docker mode.
-
-These commands install system packages on the host (k3s as a systemd
-unit, docker engine, etc.) which can't run from inside a container.
-
-Either:
-  - Use canasta-native:
-      curl -fsSL https://get.canasta.wiki | bash -s -- --native
-  - Or install the dependency manually on the host (e.g.
-      curl -sfL https://get.k3s.io | sh -
-    for k3s) and use canasta-docker for the rest of the workflow
-    (create, start, backup, restore, etc.).
-INSTALL_GUARD_EOF
-    exit 1
-fi
-
 # CANASTA_CLI_IMAGE is the post-rename name; CANASTA_ANSIBLE_IMAGE
 # remains a backwards-compatible fallback for users who already
 # set the old name in their environment. When either is set the user has
@@ -69,6 +45,104 @@ fi
 
 # Ensure config directory exists
 mkdir -p "$CONFIG_DIR"
+
+# `canasta install` provisions software ON THE HOST — k3s as a systemd
+# unit, the docker engine package, etc. That work can't run inside the
+# canasta-ansible container, which has no systemd and no privilege over
+# the host package manager. A LOCAL install is impossible here and is
+# rejected up front with a pointer to the supported alternatives.
+#
+# A REMOTE install is fine: the playbook runs over SSH on the target
+# (-H/--host, or -i/--id, which the CLI resolves to the instance's
+# registered host), where systemd and root exist. The wrapper only needs
+# to tell the two apart, so it resolves the target and passes the
+# command through to the container unchanged.
+INSTALL_TARGET_HOST=""
+INSTALL_INSTANCE=""
+if [[ "${1:-}" == "install" ]]; then
+    _install_argv=("$@")
+    _install_pos=1
+    while [[ $_install_pos -lt ${#_install_argv[@]} ]]; do
+        case "${_install_argv[$_install_pos]}" in
+            -H|--host)
+                _install_pos=$((_install_pos + 1))
+                if [[ $_install_pos -lt ${#_install_argv[@]} ]]; then
+                    INSTALL_TARGET_HOST="${_install_argv[$_install_pos]}"
+                fi
+                _install_pos=$((_install_pos + 1))
+                ;;
+            -H=*|--host=*)
+                INSTALL_TARGET_HOST="${_install_argv[$_install_pos]#*=}"
+                _install_pos=$((_install_pos + 1))
+                ;;
+            -i|--id)
+                _install_pos=$((_install_pos + 1))
+                if [[ $_install_pos -lt ${#_install_argv[@]} ]]; then
+                    INSTALL_INSTANCE="${_install_argv[$_install_pos]}"
+                fi
+                _install_pos=$((_install_pos + 1))
+                ;;
+            -i=*|--id=*)
+                INSTALL_INSTANCE="${_install_argv[$_install_pos]#*=}"
+                _install_pos=$((_install_pos + 1))
+                ;;
+            *)
+                _install_pos=$((_install_pos + 1))
+                ;;
+        esac
+    done
+
+    # Resolve a bare -i/--id to its registered host so the wrapper can
+    # tell a remote install (pass through) from a local one (reject).
+    if [[ -n "$INSTALL_INSTANCE" && -z "$INSTALL_TARGET_HOST" ]]; then
+        if [[ -f "$CONFIG_DIR/conf.json" ]] && command -v python3 &>/dev/null; then
+            INSTALL_TARGET_HOST="$(python3 -c "
+import json, sys
+try:
+    with open('$CONFIG_DIR/conf.json') as f:
+        data = json.load(f)
+    inst = data.get('Instances', {}).get('$INSTALL_INSTANCE', {})
+    print(inst.get('host', ''))
+except Exception:
+    pass
+" 2>/dev/null || true)"
+        elif [[ -f "$CONFIG_DIR/conf.json" ]]; then
+            INSTALL_TARGET_HOST="$(grep -A15 "\"$INSTALL_INSTANCE\"" "$CONFIG_DIR/conf.json" 2>/dev/null \
+                | grep '"host"' | head -1 \
+                | sed 's/.*"host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' \
+                || true)"
+        fi
+    fi
+
+    if [[ -z "$INSTALL_TARGET_HOST" \
+        || "$INSTALL_TARGET_HOST" == "localhost" \
+        || "$INSTALL_TARGET_HOST" == "127.0.0.1" ]]; then
+        if [[ -z "$INSTALL_TARGET_HOST" && -n "$INSTALL_INSTANCE" ]]; then
+            echo "Error: instance '$INSTALL_INSTANCE' is not registered, so there is no" >&2
+            echo "host to install on. Register it with 'canasta create' or 'canasta host add'." >&2
+        else
+            cat >&2 <<'INSTALL_GUARD_EOF'
+Error: 'canasta install' is not supported in canasta-docker mode.
+
+These commands install system packages on the host (k3s as a systemd
+unit, docker engine, etc.) which can't run from inside a container.
+
+Either:
+  - Use canasta-native:
+      curl -fsSL https://get.canasta.wiki | bash -s -- --native
+  - Or install the dependency manually on the host (e.g.
+      curl -sfL https://get.k3s.io | sh -
+    for k3s) and use canasta-docker for the rest of the workflow
+    (create, start, backup, restore, etc.).
+
+Or install on a remote host with:
+      canasta install <package> -i <instance-id>
+which runs the install over SSH on the host where the instance lives.
+INSTALL_GUARD_EOF
+        fi
+        exit 1
+    fi
+fi
 
 # Select the canasta-ansible image. The channel (release vs dev) is pinned
 # by 'canasta upgrade' in $CONFIG_DIR/cli_image_tag and applies to every
