@@ -57,14 +57,22 @@
           curl -LsSf https://astral.sh/uv/install.sh | sh
       when: _uv_install is failed
 
-- name: Warn if ~/.local/bin is not in persistent PATH
-  ansible.builtin.debug:
-    msg: >-
-      WARNING: {{ _install_home }}/.local/bin is not in your shell PATH.
-      Add this to your ~/.profile (or ~/.bashrc):
-        export PATH="$HOME/.local/bin:$PATH"
-      Then log out and back in (or run 'source ~/.profile') so that
-      uv-installed tools are available.
+- name: Add ~/.local/bin to PATH in ~/.profile
+  ansible.builtin.lineinfile:
+    path: "{{ _install_home }}/.profile"
+    regexp: '^\s*export\s+PATH=.*\.local/bin'
+    line: 'export PATH="$HOME/.local/bin:$PATH"'
+    create: true
+    mode: "0644"
+  when: "_install_home ~ '/.local/bin' not in lookup('env', 'PATH') | default('')"
+
+- name: Add ~/.local/bin to PATH in ~/.bashrc
+  ansible.builtin.lineinfile:
+    path: "{{ _install_home }}/.bashrc"
+    regexp: '^\s*export\s+PATH=.*\.local/bin'
+    line: 'export PATH="$HOME/.local/bin:$PATH"'
+    create: true
+    mode: "0644"
   when: "_install_home ~ '/.local/bin' not in lookup('env', 'PATH') | default('')"
 
 - name: Install requested tools via uv
