@@ -37,7 +37,8 @@ command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo MISSING; echo "$D"
-command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING
+command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING; echo "$D"
+command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING
 """
 
 
@@ -108,6 +109,7 @@ def _parse_doctor(stdout, hostname):
     # Privilege escalation, appended so the indices above are unchanged.
     sudo_version = p(23) if len(parts) > 23 else "MISSING"
     sudo_nopasswd = p(24) if len(parts) > 24 else "MISSING"
+    podman_compose_version = p(25) if len(parts) > 25 else "MISSING"
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -186,6 +188,37 @@ def _parse_doctor(stdout, hostname):
         else:
             lines.append(
                 "  Podman:          %s (version unknown)" % ver
+            )
+
+    if podman_compose_version not in ("MISSING", ""):
+        pc_ver = podman_compose_version
+        # podman-compose version prints two lines:
+        #   "podman version 5.4.2"
+        #   "podman-compose version 1.3.0"
+        # We must match the *second* line, not the first.
+        m = re.search(r'podman-compose version\s+(\d+\.\d+\.\d+)', pc_ver)
+        if m:
+            pc_ver_str = m.group(1)
+            pc_ver_parts = [int(x) for x in pc_ver_str.split(".")]
+            while len(pc_ver_parts) < 3:
+                pc_ver_parts.append(0)
+            if pc_ver_parts == [1, 3, 0]:
+                lines.append(
+                    "  Podman Compose:  %s — WARNING: podman-compose 1.3.0 "
+                    "has a known bug where ${VAR:-default} is passed "
+                    "literally to containers when VAR is unset. This "
+                    "breaks Canasta's docker-compose.yml defaults. "
+                    "Upgrade to >= 1.3.1, or install via: canasta "
+                    "install uv:podman-compose -H <host>"
+                    % pc_ver_str
+                )
+            else:
+                lines.append(
+                    "  Podman Compose:  %s (OK)" % pc_ver_str
+                )
+        else:
+            lines.append(
+                "  Podman Compose:  %s" % pc_ver
             )
 
     lines.append("")
