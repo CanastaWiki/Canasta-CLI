@@ -1,0 +1,48 @@
+---
+# Make a regenerated Caddyfile (or a hand-edited Caddyfile.site) reach the
+# running Caddy without bouncing the instance.
+#
+# Compose bind-mounts both files, so `docker compose up -d` sees no change to
+# the service definition and never recreates the container — the new config
+# would otherwise sit on disk unread. Kubernetes needs nothing here: the caddy
+# deployment carries a checksum/caddy-config annotation, so a ConfigMap change
+# already rolls the pod on helm upgrade.
+#
+# `caddy reload` is atomic: an invalid config is rejected and the previously
+# loaded one keeps serving, so no separate validate pass is needed.
+# Input: instance_path, instance_id, instance_orchestrator
+
+- name: Get running services for the Caddy reload
+  ansible.builtin.include_tasks: list_running_services.yml
+
+# Reloading a Caddy that isn't up would fail on a stopped or partially
+# converged instance; the next start loads the file from disk anyway.
+#
+# split() takes no argument on purpose: this is a folded scalar, so YAML hands
+# Jinja a literal backslash-n rather than a newline, and split('\n') would
+# match nothing and never find the service. Bare split() breaks on whitespace.
+- name: Determine whether Caddy can be reloaded
+  ansible.builtin.set_fact:
+    _reload_caddy: >-
+      {{ (instance_orchestrator | default('compose') == 'compose')
+         and 'caddy' in (_running_services | default('') | trim).split() }}
+
+- name: Reload Caddy
+  block:
+    - name: Apply the regenerated config to the running Caddy
+      ansible.builtin.include_tasks: exec.yml
+      vars:
+        exec_service: caddy
+        exec_command: caddy reload --config /etc/caddy/Caddyfile
+      when: _reload_caddy | bool
+  # Caddy's own adapter error (with the offending file and line) is already
+  # printed by the failed exec above, so this adds only what it can't say:
+  # that nothing broke.
+  rescue:
+    - name: Report the rejected config
+      ansible.builtin.fail:
+        msg: >-
+          Caddy rejected the configuration reported above and is still serving
+          the previously loaded one, so the site is unaffected. Fix
+          config/Caddyfile.site in the instance directory and run the command
+          again.
