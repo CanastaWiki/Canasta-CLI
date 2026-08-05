@@ -722,6 +722,28 @@ def hoist_flags_from_remainder(args):
         setattr(args, pos_name, new_args)
 
 
+class _DynamicChoices:
+    """argparse choices that accept a fixed list plus a prefix pattern.
+
+    Used for `canasta install` where the base packages are fixed
+    (docker, podman, etc.) but `uv:<tool>` is an open-ended prefix
+    (e.g. `uv:podman-compose`).  argparse calls `__contains__` for
+    validation and `__iter__` for --help output.
+    """
+
+    def __init__(self, base, prefix):
+        self._base = set(base)
+        self._prefix = prefix
+
+    def __contains__(self, item):
+        if item in self._base:
+            return True
+        return isinstance(item, str) and item.startswith(self._prefix)
+
+    def __iter__(self):
+        return iter(sorted(self._base))
+
+
 def _positional_choices(param, name):
     """argparse kwargs constraining a positional to a fixed set of values.
 
@@ -732,6 +754,9 @@ def _positional_choices(param, name):
     """
     choices = param.get("choices")
     if choices:
+        prefix = param.get("choices_dynamic_prefix")
+        if prefix:
+            return {"choices": _DynamicChoices(choices, prefix)}
         return {"choices": choices}
     return {"metavar": name.upper()}
 

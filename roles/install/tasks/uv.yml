@@ -1,0 +1,104 @@
+---
+# Install uv (Astral Python package manager) and optionally install
+# tools via uv. Accepts two vars from the caller:
+#   uv_install_self (bool) — install the uv binary itself
+#   uv_targets (list of str) — tools to install via 'uv tool install <target>'
+#
+# Debian 13 (trixie) stable ships podman-compose 1.3.0 which has a
+# critical bug with ${VAR:-default} variable substitution
+# (containers/podman-compose#1105). Installing via uv provides a
+# fixed version outside the system package manager.
+
+- name: Determine operator (SSH) user
+  ansible.builtin.command: id -un
+  become: false
+  changed_when: false
+  register: _install_user_cmd
+
+- name: Determine operator home directory
+  ansible.builtin.command: "echo ~{{ _install_user_cmd.stdout | trim }}"
+  become: false
+  changed_when: false
+  register: _install_home_cmd
+
+- name: Set install paths fact
+  ansible.builtin.set_fact:
+    _install_user: "{{ ansible_user | default(_install_user_cmd.stdout, true) | trim }}"
+    _install_home: "{{ _install_home_cmd.stdout | trim }}"
+    _uv_bin: "{{ _install_home_cmd.stdout | trim }}/.local/bin/uv"
+
+- name: Ensure ~/.local/bin is on PATH for this session
+  ansible.builtin.set_fact:
+    ansible_env:
+      PATH: "{{ _install_home }}/.local/bin:{{ ansible_env.PATH | default(lookup('env', 'PATH')) }}"
+
+- name: Check if uv is already installed
+  ansible.builtin.stat:
+    path: "{{ _uv_bin }}"
+  register: _uv_stat
+
+- name: Install uv
+  when:
+    - not _uv_stat.stat.exists
+    - uv_install_self | default(false) | bool or (uv_targets | default([]) | length > 0)
+  become: false
+  block:
+    - name: Download and run uv installer
+      ansible.builtin.shell:
+        cmd: "curl -LsSf https://astral.sh/uv/install.sh | sh"
+        creates: "{{ _uv_bin }}"
+      register: _uv_install
+      changed_when: true
+
+    - name: Warn if uv installer failed
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: uv installer failed. Install manually:
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+      when: _uv_install is failed
+
+- name: Add ~/.local/bin to PATH in ~/.profile
+  ansible.builtin.lineinfile:
+    path: "{{ _install_home }}/.profile"
+    regexp: '^\s*export\s+PATH=.*\.local/bin'
+    line: 'export PATH="$HOME/.local/bin:$PATH"'
+    create: true
+    mode: "0644"
+  when: "_install_home ~ '/.local/bin' not in lookup('env', 'PATH') | default('')"
+
+- name: Add ~/.local/bin to PATH in ~/.bashrc
+  ansible.builtin.lineinfile:
+    path: "{{ _install_home }}/.bashrc"
+    regexp: '^\s*export\s+PATH=.*\.local/bin'
+    line: 'export PATH="$HOME/.local/bin:$PATH"'
+    create: true
+    mode: "0644"
+  when: "_install_home ~ '/.local/bin' not in lookup('env', 'PATH') | default('')"
+
+- name: Install requested tools via uv
+  when: uv_targets | default([]) | length > 0
+  become: false
+  block:
+    - name: Install each uv target
+      ansible.builtin.command:
+        cmd: "{{ _uv_bin }} tool install {{ item }}"
+      loop: "{{ uv_targets }}"
+      changed_when: true
+      register: _uv_tool_install
+      ignore_errors: true
+
+    - name: Report installed tools
+      ansible.builtin.debug:
+        msg: >-
+          Installed {{ item.item }} via uv at
+          {{ _install_home }}/.local/share/uv/tools/{{ item.item }}.
+      loop: "{{ _uv_tool_install.results }}"
+      when: item.rc | default(1) == 0
+
+    - name: Warn about failed tool installs
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Failed to install {{ item.item }} via uv. Try manually:
+          {{ _uv_bin }} tool install {{ item.item }}
+      loop: "{{ _uv_tool_install.results }}"
+      when: item.rc | default(1) != 0
