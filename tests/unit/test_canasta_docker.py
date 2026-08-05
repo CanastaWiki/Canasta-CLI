@@ -10,6 +10,7 @@ real unix sockets uses short paths under /tmp rather than pytest's
 tmp_path fixture (which lives under /private/var/folders/...).
 """
 
+import json
 import os
 import shutil
 import socket
@@ -669,3 +670,111 @@ class TestRestoreAndGitopsCrontabMediation:
         # create doesn't touch the crontab; no mediation needed.
         argv, _ = run_dry(["backup", "create", "-i", "x"])
         assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+
+class TestInstallDockerMode:
+    """`canasta install` under the docker wrapper.
+
+    A local install (no target, or a target resolving to the controller
+    itself) is rejected up front: the canasta-ansible container has no
+    systemd and no host package manager. A remote install (-H/--host, or
+    -i/--id naming an instance registered on a non-controller host) is
+    passed through unchanged — the CLI resolves -i to the instance's
+    registered host and the install playbook runs over SSH on the
+    target, where systemd and root exist.
+    """
+
+    def _conf(self, config_dir, instances):
+        """Seed conf.json with the given instances."""
+        path = os.path.join(config_dir, "conf.json")
+        with open(path, "w") as f:
+            json.dump({"Instances": instances}, f)
+
+    def _config_dir(self):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        return config_dir
+
+    def _run(self, args, env=None):
+        """Invoke the wrapper in dry-run mode WITHOUT asserting success
+        (used by the refusal cases, which must exit 1)."""
+        base_env = os.environ.copy()
+        base_env["CANASTA_DOCKER_DRY_RUN"] = "1"
+        if env:
+            base_env.update(env)
+        return subprocess.run(
+            [WRAPPER] + list(args),
+            env=base_env,
+            cwd="/tmp",
+            capture_output=True,
+            text=True,
+        )
+
+    def test_remote_instance_via_i_passes_through(self):
+        config_dir = self._config_dir()
+        self._conf(config_dir, {"nichework": {
+            "id": "nichework", "path": "/srv/nichework",
+            "host": "nichework.com", "orchestrator": "compose"}})
+        argv, _ = run_dry(
+            ["install", "uv:podman-compose", "-i", "nichework"],
+            env={"CANASTA_CONFIG_DIR": config_dir},
+        )
+        assert user_args(argv) == ["install", "uv:podman-compose",
+                                   "-i", "nichework"]
+
+    def test_remote_host_via_H_passes_through(self):
+        argv, _ = run_dry(["install", "podman", "-H", "prod1.example.com"])
+        assert user_args(argv) == ["install", "podman",
+                                   "-H", "prod1.example.com"]
+
+    def test_extra_flags_survive_pass_through(self):
+        argv, _ = run_dry(["install", "k8s-cp", "--public-ip", "203.0.113.10",
+                           "-H", "node2"])
+        assert user_args(argv) == [
+            "install", "k8s-cp", "--public-ip", "203.0.113.10", "-H", "node2",
+        ]
+
+    def test_double_dash_forms_of_target_are_handled(self):
+        config_dir = self._config_dir()
+        self._conf(config_dir, {"nichework": {
+            "id": "nichework", "path": "/srv/nichework",
+            "host": "nichework.com", "orchestrator": "compose"}})
+        argv, _ = run_dry(
+            ["install", "docker", "--id=nichework"],
+            env={"CANASTA_CONFIG_DIR": config_dir},
+        )
+        assert user_args(argv) == ["install", "docker", "--id=nichework"]
+
+    def test_a_local_install_is_refused(self):
+        result = self._run(["install", "docker"])
+        assert result.returncode == 1
+        assert "not supported in canasta-docker mode" in result.stderr
+
+    def test_install_by_i_for_an_unregistered_instance_is_refused(self):
+        config_dir = self._config_dir()
+        self._conf(config_dir, {})
+        result = self._run(["install", "sops", "-i", "nosuch"],
+                           env={"CANASTA_CONFIG_DIR": config_dir})
+        assert result.returncode == 1
+        assert "'nosuch' is not registered" in result.stderr
+
+    def test_install_by_i_for_a_local_instance_is_refused(self):
+        # A registered instance whose host is the controller itself can't
+        # be reached from inside the container either.
+        config_dir = self._config_dir()
+        self._conf(config_dir, {"local1": {
+            "id": "local1", "path": "/srv/local1",
+            "host": "localhost", "orchestrator": "compose"}})
+        result = self._run(["install", "podman", "-i", "local1"],
+                           env={"CANASTA_CONFIG_DIR": config_dir})
+        assert result.returncode == 1
+        assert "not supported in canasta-docker mode" in result.stderr
+
+    def test_install_by_H_for_localhost_is_refused(self):
+        result = self._run(["install", "podman", "-H", "localhost"])
+        assert result.returncode == 1
+        assert "not supported in canasta-docker mode" in result.stderr
+
+    def test_non_install_commands_are_unaffected(self):
+        argv, _ = run_dry(["version"])
+        assert "install" not in user_args(argv)
