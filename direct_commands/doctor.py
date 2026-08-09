@@ -192,33 +192,38 @@ def _parse_doctor(stdout, hostname):
 
     if podman_compose_version not in ("MISSING", ""):
         pc_ver = podman_compose_version
-        # podman-compose version prints two lines:
-        #   "podman version 5.4.2"
+        # podman-compose version prints its own version first, then
+        # shells out to podman:
         #   "podman-compose version 1.3.0"
-        # We must match the *second* line, not the first.
+        #   "podman version 5.4.2"
+        # The regex is anchored on 'podman-compose version', so it
+        # matches the first line either way.
         m = re.search(r'podman-compose version\s+(\d+\.\d+\.\d+)', pc_ver)
         if m:
             pc_ver_str = m.group(1)
-            pc_ver_parts = [int(x) for x in pc_ver_str.split(".")]
-            while len(pc_ver_parts) < 3:
-                pc_ver_parts.append(0)
-            if pc_ver_parts == [1, 3, 0]:
+            # 1.3.0.post1 matches the regex too and is flagged with it:
+            # the substitution bug is in the 1.3.0 base, and warning on
+            # the post release errs on the safe side.
+            if pc_ver_str == "1.3.0":
                 lines.append(
                     "  Podman Compose:  %s — WARNING: podman-compose 1.3.0 "
                     "has a known bug where ${VAR:-default} is passed "
                     "literally to containers when VAR is unset. This "
                     "breaks Canasta's docker-compose.yml defaults. "
-                    "Upgrade to >= 1.3.1, or install via: canasta "
-                    "install uv:podman-compose -H <host>"
+                    "Upgrade to podman-compose >= 1.3.1 "
+                    "(https://github.com/containers/podman-compose/"
+                    "issues/1105)"
                     % pc_ver_str
                 )
             else:
                 lines.append(
-                    "  Podman Compose:  %s (OK)" % pc_ver_str
+                    "  Podman Compose:  %s" % pc_ver_str
                 )
         else:
+            # The version is unparsable and may span several lines;
+            # keep the report aligned with just the first.
             lines.append(
-                "  Podman Compose:  %s" % pc_ver
+                "  Podman Compose:  %s" % pc_ver.splitlines()[0]
             )
 
     lines.append("")

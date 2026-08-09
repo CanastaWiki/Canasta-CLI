@@ -25,17 +25,20 @@ from direct_commands import _helpers  # noqa: E402
 
 D = _helpers._SENTINEL
 
-# Field order in _DOCTOR_SCRIPT; podman is field 22 (appended last).
+# Field order in _DOCTOR_SCRIPT; podman is field 22 and podman-compose
+# is field 25 (both appended last).
 _PODMAN_IDX = 22
+_COMPOSE_IDX = 25
 
 
 def _stdout(docker="Docker version 27.0.0", compose="Docker Compose v2.29.0",
-            daemon="OK", podman="MISSING"):
-    fields = ["Python 3.12.0"] * (_PODMAN_IDX + 1)
+            daemon="OK", podman="MISSING", podman_compose="MISSING"):
+    fields = ["Python 3.12.0"] * (_COMPOSE_IDX + 1)
     fields[1] = docker
     fields[2] = compose
     fields[3] = daemon
     fields[_PODMAN_IDX] = podman
+    fields[_COMPOSE_IDX] = podman_compose
     return (D + "\n").join(fields)
 
 
@@ -89,6 +92,48 @@ class TestReportLine:
         assert len(binds) == 1, (
             "`parts` is assigned %d times in _parse_doctor; it must only "
             "be the initial split: %s" % (len(binds), binds)
+        )
+
+
+class TestPodmanComposeReport:
+    """The 1.3.0 warning is a version-string parse; hold it to the same
+    probe contract as the podman line above."""
+
+    def _lines(self, podman_compose):
+        return doctor._parse_doctor(_stdout(podman_compose=podman_compose), "h")
+
+    def test_absent_podman_compose_is_not_reported(self):
+        assert "Podman Compose:" not in self._lines("MISSING"), (
+            "a host without podman-compose gets no line, not a claim about it"
+        )
+
+    def test_130_warns(self):
+        body = self._lines(
+            "podman-compose version 1.3.0\npodman version 5.4.2")
+        assert "1.3.0" in body and "WARNING" in body
+
+    def test_130_post1_warns(self):
+        # The regex picks '1.3.0' out of '1.3.0.post1'; the bug is in the
+        # base release, so the post release is flagged with it.
+        body = self._lines(
+            "podman-compose version 1.3.0.post1\npodman version 5.4.2")
+        assert "WARNING" in body
+
+    def test_other_versions_are_reported_neutrally(self):
+        body = self._lines(
+            "podman-compose version 1.5.0\npodman version 5.4.2")
+        assert "1.5.0" in body
+        assert "WARNING" not in body
+        assert "(OK)" not in body, (
+            "no known floor for podman-compose, so (OK) would overstate "
+            "what has been checked"
+        )
+
+    def test_unparsable_output_falls_back_to_first_line(self):
+        body = self._lines("podman-compose version\nweird output")
+        assert "  Podman Compose:  podman-compose version" in body, (
+            "an unparsable multi-line value must not break the report's "
+            "alignment"
         )
 
 
