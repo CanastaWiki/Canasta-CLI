@@ -675,13 +675,15 @@ class TestRestoreAndGitopsCrontabMediation:
 class TestInstallDockerMode:
     """`canasta install` under the docker wrapper.
 
-    A local install (no target, or a target resolving to the controller
-    itself) is rejected up front: the canasta-ansible container has no
-    systemd and no host package manager. A remote install (-H/--host, or
-    -i/--id naming an instance registered on a non-controller host) is
-    passed through unchanged — the CLI resolves -i to the instance's
-    registered host and the install playbook runs over SSH on the
-    target, where systemd and root exist.
+    The wrapper passes install through unchanged — the refusal of a
+    local install lives in canasta.py (check_docker_mode_install_target),
+    where the parsed args and the real registry decide whether the
+    target is the controller itself or a remote host. That move is what
+    makes attached short forms (-Hprod1, -imysite) and pre-command flags
+    ('canasta -v install docker') behave; see
+    test_docker_mode_install_guard.py for the decision logic.
+
+    These tests only assert pass-through, which is all the wrapper does.
     """
 
     def _conf(self, config_dir, instances):
@@ -694,21 +696,6 @@ class TestInstallDockerMode:
         config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
         _run_dry_tmpdirs.append(config_dir)
         return config_dir
-
-    def _run(self, args, env=None):
-        """Invoke the wrapper in dry-run mode WITHOUT asserting success
-        (used by the refusal cases, which must exit 1)."""
-        base_env = os.environ.copy()
-        base_env["CANASTA_DOCKER_DRY_RUN"] = "1"
-        if env:
-            base_env.update(env)
-        return subprocess.run(
-            [WRAPPER] + list(args),
-            env=base_env,
-            cwd="/tmp",
-            capture_output=True,
-            text=True,
-        )
 
     def test_remote_instance_via_i_passes_through(self):
         config_dir = self._config_dir()
@@ -745,35 +732,35 @@ class TestInstallDockerMode:
         )
         assert user_args(argv) == ["install", "docker", "--id=nichework"]
 
-    def test_a_local_install_is_refused(self):
-        result = self._run(["install", "docker"])
-        assert result.returncode == 1
-        assert "not supported in canasta-docker mode" in result.stderr
+    def test_a_local_install_passes_through(self):
+        # The wrapper no longer refuses; canasta.py does, so the refusal
+        # reaches the user only after the container starts. Tested in
+        # test_docker_mode_install_guard.py.
+        argv, _ = run_dry(["install", "docker"])
+        assert user_args(argv) == ["install", "docker"]
 
-    def test_install_by_i_for_an_unregistered_instance_is_refused(self):
+    def test_an_unregistered_instance_passes_through(self):
         config_dir = self._config_dir()
         self._conf(config_dir, {})
-        result = self._run(["install", "sops", "-i", "nosuch"],
-                           env={"CANASTA_CONFIG_DIR": config_dir})
-        assert result.returncode == 1
-        assert "'nosuch' is not registered" in result.stderr
+        argv, _ = run_dry(["install", "sops", "-i", "nosuch"],
+                          env={"CANASTA_CONFIG_DIR": config_dir})
+        assert user_args(argv) == ["install", "sops", "-i", "nosuch"]
 
-    def test_install_by_i_for_a_local_instance_is_refused(self):
-        # A registered instance whose host is the controller itself can't
-        # be reached from inside the container either.
+    def test_a_local_instance_passes_through(self):
+        # The registry shape `canasta create` actually writes: a locally
+        # created instance has no 'host' key. The wrapper does not look;
+        # canasta.py resolves it to the controller and refuses.
         config_dir = self._config_dir()
         self._conf(config_dir, {"local1": {
             "id": "local1", "path": "/srv/local1",
-            "host": "localhost", "orchestrator": "compose"}})
-        result = self._run(["install", "podman", "-i", "local1"],
-                           env={"CANASTA_CONFIG_DIR": config_dir})
-        assert result.returncode == 1
-        assert "not supported in canasta-docker mode" in result.stderr
+            "orchestrator": "compose"}})
+        argv, _ = run_dry(["install", "podman", "-i", "local1"],
+                          env={"CANASTA_CONFIG_DIR": config_dir})
+        assert user_args(argv) == ["install", "podman", "-i", "local1"]
 
-    def test_install_by_H_for_localhost_is_refused(self):
-        result = self._run(["install", "podman", "-H", "localhost"])
-        assert result.returncode == 1
-        assert "not supported in canasta-docker mode" in result.stderr
+    def test_host_localhost_passes_through(self):
+        argv, _ = run_dry(["install", "podman", "-H", "localhost"])
+        assert user_args(argv) == ["install", "podman", "-H", "localhost"]
 
     def test_non_install_commands_are_unaffected(self):
         argv, _ = run_dry(["version"])
