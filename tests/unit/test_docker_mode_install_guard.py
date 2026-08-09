@@ -19,6 +19,7 @@ key at all — which means local, not "registered remotely".
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,26 @@ import canasta  # noqa: E402
 
 CANASTA_PY = os.path.join(os.path.dirname(os.path.abspath(canasta.__file__)),
                           "canasta.py")
+
+
+# Temp config dirs created under /tmp (pytest's tmp_path lives under a
+# longer path the wrapper's AF_UNIX limits dislike elsewhere in the
+# suite, so these tests use /tmp directly). Registered by the helpers,
+# emptied after each test so runs don't accumulate /tmp/ig-* dirs.
+_tmp_config_dirs = []
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_tmp_config_dirs():
+    yield
+    while _tmp_config_dirs:
+        shutil.rmtree(_tmp_config_dirs.pop(), ignore_errors=True)
+
+
+def _tmp_config_dir():
+    d = tempfile.mkdtemp(prefix="ig-", dir="/tmp")
+    _tmp_config_dirs.append(d)
+    return d
 
 
 def _args(**kw):
@@ -185,7 +206,7 @@ class TestThroughArgparse:
     """
 
     def _local_registry(self, instances):
-        tmp = tempfile.mkdtemp(prefix="ig-", dir="/tmp")
+        tmp = _tmp_config_dir()
         with open(os.path.join(tmp, "conf.json"), "w") as f:
             json.dump({"Instances": instances}, f)
         return tmp
@@ -247,7 +268,7 @@ class TestThroughRealMain:
     """
 
     def _run(self, argv, instances=None):
-        config_dir = tempfile.mkdtemp(prefix="ig-", dir="/tmp")
+        config_dir = _tmp_config_dir()
         with open(os.path.join(config_dir, "conf.json"), "w") as f:
             json.dump({"Instances": instances or {}}, f)
         env = os.environ.copy()
