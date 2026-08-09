@@ -1,12 +1,23 @@
 # Per-Wiki Settings Directory
 
-This directory contains PHP configuration files specific to this wiki.
-Files are loaded automatically in lexicographic order, AFTER global settings.
+Per-wiki settings live in subdirectories named after the wiki ID:
+
+    config/settings/wikis/<wiki-id>/
+
+Each wiki's directory is loaded automatically in lexicographic order, AFTER
+global settings. For example, settings for the wiki with ID `docs` go in:
+
+    config/settings/wikis/docs/
+
+The parent `config/settings/wikis/` directory itself contains no PHP files —
+it only holds the per-wiki subdirectories (and this README). Files placed
+directly in `config/settings/wikis/` are NOT loaded. Each wiki's directory is
+created automatically when the wiki is created.
 
 ## Load Order
 
-All .php files in this directory are loaded automatically in lexicographic order.
-You can optionally use numeric prefixes to control load order:
+All .php files in a wiki's directory are loaded automatically in lexicographic
+order. You can optionally use numeric prefixes to control load order:
 
     10-first.php   # Loaded first (within this wiki's directory)
     50-logo.php    # Loaded in the middle
@@ -14,8 +25,8 @@ You can optionally use numeric prefixes to control load order:
 
 But plain names work fine:
 
-    Logo.php
-    Permissions.php
+    config/settings/wikis/docs/Logo.php
+    config/settings/wikis/docs/Permissions.php
 
 ## What to Configure Here
 
@@ -57,6 +68,8 @@ config/settings/global/README for the full convention (Docker Compose only).
 
 ## Notes
 
-- All .php files in this directory are loaded automatically
+- All .php files in a wiki's directory are loaded automatically
 - Per-wiki settings override global settings with the same variable
 - Files without the .php extension (like this README) are ignored
+- Files placed directly in config/settings/wikis/ (not in a <wiki-id>
+  subdirectory) are NOT loaded
