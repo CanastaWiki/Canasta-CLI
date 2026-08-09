@@ -79,12 +79,7 @@ class TestTheCommandIsReachable:
         with open(INSTALL) as f:
             body = f.read()
         for pkg in _install_param()["choices"]:
-            # Regular packages dispatch on _regular_packages; uv is also
-            # dispatched via the uv.yml role with uv_targets.
-            assert (
-                "'%s' in _regular_packages" % pkg in body
-                or "'%s' in _install_packages" % pkg in body
-            ), (
+            assert "'%s' in _install_packages" % pkg in body, (
                 "'%s' is accepted but nothing dispatches on it" % pkg
             )
 

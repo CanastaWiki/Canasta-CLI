@@ -56,6 +56,10 @@ def check_choices(param, value, label):
         return []
     if value in choices:
         return []
+    prefix = param.get("choices_dynamic_prefix")
+    if (prefix and isinstance(value, str) and value.startswith(prefix)
+            and len(value) > len(prefix)):
+        return []
     return ["%s: '%s' is not one of %s" % (label, value, ", ".join(choices))]
 
 

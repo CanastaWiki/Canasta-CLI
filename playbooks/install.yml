@@ -32,9 +32,8 @@
     and not (item | regex_search('^uv:[a-zA-Z0-9_-]+$'))
   loop: "{{ _install_packages }}"
 
-- name: Separate regular packages from uv-prefixed targets
+- name: Separate uv-prefixed targets from the requested packages
   ansible.builtin.set_fact:
-    _regular_packages: "{{ _install_packages | reject('search', '^uv:') | list }}"
     _uv_targets: >-
       {{ _install_packages | select('search', '^uv:')
          | map('regex_replace', '^uv:', '') | list }}
@@ -46,8 +45,8 @@
       A node is either the cluster's control plane or a worker, not
       both.
   when:
-    - "'k8s-cp' in _regular_packages"
-    - "'k8s-worker' in _regular_packages"
+    - "'k8s-cp' in _install_packages"
+    - "'k8s-worker' in _install_packages"
 
 - name: Validate --cp-host is provided for k8s-worker
   ansible.builtin.fail:
@@ -56,7 +55,7 @@
       control plane host registered via 'canasta host add'. Canasta
       SSHs to that host to fetch the join token and cluster API URL.
   when:
-    - "'k8s-worker' in _regular_packages"
+    - "'k8s-worker' in _install_packages"
     - not (cp_host is defined and (cp_host | length > 0))
 
 # Every package below needs root. Refuse now, with a message naming the
@@ -70,49 +69,49 @@
   ansible.builtin.include_role:
     name: install
     tasks_from: docker.yml
-  when: "'docker' in _regular_packages"
+  when: "'docker' in _install_packages"
 
 - name: Install Kubernetes control plane (k3s server, kubectl, helm)
   ansible.builtin.include_role:
     name: install
     tasks_from: k3s.yml
-  when: "'k8s-cp' in _regular_packages"
+  when: "'k8s-cp' in _install_packages"
 
 - name: Install Kubernetes worker (k3s agent joined to control plane)
   ansible.builtin.include_role:
     name: install
     tasks_from: k3s_worker.yml
-  when: "'k8s-worker' in _regular_packages"
+  when: "'k8s-worker' in _install_packages"
 
 - name: Install git-crypt
   ansible.builtin.include_role:
     name: install
     tasks_from: git_crypt.yml
-  when: "'git-crypt' in _regular_packages"
+  when: "'git-crypt' in _install_packages"
 
 - name: Install the SOPS toolchain (sops + age)
   ansible.builtin.include_role:
     name: install
     tasks_from: sops_age.yml
-  when: "'sops' in _regular_packages"
+  when: "'sops' in _install_packages"
 
 - name: Install canasta-native
   ansible.builtin.include_role:
     name: install
     tasks_from: canasta.yml
-  when: "'canasta' in _regular_packages"
+  when: "'canasta' in _install_packages"
 
 - name: Install Podman and configure rootless prerequisites
   ansible.builtin.include_role:
     name: install
     tasks_from: podman.yml
-  when: "'podman' in _regular_packages"
+  when: "'podman' in _install_packages"
 
 - name: Install uv and requested uv tools
   ansible.builtin.include_role:
     name: install
     tasks_from: uv.yml
-  when: "_uv_targets | length > 0 or 'uv' in _regular_packages"
+  when: "_uv_targets | length > 0 or 'uv' in _install_packages"
   vars:
     uv_targets: "{{ _uv_targets }}"
-    uv_install_self: "{{ 'uv' in _regular_packages }}"
+    uv_install_self: "{{ 'uv' in _install_packages }}"

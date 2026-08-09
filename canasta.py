@@ -732,16 +732,18 @@ class _DynamicChoices:
     """
 
     def __init__(self, base, prefix):
-        self._base = set(base)
+        self._base = list(base)
         self._prefix = prefix
 
     def __contains__(self, item):
         if item in self._base:
             return True
-        return isinstance(item, str) and item.startswith(self._prefix)
+        if not isinstance(item, str) or not item.startswith(self._prefix):
+            return False
+        return len(item) > len(self._prefix)
 
     def __iter__(self):
-        return iter(sorted(self._base))
+        return iter(self._base)
 
 
 def _positional_choices(param, name):
