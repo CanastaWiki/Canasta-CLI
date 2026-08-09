@@ -729,18 +729,30 @@ class _DynamicChoices:
     (docker, podman, etc.) but `uv:<tool>` is an open-ended prefix
     (e.g. `uv:podman-compose`).  argparse calls `__contains__` for
     validation and `__iter__` for --help output.
+
+    `pattern`, when given, constrains the tail after the prefix. It
+    mirrors the playbook's own validation (install.yml rejects a
+    `uv:` target whose tail has other characters), so argparse fails
+    fast on the same values instead of letting them through to a
+    post-SSH playbook error.
     """
 
-    def __init__(self, base, prefix):
+    def __init__(self, base, prefix, pattern=None):
         self._base = list(base)
         self._prefix = prefix
+        self._pattern = re.compile(pattern) if pattern else None
 
     def __contains__(self, item):
         if item in self._base:
             return True
         if not isinstance(item, str) or not item.startswith(self._prefix):
             return False
-        return len(item) > len(self._prefix)
+        tail = item[len(self._prefix):]
+        if not tail:
+            return False
+        if self._pattern:
+            return bool(self._pattern.fullmatch(tail))
+        return True
 
     def __iter__(self):
         return iter(self._base)
@@ -758,7 +770,8 @@ def _positional_choices(param, name):
     if choices:
         prefix = param.get("choices_dynamic_prefix")
         if prefix:
-            return {"choices": _DynamicChoices(choices, prefix)}
+            return {"choices": _DynamicChoices(
+                choices, prefix, param.get("choices_dynamic_pattern"))}
         return {"choices": choices}
     return {"metavar": name.upper()}
 

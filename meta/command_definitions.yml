@@ -877,6 +877,11 @@ commands:
         required: true
         choices: [docker, k8s-cp, k8s-worker, git-crypt, sops, podman, canasta, uv]
         choices_dynamic_prefix: "uv:"
+        # Charset the tail after the prefix must match. Mirrors the
+        # playbook's `^uv:[a-zA-Z0-9_-]+$` validation in install.yml so
+        # argparse rejects the same values before Ansible starts;
+        # tests/unit/test_install_podman.py asserts the two agree.
+        choices_dynamic_pattern: "[a-zA-Z0-9_-]+"
         description: >-
           Dependencies to install (docker, k8s-cp, k8s-worker,
           git-crypt, sops, podman, canasta, uv, uv:<tool>)

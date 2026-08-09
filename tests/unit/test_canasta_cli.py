@@ -1033,10 +1033,18 @@ class TestInstallCommand:
         args = parser.parse_args(["install", "uv:podman-compose"])
         assert args.packages == ["uv:podman-compose"]
 
-    def test_install_rejects_malformed_uv_prefix(self, parser, capsys):
-        # uv: alone or with invalid chars is rejected.
+    @pytest.mark.parametrize("bad", [
+        "uv:",              # empty tail
+        "uv:podman==1.5",   # version specifiers: the role pins versions
+        "uv:foo/bar",       # path-like names
+        "uv:a b",           # whitespace
+    ])
+    def test_install_rejects_malformed_uv_prefix(self, parser, capsys, bad):
+        # argparse must reject the same tails the playbook's
+        # `^uv:[a-zA-Z0-9_-]+$` check rejects, so the failure lands
+        # before Ansible starts instead of after it SSHes.
         with pytest.raises(SystemExit):
-            parser.parse_args(["install", "uv:"])
+            parser.parse_args(["install", bad])
         assert "invalid choice" in capsys.readouterr().err
 
     def test_install_usage_names_every_package(self, parser, capsys):
