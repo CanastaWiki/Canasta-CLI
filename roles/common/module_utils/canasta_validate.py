@@ -82,3 +82,29 @@ def validate_sidecar_name(value):
             value, ", ".join(RESERVED_SIDECAR_NAMES),
         )
     return None
+
+
+# An extra backup database is a MariaDB database name that Canasta did
+# not create (Cargo's $wgCargoDBname being the usual case), so it is not
+# bound by the wiki-ID rules — but it is interpolated into a
+# `mariadb-dump --databases` argument list, so it is restricted to
+# characters that carry no meaning to a shell.
+_EXTRA_DATABASE_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def validate_extra_database(value):
+    """Return None if `value` is a valid extra database name, otherwise an
+    error string suitable for `module.fail_json(msg=...)`."""
+    if not value:
+        return "extra database name cannot be empty"
+    if len(value) > 64:
+        return (
+            "extra database name '%s' is too long (MariaDB allows 64 "
+            "characters)" % value
+        )
+    if not _EXTRA_DATABASE_RE.match(value):
+        return (
+            "extra database name '%s' is invalid: use letters, digits, "
+            "underscores, and hyphens only" % value
+        )
+    return None

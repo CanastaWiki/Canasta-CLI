@@ -62,6 +62,7 @@ import yaml
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_validate import (
+    validate_extra_database,
     validate_wiki_id,
 )
 
@@ -191,6 +192,67 @@ def wiki_url_exists(wikis, domain, wiki_path=None):
     return any(w.get("url", "") == url for w in wikis)
 
 
+def extra_databases(wiki):
+    """Return a wiki's declared extra database names.
+
+    Entries are either a bare name or a mapping with a `name` key. The
+    mapping form reserves room for a database that needs its own host or
+    credential; that case cannot share a transaction with the wiki
+    database (a dump is one connection), so it is rejected here rather
+    than silently dumped at a different point in time.
+    """
+    declared = wiki.get("extra_databases") or []
+    if not isinstance(declared, list):
+        raise ValueError(
+            "extra_databases for wiki '%s' must be a list" % wiki.get("id", "")
+        )
+    names = []
+    for entry in declared:
+        if isinstance(entry, dict):
+            unsupported = sorted(k for k in entry if k != "name")
+            if unsupported:
+                raise ValueError(
+                    "extra_databases entry '%s' for wiki '%s' sets %s. A "
+                    "database reached with its own host or credential needs a "
+                    "second connection, so it cannot be captured in the same "
+                    "transaction as the wiki database; that is not supported "
+                    "yet. Remove %s to back it up over the instance's own "
+                    "database connection."
+                    % (entry.get("name", entry), wiki.get("id", ""),
+                       ", ".join(unsupported), ", ".join(unsupported))
+                )
+            name = entry.get("name")
+        else:
+            name = entry
+        err = validate_extra_database(name)
+        if err:
+            raise ValueError(
+                "wiki '%s': %s" % (wiki.get("id", ""), err)
+            )
+        names.append(name)
+    return names
+
+
+def get_db_groups(wikis):
+    """Return the database groups to dump, one per wiki.
+
+    Each group is dumped by a single `mariadb-dump --databases` call, so
+    every database in it comes from one transaction. Cargo splits its
+    state across the wiki database (`cargo_pages` and friends) and its
+    own (`cargo__*`); capturing the two at different moments leaves rows
+    that `cargo_pages` does not know about, which turns the next edit of
+    those pages into duplicate rows instead of replacements.
+    """
+    groups = []
+    for wiki in wikis:
+        wiki_id = wiki.get("id", "")
+        databases = [wiki_id] + [
+            name for name in extra_databases(wiki) if name != wiki_id
+        ]
+        groups.append({"wiki": wiki_id, "databases": databases})
+    return groups
+
+
 def run_module():
     module_args = dict(
         instance_path=dict(type="str", required=True),
@@ -226,6 +288,11 @@ def run_module():
         wikis = read_wikis(instance_path)
         result["wikis"] = wikis
         result["wiki_ids"] = get_wiki_ids(wikis)
+        try:
+            result["db_groups"] = get_db_groups(wikis)
+        except ValueError as exc:
+            module.fail_json(msg=str(exc))
+            return
 
     elif state == "query":
         if not wiki_id:
@@ -236,6 +303,11 @@ def run_module():
         for w in wikis:
             if w.get("id") == wiki_id:
                 result["wiki"] = w
+                try:
+                    result["databases"] = get_db_groups([w])[0]["databases"]
+                except ValueError as exc:
+                    module.fail_json(msg=str(exc))
+                    return
                 break
 
     elif state == "generate":

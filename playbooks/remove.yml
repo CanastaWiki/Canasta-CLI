@@ -10,14 +10,6 @@
     msg: "Removing wiki '{{ wiki }}' from instance '{{ instance_id }}'. Use --yes to confirm."
   when: not (yes | default(false) | bool)
 
-- name: Read DB password
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read
-    key: MYSQL_PASSWORD
-  register: _remove_dbpass
-  no_log: true
-
 # Clean up wiki images inside container (owned by www-data on Linux)
 - name: Remove wiki images inside container
   ansible.builtin.include_tasks:
@@ -56,7 +48,7 @@
   vars:
     exec_service: db
     exec_command: >-
-      mariadb -u root -p{{ _remove_dbpass.value | default('mediawiki') | quote }}
+      mariadb -u root -p"${MYSQL_ROOT_PASSWORD:-mediawiki}"
       -e 'DROP DATABASE IF EXISTS {{ wiki | quote }}'
 
 - name: Remove per-wiki settings directory

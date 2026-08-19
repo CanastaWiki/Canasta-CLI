@@ -64,14 +64,23 @@
   ansible.builtin.set_fact:
     _is_backup_op: "{{ 'backup' in backup_args }}"
 
-- name: Read DB password for dump-databases (backup ops only)
-  canasta_env:
-    path: "{{ instance_path }}/.env"
+- name: Read wiki database groups for dump-databases (backup ops only)
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
     state: read
-    key: MYSQL_PASSWORD
-  register: _backup_dbpass
+  register: _backup_k8s_wikis
   when: _is_backup_op | bool
-  no_log: true
+
+# One line per wiki, "<wiki> <extra> <extra>", groups separated by ';' —
+# a shape the dump script can read without a JSON parser. Wiki IDs and
+# extra database names are validated to letters, digits, underscores and
+# hyphens, so neither separator can appear inside a name.
+- name: Encode wiki database groups for the dump script
+  ansible.builtin.set_fact:
+    _backup_groups_encoded: >-
+      {{ _backup_k8s_wikis.db_groups | map(attribute='databases')
+         | map('join', ' ') | join(';') }}
+  when: _is_backup_op | bool
 
 - name: Create RBAC for backup Pods (backup ops only)
   ansible.builtin.include_tasks: >-
@@ -179,6 +188,7 @@
           - |
             set -u
             EXCLUDE='^(information_schema|performance_schema|mysql|sys)$'
+            WIKI_GROUPS='{{ _backup_groups_encoded | default('') }}'
             # List databases first so a connection/auth failure aborts the
             # backup loudly instead of silently saving a DB-less snapshot.
             if ! DBLIST=$(mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
@@ -191,17 +201,52 @@
               echo "FATAL: no user databases found to back up" >&2
               exit 1
             fi
-            for db in $DBS; do
+            exists() {
+              printf '%s\n' "$DBS" | grep -qxF "$1"
+            }
+            dump() {
+              # $1 is the dump's basename, the rest are databases to put in
+              # it. One invocation means one transaction, so a wiki and the
+              # extra databases it declares are captured at the same moment.
+              name=$1
+              shift
               if ! mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
-                  -p"$MYSQL_PASSWORD" --single-transaction --databases "$db" \
-                  > "/currentsnapshot/config/backup/db_${db}.sql"; then
-                echo "FATAL: mariadb-dump failed for database '$db'" >&2
+                  -p"$MYSQL_PASSWORD" --single-transaction --databases "$@" \
+                  > "/currentsnapshot/config/backup/db_${name}.sql"; then
+                echo "FATAL: mariadb-dump failed for database(s) '$*'" >&2
                 exit 1
               fi
-              if [ ! -s "/currentsnapshot/config/backup/db_${db}.sql" ]; then
-                echo "FATAL: dump for database '$db' is empty" >&2
+              if [ ! -s "/currentsnapshot/config/backup/db_${name}.sql" ]; then
+                echo "FATAL: dump for database(s) '$*' is empty" >&2
                 exit 1
               fi
+            }
+            # Wikis that declare extra databases go first, as one dump each.
+            # Reading from a file rather than a pipe keeps the loop out of a
+            # subshell, so a failed dump still aborts the backup.
+            printf '%s\n' "$WIKI_GROUPS" | tr ';' '\n' > /tmp/db_groups
+            GROUPED=''
+            while read -r wiki extras; do
+              [ -n "$wiki" ] || continue
+              exists "$wiki" || continue
+              members=$wiki
+              for db in $extras; do
+                if exists "$db"; then
+                  members="$members $db"
+                else
+                  echo "WARNING: wiki '$wiki' declares extra database '$db', which does not exist; skipping it" >&2
+                fi
+              done
+              dump "$wiki" $members
+              GROUPED="$GROUPED $members"
+            done < /tmp/db_groups
+            # Everything else on the server, one dump per database — the
+            # coverage this path has always had.
+            for db in $DBS; do
+              case " $GROUPED " in
+                *" $db "*) continue ;;
+              esac
+              dump "$db" "$db"
             done
         envFrom:
           - secretRef:

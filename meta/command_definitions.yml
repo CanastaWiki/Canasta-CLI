@@ -159,7 +159,8 @@ command_groups:
 
       For Kubernetes, the in-cluster backup Job runs a `dump-databases`
       init container (mariadb-dump for every DB on the configured
-      `MYSQL_HOST`) followed by a `restic` container that snapshots the
+      `MYSQL_HOST`, with each wiki and the extra databases it declares
+      dumped together) followed by a `restic` container that snapshots the
       instance's PVCs. Both `envFrom` a `canasta-<id>-backup-env` Secret
       synced from the instance's `.env`, containing restic + cloud-backend
       credentials (`RESTIC_*`, `AWS_*`, `B2_*`, `AZURE_*`, `GOOGLE_*`,
@@ -1993,6 +1994,18 @@ commands:
     long_description: |
       Create a backup snapshot. Dumps all wiki databases, stages
       config/extensions/images/skins, and uploads to the repository.
+
+      A wiki whose data extends into a second database — Cargo's
+      `$wgCargoDBname` being the usual case — names it in an
+      `extra_databases` list on that wiki's entry in
+      `config/wikis.yaml`.
+
+      Declared databases are dumped in the same invocation as the wiki's
+      own, so both come from one transaction. That matters for Cargo,
+      whose data tables live in the extra database while the metadata
+      tracking them (`cargo_pages`) lives in the wiki database: captured
+      at different moments, the metadata under-reports, and editing an
+      affected page appends duplicate rows instead of replacing them.
     examples:
       - "canasta backup create -t before-upgrade"
     playbook: backup_create.yml
@@ -2014,8 +2027,8 @@ commands:
       a safety snapshot is taken before restoring. The restore
       replaces configuration files, extensions, images, skins,
       public_assets, `.env`, `docker-compose.override.yml`, `my.cnf`,
-      and all wiki databases with the contents of the specified
-      snapshot.
+      and all wiki databases — including any extra databases declared in
+      `config/wikis.yaml` — with the contents of the specified snapshot.
 
       Use `-w`/`--wiki` to restore only a single wiki's database,
       per-wiki settings, images, and public assets from the backup,
