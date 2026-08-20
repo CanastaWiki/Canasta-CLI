@@ -19,6 +19,7 @@ Requirements:
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1069,6 +1070,103 @@ def test_backup(inst):
 
     print("Verifying wiki accessible after restore...")
     wait_for_wiki(inst.http_port, timeout=300)
+    shutil.rmtree(backup_dir, ignore_errors=True)
+
+
+def test_backup_extra_database(inst):
+    """A database declared in extra_databases is captured and restored.
+
+    Cargo keeps its tables in a database of its own. Before this, backup
+    dumped only the registered wiki databases, so a restore brought the
+    wiki back without its Cargo data — and a rebuild of that data is not
+    a practical recovery path at scale.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)  # Brief wait for containers to stabilize
+
+    def sql(statement):
+        """Run a statement in the db container through the CLI itself."""
+        return inst.run_quiet(
+            "maintenance", "exec", "-i", inst.id, "-s", "db",
+            "bash", "-c",
+            'mariadb -u root -p"$MYSQL_ROOT_PASSWORD" -N -B -e %s'
+            % shlex.quote(statement),
+        )
+
+    print("Creating a second database alongside the wiki...")
+    sql("CREATE DATABASE main_cargo")
+    sql("CREATE TABLE main_cargo.cargo__demo (id INT, page VARCHAR(64))")
+    sql("INSERT INTO main_cargo.cargo__demo VALUES (1, 'Original')")
+
+    print("Declaring it...")
+    before = inst.run_quiet("backup", "databases", "list", "-i", inst.id)
+    assert "main_cargo" not in before, before
+    inst.run_ok("backup", "databases", "add", "-i", inst.id, "main_cargo")
+    after = inst.run_quiet("backup", "databases", "list", "-i", inst.id)
+    assert "main: main, main_cargo" in after, after
+
+    print("Configuring backup repository...")
+    backup_dir = tempfile.mkdtemp(prefix="canasta-int-backup-")
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_REPOSITORY=%s" % backup_dir, "--no-restart",
+    )
+    inst.run_ok(
+        "config", "set", "-i", inst.id,
+        "RESTIC_PASSWORD=testpass", "--no-restart",
+    )
+    inst.run_ok("backup", "init", "-i", inst.id)
+
+    print("Creating backup snapshot...")
+    inst.run_ok("backup", "create", "-i", inst.id, "-t", "extra-db")
+
+    print("Simulating data loss in the extra database...")
+    sql("DROP DATABASE main_cargo")
+
+    output = inst.run_quiet("backup", "list", "-i", inst.id)
+    snapshot_id = None
+    for line in output.split("\n"):
+        if "extra-db" in line:
+            match = re.search(r'\b([0-9a-f]{8,})\b', line)
+            if match:
+                snapshot_id = match.group(1)
+                break
+    assert snapshot_id, "Could not extract snapshot ID from: %s" % output
+
+    print("Verifying the snapshot holds one dump, not two...")
+    # One dump file means one mariadb-dump invocation, which means one
+    # transaction. A db_main_cargo.sql of its own would mean the extra
+    # database was captured at a different moment from the wiki database
+    # that tracks its rows.
+    files = inst.run_quiet(
+        "backup", "files", "-i", inst.id, "-s", snapshot_id,
+    )
+    assert "db_main.sql" in files, (
+        "the wiki's dump is missing from the snapshot: %s" % files
+    )
+    assert "db_main_cargo.sql" not in files, (
+        "the extra database was dumped separately, so it did not share the "
+        "wiki's transaction: %s" % files
+    )
+
+    print("Restoring from backup...")
+    inst.run_ok(
+        "backup", "restore", "-i", inst.id,
+        "-s", snapshot_id, "--skip-safety-backup",
+    )
+
+    print("Verifying the extra database came back with its rows...")
+    restored = sql("SELECT page FROM main_cargo.cargo__demo WHERE id = 1")
+    assert "Original" in restored, (
+        "extra database was not restored; a declared database must "
+        "round-trip through backup and restore:\n%s" % restored
+    )
+
     shutil.rmtree(backup_dir, ignore_errors=True)
 
 
@@ -3934,6 +4032,7 @@ ALL_TESTS = {
     "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
+    "backup-extra-database": test_backup_extra_database,
     "backup-custom-dockerfile": test_backup_custom_dockerfile,
     "backup-missing-dockerfile": test_backup_missing_dockerfile,
     "gitops": test_gitops,

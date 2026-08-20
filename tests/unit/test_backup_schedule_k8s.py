@@ -452,17 +452,18 @@ class TestOnDemandBackupCapturesDB:
             tasks = yaml.safe_load(f)
         for task in self._walk(tasks):
             name = task.get("name", "")
-            if "Dump each wiki database" not in name:
+            if "Dump each wiki's database group" not in name:
                 continue
             when = task.get("when", "")
             assert "compose" in str(when).lower(), (
-                "The 'Dump each wiki database' task must be gated on "
+                "The 'Dump each wiki's database group' task must be gated on "
                 "the Compose orchestrator — running on K8s writes to a "
                 "transient emptyDir the restic Job can't see (#513)"
             )
             return
         raise AssertionError(
-            "backup_stage_db_dumps.yml has no 'Dump each wiki database' task"
+            "backup_stage_db_dumps.yml has no 'Dump each wiki's database "
+            "group' task"
         )
 
     def _dump_databases_script(self):

@@ -42,14 +42,27 @@
     # this indentation verbatim into config/wikis.yaml, and CanastaBase's
     # config-subdir-wikis.sh parses it with column-0 line anchors; indenting
     # here would silently drop every public_assets rewrite rule.
+    #
+    # extra_databases is copied through as a shared literal field, like
+    # name: it is a property of the wiki rather than of this host, and a
+    # field this emitter does not know about is dropped at the next
+    # render — which for a backup declaration means the Cargo database
+    # quietly stops being captured.
     - name: Write wikis.yaml.template from live wikis.yaml
       ansible.builtin.copy:
         content: |
           wikis:
           {% for w in _reconcile_wikis_data.wikis | default([]) %}
+          {% set extras = _reconcile_wikis_data.db_groups[loop.index0].databases[1:] %}
           - id: {{ w.id }}
             url: {{ '{{' }}wiki_url_{{ w.id }}{{ '}}' }}
             name: "{{ w.name | default(w.id) }}"
+          {% if extras %}
+            extra_databases:
+          {% for db in extras %}
+            - {{ db }}
+          {% endfor %}
+          {% endif %}
           {% endfor %}
         dest: "{{ instance_path }}/wikis.yaml.template"
         mode: "0644"

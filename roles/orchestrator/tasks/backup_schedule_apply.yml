@@ -91,9 +91,17 @@
          + ' backup purge -i ' + instance_id + ' --keep-within ' + (purge_older_than | default('')), '') }}
     _cron_log: '>> "{{ instance_path }}/backup.log" 2>&1'
 
+# Redirection binds to a single simple command, not to an '&&' list, so
+# appending '>> backup.log 2>&1' to 'create && purge' redirects the purge
+# alone: the backup's own output goes to cron's, which a host with no MTA
+# discards. Brace-group the list so the redirect covers both. Without
+# retention _cron_purge is empty and the braces wrap the backup alone,
+# which is the behavior that already worked.
 - name: Assemble cron command
   ansible.builtin.set_fact:
-    _cron_cmd: "{{ (_cron_base + ' ' + _cron_purge + ' ' + _cron_log) | regex_replace('\\s+', ' ') | trim }}"
+    _cron_cmd: >-
+      {{ ('{ ' + _cron_base + ' ' + _cron_purge + ' ; } ' + _cron_log)
+         | regex_replace('\\s+', ' ') | trim }}
 
 # The write below only replaces an entry with THIS code path's marker
 # (#Ansible: for the cron module, # BEGIN/END for blockinfile). An entry left

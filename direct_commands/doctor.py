@@ -37,7 +37,8 @@ command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo MISSING; echo "$D"
-command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING
+command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING; echo "$D"
+command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING
 """
 
 
@@ -108,6 +109,7 @@ def _parse_doctor(stdout, hostname):
     # Privilege escalation, appended so the indices above are unchanged.
     sudo_version = p(23) if len(parts) > 23 else "MISSING"
     sudo_nopasswd = p(24) if len(parts) > 24 else "MISSING"
+    podman_compose_version = p(25) if len(parts) > 25 else "MISSING"
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -186,6 +188,42 @@ def _parse_doctor(stdout, hostname):
         else:
             lines.append(
                 "  Podman:          %s (version unknown)" % ver
+            )
+
+    if podman_compose_version not in ("MISSING", ""):
+        pc_ver = podman_compose_version
+        # podman-compose version prints its own version first, then
+        # shells out to podman:
+        #   "podman-compose version 1.3.0"
+        #   "podman version 5.4.2"
+        # The regex is anchored on 'podman-compose version', so it
+        # matches the first line either way.
+        m = re.search(r'podman-compose version\s+(\d+\.\d+\.\d+)', pc_ver)
+        if m:
+            pc_ver_str = m.group(1)
+            # 1.3.0.post1 matches the regex too and is flagged with it:
+            # the substitution bug is in the 1.3.0 base, and warning on
+            # the post release errs on the safe side.
+            if pc_ver_str == "1.3.0":
+                lines.append(
+                    "  Podman Compose:  %s — WARNING: podman-compose 1.3.0 "
+                    "has a known bug where ${VAR:-default} is passed "
+                    "literally to containers when VAR is unset. This "
+                    "breaks Canasta's docker-compose.yml defaults. "
+                    "Upgrade to podman-compose >= 1.3.1 "
+                    "(https://github.com/containers/podman-compose/"
+                    "issues/1105)"
+                    % pc_ver_str
+                )
+            else:
+                lines.append(
+                    "  Podman Compose:  %s" % pc_ver_str
+                )
+        else:
+            # The version is unparsable and may span several lines;
+            # keep the report aligned with just the first.
+            lines.append(
+                "  Podman Compose:  %s" % pc_ver.splitlines()[0]
             )
 
     lines.append("")
