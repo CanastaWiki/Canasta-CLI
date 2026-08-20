@@ -172,9 +172,8 @@
       vars:
         exec_service: db
         exec_command: >-
-          mariadb -u root -p{{ _add_dbpass.value | quote }}
+          mariadb -u root -p"$MYSQL_ROOT_PASSWORD"
           -e 'CREATE DATABASE IF NOT EXISTS `{{ wiki }}`'
-        exec_no_log: true
 
     - name: Import database dump
       ansible.builtin.include_role:

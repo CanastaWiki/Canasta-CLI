@@ -13,8 +13,14 @@
 # leaving wiki content unprotected. The K8s path now does the dump as
 # an init container inside the restic Job itself — see k8s_run_backup.yml.
 #
+# One dump per wiki covers the wiki's own database and any extra
+# databases it declares, in a single invocation so they share one
+# transaction. The password is read from the container's environment
+# rather than templated in, so it never reaches the host's process
+# table.
+#
 # Input: instance_path, instance_orchestrator,
-#        _backup_wikis (wiki_ids), _backup_dbpass (DB password)
+#        _backup_wikis (db_groups)
 
 - name: Create backup staging directory (Compose)
   ansible.builtin.include_tasks: exec.yml
@@ -23,18 +29,20 @@
     exec_command: "mkdir -p /mediawiki/config/backup"
   when: instance_orchestrator | default('compose') == 'compose'
 
-- name: Dump each wiki database (Compose)
+- name: Dump each wiki's database group (Compose)
   ansible.builtin.include_tasks: exec.yml
   vars:
     exec_service: web
-    exec_no_log: true
     exec_long: true
     exec_command: >-
       mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-      -p{{ _backup_dbpass.value | quote }}
+      -p"$MYSQL_PASSWORD"
       --single-transaction
-      --databases {{ item | quote }}
-      > /mediawiki/config/backup/db_{{ item | quote }}.sql
-  loop: "{{ _backup_wikis.wiki_ids }}"
-  no_log: true
+      --databases {{ item.databases | map('quote') | join(' ') }}
+      > /mediawiki/config/backup/db_{{ item.wiki | quote }}.sql
+  loop: "{{ _backup_wikis.db_groups }}"
+  loop_control:
+    label: >-
+      {{ item.wiki }}{{ ' (+ ' ~ (item.databases[1:] | join(', ')) ~ ')'
+                         if item.databases | length > 1 else '' }}
   when: instance_orchestrator | default('compose') == 'compose'
