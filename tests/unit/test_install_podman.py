@@ -67,6 +67,12 @@ class TestTheCommandIsReachable:
             "playbook runs"
         )
 
+    def test_uv_is_an_accepted_choice(self):
+        assert "uv" in _install_param()["choices"], (
+            "`canasta install uv` is rejected by the parser before the "
+            "playbook runs"
+        )
+
     def test_the_choices_match_what_the_playbook_dispatches_on(self):
         # The playbook dispatches on the CLI's own package names, so this
         # is a literal match — no translation table to keep in step.

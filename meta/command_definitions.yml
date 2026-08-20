@@ -789,7 +789,8 @@ commands:
     description: "Install dependencies on the target host"
     long_description: |
       Install one or more dependencies on the target host. Supported
-      packages: docker, k8s-cp, k8s-worker, git-crypt, sops, canasta, podman.
+      packages: docker, k8s-cp, k8s-worker, git-crypt, sops, canasta,
+      podman, uv, uv:<tool>.
 
       `k8s-cp` installs k3s as a control-plane node — the cluster's
       API server, scheduler, etc., plus kubectl + helm on the same
@@ -837,6 +838,13 @@ commands:
       rootless Podman targets. Idempotent — skips if podman is already
       installed.
 
+      `uv` installs the Astral uv Python package manager on its own.
+      `uv:<tool>` installs `<tool>` via uv (e.g. `uv:podman-compose`).
+      This is the recommended workaround for Debian 13 (trixie) stable,
+      which ships podman-compose 1.3.0 — a version with a known bug
+      that breaks Canasta's docker-compose.yml defaults. Idempotent —
+      skips if the tool is already present.
+
       Multiple packages can be combined in a single command, except
       that `k8s-cp` and `k8s-worker` are mutually exclusive on a given
       host.
@@ -851,6 +859,10 @@ commands:
       - "canasta install -i mysite canasta"
       - "canasta install podman"
       - "canasta install --host prod1.example.com podman"
+      - "canasta install uv"
+      - "canasta install --host prod1.example.com uv"
+      - "canasta install uv:podman-compose"
+      - "canasta install --host prod1.example.com uv:podman-compose"
     playbook: install.yml
     parameters:
       - name: host
@@ -877,10 +889,16 @@ commands:
         positional: true
         multi: true
         required: true
-        choices: [docker, k8s-cp, k8s-worker, git-crypt, sops, podman, canasta]
+        choices: [docker, k8s-cp, k8s-worker, git-crypt, sops, podman, canasta, uv]
+        choices_dynamic_prefix: "uv:"
+        # Charset the tail after the prefix must match. Mirrors the
+        # playbook's `^uv:[a-zA-Z0-9_-]+$` validation in install.yml so
+        # argparse rejects the same values before Ansible starts;
+        # tests/unit/test_install_podman.py asserts the two agree.
+        choices_dynamic_pattern: "[a-zA-Z0-9_-]+"
         description: >-
           Dependencies to install (docker, k8s-cp, k8s-worker,
-          git-crypt, sops, podman, canasta)
+          git-crypt, sops, podman, canasta, uv, uv:<tool>)
       - name: public_ip
         type: string
         multi: true
