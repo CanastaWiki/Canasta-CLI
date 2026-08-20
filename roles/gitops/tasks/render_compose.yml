@@ -46,6 +46,12 @@
     src: "{{ instance_path }}/env.template"
   register: _render_env_template_raw
 
+# A placeholder with no stored value for this host is omitted rather than
+# rendered as "KEY=". A blank is not the same as unset to whoever reads it
+# next: CANASTA_ENABLE_VARNISH= was read as "false" and dropped varnish
+# from COMPOSE_PROFILES while its container kept running, unmanaged.
+# Leaving the key out lets the reader's own default apply, which is what
+# "this host stores no opinion" means.
 - name: Render .env from template
   ansible.builtin.copy:
     content: |
@@ -53,7 +59,10 @@
       {% if '={{' in line and '}}' in line %}
       {% set key = line.split('=', 1)[0] %}
       {% set placeholder = line.split('={{', 1)[1].split('}}', 1)[0] %}
-      {{ key }}={{ _render_vars[placeholder] | default('') }}
+      {% set value = _render_vars[placeholder] | default('') %}
+      {% if value != '' %}
+      {{ key }}={{ value }}
+      {% endif %}
       {% else %}
       {{ line }}
       {% endif %}

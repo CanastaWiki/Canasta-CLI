@@ -471,9 +471,13 @@ def _reconcile_compose_profiles(env, current):
     never disagree with the syncer."""
     desired = [p for p in current if p not in _MANAGED_PROFILE_NAMES]
     for profile, flag, default in _MANAGED_PROFILES:
-        if env.get(flag, default).strip().lower() == "true":
+        # `or default` rather than dict.get's default: a key present with
+        # an empty value is this host storing no opinion, not "off".
+        # CANASTA_ENABLE_VARNISH= otherwise read as false and dropped
+        # varnish from COMPOSE_PROFILES while its container kept running.
+        if (env.get(flag) or default).strip().lower() == "true":
             desired.append(profile)
-    if env.get("USE_EXTERNAL_DB", "false").strip().lower() != "true":
+    if (env.get("USE_EXTERNAL_DB") or "false").strip().lower() != "true":
         desired.append("internal-db")
     return desired
 
@@ -513,7 +517,7 @@ def _sync_compose_profiles(inst):
     # CANASTA_CADDY_IMAGE is managed only when empty or already the managed
     # value; a custom override the operator set is left alone.
     crowdsec_on = (
-        env.get("CANASTA_ENABLE_CROWDSEC", "false").strip().lower() == "true"
+        (env.get("CANASTA_ENABLE_CROWDSEC") or "false").strip().lower() == "true"
     )
     tp_mode = env.get("CADDY_TRUSTED_PROXIES", "").strip().lower()
     plugin_needed = crowdsec_on or tp_mode in _CADDY_PLUGIN_TRUSTED_PROXY_MODES
