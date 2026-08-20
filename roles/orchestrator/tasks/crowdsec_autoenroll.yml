@@ -29,7 +29,7 @@
   no_log: true  # registers the whole .env, including passwords
 
 - name: Register CAPI and enroll the CrowdSec bouncer when enabled
-  when: _autoenroll_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true'
+  when: _autoenroll_env.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true'
   block:
     # The K8s engine is a sidecar in the caddy pod, so wait for that pod to
     # be Ready before exec-ing cscli into it (helm --wait usually covers it,

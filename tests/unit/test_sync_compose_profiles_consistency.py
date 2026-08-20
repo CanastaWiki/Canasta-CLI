@@ -38,8 +38,8 @@ def _ansible_flag_map():
     return {
         (profile, flag, default)
         for flag, default, profile in re.findall(
-            r"variables\.(\w+)\s*\|\s*default\('(\w+)'\)\s*\|\s*"
-            r"lower == 'true'\)\s*\|\s*ternary\(\['([^']+)'\]", _text())
+            r"variables\.(\w+)\s*\|\s*default\('(\w+)'(?:\s*,\s*true)?\)"
+            r"\s*\|\s*lower == 'true'\)\s*\|\s*ternary\(\['([^']+)'\]", _text())
     }
 
 
@@ -61,6 +61,52 @@ def _ansible_trusted_proxy_modes():
     return {s.strip().strip("'\"") for s in m.group(1).split(",")} if m else set()
 
 
+class TestEmptyMeansUnset:
+    """A key present with an empty value is a host storing no opinion, not
+    "off". Jinja's single-argument default() fires only on *undefined*, so
+    `CANASTA_ENABLE_VARNISH=` read as false, dropped varnish from
+    COMPOSE_PROFILES, and left its container running unmanaged — a 503 on
+    every request once web was recreated. Only varnish defaults to true,
+    so it is the only flag whose empty value flips behavior; the rest are
+    pinned here so a future true-defaulting flag cannot inherit the bug.
+    """
+
+    def test_every_ansible_flag_read_treats_empty_as_unset(self):
+        bare = re.findall(
+            r"CANASTA_ENABLE_\w+\s*\|\s*default\('(?:true|false)'\)",
+            _text())
+        assert not bare, (
+            "single-argument default() only fires on undefined, so an empty "
+            "value falls through as-is: %s" % bare)
+
+    def test_python_reader_treats_empty_as_unset(self):
+        for flag, default in (("CANASTA_ENABLE_VARNISH", "true"),
+                              ("CANASTA_ENABLE_CROWDSEC", "false")):
+            blank = _helpers._reconcile_compose_profiles({flag: ""}, [])
+            unset = _helpers._reconcile_compose_profiles({}, [])
+            assert blank == unset, (
+                "%s= must behave as unset (default %s), not as off"
+                % (flag, default))
+
+    def test_blank_varnish_flag_keeps_the_profile(self):
+        desired = _helpers._reconcile_compose_profiles(
+            {"CANASTA_ENABLE_VARNISH": ""}, ["varnish", "internal-db"])
+        assert "varnish" in desired, (
+            "dropping varnish here orphans a running container that compose "
+            "then refuses to manage")
+
+    def test_an_explicit_false_still_disables(self):
+        desired = _helpers._reconcile_compose_profiles(
+            {"CANASTA_ENABLE_VARNISH": "false"}, ["varnish"])
+        assert "varnish" not in desired, (
+            "an explicit false is an opinion and must still turn it off")
+
+    def test_blank_external_db_still_means_internal(self):
+        desired = _helpers._reconcile_compose_profiles(
+            {"USE_EXTERNAL_DB": ""}, [])
+        assert "internal-db" in desired
+
+
 class TestSyncComposeProfilesConsistency:
     def test_flag_to_profile_mapping_matches(self):
         ansible = _ansible_flag_map()
@@ -80,8 +126,9 @@ class TestSyncComposeProfilesConsistency:
 
     def test_internal_db_inverse_rule_present_in_both(self):
         assert re.search(
-            r"variables\.USE_EXTERNAL_DB\s*\|\s*default\('false'\)\s*\|\s*"
-            r"lower != 'true'\)\s*\|\s*ternary\(\['internal-db'\]", _text()), (
+            r"variables\.USE_EXTERNAL_DB\s*\|\s*default\('false'(?:\s*,\s*true)?\)"
+            r"\s*\|\s*lower != 'true'\)\s*\|\s*ternary\(\['internal-db'\]",
+            _text(), re.S), (
             "Ansible must derive internal-db from NOT(USE_EXTERNAL_DB)")
         assert "internal-db" in _helpers._MANAGED_PROFILE_NAMES
 
