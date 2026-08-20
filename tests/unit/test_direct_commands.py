@@ -3302,6 +3302,65 @@ class TestBackupList:
         assert rc == 0
         assert "abc123" in capsys.readouterr().out
 
+    def _failing_restic(self, monkeypatch, stderr):
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+            }),
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_read_env_file",
+            lambda *a: {"RESTIC_REPOSITORY": "s3:s3.amazonaws.com/bucket"},
+        )
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 1,
+                "stdout": "",
+                "stderr": stderr,
+            })(),
+        )
+        return type("Args", (), {"id": "test"})()
+
+    def test_failure_reports_restic_diagnostics(self, monkeypatch, capsys):
+        """restic writes every diagnosis to stderr, so discarding it made a
+        denied/unreachable/locked repository look exactly like a repository
+        with no snapshots — an empty listing and nothing else."""
+        args = self._failing_restic(
+            monkeypatch,
+            "Fatal: unable to open config file: Stat: Access Denied.\n",
+        )
+        rc = direct_commands.cmd_backup_list(args)
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "Access Denied" in captured.err, (
+            "the failure must say why; it went to stderr and was dropped")
+
+    def test_success_does_not_echo_stderr_noise(self, monkeypatch, capsys):
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("test", {
+                "path": "/srv/test",
+                "orchestrator": "compose",
+            }),
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_read_env_file",
+            lambda *a: {"RESTIC_REPOSITORY": "s3:s3.amazonaws.com/bucket"},
+        )
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0,
+                "stdout": "abc123    2026-04-18 12:00:00  test\n",
+                "stderr": "unable to create lock in backend: repository is "
+                          "already locked exclusively\n",
+            })(),
+        )
+        args = type("Args", (), {"id": "test"})()
+        rc = direct_commands.cmd_backup_list(args)
+        assert rc == 0
+        assert capsys.readouterr().err == "", (
+            "a successful listing should not print stderr chatter")
+
 
 # ---------------------------------------------------------------------------
 # Doctor tests
