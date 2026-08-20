@@ -165,3 +165,61 @@ class TestKubernetesStillRollsOnChecksum:
             "it is what rolls the pod on a ConfigMap change, and the reason "
             "reload_caddy.yml is Compose-only"
         )
+
+
+class TestCaddyfileIsWrittenInPlace:
+    """A reload can only apply what the container can read.
+
+    The compose stack bind-mounts the file itself
+    (./config/Caddyfile:/etc/caddy/Caddyfile), and a file mount resolves
+    to an inode at container start. Writing the Caddyfile by rename gives
+    it a new inode, so the container keeps reading the old one for its
+    whole lifetime and `caddy reload` applies nothing — silently, since
+    `caddy validate` in the container reads the same stale inode.
+    """
+
+    REWRITE = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "rewrite_caddy.yml")
+
+    def _tasks(self):
+        with open(self.REWRITE) as f:
+            return list(_walk(yaml.safe_load(f)))
+
+    def _by_name(self, name):
+        return next(
+            (t for t in self._tasks() if t.get("name") == name), None)
+
+    def test_no_task_writes_the_mounted_caddyfile_directly(self):
+        for task in self._tasks():
+            for module in ("ansible.builtin.copy", "copy",
+                           "ansible.builtin.template", "template"):
+                args = task.get(module)
+                if isinstance(args, dict) and str(
+                        args.get("dest", "")).endswith("config/Caddyfile"):
+                    raise AssertionError(
+                        "%r writes config/Caddyfile with %s, which renames a "
+                        "temp file into place and strands the container's "
+                        "bind mount" % (task.get("name"), module))
+
+    def test_the_render_goes_to_a_staging_file(self):
+        render = self._by_name(
+            "Write the rendered Caddyfile (rendered + global blocks melded)")
+        assert render is not None
+        dest = render["ansible.builtin.copy"]["dest"]
+        assert "_caddy_staging" in dest, (
+            "the render must land on a staging file, not the mounted path")
+
+    def test_the_install_uses_cp_to_keep_the_inode(self):
+        install = self._by_name("Install the Caddyfile in place")
+        assert install is not None, "install task missing/renamed"
+        cmd = install["ansible.builtin.command"]["cmd"]
+        assert cmd.strip().startswith("cp "), (
+            "cp truncates the destination and keeps its inode; mv/install "
+            "would replace it and strand the mount")
+        assert "config/Caddyfile" in cmd
+
+    def test_the_install_is_skipped_when_the_content_is_unchanged(self):
+        install = self._by_name("Install the Caddyfile in place")
+        when = str(install.get("when"))
+        assert "_caddy_render.checksum" in when and "stat.checksum" in when, (
+            "an unchanged render must report ok, not changed")

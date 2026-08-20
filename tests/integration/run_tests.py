@@ -925,6 +925,46 @@ def test_reconcile(inst):
     print("Verifying the wiki still serves after reconcile...")
     wait_for_wiki(inst.http_port)
 
+    # The compose stack bind-mounts config/Caddyfile as a file, so the
+    # container resolves it to an inode once, at start. A rewrite that
+    # renames a new file into place leaves the container reading the old
+    # inode for its whole lifetime, and the reload then applies nothing —
+    # silently, because caddy validate in the container reads the same
+    # stale inode. Assert what the container can actually see.
+    print("Changing the Caddyfile source and regenerating...")
+    global_path = os.path.join(inst.instance_path(), "config",
+                               "Caddyfile.global")
+    with open(global_path, "a") as f:
+        f.write("\n{\n\tservers {\n\t\ttimeouts {\n"
+                "\t\t\tidle 47s\n\t\t}\n\t}\n}\n")
+    inst.run_ok("config", "regenerate", "-i", inst.id)
+
+    host_caddyfile = os.path.join(inst.instance_path(), "config", "Caddyfile")
+    with open(host_caddyfile) as f:
+        host_text = f.read()
+    assert "idle 47s" in host_text, "the regenerate did not pick up the edit"
+
+    container_text = inst.run_quiet(
+        "maintenance", "exec", "-i", inst.id, "-s", "caddy",
+        "cat", "/etc/caddy/Caddyfile",
+    )
+    assert "idle 47s" in container_text, (
+        "the container still sees the old Caddyfile — the write replaced "
+        "the file's inode and stranded the bind mount, so a reload would "
+        "apply nothing"
+    )
+
+    print("Verifying reconcile's reload applies it to the running Caddy...")
+    inst.run_ok("reconcile", "-i", inst.id)
+    running = inst.run_quiet(
+        "maintenance", "exec", "-i", inst.id, "-s", "caddy",
+        "sh", "-c", "wget -qO- http://127.0.0.1:2019/config/",
+    )
+    assert '"idle_timeout":47000000000' in running, (
+        "caddy's running config does not carry the change, so the reload "
+        "did not apply the regenerated Caddyfile"
+    )
+
 
 def test_upgrade_backfill_hosts_yaml(inst):
     """Initialize gitops, simulate Go-CLI layout (no hosts.yaml),
