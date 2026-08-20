@@ -14,14 +14,6 @@
     state: read
   register: _backup_wikis
 
-- name: Read DB password
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read
-    key: MYSQL_PASSWORD
-  register: _backup_dbpass
-  no_log: true
-
 # The orchestrator owns how DB dumps are staged into the snapshot:
 # Compose dumps into the live web container's bind-mounted
 # /mediawiki/config/backup; K8s does it in the restic Job's init

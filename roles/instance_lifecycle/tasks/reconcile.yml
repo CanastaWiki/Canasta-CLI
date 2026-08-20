@@ -56,6 +56,16 @@
     name: orchestrator
     tasks_from: start.yml
 
+# The converge above cannot deliver Caddy config: both the Caddyfile and
+# Caddyfile.site are bind-mounted files, so their contents are invisible to
+# compose's change detection and the container is left running the config it
+# started with. Reload after the converge, so a Caddy that start.yml had to
+# bring up is already listening.
+- name: Apply Caddy config to the running server
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: reload_caddy.yml
+
 - name: Report reconciled
   ansible.builtin.debug:
     msg: >-

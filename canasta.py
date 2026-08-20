@@ -121,6 +121,7 @@ SUBCOMMAND_GROUPS = {
 NESTED_SUBCOMMAND_GROUPS = {
     "backup": {
         "schedule": ["set", "list", "remove"],
+        "databases": ["add", "remove", "list"],
     },
     "storage": {
         "setup": ["nfs", "efs"],

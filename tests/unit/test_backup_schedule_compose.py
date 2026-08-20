@@ -215,3 +215,48 @@ class TestSchedulePersistence:
         assert remat, "pull_compose must re-materialize the schedule"
         assert "config/backup-schedule.yml" in str(remat[0].get("when")), \
             "rematerialize must be gated on the schedule file changing"
+
+
+def _cron_command_template():
+    """The assembled crontab command line, as a Jinja template string."""
+    with open(SCHEDULE_SET) as f:
+        tasks = yaml.safe_load(f)
+    for task in _walk_tasks(tasks):
+        sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+        if isinstance(sf, dict) and "_cron_cmd" in sf:
+            return sf["_cron_cmd"]
+    raise AssertionError("backup_schedule_apply.yml has no _cron_cmd set_fact")
+
+
+class TestScheduledOutputIsLogged:
+    """Redirection binds to one simple command, not to an `&&` list. With
+    retention configured, `>> backup.log 2>&1` therefore applied to the
+    purge alone: a successful run logged only the purge (which reads like
+    evidence the backup ran), and a failed one logged nothing at all,
+    because `&&` short-circuits. Adding retention silently turned the
+    logging off."""
+
+    def test_command_list_is_grouped_before_redirection(self):
+        template = _cron_command_template()
+        assert "'{ '" in template and "' ; } '" in template, (
+            "the create/purge list must be brace-grouped so the redirect "
+            "covers both commands, not just the last one")
+
+    def test_redirect_comes_after_the_group(self):
+        template = _cron_command_template()
+        group_end = template.index("' ; } '")
+        log_ref = template.index("_cron_log")
+        assert group_end < log_ref, (
+            "the redirect has to follow the closing brace, or it applies to "
+            "the purge alone again")
+
+    def test_log_redirect_captures_both_streams(self):
+        with open(SCHEDULE_SET) as f:
+            tasks = yaml.safe_load(f)
+        for task in _walk_tasks(tasks):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if isinstance(sf, dict) and "_cron_log" in sf:
+                assert "2>&1" in sf["_cron_log"], (
+                    "a failure that only writes to stderr must reach the log")
+                return
+        raise AssertionError("no _cron_log set_fact")
