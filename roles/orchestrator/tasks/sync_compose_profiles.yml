@@ -27,11 +27,16 @@
     _desired_profiles: >-
       {{
         (_current_profiles | reject('in', ['observable', 'elasticsearch', 'varnish', 'crowdsec', 'internal-db']) | list) +
-        ((_env_profiles.variables.CANASTA_ENABLE_OBSERVABILITY | default('false') | lower == 'true') | ternary(['observable'], [])) +
-        ((_env_profiles.variables.CANASTA_ENABLE_ELASTICSEARCH | default('false') | lower == 'true') | ternary(['elasticsearch'], [])) +
-        ((_env_profiles.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true') | ternary(['varnish'], [])) +
-        ((_env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true') | ternary(['crowdsec'], [])) +
-        ((_env_profiles.variables.USE_EXTERNAL_DB | default('false') | lower != 'true') | ternary(['internal-db'], []))
+        ((_env_profiles.variables.CANASTA_ENABLE_OBSERVABILITY | default('false', true)
+          | lower == 'true') | ternary(['observable'], [])) +
+        ((_env_profiles.variables.CANASTA_ENABLE_ELASTICSEARCH | default('false', true)
+          | lower == 'true') | ternary(['elasticsearch'], [])) +
+        ((_env_profiles.variables.CANASTA_ENABLE_VARNISH | default('true', true)
+          | lower == 'true') | ternary(['varnish'], [])) +
+        ((_env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false', true)
+          | lower == 'true') | ternary(['crowdsec'], [])) +
+        ((_env_profiles.variables.USE_EXTERNAL_DB | default('false', true)
+          | lower != 'true') | ternary(['internal-db'], []))
       }}
 
 - name: Update COMPOSE_PROFILES in .env
@@ -93,7 +98,7 @@
 # left untouched. Mirrors _CADDY_PLUGIN_IMAGE in direct_commands/_helpers.py.
 - name: Reconcile CANASTA_CADDY_IMAGE for plugin features
   vars:
-    _crowdsec_on: "{{ _env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
+    _crowdsec_on: "{{ _env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true' }}"
     _tp_mode: "{{ _env_profiles.variables.CADDY_TRUSTED_PROXIES | default('') | trim | lower }}"
     _plugin_needed: "{{ _crowdsec_on or (_tp_mode in ['cloudflare', 'imperva']) }}"
     _current_caddy_image: "{{ _env_profiles.variables.CANASTA_CADDY_IMAGE | default('') }}"

@@ -31,7 +31,7 @@
 
 - name: Compute desired caddy image and crowdsec state
   vars:
-    _crowdsec_on: "{{ _reconcile_env.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
+    _crowdsec_on: "{{ _reconcile_env.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true' }}"
     _tp_mode: "{{ _reconcile_env.variables.CADDY_TRUSTED_PROXIES | default('') | trim | lower }}"
     _plugin_needed: "{{ _crowdsec_on or (_tp_mode in ['cloudflare', 'imperva']) }}"
     _values: "{{ _reconcile_values_raw.content | b64decode | from_yaml }}"
