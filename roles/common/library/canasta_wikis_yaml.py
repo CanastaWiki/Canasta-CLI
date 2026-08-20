@@ -25,7 +25,8 @@ options:
   state:
     description: Action to perform.
     type: str
-    choices: [read, generate, add, remove, query, update_port, update_domain]
+    choices: [read, generate, add, remove, query, update_port, update_domain,
+              add_database, remove_database]
     default: read
   wiki_id:
     description: Wiki ID.
@@ -45,6 +46,11 @@ options:
   site_name:
     description: Display name of the wiki.
     type: str
+  database:
+    description: >-
+      With state=add_database or state=remove_database, the extra database
+      to include in (or drop from) the wiki's backup group.
+    type: str
   port:
     description: With state=update_port, the new port for the wiki URL(s).
     type: str
@@ -62,6 +68,7 @@ import yaml
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_validate import (
+    validate_extra_database,
     validate_wiki_id,
 )
 
@@ -191,17 +198,80 @@ def wiki_url_exists(wikis, domain, wiki_path=None):
     return any(w.get("url", "") == url for w in wikis)
 
 
+def extra_databases(wiki):
+    """Return a wiki's declared extra database names.
+
+    Entries are either a bare name or a mapping with a `name` key. The
+    mapping form reserves room for a database that needs its own host or
+    credential; that case cannot share a transaction with the wiki
+    database (a dump is one connection), so it is rejected here rather
+    than silently dumped at a different point in time.
+    """
+    declared = wiki.get("extra_databases") or []
+    if not isinstance(declared, list):
+        raise ValueError(
+            "extra_databases for wiki '%s' must be a list" % wiki.get("id", "")
+        )
+    names = []
+    for entry in declared:
+        if isinstance(entry, dict):
+            unsupported = sorted(k for k in entry if k != "name")
+            if unsupported:
+                raise ValueError(
+                    "extra_databases entry '%s' for wiki '%s' sets %s. A "
+                    "database reached with its own host or credential needs a "
+                    "second connection, so it cannot be captured in the same "
+                    "transaction as the wiki database; that is not supported "
+                    "yet. Remove %s to back it up over the instance's own "
+                    "database connection."
+                    % (entry.get("name", entry), wiki.get("id", ""),
+                       ", ".join(unsupported), ", ".join(unsupported))
+                )
+            name = entry.get("name")
+        else:
+            name = entry
+        err = validate_extra_database(name)
+        if err:
+            raise ValueError(
+                "wiki '%s': %s" % (wiki.get("id", ""), err)
+            )
+        names.append(name)
+    return names
+
+
+def get_db_groups(wikis):
+    """Return the database groups to dump, one per wiki.
+
+    Each group is dumped by a single `mariadb-dump --databases` call, so
+    every database in it comes from one transaction. Cargo splits its
+    state across the wiki database (`cargo_pages` and friends) and its
+    own (`cargo__*`); capturing the two at different moments leaves rows
+    that `cargo_pages` does not know about, which turns the next edit of
+    those pages into duplicate rows instead of replacements.
+    """
+    groups = []
+    for wiki in wikis:
+        wiki_id = wiki.get("id", "")
+        databases = [wiki_id] + [
+            name for name in extra_databases(wiki) if name != wiki_id
+        ]
+        groups.append({"wiki": wiki_id, "databases": databases})
+    return groups
+
+
 def run_module():
     module_args = dict(
         instance_path=dict(type="str", required=True),
         state=dict(type="str", default="read",
                    choices=["read", "generate", "add", "remove", "query",
-                            "update_port", "update_domain"]),
+                            "update_port", "update_domain",
+                            "add_database", "remove_database"]),
         wiki_id=dict(type="str", required=False),
         domain=dict(type="str", required=False),
         old_domain=dict(type="str", required=False),
         wiki_path=dict(type="str", required=False),
         site_name=dict(type="str", required=False),
+        database=dict(type="str", required=False),
         port=dict(type="str", required=False),
         default_port=dict(type="str", required=False, default="443"),
     )
@@ -219,6 +289,7 @@ def run_module():
     site_name = module.params.get("site_name")
     port = module.params.get("port")
     default_port = module.params.get("default_port") or "443"
+    database = module.params.get("database")
 
     result = {"changed": False}
 
@@ -226,6 +297,11 @@ def run_module():
         wikis = read_wikis(instance_path)
         result["wikis"] = wikis
         result["wiki_ids"] = get_wiki_ids(wikis)
+        try:
+            result["db_groups"] = get_db_groups(wikis)
+        except ValueError as exc:
+            module.fail_json(msg=str(exc))
+            return
 
     elif state == "query":
         if not wiki_id:
@@ -236,6 +312,11 @@ def run_module():
         for w in wikis:
             if w.get("id") == wiki_id:
                 result["wiki"] = w
+                try:
+                    result["databases"] = get_db_groups([w])[0]["databases"]
+                except ValueError as exc:
+                    module.fail_json(msg=str(exc))
+                    return
                 break
 
     elif state == "generate":
@@ -299,6 +380,59 @@ def run_module():
             write_wikis(instance_path, new_wikis)
         result["changed"] = True
         result["wikis"] = new_wikis
+
+    elif state in ("add_database", "remove_database"):
+        if not wiki_id:
+            module.fail_json(msg="wiki_id is required for %s" % state)
+            return
+        if not database:
+            module.fail_json(msg="database is required for %s" % state)
+            return
+        err = validate_extra_database(database)
+        if err:
+            module.fail_json(msg=err)
+            return
+        wikis = read_wikis(instance_path)
+        if not wiki_id_exists(wikis, wiki_id):
+            module.fail_json(
+                msg="Wiki ID '%s' not found (present: %s)"
+                    % (wiki_id, ", ".join(get_wiki_ids(wikis)))
+            )
+            return
+        updated = []
+        changed = False
+        for wiki in wikis:
+            wiki = dict(wiki)
+            if wiki.get("id") == wiki_id:
+                try:
+                    current = extra_databases(wiki)
+                except ValueError as exc:
+                    module.fail_json(msg=str(exc))
+                    return
+                if state == "add_database":
+                    if database == wiki_id:
+                        module.fail_json(
+                            msg="'%s' is the wiki's own database, which every "
+                                "backup already includes" % database
+                        )
+                        return
+                    if database not in current:
+                        wiki["extra_databases"] = current + [database]
+                        changed = True
+                elif database in current:
+                    remaining = [n for n in current if n != database]
+                    if remaining:
+                        wiki["extra_databases"] = remaining
+                    else:
+                        wiki.pop("extra_databases", None)
+                    changed = True
+            updated.append(wiki)
+        if changed and not module.check_mode:
+            write_wikis(instance_path, updated)
+        result["changed"] = changed
+        result["wikis"] = updated
+        result["databases"] = get_db_groups(
+            [w for w in updated if w.get("id") == wiki_id])[0]["databases"]
 
     elif state == "update_port":
         if not port:

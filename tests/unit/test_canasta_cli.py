@@ -1028,6 +1028,25 @@ class TestInstallCommand:
             parser.parse_args(["install", "dokcer"])
         assert "invalid choice" in capsys.readouterr().err
 
+    def test_install_accepts_uv_prefixed_package(self, parser):
+        # uv:<tool> is accepted by the dynamic choices prefix.
+        args = parser.parse_args(["install", "uv:podman-compose"])
+        assert args.packages == ["uv:podman-compose"]
+
+    @pytest.mark.parametrize("bad", [
+        "uv:",              # empty tail
+        "uv:podman==1.5",   # version specifiers: the role pins versions
+        "uv:foo/bar",       # path-like names
+        "uv:a b",           # whitespace
+    ])
+    def test_install_rejects_malformed_uv_prefix(self, parser, capsys, bad):
+        # argparse must reject the same tails the playbook's
+        # `^uv:[a-zA-Z0-9_-]+$` check rejects, so the failure lands
+        # before Ansible starts instead of after it SSHes.
+        with pytest.raises(SystemExit):
+            parser.parse_args(["install", bad])
+        assert "invalid choice" in capsys.readouterr().err
+
     def test_install_usage_names_every_package(self, parser, capsys):
         # The point of the choices list: `canasta install` with no
         # arguments has to answer "what can I install?".
@@ -1035,7 +1054,7 @@ class TestInstallCommand:
             parser.parse_args(["install"])
         err = capsys.readouterr().err
         for pkg in ("docker", "k8s-cp", "k8s-worker",
-                    "git-crypt", "sops", "canasta"):
+                    "git-crypt", "sops", "canasta", "uv"):
             assert pkg in err, (
                 "usage must list %s; an opaque PACKAGES metavar leaves the "
                 "valid values undiscoverable" % pkg

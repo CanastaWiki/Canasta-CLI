@@ -94,6 +94,10 @@
       failed_when: false
       when: not (_container_running | default(false) | bool)
 
+    # The three failure guards below default rc: `Start containers` is skipped
+    # on an already-running instance, and a skipped result is a dict with no
+    # rc at all, so a bare `_start_result.rc` raises instead of evaluating.
+    #
     # When docker compose up fails (typically an unhealthy container),
     # capture per-service logs and state before we bail out. The caller
     # usually rolls back (docker compose down) on failure, which wipes
@@ -107,7 +111,7 @@
       register: _start_ps
       changed_when: false
       failed_when: false
-      when: _start_result.rc != 0
+      when: _start_result.rc | default(0) != 0
 
     - name: Capture compose logs on failure
       ansible.builtin.command:
@@ -116,7 +120,7 @@
       register: _start_logs
       changed_when: false
       failed_when: false
-      when: _start_result.rc != 0
+      when: _start_result.rc | default(0) != 0
 
     # Ansible's default callback swallows stderr/stdout for failed
     # command modules under the compact "[ERROR]: Task failed: ..."
@@ -134,7 +138,7 @@
           {{ _start_ps.stdout | default('(not captured)') }}
           --- docker compose logs (last 200) ---
           {{ _start_logs.stdout | default('(not captured)') }}
-      when: _start_result.rc != 0
+      when: _start_result.rc | default(0) != 0
 
     # Wait for the web container to finish booting before returning.
     # /run-all.sh in the canasta image runs `composer update`

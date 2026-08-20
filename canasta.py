@@ -121,6 +121,7 @@ SUBCOMMAND_GROUPS = {
 NESTED_SUBCOMMAND_GROUPS = {
     "backup": {
         "schedule": ["set", "list", "remove"],
+        "databases": ["add", "remove", "list"],
     },
     "storage": {
         "setup": ["nfs", "efs"],
@@ -722,6 +723,42 @@ def hoist_flags_from_remainder(args):
         setattr(args, pos_name, new_args)
 
 
+class _DynamicChoices:
+    """argparse choices that accept a fixed list plus a prefix pattern.
+
+    Used for `canasta install` where the base packages are fixed
+    (docker, podman, etc.) but `uv:<tool>` is an open-ended prefix
+    (e.g. `uv:podman-compose`).  argparse calls `__contains__` for
+    validation and `__iter__` for --help output.
+
+    `pattern`, when given, constrains the tail after the prefix. It
+    mirrors the playbook's own validation (install.yml rejects a
+    `uv:` target whose tail has other characters), so argparse fails
+    fast on the same values instead of letting them through to a
+    post-SSH playbook error.
+    """
+
+    def __init__(self, base, prefix, pattern=None):
+        self._base = list(base)
+        self._prefix = prefix
+        self._pattern = re.compile(pattern) if pattern else None
+
+    def __contains__(self, item):
+        if item in self._base:
+            return True
+        if not isinstance(item, str) or not item.startswith(self._prefix):
+            return False
+        tail = item[len(self._prefix):]
+        if not tail:
+            return False
+        if self._pattern:
+            return bool(self._pattern.fullmatch(tail))
+        return True
+
+    def __iter__(self):
+        return iter(self._base)
+
+
 def _positional_choices(param, name):
     """argparse kwargs constraining a positional to a fixed set of values.
 
@@ -732,6 +769,10 @@ def _positional_choices(param, name):
     """
     choices = param.get("choices")
     if choices:
+        prefix = param.get("choices_dynamic_prefix")
+        if prefix:
+            return {"choices": _DynamicChoices(
+                choices, prefix, param.get("choices_dynamic_pattern"))}
         return {"choices": choices}
     return {"metavar": name.upper()}
 

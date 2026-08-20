@@ -1,0 +1,7 @@
+---
+# canasta backup databases remove
+
+- name: Backup Databases Remove
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: databases_remove.yml
