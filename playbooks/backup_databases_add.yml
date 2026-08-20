@@ -1,0 +1,7 @@
+---
+# canasta backup databases add
+
+- name: Backup Databases Add
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: databases_add.yml

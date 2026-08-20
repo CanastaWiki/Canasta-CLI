@@ -2,6 +2,8 @@
 
 import os
 
+import yaml
+
 import canasta_wikis_yaml
 from mock_ansible import run_module_with_params
 
@@ -502,3 +504,108 @@ class TestAddCollision:
         assert not failed
         assert result["changed"]
         assert any(w["id"] == "blog" for w in result["wikis"])
+
+
+class TestDatabaseDeclaration:
+    """add_database / remove_database back `canasta backup databases`."""
+
+    def _instance(self, tmp_path, wikis):
+        config = os.path.join(str(tmp_path), "config")
+        os.makedirs(config)
+        with open(os.path.join(config, "wikis.yaml"), "w") as f:
+            yaml.dump({"wikis": wikis}, f)
+        return str(tmp_path)
+
+    def _read(self, path):
+        with open(os.path.join(path, "config", "wikis.yaml")) as f:
+            return yaml.safe_load(f)["wikis"]
+
+    def test_add_writes_the_declaration(self, tmp_path):
+        path = self._instance(tmp_path, [{"id": "main", "url": "example.com"}])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": path, "state": "add_database",
+            "wiki_id": "main", "database": "main_cargo",
+        })
+        assert not failed
+        assert result["changed"] is True
+        assert result["databases"] == ["main", "main_cargo"]
+        assert self._read(path)[0]["extra_databases"] == ["main_cargo"]
+
+    def test_add_is_idempotent(self, tmp_path):
+        path = self._instance(tmp_path, [
+            {"id": "main", "url": "example.com",
+             "extra_databases": ["main_cargo"]}])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": path, "state": "add_database",
+            "wiki_id": "main", "database": "main_cargo",
+        })
+        assert not failed
+        assert result["changed"] is False
+
+    def test_add_rejects_the_wikis_own_database(self, tmp_path):
+        path = self._instance(tmp_path, [{"id": "main", "url": "example.com"}])
+        _, failed, msg = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": path, "state": "add_database",
+            "wiki_id": "main", "database": "main",
+        })
+        assert failed and "already includes" in msg
+
+    def test_add_rejects_an_unknown_wiki(self, tmp_path):
+        path = self._instance(tmp_path, [{"id": "main", "url": "example.com"}])
+        _, failed, msg = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": path, "state": "add_database",
+            "wiki_id": "other", "database": "main_cargo",
+        })
+        assert failed and "not found" in msg
+
+    def test_add_rejects_a_name_with_shell_metacharacters(self, tmp_path):
+        path = self._instance(tmp_path, [{"id": "main", "url": "example.com"}])
+        _, failed, msg = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": path, "state": "add_database",
+            "wiki_id": "main", "database": "cargo; rm -rf /",
+        })
+        assert failed and "invalid" in msg
+
+    def test_remove_drops_the_key_when_the_last_one_goes(self, tmp_path):
+        path = self._instance(tmp_path, [
+            {"id": "main", "url": "example.com",
+             "extra_databases": ["main_cargo"]}])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": path, "state": "remove_database",
+            "wiki_id": "main", "database": "main_cargo",
+        })
+        assert not failed
+        assert result["changed"] is True
+        assert "extra_databases" not in self._read(path)[0]
+
+    def test_remove_keeps_the_others(self, tmp_path):
+        path = self._instance(tmp_path, [
+            {"id": "main", "url": "example.com",
+             "extra_databases": ["a_cargo", "b_cargo"]}])
+        run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": path, "state": "remove_database",
+            "wiki_id": "main", "database": "a_cargo",
+        })
+        assert self._read(path)[0]["extra_databases"] == ["b_cargo"]
+
+    def test_remove_of_an_absent_database_changes_nothing(self, tmp_path):
+        path = self._instance(tmp_path, [{"id": "main", "url": "example.com"}])
+        result, failed, _ = run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": path, "state": "remove_database",
+            "wiki_id": "main", "database": "main_cargo",
+        })
+        assert not failed
+        assert result["changed"] is False
+
+    def test_only_the_named_wiki_is_touched(self, tmp_path):
+        path = self._instance(tmp_path, [
+            {"id": "one", "url": "one.example.com"},
+            {"id": "two", "url": "two.example.com"},
+        ])
+        run_module_with_params(canasta_wikis_yaml, {
+            "instance_path": path, "state": "add_database",
+            "wiki_id": "two", "database": "two_cargo",
+        })
+        wikis = self._read(path)
+        assert "extra_databases" not in wikis[0]
+        assert wikis[1]["extra_databases"] == ["two_cargo"]

@@ -1,0 +1,39 @@
+---
+# Show which databases each wiki's backup dumps.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Read the wikis and their backup groups
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _backup_db_groups
+
+- name: Fail when the named wiki is not in this instance
+  ansible.builtin.fail:
+    msg: >-
+      Wiki '{{ wiki }}' is not in this instance. Present wikis:
+      {{ _backup_db_groups.wiki_ids | join(', ') }}.
+  when:
+    - wiki is defined
+    - wiki != ''
+    - wiki not in _backup_db_groups.wiki_ids
+
+# One debug task rather than a looped one: the CLI's output callback
+# renders a task's msg, not a loop's per-item results, so a looped report
+# prints nothing outside --verbose.
+- name: Build the backup group report
+  ansible.builtin.set_fact:
+    _backup_db_lines: >-
+      {{ (_backup_db_lines | default([]))
+         + [item.wiki ~ ': ' ~ (item.databases | join(', '))] }}
+  loop: "{{ _backup_db_groups.db_groups }}"
+  when: wiki is not defined or wiki == '' or item.wiki == wiki
+  loop_control:
+    label: "{{ item.wiki }}"
+
+- name: Show the backup groups
+  ansible.builtin.debug:
+    msg: "{{ _backup_db_lines | default([]) }}"
