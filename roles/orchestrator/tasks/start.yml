@@ -80,10 +80,45 @@
     - name: Check if already running
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_running.yml"
 
-    - name: Skip start when already running
+    # A running web container does not mean the instance is converged: a
+    # profile added since the last converge (a feature just enabled, or
+    # COMPOSE_PROFILES repaired) names a service that is not running yet,
+    # and `up -d` is the only step that would start it. Ask compose which
+    # services the active profiles imply and compare with what is running,
+    # so the cheap no-op is kept for an instance that really is converged.
+    - name: List the services the active profiles imply
+      ansible.builtin.command:
+        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} config --services"
+        chdir: "{{ instance_path }}"
+      register: _expected_services
+      changed_when: false
+      failed_when: false
+
+    - name: List the services actually running
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/list_running_services.yml"
+
+    # An unreadable service list (rc != 0) leaves this empty, which falls
+    # back to the previous web-only behavior rather than forcing a converge.
+    - name: Determine which expected services are missing
+      ansible.builtin.set_fact:
+        _missing_services: >-
+          {{ ((_expected_services.stdout | default('')).split()
+              if _expected_services.rc | default(1) == 0 else [])
+             | difference((_running_services | default('')).split()) }}
+
+    - name: Skip start when every expected service is running
       ansible.builtin.debug:
         msg: "Instance is already running."
-      when: _container_running | default(false) | bool
+      when:
+        - _container_running | default(false) | bool
+        - _missing_services | length == 0
+
+    - name: Report the services being started
+      ansible.builtin.debug:
+        msg: "Starting {{ _missing_services | join(', ') }}..."
+      when:
+        - _container_running | default(false) | bool
+        - _missing_services | length > 0
 
     - name: Start containers
       ansible.builtin.command:
@@ -92,7 +127,9 @@
       register: _start_result
       changed_when: true
       failed_when: false
-      when: not (_container_running | default(false) | bool)
+      when: >-
+        not (_container_running | default(false) | bool)
+        or _missing_services | length > 0
 
     # The three failure guards below default rc: `Start containers` is skipped
     # on an already-running instance, and a skipped result is a dict with no

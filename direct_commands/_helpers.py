@@ -1348,6 +1348,65 @@ def _check_running(instance_id, path, orchestrator, host, docker_host=None,
     return _check_running_compose(path, host, docker_host, compose_cmd)
 
 
+def _capture_in_instance(path, host, docker_host, argv):
+    """Run argv in the instance directory and return stdout, or None."""
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                argv, cwd=path, capture_output=True, text=True, timeout=30,
+                env=_docker_env(docker_host),
+            )
+            return result.stdout if result.returncode == 0 else None
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+    # Quote every token: the ps format string carries embedded quotes and
+    # braces, which a bare join hands to the remote shell to mangle — the
+    # listing then comes back empty and every service reads as missing.
+    quoted = " ".join(_shell_quote(a) for a in argv)
+    cmd = "cd %s && %s" % (_shell_quote(path), quoted)
+    if docker_host:
+        cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
+    rc, stdout = _ssh_run(host, cmd)
+    return stdout if rc == 0 else None
+
+
+def _missing_profile_services(inst, compose_cmd=None):
+    """Services the active COMPOSE_PROFILES imply that are not running.
+
+    A running web container is not the same as a converged instance: a
+    profile added since the last converge (a feature just enabled, or
+    COMPOSE_PROFILES repaired) names a service nothing has started, and
+    `up -d` is the only step that would start it. Compose itself answers
+    which services the active profiles imply, so this cannot drift from
+    the profile map.
+
+    An unreadable service list returns [] — the caller then behaves as it
+    did before, skipping on a running web container rather than forcing a
+    converge on a bad reading.
+    """
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    docker_host = inst.get("dockerHost")
+    if compose_cmd is None:
+        compose_cmd = _resolve_compose_cmd(inst)
+    expected = _capture_in_instance(
+        path, host, docker_host,
+        list(compose_cmd) + _compose_profile_args(inst)
+        + ["config", "--services"],
+    )
+    if expected is None:
+        return []
+    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
+    running = _capture_in_instance(
+        path, host, docker_host,
+        [runtime, "ps", "--filter", "status=running",
+         "--filter",
+         "label=com.docker.compose.project=%s" % _compose_project(path),
+         "--format", '{{.Label "com.docker.compose.service"}}'],
+    )
+    return sorted(set(expected.split()) - set((running or "").split()))
+
+
 def _check_running_compose(path, host, docker_host=None, compose_cmd=None):
     if compose_cmd is None:
         compose_cmd = ["docker", "compose"]
