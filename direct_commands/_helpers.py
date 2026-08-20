@@ -1407,6 +1407,56 @@ def _missing_profile_services(inst, compose_cmd=None):
     return sorted(set(expected.split()) - set((running or "").split()))
 
 
+_SECRET_CLASSIFICATION = None
+
+
+def _secret_classification():
+    """The canonical secret classification, read from the file that defines it.
+
+    vars/secret_classification.yml is the one definition of "this key's
+    value is a secret", already driving no_log, the gitops placeholders
+    and the K8s Secret split. Reading it here keeps the CLI's own output
+    from drifting into a second, quieter opinion.
+    """
+    global _SECRET_CLASSIFICATION
+    if _SECRET_CLASSIFICATION is None:
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "vars", "secret_classification.yml")
+        try:
+            with open(path) as f:
+                data = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            # Deny-by-default: without the file, treat the well-known
+            # credential words as secret rather than printing everything.
+            data = {}
+        _SECRET_CLASSIFICATION = (
+            data.get("canasta_secret_key_pattern")
+            or "(PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL)",
+            tuple(data.get("canasta_secret_prefixes") or ()),
+            tuple(data.get("canasta_secret_explicit") or ()),
+        )
+    return _SECRET_CLASSIFICATION
+
+
+def _is_secret_key(key):
+    """True when this .env key's value is credential material."""
+    pattern, prefixes, explicit = _secret_classification()
+    name = (key or "").strip()
+    if name in explicit:
+        return True
+    if any(name.startswith(prefix) for prefix in prefixes):
+        return True
+    return re.search(pattern, name) is not None
+
+
+def redact(key, value, show_secrets=False):
+    """The value to print for `key`, masked unless disclosure is asked for."""
+    if show_secrets or not value or not _is_secret_key(key):
+        return value
+    return "********"
+
+
 def _check_running_compose(path, host, docker_host=None, compose_cmd=None):
     if compose_cmd is None:
         compose_cmd = ["docker", "compose"]

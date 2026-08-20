@@ -1177,10 +1177,16 @@ commands:
       Show configuration settings from the instance .env file.
       With no keys, prints all settings. With one or more keys,
       prints just those values.
+
+      Credential values are masked in the no-key listing, which is the
+      output that tends to end up in a scrollback, a CI log or a support
+      thread. Naming a key prints its value, since that is an explicit
+      request for it; `--show-secrets` unmasks the whole listing.
     examples:
       - "canasta config get"
       - "canasta config get MW_SITE_SERVER"
       - "canasta config get MW_SITE_SERVER HTTPS_PORT"
+      - "canasta config get --show-secrets"
     direct_only: true
     parameters:
       - name: id
@@ -1192,6 +1198,11 @@ commands:
         positional: true
         multi: true
         description: "Configuration key(s) to query"
+      - name: show_secrets
+        long: show-secrets
+        type: bool
+        default: false
+        description: "Print credential values instead of masking them"
       - name: force
         short: f
         type: bool
