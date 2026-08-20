@@ -41,19 +41,47 @@
           ansible.builtin.include_tasks: exec.yml
           vars:
             exec_service: web
-            exec_no_log: true
             exec_command: >-
               mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-              -p{{ _restore_dbpass.value | quote }} -N -e "SHOW DATABASES"
+              -p"$MYSQL_PASSWORD" -N -e "SHOW DATABASES"
+
+        - name: Record the databases that exist
+          ansible.builtin.set_fact:
+            _safety_existing_dbs: "{{ exec_result.stdout_lines | default([]) }}"
 
         - name: Partition wikis into present and missing databases
           ansible.builtin.set_fact:
             _safety_present_wikis: >-
-              {{ _safety_wikis.wiki_ids
-                 | intersect(exec_result.stdout_lines | default([])) }}
+              {{ _safety_wikis.wiki_ids | intersect(_safety_existing_dbs) }}
             _safety_missing_wikis: >-
-              {{ _safety_wikis.wiki_ids
-                 | difference(exec_result.stdout_lines | default([])) }}
+              {{ _safety_wikis.wiki_ids | difference(_safety_existing_dbs) }}
+
+        # An extra database can be missing for the same reasons a wiki
+        # database can. Dropping it from the group keeps the safety backup
+        # possible; naming it keeps the gap from being silent, since the
+        # snapshot this produces is what a failed restore falls back to.
+        - name: Build safety dump groups from the databases that exist
+          ansible.builtin.set_fact:
+            _safety_present_groups: >-
+              {{ (_safety_present_groups | default([])) + [{
+                   'wiki': item.wiki,
+                   'databases': item.databases | select('in', _safety_existing_dbs) | list,
+                 }] }}
+            _safety_missing_extras: >-
+              {{ (_safety_missing_extras | default([]))
+                 + (item.databases[1:] | reject('in', _safety_existing_dbs) | list) }}
+          loop: "{{ _safety_wikis.db_groups }}"
+          when: item.wiki in _safety_present_wikis
+          loop_control:
+            label: "{{ item.wiki }}"
+
+        - name: Warn about extra databases skipped from the safety backup
+          ansible.builtin.debug:
+            msg: >-
+              Skipping extra database(s)
+              {{ _safety_missing_extras | join(', ') }} from the safety
+              backup: not present on the server.
+          when: (_safety_missing_extras | default([])) | length > 0
 
         - name: Warn about wikis skipped from the safety backup
           ansible.builtin.debug:
@@ -62,19 +90,19 @@
               {{ _safety_missing_wikis | join(', ') }}: no database present.
           when: _safety_missing_wikis | length > 0
 
-        - name: Dump each present wiki database for safety backup
+        - name: Dump each present wiki's database group for safety backup
           ansible.builtin.include_tasks: exec.yml
           vars:
             exec_service: web
-            exec_no_log: true
             exec_command: >-
               mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-              -p{{ _restore_dbpass.value | quote }}
+              -p"$MYSQL_PASSWORD"
               --single-transaction
-              --databases {{ item | quote }}
-              > /mediawiki/config/backup/db_{{ item | quote }}.sql
-          loop: "{{ _safety_present_wikis }}"
-          no_log: true
+              --databases {{ item.databases | map('quote') | join(' ') }}
+              > /mediawiki/config/backup/db_{{ item.wiki | quote }}.sql
+          loop: "{{ _safety_present_groups | default([]) }}"
+          loop_control:
+            label: "{{ item.wiki }}"
 
         - name: Build safety backup volume map
           ansible.builtin.set_fact:
@@ -274,23 +302,20 @@
       ansible.builtin.include_tasks: exec.yml
       vars:
         exec_service: web
-        exec_no_log: true
         exec_command: >-
           mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-          -p{{ _restore_dbpass.value | quote }}
+          -p"$MYSQL_PASSWORD"
           < /mediawiki/config/backup/db_{{ item | quote }}.sql
       loop: "{{ _restore_wikis.wiki_ids }}"
-      no_log: true
 
     - name: Import the single restored wiki's database dump
       when: wiki is defined
       ansible.builtin.include_tasks: exec.yml
       vars:
         exec_service: web
-        exec_no_log: true
         exec_command: >-
           mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-          -p{{ _restore_dbpass.value | quote }}
+          -p"$MYSQL_PASSWORD"
           < /mediawiki/config/backup/db_{{ wiki | quote }}.sql
 
     - name: Clean up backup dump directory

@@ -1,0 +1,30 @@
+---
+# Remove an extra database from a wiki's backup group.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Resolve the target wiki
+  ansible.builtin.include_tasks: resolve_backup_wiki.yml
+
+- name: Remove the database from the wiki's backup group
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: remove_database
+    wiki_id: "{{ _backup_db_wiki }}"
+    database: "{{ database }}"
+  register: _backup_db_remove
+
+- name: Capture the change for gitops
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/capture_wikis_yaml.yml
+
+- name: Report the backup group
+  ansible.builtin.debug:
+    msg: >-
+      {{ "Removed '" ~ database ~ "' from wiki '" ~ _backup_db_wiki ~ "'."
+         if _backup_db_remove.changed
+         else "'" ~ database ~ "' is not in wiki '" ~ _backup_db_wiki ~ "'." }}
+      Backups of this wiki now dump:
+      {{ _backup_db_remove.databases | join(', ') }}.

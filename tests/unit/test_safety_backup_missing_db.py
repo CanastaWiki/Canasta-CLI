@@ -35,11 +35,28 @@ def _by_name(name):
 
 
 def test_safety_dump_loops_only_over_present_wikis():
-    dump = _by_name("Dump each present wiki database for safety backup")
+    dump = _by_name(
+        "Dump each present wiki's database group for safety backup")
     assert dump is not None, "safety dump task missing/renamed"
-    assert dump.get("loop") == "{{ _safety_present_wikis }}", (
-        "safety dump must loop over wikis with a present DB, not all wiki_ids "
-        "(a missing DB otherwise aborts the whole restore)")
+    assert dump.get("loop") == "{{ _safety_present_groups | default([]) }}", (
+        "safety dump must loop over groups built from wikis with a present DB, "
+        "not all wiki_ids (a missing DB otherwise aborts the whole restore)")
+
+
+def test_safety_groups_drop_databases_that_do_not_exist():
+    build = _by_name("Build safety dump groups from the databases that exist")
+    assert build is not None, "safety group build task missing/renamed"
+    facts = build["ansible.builtin.set_fact"]
+    assert "select('in', _safety_existing_dbs)" in facts[
+        "_safety_present_groups"], (
+        "each group must be filtered to databases that exist — a declared "
+        "extra database that was dropped otherwise aborts the safety backup")
+    assert build.get("when") == "item.wiki in _safety_present_wikis"
+
+
+def test_missing_extra_databases_are_warned_about():
+    warn = _by_name("Warn about extra databases skipped from the safety backup")
+    assert warn is not None and "_safety_missing_extras" in str(warn.get("when"))
 
 
 def test_present_missing_partition_is_computed():

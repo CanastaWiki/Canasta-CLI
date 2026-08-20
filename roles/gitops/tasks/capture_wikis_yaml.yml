@@ -1,0 +1,40 @@
+---
+# Capture a config/wikis.yaml edit into the tracked farm template.
+#
+# config/wikis.yaml is rendered from wikis.yaml.template on a gitops
+# instance, so an edit made only to the rendered file is dropped at the
+# next render. Reconcile the template and stage it, mirroring what
+# stage_new_wiki.yml does for a wiki added after 'gitops init'.
+#
+# Best-effort and non-fatal: a staging hiccup must not fail the change
+# that already succeeded. No-ops when the gitops marker is absent.
+#
+# Input: instance_path, canasta_root.
+
+- name: Check for gitops instance
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _cwy_gitops
+
+- name: Capture wikis.yaml for gitops
+  when: _cwy_gitops.stat.exists
+  block:
+    - name: Capture wikis.yaml into the template
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/gitops/tasks/_reconcile_wikis_template.yml
+
+    - name: Stage wikis.yaml.template
+      ansible.builtin.command:
+        cmd: "git add -- wikis.yaml.template"
+        chdir: "{{ instance_path }}"
+      register: _cwy_stage
+      changed_when: _cwy_stage.rc == 0
+      failed_when: false
+      when: _reconcile_wikis_tmpl.stat.exists | default(false)
+
+    - name: Report the change staged for gitops
+      ansible.builtin.debug:
+        msg: >-
+          Staged the wikis.yaml change for gitops. Review with
+          'canasta gitops status' and publish with 'canasta gitops push'.
+      when: _cwy_stage is defined and not (_cwy_stage is skipped)

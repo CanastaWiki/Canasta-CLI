@@ -49,6 +49,12 @@ def cmd_backup_list(args):
             )
             if result.stdout.strip():
                 print(result.stdout.strip())
+            # restic writes its diagnostics to stderr, so dropping them
+            # leaves a failure (unreachable repository, wrong password,
+            # locked repo) indistinguishable from a repository with no
+            # snapshots. Mirrors what _ssh_run does on the remote branch.
+            if result.returncode != 0 and result.stderr.strip():
+                print(result.stderr.strip(), file=sys.stderr)
             return result.returncode
         except (subprocess.TimeoutExpired, OSError) as e:
             print("Error: %s" % e, file=sys.stderr)

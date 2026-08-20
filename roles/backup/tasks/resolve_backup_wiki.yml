@@ -1,0 +1,33 @@
+---
+# Resolve which wiki an extra database belongs to.
+#
+# -w is optional on a single-wiki instance, where there is only one
+# answer, and required on a farm, where guessing would attach the
+# database to the wrong wiki's dump — and a dump is a transaction, so
+# that would capture it at the wrong moment rather than merely
+# mislabeling it.
+#
+# Input: instance_path, wiki (optional).
+# Output: _backup_db_wiki.
+
+- name: Read the instance's wikis
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _backup_db_wikis
+
+- name: Require --wiki on a farm
+  ansible.builtin.fail:
+    msg: >-
+      This instance has more than one wiki
+      ({{ _backup_db_wikis.wiki_ids | join(', ') }}), so the wiki the
+      database belongs to has to be named with -w/--wiki.
+  when:
+    - wiki is not defined or wiki == ''
+    - _backup_db_wikis.wiki_ids | length > 1
+
+- name: Select the target wiki
+  ansible.builtin.set_fact:
+    _backup_db_wiki: >-
+      {{ wiki if (wiki is defined and wiki != '')
+         else _backup_db_wikis.wiki_ids | first }}

@@ -5,19 +5,6 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Read DB password from .env
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read
-    key: MYSQL_PASSWORD
-  register: _export_dbpass
-  no_log: true
-
-- name: Set DB password with fallback
-  ansible.builtin.set_fact:
-    _export_db_password: "{{ _export_dbpass.value | default('mediawiki') }}"
-  no_log: true
-
 - name: Set output file (resolve relative paths against user's working directory)
   ansible.builtin.set_fact:
     _export_raw: "{{ file | default(wiki + '.sql') }}"
@@ -37,14 +24,12 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: db
-    exec_no_log: true
     exec_long: true
     exec_command: >-
       mariadb-dump -u root
-      -p{{ _export_db_password | quote }}
+      -p"$MYSQL_ROOT_PASSWORD"
       {{ wiki | quote }}
       > /tmp/{{ wiki | quote }}.sql
-  no_log: true
 
 - name: Compress dump if gzip requested
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"

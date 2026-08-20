@@ -10,7 +10,9 @@ capture; these tests assert it exists, keeps `name` a literal while
 """
 
 import os
+import re
 
+import pytest
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -97,6 +99,55 @@ class TestReconcileTask:
         assert "\n  url: " in content and "\n    url: " not in content, (
             "mapping keys under a column-0 list item are indented 2 spaces"
         )
+
+
+class TestExtraDatabasesSurviveRender:
+    """A wiki's extra_databases declaration (the Cargo database that must
+    be dumped in the same transaction as the wiki) is a shared literal
+    field. An emitter that does not know about it drops it at the next
+    render, and the Cargo database silently stops being captured."""
+
+    def _render(self, wikis, db_groups):
+        jinja2 = pytest.importorskip("jinja2")
+        template = jinja2.Template(
+            _copy_template_content(), trim_blocks=True, lstrip_blocks=False)
+        rendered = template.render(_reconcile_wikis_data={
+            "wikis": wikis, "db_groups": db_groups})
+        return rendered
+
+    def _rendered_yaml(self, wikis, db_groups):
+        """Parse the template the way render_compose.yml sees it: with the
+        host-specific url placeholders already substituted."""
+        rendered = self._render(wikis, db_groups)
+        return yaml.safe_load(
+            re.sub(r"\{\{wiki_url_[^}]+\}\}", "https://example.com", rendered))
+
+    def test_declaration_is_carried_into_the_template(self):
+        parsed = self._rendered_yaml(
+            [{"id": "main", "name": "Main"}],
+            [{"wiki": "main", "databases": ["main", "main_cargo"]}])
+        assert parsed["wikis"][0]["extra_databases"] == ["main_cargo"]
+
+    def test_wiki_without_extras_gets_no_empty_key(self):
+        parsed = self._rendered_yaml(
+            [{"id": "main", "name": "Main"}],
+            [{"wiki": "main", "databases": ["main"]}])
+        assert "extra_databases" not in parsed["wikis"][0]
+
+    def test_only_the_declaring_wiki_gets_the_key(self):
+        parsed = self._rendered_yaml(
+            [{"id": "one", "name": "One"}, {"id": "two", "name": "Two"}],
+            [{"wiki": "one", "databases": ["one", "one_cargo"]},
+             {"wiki": "two", "databases": ["two"]}])
+        assert parsed["wikis"][0]["extra_databases"] == ["one_cargo"]
+        assert "extra_databases" not in parsed["wikis"][1]
+
+    def test_list_items_still_start_at_column_zero(self):
+        rendered = self._render(
+            [{"id": "main", "name": "Main"}],
+            [{"wiki": "main", "databases": ["main", "main_cargo"]}])
+        assert rendered.startswith("wikis:\n- id: main")
+        assert "\n  - id: " not in rendered
 
 
 class TestWiring:
