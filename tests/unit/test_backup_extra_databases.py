@@ -238,3 +238,73 @@ class TestPasswordsStayOffTheCommandLine:
             task = _by_name(RESTORE, name)
             assert task is not None, name
             assert '-p"$MYSQL_PASSWORD"' in task["vars"]["exec_command"], name
+
+
+class TestDeclarationCommands:
+    """`canasta backup databases add/remove/list` — the CLI surface for
+    the declaration, so it is not a hand-edit of config/wikis.yaml."""
+
+    def _definitions(self):
+        with open(os.path.join(REPO_ROOT, "meta",
+                               "command_definitions.yml")) as f:
+            return yaml.safe_load(f)
+
+    def _command(self, name):
+        for command in self._definitions()["commands"]:
+            if command["name"] == name:
+                return command
+        raise AssertionError("no command definition named %s" % name)
+
+    def test_group_is_registered_as_a_nested_subcommand(self):
+        with open(os.path.join(REPO_ROOT, "canasta.py")) as f:
+            source = f.read()
+        assert '"databases": ["add", "remove", "list"]' in source, (
+            "without the nested-group entry the subcommand never reaches "
+            "argparse")
+
+    def test_each_command_has_a_playbook_that_exists(self):
+        for name in ("backup_databases_add", "backup_databases_remove",
+                     "backup_databases_list"):
+            playbook = self._command(name)["playbook"]
+            assert os.path.isfile(
+                os.path.join(REPO_ROOT, "playbooks", playbook)), playbook
+
+    def test_add_and_remove_take_the_database_as_a_positional(self):
+        for name in ("backup_databases_add", "backup_databases_remove"):
+            params = {p["name"]: p for p in self._command(name)["parameters"]}
+            assert params["database"].get("positional") is True
+            assert params["database"].get("required") is True
+            assert "wiki" in params, "-w is how a farm names the owning wiki"
+
+    def test_wiki_is_resolved_before_the_edit(self):
+        # On a farm, attaching the database to the wrong wiki would put it
+        # in the wrong transaction, not merely the wrong label.
+        resolve = os.path.join(
+            REPO_ROOT, "roles", "backup", "tasks", "resolve_backup_wiki.yml")
+        with open(resolve) as f:
+            content = f.read()
+        assert "ansible.builtin.fail" in content
+        assert "wiki_ids | length > 1" in content
+
+    def test_edit_is_captured_for_gitops(self):
+        # config/wikis.yaml is rendered on a gitops instance, so an edit
+        # that is not reconciled into the template is dropped at the next
+        # render — silently un-declaring the database.
+        for action in ("add", "remove"):
+            path = os.path.join(REPO_ROOT, "roles", "backup", "tasks",
+                                "databases_%s.yml" % action)
+            with open(path) as f:
+                assert "capture_wikis_yaml.yml" in f.read(), action
+
+    def test_list_reports_without_a_loop(self):
+        # The CLI's output callback renders a task's msg, not a loop's
+        # per-item results: a looped debug prints nothing without
+        # --verbose, which is how this first shipped.
+        path = os.path.join(
+            REPO_ROOT, "roles", "backup", "tasks", "databases_list.yml")
+        with open(path) as f:
+            tasks = yaml.safe_load(f)
+        show = [t for t in tasks if t.get("name") == "Show the backup groups"]
+        assert show, "report task missing/renamed"
+        assert "loop" not in show[0], (
+            "a looped debug task produces no visible output")

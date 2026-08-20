@@ -25,7 +25,8 @@ options:
   state:
     description: Action to perform.
     type: str
-    choices: [read, generate, add, remove, query, update_port, update_domain]
+    choices: [read, generate, add, remove, query, update_port, update_domain,
+              add_database, remove_database]
     default: read
   wiki_id:
     description: Wiki ID.
@@ -44,6 +45,11 @@ options:
     type: str
   site_name:
     description: Display name of the wiki.
+    type: str
+  database:
+    description: >-
+      With state=add_database or state=remove_database, the extra database
+      to include in (or drop from) the wiki's backup group.
     type: str
   port:
     description: With state=update_port, the new port for the wiki URL(s).
@@ -258,12 +264,14 @@ def run_module():
         instance_path=dict(type="str", required=True),
         state=dict(type="str", default="read",
                    choices=["read", "generate", "add", "remove", "query",
-                            "update_port", "update_domain"]),
+                            "update_port", "update_domain",
+                            "add_database", "remove_database"]),
         wiki_id=dict(type="str", required=False),
         domain=dict(type="str", required=False),
         old_domain=dict(type="str", required=False),
         wiki_path=dict(type="str", required=False),
         site_name=dict(type="str", required=False),
+        database=dict(type="str", required=False),
         port=dict(type="str", required=False),
         default_port=dict(type="str", required=False, default="443"),
     )
@@ -281,6 +289,7 @@ def run_module():
     site_name = module.params.get("site_name")
     port = module.params.get("port")
     default_port = module.params.get("default_port") or "443"
+    database = module.params.get("database")
 
     result = {"changed": False}
 
@@ -371,6 +380,59 @@ def run_module():
             write_wikis(instance_path, new_wikis)
         result["changed"] = True
         result["wikis"] = new_wikis
+
+    elif state in ("add_database", "remove_database"):
+        if not wiki_id:
+            module.fail_json(msg="wiki_id is required for %s" % state)
+            return
+        if not database:
+            module.fail_json(msg="database is required for %s" % state)
+            return
+        err = validate_extra_database(database)
+        if err:
+            module.fail_json(msg=err)
+            return
+        wikis = read_wikis(instance_path)
+        if not wiki_id_exists(wikis, wiki_id):
+            module.fail_json(
+                msg="Wiki ID '%s' not found (present: %s)"
+                    % (wiki_id, ", ".join(get_wiki_ids(wikis)))
+            )
+            return
+        updated = []
+        changed = False
+        for wiki in wikis:
+            wiki = dict(wiki)
+            if wiki.get("id") == wiki_id:
+                try:
+                    current = extra_databases(wiki)
+                except ValueError as exc:
+                    module.fail_json(msg=str(exc))
+                    return
+                if state == "add_database":
+                    if database == wiki_id:
+                        module.fail_json(
+                            msg="'%s' is the wiki's own database, which every "
+                                "backup already includes" % database
+                        )
+                        return
+                    if database not in current:
+                        wiki["extra_databases"] = current + [database]
+                        changed = True
+                elif database in current:
+                    remaining = [n for n in current if n != database]
+                    if remaining:
+                        wiki["extra_databases"] = remaining
+                    else:
+                        wiki.pop("extra_databases", None)
+                    changed = True
+            updated.append(wiki)
+        if changed and not module.check_mode:
+            write_wikis(instance_path, updated)
+        result["changed"] = changed
+        result["wikis"] = updated
+        result["databases"] = get_db_groups(
+            [w for w in updated if w.get("id") == wiki_id])[0]["databases"]
 
     elif state == "update_port":
         if not port:

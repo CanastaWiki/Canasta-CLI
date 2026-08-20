@@ -168,6 +168,19 @@ command_groups:
       Find a failed run via `kubectl get jobs -n canasta-<id>` (status
       `Failed`) and `kubectl logs -n canasta-<id> job/<name>`.
 
+  - name: backup_databases
+    description: "Manage which databases a wiki's backup captures"
+    long_description: |
+      Manage the databases a wiki's backup dumps. Every backup includes
+      the wiki's own database; these subcommands add and remove the extra
+      ones, for data an extension keeps in a database of its own (Cargo's
+      `$wgCargoDBname`).
+
+      A wiki and its extra databases are dumped by one `mariadb-dump`
+      call, so they share a transaction and are captured at the same
+      moment. The declaration lives in `config/wikis.yaml` and is carried
+      by backups and gitops alike.
+
   - name: gitops
     description: "Git-based configuration management"
     long_description: |
@@ -1996,9 +2009,8 @@ commands:
       config/extensions/images/skins, and uploads to the repository.
 
       A wiki whose data extends into a second database — Cargo's
-      `$wgCargoDBname` being the usual case — names it in an
-      `extra_databases` list on that wiki's entry in
-      `config/wikis.yaml`.
+      `$wgCargoDBname` being the usual case — declares it with
+      `canasta backup databases add`.
 
       Declared databases are dumped in the same invocation as the wiki's
       own, so both come from one transaction. That matters for Cargo,
@@ -2277,6 +2289,91 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
+
+  - name: backup_databases_add
+    description: "Include another database in a wiki's backups"
+    long_description: |
+      Add a database to a wiki's backup group, for data an extension keeps
+      outside the wiki database — Cargo's `$wgCargoDBname` being the usual
+      case.
+
+      The group is dumped by a single `mariadb-dump` call, so every
+      database in it comes from one transaction. Cargo needs that: its
+      data tables live in the extra database while `cargo_pages`, which
+      governs them, lives in the wiki database. Captured at different
+      moments, `cargo_pages` under-reports, the delete on edit matches
+      nothing, and the edit appends duplicate rows instead of replacing
+      them.
+
+      The database must be reachable on the instance's own database
+      server, since one dump is one connection. `-w`/`--wiki` is required
+      on a farm and optional on a single-wiki instance. The declaration is
+      stored in `config/wikis.yaml` and takes effect on the next backup —
+      no restart.
+    examples:
+      - "canasta backup databases add mywiki_cargo"
+      - "canasta backup databases add -w mywiki mywiki_cargo"
+    playbook: backup_databases_add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki the database belongs to (required on a farm)"
+      - name: database
+        type: string
+        positional: true
+        required: true
+        description: "Name of the database to include"
+
+  - name: backup_databases_remove
+    description: "Stop including a database in a wiki's backups"
+    long_description: |
+      Remove a database from a wiki's backup group. The wiki's own
+      database cannot be removed — every backup includes it.
+
+      Takes effect on the next backup. Snapshots already taken keep the
+      database they captured, so a restore from one of them still brings
+      it back.
+    examples:
+      - "canasta backup databases remove mywiki_cargo"
+    playbook: backup_databases_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki the database belongs to (required on a farm)"
+      - name: database
+        type: string
+        positional: true
+        required: true
+        description: "Name of the database to drop from the group"
+
+  - name: backup_databases_list
+    description: "Show which databases each wiki's backup dumps"
+    long_description: |
+      List the databases each wiki's backup captures — the wiki database
+      plus anything added with `canasta backup databases add`. A wiki with
+      no extras reports its own database only.
+    examples:
+      - "canasta backup databases list"
+    playbook: backup_databases_list.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Show only this wiki"
 
   # ---------------------------------------------------------------------------
   # GitOps
