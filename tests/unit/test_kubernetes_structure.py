@@ -1119,11 +1119,15 @@ class TestResilientExec:
                     yield from TestResilientExec._walk(t[nested])
 
     def test_helm_deploy_uses_resilient_exec(self):
+        # The deploy sits inside a block whose rescue reports cluster
+        # state before the caller's rollback erases it, so walk nested
+        # tasks rather than only the top level.
         tasks = yaml.safe_load(
             open(os.path.join(ORCHESTRATOR_TASKS, "helm_deploy.yml")))
         deploy = next(
-            t for t in tasks if t.get("name") == "Deploy Canasta Helm release")
-        assert "resilient_exec.yml" in deploy["ansible.builtin.include_tasks"]
+            t for t in TestResilientExec._walk(tasks)
+            if "resilient_exec.yml" in str(
+                t.get("ansible.builtin.include_tasks", "")))
         assert "helm upgrade --install" in deploy["vars"]["rx_cmd"]
 
     def test_argocd_install_uses_resilient_exec(self):

@@ -77,23 +77,41 @@
 # reset during the up-to-10m `--wait` doesn't abort a deploy that is still
 # progressing on the target. helm upgrade --install is idempotent, so a
 # re-run after a reset is safe.
+# The rescue reports what the cluster already knows before re-raising.
+# create's rollback deletes the namespace, so anything not captured
+# here is gone by the time the operator reads the error — the same
+# reason start.yml captures compose state inline rather than after.
 - name: Deploy Canasta Helm release
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
-  vars:
-    rx_name: "deploy Helm release canasta-{{ instance_id }}"
-    rx_async: 720
-    rx_cmd: >-
-      helm upgrade --install canasta-{{ instance_id }}
-      {{ instance_path }}/_chart
-      --namespace {{ _k8s_namespace }} --create-namespace
-      -f {{ instance_path }}/values.yaml
-      {{ (_configdata_file.stat.exists | default(false))
-         | ternary('-f ' ~ instance_path ~ '/values-configdata.yaml', '') }}
-      {{ (_sidecars_file.stat.exists | default(false))
-         | ternary('-f ' ~ instance_path ~ '/values-sidecars.yaml', '') }}
-      {{ (_domains_file.stat.exists | default(false))
-         | ternary('-f ' ~ instance_path ~ '/values-domains.yaml', '') }}
-      {{ (helm_reset_values | default(true) | bool)
-         | ternary('--reset-values', '') }}
-      {{ (helm_wait | default(true) | bool)
-         | ternary('--wait --timeout 10m', '') }}
+  block:
+    - name: Run the Helm deploy
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+      vars:
+        rx_name: "deploy Helm release canasta-{{ instance_id }}"
+        rx_async: 720
+        rx_cmd: >-
+          helm upgrade --install canasta-{{ instance_id }}
+          {{ instance_path }}/_chart
+          --namespace {{ _k8s_namespace }} --create-namespace
+          -f {{ instance_path }}/values.yaml
+          {{ (_configdata_file.stat.exists | default(false))
+             | ternary('-f ' ~ instance_path ~ '/values-configdata.yaml', '') }}
+          {{ (_sidecars_file.stat.exists | default(false))
+             | ternary('-f ' ~ instance_path ~ '/values-sidecars.yaml', '') }}
+          {{ (_domains_file.stat.exists | default(false))
+             | ternary('-f ' ~ instance_path ~ '/values-domains.yaml', '') }}
+          {{ (helm_reset_values | default(true) | bool)
+             | ternary('--reset-values', '') }}
+          {{ (helm_wait | default(true) | bool)
+             | ternary('--wait --timeout 10m', '') }}
+  rescue:
+    - name: Report why the rollout did not finish
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/k8s_capture_rollout_failure.yml
+
+    - name: Fail with the original deploy error
+      ansible.builtin.fail:
+        msg: >-
+          The Helm release for {{ instance_id }} did not roll out. The
+          cluster state reported above explains why; the release itself
+          failed with: {{ ansible_failed_result.msg | default("see the
+          error above") }}
