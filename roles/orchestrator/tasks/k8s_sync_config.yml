@@ -203,7 +203,7 @@
 
 - name: Determine CrowdSec enablement
   ansible.builtin.set_fact:
-    _crowdsec_enabled_k8s: "{{ _sync_env_dict.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
+    _crowdsec_enabled_k8s: "{{ _sync_env_dict.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true' }}"
 
 - name: Default crowdsec config data to empty
   ansible.builtin.set_fact:

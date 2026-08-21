@@ -543,6 +543,7 @@ _TLS_LOCAL_SUFFIXES = (
 # while the others hold valid certificates.
 _ORIGIN_TLS_SCRIPT = r"""
 command -v openssl >/dev/null 2>&1 || { echo NO_OPENSSL; exit 0; }
+printf '%%sTLSINTERNAL:%%s\n' '%(delim)s' "$(grep -lE '^[[:space:]]*tls[[:space:]]+internal([[:space:]]|$)' %(cfg)s 2>/dev/null | head -1)"
 for n in %(names)s; do
   printf '%%sNAME:%%s\n' '%(delim)s' "$n"
   echo | openssl s_client -connect 127.0.0.1:%(port)s -servername "$n" \
@@ -573,6 +574,8 @@ def _parse_origin_tls(stdout):
     entries = []
     for seg in segments[1:]:
         header, _, body = seg.partition("\n")
+        if header.startswith("TLSINTERNAL:"):
+            continue
         if not header.startswith("NAME:"):
             continue
         issuer = not_after = ""
@@ -584,6 +587,25 @@ def _parse_origin_tls(stdout):
                 not_after = line[len("notAfter="):].strip()
         entries.append((header[len("NAME:"):].strip(), issuer, not_after))
     return entries
+
+
+def _parse_tls_internal(stdout):
+    """True when the instance's Caddy config asks for the internal CA.
+
+    `tls internal` is a deliberate choice — typically behind a CDN that
+    terminates public TLS — and it means Caddy never contacts ACME at
+    all. Without this, an internally-issued certificate is indistinguishable
+    from ACME having failed, and the check accuses a working instance.
+
+    The directive may sit in the rendered Caddyfile (where Caddyfile.global
+    is inlined) or in Caddyfile.site (imported into the site block at
+    runtime), so both are searched.
+    """
+    for seg in stdout.split(_helpers._SENTINEL):
+        header, _, _body = seg.partition("\n")
+        if header.startswith("TLSINTERNAL:"):
+            return bool(header[len("TLSINTERNAL:"):].strip())
+    return False
 
 
 def _parse_cert_expiry(text):
@@ -598,7 +620,8 @@ def _parse_cert_expiry(text):
         return None
 
 
-def _origin_tls_lines_from_entries(inst_id, entries, now):
+def _origin_tls_lines_from_entries(inst_id, entries, now,
+                                   tls_internal=False):
     """doctor lines for the probed certificates."""
     title = ["", "Origin TLS (%s):" % inst_id]
     if entries is None:
@@ -608,6 +631,11 @@ def _origin_tls_lines_from_entries(inst_id, entries, now):
     if not entries:
         return []
     lines = list(title)
+    # Names whose certificate came from the internal CA without being
+    # asked for. Collected and explained once: the diagnosis is identical
+    # for every name, and repeating the paragraph per domain buries the
+    # rest of the report.
+    fallback_names = []
     for name, issuer, not_after in entries:
         if not issuer and not not_after:
             lines.append(
@@ -624,17 +652,16 @@ def _origin_tls_lines_from_entries(inst_id, entries, now):
                 "  %s: OK (Caddy internal CA — expected for a name with no "
                 "public certificate)" % name)
             continue
-        if internal:
+        if internal and tls_internal:
+            # `tls internal` is configured, so Caddy never contacts ACME.
+            # An internal certificate is the requested outcome, not a
+            # silent fallback.
             lines.append(
-                "  %s: WARN — served by Caddy's internal CA (%s), not a "
-                "publicly trusted certificate. ACME is failing and Caddy fell "
-                "back to it silently; it reissues every 12 hours and logs "
-                "\"certificate renewed successfully\" each time, so nothing "
-                "else reports this. A CDN in a non-strict origin mode hides "
-                "it from visitors, and switching that CDN to strict origin "
-                "validation would take the site down. Check the caddy "
-                "container's log for the underlying ACME failure."
-                % (name, issuer))
+                "  %s: OK (Caddy internal CA — 'tls internal' is configured "
+                "for this instance)" % name)
+            continue
+        if internal:
+            fallback_names.append(name)
             continue
         expiry = _parse_cert_expiry(not_after)
         if expiry is None:
@@ -675,6 +702,20 @@ def _origin_tls_lines_from_entries(inst_id, entries, now):
             lines.append(
                 "  %s: OK (expires in %d days, issuer %s)"
                 % (name, days, issuer or "unknown"))
+    if fallback_names:
+        lines.append(
+            "  %s: WARN — served by Caddy's internal CA, not a publicly "
+            "trusted certificate." % ", ".join(fallback_names))
+        lines.append(
+            "    ACME is failing and Caddy fell back silently; it reissues "
+            "every 12 hours and logs \"certificate renewed successfully\" "
+            "each time, so nothing else reports it. A CDN in a non-strict "
+            "origin mode hides this from visitors, and switching that CDN to "
+            "strict origin validation would take the site down. Check the "
+            "caddy container's log for the underlying ACME failure. If the "
+            "internal CA is what you want, set 'tls internal' in "
+            "config/Caddyfile.site and this check will report it as "
+            "intended.")
     return lines
 
 
@@ -690,6 +731,144 @@ def _origin_tls_server_names(path, host):
         if name and name not in names:
             names.append(name)
     return names
+
+
+_INNODB_QUERY = (
+    "SELECT @@version_comment, @@innodb_buffer_pool_size, "
+    "(SELECT IFNULL(SUM(data_length + index_length), 0) "
+    "FROM information_schema.tables WHERE engine = 'InnoDB')"
+)
+
+
+def _human_bytes(n):
+    """Bytes as the operator would say them: 128 MB, 1.0 GB."""
+    value = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            return ("%d %s" % (value, unit) if unit in ("B", "KB", "MB")
+                    else "%.1f %s" % (value, unit))
+        value /= 1024
+    return "%d B" % n
+
+
+def _db_tuning_lines(inst):
+    """doctor lines for the database's buffer pool, or [] when the check
+    does not apply.
+
+    Reports the value the *server* is running with, not what a file says:
+    my.cnf is read only at server start, so an edit that has not been
+    followed by a restart leaves the two disagreeing while `canasta
+    reconcile` reports the instance in sync.
+    """
+    if not inst:
+        return []
+    # Kubernetes ships its own my.cnf through the chart and the tuning
+    # path differs; Compose is where the instance-directory file applies.
+    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+        return []
+    path = inst.get("path", "")
+    if not path:
+        return []
+    host = inst.get("host") or "localhost"
+    # An external database is not ours to report on: Canasta neither
+    # ships its config nor restarts it.
+    if (_helpers._read_env_for(inst, "USE_EXTERNAL_DB")
+            or "false").strip().lower() == "true":
+        return []
+    compose_cmd = _helpers._resolve_compose_cmd(inst)
+    argv = (list(compose_cmd) + _helpers._compose_profile_args(inst)
+            + ["exec", "-T", "db", "sh", "-c",
+               'mariadb -u root -p"$MYSQL_ROOT_PASSWORD" -N -B -e '
+               + _helpers._shell_quote(_INNODB_QUERY)])
+    out = _helpers._capture_in_instance(
+        path, host, inst.get("dockerHost"), argv, capture_stderr=True)
+    if out is None:
+        return []
+    # A my.cnf setting under [client] breaks the client tools rather than
+    # merely being ignored by the server: [client] is a group they DO
+    # read, so an unknown variable there makes every mariadb and
+    # mariadb-dump invocation fail — backups and restores included. The
+    # server is unaffected and keeps serving, so nothing else reports it.
+    if "unknown variable" in out.lower():
+        bad = out.strip().split("\n")[-1].strip()
+        return [
+            "", "Database tuning (%s):" % inst.get("id", "?"),
+            "  WARN — the database client cannot start: %s" % bad,
+            "  A server setting placed under my.cnf's [client] header does "
+            "this: the client tools read that group and reject options they "
+            "do not know. Backups, restores and maintenance queries all use "
+            "those tools. Move the setting to a [mysqld] section.",
+        ]
+    if not out.strip():
+        return []
+    fields = out.strip().split("\n")[-1].split("\t")
+    if len(fields) < 3:
+        return []
+    version_comment, pool_raw, data_raw = fields[0], fields[1], fields[2]
+    # The check speaks MariaDB's dialect and defaults; say nothing rather
+    # than guess if the server is something else.
+    if "mariadb" not in version_comment.lower():
+        return []
+    try:
+        pool, data = int(pool_raw), int(data_raw)
+    except ValueError:
+        return []
+
+    lines = ["", "Database tuning (%s):" % inst.get("id", "?")]
+    detail = "  innodb_buffer_pool_size: %s" % _human_bytes(pool)
+    if pool == 134217728:
+        detail += " (MariaDB's compiled default)"
+    lines.append(detail)
+    lines.append("  InnoDB data on disk:     %s" % _human_bytes(data))
+
+    # my.cnf is the hook operators are told to use, and a value there that
+    # the server is not running is the failure the docs warn about: the
+    # file is read at start, so an edit without a restart changes nothing
+    # while reconcile still reports the instance in sync.
+    configured = _my_cnf_buffer_pool(path, host, inst)
+    if configured is not None and configured != pool:
+        lines.append(
+            "  WARN — my.cnf sets %s but the server is running %s. my.cnf is "
+            "read at server start: run 'canasta restart' to apply it "
+            "('canasta reconcile' does not recreate the database container)."
+            % (_human_bytes(configured), _human_bytes(pool)))
+    elif pool == 134217728 and data > pool:
+        lines.append(
+            "  The buffer pool is smaller than the data it caches. InnoDB "
+            "uses O_DIRECT, so the pool is its only cache and free host RAM "
+            "does not help. See Help:Best practices for how to size and set "
+            "it.")
+    return lines
+
+
+def _my_cnf_buffer_pool(path, host, inst):
+    """innodb_buffer_pool_size as my.cnf sets it, in bytes, or None.
+
+    Only a [mysqld]-section setting counts: the shipped file's [client]
+    header is a group the server never reads, so a value under it is
+    inert and must not be reported as configured.
+    """
+    out = _helpers._capture_in_instance(
+        path, host, inst.get("dockerHost"),
+        ["cat", os.path.join(path, "my.cnf")])
+    if not out:
+        return None
+    group = None
+    for line in out.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            group = stripped[1:-1].strip().lower()
+            continue
+        if group not in ("mysqld", "server", "mariadb", "mariadbd"):
+            continue
+        match = re.match(
+            r"innodb_buffer_pool_size\s*=\s*(\d+)\s*([kmgt]?)b?\s*$",
+            stripped, re.I)
+        if match:
+            scale = {"": 1, "k": 1024, "m": 1024 ** 2,
+                     "g": 1024 ** 3, "t": 1024 ** 4}[match.group(2).lower()]
+            return int(match.group(1)) * scale
+    return None
 
 
 def _origin_tls_lines(inst):
@@ -715,6 +894,9 @@ def _origin_tls_lines(inst):
         "names": " ".join(_helpers._shell_quote(n) for n in names),
         "port": _helpers._shell_quote(str(port)),
         "delim": _helpers._SENTINEL,
+        "cfg": " ".join(
+            _helpers._shell_quote(os.path.join(path, "config", f))
+            for f in ("Caddyfile", "Caddyfile.site")),
     }
     try:
         if _helpers._is_localhost(host):
@@ -732,7 +914,8 @@ def _origin_tls_lines(inst):
         return []
     return _origin_tls_lines_from_entries(
         inst.get("id", "?"), _parse_origin_tls(stdout),
-        datetime.datetime.now(datetime.timezone.utc))
+        datetime.datetime.now(datetime.timezone.utc),
+        tls_internal=_parse_tls_internal(stdout))
 
 
 # --- Kubernetes config drift ------------------------------------------------
@@ -980,6 +1163,9 @@ def cmd_doctor(args):
         print(line)
 
     if inst:
+        for line in _db_tuning_lines(inst):
+            print(line)
+
         for line in _origin_tls_lines(inst):
             print(line)
 

@@ -48,7 +48,12 @@ def cmd_config_get(args):
     # Positional 'keys' comes from argparse as a list when run through
     # canasta.py. For each explicitly requested key, print KEY=value or
     # a not-found message. With no keys, dump every setting, sorted.
+    # Naming a key is an explicit request for that value; the bare dump is
+    # not, and it is the one that ends up in a scrollback on a shared
+    # screen, a CI log, or pasted into a support thread. Mask credential
+    # values there unless disclosure is asked for.
     keys = getattr(args, "keys", None) or []
+    show_secrets = bool(getattr(args, "show_secrets", False))
     if keys:
         for k in keys:
             if k in env_vars:
@@ -60,7 +65,17 @@ def cmd_config_get(args):
         _warn_env_hygiene([k for k in keys if k in quoted_keys], has_crlf)
         return 0
 
+    redacted = 0
     for k in sorted(env_vars.keys()):
-        print("%s=%s" % (k, env_vars[k]))
+        value = _helpers.redact(k, env_vars[k], show_secrets)
+        if value != env_vars[k]:
+            redacted += 1
+        print("%s=%s" % (k, value))
+    if redacted:
+        print(
+            "%d value(s) masked. Name a key to read one, or pass "
+            "--show-secrets for all of them." % redacted,
+            file=sys.stderr,
+        )
     _warn_env_hygiene(quoted_keys, has_crlf)
     return 0

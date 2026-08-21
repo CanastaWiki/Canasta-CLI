@@ -19,6 +19,12 @@ spec:
       labels:
         {{- include "canasta.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: db
+      annotations:
+        # my.cnf is mounted with subPath, which is materialized at pod
+        # start and never picks up a later ConfigMap change. Without this
+        # the config reaches the cluster and stops one layer short of the
+        # server, while the CLI reports config and containers in sync.
+        checksum/db-config: {{ .Values.configData.db | toJson | sha256sum }}
     spec:
       containers:
         - name: db

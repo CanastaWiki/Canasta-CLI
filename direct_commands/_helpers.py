@@ -471,9 +471,13 @@ def _reconcile_compose_profiles(env, current):
     never disagree with the syncer."""
     desired = [p for p in current if p not in _MANAGED_PROFILE_NAMES]
     for profile, flag, default in _MANAGED_PROFILES:
-        if env.get(flag, default).strip().lower() == "true":
+        # `or default` rather than dict.get's default: a key present with
+        # an empty value is this host storing no opinion, not "off".
+        # CANASTA_ENABLE_VARNISH= otherwise read as false and dropped
+        # varnish from COMPOSE_PROFILES while its container kept running.
+        if (env.get(flag) or default).strip().lower() == "true":
             desired.append(profile)
-    if env.get("USE_EXTERNAL_DB", "false").strip().lower() != "true":
+    if (env.get("USE_EXTERNAL_DB") or "false").strip().lower() != "true":
         desired.append("internal-db")
     return desired
 
@@ -513,7 +517,7 @@ def _sync_compose_profiles(inst):
     # CANASTA_CADDY_IMAGE is managed only when empty or already the managed
     # value; a custom override the operator set is left alone.
     crowdsec_on = (
-        env.get("CANASTA_ENABLE_CROWDSEC", "false").strip().lower() == "true"
+        (env.get("CANASTA_ENABLE_CROWDSEC") or "false").strip().lower() == "true"
     )
     tp_mode = env.get("CADDY_TRUSTED_PROXIES", "").strip().lower()
     plugin_needed = crowdsec_on or tp_mode in _CADDY_PLUGIN_TRUSTED_PROXY_MODES
@@ -1342,6 +1346,125 @@ def _check_running(instance_id, path, orchestrator, host, docker_host=None,
     if orchestrator in ("kubernetes", "k8s"):
         return _check_running_k8s(instance_id, host)
     return _check_running_compose(path, host, docker_host, compose_cmd)
+
+
+def _capture_in_instance(path, host, docker_host, argv,
+                         capture_stderr=False):
+    """Run argv in the instance directory and return stdout, or None.
+
+    capture_stderr returns the combined streams even on failure, for
+    callers that need to report *why* a command failed rather than only
+    act on its output.
+    """
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                argv, cwd=path, capture_output=True, text=True, timeout=30,
+                env=_docker_env(docker_host),
+            )
+            if capture_stderr:
+                return (result.stdout or "") + (result.stderr or "")
+            return result.stdout if result.returncode == 0 else None
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+    # Quote every token: the ps format string carries embedded quotes and
+    # braces, which a bare join hands to the remote shell to mangle — the
+    # listing then comes back empty and every service reads as missing.
+    quoted = " ".join(_shell_quote(a) for a in argv)
+    cmd = "cd %s && %s" % (_shell_quote(path), quoted)
+    if docker_host:
+        cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
+    rc, stdout = _ssh_run(host, cmd + (" 2>&1" if capture_stderr else ""))
+    if capture_stderr:
+        return stdout
+    return stdout if rc == 0 else None
+
+
+def _missing_profile_services(inst, compose_cmd=None):
+    """Services the active COMPOSE_PROFILES imply that are not running.
+
+    A running web container is not the same as a converged instance: a
+    profile added since the last converge (a feature just enabled, or
+    COMPOSE_PROFILES repaired) names a service nothing has started, and
+    `up -d` is the only step that would start it. Compose itself answers
+    which services the active profiles imply, so this cannot drift from
+    the profile map.
+
+    An unreadable service list returns [] — the caller then behaves as it
+    did before, skipping on a running web container rather than forcing a
+    converge on a bad reading.
+    """
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    docker_host = inst.get("dockerHost")
+    if compose_cmd is None:
+        compose_cmd = _resolve_compose_cmd(inst)
+    expected = _capture_in_instance(
+        path, host, docker_host,
+        list(compose_cmd) + _compose_profile_args(inst)
+        + ["config", "--services"],
+    )
+    if expected is None:
+        return []
+    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
+    running = _capture_in_instance(
+        path, host, docker_host,
+        [runtime, "ps", "--filter", "status=running",
+         "--filter",
+         "label=com.docker.compose.project=%s" % _compose_project(path),
+         "--format", '{{.Label "com.docker.compose.service"}}'],
+    )
+    return sorted(set(expected.split()) - set((running or "").split()))
+
+
+_SECRET_CLASSIFICATION = None
+
+
+def _secret_classification():
+    """The canonical secret classification, read from the file that defines it.
+
+    vars/secret_classification.yml is the one definition of "this key's
+    value is a secret", already driving no_log, the gitops placeholders
+    and the K8s Secret split. Reading it here keeps the CLI's own output
+    from drifting into a second, quieter opinion.
+    """
+    global _SECRET_CLASSIFICATION
+    if _SECRET_CLASSIFICATION is None:
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "vars", "secret_classification.yml")
+        try:
+            with open(path) as f:
+                data = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            # Deny-by-default: without the file, treat the well-known
+            # credential words as secret rather than printing everything.
+            data = {}
+        _SECRET_CLASSIFICATION = (
+            data.get("canasta_secret_key_pattern")
+            or "(PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL)",
+            tuple(data.get("canasta_secret_prefixes") or ()),
+            tuple(data.get("canasta_secret_explicit") or ()),
+        )
+    return _SECRET_CLASSIFICATION
+
+
+def _is_secret_key(key):
+    """True when this .env key's value is credential material."""
+    pattern, prefixes, explicit = _secret_classification()
+    name = (key or "").strip()
+    if name in explicit:
+        return True
+    if any(name.startswith(prefix) for prefix in prefixes):
+        return True
+    return re.search(pattern, name) is not None
+
+
+def redact(key, value, show_secrets=False):
+    """The value to print for `key`, masked unless disclosure is asked for."""
+    if show_secrets or not value or not _is_secret_key(key):
+        return value
+    return "********"
 
 
 def _check_running_compose(path, host, docker_host=None, compose_cmd=None):

@@ -28,10 +28,16 @@ def cmd_start(args):
     host = inst.get("host") or "localhost"
     docker_host = inst.get("dockerHost")
     compose_cmd = _helpers._resolve_compose_cmd(inst)
-    if _helpers._check_running_compose(path, host, docker_host, compose_cmd):
-        print("Instance '%s' is already running." % inst_id)
-        return 0
+    # Sync first: a feature flag toggled since the last converge changes
+    # which services the profiles imply, and the running check below is
+    # only meaningful against the reconciled list.
     env = _helpers._sync_compose_profiles(inst)
+    if _helpers._check_running_compose(path, host, docker_host, compose_cmd):
+        missing = _helpers._missing_profile_services(inst, compose_cmd)
+        if not missing:
+            print("Instance '%s' is already running." % inst_id)
+            return 0
+        print("Starting %s..." % ", ".join(missing))
     # Before 'up', not after a failure: MariaDB ignores the root-password
     # variable once its volume holds a database, so compose comes up
     # clean and only MediaWiki notices it cannot authenticate. Starting

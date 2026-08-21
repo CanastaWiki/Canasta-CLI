@@ -52,12 +52,35 @@
         helm_wait: false
         _k8s_namespace: "canasta-{{ id }}"
 
+    # helm_deploy runs without --wait here, so this is the step that
+    # blocks and the step that fails. On failure it reports only
+    # "exceeded its progress deadline"; the reason (a pod that cannot
+    # schedule, a PVC no provisioner will claim) is in the cluster, and
+    # create's rollback deletes the namespace moments later. Report it
+    # before that happens.
     - name: Wait for web deployment readiness
-      ansible.builtin.command:
-        cmd: >-
-          kubectl rollout status deployment/canasta-{{ id }}-web
-          -n canasta-{{ id }} --timeout=600s
-      changed_when: false
+      block:
+        - name: Wait for the web deployment to become ready
+          ansible.builtin.command:
+            cmd: >-
+              kubectl rollout status deployment/canasta-{{ id }}-web
+              -n canasta-{{ id }} --timeout=600s
+          changed_when: false
+      rescue:
+        - name: Report why the rollout did not finish
+          ansible.builtin.include_role:
+            name: orchestrator
+            tasks_from: k8s_capture_rollout_failure.yml
+          vars:
+            _k8s_namespace: "canasta-{{ id }}"
+            instance_id: "{{ id }}"
+
+        - name: Fail with the original rollout error
+          ansible.builtin.fail:
+            msg: >-
+              The web deployment for '{{ id }}' did not become ready. The
+              cluster state reported above explains why.
+              {{ ansible_failed_result.msg | default('') }}
 
     # CrowdSec bouncer enrollment happens after registration (main.yml),
     # because the crowdsec role's preflight resolves the instance from the

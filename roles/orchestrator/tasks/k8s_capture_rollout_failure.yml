@@ -1,0 +1,58 @@
+---
+# Report why a Helm rollout did not finish, before the caller rolls back.
+#
+# `helm upgrade --wait` fails with "exceeded its progress deadline" and
+# nothing else. The reason is already in the cluster — a pod that cannot
+# schedule, a PVC with no provisioner, an image that will not pull — but
+# create's rollback deletes the namespace, so a post-hoc look finds
+# nothing. Capture it here, at the failure, the way start.yml captures
+# `compose ps -a` and per-service logs on the Compose side.
+#
+# Best-effort: this runs on a path that is already failing, so a probe
+# that itself fails must not replace the original error.
+#
+# Input: instance_id, _k8s_namespace
+
+- name: Collect cluster state for the failed rollout
+  ansible.builtin.shell:
+    executable: /bin/bash
+    # A literal block, not a folded one: folding keeps the newline on any
+    # more-indented continuation line, which silently splits a command in
+    # two. Every probe is independently 2>&1-guarded, so pipefail is off
+    # rather than letting a failed probe mask the rollout error.
+    cmd: |
+      set +o pipefail
+      ns={{ _k8s_namespace | quote }}
+      echo '--- pods ---'
+      kubectl get pods -n "$ns" 2>&1 | head -20
+      echo '--- pods not ready ---'
+      kubectl get pods -n "$ns" --field-selector=status.phase!=Running 2>&1 | head -10
+      echo '--- recent warnings ---'
+      kubectl get events -n "$ns" --sort-by=.lastTimestamp 2>&1 | grep -Ei 'warn|fail|error' | tail -10
+      echo '--- persistent volume claims ---'
+      kubectl get pvc -n "$ns" 2>&1 | head -10
+  register: _rollout_state
+  changed_when: false
+  failed_when: false
+
+- name: Report cluster state for the failed rollout
+  ansible.builtin.debug:
+    msg: >-
+      {{ ['The rollout did not finish. What the cluster reports:', '']
+         + (_rollout_state.stdout | default('') | split('\n')) }}
+  when: (_rollout_state.stdout | default('') | trim) | length > 0
+
+# A PVC stuck Pending never resolves by waiting: no provisioner will
+# claim it. Name that outright rather than leaving it in the dump.
+- name: Name an unschedulable storage class when that is the cause
+  ansible.builtin.debug:
+    msg: >-
+      One or more PersistentVolumeClaims are Pending, so the pods that
+      mount them cannot be scheduled. A PVC stays Pending when its
+      storage class has no provisioner on this cluster. Compare the
+      STORAGECLASS column above with 'kubectl get storageclass'; set a
+      class the cluster has with 'canasta create --storage-class <name>',
+      or provision shared storage with 'canasta storage setup nfs'.
+  when: >-
+    'Pending' in (_rollout_state.stdout | default(''))
+    and 'persistent volume claims' in (_rollout_state.stdout | default('') | lower)

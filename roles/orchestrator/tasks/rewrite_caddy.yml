@@ -26,8 +26,8 @@
     _http_only: >-
       {{ (instance_orchestrator | default('compose') in ['kubernetes', 'k8s'])
          or (_env_caddy.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off') }}
-    _observable: "{{ _env_caddy.variables.CANASTA_ENABLE_OBSERVABILITY | default('false') | lower == 'true' }}"
-    _varnish_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_VARNISH | default('true') | lower == 'true' }}"
+    _observable: "{{ _env_caddy.variables.CANASTA_ENABLE_OBSERVABILITY | default('false', true) | lower == 'true' }}"
+    _varnish_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_VARNISH | default('true', true) | lower == 'true' }}"
     _staging_certs: "{{ _env_caddy.variables.CANASTA_STAGING_CERTS | default('false') | lower == 'true' }}"
     _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
     _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') }}"
@@ -37,7 +37,7 @@
     # real-client-IP trusted-proxy handling keys off _crowdsec_enabled —
     # the engine must see the true attacker IP even before a bouncer key
     # exists. Enforcement (the crowdsec directive) still waits for the key.
-    _crowdsec_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true' }}"
+    _crowdsec_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true' }}"
     # CrowdSec is only "active" (directive rendered) when the feature is
     # enabled AND a bouncer API key is present. Enabling the flag without
     # a key leaves Caddy in a clean degraded state — the bouncer image
@@ -46,7 +46,7 @@
     # the guard that prevents the unconditional-key startup failure that
     # got the original implementation reverted.
     _crowdsec_active: >-
-      {{ (_env_caddy.variables.CANASTA_ENABLE_CROWDSEC | default('false') | lower == 'true')
+      {{ (_env_caddy.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true')
          and (_env_caddy.variables.CROWDSEC_BOUNCER_API_KEY | default('') | length > 0) }}
 
 - name: Refuse to render Caddyfile with empty observability credentials
@@ -173,16 +173,65 @@
 
 # Render the template (CLI global block + inlined Caddyfile.global, which may
 # leave two global blocks) and meld them into one on the way out.
-- name: Write Caddyfile (rendered + global blocks melded)
+#
+# The Caddyfile is written through a staging file and installed with cp,
+# which truncates the destination and keeps its inode. Two reasons:
+#
+#   1. The compose stack bind-mounts the file itself
+#      (./config/Caddyfile:/etc/caddy/Caddyfile). A file mount resolves
+#      to an inode when the container starts, so replacing the file
+#      leaves the container reading the old one for its whole lifetime —
+#      and `caddy reload` then re-reads the stale inode and applies
+#      nothing, silently. `caddy validate` inside the container agrees
+#      with it, because it reads the same stale inode.
+#   2. run-all.sh rsyncs origin files over the bind-mounted instance_path
+#      with --chown=www-data, leaving config/ not writable by the runner
+#      (only the existing Caddyfile is), so a write that needs to create
+#      a temp file in config/ fails there.
+#
+# copy's unsafe_writes only covers the second reason: it is a fallback
+# for when the atomic rename fails, so wherever the rename can succeed
+# the mount is still stranded. That is the ordinary case — a runner that
+# owns config/Caddyfile inside a group-writable config/ renames freely.
+- name: Render the Caddyfile to a staging file
+  ansible.builtin.tempfile:
+    state: file
+    suffix: .Caddyfile
+  register: _caddy_staging
+  changed_when: false
+
+- name: Write the rendered Caddyfile (rendered + global blocks melded)
   ansible.builtin.copy:
     content: >-
       {{ lookup('template',
                 canasta_root + '/roles/orchestrator/templates/Caddyfile.j2')
          | meld_caddy_global_blocks }}
-    dest: "{{ instance_path }}/config/Caddyfile"
+    dest: "{{ _caddy_staging.path }}"
     mode: "0644"
-    # run-all.sh rsyncs origin files over the bind-mounted instance_path with
-    # --chown=www-data, leaving config/ not writable by the runner (only the
-    # existing Caddyfile is). unsafe_writes overwrites in place instead of via a
-    # temp file in the parent dir. No concurrent writer here.
-    unsafe_writes: true
+  register: _caddy_render
+  changed_when: false
+
+- name: Read the Caddyfile currently in place
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/Caddyfile"
+    checksum_algorithm: sha1
+  register: _caddy_current
+
+# cp opens the destination and truncates it; it does not unlink and
+# recreate, so the inode the container mounted survives. Guarded by the
+# checksum so an unchanged render reports ok rather than changed.
+- name: Install the Caddyfile in place
+  ansible.builtin.command:
+    cmd: >-
+      cp {{ _caddy_staging.path | quote }}
+      {{ (instance_path ~ '/config/Caddyfile') | quote }}
+  when: >-
+    not _caddy_current.stat.exists
+    or _caddy_current.stat.checksum != _caddy_render.checksum
+  changed_when: true
+
+- name: Remove the Caddyfile staging file
+  ansible.builtin.file:
+    path: "{{ _caddy_staging.path }}"
+    state: absent
+  changed_when: false
