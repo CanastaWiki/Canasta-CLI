@@ -36,7 +36,11 @@ EXIT_ALREADY_EXISTS = 3
 # so `import canasta_config` resolves the same file Ansible ships.
 sys.path.append(os.path.join(SCRIPT_DIR, "roles", "common", "module_utils"))
 import canasta_config  # noqa: E402
-from direct_commands._helpers import _read_env, _resolve_compose_cmd  # noqa: E402
+from direct_commands._helpers import (  # noqa: E402
+    _is_local_target,
+    _read_env,
+    _resolve_compose_cmd,
+)
 
 # Ensure Ansible uses the repo's config regardless of working directory
 os.environ.setdefault("ANSIBLE_CONFIG", ANSIBLE_CFG)
@@ -1084,7 +1088,7 @@ def check_docker_mode_install_target(args):
         # -H/--host names the controller itself: local, refuse. Any other
         # host is remote and passes through. --host wins over --id if both
         # are given, so a -H here settles it without reading the registry.
-        if host in ("localhost", "127.0.0.1"):
+        if _is_local_target(host):
             _refuse_local_docker_install()
         return
 
@@ -1100,7 +1104,7 @@ def check_docker_mode_install_target(args):
                 file=sys.stderr,
             )
             sys.exit(1)
-        if (inst.get("host") or "localhost") not in ("localhost", "127.0.0.1"):
+        if not _is_local_target(inst.get("host") or "localhost"):
             return
 
     _refuse_local_docker_install()

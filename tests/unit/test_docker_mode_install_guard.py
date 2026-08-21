@@ -30,6 +30,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
 import canasta  # noqa: E402
+from direct_commands import _helpers  # noqa: E402
+
+REPO_ROOT = os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))))
 
 CANASTA_PY = os.path.join(os.path.dirname(os.path.abspath(canasta.__file__)),
                           "canasta.py")
@@ -303,3 +307,30 @@ class TestThroughRealMain:
         result = self._run(["install", "sops", "-i", "nosuch"])
         assert result.returncode == 1
         assert "'nosuch' is not registered" in result.stderr
+
+
+class TestOneDefinitionOfLocal:
+    """The guard used to carry its own ("localhost", "127.0.0.1") list while
+    _helpers._is_localhost said ("localhost", "", None). Two definitions of
+    the same word drift; this pins that the guard uses the shared one."""
+
+    def test_loopback_literals_are_local(self):
+        for host in ("localhost", "127.0.0.1", "::1", "", None):
+            assert _helpers._is_local_target(host), host
+
+    def test_a_remote_host_is_not(self):
+        for host in ("prod1.example.com", "10.0.0.5", "user@example.com"):
+            assert not _helpers._is_local_target(host), host
+
+    def test_is_localhost_is_left_alone(self):
+        # Widening _is_localhost would reroute an instance registered as
+        # 127.0.0.1 from ssh to local execution, across ~30 call sites.
+        assert not _helpers._is_localhost("127.0.0.1")
+
+    def test_the_guard_does_not_carry_its_own_list(self):
+        with open(os.path.join(REPO_ROOT, "canasta.py")) as f:
+            source = f.read()
+        start = source.index("def check_docker_mode_install_target")
+        end = source.index("def _refuse_local_docker_install")
+        assert '"127.0.0.1"' not in source[start:end], (
+            "the guard should ask _is_local_target, not restate the list")

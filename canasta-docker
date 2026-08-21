@@ -59,6 +59,12 @@ mkdir -p "$CONFIG_DIR"
 # lookup reads the real registry (an instance created without --host has
 # no 'host' key at all, which means local). See
 # check_docker_mode_install_target in canasta.py.
+#
+# The trade: the refusal now happens inside the container, so a local
+# `canasta install` pulls and starts the CLI image before printing the
+# error, where the old wrapper-side guard failed instantly. Correctness
+# about the target is worth the wait — a scan of "$@" cannot tell a
+# local install from a remote one.
 
 # Select the canasta-ansible image. The channel (release vs dev) is pinned
 # by 'canasta upgrade' in $CONFIG_DIR/cli_image_tag and applies to every
