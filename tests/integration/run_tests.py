@@ -3114,14 +3114,30 @@ def test_gitops_fix_submodules_orphan(inst):
 
     inst_path = inst.instance_path()
 
+    # The clone needs a real origin. A .gitmodules entry is a path AND a
+    # url, so recovery has nothing to write without one (see
+    # test_gitops_fix_submodules_no_url below) — and `git submodule add`
+    # clones from that url for real, so it has to resolve. A local bare
+    # repo keeps the test off the network.
     print("Creating a fake extension with a git repo...")
+    ext_origin = os.path.join(inst.work_dir, "OrphanExt.git")
+    subprocess.run(["git", "init", "--bare", ext_origin],
+                   capture_output=True, check=True)
     ext_dir = os.path.join(inst_path, "extensions", "OrphanExt")
     os.makedirs(ext_dir, exist_ok=True)
     subprocess.run(
         ["git", "init"], cwd=ext_dir, capture_output=True, check=True,
     )
     subprocess.run(
+        ["git", "remote", "add", "origin", ext_origin],
+        cwd=ext_dir, capture_output=True, check=True,
+    )
+    subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "init"],
+        cwd=ext_dir, capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "push", "-u", "origin", "HEAD:refs/heads/main"],
         cwd=ext_dir, capture_output=True, check=True,
     )
     ext_sha = subprocess.run(
@@ -3170,6 +3186,68 @@ def test_gitops_fix_submodules_orphan(inst):
     assert result.returncode == 0, (
         "git submodule update failed after fix:\n%s" % result.stderr
     )
+
+    print("Verifying the recovered entry carries the origin URL...")
+    assert ext_origin in content, (
+        "a .gitmodules entry without a url fetches nothing on the next "
+        "clone:\n%s" % content
+    )
+
+
+def test_gitops_fix_submodules_no_url(inst):
+    """fix-submodules refuses an orphan whose URL cannot be recovered.
+
+    A gitlink whose clone has no origin cannot become a valid .gitmodules
+    entry — there is no url to write. Committing it anyway produces a repo
+    where `git submodule update` fetches nothing and the extension is gone
+    on the next clone, so recovery fails loudly instead (#1183).
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True)
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", os.path.join(inst.work_dir, "gitops-test.key"),
+    )
+
+    inst_path = inst.instance_path()
+    print("Creating an orphan gitlink with no origin remote...")
+    ext_dir = os.path.join(inst_path, "extensions", "NoRemoteExt")
+    os.makedirs(ext_dir, exist_ok=True)
+    subprocess.run(["git", "init"], cwd=ext_dir,
+                   capture_output=True, check=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"],
+                   cwd=ext_dir, capture_output=True, check=True)
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=ext_dir,
+        capture_output=True, text=True, check=True).stdout.strip()
+    subprocess.run(
+        ["git", "update-index", "--add", "--cacheinfo", "160000", sha,
+         "extensions/NoRemoteExt"],
+        cwd=inst_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "Add orphan gitlink"],
+                   cwd=inst_path, capture_output=True, check=True)
+
+    print("Running gitops fix-submodules (expected to refuse)...")
+    output, rc = inst.run("gitops", "fix-submodules", "-i", inst.id)
+    assert rc != 0, (
+        "recovery must refuse an orphan it cannot give a url:\n%s" % output)
+    assert "NoRemoteExt" in output and "remote.origin.url" in output, (
+        "the refusal must name the path and the reason:\n%s" % output)
+    assert "git rm --cached" in output, (
+        "the refusal must say how to resolve it:\n%s" % output)
 
 
 def _wait_for_crowdsec_lapi(inst, timeout=120):
@@ -4097,6 +4175,7 @@ ALL_TESTS = {
     "backup-restore-safety": test_backup_restore_excludes_safety,
     "gitops-status-fetch": test_gitops_status_fetch,
     "gitops-fix-submodules": test_gitops_fix_submodules_orphan,
+    "gitops-fix-submodules-no-url": test_gitops_fix_submodules_no_url,
     "crowdsec": test_crowdsec,
     "sidecar-lifecycle": test_sidecar_lifecycle,
     "sidecar-migrate": test_sidecar_migrate,

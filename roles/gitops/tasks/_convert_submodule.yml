@@ -30,6 +30,19 @@
         path: "{{ _repo_path }}"
         state: absent
 
+    # An orphan gitlink is already staged at this path — a 160000 entry
+    # with no .gitmodules block — and `git submodule add` refuses a path
+    # that is already in the index ("already exists in the index"). Drop
+    # the stale entry first so the add can register it properly. A plain
+    # loose clone has no index entry and this is a no-op for it.
+    - name: Drop any stale index entry for the path
+      ansible.builtin.command:
+        cmd: "git rm --cached --force {{ _sub_relpath }}"
+        chdir: "{{ instance_path }}"
+      register: _sub_unindex
+      changed_when: _sub_unindex.rc == 0
+      failed_when: false
+
     - name: Add as submodule
       ansible.builtin.command:
         cmd: "git submodule add {{ _sub_url.stdout | trim }} {{ _sub_relpath }}"
