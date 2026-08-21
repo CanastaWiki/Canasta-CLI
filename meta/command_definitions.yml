@@ -1455,11 +1455,11 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: name
+      - name: extension_name
         type: string
         positional: true
         required: true
-        description: "Extension name (the extensions/<name> submodule)"
+        description: "Extension name (the extensions/<extension_name> submodule)"
       - name: ref
         type: string
         required: true
