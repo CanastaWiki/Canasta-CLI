@@ -1298,6 +1298,18 @@ def _is_localhost(host):
     return host in ("localhost", "", None)
 
 
+def _is_local_target(host):
+    """Local for the purposes of "can this run from inside the container?".
+
+    Wider than _is_localhost, which answers "do we need ssh to reach this
+    path?" and is load-bearing for every remote operation. The loopback
+    literals belong here rather than there: naming one still means this
+    machine, but adding them to _is_localhost would silently reroute an
+    instance registered as 127.0.0.1 from ssh to local execution.
+    """
+    return _is_localhost(host) or (host or "").strip() in ("127.0.0.1", "::1")
+
+
 def _check_dir_exists(path, host):
     if _is_localhost(host):
         return os.path.isdir(path)

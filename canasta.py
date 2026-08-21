@@ -36,7 +36,11 @@ EXIT_ALREADY_EXISTS = 3
 # so `import canasta_config` resolves the same file Ansible ships.
 sys.path.append(os.path.join(SCRIPT_DIR, "roles", "common", "module_utils"))
 import canasta_config  # noqa: E402
-from direct_commands._helpers import _read_env, _resolve_compose_cmd  # noqa: E402
+from direct_commands._helpers import (  # noqa: E402
+    _is_local_target,
+    _read_env,
+    _resolve_compose_cmd,
+)
 
 # Ensure Ansible uses the repo's config regardless of working directory
 os.environ.setdefault("ANSIBLE_CONFIG", ANSIBLE_CFG)
@@ -1052,6 +1056,86 @@ def check_docker_mode_can_reach_runtime(args):
     sys.exit(1)
 
 
+def check_docker_mode_install_target(args):
+    """Refuse a *local* `canasta install` under the Docker-mode CLI.
+
+    `canasta install` provisions host-level software (k3s as a systemd
+    unit, the docker engine package, etc.), which the canasta-ansible
+    container cannot do: it has no systemd and no privilege over the
+    host package manager. A *remote* install is fine — the playbook runs
+    over SSH on the target named by -H/--host, or resolved from -i/--id
+    through the registry, where systemd and root exist.
+
+    The decision lives here rather than in the canasta-docker wrapper
+    because only argparse has already parsed the target: it handles the
+    attached forms the wrapper had to scan for (-Hprod1.example.com,
+    -imysite), and flags that appear before the command (e.g.
+    'canasta -v install docker') never put 'install' in $1. The registry
+    lookup also sees the shape `canasta create` actually writes: an
+    instance registered without --host has no 'host' key at all, which
+    means it is local.
+
+    Called from main() for the `install` command only; every other
+    command targets an existing instance's runtime and is covered by
+    check_docker_mode_can_reach_runtime instead.
+    """
+    if os.environ.get("CANASTA_RUN_MODE") != "docker":
+        return
+
+    host = getattr(args, "host", None)
+    inst_id = getattr(args, "id", None)
+    if host:
+        # -H/--host names the controller itself: local, refuse. Any other
+        # host is remote and passes through. --host wins over --id if both
+        # are given, so a -H here settles it without reading the registry.
+        if _is_local_target(host):
+            _refuse_local_docker_install()
+        return
+
+    if inst_id:
+        instances = canasta_config.read_config(
+            get_config_dir()).get("Instances", {})
+        inst = instances.get(inst_id)
+        if inst is None:
+            print(
+                "Error: instance '%s' is not registered, so there is no "
+                "host to install on. Register it with 'canasta create' or "
+                "'canasta host add'." % inst_id,
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if not _is_local_target(inst.get("host") or "localhost"):
+            return
+
+    _refuse_local_docker_install()
+
+
+def _refuse_local_docker_install():
+    """Explain why a local install cannot run in Docker mode, then exit 1."""
+    print(
+        "Error: 'canasta install' is not supported in canasta-docker mode.\n"
+        "\n"
+        "These commands install system packages on the host (k3s as a "
+        "systemd unit, docker engine, etc.) which can't run from inside a "
+        "container.\n"
+        "\n"
+        "Either:\n"
+        "  - Use canasta-native:\n"
+        "      curl -fsSL https://get.canasta.wiki | bash -s -- --native\n"
+        "  - Or install the dependency manually on the host (e.g.\n"
+        "      curl -sfL https://get.k3s.io | sh -\n"
+        "    for k3s) and use canasta-docker for the rest of the workflow\n"
+        "    (create, start, backup, restore, etc.).\n"
+        "\n"
+        "Or install on a remote host with:\n"
+        "      canasta install <package> -i <instance-id>\n"
+        "which runs the install over SSH on the host where the instance "
+        "lives.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def _redirect_stdin_from_file(path):
     """Point fd 0 at `path` so the about-to-be-exec'd command reads it as
     stdin. Used by `maintenance exec --stdin-file`. No-op when path is unset.
@@ -1906,7 +1990,19 @@ def main():
     # Pre-flight: the Docker-mode CLI cannot drive a Podman instance that
     # is local to this controller. Refuse before either path starts, so
     # the operator gets the reason instead of a mid-operation rc=127.
-    check_docker_mode_can_reach_runtime(args)
+    # `install` is exempt: it never drives an instance's compose stack —
+    # it provisions host-level software, and a local install cannot run
+    # from the container. See check_docker_mode_install_target below.
+    if command_name != "install":
+        check_docker_mode_can_reach_runtime(args)
+
+    # Pre-flight: `canasta install` provisions software on the target
+    # host, which the container cannot do for the controller itself.
+    # Refuse local installs (no target, localhost, or -i resolving to a
+    # local instance) up front; remote targets run over SSH on the
+    # target.
+    if command_name == "install":
+        check_docker_mode_install_target(args)
 
     # Interactive exec: bypass Ansible for TTY support.
     if command_name == "maintenance_exec":

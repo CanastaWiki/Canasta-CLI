@@ -10,6 +10,7 @@ real unix sockets uses short paths under /tmp rather than pytest's
 tmp_path fixture (which lives under /private/var/folders/...).
 """
 
+import json
 import os
 import shutil
 import socket
@@ -669,3 +670,98 @@ class TestRestoreAndGitopsCrontabMediation:
         # create doesn't touch the crontab; no mediation needed.
         argv, _ = run_dry(["backup", "create", "-i", "x"])
         assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+
+class TestInstallDockerMode:
+    """`canasta install` under the docker wrapper.
+
+    The wrapper passes install through unchanged — the refusal of a
+    local install lives in canasta.py (check_docker_mode_install_target),
+    where the parsed args and the real registry decide whether the
+    target is the controller itself or a remote host. That move is what
+    makes attached short forms (-Hprod1, -imysite) and pre-command flags
+    ('canasta -v install docker') behave; see
+    test_docker_mode_install_guard.py for the decision logic.
+
+    These tests only assert pass-through, which is all the wrapper does.
+    """
+
+    def _conf(self, config_dir, instances):
+        """Seed conf.json with the given instances."""
+        path = os.path.join(config_dir, "conf.json")
+        with open(path, "w") as f:
+            json.dump({"Instances": instances}, f)
+
+    def _config_dir(self):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        return config_dir
+
+    def test_remote_instance_via_i_passes_through(self):
+        config_dir = self._config_dir()
+        self._conf(config_dir, {"nichework": {
+            "id": "nichework", "path": "/srv/nichework",
+            "host": "nichework.com", "orchestrator": "compose"}})
+        argv, _ = run_dry(
+            ["install", "uv:podman-compose", "-i", "nichework"],
+            env={"CANASTA_CONFIG_DIR": config_dir},
+        )
+        assert user_args(argv) == ["install", "uv:podman-compose",
+                                   "-i", "nichework"]
+
+    def test_remote_host_via_H_passes_through(self):
+        argv, _ = run_dry(["install", "podman", "-H", "prod1.example.com"])
+        assert user_args(argv) == ["install", "podman",
+                                   "-H", "prod1.example.com"]
+
+    def test_extra_flags_survive_pass_through(self):
+        argv, _ = run_dry(["install", "k8s-cp", "--public-ip", "203.0.113.10",
+                           "-H", "node2"])
+        assert user_args(argv) == [
+            "install", "k8s-cp", "--public-ip", "203.0.113.10", "-H", "node2",
+        ]
+
+    def test_double_dash_forms_of_target_are_handled(self):
+        config_dir = self._config_dir()
+        self._conf(config_dir, {"nichework": {
+            "id": "nichework", "path": "/srv/nichework",
+            "host": "nichework.com", "orchestrator": "compose"}})
+        argv, _ = run_dry(
+            ["install", "docker", "--id=nichework"],
+            env={"CANASTA_CONFIG_DIR": config_dir},
+        )
+        assert user_args(argv) == ["install", "docker", "--id=nichework"]
+
+    def test_a_local_install_passes_through(self):
+        # The wrapper no longer refuses; canasta.py does, so the refusal
+        # reaches the user only after the container starts. Tested in
+        # test_docker_mode_install_guard.py.
+        argv, _ = run_dry(["install", "docker"])
+        assert user_args(argv) == ["install", "docker"]
+
+    def test_an_unregistered_instance_passes_through(self):
+        config_dir = self._config_dir()
+        self._conf(config_dir, {})
+        argv, _ = run_dry(["install", "sops", "-i", "nosuch"],
+                          env={"CANASTA_CONFIG_DIR": config_dir})
+        assert user_args(argv) == ["install", "sops", "-i", "nosuch"]
+
+    def test_a_local_instance_passes_through(self):
+        # The registry shape `canasta create` actually writes: a locally
+        # created instance has no 'host' key. The wrapper does not look;
+        # canasta.py resolves it to the controller and refuses.
+        config_dir = self._config_dir()
+        self._conf(config_dir, {"local1": {
+            "id": "local1", "path": "/srv/local1",
+            "orchestrator": "compose"}})
+        argv, _ = run_dry(["install", "podman", "-i", "local1"],
+                          env={"CANASTA_CONFIG_DIR": config_dir})
+        assert user_args(argv) == ["install", "podman", "-i", "local1"]
+
+    def test_host_localhost_passes_through(self):
+        argv, _ = run_dry(["install", "podman", "-H", "localhost"])
+        assert user_args(argv) == ["install", "podman", "-H", "localhost"]
+
+    def test_non_install_commands_are_unaffected(self):
+        argv, _ = run_dry(["version"])
+        assert "install" not in user_args(argv)
