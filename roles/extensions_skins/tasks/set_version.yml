@@ -14,13 +14,13 @@
 - name: Validate the extension name
   ansible.builtin.fail:
     msg: >-
-      Invalid extension name '{{ name }}': use a plain extension directory
+      Invalid extension name '{{ extension_name }}': use a plain extension directory
       name (letters, digits, '.', '_', '-').
-  when: name is not match('^[A-Za-z0-9][A-Za-z0-9_.-]*$')
+  when: extension_name is not match('^[A-Za-z0-9][A-Za-z0-9_.-]*$')
 
 - name: Set the extension submodule path
   ansible.builtin.set_fact:
-    _ext_path: "extensions/{{ name }}"
+    _ext_path: "extensions/{{ extension_name }}"
 
 - name: Verify the extension is a registered submodule
   ansible.builtin.command:
@@ -45,8 +45,8 @@
           vars:
             exec_service: web
             exec_command: >-
-              if [ -d /var/www/mediawiki/w/extensions/{{ name | quote }} ] &&
-              [ ! -L /var/www/mediawiki/w/extensions/{{ name | quote }} ]; then
+              if [ -d /var/www/mediawiki/w/extensions/{{ extension_name | quote }} ] &&
+              [ ! -L /var/www/mediawiki/w/extensions/{{ extension_name | quote }} ]; then
               echo bundled; else echo other; fi
         - name: Record the probe result
           ansible.builtin.set_fact:
@@ -59,7 +59,7 @@
     - name: Fail — a bundled extension has no per-instance submodule to pin
       ansible.builtin.fail:
         msg: >-
-          '{{ name }}' is a bundled Canasta extension (shipped in the image),
+          '{{ extension_name }}' is a bundled Canasta extension (shipped in the image),
           not a per-instance user-extension submodule, so there is no submodule
           to pin here. To use a different version, add that version to this
           instance's extensions/ directory — a user copy there overrides the
@@ -69,8 +69,8 @@
     - name: Fail — not a user-extension submodule
       ansible.builtin.fail:
         msg: >-
-          '{{ name }}' is not a gitops-managed user-extension submodule
-          (extensions/{{ name }} is not in .gitmodules). Version pinning applies
+          '{{ extension_name }}' is not a gitops-managed user-extension submodule
+          (extensions/{{ extension_name }} is not in .gitmodules). Version pinning applies
           to user extensions vendored as submodules. Check the name; if it is a
           bundled Canasta extension its version is set by the image (not
           pinnable here); or run 'canasta gitops fix-submodules' if the
@@ -169,14 +169,14 @@
     - name: Report that update.php was skipped (no schema updates)
       ansible.builtin.debug:
         msg: >-
-          '{{ name }}' registers no schema updates in extension.json, so
+          '{{ extension_name }}' registers no schema updates in extension.json, so
           update.php was skipped.
       when: not (_ext_run_update | bool)
 
 - name: Report the version change
   ansible.builtin.debug:
     msg: >-
-      Extension '{{ name }}' set to '{{ ref }}'
+      Extension '{{ extension_name }}' set to '{{ ref }}'
       ({{ _ext_current.stdout | default('') | trim | default('unknown', true) }}
       -> {{ _ext_new.stdout | trim }}). Staged — run 'canasta gitops push' to
       distribute it to other hosts.

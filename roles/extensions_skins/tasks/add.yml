@@ -1,0 +1,112 @@
+---
+# Add a user extension/skin that is not bundled with Canasta.
+#
+# Resolves its git URL + branch (REL1_YY for Gerrit remotes) from
+# ExtensionJson.json, adds it as a submodule (gitops) or a plain clone
+# (non-gitops) under extensions/ or skins/, commits it in gitops, and
+# optionally enables it (write settings + run update.php).
+#
+# Input: id, wiki (optional, passed to enable), names (comma-separated),
+#        mw_version (optional override), repository (optional override),
+#        branch (optional override), skip_enable (bool), skip_update (bool),
+#        _item_type (extensions|skins)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Refuse Kubernetes (unsupported)
+  ansible.builtin.fail:
+    msg: >-
+      'canasta {{ _item_type }} add' is only supported on Compose (including
+      gitops) instances; Kubernetes user extensions live in a PVC and are not
+      managed this way.
+  when: (orchestrator | default('compose')) == 'kubernetes'
+
+- name: Set item directory
+  ansible.builtin.set_fact:
+    _item_dir: "{{ 'skins' if (_item_type == 'skins') else 'extensions' }}"
+
+- name: Detect whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git"
+  register: _git_dir
+
+- name: Record gitops status
+  ansible.builtin.set_fact:
+    is_gitops: "{{ _git_dir.stat.exists | bool }}"
+
+- name: "Detect MediaWiki version (for REL1_YY) unless overridden"
+  when: mw_version is not defined or mw_version | default('') | trim == ''
+  block:
+    - name: Run maintenance/version.php
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: >-
+          v="";
+          if [ -f maintenance/version.php ]; then v=$(php maintenance/version.php); fi;
+          if [ -z "$v" ]; then
+            p=$(find /var/www /var/www/html /srv /srv/www /opt /app /usr/share /usr/local /var/lib /home
+            -maxdepth 8 -name version.php -path '*/maintenance/*' 2>/dev/null | head -n1);
+            [ -n "$p" ] && v=$(php "$p");
+          fi;
+          if [ -z "$v" ]; then
+            p=$(find / -maxdepth 10 \( -path /proc -o -path /sys -o -path /dev \) -prune -o
+            -name version.php -path '*/maintenance/*' -print 2>/dev/null | head -n1);
+            [ -n "$p" ] && v=$(php "$p");
+          fi;
+          printf '%s' "$v"
+        exec_long: true
+    - name: Parse MediaWiki version
+      ansible.builtin.set_fact:
+        _mw_version: >-
+          {{ (exec_result.stdout | default('') | regex_search('\\d+\\.\\d+\\.\\d+')) | default('') }}
+  rescue:
+    - name: Leave version unset if the container is unavailable
+      ansible.builtin.set_fact:
+        _mw_version: ""
+
+- name: Apply MW version override
+  ansible.builtin.set_fact:
+    _mw_version: "{{ mw_version | default(_mw_version | default('')) }}"
+  when: mw_version is defined and mw_version | default('') | trim != ''
+
+- name: Set ExtensionJson.json offline snapshot path
+  ansible.builtin.set_fact:
+    _extjson_path: "{{ canasta_root }}/data/ExtensionJson.json"
+
+- name: "Resolve {{ _item_type }} from ExtensionJson.json"
+  canasta_extension_resolve:
+    name: "{{ item | trim }}"
+    item_type: "{{ _item_type }}"
+    mw_version: "{{ _mw_version | default('') }}"
+    repository: "{{ repository | default(omit) }}"
+    branch: "{{ branch | default(omit) }}"
+    json_path: "{{ _extjson_path }}"
+  loop: "{{ names.split(',') | map('trim') | list }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _resolved
+
+- name: "Add each {{ _item_type }} to the instance"
+  ansible.builtin.include_tasks: _add_one.yml
+  loop: "{{ _resolved.results }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: "Enable added {{ _item_type }} (after restart so the container sees them)"
+  when: not (skip_enable | default(false) | bool)
+  block:
+    - name: "Restart containers so the monitor symlinks the new {{ _item_type }}"
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: start.yml
+      when: (orchestrator | default('compose')) == 'compose'
+
+    - name: "Enable each {{ _item_type }}"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/enable.yml"
+      vars:
+        _names: "{{ item.name }}"
+      loop: "{{ _resolved.results }}"
+      loop_control:
+        label: "{{ item.name }}"
