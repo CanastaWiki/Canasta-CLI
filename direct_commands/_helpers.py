@@ -1348,14 +1348,22 @@ def _check_running(instance_id, path, orchestrator, host, docker_host=None,
     return _check_running_compose(path, host, docker_host, compose_cmd)
 
 
-def _capture_in_instance(path, host, docker_host, argv):
-    """Run argv in the instance directory and return stdout, or None."""
+def _capture_in_instance(path, host, docker_host, argv,
+                         capture_stderr=False):
+    """Run argv in the instance directory and return stdout, or None.
+
+    capture_stderr returns the combined streams even on failure, for
+    callers that need to report *why* a command failed rather than only
+    act on its output.
+    """
     if _is_localhost(host):
         try:
             result = subprocess.run(
                 argv, cwd=path, capture_output=True, text=True, timeout=30,
                 env=_docker_env(docker_host),
             )
+            if capture_stderr:
+                return (result.stdout or "") + (result.stderr or "")
             return result.stdout if result.returncode == 0 else None
         except (subprocess.TimeoutExpired, OSError):
             return None
@@ -1366,7 +1374,9 @@ def _capture_in_instance(path, host, docker_host, argv):
     cmd = "cd %s && %s" % (_shell_quote(path), quoted)
     if docker_host:
         cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
-    rc, stdout = _ssh_run(host, cmd)
+    rc, stdout = _ssh_run(host, cmd + (" 2>&1" if capture_stderr else ""))
+    if capture_stderr:
+        return stdout
     return stdout if rc == 0 else None
 
 
