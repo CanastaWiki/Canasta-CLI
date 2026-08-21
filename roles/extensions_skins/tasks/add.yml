@@ -60,7 +60,7 @@
     - name: Parse MediaWiki version
       ansible.builtin.set_fact:
         _mw_version: >-
-          {{ (exec_result.stdout | default('') | regex_search('MediaWiki (\d+\.\d+\.\d+)', '\1') | first | default('')) }}
+          {{ (exec_result.stdout | default('') | regex_search('\\d+\\.\\d+\\.\\d+')) | default('') }}
   rescue:
     - name: Leave version unset if the container is unavailable
       ansible.builtin.set_fact:
