@@ -42,7 +42,10 @@
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: web
-        exec_command: "php /var/www/mediawiki/w/maintenance/version.php"
+        exec_command: >-
+          f=$(find /var/www -maxdepth 6 -name version.php
+          -path '*/maintenance/*' 2>/dev/null | head -n1);
+          [ -n "$f" ] && php "$f"
         exec_long: true
     - name: Parse MediaWiki version
       ansible.builtin.set_fact:
@@ -94,8 +97,6 @@
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/enable.yml"
       vars:
         _names: "{{ item.name }}"
-        skip_update: "{{ skip_update | default(false) }}"
-        wiki: "{{ wiki | default(omit) }}"
       loop: "{{ _resolved.results }}"
       loop_control:
         label: "{{ item.name }}"
