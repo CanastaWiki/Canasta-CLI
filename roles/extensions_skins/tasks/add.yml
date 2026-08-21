@@ -43,9 +43,19 @@
       vars:
         exec_service: web
         exec_command: >-
-          f=$(find /var/www -maxdepth 6 -name version.php
-          -path '*/maintenance/*' 2>/dev/null | head -n1);
-          [ -n "$f" ] && php "$f"
+          v="";
+          if [ -f maintenance/version.php ]; then v=$(php maintenance/version.php); fi;
+          if [ -z "$v" ]; then
+            p=$(find /var/www /var/www/html /srv /srv/www /opt /app /usr/share /usr/local /var/lib /home
+            -maxdepth 8 -name version.php -path '*/maintenance/*' 2>/dev/null | head -n1);
+            [ -n "$p" ] && v=$(php "$p");
+          fi;
+          if [ -z "$v" ]; then
+            p=$(find / -maxdepth 10 \( -path /proc -o -path /sys -o -path /dev \) -prune -o
+            -name version.php -path '*/maintenance/*' -print 2>/dev/null | head -n1);
+            [ -n "$p" ] && v=$(php "$p");
+          fi;
+          printf '%s' "$v"
         exec_long: true
     - name: Parse MediaWiki version
       ansible.builtin.set_fact:
