@@ -1469,6 +1469,65 @@ commands:
         default: false
         description: "Run update.php after pinning to apply DB schema changes"
 
+  - name: extension_add
+    description: "Add a non-bundled extension from its git repository"
+    long_description: |
+      Add a MediaWiki extension that is not bundled with Canasta by cloning
+      its git repository into the instance's extensions/ directory.
+
+      The extension's git URL is resolved from ExtensionJson.json (the
+      extjsonuploader Toolforge dataset); pass `--repository` to override the
+      lookup, or `--branch` to pin a specific branch/tag/commit. For Gerrit
+      remotes (gerrit.wikimedia.org/r/mediawiki/extensions/...) the branch is
+      chosen automatically as REL1_YY matching the instance's MediaWiki
+      version (e.g. MediaWiki 1.43 -> REL1_43); for other remotes the default
+      branch is used unless `--branch` is given. Override the detected version
+      with `--mw-version`.
+
+      On a gitops instance the extension is added as a submodule and committed
+      (run `canasta gitops push` to distribute it). The extension is then
+      enabled automatically (write settings + run update.php); use
+      `--skip-enable` to add the code only.
+
+      Requires a Compose (including gitops) instance; Kubernetes is not
+      supported.
+    examples:
+      - "canasta extension add OAuth"
+      - "canasta extension add OAuth --mw-version 1.43.2"
+      - "canasta extension add MyExtension --repository https://example.org/MyExtension.git --branch main"
+    playbook: extension_add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID to enable the extension for (passed to enable)"
+      - name: names
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated extension names"
+      - name: mw_version
+        type: string
+        description: "MediaWiki version (e.g. 1.43.2); overrides auto-detection for REL1_YY branch selection"
+      - name: repository
+        type: string
+        description: "Git URL to clone (overrides ExtensionJson.json lookup)"
+      - name: branch
+        type: string
+        description: "Branch/tag/commit to check out (overrides auto branch selection)"
+      - name: skip_enable
+        type: bool
+        default: false
+        description: "Add the code only; do not enable the extension"
+      - name: skip_update
+        type: bool
+        default: false
+        description: "Skip running update.php after enabling"
+
   # ---------------------------------------------------------------------------
   # Skins
   # ---------------------------------------------------------------------------
@@ -1545,6 +1604,64 @@ commands:
         positional: true
         required: true
         description: "Comma-separated skin names"
+
+  - name: skin_add
+    description: "Add a non-bundled skin from its git repository"
+    long_description: |
+      Add a MediaWiki skin that is not bundled with Canasta by cloning its
+      git repository into the instance's skins/ directory.
+
+      The skin's git URL is resolved from ExtensionJson.json (the
+      extjsonuploader Toolforge dataset); pass `--repository` to override the
+      lookup, or `--branch` to pin a specific branch/tag/commit. For Gerrit
+      remotes (gerrit.wikimedia.org/r/mediawiki/skins/...) the branch is
+      chosen automatically as REL1_YY matching the instance's MediaWiki
+      version (e.g. MediaWiki 1.43 -> REL1_43); for other remotes the default
+      branch is used unless `--branch` is given. Override the detected version
+      with `--mw-version`.
+
+      On a gitops instance the skin is added as a submodule and committed (run
+      `canasta gitops push` to distribute it). The skin is then enabled
+      automatically (write settings + run update.php); use `--skip-enable` to
+      add the code only.
+
+      Requires a Compose (including gitops) instance; Kubernetes is not
+      supported.
+    examples:
+      - "canasta skin add Citizen"
+      - "canasta skin add Citizen --mw-version 1.43.2"
+    playbook: skin_add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID to enable the skin for (passed to enable)"
+      - name: names
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated skin names"
+      - name: mw_version
+        type: string
+        description: "MediaWiki version (e.g. 1.43.2); overrides auto-detection for REL1_YY branch selection"
+      - name: repository
+        type: string
+        description: "Git URL to clone (overrides ExtensionJson.json lookup)"
+      - name: branch
+        type: string
+        description: "Branch/tag/commit to check out (overrides auto branch selection)"
+      - name: skip_enable
+        type: bool
+        default: false
+        description: "Add the code only; do not enable the skin"
+      - name: skip_update
+        type: bool
+        default: false
+        description: "Skip running update.php after enabling"
 
   # ---------------------------------------------------------------------------
   # Maintenance

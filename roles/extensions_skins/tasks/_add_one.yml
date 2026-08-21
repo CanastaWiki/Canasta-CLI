@@ -1,0 +1,63 @@
+---
+# Add a single resolved extension/skin to the instance.
+# Input (loop item): a canasta_extension_resolve result dict with
+#   name, repository, branch, branch_note.
+# Also uses: instance_path, _item_dir, _item_type, is_gitops.
+
+- name: "Validate {{ _item_type }} name"
+  ansible.builtin.fail:
+    msg: "Invalid {{ _item_type }} name '{{ item.name }}'"
+  when: item.name is not match('^[A-Za-z0-9][A-Za-z0-9_.-]*$')
+
+- name: "Check whether {{ _item_dir }}/{{ item.name }} already exists"
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ _item_dir }}/{{ item.name }}"
+  register: _add_existing
+
+- name: "Report already present (skipping)"
+  when: _add_existing.stat.exists
+  ansible.builtin.debug:
+    msg: >-
+      {{ _item_type | capitalize }} '{{ item.name }}' already exists at
+      {{ _item_dir }}/{{ item.name }}; skipping add.
+
+- name: "Add {{ _item_type }} as a gitops submodule"
+  when: not _add_existing.stat.exists and is_gitops | bool
+  ansible.builtin.command:
+    cmd: >-
+      git -C {{ instance_path | quote }} submodule add
+      {{ ('-b ' ~ item.branch) if item.branch else '' }}
+      {{ item.repository | quote }}
+      {{ (_item_dir ~ '/' ~ item.name) | quote }}
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: "Add {{ _item_type }} as a plain clone (non-gitops)"
+  when: not _add_existing.stat.exists and not (is_gitops | bool)
+  ansible.builtin.command:
+    cmd: >-
+      git -C {{ instance_path | quote }} clone
+      {{ ('-b ' ~ item.branch) if item.branch else '' }}
+      {{ item.repository | quote }}
+      {{ (_item_dir ~ '/' ~ item.name) | quote }}
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: "Commit added {{ _item_type }} (gitops)"
+  when: not _add_existing.stat.exists and is_gitops | bool
+  ansible.builtin.command:
+    cmd: >-
+      git -C {{ instance_path | quote }} add -A &&
+      git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
+      -m 'Add {{ _item_type }} {{ item.name }}'
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  ignore_errors: true  # nothing to commit if the submodule add was a no-op
+
+- name: "Report {{ _item_type }} added"
+  ansible.builtin.debug:
+    msg: >-
+      Added {{ _item_type }} '{{ item.name }}' from {{ item.repository }}
+      {{ ('(' ~ item.branch ~ ')') if item.branch else '(default branch)' }}
+      {{ ('(note: ' ~ item.branch_note ~ ')') if item.branch_note else '' }}
+      {{ ('[gitops: committed; run canasta gitops push to distribute]') if (is_gitops | bool) else '' }}

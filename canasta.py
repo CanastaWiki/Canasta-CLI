@@ -96,8 +96,8 @@ _ensure_ca_bundle()
 # Commands that have subcommands (e.g., "config get" -> "config_get")
 SUBCOMMAND_GROUPS = {
     "config": ["get", "set", "unset", "regenerate", "refresh-template"],
-    "extension": ["list", "enable", "disable", "set-version"],
-    "skin": ["list", "enable", "disable"],
+    "extension": ["list", "enable", "disable", "set-version", "add"],
+    "skin": ["list", "enable", "disable", "add"],
     "maintenance": ["update", "script", "extension", "exec"],
     "crowdsec": [
         "bouncer-enroll", "console-enroll", "reload",
