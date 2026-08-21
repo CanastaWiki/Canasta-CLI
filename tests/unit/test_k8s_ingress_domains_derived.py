@@ -19,11 +19,32 @@ def _tasks():
         return yaml.safe_load(f)
 
 
+def _walk(tasks):
+    for t in tasks or []:
+        if not isinstance(t, dict):
+            continue
+        yield t
+        for nested in ("block", "rescue", "always"):
+            if nested in t:
+                yield from _walk(t[nested])
+
+
 def _task(name_substr):
-    for t in _tasks():
+    # The deploy is nested in a block whose rescue reports cluster state
+    # on a failed rollout, so look through nested tasks too.
+    for t in _walk(_tasks()):
         if name_substr in (t.get("name") or ""):
             return t
     raise AssertionError("task %r not found" % name_substr)
+
+
+def _helm_command():
+    """The assembled `helm upgrade` command, wherever the task sits."""
+    for t in _walk(_tasks()):
+        cmd = (t.get("vars") or {}).get("rx_cmd", "")
+        if "helm upgrade --install" in cmd:
+            return cmd
+    raise AssertionError("no task assembles the helm upgrade command")
 
 
 def test_derives_hostnames_from_wiki_urls():
@@ -45,7 +66,7 @@ def test_unions_extra_domains_dedupes_and_falls_back():
 def test_override_written_and_wired_after_values_yaml():
     write = _task("Write derived ingress-domains override")
     assert "values-domains.yaml" in write["ansible.builtin.copy"]["dest"]
-    cmd = _task("Deploy Canasta Helm release")["vars"]["rx_cmd"]
+    cmd = _helm_command()
     assert "values.yaml" in cmd and "values-domains.yaml" in cmd
     # the override must come after the base values so its domains list wins
     assert cmd.index("values.yaml") < cmd.index("values-domains.yaml")
