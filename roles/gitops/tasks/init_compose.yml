@@ -404,6 +404,14 @@
   environment: "{{ gitops_git_env }}"
   changed_when: true
 
+# Rootless Podman maps container writes to a host subuid, which would later
+# block operator-side writes (e.g. `gitops pull` re-rendering wikis.yaml).
+# Re-own the operator-writable, container-read-only directories to the host
+# user now, excluding runtime dirs the containers keep writing into.
+- name: Fix operator directory ownership (rootless Podman)
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
+  when: (orchestrator | default('compose')) == 'compose'
+
 # Verify before announcing: the message named a path the file may not be
 # at, and the loss stays invisible until a join or a rebuild needs it.
 - name: Verify the git-crypt key reached the requested path

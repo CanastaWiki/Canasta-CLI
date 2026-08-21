@@ -211,6 +211,15 @@
     tasks_from: start.yml
   when: (orchestrator | default('compose')) == 'compose'
 
+# Rootless Podman maps container writes to a host subuid, so the operator
+# can later be blocked from writing config/ (e.g. `gitops pull`
+# re-rendering wikis.yaml). Re-own the operator-writable, container-read-only
+# directories to the host user now that the containers have created any
+# runtime dirs (and we can exclude them).
+- name: Fix operator directory ownership (rootless Podman)
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
+  when: (orchestrator | default('compose')) == 'compose'
+
 - name: SMTP note
   ansible.builtin.debug:
     msg: >-
