@@ -597,6 +597,21 @@
     force: true
     src: "{{ instance_path }}/argocd/application.yaml"
 
+# Both keys are named in the message below as things to store securely,
+# so both are checked first — the K8s path writes them controller-side
+# the same way the Compose path writes the git-crypt key (#1443).
+- name: Verify the git-crypt key reached the requested path
+  ansible.builtin.include_tasks: _verify_exported_key.yml
+  vars:
+    _exported_key_path: "{{ key }}"
+    _exported_key_label: "git-crypt key"
+
+- name: Verify the SSH deploy key reached the requested path
+  ansible.builtin.include_tasks: _verify_exported_key.yml
+  vars:
+    _exported_key_path: "{{ _ssh_key_path }}"
+    _exported_key_label: "SSH deploy key"
+
 - name: Report gitops initialized
   ansible.builtin.debug:
     msg: >-
