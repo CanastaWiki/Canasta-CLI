@@ -34,6 +34,7 @@ _EXEMPT = {
     "_app_secrets_stat": "stat result for config/secrets.env",
     "_app_secrets_web_stat": "stat result for config/secrets-web",
     "_app_secrets_web_raw": "config/secrets-web holds key NAMES, not values",
+    "_exported_key_stat": "stat result — existence and size, not the key",
 }
 
 

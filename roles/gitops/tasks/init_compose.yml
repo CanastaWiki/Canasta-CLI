@@ -404,6 +404,14 @@
   environment: "{{ gitops_git_env }}"
   changed_when: true
 
+# Verify before announcing: the message named a path the file may not be
+# at, and the loss stays invisible until a join or a rebuild needs it.
+- name: Verify the git-crypt key reached the requested path
+  ansible.builtin.include_tasks: _verify_exported_key.yml
+  vars:
+    _exported_key_path: "{{ key }}"
+    _exported_key_label: "git-crypt key"
+
 - name: Report gitops initialized
   ansible.builtin.debug:
     msg: "GitOps initialized for '{{ instance_id }}'. Key exported to {{ key }}"

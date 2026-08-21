@@ -1,0 +1,35 @@
+---
+# Fail if a key the CLI just claimed to export is not actually there.
+#
+# The write targets the Ansible controller. Under canasta-docker the
+# controller is the CLI container, whose filesystem is gone when the
+# command exits — so unless the path happens to fall under a bind-mounted
+# directory ($HOME, the config dir, the working dir), the file vanishes
+# and the operator is told it was exported (#1443).
+#
+# What is lost is the git-crypt key that unlocks hosts/<host>/vars.yaml:
+# per-host secrets, admin passwords, RESTIC_PASSWORD. The initialized
+# host keeps working from its in-repo copy, so nothing surfaces until a
+# 'gitops join' from another host or a rebuild after a failure — the two
+# moments when the key is the only way back.
+#
+# Input: _exported_key_path, _exported_key_label
+
+- name: Stat the exported key
+  ansible.builtin.stat:
+    path: "{{ _exported_key_path }}"
+  register: _exported_key_stat
+
+- name: Fail when the exported key did not land
+  ansible.builtin.fail:
+    msg: >-
+      The {{ _exported_key_label }} was not written to
+      {{ _exported_key_path }}. Under canasta-docker the file is written
+      inside the CLI container, which is discarded when the command
+      exits, so a path outside a mounted directory is lost. Re-run with
+      --key under your home directory (for example
+      --key ~/canasta-gitcrypt.key), then store it somewhere safe: it is
+      what unlocks this instance's encrypted per-host vars from another
+      host, and after a rebuild it is the only way back into them.
+  when: not (_exported_key_stat.stat.exists | default(false))
+        or (_exported_key_stat.stat.size | default(0)) == 0
