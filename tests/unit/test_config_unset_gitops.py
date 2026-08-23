@@ -13,6 +13,9 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 UNSET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "unset.yml")
+UNSET_CONFIG = os.path.join(
+    REPO_ROOT, "roles", "config", "tasks", "_unset_config.yml"
+)
 REMOVE_VAR = os.path.join(
     REPO_ROOT, "roles", "config", "tasks", "_remove_gitops_var.yml"
 )
@@ -46,10 +49,24 @@ def _debug_msg(task):
     return d.get("msg", "") if isinstance(d, dict) else ""
 
 
-# --- unset.yml wires the gitops check + dispatch (mirrors _set_config.yml) ---
+# --- the .env path wires the gitops check + dispatch (mirrors _set_config.yml) ---
+
+def test_unset_dispatches_secret_and_env_paths():
+    """--secret keys live in config/secrets.env and have no .env, side
+    effects, or gitops vars; the two paths must stay separate."""
+    tasks = _load(UNSET)
+    secret = _find(tasks, "Remove opaque secret values")
+    env = _find(tasks, "Remove .env config values")
+    assert secret is not None and env is not None
+    assert str(secret["ansible.builtin.include_tasks"]).endswith(
+        "_unset_secret.yml")
+    assert str(env["ansible.builtin.include_tasks"]).endswith(
+        "_unset_config.yml")
+    assert "secret" in _when(secret) and "not (secret" in _when(env)
+
 
 def test_unset_checks_for_gitops_instance():
-    tasks = _load(UNSET)
+    tasks = _load(UNSET_CONFIG)
     stat = _find(tasks, "Check for gitops instance")
     assert stat is not None, "unset must stat .gitops-host like set does"
     st = stat.get("ansible.builtin.stat") or stat.get("stat") or {}
@@ -57,7 +74,7 @@ def test_unset_checks_for_gitops_instance():
 
 
 def test_unset_dispatches_to_orchestrator_role():
-    tasks = _load(UNSET)
+    tasks = _load(UNSET_CONFIG)
     dispatch = _find(tasks, "Remove gitops vars for unset keys")
     assert dispatch is not None, "unset must dispatch gitops removal"
     inc = str(dispatch.get("ansible.builtin.include_tasks", ""))
