@@ -29,6 +29,9 @@ CLASSIFICATION = os.path.join(
     REPO_ROOT, "vars", "secret_classification.yml"
 )
 DEFINITIONS = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
+K8S_SYNC = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_sync_config.yml"
+)
 
 
 def _load(path):
@@ -128,6 +131,16 @@ def test_unset_secret_does_not_validate_keys():
     for t in _load(UNSET_SECRET):
         assert "_validate_key" not in str(
             t.get("ansible.builtin.include_tasks", ""))
+
+
+def test_k8s_app_secret_is_replaced_not_patched():
+    """A patched Secret keeps keys removed from secrets.env, so the pod goes
+    on reading a credential the operator unset."""
+    tasks = _load(K8S_SYNC)
+    apply = tasks[_index(tasks, "Apply app secrets Secret")]["kubernetes.core.k8s"]
+    assert apply.get("force") is True, (
+        "the app Secret is derived from config/secrets.env and must be "
+        "replaced, or `config unset --secret` leaves the key in the cluster")
 
 
 def test_config_unset_accepts_secret():
