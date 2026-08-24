@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.request
 
-HTTP_TIMEOUT = 30  # seconds; a hung wiki API must not stall the caller
+HTTP_TIMEOUT = 10  # seconds; a hung wiki API must not stall the caller
 
 RETRY_BACKOFF_BASE = 15  # seconds; doubled each retry, capped at the max
 RETRY_BACKOFF_MAX = 120
