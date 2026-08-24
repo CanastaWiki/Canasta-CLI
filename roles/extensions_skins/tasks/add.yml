@@ -4,8 +4,9 @@
 # Resolves its git URL + branch (REL1_YY for Gerrit remotes) from
 # ExtensionJson.json, adds it as a submodule (gitops) or a plain clone
 # (non-gitops) under extensions/ or skins/, commits it in gitops,
-# registers any composer.json in config/composer.local.json and installs
-# its non-dev requirements (--no-dev), and optionally enables it
+# registers any composer.json in config/composer.local.json and best-effort
+# installs its non-dev requirements (--no-dev); a resolution failure is reported
+# and the registration reverted rather than aborting, and optionally enables it
 # (write settings + run update.php).
 #
 # Input: id, wiki (optional, passed to enable), names (comma-separated),
@@ -129,27 +130,10 @@
     include: "{{ _composer_paths }}"
   register: _composer_local
 
-- name: "Stage composer.local.json (gitops)"
-  when:
-    - _composer_local.changed | default(false) | bool
-    - is_gitops | bool
-  ansible.builtin.command:
-    cmd: "git -C {{ instance_path | quote }} add -- config/composer.local.json"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-
-- name: "Commit composer.local.json (gitops)"
-  when:
-    - _composer_local.changed | default(false) | bool
-    - is_gitops | bool
-  ansible.builtin.command:
-    cmd: >-
-      git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
-      -m 'Add composer requirements for {{ _resolved.results | map(attribute='name') | join(', ') }}'
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  ignore_errors: true  # nothing to commit if the file content was already committed
-
+# Best-effort install: run it BEFORE committing config/composer.local.json so
+# a dependency conflict (or a downed web container) cannot leave a broken,
+# committed config that the next container start's run-all.sh would also choke
+# on. On failure we revert the registration and warn instead of aborting.
 - name: "Install composer requirements (--no-dev)"
   when: _composer_paths | length > 0
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
@@ -160,6 +144,51 @@
       cd /var/www/mediawiki/w &&
       composer update --no-dev --no-interaction
     exec_long: true
+  failed_when: false
+
+- name: "Commit composer.local.json (gitops) on successful install"
+  when:
+    - _composer_paths | length > 0
+    - exec_result.rc | default(1) == 0
+    - is_gitops | bool
+  block:
+    - name: "Stage composer.local.json (gitops)"
+      ansible.builtin.command:
+        cmd: "git -C {{ instance_path | quote }} add -- config/composer.local.json"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: "Commit composer.local.json (gitops)"
+      ansible.builtin.command:
+        cmd: >-
+          git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
+          -m 'Add composer requirements for {{ _resolved.results | map(attribute='name') | join(', ') }}'
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      ignore_errors: true  # nothing to commit if the file content was already committed
+
+- name: "Revert composer registration when install failed"
+  when:
+    - _composer_paths | length > 0
+    - exec_result.rc | default(1) != 0
+  block:
+    - name: "Warn that the composer install failed"
+      ansible.builtin.debug:
+        msg: >-
+          Composer could not install the requirements for
+          {{ _resolved.results | map(attribute='name') | join(', ') }}
+          (composer exited {{ exec_result.rc | default('?') }}). The
+          {{ _item_type }} code was added, but its PHP dependencies are NOT
+          installed and were left out of config/composer.local.json to keep the
+          instance's composer config valid. Resolve the conflict — usually a
+          version pin that is incompatible with the instance's existing
+          packages — then re-run the add or register the requirements manually.
+
+    - name: "Unregister composer requirements to keep config clean"
+      canasta_composer_local:
+        instance_path: "{{ instance_path }}"
+        include: "{{ _composer_paths }}"
+        state: absent
 
 - name: "Enable added {{ _item_type }} (after restart so the container sees them)"
   when: not (skip_enable | default(false) | bool)

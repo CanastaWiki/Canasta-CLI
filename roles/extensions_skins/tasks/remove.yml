@@ -214,6 +214,20 @@
       cd /var/www/mediawiki/w &&
       composer update --no-dev --no-interaction
     exec_long: true
+  failed_when: false
+
+- name: "Warn if composer refresh failed after removal"
+  when:
+    - _composer_paths | length > 0
+    - exec_result.rc | default(1) != 0
+  ansible.builtin.debug:
+    msg: >-
+      Composer refresh after removal failed (composer exited
+      {{ exec_result.rc | default('?') }}). The {{ _item_type }} code and its
+      composer.local.json registration were removed, but vendor/ may still
+      contain the now-unused packages until the next successful
+      'composer update'. Resolve any dependency conflict and re-run or run
+      composer update manually.
 
 # One commit covers the submodule unregistrations, any orphan deletions, the
 # settings change (config/settings/...), and composer.local.json.
