@@ -62,7 +62,7 @@
   ansible.builtin.set_fact:
     _remove_enabled: >-
       {{ names.split(',') | map('trim') | list
-         | select('in', _remove_settings.items | default([]))
+         | select('in', _remove_settings['items'] | default([]))
          | list }}
 
 - name: "Disable removed {{ _item_type }} in settings"
