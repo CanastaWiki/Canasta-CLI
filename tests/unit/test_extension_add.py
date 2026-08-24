@@ -105,6 +105,37 @@ class TestVersionDetection:
             "--mw-version, not silently fall back to the default branch")
 
 
+class TestComposerRequirements:
+    def test_registers_composer_local_json(self, tmp_dir=None):
+        text = open(ADD).read()
+        assert "canasta_composer_local" in text, (
+            "items shipping a composer.json must be registered in "
+            "config/composer.local.json")
+
+    def test_uses_bind_mount_paths(self):
+        # instance_path/extensions maps to w/user-extensions; the
+        # w/extensions symlink does not exist until the next container
+        # start, so include paths must use the user- prefixed mount.
+        text = open(ADD).read()
+        assert "'user-' ~ _item_dir" in text, (
+            "composer.local.json entries must reference the "
+            "user-extensions/user-skins bind mount")
+
+    def test_runs_composer_update_no_dev(self):
+        exec_cmds = [(t.get("vars") or {}).get("exec_command", "")
+                     for t in _walk(_load(ADD))
+                     if (t.get("vars") or {}).get("exec_command")]
+        assert any("composer update --no-dev" in c for c in exec_cmds), (
+            "non-dev composer requirements must be installed explicitly "
+            "(the image's boot-time update tolerates failure silently)")
+
+    def test_gitops_commit_is_scoped_to_the_file(self):
+        cmds = [_cmd(t) for t in _walk(_load(ADD)) if _cmd(t)]
+        assert any("add -- config/composer.local.json" in c for c in cmds), (
+            "the gitops staging commit must be scoped to "
+            "config/composer.local.json")
+
+
 class TestEnableOnce:
     def test_enable_called_without_per_name_loop(self):
         # enable.yml accepts comma-separated names; looping it re-runs

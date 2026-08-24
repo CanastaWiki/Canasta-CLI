@@ -1477,12 +1477,16 @@ commands:
 
       The extension's git URL is resolved from ExtensionJson.json (the
       extjsonuploader Toolforge dataset); pass `--repository` to override the
-      lookup, or `--branch` to pin a specific branch/tag/commit. For Gerrit
-      remotes (gerrit.wikimedia.org/r/mediawiki/extensions/...) the branch is
+      lookup, or `--branch` to pin a specific branch/tag/commit. The branch is
       chosen automatically as REL1_YY matching the instance's MediaWiki
-      version (e.g. MediaWiki 1.43 -> REL1_43); for other remotes the default
-      branch is used unless `--branch` is given. Override the detected version
-      with `--mw-version`.
+      version (e.g. MediaWiki 1.43 -> REL1_43), tried on every remote (GitHub
+      and GitLab mirrors carry the same REL branches); if the REL branch does
+      not exist there, the default branch is used unless `--branch` is given.
+      Override the detected version with `--mw-version`.
+
+      If the extension ships a composer.json, its non-dev requirements are
+      installed: it is registered in config/composer.local.json (committed in
+      gitops) and `composer update --no-dev` runs in the web container.
 
       On a gitops instance the extension is added as a submodule and committed
       (run `canasta gitops push` to distribute it). The extension is then
@@ -1613,12 +1617,16 @@ commands:
 
       The skin's git URL is resolved from ExtensionJson.json (the
       extjsonuploader Toolforge dataset); pass `--repository` to override the
-      lookup, or `--branch` to pin a specific branch/tag/commit. For Gerrit
-      remotes (gerrit.wikimedia.org/r/mediawiki/skins/...) the branch is
+      lookup, or `--branch` to pin a specific branch/tag/commit. The branch is
       chosen automatically as REL1_YY matching the instance's MediaWiki
-      version (e.g. MediaWiki 1.43 -> REL1_43); for other remotes the default
-      branch is used unless `--branch` is given. Override the detected version
-      with `--mw-version`.
+      version (e.g. MediaWiki 1.43 -> REL1_43), tried on every remote (GitHub
+      and GitLab mirrors carry the same REL branches); if the REL branch does
+      not exist there, the default branch is used unless `--branch` is given.
+      Override the detected version with `--mw-version`.
+
+      If the skin ships a composer.json, its non-dev requirements are
+      installed: it is registered in config/composer.local.json (committed in
+      gitops) and `composer update --no-dev` runs in the web container.
 
       On a gitops instance the skin is added as a submodule and committed (run
       `canasta gitops push` to distribute it). The skin is then enabled

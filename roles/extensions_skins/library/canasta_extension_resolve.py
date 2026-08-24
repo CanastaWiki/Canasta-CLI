@@ -62,7 +62,7 @@ returns:
     returned: success
     type: str
   item_type:
-    description: "extensions" or "skins".
+    description: Whether this is an extension or a skin (extensions or skins).
     returned: success
     type: str
   repository:

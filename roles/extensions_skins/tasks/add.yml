@@ -3,8 +3,10 @@
 #
 # Resolves its git URL + branch (REL1_YY for Gerrit remotes) from
 # ExtensionJson.json, adds it as a submodule (gitops) or a plain clone
-# (non-gitops) under extensions/ or skins/, commits it in gitops, and
-# optionally enables it (write settings + run update.php).
+# (non-gitops) under extensions/ or skins/, commits it in gitops,
+# registers any composer.json in config/composer.local.json and installs
+# its non-dev requirements (--no-dev), and optionally enables it
+# (write settings + run update.php).
 #
 # Input: id, wiki (optional, passed to enable), names (comma-separated),
 #        mw_version (optional override), repository (optional override),
@@ -94,6 +96,70 @@
   loop: "{{ _resolved.results }}"
   loop_control:
     label: "{{ item.name }}"
+
+# Items that ship a composer.json declare PHP package requirements (the
+# non-dev ones matter at runtime). MediaWiki's composer merge plugin picks
+# them up only if the item's composer.json is listed in
+# config/composer.local.json — so register it, then install.
+- name: "Check added {{ _item_type }} for a composer.json"
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ _item_dir }}/{{ item.name }}/composer.json"
+  loop: "{{ _resolved.results }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _composer_probes
+
+- name: "Collect {{ _item_type }} with composer requirements"
+  ansible.builtin.set_fact:
+    # Container-side bind-mount root: instance_path/extensions maps to
+    # w/user-extensions (and skins to user-skins). The w/extensions symlink
+    # only exists after a container start, so composer must reference the
+    # bind-mount path directly.
+    _composer_paths: >-
+      {{ _composer_probes.results
+         | selectattr('stat.exists')
+         | map(attribute='item.name')
+         | map('regex_replace', '^(.*)$', 'user-' ~ _item_dir ~ '/\1/composer.json')
+         | list }}
+
+- name: "Register composer requirements in composer.local.json"
+  when: _composer_paths | length > 0
+  canasta_composer_local:
+    instance_path: "{{ instance_path }}"
+    include: "{{ _composer_paths }}"
+  register: _composer_local
+
+- name: "Stage composer.local.json (gitops)"
+  when:
+    - _composer_local.changed | default(false) | bool
+    - is_gitops | bool
+  ansible.builtin.command:
+    cmd: "git -C {{ instance_path | quote }} add -- config/composer.local.json"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: "Commit composer.local.json (gitops)"
+  when:
+    - _composer_local.changed | default(false) | bool
+    - is_gitops | bool
+  ansible.builtin.command:
+    cmd: >-
+      git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
+      -m 'Add composer requirements for {{ _resolved.results | map(attribute='name') | join(', ') }}'
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  ignore_errors: true  # nothing to commit if the file content was already committed
+
+- name: "Install composer requirements (--no-dev)"
+  when: _composer_paths | length > 0
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: web
+    exec_command: >-
+      cp /mediawiki/config/composer.local.json /var/www/mediawiki/w/composer.local.json &&
+      cd /var/www/mediawiki/w &&
+      composer update --no-dev --no-interaction
+    exec_long: true
 
 - name: "Enable added {{ _item_type }} (after restart so the container sees them)"
   when: not (skip_enable | default(false) | bool)
