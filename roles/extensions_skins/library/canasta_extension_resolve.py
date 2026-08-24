@@ -7,13 +7,17 @@ Looks an extension/skin up in ExtensionJson.json (extjsonuploader Toolforge
 dataset) to find its git repository URL, then selects the branch to check out:
 
 - an explicit ``--branch`` wins;
-- for Gerrit remotes (gerrit.wikimedia.org/r/mediawiki/...), the branch is
-  ``REL1_YY`` derived from the instance's MediaWiki version (1.43.x -> REL1_43);
-- otherwise the remote's default branch is used (no ``-b``).
+- otherwise the branch is ``REL1_YY`` derived from the instance's MediaWiki
+  version (1.43.x -> REL1_43), attempted on every remote (GitHub mirrors of
+  MediaWiki extensions carry the same REL branches);
+- if that REL branch does not exist on the remote, the default branch is used
+  (with a note) rather than failing the clone.
 
-The selected Gerrit REL branch is verified to exist via ``git ls-remote``;
-if it does not, the branch falls back to the default (with a note) rather than
-failing the clone.
+The selected REL branch is verified to exist via ``git ls-remote`` before it
+is handed back.
+
+Repository URLs are validated to be plain http(s) remotes before being used,
+so ``ext::`` transport strings or leading-dash options cannot reach ``git``.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -37,7 +41,7 @@ options:
     choices: [extensions, skins]
     default: extensions
   mw_version:
-    description: MediaWiki version (e.g. "1.43.2"). Drives REL1_YY for Gerrit remotes.
+    description: MediaWiki version (e.g. "1.43.2"). Drives REL1_YY branch selection.
     type: str
   repository:
     description: Override the git URL (skips the ExtensionJson.json lookup).
@@ -46,12 +50,49 @@ options:
     description: Override the branch/tag/commit to check out (skips auto selection).
     type: str
   json_path:
-    description: Path to a local ExtensionJson.json snapshot (offline fallback).
+    description: Path to a local ExtensionJson.json snapshot (preferred when present).
     type: str
   json_url:
-    description: URL of the live ExtensionJson.json.
+    description: URL of the live ExtensionJson.json (fallback when no snapshot).
     type: str
     default: https://extjsonuploader.toolforge.org/ExtensionJson.json
+returns:
+  name:
+    description: The extension/skin name as requested.
+    returned: success
+    type: str
+  item_type:
+    description: "extensions" or "skins".
+    returned: success
+    type: str
+  repository:
+    description: The resolved git repository URL.
+    returned: success
+    type: str
+  branch:
+    description: Branch to check out; C(null) means the remote's default branch.
+    returned: success
+    type: str
+  branch_note:
+    description: Explanation when the requested REL branch was missing.
+    returned: success
+    type: str
+  source:
+    description: Where the data came from ('explicit', 'url:<url>', 'file:<path>').
+    returned: success
+    type: str
+  url:
+    description: The extension's canonical page URL from ExtensionJson.json.
+    returned: success
+    type: str
+  description:
+    description: Short description from ExtensionJson.json.
+    returned: success
+    type: str
+  mw_required:
+    description: MediaWiki version constraint from ExtensionJson.json.
+    returned: success
+    type: str
 """
 
 import json
@@ -60,8 +101,6 @@ import subprocess
 
 from ansible.module_utils.basic import AnsibleModule
 
-GERIT_RE = re.compile(
-    r"gerrit\.wikimedia\.org(/r)?/mediawiki/(extensions|skins)/", re.IGNORECASE)
 MW_VERSION_RE = re.compile(r"^1\.(\d+)(?:\.\d+)?$")
 DEFAULT_JSON_URL = "https://extjsonuploader.toolforge.org/ExtensionJson.json"
 
@@ -77,11 +116,30 @@ def mw_minor_to_rel(mw_version):
 
 
 def select_branch(repository, mw_version, explicit_branch):
-    """Return the branch to check out: explicit > Gerrit REL1_YY > None."""
+    """Return the branch to check out: explicit > REL1_YY > None."""
     if explicit_branch:
         return explicit_branch
-    if repository and GERIT_RE.search(repository):
-        return mw_minor_to_rel(mw_version)
+    # Attempt REL1_YY on every remote, not just Gerrit: GitHub/GitLab mirrors
+    # of MediaWiki extensions carry the same REL branches. Callers verify the
+    # branch exists (branch_exists) and fall back to the default otherwise.
+    return mw_minor_to_rel(mw_version)
+
+
+def validate_repository_url(url):
+    """Return an error message if ``url`` must not be passed to git, else None.
+
+    Git accepts ``ext::sh -c ...`` transport URLs and treats leading-dash
+    arguments as options; only plain http(s) remotes are allowed.
+    """
+    if not url:
+        return "Empty repository URL."
+    stripped = url.strip()
+    if stripped.startswith("-"):
+        return ("Refusing repository URL starting with '-': %s" % url)
+    low = stripped.lower()
+    if not (low.startswith("https://") or low.startswith("http://")):
+        return ("Refusing repository URL '%s': only http(s) git remotes are "
+                "supported." % url)
     return None
 
 
@@ -99,12 +157,19 @@ def branch_exists(repository, branch):
 
 
 def load_json(json_path, json_url):
-    """Load ExtensionJson.json from the live URL, else a local snapshot.
+    """Load ExtensionJson.json from a local snapshot, else the live URL.
 
-    Precedence is live URL first (so the dataset stays current), falling back
-    to a bundled/local snapshot when offline. Returns (data, source) where
-    source is 'url:<url>', 'file:<path>', or None.
+    Precedence is the bundled/local snapshot first (instant and
+    offline-safe; refresh it via 'make refresh-extension-json'), falling
+    back to the live URL when no usable snapshot exists. Returns (data,
+    source) where source is 'file:<path>', 'url:<url>', or None.
     """
+    if json_path:
+        try:
+            with open(json_path) as handle:
+                return json.load(handle), "file:%s" % json_path
+        except (OSError, ValueError):
+            pass
     try:
         import urllib.request
         request = urllib.request.Request(
@@ -113,12 +178,6 @@ def load_json(json_path, json_url):
             return json.loads(resp.read().decode("utf-8")), "url:%s" % json_url
     except Exception:
         pass
-    if json_path:
-        try:
-            with open(json_path) as handle:
-                return json.load(handle), "file:%s" % json_path
-        except (OSError, ValueError):
-            pass
     return None, None
 
 
@@ -133,8 +192,9 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
         if data is None:
             return {
                 "failed": True,
-                "msg": ("Could not load ExtensionJson.json (offline and no local "
-                        "snapshot at %s). Connect to the network or pass "
+                "msg": ("Could not load ExtensionJson.json (no local snapshot "
+                        "at %s and the live URL was unreachable). Refresh the "
+                        "snapshot with 'make refresh-extension-json' or pass "
                         "--repository." % json_path),
             }
         entry = data.get(name)
@@ -154,11 +214,16 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
                         "git URL." % name),
             }
 
+    # Validate before the URL can reach git ls-remote / clone / submodule add.
+    url_error = validate_repository_url(url)
+    if url_error:
+        return {"failed": True, "msg": url_error}
+
     selected = select_branch(url, mw_version, branch)
-    # A Gerrit REL branch may not exist for every extension; if it doesn't,
-    # fall back to the default branch instead of failing the clone.
-    if (selected and branch is None and GERIT_RE.search(url)
-            and not branch_exists(url, selected)):
+    # A REL branch may not exist for every extension (especially on remotes
+    # that are not Wikimedia mirrors); if it doesn't, fall back to the
+    # default branch instead of failing the clone.
+    if selected and branch is None and not branch_exists(url, selected):
         branch_note = ("%s does not exist; using the default branch" % selected)
         selected = None
 

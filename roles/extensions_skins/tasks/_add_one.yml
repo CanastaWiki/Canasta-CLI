@@ -27,6 +27,7 @@
     cmd: >-
       git -C {{ instance_path | quote }} submodule add
       {{ ('-b ' ~ item.branch) if item.branch else '' }}
+      --
       {{ item.repository | quote }}
       {{ (_item_dir ~ '/' ~ item.name) | quote }}
     chdir: "{{ instance_path }}"
@@ -38,8 +39,16 @@
     cmd: >-
       git -C {{ instance_path | quote }} clone
       {{ ('-b ' ~ item.branch) if item.branch else '' }}
+      --
       {{ item.repository | quote }}
       {{ (_item_dir ~ '/' ~ item.name) | quote }}
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: "Stage added {{ _item_type }} (gitops)"
+  when: not _add_existing.stat.exists and is_gitops | bool
+  ansible.builtin.command:
+    cmd: "git -C {{ instance_path | quote }} add -A"
     chdir: "{{ instance_path }}"
   changed_when: true
 
@@ -47,7 +56,6 @@
   when: not _add_existing.stat.exists and is_gitops | bool
   ansible.builtin.command:
     cmd: >-
-      git -C {{ instance_path | quote }} add -A &&
       git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
       -m 'Add {{ _item_type }} {{ item.name }}'
     chdir: "{{ instance_path }}"

@@ -35,14 +35,50 @@ class TestSelectBranch:
             "https://gerrit.wikimedia.org/r/mediawiki/extensions/OAuth",
             "1.43.2", None) == "REL1_43"
 
-    def test_non_gerrit_default(self):
+    def test_non_gerrit_rel_attempted(self):
+        # REL branches are attempted on every remote (GitHub/GitLab mirrors
+        # carry them too); the caller falls back when the branch is missing.
         assert canasta_extension_resolve.select_branch(
-            "https://github.com/example/Foo", "1.43.2", None) is None
+            "https://github.com/example/Foo", "1.43.2", None) == "REL1_43"
+
+    def test_no_version_default(self):
+        assert canasta_extension_resolve.select_branch(
+            "https://github.com/example/Foo", None, None) is None
 
     def test_gerrit_no_version(self):
         assert canasta_extension_resolve.select_branch(
             "https://gerrit.wikimedia.org/r/mediawiki/extensions/OAuth",
             None, None) is None
+
+
+class TestValidateRepositoryUrl:
+    def test_https_ok(self):
+        assert canasta_extension_resolve.validate_repository_url(
+            "https://github.com/example/Foo.git") is None
+
+    def test_http_ok(self):
+        assert canasta_extension_resolve.validate_repository_url(
+            "http://gitea.internal/example/Foo.git") is None
+
+    def test_ext_transport_rejected(self):
+        assert canasta_extension_resolve.validate_repository_url(
+            "ext::sh -c touch /tmp/pwned") is not None
+
+    def test_ssh_transport_rejected(self):
+        assert canasta_extension_resolve.validate_repository_url(
+            "ssh://git@example.com/Foo.git") is not None
+
+    def test_file_scheme_rejected(self):
+        assert canasta_extension_resolve.validate_repository_url(
+            "file:///tmp/Foo") is not None
+
+    def test_leading_dash_rejected(self):
+        assert canasta_extension_resolve.validate_repository_url(
+            "-ufoo=https://example.com/pwned") is not None
+
+    def test_empty_rejected(self):
+        assert canasta_extension_resolve.validate_repository_url("") is not None
+        assert canasta_extension_resolve.validate_repository_url(None) is not None
 
 
 class TestBranchExists:

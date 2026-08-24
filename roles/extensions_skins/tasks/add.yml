@@ -20,7 +20,7 @@
       'canasta {{ _item_type }} add' is only supported on Compose (including
       gitops) instances; Kubernetes user extensions live in a PVC and are not
       managed this way.
-  when: (orchestrator | default('compose')) == 'kubernetes'
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
 - name: Set item directory
   ansible.builtin.set_fact:
@@ -44,17 +44,8 @@
         exec_service: web
         exec_command: >-
           v="";
-          if [ -f maintenance/version.php ]; then v=$(php maintenance/version.php); fi;
-          if [ -z "$v" ]; then
-            p=$(find /var/www /var/www/html /srv /srv/www /opt /app /usr/share /usr/local /var/lib /home
-            -maxdepth 8 -name version.php -path '*/maintenance/*' 2>/dev/null | head -n1);
-            [ -n "$p" ] && v=$(php "$p");
-          fi;
-          if [ -z "$v" ]; then
-            p=$(find / -maxdepth 10 \( -path /proc -o -path /sys -o -path /dev \) -prune -o
-            -name version.php -path '*/maintenance/*' -print 2>/dev/null | head -n1);
-            [ -n "$p" ] && v=$(php "$p");
-          fi;
+          if [ -f /var/www/mediawiki/w/maintenance/version.php ]; then
+          v=$(php /var/www/mediawiki/w/maintenance/version.php); fi;
           printf '%s' "$v"
         exec_long: true
     - name: Parse MediaWiki version
@@ -62,7 +53,7 @@
         _mw_version: >-
           {{ (exec_result.stdout | default('') | regex_search('\\d+\\.\\d+\\.\\d+')) | default('') }}
   rescue:
-    - name: Leave version unset if the container is unavailable
+    - name: Record that version detection failed
       ansible.builtin.set_fact:
         _mw_version: ""
 
@@ -70,6 +61,16 @@
   ansible.builtin.set_fact:
     _mw_version: "{{ mw_version | default(_mw_version | default('')) }}"
   when: mw_version is defined and mw_version | default('') | trim != ''
+
+- name: Fail loudly if the MediaWiki version could not be detected
+  ansible.builtin.fail:
+    msg: >-
+      Could not detect the MediaWiki version
+      (/var/www/mediawiki/w/maintenance/version.php missing, or the web
+      container is not running). Start the instance first, or pass an explicit
+      version with --mw-version (e.g. --mw-version 1.43.2).
+  when: >
+    _mw_version is not defined or _mw_version | default('') | trim == ''
 
 - name: Set ExtensionJson.json offline snapshot path
   ansible.builtin.set_fact:
@@ -101,12 +102,9 @@
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: start.yml
-      when: (orchestrator | default('compose')) == 'compose'
+      when: instance_orchestrator | default('compose') not in ['kubernetes', 'k8s']
 
-    - name: "Enable each {{ _item_type }}"
+    - name: "Enable added {{ _item_type }}"
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/enable.yml"
       vars:
-        _names: "{{ item.name }}"
-      loop: "{{ _resolved.results }}"
-      loop_control:
-        label: "{{ item.name }}"
+        _names: "{{ _resolved.results | map(attribute='name') | join(',') }}"

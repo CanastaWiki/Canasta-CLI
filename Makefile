@@ -1,4 +1,4 @@
-.PHONY: test-unit test-integration test lint docs validate validate-ci-coverage validate-wiki audit-coverage clean build-info
+.PHONY: test-unit test-integration test lint docs validate validate-ci-coverage validate-wiki audit-coverage refresh-extension-json clean build-info
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
@@ -66,6 +66,13 @@ validate-wiki: venv
 # test exercising them. Doesn't run any tests; just walks the test source.
 audit-coverage: venv
 	$(PYTHON) scripts/audit_command_coverage.py
+
+# --- Data --------------------------------------------------------------------
+# Refresh the bundled ExtensionJson.json snapshot used by
+# 'canasta extension|skin add' to resolve git remotes. Stdlib-only script;
+# no venv needed. See data/README.md for provenance.
+refresh-extension-json:
+	python3 scripts/refresh_extension_json.py
 
 # --- Build info --------------------------------------------------------------
 # Capture the current git commit and date into BUILD_COMMIT / BUILD_DATE so
