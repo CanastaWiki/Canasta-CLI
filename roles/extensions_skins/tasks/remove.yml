@@ -1,0 +1,252 @@
+---
+# Remove a user extension/skin that was added with 'add', backing out each
+# step add performed: disable it in settings.yaml, delete its directory
+# (gitops submodule deinit + git rm, or a plain rm -rf), unregister its
+# composer.json from config/composer.local.json and re-run
+# 'composer update --no-dev', commit the removal in gitops, and restart the
+# containers so the removal takes effect.
+#
+# MediaWiki tables created by a removed extension are left in place; MediaWiki
+# does not reverse schema updates.
+#
+# Input: id, wiki (optional, passed to settings), names (comma-separated),
+#        _item_type (extensions|skins)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Refuse Kubernetes (unsupported)
+  ansible.builtin.fail:
+    msg: >-
+      'canasta {{ _item_type }} remove' is only supported on Compose (including
+      gitops) instances; Kubernetes user extensions live in a PVC and are not
+      managed this way.
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+- name: Set item directory
+  ansible.builtin.set_fact:
+    _item_dir: "{{ 'skins' if (_item_type == 'skins') else 'extensions' }}"
+
+- name: "Validate {{ _item_type }} names"
+  ansible.builtin.fail:
+    msg: "Invalid {{ _item_type }} name '{{ item }}'"
+  loop: "{{ names.split(',') | map('trim') | list }}"
+  loop_control:
+    label: "{{ item }}"
+  when: item is not match('^[A-Za-z0-9][A-Za-z0-9_.-]*$')
+
+# Validate every name before deleting anything, so one typo aborts the whole
+# run instead of half-removing the list.
+
+- name: Detect whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git"
+  register: _git_dir
+
+- name: Record gitops status
+  ansible.builtin.set_fact:
+    is_gitops: "{{ _git_dir.stat.exists | bool }}"
+
+# Disable first so nothing references code that is about to disappear.
+# Tolerant of items that were never enabled (e.g. added with --skip-enable):
+# read the current settings and disable only the intersection.
+- name: Read current {{ _item_type }} settings
+  canasta_settings_yaml:
+    instance_path: "{{ instance_path }}"
+    item_type: "{{ _item_type }}"
+    state: read
+    wiki: "{{ wiki | default(omit) }}"
+  register: _remove_settings
+
+- name: Collect currently enabled items to disable
+  ansible.builtin.set_fact:
+    _remove_enabled: >-
+      {{ names.split(',') | map('trim') | list
+         | select('in', _remove_settings.items | default([]))
+         | list }}
+
+- name: "Disable removed {{ _item_type }} in settings"
+  when: _remove_enabled | length > 0
+  canasta_settings_yaml:
+    instance_path: "{{ instance_path }}"
+    item_type: "{{ _item_type }}"
+    state: disable
+    names: "{{ _remove_enabled }}"
+    wiki: "{{ wiki | default(omit) }}"
+
+- name: "Check which {{ _item_type }} are present"
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ _item_dir }}/{{ item }}"
+  loop: "{{ names.split(',') | map('trim') | list }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _remove_probes
+
+- name: List present items
+  ansible.builtin.set_fact:
+    _remove_present: "{{ _remove_probes.results | selectattr('stat.exists')
+                        | map(attribute='item') | map('trim') | list }}"
+    _remove_absent: "{{ _remove_probes.results | rejectattr('stat.exists')
+                       | map(attribute='item') | map('trim') | list }}"
+
+# Probe composer.json per present item before deletion; the requirements must
+# be unregistered after the directory is gone.
+- name: "Check present {{ _item_type }} for a composer.json"
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ _item_dir }}/{{ item }}/composer.json"
+  loop: "{{ _remove_present }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _composer_probes
+
+- name: Collect items with composer requirements to unregister
+  ansible.builtin.set_fact:
+    # Container-side bind-mount paths (instance_path/extensions maps to
+    # w/user-extensions), matching what add registered.
+    _composer_paths: >-
+      {{ _composer_probes.results
+         | selectattr('stat.exists')
+         | map(attribute='item')
+         | map('regex_replace', '^(.*)$', 'user-' ~ _item_dir ~ '/\1/composer.json')
+         | list }}
+
+- name: Report absent items skipped
+  ansible.builtin.debug:
+    msg: >-
+      {{ _item_type | capitalize }}{{ 's' if _remove_absent | length != 1 else '' }}
+      not present under {{ _item_dir }}/ (nothing to remove):
+      {{ _remove_absent | join(', ') }}
+  when: _remove_absent | length > 0
+
+- name: "Remove present {{ _item_type }}"
+  when: _remove_present | length > 0
+  block:
+    - name: "Remove each {{ _item_type }} (gitops submodule)"
+      when: is_gitops | bool
+      block:
+        # A gitops item can be a registered submodule (the normal add path)
+        # or an orphan plain directory inside the repo. Registered submodules
+        # need deinit + git rm + .git/modules cleanup; orphans only rm -rf.
+        - name: "Check whether each {{ _item_type }} is a registered submodule"
+          ansible.builtin.command:
+            cmd: "git -C {{ instance_path | quote }} submodule status {{ (_item_dir ~ '/' ~ item) | quote }}"
+            chdir: "{{ instance_path }}"
+          loop: "{{ _remove_present }}"
+          loop_control:
+            label: "{{ item }}"
+          register: _submodule_checks
+          changed_when: false
+          failed_when: false
+
+        - name: Deinit registered submodules
+          ansible.builtin.command:
+            cmd: "git -C {{ instance_path | quote }} submodule deinit --force {{ (_item_dir ~ '/' ~ item.item) | quote }}"
+            chdir: "{{ instance_path }}"
+          loop: "{{ _submodule_checks.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+          when: item.rc == 0
+          register: _deinit_results
+          changed_when: true
+
+        - name: Unregister submodules from the repo
+          ansible.builtin.command:
+            cmd: "git -C {{ instance_path | quote }} rm --force {{ (_item_dir ~ '/' ~ item.item) | quote }}"
+            chdir: "{{ instance_path }}"
+          loop: "{{ _deinit_results.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item }}"
+          when: item.changed | default(false) | bool
+          register: _gitrm_results
+          changed_when: true
+
+        - name: Delete leftover module metadata
+          ansible.builtin.command:
+            cmd: "rm -rf {{ (instance_path ~ '/.git/modules/' ~ _item_dir ~ '/' ~ item.item) | quote }}"
+            chdir: "{{ instance_path }}"
+          loop: "{{ _deinit_results.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item }}"
+          when: item.changed | default(false) | bool
+          changed_when: true
+          failed_when: false
+
+    - name: "Delete plain directories (non-gitops)"
+      when: not (is_gitops | bool)
+      ansible.builtin.file:
+        path: "{{ instance_path }}/{{ _item_dir }}/{{ item }}"
+        state: absent
+      loop: "{{ _remove_present }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: "Delete orphan directories left by deinit (gitops, not registered)"
+      ansible.builtin.file:
+        path: "{{ instance_path }}/{{ _item_dir }}/{{ item.item }}"
+        state: absent
+      loop: "{{ _deinit_results.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item }}"
+      # Orphans are the entries whose submodule deinit was skipped
+      # (not registered), so they still sit in the instance tree.
+      when: is_gitops | bool and not (item.changed | default(false) | bool)
+
+# Unregister composer requirements and refresh vendor. If this fails because
+# the web container is down, the next container start still heals vendor/ —
+# run-all.sh re-runs composer whenever config/composer.local.json changed —
+# but we fail loudly here rather than report success with stale deps.
+- name: "Unregister composer requirements"
+  when: _composer_paths | length > 0
+  canasta_composer_local:
+    instance_path: "{{ instance_path }}"
+    include: "{{ _composer_paths }}"
+    state: absent
+  register: _composer_local
+
+- name: "Install composer state (--no-dev)"
+  when: _composer_paths | length > 0
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: web
+    exec_command: >-
+      if [ -f /mediawiki/config/composer.local.json ]; then
+      cp /mediawiki/config/composer.local.json /var/www/mediawiki/w/composer.local.json; fi;
+      cd /var/www/mediawiki/w &&
+      composer update --no-dev --no-interaction
+    exec_long: true
+
+# One commit covers the submodule unregistrations, any orphan deletions, the
+# settings change (config/settings/...), and composer.local.json.
+- name: Stage removals (gitops)
+  when: (_remove_present | length > 0 or _composer_local.changed | default(false) | bool) and (is_gitops | bool)
+  ansible.builtin.command:
+    cmd: >-
+      git -C {{ instance_path | quote }} add -A --
+      {{ _item_dir | quote }}
+      config
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Commit removals (gitops)
+  when: (_remove_present | length > 0 or _composer_local.changed | default(false) | bool) and (is_gitops | bool)
+  ansible.builtin.command:
+    cmd: >-
+      git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
+      -m 'Remove {{ _item_type }} {{ names.split(',') | map('trim') | join(', ') }}'
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  ignore_errors: true  # nothing to commit if the removal was a no-op
+
+- name: Restart containers so the removal takes effect
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: start.yml
+  when: instance_orchestrator | default('compose') not in ['kubernetes', 'k8s']
+
+- name: "Report {{ _item_type }} removed"
+  ansible.builtin.debug:
+    msg: >-
+      Removed {{ _item_type }}{{ 's' if _remove_present | length != 1 else '' }}:
+      {{ _remove_present | join(', ') | default('none', true) }}.
+      {{ ('Disabled: ' ~ (_remove_enabled | join(', ')) ~ '. ') if (_remove_enabled | length > 0) else '' }}
+      {{ ('[gitops: committed; run canasta gitops push to distribute]') if (is_gitops | bool) else '' }}

@@ -1,0 +1,9 @@
+---
+# canasta extension remove - Remove a previously added non-bundled extension.
+
+- name: Remove extensions
+  ansible.builtin.include_role:
+    name: extensions_skins
+    tasks_from: remove.yml
+  vars:
+    _item_type: extensions

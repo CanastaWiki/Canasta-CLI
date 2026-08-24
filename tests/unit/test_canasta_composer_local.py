@@ -7,10 +7,10 @@ import canasta_composer_local
 from mock_ansible import run_module_with_params
 
 
-def _run(tmp_dir, include):
+def _run(tmp_dir, include, state="present"):
     return run_module_with_params(
         canasta_composer_local,
-        {"instance_path": tmp_dir, "include": include})
+        {"instance_path": tmp_dir, "include": include, "state": state})
 
 
 def _path(tmp_dir):
@@ -84,3 +84,54 @@ class TestCheckMode:
         assert failed is False
         assert result["changed"] is True
         assert not os.path.exists(_path(tmp_dir))
+
+
+class TestAbsentState:
+    def test_removes_registered_entries(self, tmp_dir):
+        _run(tmp_dir, ["extensions/Foo/composer.json",
+                       "skins/Bar/composer.json"])
+        result, failed, _ = _run(tmp_dir, ["extensions/Foo/composer.json"],
+                                 state="absent")
+        assert failed is False
+        assert result["changed"] is True
+        assert result["removed"] == ["extensions/Foo/composer.json"]
+        assert result["include"] == ["skins/Bar/composer.json"]
+
+    def test_idempotent_when_already_absent(self, tmp_dir):
+        _run(tmp_dir, ["extensions/Foo/composer.json"])
+        result, failed, _ = _run(tmp_dir, ["extensions/Foo/composer.json"],
+                                 state="absent")
+        assert failed is False
+        assert result["changed"] is True
+        again, failed, _ = _run(tmp_dir, ["extensions/Foo/composer.json"],
+                                state="absent")
+        assert failed is False
+        assert again["changed"] is False
+        assert again["removed"] == []
+
+    def test_noop_without_file(self, tmp_dir):
+        result, failed, _ = _run(tmp_dir, ["extensions/Foo/composer.json"],
+                                 state="absent")
+        assert failed is False
+        assert result["changed"] is False
+        assert not os.path.exists(_path(tmp_dir))
+
+    def test_preserves_other_entries(self, tmp_dir):
+        _run(tmp_dir, ["extensions/Foo/composer.json",
+                       "extensions/Bar/composer.json",
+                       "skins/Baz/composer.json"])
+        _, failed, _ = _run(tmp_dir, ["extensions/Foo/composer.json"],
+                            state="absent")
+        assert failed is False
+        data = _read(tmp_dir)
+        assert data["extra"]["merge-plugin"]["include"] == [
+            "extensions/Bar/composer.json", "skins/Baz/composer.json"]
+
+    def test_fails_on_non_list_include(self, tmp_dir):
+        os.mkdir(os.path.join(tmp_dir, "config"))
+        with open(_path(tmp_dir), "w") as f:
+            json.dump({"extra": {"merge-plugin": {"include": "nope"}}}, f)
+        _, failed, msg = _run(tmp_dir, ["extensions/Foo/composer.json"],
+                              state="absent")
+        assert failed is True
+        assert "not a list" in msg

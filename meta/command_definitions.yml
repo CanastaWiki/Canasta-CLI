@@ -1428,6 +1428,73 @@ commands:
         required: true
         description: "Comma-separated extension names"
 
+  - name: extension_remove
+    description: "Remove a previously added non-bundled extension"
+    long_description: |
+      Undo `canasta extension add`: disables the extension in settings.yaml,
+      deletes its directory from the instance's extensions/ directory (on a
+      gitops instance, deinit and unregister the submodule and clean up
+      .git/modules), unregisters its composer.json from
+      config/composer.local.json and re-runs `composer update --no-dev`,
+      commits the removal (gitops), and restarts the containers so the
+      removal takes effect.
+
+      Names not present under extensions/ are reported and skipped. Database
+      tables created by the removed extension are left in place — MediaWiki
+      does not reverse schema updates. Run `canasta gitops push` afterwards
+      to distribute a gitops removal to other hosts.
+    examples:
+      - "canasta extension remove MyExtension"
+      - "canasta extension remove OAuth,Cite"
+    playbook: extension_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID to disable the extension for (passed to settings)"
+      - name: names
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated extension names"
+
+  - name: skin_remove
+    description: "Remove a previously added non-bundled skin"
+    long_description: |
+      Undo `canasta skin add`: disables the skin in settings.yaml,
+      deletes its directory from the instance's skins/ directory (on a
+      gitops instance, deinit and unregister the submodule and clean up
+      .git/modules), unregisters its composer.json from
+      config/composer.local.json and re-runs `composer update --no-dev`,
+      commits the removal (gitops), and restarts the containers so the
+      removal takes effect.
+
+      Names not present under skins/ are reported and skipped. Run
+      `canasta gitops push` afterwards to distribute a gitops removal to
+      other hosts.
+    examples:
+      - "canasta skin remove Citizen"
+      - "canasta skin remove Citizen,Columbia"
+    playbook: skin_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID to disable the skin for (passed to settings)"
+      - name: names
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated skin names"
+
   - name: extension_set_version
     description: "Pin a user extension to a specific version"
     long_description: |
