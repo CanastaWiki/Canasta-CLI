@@ -144,7 +144,8 @@
       cd /var/www/mediawiki/w &&
       composer update --no-dev --no-interaction
     exec_long: true
-  ignore_errors: true
+  apply:
+    ignore_errors: true
 
 - name: "Commit composer.local.json (gitops) on successful install"
   when:
