@@ -30,9 +30,16 @@ def main():
     try:
         with os.fdopen(fd, "w") as handle:
             handle.write(raw.decode("utf-8"))
+        # Match the 0644 mode of the committed file so a working-copy refresh
+        # does not leave data/ExtensionJson.json as 0600 (same fix as the
+        # composer-local module).
+        os.chmod(tmp, 0o644)
         os.replace(tmp, DEST)
     except BaseException:
-        os.unlink(tmp)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
         raise
     print("Refreshed %s (%d entries) from %s" % (DEST, len(data), URL))
 

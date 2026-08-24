@@ -125,18 +125,34 @@ def select_branch(repository, mw_version, explicit_branch):
     return mw_minor_to_rel(mw_version)
 
 
-def validate_repository_url(url):
-    """Return an error message if ``url`` must not be passed to git, else None.
+def _validate_url_basic(url):
+    """Cheap injection-safety gate applied to every URL, trusted or not.
 
-    Git accepts ``ext::sh -c ...`` transport URLs and treats leading-dash
-    arguments as options; only plain http(s) remotes are allowed.
+    Refuses empty or leading-dash URLs, which git would read as a missing
+    argument or an option rather than a remote. Scheme restrictions are left
+    to validate_repository_url, which is applied only to untrusted lookups.
     """
     if not url:
         return "Empty repository URL."
     stripped = url.strip()
     if stripped.startswith("-"):
         return ("Refusing repository URL starting with '-': %s" % url)
-    low = stripped.lower()
+    return None
+
+
+def validate_repository_url(url):
+    """Return an error message if an *untrusted* ``url`` must not reach git.
+
+    Git accepts ``ext::sh -c ...`` transport URLs and treats leading-dash
+    arguments as options; only plain http(s) remotes are allowed for values
+    that come from the community-supplied ExtensionJson.json. A trusted
+    operator-provided ``--repository`` override skips this check (see
+    resolve), so internal ``ssh://`` or ``git@host:path`` remotes work.
+    """
+    basic = _validate_url_basic(url)
+    if basic:
+        return basic
+    low = url.strip().lower()
     if not (low.startswith("https://") or low.startswith("http://")):
         return ("Refusing repository URL '%s': only http(s) git remotes are "
                 "supported." % url)
@@ -214,10 +230,19 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
                         "git URL." % name),
             }
 
-    # Validate before the URL can reach git ls-remote / clone / submodule add.
-    url_error = validate_repository_url(url)
-    if url_error:
-        return {"failed": True, "msg": url_error}
+    # Always refuse injection-style URLs (empty / leading dash), regardless of
+    # where the value came from.
+    safety_error = _validate_url_basic(url)
+    if safety_error:
+        return {"failed": True, "msg": safety_error}
+    # The ExtensionJson.json value is community-supplied and untrusted, so it
+    # must be a plain http(s) remote. An operator-provided --repository
+    # override is trusted and may be an internal ssh:// or git@ host, so it
+    # skips the scheme restriction.
+    if repository is None:
+        url_error = validate_repository_url(url)
+        if url_error:
+            return {"failed": True, "msg": url_error}
 
     selected = select_branch(url, mw_version, branch)
     # A REL branch may not exist for every extension (especially on remotes

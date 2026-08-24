@@ -119,6 +119,38 @@ class TestResolve:
         assert res["repository"] == "https://example.org/Whatever.git"
         assert res["source"] == "explicit"
 
+    def test_explicit_ssh_override_allowed(self, tmp_dir):
+        # A trusted operator-provided --repository may be an internal ssh://
+        # or git@ host; the strict http(s) check must be skipped for it.
+        path = self._json(tmp_dir, {})
+        res = canasta_extension_resolve.resolve(
+            "Whatever", "extensions", "1.43.2",
+            "ssh://git@github.com/example/Whatever.git", None, path,
+            "https://unreachable.example/ExtensionJson.json")
+        assert res.get("failed") is not True
+        assert res["repository"] == "ssh://git@github.com/example/Whatever.git"
+        assert res["source"] == "explicit"
+
+    def test_lookup_ssh_rejected(self, tmp_dir):
+        # The community-supplied ExtensionJson.json value is untrusted and must
+        # remain a plain http(s) remote.
+        path = self._json(tmp_dir, {
+            "Foo": {"name": "Foo", "repository": "ssh://git@example.com/Foo.git"}})
+        res = canasta_extension_resolve.resolve(
+            "Foo", "extensions", "1.43.2", None, None, path,
+            "https://unreachable.example/ExtensionJson.json")
+        assert res.get("failed") is True
+        assert "http(s)" in res["msg"]
+
+    def test_explicit_leading_dash_rejected(self, tmp_dir):
+        # Injection-style URLs are refused even on the trusted override path.
+        path = self._json(tmp_dir, {})
+        res = canasta_extension_resolve.resolve(
+            "Whatever", "extensions", "1.43.2",
+            "-ufoo=https://example.com/pwned", None, path,
+            "https://unreachable.example/ExtensionJson.json")
+        assert res.get("failed") is True
+
     def test_not_found(self, tmp_dir):
         path = self._json(tmp_dir, {})
         res = canasta_extension_resolve.resolve(

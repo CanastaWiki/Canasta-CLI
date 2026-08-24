@@ -136,10 +136,7 @@
 # on. On failure we revert the registration and warn instead of aborting.
 - name: "Install composer requirements (--no-dev)"
   when: _composer_paths | length > 0
-  ansible.builtin.include_tasks:
-    file: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-    apply:
-      ignore_errors: true
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
     exec_command: >-
@@ -147,6 +144,11 @@
       cd /var/www/mediawiki/w &&
       composer update --no-dev --no-interaction
     exec_long: true
+    # Best-effort: a composer dependency conflict must not abort the whole
+    # command. rx_fail only applies while exec_long is true (the command then
+    # runs through resilient_exec.yml, which honors it and still records
+    # exec_result so the caller can revert + warn).
+    rx_fail: false
 
 - name: "Commit composer.local.json (gitops) on successful install"
   when:
