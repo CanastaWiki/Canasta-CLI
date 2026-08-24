@@ -151,22 +151,22 @@
 
         - name: Unregister submodules from the repo
           ansible.builtin.command:
-            cmd: "git -C {{ instance_path | quote }} rm --force {{ (_item_dir ~ '/' ~ item.item) | quote }}"
+            cmd: "git -C {{ instance_path | quote }} rm --force {{ (_item_dir ~ '/' ~ item.item.item) | quote }}"
             chdir: "{{ instance_path }}"
           loop: "{{ _deinit_results.results | default([]) }}"
           loop_control:
-            label: "{{ item.item }}"
+            label: "{{ item.item.item }}"
           when: item.changed | default(false) | bool
           register: _gitrm_results
           changed_when: true
 
         - name: Delete leftover module metadata
           ansible.builtin.command:
-            cmd: "rm -rf {{ (instance_path ~ '/.git/modules/' ~ _item_dir ~ '/' ~ item.item) | quote }}"
+            cmd: "rm -rf {{ (instance_path ~ '/.git/modules/' ~ _item_dir ~ '/' ~ item.item.item) | quote }}"
             chdir: "{{ instance_path }}"
           loop: "{{ _deinit_results.results | default([]) }}"
           loop_control:
-            label: "{{ item.item }}"
+            label: "{{ item.item.item }}"
           when: item.changed | default(false) | bool
           changed_when: true
           failed_when: false
@@ -182,11 +182,11 @@
 
     - name: "Delete orphan directories left by deinit (gitops, not registered)"
       ansible.builtin.file:
-        path: "{{ instance_path }}/{{ _item_dir }}/{{ item.item }}"
+        path: "{{ instance_path }}/{{ _item_dir }}/{{ item.item.item }}"
         state: absent
       loop: "{{ _deinit_results.results | default([]) }}"
       loop_control:
-        label: "{{ item.item }}"
+        label: "{{ item.item.item }}"
       # Orphans are the entries whose submodule deinit was skipped
       # (not registered), so they still sit in the instance tree.
       when: is_gitops | bool and not (item.changed | default(false) | bool)
