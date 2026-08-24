@@ -1,35 +1,19 @@
 ---
 # canasta config unset - Remove configuration keys.
-# Input: id (optional), keys (str: space-separated keys), no_restart (bool), force (bool)
+# Input: id (optional), keys (str: space-separated keys), no_restart (bool), force (bool), secret (bool)
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Validate, unapply, and remove each key
-  ansible.builtin.include_tasks: _unset_single.yml
-  loop: "{{ keys.split() }}"
-  loop_control:
-    loop_var: _config_key
+# Dispatch: --secret removes from the gitignored config/secrets.env
+# (no .env validation/side effects); otherwise the normal .env config path.
+- name: Remove opaque secret values (config/secrets.env)
+  ansible.builtin.include_tasks: _unset_secret.yml
+  when: secret | default(false) | bool
 
-# If the instance is gitops-managed, remove the key from the durable source
-# so the next gitops pull doesn't resurrect it (it re-renders .env from
-# template).
-- name: Check for gitops instance
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.gitops-host"
-  register: _config_gitops_stat
-
-# The orchestrator owns the compose-vs-K8s decision (K8s gitops uses a
-# different layout, values.template.yaml, not vars.yaml); dispatch.
-- name: Remove gitops vars for unset keys
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/config_remove_gitops_vars.yml
-  when: _config_gitops_stat.stat.exists | default(false)
-
-- name: Regenerate Caddyfile after config change
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: update_config.yml
+- name: Remove .env config values
+  ansible.builtin.include_tasks: _unset_config.yml
+  when: not (secret | default(false) | bool)
 
 # The restart is a side effect here, not what the operator asked for, so
 # say it is coming before the instance goes down.

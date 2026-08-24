@@ -1243,7 +1243,9 @@ commands:
         description: >-
           Write to the gitignored config/secrets.env instead of .env (opaque
           app secrets; on K8s these feed a per-instance Secret consumed by
-          sidecars via secretKeyRef). Bypasses .env validation and side effects.
+          sidecars via secretKeyRef). Bypasses .env validation and side
+          effects. Recognized configuration keys are rejected: they are read
+          from .env, so a value written here would never take effect.
       - name: web
         type: bool
         default: false
@@ -1326,8 +1328,12 @@ commands:
       If a key has side effects (e.g., `HTTPS_PORT`), they are
       reverted before the key is removed. The instance is then
       restarted unless `--no-restart` is specified.
+
+      With `--secret`, the keys are removed from the gitignored
+      `config/secrets.env` instead of `.env`.
     examples:
       - "canasta config unset MW_SITE_SERVER"
+      - "canasta config unset MY_SIDECAR_TOKEN --secret"
     playbook: config_unset.yml
     parameters:
       - name: id
@@ -1348,6 +1354,13 @@ commands:
         type: bool
         default: false
         description: "Allow unsetting unrecognized keys"
+      - name: secret
+        type: bool
+        default: false
+        description: >-
+          Remove the key(s) from the gitignored config/secrets.env, and from
+          config/secrets-web, instead of .env — the counterpart to
+          'config set --secret'.
 
   # ---------------------------------------------------------------------------
   # Extensions
