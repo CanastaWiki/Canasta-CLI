@@ -67,6 +67,7 @@ returns:
 
 import json
 import os
+import stat
 import tempfile
 
 from ansible.module_utils.basic import AnsibleModule
@@ -127,10 +128,18 @@ def removed_includes(data, include):
 def write_json_atomic(path, data):
     directory = os.path.dirname(path)
     os.makedirs(directory, exist_ok=True)
+    # Preserve the existing file's mode (e.g. the 0644 the image's start-up
+    # rsync set) so the replace does not reset it to tempfile's 0600 and make
+    # composer.local.json unreadable to the container's web user.
+    if os.path.exists(path):
+        mode = stat.S_IMODE(os.lstat(path).st_mode)
+    else:
+        mode = 0o644
     fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as handle:
             handle.write(json.dumps(data, indent=2) + "\n")
+        os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
         try:

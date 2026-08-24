@@ -48,7 +48,9 @@
 - name: "Stage added {{ _item_type }} (gitops)"
   when: not _add_existing.stat.exists and is_gitops | bool
   ansible.builtin.command:
-    cmd: "git -C {{ instance_path | quote }} add -A"
+    cmd: >-
+      git -C {{ instance_path | quote }} add --
+      .gitmodules {{ (_item_dir ~ '/' ~ item.name) | quote }}
     chdir: "{{ instance_path }}"
   changed_when: true
 
@@ -60,12 +62,16 @@
       -m 'Add {{ _item_type }} {{ item.name }}'
     chdir: "{{ instance_path }}"
   changed_when: true
+  register: _add_commit
   ignore_errors: true  # nothing to commit if the submodule add was a no-op
 
 - name: "Report {{ _item_type }} added"
+  when: not _add_existing.stat.exists
   ansible.builtin.debug:
     msg: >-
       Added {{ _item_type }} '{{ item.name }}' from {{ item.repository }}
       {{ ('(' ~ item.branch ~ ')') if item.branch else '(default branch)' }}
       {{ ('(note: ' ~ item.branch_note ~ ')') if item.branch_note else '' }}
-      {{ ('[gitops: committed; run canasta gitops push to distribute]') if (is_gitops | bool) else '' }}
+      {{ ('[gitops: committed; run canasta gitops push to distribute]')
+         if (is_gitops | bool and _add_commit.changed | default(false))
+         else '' }}

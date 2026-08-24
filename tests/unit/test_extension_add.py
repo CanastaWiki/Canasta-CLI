@@ -63,8 +63,13 @@ class TestGitopsCommit:
 
     def test_stage_and_commit_are_separate_tasks(self):
         cmds = [_cmd(t) for t in _walk(_load(ADD_ONE)) if _cmd(t)]
-        assert any("git" in c and "add -A" in c and "&&" not in c
-                   for c in cmds), "staging must be its own command task"
+        # Staging must be its own task and stage only .gitmodules + the item
+        # path. A bare `git add -A` would sweep unrelated working-tree state
+        # and bypass the git-crypt guard that protects hosts/**/vars.yaml.
+        assert any("git" in c and "add" in c and "gitmodules" in c
+                   and "add -A" not in c
+                   for c in cmds), (
+            "staging must stage .gitmodules explicitly, not 'git add -A'")
         assert any("commit.gpgsign=false commit" in c for c in cmds), (
             "committing must be its own command task")
 

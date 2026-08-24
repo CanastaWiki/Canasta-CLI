@@ -214,7 +214,7 @@
       cd /var/www/mediawiki/w &&
       composer update --no-dev --no-interaction
     exec_long: true
-  failed_when: false
+  ignore_errors: true
 
 - name: "Warn if composer refresh failed after removal"
   when:
@@ -255,7 +255,12 @@
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: start.yml
-  when: instance_orchestrator | default('compose') not in ['kubernetes', 'k8s']
+  when:
+    - instance_orchestrator | default('compose') not in ['kubernetes', 'k8s']
+    - >-
+      _remove_present | length > 0
+      or _remove_enabled | length > 0
+      or _composer_local.changed | default(false) | bool
 
 - name: "Report {{ _item_type }} removed"
   ansible.builtin.debug:
