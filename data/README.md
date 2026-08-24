@@ -19,6 +19,9 @@ Provenance and licensing:
   downloads the current dataset and replaces this file atomically after
   validating that it parses as JSON.
 
-The snapshot can drift from the live dataset between refreshes; at runtime
-the resolver falls back to downloading the live URL when a name is missing
-from the snapshot.
+The bundled snapshot is used in preference to the live dataset: at runtime the
+resolver reads this file first and only downloads the live URL if a name is
+absent from the snapshot. A stale snapshot therefore silently wins over the
+live dataset, so `make refresh-extension-json` is load-bearing — run it to pick
+up upstream additions, renames, or repository-URL changes rather than relying
+on the live fallback.

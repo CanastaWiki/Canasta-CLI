@@ -1,11 +1,17 @@
-"""Guard against inert `ignore_errors` on `include_tasks`.
+"""Guards around `include_tasks` keyword usage.
 
-`ignore_errors: true` placed directly on a dynamic `include_tasks` is inert —
-it applies to the include operation, not to the tasks inside the included file,
-so a non-zero result there aborts the whole play. This silently broke
-`canasta remove` (its first exec aborted the play before the wiki was removed).
-The correct form puts the flag under the include's `apply:`. This test fails if
-any task file reintroduces the top-level pattern.
+Two structural checks over every task file:
+
+1. `test_no_inert_ignore_errors_on_include_tasks` — `ignore_errors: true` placed
+   directly on a dynamic `include_tasks` is inert (it applies to the include
+   operation, not the tasks inside), so a non-zero result there aborts the whole
+   play. `canasta remove` actually broke this way (#1058, 10eb627); the correct
+   form puts the flag under the include's `apply:`.
+
+2. `test_include_tasks_use_only_valid_keywords` — no `include_tasks` task may
+   use a keyword outside `TaskInclude.VALID_INCLUDE_KEYWORDS`. Any reserved
+   keyword placed on an include is either inert or a hard failure, the same
+   class of bug as `failed_when` / top-level `ignore_errors`.
 """
 
 import glob
@@ -59,19 +65,11 @@ def test_no_inert_ignore_errors_on_include_tasks():
 def _valid_include_keywords():
     """Keys ansible allows directly on an include_tasks task.
 
-    Mirrors ansible's TaskInclude.VALID_INCLUDE_KEYWORDS, with a hardcoded
-    fallback if ansible is unavailable in the test environment.
+    Mirrors ansible's TaskInclude.VALID_INCLUDE_KEYWORDS. Imported directly so
+    any failure surfaces rather than being approximated by a fallback.
     """
-    try:
-        from ansible.playbook.task_include import TaskInclude
-        valid = set(TaskInclude.VALID_INCLUDE_KEYWORDS)
-    except Exception:
-        valid = {
-            "action", "args", "collections", "debugger", "ignore_errors",
-            "loop", "loop_control", "loop_with", "name", "no_log", "register",
-            "run_once", "tags", "timeout", "vars", "when", "apply",
-        }
-    return valid
+    from ansible.playbook.task_include import TaskInclude
+    return set(TaskInclude.VALID_INCLUDE_KEYWORDS)
 
 
 def test_include_tasks_use_only_valid_keywords():
@@ -79,9 +77,10 @@ def test_include_tasks_use_only_valid_keywords():
 
     This catches the whole class of include-keyword bugs (not just
     ``failed_when``): any reserved keyword placed on an include is either inert
-    or aborts the play. ``rx_*`` keys are resilient_exec passthrough vars set at
-    the include-task level (e.g. roles/orchestrator/tasks/helm_uninstall.yml)
-    and are legitimate, so they are excluded.
+    or aborts the play. ``rx_*`` resilient_exec passthrough vars always live
+    under the include's ``vars:`` block, so they are never top-level keys and
+    this guard naturally covers a stray top-level ``rx_fail`` — the same hard
+    TaskInclude-attribute failure as ``failed_when``.
     """
     valid = _valid_include_keywords()
     offenders = []
@@ -100,8 +99,6 @@ def test_include_tasks_use_only_valid_keywords():
                 if key in INCLUDE_KEYS:
                     continue
                 if key in valid:
-                    continue
-                if key.startswith("rx_"):
                     continue
                 rel = os.path.relpath(path, REPO_ROOT)
                 offenders.append("%s: %s (key %r)" % (rel, task.get("name", "?"), key))
