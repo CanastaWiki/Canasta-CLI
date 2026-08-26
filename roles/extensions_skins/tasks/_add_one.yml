@@ -38,13 +38,14 @@
     - _current_branch.rc | default(0) == 0
     - _current_branch.stdout | default('') | trim != item.branch | default('')
   block:
-    - name: "Fetch and switch {{ _item_type }} '{{ item.name }}' to {{ item.branch }}"
+    - name: "Fetch expected branch for {{ _item_type }} '{{ item.name }}'"
       ansible.builtin.command:
-        cmd: >-
-          git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }}
-          fetch origin {{ item.branch | quote }} &&
-          git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }}
-          checkout {{ item.branch | quote }}
+        cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} fetch origin {{ item.branch | quote }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+    - name: "Switch {{ _item_type }} '{{ item.name }}' to {{ item.branch }}"
+      ansible.builtin.command:
+        cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} checkout {{ item.branch | quote }}"
         chdir: "{{ instance_path }}"
       changed_when: true
     - name: "Record re-aligned {{ _item_type }} gitlink (gitops)"
