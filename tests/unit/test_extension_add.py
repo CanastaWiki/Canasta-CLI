@@ -109,7 +109,6 @@ class TestVersionDetection:
             "undetected MediaWiki version must abort with guidance to pass "
             "--mw-version, not silently fall back to the default branch")
 
-
     def test_probe_falls_back_to_defines_php(self):
         # Some images ship no maintenance/version.php; MW_VERSION in
         # includes/Defines.php is always present and must be the fallback.
@@ -120,6 +119,7 @@ class TestVersionDetection:
                    for c in exec_cmds), (
             "version detection must fall back to MW_VERSION in "
             "includes/Defines.php when version.php is absent")
+
 
 class TestComposerRequirements:
     def test_registers_composer_local_json(self, tmp_dir=None):
