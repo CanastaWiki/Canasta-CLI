@@ -157,6 +157,54 @@ class TestTrustedProxiesRendering:
         )
 
 
+class TestBackendClientIpForwarding:
+    """The backend must receive the resolved client IP, not the CDN edge.
+
+    reverse_proxy appends its immediate peer to X-Forwarded-For, and
+    trusted_proxies only changes who Caddy considers the client for its own
+    logging. Without header_up, MediaWiki trusts the private hops, reaches the
+    appended CDN address, and records that as the visitor.
+    """
+
+    HEADER_UP = "header_up X-Forwarded-For {client_ip}"
+
+    def test_backend_proxy_forwards_resolved_client_ip(self):
+        out = _render_proxy("cloudflare", "Cf-Connecting-Ip", dynamic=True)
+        assert self.HEADER_UP in out
+
+    def test_header_up_is_inside_the_backend_proxy_block(self):
+        # Ordered after reverse_proxy's automatic X-Forwarded-For handling only
+        # when nested in the proxy block; a bare directive is overwritten.
+        out = _render_proxy("cloudflare", "Cf-Connecting-Ip", dynamic=True)
+        block = re.search(
+            r"(?m)^\s*reverse_proxy web:80 \{\n(.*?)^\s*\}", out, re.S,
+        )
+        assert block, "backend proxy did not render as a block"
+        assert self.HEADER_UP in block.group(1)
+
+    def test_static_cidr_mode_also_forwards(self):
+        out = _render_proxy(
+            "10.0.0.0/8", "X-Forwarded-For", dynamic=False,
+            cidrs=["10.0.0.0/8"], strict=True,
+        )
+        assert self.HEADER_UP in out
+
+    def test_observability_branch_also_forwards(self):
+        out = _render_proxy_with(
+            _observable=True, _os_user="admin", _os_password_hash="hash",
+        )
+        assert self.HEADER_UP in out
+        # The dashboards proxy is a separate hop and is left alone.
+        assert "reverse_proxy opensearch-dashboards:5601" in out
+
+    def test_absent_without_trusted_proxies(self):
+        # No CDN in front means the peer genuinely is the client, and Caddy's
+        # own X-Forwarded-For handling is already correct.
+        out = _render(_trusted_proxies_enabled=False)
+        assert "header_up" not in out
+        assert "reverse_proxy web:80" in out
+
+
 class TestCaddyPluginImage:
     def test_dockerfile_bundles_both_plugins(self):
         content = _read(os.path.join(REPO_ROOT, "images", "caddy", "Dockerfile"))
