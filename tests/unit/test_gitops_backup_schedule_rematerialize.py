@@ -81,3 +81,56 @@ def test_gitops_sync_is_a_compose_noop():
     assert argocd and "kubernetes" in str(argocd[0].get("when", "")), (
         "gitops sync must dispatch to Argo CD sync only on Kubernetes"
     )
+
+
+def _set_facts(path, key):
+    """The set_fact task defining `key`, or None."""
+    for task in _tasks(path):
+        sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+        if isinstance(sf, dict) and key in sf:
+            return sf
+    return None
+
+
+def test_rematerialize_carries_the_retention_policy_through():
+    """config/backup-schedule.yml is where the policy round-trips. If
+    rematerialize does not read it back, a gitops pull or a restore
+    rewrites the crontab with the purge silently dropped and snapshots
+    accumulate from then on."""
+    apply = [t for t in _tasks(REMATERIALIZE)
+             if "backup_schedule_apply.yml" in _includes(t)]
+    assert apply
+    assert "retention" in (apply[0].get("vars") or {}), (
+        "the re-applied schedule must carry the persisted retention policy"
+    )
+
+    read = _set_facts(REMATERIALIZE, "_sched_state_retention")
+    assert read is not None, "rematerialize must read the persisted policy"
+    assert "retention" in read["_sched_state_retention"]
+
+
+def test_rematerialize_still_understands_a_legacy_single_duration():
+    """Schedules set before the policy became a mapping persisted a lone
+    purge_older_than duration; those instances must keep purging."""
+    read = _set_facts(REMATERIALIZE, "_sched_state_retention")
+    assert "purge_older_than" in read["_sched_state_retention"], (
+        "an existing config/backup-schedule.yml carries purge_older_than, "
+        "which has always meant --keep-within"
+    )
+    assert "keep-within" in read["_sched_state_retention"]
+
+
+def test_set_persists_the_policy_it_was_given():
+    persist = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml")
+    copies = [
+        (t.get("ansible.builtin.copy") or t.get("copy"))
+        for t in _tasks(persist)
+        if (t.get("ansible.builtin.copy") or t.get("copy"))
+    ]
+    assert copies, "set must persist the schedule"
+    content = str(copies[0].get("content"))
+    assert "retention" in content and "_retention_policy" in content, (
+        "the retention policy has to be written to the file, not only to "
+        "the crontab, or nothing can re-materialize it"
+    )
