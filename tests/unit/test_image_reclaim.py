@@ -104,3 +104,39 @@ def test_registry_gc_include_is_not_wrapped_in_a_conditional_block():
             continue
         for child in _flatten(task["block"]):
             assert "ansible.builtin.include_tasks" not in child, task.get("name")
+
+
+class TestContainerdPruneActuallyRuns:
+    """k3s installs a bare crictl on PATH whose config only root can read,
+    and the containerd socket is root-owned. An unprivileged run of the
+    wrong binary exits non-zero having pruned nothing, and reported the
+    same "0 image(s) removed" as a host with nothing to reclaim."""
+
+    def _task(self):
+        return _by_name("Prune containerd images no pod references")
+
+    def test_prefers_k3s_crictl_over_the_bare_binary(self):
+        cmd = self._task()["ansible.builtin.shell"]["cmd"]
+        k3s_at = cmd.index("k3s crictl rmi")
+        bare_at = cmd.index("then crictl rmi")
+        assert k3s_at < bare_at, (
+            "bare crictl cannot find the k3s containerd endpoint; the k3s "
+            "branch must be tried first"
+        )
+
+    def test_runs_elevated(self):
+        assert self._task().get("become") is True, (
+            "the containerd socket is root-owned"
+        )
+
+    def test_a_failed_prune_is_reported_as_a_failure(self):
+        report = _by_name("Report a containerd prune that could not run")
+        cond = str(report.get("when"))
+        assert "_reclaim_crictl.rc" in cond and "!= 0" in cond
+
+    def test_the_success_report_does_not_claim_zero_on_failure(self):
+        report = _by_name("Report containerd reclaim")
+        cond = str(report.get("when"))
+        assert "_reclaim_crictl.rc" in cond and "== 0" in cond, (
+            "a failed prune must not print '0 image(s) removed'"
+        )
