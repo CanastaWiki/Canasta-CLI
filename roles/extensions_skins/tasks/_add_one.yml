@@ -14,12 +14,74 @@
     path: "{{ instance_path }}/{{ _item_dir }}/{{ item.name }}"
   register: _add_existing
 
-- name: "Report already present (skipping)"
+- name: "Report already present (verifying branch)"
   when: _add_existing.stat.exists
   ansible.builtin.debug:
     msg: >-
       {{ _item_type | capitalize }} '{{ item.name }}' already exists at
-      {{ _item_dir }}/{{ item.name }}; skipping add.
+      {{ _item_dir }}/{{ item.name }}; verifying its branch matches the
+      expected {{ item.branch | default('<unknown>') }}.
+
+- name: "Determine current {{ _item_type }} branch (existing checkout)"
+  when: _add_existing.stat.exists
+  ansible.builtin.command:
+    cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} symbolic-ref --short HEAD"
+    chdir: "{{ instance_path }}"
+  register: _current_branch
+  changed_when: false
+  failed_when: false
+
+- name: "Re-align {{ _item_type }} to the expected branch"
+  when:
+    - _add_existing.stat.exists
+    - item.branch | default('') | trim != ''
+    - _current_branch.rc | default(0) == 0
+    - _current_branch.stdout | default('') | trim != item.branch | default('')
+  block:
+    - name: "Fetch and switch {{ _item_type }} '{{ item.name }}' to {{ item.branch }}"
+      ansible.builtin.command:
+        cmd: >-
+          git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }}
+          fetch origin {{ item.branch | quote }} &&
+          git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }}
+          checkout {{ item.branch | quote }}
+        chdir: "{{ instance_path }}"
+      changed_when: true
+    - name: "Record re-aligned {{ _item_type }} gitlink (gitops)"
+      when: is_gitops | bool
+      ansible.builtin.command:
+        cmd: "git -C {{ instance_path | quote }} add -- {{ (_item_dir ~ '/' ~ item.name) | quote }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+    - name: "Commit re-aligned {{ _item_type }} (gitops)"
+      when: is_gitops | bool
+      ansible.builtin.command:
+        cmd: >-
+          git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
+          -m 'Switch {{ _item_type }} {{ item.name }} to {{ item.branch }}'
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      ignore_errors: true  # nothing to commit if the gitlink was already current
+    - name: "Notify {{ _item_type }} re-aligned"
+      ansible.builtin.debug:
+        msg: >-
+          {{ _item_type | capitalize }} '{{ item.name }}' was on branch
+          '{{ _current_branch.stdout | default('?') | trim }}'; switched to
+          expected '{{ item.branch }}'
+          {{ ('[gitops: committed; run canasta gitops push to distribute]')
+             if (is_gitops | bool) else '' }}.
+
+- name: "Warn when the expected branch is unknown (existing checkout)"
+  when:
+    - _add_existing.stat.exists
+    - item.branch | default('') | trim == ''
+    - _current_branch.rc | default(0) == 0
+  ansible.builtin.debug:
+    msg: >-
+      Could not resolve an expected branch for {{ _item_type }} '{{ item.name }}';
+      it is currently on '{{ _current_branch.stdout | default('?') | trim }}'.
+      The checkout was not changed — pass --branch or --mw-version to pin the
+      right release.
 
 - name: "Add {{ _item_type }} as a gitops submodule"
   when: not _add_existing.stat.exists and is_gitops | bool

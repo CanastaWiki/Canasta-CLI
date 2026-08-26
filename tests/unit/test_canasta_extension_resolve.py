@@ -83,9 +83,10 @@ class TestValidateRepositoryUrl:
 
 class TestBranchExists:
     def test_invalid_repo(self):
-        # A bad URL makes git ls-remote fail; we must not raise.
+        # A bad URL makes git ls-remote fail; we must not raise, and the
+        # result is None ("unknown"), never False ("confirmed absent").
         assert canasta_extension_resolve.branch_exists(
-            "https://invalid.example.invalid/repo.git", "REL1_43") is False
+            "https://invalid.example.invalid/repo.git", "REL1_43") is None
 
 
 class TestResolve:
@@ -163,6 +164,45 @@ class TestResolve:
             "OAuth", "extensions", "1.43.2", None, None, None, "https://unreachable.example/ExtensionJson.json")
         assert res.get("failed") is True
         assert "ExtensionJson.json" in res["msg"]
+
+    def test_resolve_keeps_rel_when_unverified(self, tmp_dir, monkeypatch):
+        # No network to the remote from this host: branch_exists -> None
+        # ("unknown"), so we must keep REL1_43 rather than fall back to master.
+        monkeypatch.setattr(canasta_extension_resolve, "branch_exists", lambda *a: None)
+        path = self._json(tmp_dir, {
+            "OAuth": {"name": "OAuth",
+                      "repository": "https://gerrit.wikimedia.org/r/mediawiki/extensions/OAuth"}})
+        res = canasta_extension_resolve.resolve(
+            "OAuth", "extensions", "1.43.2", None, None, path,
+            "https://unreachable.example/ExtensionJson.json")
+        assert res.get("failed") is not True
+        assert res["branch"] == "REL1_43"
+        assert res.get("branch_unverified") is True
+
+    def test_resolve_falls_back_when_absent(self, tmp_dir, monkeypatch):
+        # ls-remote confirms the branch is genuinely absent -> default branch.
+        monkeypatch.setattr(canasta_extension_resolve, "branch_exists", lambda *a: False)
+        path = self._json(tmp_dir, {
+            "OAuth": {"name": "OAuth",
+                      "repository": "https://gerrit.wikimedia.org/r/mediawiki/extensions/OAuth"}})
+        res = canasta_extension_resolve.resolve(
+            "OAuth", "extensions", "1.43.2", None, None, path,
+            "https://unreachable.example/ExtensionJson.json")
+        assert res.get("failed") is not True
+        assert res["branch"] is None
+        assert res.get("branch_unverified") is False
+
+    def test_resolve_uses_rel_when_verified(self, tmp_dir, monkeypatch):
+        monkeypatch.setattr(canasta_extension_resolve, "branch_exists", lambda *a: True)
+        path = self._json(tmp_dir, {
+            "OAuth": {"name": "OAuth",
+                      "repository": "https://gerrit.wikimedia.org/r/mediawiki/extensions/OAuth"}})
+        res = canasta_extension_resolve.resolve(
+            "OAuth", "extensions", "1.43.2", None, None, path,
+            "https://unreachable.example/ExtensionJson.json")
+        assert res.get("failed") is not True
+        assert res["branch"] == "REL1_43"
+        assert res.get("branch_unverified") is False
 
 
 class TestModuleMain:

@@ -77,6 +77,14 @@ returns:
     description: Explanation when the requested REL branch was missing.
     returned: success
     type: str
+  branch_unverified:
+    description: >-
+      True when the expected REL1_YY branch could not be verified from this
+      host (e.g. no network to the remote); the branch is still used and the
+      instance-side clone will fail loudly if it is actually absent, rather
+      than silently falling back to the default branch.
+    returned: success
+    type: bool
   source:
     description: Where the data came from ('explicit', 'url:<url>', 'file:<path>').
     returned: success
@@ -160,16 +168,24 @@ def validate_repository_url(url):
 
 
 def branch_exists(repository, branch):
-    """Return True if ``branch`` exists as a head in ``repository``."""
+    """Return True/False if ``branch`` exists as a head in ``repository``.
+
+    Returns ``None`` when the remote could not be reached (network, auth, or
+    timeout error). Callers must treat ``None`` as "unknown", NOT as "absent",
+    so an unverifiable branch is never silently treated as missing (which would
+    otherwise fall through to the wrong default branch).
+    """
     if not branch:
         return False
     try:
         out = subprocess.run(
             ["git", "ls-remote", "--heads", repository, branch],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        if out.returncode != 0:
+            return None
         return bool(out.stdout.strip())
     except (OSError, subprocess.SubprocessError):
-        return False
+        return None
 
 
 def load_json(json_path, json_url):
@@ -199,6 +215,7 @@ def load_json(json_path, json_url):
 
 def resolve(name, item_type, mw_version, repository, branch, json_path, json_url):
     branch_note = None
+    branch_unverified = False
     if repository:
         url = repository
         entry = None
@@ -246,11 +263,22 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
 
     selected = select_branch(url, mw_version, branch)
     # A REL branch may not exist for every extension (especially on remotes
-    # that are not Wikimedia mirrors); if it doesn't, fall back to the
-    # default branch instead of failing the clone.
-    if selected and branch is None and not branch_exists(url, selected):
-        branch_note = ("%s does not exist; using the default branch" % selected)
-        selected = None
+    # that are not Wikimedia mirrors). If ls-remote can confirm it is absent we
+    # fall back to the default branch; but if it could not be *verified* (e.g.
+    # the host running this module has no network to the remote, while the
+    # instance that will actually clone does), we keep the expected REL1_YY
+    # branch and let the instance-side clone fail loudly rather than silently
+    # checking out the wrong (default) branch.
+    verified = branch_exists(url, selected) if selected else False
+    if selected and branch is None:
+        if verified is False:
+            branch_note = ("%s does not exist; using the default branch" % selected)
+            selected = None
+        elif verified is None:
+            branch_unverified = True
+            branch_note = ("Could not verify %s exists (no network to the remote "
+                          "from this host); using it anyway — the clone will fail "
+                          "loudly if it is absent." % selected)
 
     result = {
         "name": name,
@@ -258,6 +286,7 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
         "repository": url,
         "branch": selected,
         "branch_note": branch_note,
+        "branch_unverified": branch_unverified,
         "source": source,
         "url": (entry or {}).get("url"),
         "description": (entry or {}).get("description"),
