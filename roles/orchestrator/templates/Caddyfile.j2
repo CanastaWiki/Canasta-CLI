@@ -91,6 +91,12 @@
 {% if _crowdsec_active | default(false) %}
     crowdsec
 {% endif %}
+{#
+  reverse_proxy appends its immediate peer to X-Forwarded-For, which behind a
+  CDN is the edge address, and trusted_proxies only changes who Caddy considers
+  the client for itself. header_up runs after that automatic handling, so it
+  must sit inside the proxy block to replace the value rather than precede it.
+#}
 {% if _observable %}
     @opensearch path /opensearch /opensearch/*
     handle @opensearch {
@@ -101,10 +107,22 @@
     }
 
     handle {
+{% if _trusted_proxies_enabled | default(false) %}
+        reverse_proxy {{ _backend }} {
+            header_up X-Forwarded-For {client_ip}
+        }
+{% else %}
         reverse_proxy {{ _backend }}
+{% endif %}
+    }
+{% else %}
+{% if _trusted_proxies_enabled | default(false) %}
+    reverse_proxy {{ _backend }} {
+        header_up X-Forwarded-For {client_ip}
     }
 {% else %}
     reverse_proxy {{ _backend }}
+{% endif %}
 {% endif %}
 
     log {
