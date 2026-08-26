@@ -38,7 +38,8 @@ command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING; echo "$D"
-command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING
+command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING; echo "$D"
+docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown
 """
 
 
@@ -67,6 +68,71 @@ def _has_container_runtime(docker, compose, daemon, podman_version):
     if "Docker" in docker and "Docker Compose" in compose and daemon == "OK":
         return True
     return "podman version" in podman_version.lower()
+
+
+def _parse_system_df(df_out):
+    """Reclaimable image and build-cache sizes from `docker system df`.
+
+    Returns Docker's own size strings as (images, build_cache), or None when
+    the probe produced nothing usable.
+
+    The Local Volumes row is deliberately dropped rather than summed in:
+    `canasta stop` runs `docker compose down`, which removes the containers,
+    so a stopped instance's database volume has nothing referencing it and
+    Docker reports it as reclaimable. Presenting that as recoverable space
+    invites a prune that destroys the wiki.
+    """
+    if not df_out or df_out.strip() == "unknown":
+        return None
+    found = {"images": None, "build cache": None}
+    for line in df_out.splitlines():
+        kind, sep, value = line.partition("|")
+        if not sep:
+            continue
+        key = kind.strip().lower()
+        if key in found:
+            # Reclaimable reads like "5.1GB (60%)"; keep the size.
+            found[key] = value.strip().split(" ")[0]
+    if found["images"] is None and found["build cache"] is None:
+        return None
+    return (found["images"] or "0B", found["build cache"] or "0B")
+
+
+def _is_zero_size(size):
+    """True when a Docker size string is zero. Unparseable reads as non-zero."""
+    m = re.match(r"\s*([0-9.]+)", size or "")
+    return m is not None and float(m.group(1)) == 0
+
+
+def _reclaimable_line(df_out, k3s):
+    """The System-section line for reclaimable image storage, or None.
+
+    `docker system df` describes neither containerd's image store nor the
+    in-cluster registry PVC, so on a cluster host the figure is labelled as
+    the partial measurement it is instead of standing in for the total.
+
+    k3s presence, not cluster reachability, is what decides that: kubectl
+    follows the current kubeconfig context, which routinely names a cluster
+    running somewhere else entirely.
+    """
+    k8s = k3s != "MISSING"
+    parsed = _parse_system_df(df_out)
+    if parsed is None:
+        if not k8s:
+            return None
+        return ("  Reclaimable:     not measured (no Docker daemon); "
+                "'canasta image prune' reclaims containerd images and the "
+                "in-cluster registry")
+    images, build_cache = parsed
+    if _is_zero_size(images) and _is_zero_size(build_cache):
+        amount = "none"
+    else:
+        amount = "%s images, %s build cache" % (images, build_cache)
+    if k8s:
+        amount += "; containerd and the in-cluster registry not measured"
+    if amount != "none":
+        amount += " — reclaim with 'canasta image prune'"
+    return "  Reclaimable:     %s" % amount
 
 
 def _parse_doctor(stdout, hostname):
@@ -110,6 +176,8 @@ def _parse_doctor(stdout, hostname):
     sudo_version = p(23) if len(parts) > 23 else "MISSING"
     sudo_nopasswd = p(24) if len(parts) > 24 else "MISSING"
     podman_compose_version = p(25) if len(parts) > 25 else "MISSING"
+    # Reclaimable image storage, appended so the indices above are unchanged.
+    system_df = p(26) if len(parts) > 26 else ""
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -280,6 +348,9 @@ def _parse_doctor(stdout, hostname):
     lines.append("System:")
     lines.append("  Memory:          %s" % memory)
     lines.append("  Disk (/ avail):  %s" % disk)
+    reclaimable = _reclaimable_line(system_df, k3s)
+    if reclaimable:
+        lines.append(reclaimable)
     # On macOS, Docker Desktop handles UID remapping transparently — there
     # is no www-data user/group on the host and membership is irrelevant.
     # Only report membership on Linux, where host-side file permissions
