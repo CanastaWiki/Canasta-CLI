@@ -4,8 +4,9 @@
 # Input:
 #   instance_path - path to the Canasta instance
 #   backup_args - list of restic arguments
-#   backup_volumes - dict of host_path: container_path to stage
-#     (optional, only for backup create on Compose)
+#   backup_volumes - dict of host_path: container_path, mounted read-only
+#     into the restic container (optional, only for backup create on
+#     Compose)
 # Output:
 #   _restic_result - command result
 
@@ -20,6 +21,45 @@
       ansible.builtin.set_fact:
         _bvol: "canasta-backup-{{ instance_path | basename }}"
 
+    # A snapshot's sources are mounted read-only straight into the restic
+    # container, each at the /currentsnapshot/<name> it would have been
+    # copied to — the way the Kubernetes Job already does it. The snapshot
+    # paths are therefore unchanged, so existing snapshots, parent
+    # detection and retention grouping are unaffected.
+    #
+    # Restoring still goes through the volume: restic restores into it and
+    # a second step copies onto the host, so a half-finished restore never
+    # touches the live instance.
+    #
+    # Except on Docker Desktop, whose file sharing restic cannot read: every
+    # read of a host bind mount returns EIO, so the snapshot comes back
+    # empty and the backup fails. It is not a restic version or a :ro
+    # problem — 0.16.4, 0.17.3 and 0.19.0 all fail, read-write too, while a
+    # plain `cat` of the same mount succeeds and the same bytes in a Docker
+    # volume back up fine. There the sources keep going through the staging
+    # copy, which is cheap on the small instances Docker Desktop hosts.
+    - name: Identify the container runtime
+      ansible.builtin.command:
+        cmd: "{{ inspect_command }} info --format {% raw %}{{.OperatingSystem}}{% endraw %}"
+      register: _backup_runtime_os
+      changed_when: false
+      failed_when: false
+
+    - name: Decide how the sources reach restic
+      ansible.builtin.set_fact:
+        _backup_mount_sources: >-
+          {{ 'Docker Desktop'
+             not in (_backup_runtime_os.stdout | default('')) }}
+
+    - name: Split the sources between mounting and staging
+      ansible.builtin.set_fact:
+        _backup_sources: >-
+          {{ (backup_volumes | default({}, true))
+             if _backup_mount_sources | bool else {} }}
+        _backup_staged: >-
+          {{ {} if _backup_mount_sources | bool
+             else (backup_volumes | default({}, true)) }}
+
     # `docker volume create` is idempotent; `podman volume create` exits
     # 125 when the volume is already there. Tolerate only that, so a real
     # failure — bad name, no space — still stops the backup rather than
@@ -32,15 +72,11 @@
       failed_when:
         - _bvol_create.rc != 0
         - "'already exists' not in (_bvol_create.stderr | default(''))"
+      when: not _backup_sources
 
     - name: Stage files into backup volume
-      when: >-
-        backup_volumes is defined
-        and backup_volumes | length > 0
+      when: _backup_staged | length > 0
       block:
-        # The minimal stdout callback lets debug messages through and
-        # almost nothing else, and these two steps are where a large
-        # instance spends its time with nothing on screen.
         - name: Report the staging phase
           ansible.builtin.debug:
             msg: "Staging the instance's files into the backup volume..."
@@ -50,12 +86,12 @@
             cmd: |
               {{ inspect_command }} run --rm \
                 -v {{ _bvol }}:/currentsnapshot \
-              {% for src, dst in backup_volumes.items() %}
+              {% for src, dst in _backup_staged.items() %}
                 -v {{ src }}:/src{{ loop.index0 }}:ro \
               {% endfor %}
                 docker.io/library/alpine sh -c \
                 "rm -rf /currentsnapshot/* && \
-              {% for src, dst in backup_volumes.items() %}
+              {% for src, dst in _backup_staged.items() %}
                 cp -a /src{{ loop.index0 }} {{ dst }}{{ ' && ' if not loop.last else '' }} \
               {% endfor %}
                 "
@@ -156,6 +192,9 @@
 
     - name: Run restic and hand the repo back to its owner
       block:
+        # The minimal stdout callback lets debug messages through and
+        # almost nothing else, and this is where a large instance spends
+        # its time with nothing on screen.
         - name: Report the restic phase
           ansible.builtin.debug:
             msg: >-
@@ -172,7 +211,13 @@
               {{ inspect_command }} run --rm -i \
                 --env-file {{ instance_path }}/.env \
                 -e RESTIC_PROGRESS_FPS={{ backup_progress_fps | default('0.05') }} \
+              {% if _backup_sources %}
+              {% for src, dst in _backup_sources.items() %}
+                -v {{ src }}:{{ dst }}:ro \
+              {% endfor %}
+              {% else %}
                 -v {{ _bvol }}:/currentsnapshot \
+              {% endif %}
               {% if _backup_local_repo %}
                 -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
               {% endif %}

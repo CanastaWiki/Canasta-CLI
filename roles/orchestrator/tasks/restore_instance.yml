@@ -166,11 +166,10 @@
       ansible.builtin.debug:
         msg: "Clearing the staging volume, then restoring the snapshot..."
 
-    # The safety backup above stages the CURRENT instance into this same volume,
-    # and `restic restore` does not prune its target — so any file present now
-    # but absent from the snapshot would survive the restore and be copied back
-    # to the host (a restore that doesn't fully revert). Clear the volume first
-    # so it reflects only the snapshot. Runs for full and single-wiki restores.
+    # `restic restore` does not prune its target, so anything an earlier
+    # restore left in this volume would survive and be copied back to the
+    # host — a restore that doesn't fully revert. Clear it first so it
+    # holds only the snapshot. Runs for full and single-wiki restores.
     - name: Clear backup volume before restore
       ansible.builtin.command:
         cmd: >-
