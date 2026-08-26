@@ -96,7 +96,11 @@
       loop_control:
         loop_var: _reclaim_image_ref
       register: _reclaim_removed
-      changed_when: "'Untagged' in stdout or 'Deleted' in stdout"
+      # No per-iteration changed_when: ansible-core does not expose result
+      # fields as bare names in conditionals, and a changed_when that fails
+      # to evaluate fails the task even under failed_when: false. The report
+      # below counts the removals from the registered results instead.
+      changed_when: false
       failed_when: false
       when: not (reclaim_dry_run | default(false) | bool)
 
