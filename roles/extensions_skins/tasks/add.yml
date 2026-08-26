@@ -48,16 +48,16 @@
         exec_command: >-
           v="";
           if [ -f /var/www/mediawiki/w/maintenance/version.php ]; then
-          v=$(php /var/www/mediawiki/w/maintenance/version.php); fi;
+          v=$(php /var/www/mediawiki/w/maintenance/version.php | grep -oE "[0-9]+[.][0-9]+[.][0-9]+" | head -n1); fi;
           if [ -z "$v" ] && [ -f /var/www/mediawiki/w/includes/Defines.php ]; then
-          v=$(grep -oE "MW_VERSION', *'[^']+'" /var/www/mediawiki/w/includes/Defines.php
-          | head -n1 | sed -E "s/.*'([^']+)'.*/\1/"); fi;
+          v=$(grep -oE "MW_VERSION[^0-9]*[0-9.]+" /var/www/mediawiki/w/includes/Defines.php
+          | head -n1 | sed -E "s/.*([0-9]+[.][0-9]+[.][0-9]+).*/\1/"); fi;
           printf '%s' "$v"
         exec_long: true
     - name: Parse MediaWiki version
       ansible.builtin.set_fact:
         _mw_version: >-
-          {{ (exec_result.stdout | default('') | regex_search('\\d+\\.\\d+\\.\\d+')) | default('', true) }}
+          {{ exec_result.stdout | trim | default('', true) }}
   rescue:
     - name: Record that version detection failed
       ansible.builtin.set_fact:
