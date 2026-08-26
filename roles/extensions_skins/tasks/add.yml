@@ -49,12 +49,15 @@
           v="";
           if [ -f /var/www/mediawiki/w/maintenance/version.php ]; then
           v=$(php /var/www/mediawiki/w/maintenance/version.php); fi;
+          if [ -z "$v" ] && [ -f /var/www/mediawiki/w/includes/Defines.php ]; then
+          v=$(grep -oE "MW_VERSION', *'[^']+'" /var/www/mediawiki/w/includes/Defines.php
+          | head -n1 | sed -E "s/.*'([^']+)'.*/\1/"); fi;
           printf '%s' "$v"
         exec_long: true
     - name: Parse MediaWiki version
       ansible.builtin.set_fact:
         _mw_version: >-
-          {{ (exec_result.stdout | default('') | regex_search('\\d+\\.\\d+\\.\\d+')) | default('') }}
+          {{ (exec_result.stdout | default('') | regex_search('\\d+\\.\\d+\\.\\d+')) | default('', true) }}
   rescue:
     - name: Record that version detection failed
       ansible.builtin.set_fact:
@@ -73,7 +76,7 @@
       container is not running). Start the instance first, or pass an explicit
       version with --mw-version (e.g. --mw-version 1.43.2).
   when: >
-    _mw_version is not defined or _mw_version | default('') | trim == ''
+    _mw_version is not defined or _mw_version | default('', true) | trim == ''
 
 - name: Set ExtensionJson.json offline snapshot path
   ansible.builtin.set_fact:
@@ -83,7 +86,7 @@
   canasta_extension_resolve:
     name: "{{ item | trim }}"
     item_type: "{{ _item_type }}"
-    mw_version: "{{ _mw_version | default('') }}"
+    mw_version: "{{ _mw_version | default('', true) }}"
     repository: "{{ repository | default(omit) }}"
     branch: "{{ branch | default(omit) }}"
     json_path: "{{ _extjson_path }}"

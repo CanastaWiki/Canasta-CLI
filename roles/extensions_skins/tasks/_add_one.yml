@@ -20,7 +20,7 @@
     msg: >-
       {{ _item_type | capitalize }} '{{ item.name }}' already exists at
       {{ _item_dir }}/{{ item.name }}; verifying its branch matches the
-      expected {{ item.branch | default('<unknown>') }}.
+      expected {{ item.branch | default('<unknown>', true) }}.
 
 - name: "Determine current {{ _item_type }} branch (existing checkout)"
   when: _add_existing.stat.exists
@@ -34,9 +34,9 @@
 - name: "Re-align {{ _item_type }} to the expected branch"
   when:
     - _add_existing.stat.exists
-    - item.branch | default('') | trim != ''
+    - item.branch | default('', true) | trim != ''
     - _current_branch.rc | default(0) == 0
-    - _current_branch.stdout | default('') | trim != item.branch | default('')
+    - _current_branch.stdout | default('') | trim != item.branch | default('', true)
   block:
     - name: "Fetch expected branch for {{ _item_type }} '{{ item.name }}'"
       ansible.builtin.command:
@@ -75,7 +75,7 @@
 - name: "Warn when the expected branch is unknown (existing checkout)"
   when:
     - _add_existing.stat.exists
-    - item.branch | default('') | trim == ''
+    - item.branch | default('', true) | trim == ''
     - _current_branch.rc | default(0) == 0
   ansible.builtin.debug:
     msg: >-
