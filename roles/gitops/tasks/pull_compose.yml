@@ -305,13 +305,21 @@
     | select('search', 'config/backup-schedule.yml') | list | length > 0
 
 # --- Step 11: Report results ---
+# Collected as a list so the report is one sentence per outcome: the
+# ternaries this replaces rendered '' for every outcome that did not
+# apply, and the folded scalar kept the newlines around them — so a pull
+# needing nothing printed a trailing space and a blank line, and a pull
+# needing both printed an empty third line.
+- name: Summarize what the pull requires
+  ansible.builtin.set_fact:
+    _pull_followup: >-
+      {{ ((['Restart needed.'] if _pull_needs_restart | bool else [])
+      + (['Maintenance update needed (extensions/skins changed).']
+      if _pull_needs_maintenance | bool else []))
+      or ['No restart needed.'] }}
+
 - name: Report pull results
   ansible.builtin.debug:
     msg: >-
       Pulled {{ _pull_prev_commit.stdout[:7] }}..{{ _pull_new_commit.stdout[:7] }}.
-      {{ (_pull_needs_restart | bool)
-         | ternary('Restart needed.', '') }}
-      {{ (_pull_needs_maintenance | bool)
-         | ternary('Maintenance update needed (extensions/skins changed).', '') }}
-      {{ (not _pull_needs_restart | bool and not _pull_needs_maintenance | bool)
-         | ternary('No restart needed.', '') }}
+      {{ _pull_followup | join(' ') }}
