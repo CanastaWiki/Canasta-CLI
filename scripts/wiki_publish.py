@@ -41,6 +41,14 @@ DEFINITIONS_PATH = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 PAGE_PREFIX = "CLI:"
 EDIT_DELAY = 2  # seconds between edits
 
+# The API caps content fetches per request; 20 keeps every batch a single
+# round trip with no continuation. Matches validate_wiki_examples.py.
+TITLES_PER_REQUEST = 20
+
+# Sent with every edit so a replication-lagged wiki refuses the write and
+# the bot backs off, instead of adding load to a database already behind.
+EDIT_MAXLAG = 5
+
 # Transient API errors worth retrying rather than failing the publish:
 # 'ratelimited' is the wiki throttling the bot when a single run changes
 # many pages; 'maxlag' is the DB-replication backpressure guard. Without
@@ -848,6 +856,7 @@ class MediaWikiClient:
                 "text": content,
                 "summary": summary,
                 "token": token,
+                "maxlag": EDIT_MAXLAG,
                 "format": "json",
             })
             error = result.get("error")
@@ -870,6 +879,33 @@ class MediaWikiClient:
                     "Edit failed: %s" % result.get("edit", {}).get("result")
                 )
             return
+
+    def fetch_page_texts(self, titles):
+        """Current wikitext of the given titles, as {normalized title: text}.
+
+        Titles the wiki does not have are absent from the result. Reads
+        are batched, so checking the whole namespace costs a handful of
+        requests where writing it costs one throttled edit per page.
+        """
+        texts = {}
+        for start in range(0, len(titles), TITLES_PER_REQUEST):
+            batch = titles[start:start + TITLES_PER_REQUEST]
+            url = (
+                "%s?action=query&prop=revisions&rvprop=content&rvslots=main"
+                "&formatversion=2&format=json&titles=%s"
+                % (self.api_url, urllib.parse.quote("|".join(batch)))
+            )
+            data = self._open(url)
+            for page in data.get("query", {}).get("pages", []):
+                revisions = page.get("revisions") or []
+                if not revisions:
+                    continue  # the wiki has no such page yet
+                content = (
+                    revisions[0].get("slots", {}).get("main", {}).get("content")
+                )
+                if content is not None:
+                    texts[_normalize_title(page["title"])] = content
+        return texts
 
     def resolve_namespace_id(self, name):
         """Return the namespace id whose canonical or localized name
@@ -971,27 +1007,44 @@ def main():
         return
 
     client = MediaWikiClient(args.api, args.user, args.password)
+
+    # Identical content is a null edit server-side, but MediaWiki pings
+    # the edit rate limiter before it reaches that shortcut — so re-saving
+    # an unchanged page costs the same quota as a real edit, and a run
+    # that changes three pages spent the budget of one that rewrites the
+    # namespace. Read the current text first and write only the diffs;
+    # trailing whitespace is ignored because MediaWiki strips it on save.
+    current = client.fetch_page_texts([title for title, _ in pages])
+
     errors = 0
-    for i, (title, content) in enumerate(pages):
-        if i > 0:
+    attempted = 0
+    published = 0
+    for title, content in pages:
+        stored = current.get(_normalize_title(title))
+        if stored is not None and stored.rstrip() == content.rstrip():
+            continue
+        if attempted:
             time.sleep(EDIT_DELAY)
+        attempted += 1
         try:
             client.edit_page(
                 title, content, "Update Canasta CLI reference"
             )
+            published += 1
             print("Published %s" % title)
         except Exception as e:
             print("ERROR uploading %s: %s" % (title, e), file=sys.stderr)
             errors += 1
 
+    unchanged = len(pages) - attempted
     publish_errors = errors
     prune_errors = prune_orphans(client, pages) if args.prune else 0
 
     if publish_errors or prune_errors:
         if publish_errors:
             print(
-                "Failed to publish %d of %d pages"
-                % (publish_errors, len(pages)),
+                "Failed to publish %d of %d changed pages"
+                % (publish_errors, attempted),
                 file=sys.stderr,
             )
         if prune_errors:
@@ -1000,7 +1053,10 @@ def main():
                 file=sys.stderr,
             )
         sys.exit(1)
-    print("Done: %d pages published" % len(pages))
+    print(
+        "Done: %d page(s) published, %d unchanged"
+        % (published, unchanged)
+    )
 
 
 def _normalize_title(title):
