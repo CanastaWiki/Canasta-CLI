@@ -6,6 +6,8 @@ import re
 import subprocess
 import sys
 
+import yaml
+
 
 from . import _helpers
 from ._helpers import register
@@ -41,6 +43,105 @@ command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || 
 command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING; echo "$D"
 docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown
 """
+
+
+# ansible-lint materializes a stub for every module named in a project's
+# `mock_modules`, so linting can resolve the name without the collection
+# installed. Written into the operator's own collection tree — which older
+# versions did, rather than their own cache — the stub replaces the real
+# module inside a collection that still reports its pinned version. So
+# `ansible-galaxy collection list` shows it healthy, and neither `install`
+# nor `install --upgrade` repairs it: both see the version already present
+# and skip. Only `--force` rewrites the files.
+#
+# The stub's argspec is empty, so the module rejects every option it is
+# given: "Unsupported parameters for (kubernetes.core.k8s) module:
+# definition, state. Supported parameters include: ." It surfaces only
+# against a remote host — a controller-side call is handled by the
+# collection's action plugin, which is not mocked, and never runs the stub.
+_MOCK_MODULE_MARKER = "ansible-lint (@nobody)"
+
+
+def _pinned_collections():
+    """(namespace, name) for each collection requirements.yml pins."""
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "requirements.yml")
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    out = []
+    for entry in data.get("collections", []) or []:
+        name = entry.get("name") if isinstance(entry, dict) else entry
+        if isinstance(name, str) and name.count(".") == 1:
+            out.append(tuple(name.split(".")))
+    return out
+
+
+def _collection_search_paths():
+    """Where ansible looks for installed collections, in its own order."""
+    env = (os.environ.get("ANSIBLE_COLLECTIONS_PATH")
+           or os.environ.get("ANSIBLE_COLLECTIONS_PATHS") or "")
+    paths = [p for p in env.split(os.pathsep) if p]
+    if not paths:
+        home = os.environ.get("ANSIBLE_HOME") or os.path.expanduser("~/.ansible")
+        paths = [os.path.join(home, "collections"),
+                 "/usr/share/ansible/collections"]
+    return paths
+
+
+def _mocked_collection_modules():
+    """['ns.name: module', ...] for lint stubs found in installed collections.
+
+    Only the collections requirements.yml pins are inspected: those are the
+    ones the CLI executes, and a stub anywhere else is not its problem.
+    """
+    found = []
+    for namespace, name in _pinned_collections():
+        for base in _collection_search_paths():
+            mod_dir = os.path.join(
+                base, "ansible_collections", namespace, name,
+                "plugins", "modules")
+            if not os.path.isdir(mod_dir):
+                continue
+            try:
+                entries = sorted(os.listdir(mod_dir))
+            except OSError:
+                continue
+            for entry in entries:
+                if not entry.endswith(".py"):
+                    continue
+                try:
+                    with open(os.path.join(mod_dir, entry), errors="ignore") as f:
+                        head = f.read(2048)
+                except OSError:
+                    continue
+                if _MOCK_MODULE_MARKER in head:
+                    found.append("%s.%s: %s" % (namespace, name, entry[:-3]))
+            # First match on the search path is the one ansible would use.
+            break
+    return found
+
+
+def _collection_integrity_lines():
+    """Report collections whose modules have been replaced by lint stubs."""
+    mocked = _mocked_collection_modules()
+    if not mocked:
+        return []
+    return [
+        "",
+        "Controller (this machine):",
+        "  Ansible collections: %d module(s) replaced by ansible-lint stubs "
+        "— %s. These reject every option they are given when they run on a "
+        "remote host, so Kubernetes commands against --host fail with "
+        "\"Supported parameters include: .\". The collection still reports "
+        "its pinned version, and 'ansible-galaxy collection install "
+        "--upgrade' will not repair it. Fix with: ansible-galaxy collection "
+        "install --force -r requirements.yml"
+        % (len(mocked), ", ".join(mocked)),
+    ]
 
 
 def _install_escalation_blocked(sudo_version, sudo_nopasswd):
@@ -1229,6 +1330,9 @@ def cmd_doctor(args):
             return 1
 
     print(_parse_doctor(stdout, hostname))
+
+    for line in _collection_integrity_lines():
+        print(line)
 
     for line in _instance_consistency_lines(inst):
         print(line)
