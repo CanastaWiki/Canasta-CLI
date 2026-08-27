@@ -50,11 +50,13 @@ def test_removal_set_excludes_pinned_tags():
 
 
 def test_pins_come_from_every_instance_on_the_host_not_from_containers():
-    read = _by_name("Read the image each instance is pinned to")
-    assert read["canasta_env"]["key"] == "CANASTA_IMAGE"
-    query = _by_name("Find the instances registered on this host")
+    read = _by_name("Read the images each instance is pinned to")
+    assert read["canasta_env"]["state"] == "read_all"
+    query = _by_name("Find every registered instance")
     assert query["canasta_registry"]["state"] == "query_all"
-    assert query["canasta_registry"]["filter_host"] == "{{ _reclaim_host_name }}"
+    # Not host-filtered: --host is often an SSH alias that does not match the
+    # registry's canonical user@fqdn, which silently emptied the pin set.
+    assert "filter_host" not in query["canasta_registry"]
     # The registry lives on the controller, never on the target.
     assert query["delegate_to"] == "canasta_controller"
 
@@ -88,7 +90,7 @@ def test_every_destructive_task_is_gated_on_dry_run():
     destructive = [
         "Remove Canasta image tags no instance needs",
         "Prune dangling images (sidecar rebuild orphans)",
-        "Prune containerd images no pod references",
+        "Remove containerd images nothing on this host needs",
         "Garbage-collect the in-cluster registry",
     ]
     for name in destructive:
@@ -106,37 +108,78 @@ def test_registry_gc_include_is_not_wrapped_in_a_conditional_block():
             assert "ansible.builtin.include_tasks" not in child, task.get("name")
 
 
-class TestContainerdPruneActuallyRuns:
-    """k3s installs a bare crictl on PATH whose config only root can read,
-    and the containerd socket is root-owned. An unprivileged run of the
-    wrong binary exits non-zero having pruned nothing, and reported the
-    same "0 image(s) removed" as a host with nothing to reclaim."""
+class TestContainerdReclaimIsPinAware:
+    """`crictl rmi --prune` decides by pod references alone, and `canasta
+    stop` scales a Kubernetes instance to zero pods. A blanket prune
+    therefore removed the stopped instance's own image — the same defect
+    the Docker path had, on the other orchestrator.
 
-    def _task(self):
-        return _by_name("Prune containerd images no pod references")
+    crictl cannot express an exclusion, so the removal set is computed
+    here and the images are removed individually.
+    """
+
+    def test_the_blanket_prune_is_gone(self):
+        for cmd in _commands():
+            assert "rmi --prune" not in cmd, (
+                "--prune cannot exclude a pinned image: %s" % cmd
+            )
+
+    def test_selection_excludes_in_use_pinned_and_sandbox_images(self):
+        script = _by_name(
+            "Select the containerd images nothing on this host needs"
+        )["ansible.builtin.shell"]["cmd"]
+        assert "in_use" in script and "imageRef" in script, (
+            "images a container references must be kept"
+        )
+        assert "pinned.intersection" in script, (
+            "images an instance on this host records must be kept"
+        )
+        assert 'img.get("pinned")' in script, (
+            "containerd's own pinned images (the sandbox image) must be kept"
+        )
+
+    def test_pins_are_passed_in_from_the_registry_derived_set(self):
+        task = _by_name(
+            "Select the containerd images nothing on this host needs"
+        )
+        assert "_reclaim_pinned" in str(task.get("environment"))
 
     def test_prefers_k3s_crictl_over_the_bare_binary(self):
-        cmd = self._task()["ansible.builtin.shell"]["cmd"]
-        k3s_at = cmd.index("k3s crictl rmi")
-        bare_at = cmd.index("then crictl rmi")
-        assert k3s_at < bare_at, (
-            "bare crictl cannot find the k3s containerd endpoint; the k3s "
-            "branch must be tried first"
+        cmd = _by_name("Resolve the crictl invocation")[
+            "ansible.builtin.shell"]["cmd"]
+        assert cmd.index("k3s crictl") < cmd.index("echo 'crictl'"), (
+            "bare crictl cannot find the k3s containerd endpoint"
         )
 
-    def test_runs_elevated(self):
-        assert self._task().get("become") is True, (
-            "the containerd socket is root-owned"
-        )
+    def test_containerd_tasks_run_elevated(self):
+        for name in ("Resolve the crictl invocation",
+                     "Select the containerd images nothing on this host needs",
+                     "Remove containerd images nothing on this host needs"):
+            assert _by_name(name).get("become") is True, name
 
-    def test_a_failed_prune_is_reported_as_a_failure(self):
-        report = _by_name("Report a containerd prune that could not run")
-        cond = str(report.get("when"))
-        assert "_reclaim_crictl.rc" in cond and "!= 0" in cond
+    def test_a_failed_selection_is_reported_as_a_failure(self):
+        cond = str(_by_name(
+            "Report a containerd reclaim that could not run").get("when"))
+        assert "_reclaim_crictl_candidates.rc" in cond and "!= 0" in cond
 
     def test_the_success_report_does_not_claim_zero_on_failure(self):
-        report = _by_name("Report containerd reclaim")
-        cond = str(report.get("when"))
-        assert "_reclaim_crictl.rc" in cond and "== 0" in cond, (
-            "a failed prune must not print '0 image(s) removed'"
-        )
+        cond = str(_by_name("Report containerd reclaim").get("when"))
+        assert "_reclaim_crictl_candidates.rc" in cond and "== 0" in cond
+
+
+class TestPinSetCoversEveryImageKey:
+    """CANASTA_IMAGE alone left an instance's Caddy and Elasticsearch
+    images unprotected."""
+
+    def test_all_image_valued_env_keys_are_pinned(self):
+        keys = _by_name("Name the .env keys that hold an image reference")[
+            "ansible.builtin.set_fact"]["_reclaim_image_keys"]
+        assert set(keys) >= {
+            "CANASTA_IMAGE",
+            "CANASTA_CADDY_IMAGE",
+            "CANASTA_ELASTICSEARCH_IMAGE",
+        }
+
+    def test_pins_are_read_from_every_instance_on_the_host(self):
+        read = _by_name("Read the images each instance is pinned to")
+        assert read["canasta_env"]["state"] == "read_all"

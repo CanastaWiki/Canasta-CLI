@@ -8,46 +8,67 @@
 #
 # Volumes are never touched.
 #
-# A tag pinned in the .env of an instance registered on this host is kept
-# whether or not that instance is running: `canasta stop` runs `docker compose
-# down`, so a stopped instance keeps no container that would make Docker
-# refuse the removal.
+# An image reference recorded in the .env of an instance registered on this
+# host is kept whether or not that instance is running. Neither runtime's own
+# notion of "in use" covers a stopped instance: `canasta stop` runs `docker
+# compose down` on Compose, removing the containers, and scales workloads to
+# zero on Kubernetes, leaving no pod. The recorded pins are the durable
+# record, so they decide what stays.
 #
 # Shared by `canasta image prune` and `canasta upgrade --purge`.
 
-- name: Find the instances registered on this host
+# Deliberately unfiltered. The registry stores a canonical 'user@fqdn' host,
+# while --host is whatever the operator typed — often an SSH alias that
+# matches nothing, which would silently empty the pin set and protect
+# nothing. The pins are a safety list, so an image any registered instance
+# records is kept here; the cost of keeping one extra tag is a re-pull
+# avoided, the cost of missing one is a live instance's image deleted.
+- name: Find every registered instance
   canasta_registry:
     state: query_all
-    filter_host: "{{ _reclaim_host_name }}"
   delegate_to: canasta_controller
   vars:
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _reclaim_instances
 
-- name: Read the image each instance is pinned to
+# Every .env key whose value names a container image. A reference any
+# instance on this host records is kept, running or not.
+- name: Name the .env keys that hold an image reference
+  ansible.builtin.set_fact:
+    _reclaim_image_keys:
+      - CANASTA_IMAGE
+      - CANASTA_CADDY_IMAGE
+      - CANASTA_ELASTICSEARCH_IMAGE
+
+- name: Read the images each instance is pinned to
   canasta_env:
     path: "{{ _reclaim_inst.value.path }}/.env"
-    state: read
-    key: CANASTA_IMAGE
+    state: read_all
   loop: "{{ _reclaim_instances.instances | default({}) | dict2items }}"
   loop_control:
     loop_var: _reclaim_inst
     label: "{{ _reclaim_inst.key }}"
   register: _reclaim_pin_reads
+  # read_all registers the whole .env, every password in it included.
+  no_log: true
   changed_when: false
   failed_when: false
 
-# An instance whose .env could not be read contributes no value key, so it is
-# dropped rather than adding an empty string that matches nothing.
-- name: Collect the pinned image tags
+# An instance whose .env could not be read contributes no variables, so it is
+# dropped rather than adding empty strings that match nothing.
+- name: Collect the pinned image references
   ansible.builtin.set_fact:
     _reclaim_pinned: >-
       {{ _reclaim_pin_reads.results | default([])
-         | selectattr('value', 'defined')
+         | selectattr('variables', 'defined')
+         | map(attribute='variables')
+         | map('dict2items')
+         | flatten
+         | selectattr('key', 'in', _reclaim_image_keys)
          | map(attribute='value')
          | reject('equalto', '')
-         | list }}
+         | list | unique }}
 
 # --- Docker / Compose reclaim ---
 - name: Probe for a working Docker daemon
@@ -145,23 +166,83 @@
     - _reclaim_k8s.rc == 0
     - reclaim_dry_run | default(false) | bool
 
-# crictl rmi --prune removes only images no pod references, so a pod running
-# the current tag keeps its image while a superseded one goes.
+# crictl offers no way to exclude an image from --prune, and --prune decides
+# purely by pod references — which a stopped instance has none of, because
+# `canasta stop` scales its workloads to zero. The removal set is therefore
+# computed here: unreferenced by any container, not containerd-pinned (the
+# sandbox image), and not recorded by any instance registered on this host.
 #
 # k3s puts a bare crictl on PATH whose config lives at
 # /var/lib/rancher/k3s/agent/etc/crictl.yaml and is readable only by root;
 # `k3s crictl` supplies the containerd endpoint itself. Try that first, and
 # elevate — the containerd socket is root-owned, so an unprivileged run exits
-# non-zero having pruned nothing.
-- name: Prune containerd images no pod references
+# non-zero having done nothing.
+- name: Resolve the crictl invocation
   ansible.builtin.shell:
     cmd: >-
-      if command -v k3s >/dev/null 2>&1; then k3s crictl rmi --prune;
-      elif command -v crictl >/dev/null 2>&1; then crictl rmi --prune;
-      else echo 'no crictl on host'; fi
+      if command -v k3s >/dev/null 2>&1; then echo 'k3s crictl';
+      elif command -v crictl >/dev/null 2>&1; then echo 'crictl';
+      else echo 'none'; fi
   become: true
-  register: _reclaim_crictl
-  changed_when: "'Deleted' in _reclaim_crictl.stdout"
+  register: _reclaim_crictl_bin
+  changed_when: false
+  failed_when: false
+  when: _reclaim_k8s.rc == 0
+
+- name: Select the containerd images nothing on this host needs
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      { {{ _reclaim_crictl_bin.stdout | trim }} images -o json
+        echo "$SPLIT"
+        {{ _reclaim_crictl_bin.stdout | trim }} ps -a -o json
+      } | python3 -c '
+      import json, os, sys
+      raw = sys.stdin.read().split(os.environ["SPLIT"])
+      images = json.loads(raw[0]).get("images") or []
+      containers = json.loads(raw[1]).get("containers") or []
+      in_use = {c.get("imageRef") for c in containers}
+      pinned = {r for r in os.environ.get("PINNED", "").split(",") if r}
+      for img in images:
+          if img.get("pinned"):
+              continue
+          if img.get("id") in in_use:
+              continue
+          if pinned.intersection(img.get("repoTags") or []):
+              continue
+          print(img["id"])
+      '
+  environment:
+    SPLIT: "@@CANASTA_RECLAIM_SPLIT@@"
+    PINNED: "{{ _reclaim_pinned | join(',') }}"
+  become: true
+  register: _reclaim_crictl_candidates
+  changed_when: false
+  failed_when: false
+  when:
+    - _reclaim_k8s.rc == 0
+    - (_reclaim_crictl_bin.stdout | default('none') | trim) != 'none'
+
+- name: Report the containerd images that would be removed
+  ansible.builtin.debug:
+    msg: >-
+      Dry run - would remove
+      {{ _reclaim_crictl_candidates.stdout_lines | default([]) | length }}
+      containerd image(s) on {{ _reclaim_host_name }}.
+  when:
+    - _reclaim_k8s.rc == 0
+    - reclaim_dry_run | default(false) | bool
+    - _reclaim_crictl_candidates.rc | default(1) == 0
+
+- name: Remove containerd images nothing on this host needs
+  ansible.builtin.command:
+    cmd: "{{ _reclaim_crictl_bin.stdout | trim }} rmi {{ _reclaim_crictl_image }}"
+  become: true
+  loop: "{{ _reclaim_crictl_candidates.stdout_lines | default([]) }}"
+  loop_control:
+    loop_var: _reclaim_crictl_image
+  register: _reclaim_crictl_removed
+  changed_when: false
   failed_when: false
   when:
     - _reclaim_k8s.rc == 0
@@ -171,28 +252,30 @@
   ansible.builtin.debug:
     msg: >-
       containerd:
-      {{ (_reclaim_crictl.stdout_lines | default([])
-          | select('search', 'Deleted')
-          | list | length) }}
+      {{ _reclaim_crictl_removed.results | default([])
+         | selectattr('rc', 'defined')
+         | selectattr('rc', 'equalto', 0)
+         | list | length }}
       image(s) removed.
   when:
     - _reclaim_k8s.rc == 0
     - not (reclaim_dry_run | default(false) | bool)
-    - _reclaim_crictl.rc | default(0) == 0
+    - _reclaim_crictl_candidates.rc | default(1) == 0
 
-# A prune that could not run reclaims nothing and would otherwise report the
-# same "0 image(s) removed" as a host that had nothing to reclaim.
-- name: Report a containerd prune that could not run
+# A selection that could not run reclaims nothing and would otherwise report
+# the same "0 image(s) removed" as a host that had nothing to reclaim.
+- name: Report a containerd reclaim that could not run
   ansible.builtin.debug:
     msg: >-
-      containerd prune failed (rc={{ _reclaim_crictl.rc | default('unknown') }});
+      containerd reclaim failed
+      (rc={{ _reclaim_crictl_candidates.rc | default('unknown') }});
       no images were removed.
-      {{ _reclaim_crictl.stderr_lines | default([]) | last
+      {{ _reclaim_crictl_candidates.stderr_lines | default([]) | last
          | default('No error output.', true) }}
   when:
     - _reclaim_k8s.rc == 0
     - not (reclaim_dry_run | default(false) | bool)
-    - _reclaim_crictl.rc | default(0) != 0
+    - _reclaim_crictl_candidates.rc | default(1) != 0
 
 - name: Garbage-collect the in-cluster registry
   ansible.builtin.include_tasks: >-
