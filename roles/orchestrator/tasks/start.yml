@@ -177,6 +177,54 @@
           {{ _start_logs.stdout | default('(not captured)') }}
       when: _start_result.rc | default(0) != 0
 
+    # `up -d` exiting 0 is not evidence that every service started:
+    # podman-compose reports success while a service it could not create —
+    # an image reference it cannot resolve, say — is simply absent. The
+    # checks below cover `web` alone, so any other service went missing
+    # without a word and the command still reported success.
+    #
+    # Absence, not "not running", is the test: `observable-init` is a
+    # one-shot (restart: "no") and has an exited container by design, so a
+    # service that ran and exited is not a failure. A service with no
+    # container was never created.
+    - name: List the services that have a container
+      ansible.builtin.command:
+        argv:
+          - "{{ _inspect_cmd }}"
+          - ps
+          - "-a"
+          - --filter
+          - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+          - --format
+          - '{% raw %}{{.Label "com.docker.compose.service"}}{% endraw %}'
+        chdir: "{{ instance_path }}"
+      register: _start_present_services
+      changed_when: false
+      failed_when: false
+
+    # An unreadable expected-service list leaves this empty, matching the
+    # pre-start comparison above: an unknown answer is not a failure.
+    - name: Determine which expected services never started
+      ansible.builtin.set_fact:
+        _start_absent_services: >-
+          {{ ((_expected_services.stdout | default('')).split()
+              if _expected_services.rc | default(1) == 0 else [])
+             | difference((_start_present_services.stdout | default('')).split()) }}
+
+    - name: Fail when an expected service never started
+      ansible.builtin.fail:
+        msg: >-
+          The containers started, but the active profiles select
+          {{ _start_absent_services | join(', ') }}, which
+          {{ 'has' if _start_absent_services | length == 1 else 'have' }}
+          no container on the host for instance '{{ instance_id }}'.
+          The instance is not fully up. The compose command reported
+          success, so the reason is per-service — check the container
+          logs on the host, and confirm the image reference for
+          {{ _start_absent_services | join(', ') }} can be resolved
+          there.
+      when: _start_absent_services | length > 0
+
     # Wait for the web container to finish booting before returning.
     # /run-all.sh in the canasta image runs `composer update`
     # synchronously before starting apache; install.php and any other
