@@ -168,11 +168,32 @@ if ! canasta backup schedule set -i "${INSTANCE_ID}" "0 4 * * *" --purge-older-t
     fail "schedule set with --purge-older-than"
 else
     SCHED_OUTPUT=$(canasta backup schedule list -i "${INSTANCE_ID}" 2>&1) || true
+    # --purge-older-than is a spelling of --keep-within, and the schedule
+    # reports the retention in restic's own flags.
     if echo "${SCHED_OUTPUT}" | grep -q "0 4 \* \* \*" \
-       && echo "${SCHED_OUTPUT}" | grep -q "snapshots older than 30d"; then
-        pass "schedule list shows purge duration when --purge set"
+       && echo "${SCHED_OUTPUT}" | grep -q -- "--keep-within 30d"; then
+        pass "schedule list shows the retention flags when --purge set"
     else
         fail "schedule list (with --purge) unexpected output: ${SCHED_OUTPUT}"
+    fi
+fi
+echo ""
+
+# --- Test 5b: a multi-flag retention policy round-trips ---
+# The reason the schedule reports flags rather than prose: a policy of
+# several --keep-* flags has no single duration to name.
+echo "Test 5b: backup schedule list (multi-flag retention)"
+if ! canasta backup schedule set -i "${INSTANCE_ID}" "0 5 * * *" \
+        --keep-daily 7 --keep-weekly 4 2>&1; then
+    fail "schedule set with --keep-daily/--keep-weekly"
+else
+    SCHED_OUTPUT=$(canasta backup schedule list -i "${INSTANCE_ID}" 2>&1) || true
+    if echo "${SCHED_OUTPUT}" | grep -q "0 5 \* \* \*" \
+       && echo "${SCHED_OUTPUT}" | grep -q -- "--keep-daily 7" \
+       && echo "${SCHED_OUTPUT}" | grep -q -- "--keep-weekly 4"; then
+        pass "schedule list shows every flag of a multi-flag policy"
+    else
+        fail "schedule list (multi-flag) unexpected output: ${SCHED_OUTPUT}"
     fi
 fi
 echo ""
