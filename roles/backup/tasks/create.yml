@@ -1,8 +1,9 @@
 ---
-# Backup create - full staging flow.
+# Backup create.
 # 1. Dump DBs via docker compose exec
-# 2. Stage host dirs into backup volume via alpine
-# 3. Run restic/restic container to create snapshot
+# 2. Collect the paths the snapshot covers
+# 3. Run restic/restic container, with those paths mounted read-only, to
+#    create the snapshot
 
 - name: Resolve instance
   ansible.builtin.include_tasks: >-

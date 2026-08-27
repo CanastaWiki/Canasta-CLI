@@ -110,7 +110,7 @@ class TestPhasesAreAnnounced:
     def test_backup_announces_its_phases(self):
         messages = " ".join(_debug_messages(CREATE) + _debug_messages(RUN_BACKUP))
         assert "Dumping databases" in messages
-        assert "Staging" in messages
+        assert "Running restic" in messages
 
     def test_restore_announces_its_phases(self):
         messages = " ".join(_debug_messages(RESTORE))
