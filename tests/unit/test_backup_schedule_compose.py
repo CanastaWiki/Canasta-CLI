@@ -6,15 +6,17 @@ did not accept `--keep-within` (it had a canasta-specific `--older-than`
 instead). Every scheduled purge failed and snapshots accumulated even
 though `create` succeeded.
 
-The fix made `canasta backup purge` mirror restic's `forget` flags
-(including `--keep-within`). These tests guard the invariant directly:
-the flag the schedule generates must be one the purge command accepts.
+The fix made `canasta backup purge` mirror restic's `forget` flags.
+`schedule set` now mirrors them too, so these tests guard the invariant
+directly: every flag the schedule can generate must be one the purge
+command accepts. A flag purge does not know kills the scheduled job at
+argument parsing, on every run, producing no output at all — the backup
+simply stops happening.
 
 Pure YAML-structure parsing, mirroring test_backup_schedule_k8s.py.
 """
 
 import os
-import re
 
 import yaml
 
@@ -24,6 +26,11 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 # itself just persists config/backup-schedule.yml and includes apply.
 SCHEDULE_SET = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_apply.yml",
+)
+# The CLI flags are collected in the backup role's schedule_set entry,
+# which then hands the policy to the shared apply task.
+SCHEDULE_ROLE = os.path.join(
+    REPO_ROOT, "roles", "backup", "tasks", "schedule_set.yml",
 )
 COMMAND_DEFS = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
@@ -39,43 +46,79 @@ def _walk_tasks(tasks):
                 yield from _walk_tasks(t[nested])
 
 
-def _compose_purge_flag():
-    """The retention flag in the Compose `_cron_purge` template."""
-    with open(SCHEDULE_SET) as f:
-        tasks = yaml.safe_load(f)
-    for task in _walk_tasks(tasks):
-        sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
-        if isinstance(sf, dict) and "_cron_purge" in sf:
-            m = re.search(r"backup purge\b.*?(--[a-z-]+)", sf["_cron_purge"])
-            assert m, "no purge flag found in _cron_purge template"
-            return m.group(1)
-    raise AssertionError("schedule_set.yml has no _cron_purge set_fact")
-
-
-def _purge_accepted_flags():
-    """Flags accepted by `canasta backup purge`, per command_definitions."""
+def _accepted_flags(command_name):
+    """Flags accepted by a command, per command_definitions.yml."""
     with open(COMMAND_DEFS) as f:
         defs = yaml.safe_load(f)
     for cmd in defs.get("commands", []):
-        if cmd.get("name") == "backup_purge":
+        if cmd.get("name") == command_name:
             return {
-                "--" + p["name"].replace("_", "-")
+                "--" + (p.get("long") or p["name"]).replace("_", "-")
                 for p in cmd.get("parameters", [])
+                if not p.get("positional")
             }
-    raise AssertionError("backup_purge not found in command_definitions.yml")
+    raise AssertionError("%s not found in command_definitions.yml" % command_name)
+
+
+def _scheduled_retention_flags():
+    """Retention flags `schedule set` can put on the chained purge.
+
+    The scheduler builds them from the parameter names it collects, so
+    that list — not a spelling hard-coded into the cron template — is what
+    bounds the flags the crontab line can carry.
+    """
+    with open(SCHEDULE_ROLE) as f:
+        tasks = yaml.safe_load(f)
+    for task in _walk_tasks(tasks):
+        sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+        if isinstance(sf, dict) and "_retention_params" in sf:
+            return {"--" + name.replace("_", "-")
+                    for name in sf["_retention_params"]}
+    raise AssertionError("schedule_set.yml has no _retention_params set_fact")
 
 
 class TestComposeSchedulePurgeFlag:
-    def test_schedule_purge_flag_is_accepted_by_purge(self):
-        flag = _compose_purge_flag()
-        accepted = _purge_accepted_flags()
-        assert flag in accepted, (
-            f"schedule generates `canasta backup purge {flag}` but purge "
-            f"only accepts {sorted(accepted)}"
+    def test_every_scheduled_retention_flag_is_accepted_by_purge(self):
+        emitted = _scheduled_retention_flags()
+        accepted = _accepted_flags("backup_purge")
+        assert emitted <= accepted, (
+            "schedule set would generate `canasta backup purge %s`, which "
+            "purge does not accept (it accepts %s)"
+            % (sorted(emitted - accepted), sorted(accepted))
         )
 
-    def test_schedule_uses_restic_native_keep_within(self):
-        assert _compose_purge_flag() == "--keep-within"
+    def test_schedule_set_offers_the_full_purge_retention_policy(self):
+        """A policy that can be purged by hand must be schedulable —
+        otherwise the workaround is a hand-written crontab entry the CLI
+        does not own, which `schedule remove` then orphans."""
+        purge_retention = {
+            f for f in _accepted_flags("backup_purge") if f.startswith("--keep-")
+        }
+        missing = purge_retention - _accepted_flags("backup_schedule_set")
+        assert not missing, (
+            "backup purge accepts %s but backup schedule set does not"
+            % sorted(missing)
+        )
+
+    def test_purge_older_than_survives_as_an_alias(self):
+        """In live use with durations from 90d to 180d, so it cannot be
+        dropped in favor of --keep-within."""
+        assert "--purge-older-than" in _accepted_flags("backup_schedule_set")
+
+    def test_no_retention_policy_chains_no_purge(self):
+        """`restic forget` with no policy deletes everything it was not
+        told to keep, so an empty flag list must mean no purge at all."""
+        with open(SCHEDULE_SET) as f:
+            tasks = yaml.safe_load(f)
+        for task in _walk_tasks(tasks):
+            sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
+            if isinstance(sf, dict) and "_cron_purge" in sf:
+                assert "if _cron_retention != '' else ''" in sf["_cron_purge"], (
+                    "the purge must be chained only when a retention policy "
+                    "was given"
+                )
+                return
+        raise AssertionError("backup_schedule_apply.yml has no _cron_purge")
 
 
 def _compose_tasks():

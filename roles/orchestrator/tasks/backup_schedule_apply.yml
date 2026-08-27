@@ -10,7 +10,8 @@
 # after restore / gitops pull (from the persisted config/backup-schedule.yml).
 #
 # Input: instance_id, instance_path, instance_orchestrator,
-#        cron_expression, purge_older_than (optional)
+#        cron_expression, retention (optional dict of restic forget flags,
+#        e.g. {'keep-daily': '7', 'keep-weekly': '4'})
 
 # Migration: older K8s instances scheduled via an in-cluster CronJob. Now
 # that the crontab drives scheduling, remove any legacy CronJob so a
@@ -80,16 +81,27 @@
     # run; everything else edits the live crontab.
     _sched_use_file: "{{ _sched_is_local and _host_crontab_file != '' }}"
 
+# dictsort, not the policy's own order, so setting the same schedule
+# twice writes a byte-identical crontab line.
 - name: Build backup command for cron
   ansible.builtin.set_fact:
     _cron_base: >-
       {{ _canasta_bin }} backup create
       -i {{ instance_id }} --tag scheduled
-    _cron_purge: >-
-      {{ (purge_older_than is defined and purge_older_than != '')
-         | ternary('&& ' + _canasta_bin
-         + ' backup purge -i ' + instance_id + ' --keep-within ' + (purge_older_than | default('')), '') }}
+    _cron_retention: >-
+      {{ '--' + ((retention | default({}, true)) | dictsort
+                 | map('join', ' ') | join(' --'))
+         if (retention | default({}, true)) else '' }}
     _cron_log: '>> "{{ instance_path }}/backup.log" 2>&1'
+
+# No retention policy means no purge at all — an empty flag list would
+# make `restic forget` delete every snapshot it was not told to keep.
+- name: Chain a purge onto the scheduled backup
+  ansible.builtin.set_fact:
+    _cron_purge: >-
+      {{ ('&& ' + _canasta_bin + ' backup purge -i ' + instance_id
+          + ' ' + _cron_retention)
+         if _cron_retention != '' else '' }}
 
 # Redirection binds to a single simple command, not to an '&&' list, so
 # appending '>> backup.log 2>&1' to 'create && purge' redirects the purge
