@@ -165,6 +165,18 @@ def old_wiki_dirs(base):
     )
 
 
+def env_readable_beyond_owner(path):
+    """True if .env carries any group or other permission bit.
+
+    It holds MYSQL_PASSWORD, RESTIC_PASSWORD, MW_SECRET_KEY and the
+    CrowdSec bouncer API key, so anything past the owner is too much.
+    """
+    try:
+        return bool(os.stat(path).st_mode & 0o077)
+    except OSError:
+        return False
+
+
 def main():
     if len(sys.argv) != 2:
         print(json.dumps(
@@ -196,6 +208,7 @@ def main():
             "gitops_host": os.path.isfile(gitops_host),
             "legacy_git": os.path.isdir(legacy_git),
             "hosts_yaml": os.path.isfile(hosts_yaml),
+            "env_readable_beyond_owner": env_readable_beyond_owner(env_path),
         },
         "old_wiki_dirs": old_wiki_dirs(base),
         "stray_php": list_files_matching(
