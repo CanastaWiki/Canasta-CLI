@@ -92,6 +92,7 @@ def tls_wiki(tmp_path):
     certfile, keyfile = _self_signed_cert(tmp_path, WIKI_DOMAIN)
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(certfile, keyfile)
 
     seen_sni = []
