@@ -38,6 +38,13 @@
         backup_volumes is defined
         and backup_volumes | length > 0
       block:
+        # The minimal stdout callback lets debug messages through and
+        # almost nothing else, and these two steps are where a large
+        # instance spends its time with nothing on screen.
+        - name: Report the staging phase
+          ansible.builtin.debug:
+            msg: "Staging the instance's files into the backup volume..."
+
         - name: Build and run staging container
           ansible.builtin.shell:
             cmd: |
@@ -134,21 +141,47 @@
           and use LF line endings.
       when: _backup_env_warn | length > 0
 
+    # restic prints its progress line only to a terminal unless
+    # RESTIC_PROGRESS_FPS is set, and the container has none here. A low
+    # rate keeps a multi-hour run's log small; one line per 20 seconds is
+    # enough to tell a working backup from a stalled one.
+    #
+    # Only backup and restore get a log: they are the long ones, and a
+    # snapshot listing in backup.log buries what the file is read for.
+    - name: Decide where this restic run is logged
+      ansible.builtin.set_fact:
+        _backup_tee: >-
+          {{ ('| tee -a ' + instance_path + '/backup.log')
+             if (backup_args | intersect(['backup', 'restore'])) else '' }}
+
     - name: Run restic and hand the repo back to its owner
       block:
+        - name: Report the restic phase
+          ansible.builtin.debug:
+            msg: >-
+              Running restic; progress is appended to
+              {{ instance_path }}/backup.log
+          when: _backup_tee != ''
+
+        # pipefail, or the task's rc comes from tee and a failed restic
+        # reads as a successful backup.
         - name: Run restic container
           ansible.builtin.shell:
             cmd: |
+              set -o pipefail
               {{ inspect_command }} run --rm -i \
                 --env-file {{ instance_path }}/.env \
+                -e RESTIC_PROGRESS_FPS={{ backup_progress_fps | default('0.05') }} \
                 -v {{ _bvol }}:/currentsnapshot \
               {% if _backup_local_repo %}
                 -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
               {% endif %}
                 docker.io/restic/restic \
                 --cache-dir /tmp/restic-cache \
-                {{ backup_args | join(' ') }}
+                {{ backup_args | join(' ') }} {{ _backup_tee }}
             chdir: "{{ instance_path }}"
+          args:
+            executable: /bin/bash
           register: _compose_restic_result
           changed_when: true
 

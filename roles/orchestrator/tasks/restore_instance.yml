@@ -162,6 +162,10 @@
             exec_service: web
             exec_command: "rm -rf /mediawiki/config/backup"
 
+    - name: Report the restore phase
+      ansible.builtin.debug:
+        msg: "Clearing the staging volume, then restoring the snapshot..."
+
     # The safety backup above stages the CURRENT instance into this same volume,
     # and `restic restore` does not prune its target — so any file present now
     # but absent from the snapshot would survive the restore and be copied back
@@ -183,6 +187,11 @@
           - "{{ _resolved_snapshot }}"
           - "--target"
           - "/"
+
+    - name: Report the copy phase
+      ansible.builtin.debug:
+        msg: "Copying the restored files onto the host..."
+      when: wiki is not defined
 
     # The standard MediaWiki dirs are replaced wholesale (rm -rf then copy) so a
     # restore doesn't leave stale files behind. Everything else the snapshot holds
@@ -303,6 +312,10 @@
         instance_path: "{{ instance_path }}"
         state: read
       register: _restore_wikis
+
+    - name: Report the database-import phase
+      ansible.builtin.debug:
+        msg: "Importing the restored databases..."
 
     # The dump carries DROP TABLE + CREATE TABLE per table, so tables it
     # contains are replaced wholesale. Tables created after the snapshot
