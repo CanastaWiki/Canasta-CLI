@@ -57,6 +57,7 @@
     - backfill_canasta_image.yml
     - backfill_compose_profiles.yml
     - backfill_hosts_yaml.yml
+    - tighten_env_permissions.yml
   loop_control:
     loop_var: _migration
 
