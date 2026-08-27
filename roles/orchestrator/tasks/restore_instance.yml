@@ -190,14 +190,14 @@
     # (Dockerfile, build context dirs) staged by backup_discover_build_paths.yml - is
     # copied back generically, so the restore round-trips whatever was captured.
     #
-    # cp -a preserves the snapshot's NUMERIC uids. On a cross-host restore those
-    # ids need not map to a real user here, so restored top-level files (notably
-    # .env, mode 0600) come back owned by an unmapped uid and become unreadable
-    # by the CLI user — which aborts the very next step (preserving the DB
-    # password) and leaves the instance broken. Normalize the restored top-level
-    # files to the instance dir's owner (the CLI user), mirroring 'gitops join';
-    # the web entrypoint re-establishes www-data on the content dirs at the
-    # post-restore restart.
+    # cp -a preserves the snapshot's NUMERIC uids, which on a cross-host
+    # restore need not map to a real user here. Files the CLI user does not
+    # own are unreadable to it (.env is mode 0600), unchmodable, and refused
+    # outright by git's safe.directory check — so the whole restored tree is
+    # given to the instance directory's owner, mirroring 'gitops join'. The
+    # container side needs no numeric uid: the web entrypoint's
+    # make_dir_writable chgrps to www-data and sets g=rwX, which is how
+    # MediaWiki keeps write access to content it does not own.
     - name: Copy files from volume to host
       when: wiki is not defined
       ansible.builtin.shell:
@@ -223,10 +223,7 @@
               [ -d "$e" ] && rm -rf "/install/$name";
               cp -a "$e" "/install/$name";
             done;
-            own=$(stat -c "%u:%g" /install);
-            for f in /install/* /install/.[!.]*; do
-              [ -f "$f" ] && chown "$own" "$f";
-            done'
+            chown -R "$(stat -c "%u:%g" /install)" /install'
       changed_when: true
 
     # Single-wiki restore (-w) brings back only the target wiki's per-wiki
@@ -272,8 +269,22 @@
               fi;
             done;
             mkdir -p /install/config/backup;
-            cp -a "/currentsnapshot/config/backup/db_$W.sql" /install/config/backup/db_$W.sql'
+            cp -a "/currentsnapshot/config/backup/db_$W.sql" /install/config/backup/db_$W.sql;
+            own=$(stat -c "%u:%g" /install);
+            for rel in "config/settings/wikis/$W" "images/$W" "public_assets/$W" "config/backup/db_$W.sql"; do
+              [ -e "/install/$rel" ] || continue;
+              chown -R "$own" "/install/$rel";
+            done'
       changed_when: true
+
+    - name: Report the ownership normalization
+      ansible.builtin.debug:
+        msg: >-
+          Restored files have been given to the owner of
+          {{ instance_path }}. A snapshot carries the numeric uids of the
+          host it was taken on, so a restore from another host remaps them;
+          the web container re-establishes www-data's group write access at
+          the next start.
 
     # Full restore round-trips the source host's .env; single-wiki leaves the
     # running instance's .env (and its DB password) untouched.
