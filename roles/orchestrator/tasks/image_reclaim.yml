@@ -140,13 +140,13 @@
         msg: >-
           Docker: removed
           {{ _reclaim_removed.results | default([])
-             | selectattr('stdout', 'defined')
-             | selectattr('stdout', 'search', 'Untagged|Deleted')
-             | list | length }}
+          | selectattr('stdout', 'defined')
+          | selectattr('stdout', 'search', 'Untagged|Deleted')
+          | list | length }}
           Canasta tag(s);
           {{ ((_reclaim_dangling.stdout_lines | default([])
-               | select('search', 'Total reclaimed space')
-               | list) or ['no dangling layers']) | first }}
+          | select('search', 'Total reclaimed space')
+          | list) or ['no dangling layers']) | first }}
       when: not (reclaim_dry_run | default(false) | bool)
 
 # --- Kubernetes reclaim ---
@@ -253,9 +253,9 @@
     msg: >-
       containerd:
       {{ _reclaim_crictl_removed.results | default([])
-         | selectattr('rc', 'defined')
-         | selectattr('rc', 'equalto', 0)
-         | list | length }}
+      | selectattr('rc', 'defined')
+      | selectattr('rc', 'equalto', 0)
+      | list | length }}
       image(s) removed.
   when:
     - _reclaim_k8s.rc == 0
@@ -271,7 +271,7 @@
       (rc={{ _reclaim_crictl_candidates.rc | default('unknown') }});
       no images were removed.
       {{ _reclaim_crictl_candidates.stderr_lines | default([]) | last
-         | default('No error output.', true) }}
+      | default('No error output.', true) }}
   when:
     - _reclaim_k8s.rc == 0
     - not (reclaim_dry_run | default(false) | bool)
