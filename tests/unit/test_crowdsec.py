@@ -385,6 +385,23 @@ class TestCrowdsecConfigBackfill:
         assert "isdir" in content
         assert "state: absent" in content
 
+    def test_mode_is_not_enforced_on_an_existing_directory(self):
+        # chmod is the owner's or root's alone, and a cross-host restore
+        # leaves config/ owned by a uid that need not exist here. Enforcing
+        # mode: on a directory that already exists raised EPERM and took
+        # down the `config set` that triggered the backfill, mid-restart.
+        tasks = yaml.safe_load(self._ensure())
+        mkdir = [
+            t for t in tasks
+            if (t.get("ansible.builtin.file") or {}).get("state") == "directory"
+        ]
+        assert len(mkdir) == 1
+        mode = str(mkdir[0]["ansible.builtin.file"].get("mode", ""))
+        assert "omit" in mode, (
+            "the crowdsec directory's mode must apply on creation only; "
+            "got mode: %r" % mode
+        )
+
     def test_wired_into_start_path_gated_on_profile(self):
         sync = _read(os.path.join(
             REPO_ROOT, "roles", "orchestrator", "tasks",
