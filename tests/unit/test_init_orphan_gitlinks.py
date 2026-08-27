@@ -68,6 +68,40 @@ class TestOrphanRecoveryTask:
                    if "ansible.builtin.fail" in t or "fail" in t), (
             "recovery must fail loudly when an orphan has no recoverable URL")
 
+    def _fail_tasks(self):
+        return [t for t in self.tasks
+                if "ansible.builtin.fail" in t or "fail" in t]
+
+    def test_missing_remote_is_reported_only_when_git_ran(self):
+        """`git config --get` exits 1 for an unset key; other codes mean
+        git declined to read the repository, and the remedies below name
+        'git rm --cached' — destructive against a good clone."""
+        no_remote = [t for t in self._fail_tasks()
+                     if "git rm --cached" in _fail_msg(t)]
+        assert len(no_remote) == 1, (
+            "expected exactly one 'no origin remote' failure, got %d"
+            % len(no_remote))
+        when = no_remote[0].get("when")
+        conditions = when if isinstance(when, list) else [when]
+        assert any("rc in [0, 1]" in str(c) for c in conditions), (
+            "the 'no origin remote' failure must be gated on git having "
+            "actually read the repository (rc in [0, 1]), not on any "
+            "non-zero rc")
+
+    def test_unreadable_repository_gets_its_own_message(self):
+        unreadable = [t for t in self._fail_tasks()
+                      if "rc not in [0, 1]" in str(t.get("when", ""))]
+        assert len(unreadable) == 1, (
+            "recovery must report a repository git could not read "
+            "separately from one with no origin remote")
+        msg = _fail_msg(unreadable[0])
+        assert "git rm --cached" not in msg, (
+            "removing the gitlink drops a working extension when the "
+            "repository was merely unreadable")
+        assert "chown" in msg, (
+            "the message must name the ownership remedy, since that is "
+            "what git's safe.directory check is refusing")
+
 
 class TestInitUsesRecovery:
     def _recovery_and_commit_indices(self):
