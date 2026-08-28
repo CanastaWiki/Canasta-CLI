@@ -49,6 +49,31 @@
       failed_when: false
       loop: "{{ _orphan_gitlinks }}"
 
+    # `git config --get` exits 1 for a key that is not set — the only
+    # non-zero rc that means "no origin remote". Any other one is git
+    # declining to read the repository at all, most often its
+    # safe.directory check on a tree whose owner does not exist here. The
+    # two need separate messages: the advice below for a missing remote
+    # includes 'git rm --cached', which against a perfectly good clone
+    # drops a working extension from the tree.
+    - name: Fail if git could not read an orphan's repository
+      ansible.builtin.fail:
+        msg: >-
+          Cannot read the git repository at '{{ instance_path }}/{{ item.item }}'
+          — git exited {{ item.rc }} and reported:
+          {{ item.stderr | default('') | trim }}.
+          Its 'origin' remote may be perfectly fine; git never got far enough
+          to look. Ownership is the usual cause — a cross-host restore
+          leaves files carrying the source host's numeric uid, which git's
+          safe.directory check refuses. Give the tree back to the instance's
+          owner ('sudo chown -R "$(stat -c %u:%g {{ instance_path }})"
+          {{ instance_path }}/{{ item.item }}') and re-run
+          'canasta gitops fix-submodules'. Nothing has been changed.
+      when: item.rc not in [0, 1]
+      loop: "{{ _rog_urls.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
     - name: Fail if any orphan has no recoverable URL
       ansible.builtin.fail:
         msg: >-
@@ -57,7 +82,9 @@
           would lose the extension/skin on the next clone. Give it an 'origin'
           remote, delete the gitlink ('git rm --cached {{ item.item }}' and
           commit), or add a [submodule] block for it to .gitmodules.
-      when: item.rc != 0 or (item.stdout | default('') | trim | length == 0)
+      when:
+        - item.rc in [0, 1]
+        - (item.stdout | default('') | trim | length) == 0
       loop: "{{ _rog_urls.results }}"
       loop_control:
         label: "{{ item.item }}"

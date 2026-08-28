@@ -57,6 +57,7 @@
     - backfill_canasta_image.yml
     - backfill_compose_profiles.yml
     - backfill_hosts_yaml.yml
+    - tighten_env_permissions.yml
   loop_control:
     loop_var: _migration
 
@@ -86,20 +87,55 @@
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   register: _upgrade_inst
 
-- name: Rebuild from source if BuildFrom is set
-  when: _upgrade_inst.instance.buildFrom | default('') != ''
-  block:
-    - name: Rebuild image from source
-      ansible.builtin.include_role:
-        name: imagebuild
-        tasks_from: build_from_source.yml
-      vars:
-        build_from: "{{ _upgrade_inst.instance.buildFrom }}"
-        build_arg: "{{ _upgrade_inst.instance.buildArgs | default([]) }}"
+# Facts persist across the upgrade loop's iterations, so every one of these is
+# set unconditionally: a value left behind by the previous instance would
+# otherwise be read as this instance's. The stat is likewise unconditional
+# (an empty buildFrom just stats a path that does not exist) rather than
+# registered under a `when:`, which would leave a skip-result dict behind.
+- name: Note the recorded build-from source
+  ansible.builtin.set_fact:
+    _upgrade_build_from: "{{ _upgrade_inst.instance.buildFrom | default('') }}"
 
-    - name: Publish rebuilt image for the orchestrator
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/orchestrator/tasks/upgrade_publish_rebuilt_image.yml
+- name: Check that the recorded build-from source still exists
+  ansible.builtin.stat:
+    path: "{{ _upgrade_build_from }}/Canasta/Dockerfile"
+  register: _upgrade_build_from_stat
+
+- name: Decide whether the image can be rebuilt from source
+  ansible.builtin.set_fact:
+    _upgrade_rebuild: >-
+      {{ _upgrade_build_from != '' and _upgrade_build_from_stat.stat.exists }}
+
+# A recorded build-from path can go missing (a deleted checkout, or a staging
+# directory under /tmp that its tool cleaned up). Skip this instance's rebuild
+# rather than failing: the upgrade loop has no per-instance rescue, so failing
+# here strands every instance after this one in the registry. The image tag
+# bump and the registry pull stay gated on buildFrom below, so the instance
+# keeps running the image it has instead of being pointed at a stock one.
+- name: Warn that the recorded build-from source is gone
+  ansible.builtin.debug:
+    msg: >-
+      Instance '{{ instance_id }}' is built from source at
+      '{{ _upgrade_build_from }}', but no Canasta/Dockerfile exists there.
+      Skipping the image rebuild and leaving the instance on its current
+      image. Restore that source tree, then re-run the upgrade to rebuild.
+  when:
+    - _upgrade_build_from != ''
+    - not _upgrade_rebuild | bool
+
+- name: Rebuild image from source
+  ansible.builtin.include_role:
+    name: imagebuild
+    tasks_from: build_from_source.yml
+  vars:
+    build_from: "{{ _upgrade_build_from }}"
+    build_arg: "{{ _upgrade_inst.instance.buildArgs | default([]) }}"
+  when: _upgrade_rebuild | bool
+
+- name: Publish rebuilt image for the orchestrator
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/upgrade_publish_rebuilt_image.yml
+  when: _upgrade_rebuild | bool
 
 # --- Refresh config ---
 # Force-refresh the managed docker-compose.yml so compose changes (e.g. a
@@ -173,7 +209,7 @@
     _restart_needed: >-
       {{ (_images_updated | bool)
          or (_compose_stack_copy is defined and _compose_stack_copy is changed)
-         or (_upgrade_inst.instance.buildFrom | default('') != '') }}
+         or (_upgrade_rebuild | bool) }}
 
 - name: Restart containers
   when:

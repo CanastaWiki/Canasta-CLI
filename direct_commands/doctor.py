@@ -6,6 +6,8 @@ import re
 import subprocess
 import sys
 
+import yaml
+
 
 from . import _helpers
 from ._helpers import register
@@ -38,8 +40,108 @@ command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING; echo "$D"
-command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING
+command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING; echo "$D"
+docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown
 """
+
+
+# ansible-lint materializes a stub for every module named in a project's
+# `mock_modules`, so linting can resolve the name without the collection
+# installed. Written into the operator's own collection tree — which older
+# versions did, rather than their own cache — the stub replaces the real
+# module inside a collection that still reports its pinned version. So
+# `ansible-galaxy collection list` shows it healthy, and neither `install`
+# nor `install --upgrade` repairs it: both see the version already present
+# and skip. Only `--force` rewrites the files.
+#
+# The stub's argspec is empty, so the module rejects every option it is
+# given: "Unsupported parameters for (kubernetes.core.k8s) module:
+# definition, state. Supported parameters include: ." It surfaces only
+# against a remote host — a controller-side call is handled by the
+# collection's action plugin, which is not mocked, and never runs the stub.
+_MOCK_MODULE_MARKER = "ansible-lint (@nobody)"
+
+
+def _pinned_collections():
+    """(namespace, name) for each collection requirements.yml pins."""
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "requirements.yml")
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    out = []
+    for entry in data.get("collections", []) or []:
+        name = entry.get("name") if isinstance(entry, dict) else entry
+        if isinstance(name, str) and name.count(".") == 1:
+            out.append(tuple(name.split(".")))
+    return out
+
+
+def _collection_search_paths():
+    """Where ansible looks for installed collections, in its own order."""
+    env = (os.environ.get("ANSIBLE_COLLECTIONS_PATH")
+           or os.environ.get("ANSIBLE_COLLECTIONS_PATHS") or "")
+    paths = [p for p in env.split(os.pathsep) if p]
+    if not paths:
+        home = os.environ.get("ANSIBLE_HOME") or os.path.expanduser("~/.ansible")
+        paths = [os.path.join(home, "collections"),
+                 "/usr/share/ansible/collections"]
+    return paths
+
+
+def _mocked_collection_modules():
+    """['ns.name: module', ...] for lint stubs found in installed collections.
+
+    Only the collections requirements.yml pins are inspected: those are the
+    ones the CLI executes, and a stub anywhere else is not its problem.
+    """
+    found = []
+    for namespace, name in _pinned_collections():
+        for base in _collection_search_paths():
+            mod_dir = os.path.join(
+                base, "ansible_collections", namespace, name,
+                "plugins", "modules")
+            if not os.path.isdir(mod_dir):
+                continue
+            try:
+                entries = sorted(os.listdir(mod_dir))
+            except OSError:
+                continue
+            for entry in entries:
+                if not entry.endswith(".py"):
+                    continue
+                try:
+                    with open(os.path.join(mod_dir, entry), errors="ignore") as f:
+                        head = f.read(2048)
+                except OSError:
+                    continue
+                if _MOCK_MODULE_MARKER in head:
+                    found.append("%s.%s: %s" % (namespace, name, entry[:-3]))
+            # First match on the search path is the one ansible would use.
+            break
+    return found
+
+
+def _collection_integrity_lines():
+    """Report collections whose modules have been replaced by lint stubs."""
+    mocked = _mocked_collection_modules()
+    if not mocked:
+        return []
+    return [
+        "",
+        "Controller (this machine):",
+        "  Ansible collections: %d module(s) replaced by ansible-lint stubs "
+        "— %s. These reject every option they are given when they run on a "
+        "remote host, so Kubernetes commands against --host fail with "
+        "\"Supported parameters include: .\". The collection still reports "
+        "its pinned version, and 'ansible-galaxy collection install "
+        "--upgrade' will not repair it. Fix with: ansible-galaxy collection "
+        "install --force -r requirements.yml"
+        % (len(mocked), ", ".join(mocked)),
+    ]
 
 
 def _install_escalation_blocked(sudo_version, sudo_nopasswd):
@@ -67,6 +169,71 @@ def _has_container_runtime(docker, compose, daemon, podman_version):
     if "Docker" in docker and "Docker Compose" in compose and daemon == "OK":
         return True
     return "podman version" in podman_version.lower()
+
+
+def _parse_system_df(df_out):
+    """Reclaimable image and build-cache sizes from `docker system df`.
+
+    Returns Docker's own size strings as (images, build_cache), or None when
+    the probe produced nothing usable.
+
+    The Local Volumes row is deliberately dropped rather than summed in:
+    `canasta stop` runs `docker compose down`, which removes the containers,
+    so a stopped instance's database volume has nothing referencing it and
+    Docker reports it as reclaimable. Presenting that as recoverable space
+    invites a prune that destroys the wiki.
+    """
+    if not df_out or df_out.strip() == "unknown":
+        return None
+    found = {"images": None, "build cache": None}
+    for line in df_out.splitlines():
+        kind, sep, value = line.partition("|")
+        if not sep:
+            continue
+        key = kind.strip().lower()
+        if key in found:
+            # Reclaimable reads like "5.1GB (60%)"; keep the size.
+            found[key] = value.strip().split(" ")[0]
+    if found["images"] is None and found["build cache"] is None:
+        return None
+    return (found["images"] or "0B", found["build cache"] or "0B")
+
+
+def _is_zero_size(size):
+    """True when a Docker size string is zero. Unparseable reads as non-zero."""
+    m = re.match(r"\s*([0-9.]+)", size or "")
+    return m is not None and float(m.group(1)) == 0
+
+
+def _reclaimable_line(df_out, k3s):
+    """The System-section line for reclaimable image storage, or None.
+
+    `docker system df` describes neither containerd's image store nor the
+    in-cluster registry PVC, so on a cluster host the figure is labelled as
+    the partial measurement it is instead of standing in for the total.
+
+    k3s presence, not cluster reachability, is what decides that: kubectl
+    follows the current kubeconfig context, which routinely names a cluster
+    running somewhere else entirely.
+    """
+    k8s = k3s != "MISSING"
+    parsed = _parse_system_df(df_out)
+    if parsed is None:
+        if not k8s:
+            return None
+        return ("  Reclaimable:     not measured (no Docker daemon); "
+                "'canasta image prune' reclaims containerd images and the "
+                "in-cluster registry")
+    images, build_cache = parsed
+    if _is_zero_size(images) and _is_zero_size(build_cache):
+        amount = "none"
+    else:
+        amount = "%s images, %s build cache" % (images, build_cache)
+    if k8s:
+        amount += "; containerd and the in-cluster registry not measured"
+    if amount != "none":
+        amount += " — reclaim with 'canasta image prune'"
+    return "  Reclaimable:     %s" % amount
 
 
 def _parse_doctor(stdout, hostname):
@@ -110,6 +277,8 @@ def _parse_doctor(stdout, hostname):
     sudo_version = p(23) if len(parts) > 23 else "MISSING"
     sudo_nopasswd = p(24) if len(parts) > 24 else "MISSING"
     podman_compose_version = p(25) if len(parts) > 25 else "MISSING"
+    # Reclaimable image storage, appended so the indices above are unchanged.
+    system_df = p(26) if len(parts) > 26 else ""
 
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
@@ -280,6 +449,9 @@ def _parse_doctor(stdout, hostname):
     lines.append("System:")
     lines.append("  Memory:          %s" % memory)
     lines.append("  Disk (/ avail):  %s" % disk)
+    reclaimable = _reclaimable_line(system_df, k3s)
+    if reclaimable:
+        lines.append(reclaimable)
     # On macOS, Docker Desktop handles UID remapping transparently — there
     # is no www-data user/group on the host and membership is irrelevant.
     # Only report membership on Linux, where host-side file permissions
@@ -1158,6 +1330,9 @@ def cmd_doctor(args):
             return 1
 
     print(_parse_doctor(stdout, hostname))
+
+    for line in _collection_integrity_lines():
+        print(line)
 
     for line in _instance_consistency_lines(inst):
         print(line)

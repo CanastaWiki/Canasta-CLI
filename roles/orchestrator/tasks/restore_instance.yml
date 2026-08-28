@@ -162,11 +162,14 @@
             exec_service: web
             exec_command: "rm -rf /mediawiki/config/backup"
 
-    # The safety backup above stages the CURRENT instance into this same volume,
-    # and `restic restore` does not prune its target — so any file present now
-    # but absent from the snapshot would survive the restore and be copied back
-    # to the host (a restore that doesn't fully revert). Clear the volume first
-    # so it reflects only the snapshot. Runs for full and single-wiki restores.
+    - name: Report the restore phase
+      ansible.builtin.debug:
+        msg: "Clearing the staging volume, then restoring the snapshot..."
+
+    # `restic restore` does not prune its target, so anything an earlier
+    # restore left in this volume would survive and be copied back to the
+    # host — a restore that doesn't fully revert. Clear it first so it
+    # holds only the snapshot. Runs for full and single-wiki restores.
     - name: Clear backup volume before restore
       ansible.builtin.command:
         cmd: >-
@@ -184,20 +187,25 @@
           - "--target"
           - "/"
 
+    - name: Report the copy phase
+      ansible.builtin.debug:
+        msg: "Copying the restored files onto the host..."
+      when: wiki is not defined
+
     # The standard MediaWiki dirs are replaced wholesale (rm -rf then copy) so a
     # restore doesn't leave stale files behind. Everything else the snapshot holds
     # - .env, docker-compose.override.yml, my.cnf, and any custom build inputs
     # (Dockerfile, build context dirs) staged by backup_discover_build_paths.yml - is
     # copied back generically, so the restore round-trips whatever was captured.
     #
-    # cp -a preserves the snapshot's NUMERIC uids. On a cross-host restore those
-    # ids need not map to a real user here, so restored top-level files (notably
-    # .env, mode 0600) come back owned by an unmapped uid and become unreadable
-    # by the CLI user — which aborts the very next step (preserving the DB
-    # password) and leaves the instance broken. Normalize the restored top-level
-    # files to the instance dir's owner (the CLI user), mirroring 'gitops join';
-    # the web entrypoint re-establishes www-data on the content dirs at the
-    # post-restore restart.
+    # cp -a preserves the snapshot's NUMERIC uids, which on a cross-host
+    # restore need not map to a real user here. Files the CLI user does not
+    # own are unreadable to it (.env is mode 0600), unchmodable, and refused
+    # outright by git's safe.directory check — so the whole restored tree is
+    # given to the instance directory's owner, mirroring 'gitops join'. The
+    # container side needs no numeric uid: the web entrypoint's
+    # make_dir_writable chgrps to www-data and sets g=rwX, which is how
+    # MediaWiki keeps write access to content it does not own.
     - name: Copy files from volume to host
       when: wiki is not defined
       ansible.builtin.shell:
@@ -223,10 +231,7 @@
               [ -d "$e" ] && rm -rf "/install/$name";
               cp -a "$e" "/install/$name";
             done;
-            own=$(stat -c "%u:%g" /install);
-            for f in /install/* /install/.[!.]*; do
-              [ -f "$f" ] && chown "$own" "$f";
-            done'
+            chown -R "$(stat -c "%u:%g" /install)" /install'
       changed_when: true
 
     # Single-wiki restore (-w) brings back only the target wiki's per-wiki
@@ -272,8 +277,22 @@
               fi;
             done;
             mkdir -p /install/config/backup;
-            cp -a "/currentsnapshot/config/backup/db_$W.sql" /install/config/backup/db_$W.sql'
+            cp -a "/currentsnapshot/config/backup/db_$W.sql" /install/config/backup/db_$W.sql;
+            own=$(stat -c "%u:%g" /install);
+            for rel in "config/settings/wikis/$W" "images/$W" "public_assets/$W" "config/backup/db_$W.sql"; do
+              [ -e "/install/$rel" ] || continue;
+              chown -R "$own" "/install/$rel";
+            done'
       changed_when: true
+
+    - name: Report the ownership normalization
+      ansible.builtin.debug:
+        msg: >-
+          Restored files have been given to the owner of
+          {{ instance_path }}. A snapshot carries the numeric uids of the
+          host it was taken on, so a restore from another host remaps them;
+          the web container re-establishes www-data's group write access at
+          the next start.
 
     # Full restore round-trips the source host's .env; single-wiki leaves the
     # running instance's .env (and its DB password) untouched.
@@ -292,6 +311,10 @@
         instance_path: "{{ instance_path }}"
         state: read
       register: _restore_wikis
+
+    - name: Report the database-import phase
+      ansible.builtin.debug:
+        msg: "Importing the restored databases..."
 
     # The dump carries DROP TABLE + CREATE TABLE per table, so tables it
     # contains are replaced wholesale. Tables created after the snapshot

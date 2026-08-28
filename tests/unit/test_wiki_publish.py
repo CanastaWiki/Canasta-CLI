@@ -1135,3 +1135,145 @@ class TestListMarkupIsMediaWiki:
             "use '*'/'#' (MediaWiki), not markdown list markers:\n  "
             + "\n  ".join(offenders)
         )
+
+
+class TestFetchPageTexts:
+    """Reading the namespace before writing it is what keeps a run that
+    changes three pages from spending the edit budget of one that
+    rewrites all of them."""
+
+    def _client(self, responses):
+        c = object.__new__(wp.MediaWikiClient)
+        c.api_url = "https://wiki.example.com/api.php"
+        c.requested = []
+
+        def fake_open(url):
+            c.requested.append(url)
+            return responses.pop(0)
+
+        c._open = fake_open
+        return c
+
+    def test_batches_titles_and_normalizes_them(self):
+        titles = ["CLI:canasta p%d" % i for i in range(25)]
+        responses = [
+            {"query": {"pages": [
+                {"title": "CLI:Canasta p0",
+                 "revisions": [{"slots": {"main": {"content": "first"}}}]},
+            ]}},
+            {"query": {"pages": [
+                {"title": "CLI:Canasta p24",
+                 "revisions": [{"slots": {"main": {"content": "last"}}}]},
+            ]}},
+        ]
+        c = self._client(responses)
+
+        texts = c.fetch_page_texts(titles)
+
+        assert len(c.requested) == 2, (
+            "25 titles must take two requests at %d per batch"
+            % wp.TITLES_PER_REQUEST
+        )
+        assert texts == {
+            "CLI:Canasta p0": "first",
+            "CLI:Canasta p24": "last",
+        }
+
+    def test_missing_pages_are_absent_rather_than_empty(self):
+        c = self._client([
+            {"query": {"pages": [
+                {"title": "CLI:Canasta gone", "missing": True},
+                {"title": "CLI:Canasta here",
+                 "revisions": [{"slots": {"main": {"content": "x"}}}]},
+            ]}},
+        ])
+
+        texts = c.fetch_page_texts(["CLI:canasta gone", "CLI:canasta here"])
+
+        assert "CLI:Canasta gone" not in texts, (
+            "a page the wiki does not have must compare as changed, not as "
+            "empty-and-therefore-equal"
+        )
+        assert texts["CLI:Canasta here"] == "x"
+
+
+class TestEditSendsMaxlag:
+    def test_edit_carries_maxlag(self):
+        c = object.__new__(wp.MediaWikiClient)
+        c._get_token = lambda kind: "t"
+        sent = {}
+
+        def fake_post(params):
+            sent.update(params)
+            return {"edit": {"result": "Success"}}
+
+        c._post = fake_post
+        c.edit_page("CLI:canasta x", "text", "summary")
+        assert sent["maxlag"] == wp.EDIT_MAXLAG, (
+            "without maxlag the bot keeps writing to a wiki whose database "
+            "is already behind"
+        )
+
+
+class _PublishStub:
+    """Stand-in for MediaWikiClient in main(): records what got written."""
+
+    def __init__(self, stored):
+        self._stored = stored
+        self.edits = []
+
+    def fetch_page_texts(self, titles):
+        return {
+            t: text for t, text in self._stored.items()
+            if t in {wp._normalize_title(x) for x in titles}
+        }
+
+    def edit_page(self, title, content, summary):
+        self.edits.append((title, content))
+
+
+class TestPublishSkipsUnchangedPages:
+    def _run(self, monkeypatch, capsys, pages, stored):
+        monkeypatch.setattr(wp, "load_definitions", lambda: {})
+        monkeypatch.setattr(wp, "generate_all_pages", lambda data: pages)
+        stub = _PublishStub(stored)
+        monkeypatch.setattr(wp, "MediaWikiClient", lambda *a, **k: stub)
+        monkeypatch.setattr(wp.time, "sleep", lambda s: None)
+        monkeypatch.setattr(sys, "argv", [
+            "wiki_publish.py", "--api", "https://wiki.example.com/api.php",
+            "--user", "bot", "--pass", "secret",
+        ])
+        wp.main()
+        return stub, capsys.readouterr().out
+
+    def test_only_changed_pages_are_written(self, monkeypatch, capsys):
+        stub, out = self._run(
+            monkeypatch, capsys,
+            pages=[
+                ("CLI:canasta same", "identical"),
+                ("CLI:canasta changed", "new body"),
+                ("CLI:canasta absent", "brand new"),
+            ],
+            stored={
+                "CLI:Canasta same": "identical",
+                "CLI:Canasta changed": "old body",
+            },
+        )
+        assert stub.edits == [
+            ("CLI:canasta changed", "new body"),
+            ("CLI:canasta absent", "brand new"),
+        ]
+        assert "2 page(s) published, 1 unchanged" in out
+
+    def test_trailing_whitespace_alone_is_not_a_change(
+        self, monkeypatch, capsys
+    ):
+        # MediaWiki strips trailing whitespace on save, so a stored page
+        # can never match byte-for-byte if the generator emits any —
+        # which would make every run rewrite the namespace again.
+        stub, _ = self._run(
+            monkeypatch, capsys,
+            pages=[("CLI:canasta same", "body\n\n")],
+            stored={"CLI:Canasta same": "body"},
+        )
+        assert stub.edits == []

@@ -6,19 +6,25 @@
 # orchestrators) and then materialized as a crontab entry. restore and
 # gitops pull re-materialize the crontab from that file.
 #
+# The retention policy has to round-trip through this file, or a gitops
+# pull or a restore re-materializes the crontab with the purge silently
+# dropped.
+#
 # Input: instance_id, instance_path, instance_orchestrator,
-#        cron_expression, purge_older_than (optional)
+#        cron_expression, _retention_policy (dict of restic forget flags)
 
 - name: Persist the backup schedule to instance config
   ansible.builtin.copy:
     dest: "{{ instance_path }}/config/backup-schedule.yml"
     content: >-
       {{ ({'cron_expression': cron_expression}
-          | combine({'purge_older_than': purge_older_than}
-                    if (purge_older_than is defined and purge_older_than != '')
-                    else {})) | to_nice_yaml }}
+          | combine({'retention': _retention_policy}
+                    if (_retention_policy | default({}, true)) else {}))
+         | to_nice_yaml }}
     mode: "0644"
 
 - name: Materialize the schedule as a crontab entry
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_apply.yml
+  vars:
+    retention: "{{ _retention_policy | default({}, true) }}"

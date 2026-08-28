@@ -7,6 +7,49 @@
     msg: "Cron expression must have exactly 5 fields (minute hour day month weekday), got: '{{ cron_expression }}'"
   when: cron_expression.split() | length != 5
 
+# --purge-older-than predates the restic-native flags and is in live use,
+# so it stays as a spelling of --keep-within rather than a second policy.
+- name: Fail when --purge-older-than and --keep-within are both given
+  ansible.builtin.fail:
+    msg: >-
+      --purge-older-than and --keep-within are the same retention policy.
+      Give one of them, not both.
+  when:
+    - (purge_older_than | default('')) != ''
+    - (keep_within | default('')) != ''
+
+# The scheduled purge runs `canasta backup purge` with these flags, so the
+# set has to be exactly what purge accepts: a flag purge does not know
+# kills the job at argument parsing, on every run, with no output.
+- name: Name the retention flags a scheduled purge can carry
+  ansible.builtin.set_fact:
+    _retention_policy: {}
+    _retention_params:
+      - keep_last
+      - keep_hourly
+      - keep_daily
+      - keep_weekly
+      - keep_monthly
+      - keep_yearly
+      - keep_within
+      - keep_tag
+
+- name: Collect the retention flags given on the command line
+  ansible.builtin.set_fact:
+    _retention_policy: >-
+      {{ _retention_policy | combine({
+           item | replace('_', '-'):
+           lookup('vars', item, default='') | string | trim,
+         }) }}
+  loop: "{{ _retention_params }}"
+  when: (lookup('vars', item, default='') | string | trim) != ''
+
+- name: Fold --purge-older-than into the retention policy
+  ansible.builtin.set_fact:
+    _retention_policy: >-
+      {{ _retention_policy | combine({'keep-within': purge_older_than | trim}) }}
+  when: (purge_older_than | default('')) != ''
+
 # Scheduling is a host crontab entry on the host where the instance runs
 # (the cp node for K8s); the orchestrator task installs it uniformly.
 - name: Install backup schedule

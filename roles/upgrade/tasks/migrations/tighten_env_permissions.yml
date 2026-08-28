@@ -1,0 +1,18 @@
+---
+# Migration: take group and other access off .env.
+#
+# .env holds MYSQL_PASSWORD, RESTIC_PASSWORD, MW_SECRET_KEY and the CrowdSec
+# bouncer API key. The do-not-edit header task wrote it 0644 and is skipped
+# once the header exists, and canasta_env rewrites the file in place without
+# touching its mode — so an instance created while that task set 0644 stays
+# world-readable for the rest of its life unless something resets it.
+
+- name: Display a progress message
+  ansible.builtin.debug:
+    msg: "Checking .env permissions..."
+
+- name: Restrict .env to its owner
+  ansible.builtin.file:
+    path: "{{ instance_path }}/.env"
+    mode: "0600"
+  when: _mig.files.env_readable_beyond_owner | default(false)

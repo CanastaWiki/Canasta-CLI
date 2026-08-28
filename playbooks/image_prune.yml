@@ -1,25 +1,14 @@
 ---
-# canasta image prune - Garbage-collect the in-cluster image registry.
+# canasta image prune - Reclaim container image storage on the target host.
 #
-# The garbage-collection itself lives in the shared registry_gc.yml task so
-# `canasta upgrade --purge` can reuse it. This command wraps it with a hard
-# failure when the host has no Kubernetes cluster, since running it there is
-# always an operator mistake.
+# The reclaim itself lives in the shared image_reclaim.yml task so
+# `canasta upgrade --purge` runs the same code. canasta.yml binds the play to
+# target_host, so the connection already points at the right host and no
+# switch is needed here.
 
-- name: Probe for a Kubernetes cluster on the host
-  ansible.builtin.command:
-    cmd: kubectl get nodes -o name
-  register: _prune_k8s
-  changed_when: false
-  failed_when: false
-
-- name: Fail when the host has no Kubernetes cluster
-  ansible.builtin.fail:
-    msg: >-
-      canasta image prune targets the in-cluster registry of a Kubernetes
-      host, and no cluster was found here.
-  when: _prune_k8s.rc != 0
-
-- name: Garbage-collect the in-cluster registry
+- name: Reclaim image storage on the host
   ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/registry_gc.yml
+    {{ canasta_root }}/roles/orchestrator/tasks/image_reclaim.yml
+  vars:
+    _reclaim_host_name: "{{ target_host | default('localhost') }}"
+    reclaim_dry_run: "{{ dry_run | default(false) }}"
