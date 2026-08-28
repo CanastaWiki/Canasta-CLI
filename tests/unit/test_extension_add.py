@@ -35,6 +35,13 @@ def _cmd(t):
     return c.get("cmd", "") if isinstance(c, dict) else str(c)
 
 
+def _current_branch_probe(t):
+    # The task that records the existing checkout's branch. Registering it in
+    # the `register:` key marks it as the probe rather than a re-align fetch
+    # or checkout.
+    return t.get("register") == "_current_branch"
+
+
 class TestKubernetesGuard:
     def test_guard_uses_instance_orchestrator(self):
         # 'orchestrator' is never set by resolve_instance; the guard must
@@ -86,6 +93,38 @@ class TestGitUrlHandling:
             assert "--" in c and "{{ item.repository" in c.split("--", 1)[1], (
                 "repository URL must follow a bare '--'")
 
+    def test_branch_probe_is_detached_head_safe(self):
+        # gitops paths (git submodule update --init --recursive) check the
+        # submodule out on a detached HEAD. `git symbolic-ref --short HEAD`
+        # exits 128 there, which would silently skip both the re-align and the
+        # warning. `git rev-parse --abbrev-ref HEAD` prints 'HEAD' with rc 0
+        # when detached and the branch name otherwise, so the probe must use it.
+        probes = [t for t in _walk(_load(ADD_ONE))
+                  if _current_branch_probe(t)]
+        assert len(probes) == 1, "exactly one branch probe should exist"
+        cmd = _cmd(probes[0])
+        assert "symbolic-ref" not in cmd, (
+            "branch probe must not use symbolic-ref (fails on detached HEAD)")
+        assert "rev-parse --abbrev-ref HEAD" in cmd, (
+            "branch probe must use rev-parse --abbrev-ref HEAD so it "
+            "survives a detached HEAD (gitops submodules)")
+
+    def test_probe_failure_has_own_message(self):
+        # When the probe itself fails (not a git repo, rc != 0) it must say so
+        # instead of leaving the rc != 0 case in a silent gap between the
+        # re-align (gated on rc == 0) and the warn (gated on rc == 0).
+        warns = [t for t in _walk(_load(ADD_ONE))
+                 if (t.get("ansible.builtin.debug") or {}).get("msg")]
+        msg_tasks = [t for t in warns
+                     if "could not determine" in
+                        str((t.get("ansible.builtin.debug") or {}).get("msg"))
+                        .lower()]
+        assert msg_tasks, (
+            "there must be a debug task messaging a probe failure")
+        when = str(msg_tasks[0].get("when") or "")
+        assert "_current_branch.rc" in when and "not" in when, (
+            "the probe-failure message must be gated on rc != 0")
+
 
 class TestVersionDetection:
     def test_probe_uses_canonical_path(self):
@@ -108,6 +147,25 @@ class TestVersionDetection:
                    for f in fails), (
             "undetected MediaWiki version must abort with guidance to pass "
             "--mw-version, not silently fall back to the default branch")
+
+    def test_malformed_version_fails_loudly(self):
+        # A regex that only gates on emptiness re-trusts a probing artifact
+        # (e.g. 'MW_VERSION 1.44' passed through by sed when the Defines.php
+        # fallback finds no three-component version). A non-1.x string must
+        # fail loudly too, or mw_minor_to_rel() returns None and the add
+        # silently proceeds on the default branch.
+        fail_tasks = [t for t in _walk(_load(ADD))
+                      if "ansible.builtin.fail" in t]
+        guard = [t for t in fail_tasks
+                 if "--mw-version" in str(t.get("ansible.builtin.fail")
+                                           or t.get("fail") or "")]
+        assert guard, "the version guard task should exist"
+        when = str(guard[0].get("when") or "")
+        assert "_mw_version" in when and "is not match" in when, (
+            "version guard must match _mw_version against the 1.x form, "
+            "not only test for emptiness")
+        assert "1\\\\." in when and "\\\\d" in when, (
+            "the guard must use the 1.x version regex ^1\\.\\d+(\\.\\d+)?$")
 
     def test_probe_falls_back_to_defines_php(self):
         # Some images ship no maintenance/version.php; MW_VERSION in

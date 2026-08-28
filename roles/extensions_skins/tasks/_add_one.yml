@@ -22,14 +22,30 @@
       {{ _item_dir }}/{{ item.name }}; verifying its branch matches the
       expected {{ item.branch | default('<unknown>', true) }}.
 
+# `git symbolic-ref --short HEAD` exits 128 on a detached HEAD, but gitops
+# paths (submodule update) check every submodule out detached, so the probe
+# must survive that. `git rev-parse --abbrev-ref HEAD` prints the branch name
+# (rc 0) on a branch and 'HEAD' (rc 0) when detached, distinguishing "on the
+# wrong branch" from "detached" from a genuine probe failure (rc != 0).
 - name: "Determine current {{ _item_type }} branch (existing checkout)"
   when: _add_existing.stat.exists
   ansible.builtin.command:
-    cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} symbolic-ref --short HEAD"
+    cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} rev-parse --abbrev-ref HEAD"
     chdir: "{{ instance_path }}"
   register: _current_branch
   changed_when: false
   failed_when: false
+
+- name: "Warn that the {{ _item_type }} branch could not be determined (existing checkout)"
+  when:
+    - _add_existing.stat.exists
+    - not (_current_branch.rc | default(0) == 0)
+  ansible.builtin.debug:
+    msg: >-
+      Could not determine the current branch or commit for {{ _item_type }}
+      '{{ item.name }}' (git exited {{ _current_branch.rc | default('?') }}).
+      The checkout was not changed; pass --branch or --mw-version to pin the
+      expected release.
 
 - name: "Re-align {{ _item_type }} to the expected branch"
   when:
@@ -66,9 +82,10 @@
     - name: "Notify {{ _item_type }} re-aligned"
       ansible.builtin.debug:
         msg: >-
-          {{ _item_type | capitalize }} '{{ item.name }}' was on branch
-          '{{ _current_branch.stdout | default('?') | trim }}'; switched to
-          expected '{{ item.branch }}'
+          {{ _item_type | capitalize }} '{{ item.name }}' was
+          {{ ("on branch '" ~ _current_branch.stdout | trim ~ "'")
+             if (_current_branch.stdout | default('') | trim != 'HEAD')
+             else 'detached (HEAD)' }}; switched to expected '{{ item.branch }}'
           {{ ('[gitops: committed; run canasta gitops push to distribute]')
              if (is_gitops | bool) else '' }}.
 
@@ -80,7 +97,10 @@
   ansible.builtin.debug:
     msg: >-
       Could not resolve an expected branch for {{ _item_type }} '{{ item.name }}';
-      it is currently on '{{ _current_branch.stdout | default('?') | trim }}'.
+      it is currently
+      {{ ("on branch '" ~ _current_branch.stdout | trim ~ "'")
+         if (_current_branch.stdout | default('') | trim != 'HEAD')
+         else 'detached (HEAD)' }}.
       The checkout was not changed — pass --branch or --mw-version to pin the
       right release.
 

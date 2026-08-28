@@ -71,12 +71,14 @@
 - name: Fail loudly if the MediaWiki version could not be detected
   ansible.builtin.fail:
     msg: >-
-      Could not detect the MediaWiki version
-      (/var/www/mediawiki/w/maintenance/version.php missing, or the web
-      container is not running). Start the instance first, or pass an explicit
-      version with --mw-version (e.g. --mw-version 1.43.2).
+      Could not detect a valid MediaWiki version
+      (/var/www/mediawiki/w/maintenance/version.php missing, a version that is
+      not 1.x, or the web container is not running). Start the instance first,
+      or pass an explicit version with --mw-version (e.g. --mw-version 1.43.2).
   when: >
-    _mw_version is not defined or _mw_version | default('', true) | trim == ''
+    _mw_version is not defined
+    or _mw_version | default('', true) | trim == ''
+    or _mw_version | default('', true) | trim is not match('^1\\.\\d+(\\.\\d+)?$')
 
 - name: Set ExtensionJson.json offline snapshot path
   ansible.builtin.set_fact:
