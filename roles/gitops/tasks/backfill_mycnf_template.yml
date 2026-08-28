@@ -37,12 +37,20 @@
         src: "{{ instance_path }}/my.cnf"
       register: _bmt_mycnf_raw
 
-    - name: Extract the current innodb_buffer_pool_size
+    # regex_search returns None when my.cnf sets no buffer pool, which is
+    # the shipped default ([client] and nothing else) — so this must not
+    # assume a match. Piping None straight into `first` fails the task, and
+    # with it the whole upgrade.
+    - name: Look for a buffer pool setting in my.cnf
       ansible.builtin.set_fact:
-        _bmt_current: >-
+        _bmt_match: >-
           {{ (_bmt_mycnf_raw.content | b64decode)
              | regex_search('innodb_buffer_pool_size\s*=\s*(\S+)', '\1')
-             | first | default('') }}
+             | default([], true) }}
+
+    - name: Record the current value, or none
+      ansible.builtin.set_fact:
+        _bmt_current: "{{ (_bmt_match | list)[0] | default('') }}"
 
     # Only a file that already sets the buffer pool has a value worth
     # templating. Where it does not, the shipped my.cnf carries just

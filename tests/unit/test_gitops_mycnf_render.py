@@ -149,6 +149,23 @@ class TestBackfillIsCreateOnly:
         src = _read(BACKFILL)
         assert "not (_bmt_stats.results[2].stat.exists | default(false))" in src
 
+    def test_handles_a_my_cnf_that_sets_no_buffer_pool(self):
+        """The shipped my.cnf is [client] and nothing else, so the search
+        for a buffer pool finds nothing on most instances.
+
+        regex_search returns None there. Piping that straight into `first`
+        raises, which fails the task and with it the whole upgrade — the
+        backfill runs on every gitops instance, not just ones with tuning.
+        """
+        src = _read(BACKFILL)
+        assert "| default([], true) }}" in src, (
+            "the no-match case must be defaulted before it is indexed"
+        )
+        assert "| first" not in src, (
+            "`first` raises on None and on an empty list; index with a "
+            "default instead"
+        )
+
     def test_stages_nothing(self):
         """The backfill must not commit the untrack itself.
 
