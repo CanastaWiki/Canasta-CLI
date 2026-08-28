@@ -4,6 +4,7 @@ config/secrets.env
 config/secrets-web
 config/wikis.yaml
 admin-password_*
+my.cnf
 
 # Managed by Canasta CLI
 docker-compose.yml

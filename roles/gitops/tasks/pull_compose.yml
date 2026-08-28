@@ -235,6 +235,12 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
 
+# --- Step 7c: Render my.cnf from template + vars (if template exists) ---
+- name: Render my.cnf from template
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_render_mycnf.yml"
+  vars:
+    mycnf_vars: "{{ _pull_vars }}"
+
 # --- Step 8: Write admin password files ---
 - name: Write admin password files from vars
   ansible.builtin.copy:

@@ -1,0 +1,88 @@
+---
+# Create my.cnf.template for a gitops instance that lacks it.
+#
+# my.cnf predates the template: repos initialized before it was a rendered
+# file carry my.cnf as a tracked, shared file, so a repo spanning hosts of
+# different sizes cannot hold a correct innodb_buffer_pool_size for all of
+# them. This derives the template from the live my.cnf, preserving every
+# other directive and replacing only the buffer-pool value.
+#
+# Create-only: never re-renders an existing template. Gitops-only — no-ops
+# when the marker is absent. Does not stage or untrack anything; my.cnf
+# stays tracked until an operator commits the change, because committing
+# the untrack records a deletion that removes my.cnf from every other
+# host's working tree on its next pull.
+#
+# Input: instance_path, canasta_root.
+
+- name: Stat gitops marker, my.cnf and my.cnf.template
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ item }}"
+  loop:
+    - .gitops-host
+    - my.cnf
+    - my.cnf.template
+  loop_control:
+    label: "{{ item }}"
+  register: _bmt_stats
+
+- name: Backfill my.cnf.template
+  when:
+    - _bmt_stats.results[0].stat.exists | default(false)
+    - _bmt_stats.results[1].stat.exists | default(false)
+    - not (_bmt_stats.results[2].stat.exists | default(false))
+  block:
+    - name: Read the live my.cnf
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/my.cnf"
+      register: _bmt_mycnf_raw
+
+    - name: Extract the current innodb_buffer_pool_size
+      ansible.builtin.set_fact:
+        _bmt_current: >-
+          {{ (_bmt_mycnf_raw.content | b64decode)
+             | regex_search('innodb_buffer_pool_size\s*=\s*(\S+)', '\1')
+             | first | default('') }}
+
+    # Only a file that already sets the buffer pool has a value worth
+    # templating. Where it does not, the shipped my.cnf carries just
+    # [client] and MariaDB is already at its compiled default, so there is
+    # nothing to preserve and nothing to migrate.
+    - name: Report that my.cnf sets no buffer pool (nothing to template)
+      ansible.builtin.debug:
+        msg: >-
+          my.cnf sets no innodb_buffer_pool_size, so no my.cnf.template was
+          created. See CanastaWiki/Canasta-CLI#1455 for why sizing it matters.
+      when: _bmt_current == ''
+
+    - name: Create my.cnf.template with the buffer pool placeholdered
+      when: _bmt_current != ''
+      block:
+        - name: Write my.cnf.template
+          ansible.builtin.copy:
+            content: >-
+              {{ (_bmt_mycnf_raw.content | b64decode)
+                 | regex_replace('(innodb_buffer_pool_size\s*=\s*)\S+',
+                                 '\1{{innodb_buffer_pool_size}}') }}
+            dest: "{{ instance_path }}/my.cnf.template"
+            mode: "0644"
+
+        - name: Report my.cnf.template created
+          ansible.builtin.debug:
+            msg: |-
+              Created my.cnf.template from this host's my.cnf.
+
+              my.cnf is host-specific — innodb_buffer_pool_size must fit the
+              host's RAM — so it is now rendered per host rather than shared.
+              To finish the migration:
+
+                1. Add to hosts/<host>/vars.yaml, for EVERY host in the repo:
+                     innodb_buffer_pool_size: {{ _bmt_current }}
+                   using a value sized for each host, not this one.
+                2. canasta gitops add my.cnf.template
+                3. git rm --cached my.cnf   (my.cnf is now gitignored)
+                4. canasta gitops push
+
+              Step 1 must come first. The commit in step 3 records a deletion,
+              so every other host loses my.cnf on its next pull and re-creates
+              it from the template — which needs that host's value to exist.

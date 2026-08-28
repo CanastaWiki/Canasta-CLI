@@ -1,5 +1,5 @@
 ---
-# Render rendered files (.env, wikis.yaml, admin passwords) from the
+# Render rendered files (.env, wikis.yaml, my.cnf, admin passwords) from the
 # current on-disk templates + host vars (+ optional shared vars).
 #
 # Does NOT touch git; safe to call whenever local rendered files have
@@ -121,6 +121,11 @@
         content: "{{ _render_wikis_content }}"
         dest: "{{ instance_path }}/config/wikis.yaml"
         mode: "0644"
+
+- name: Render my.cnf from template
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_render_mycnf.yml"
+  vars:
+    mycnf_vars: "{{ _render_vars }}"
 
 - name: Write admin password files from vars
   ansible.builtin.copy:
