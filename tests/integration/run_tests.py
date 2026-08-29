@@ -3947,6 +3947,29 @@ def test_upgrade_backfills_mycnf_template(inst):
         ignore_rules = [ln.strip() for ln in f]
     assert "my.cnf" in ignore_rules, "upgrade should ignore my.cnf"
 
+    # The migration must complete itself: no hand-edited vars, no raw git.
+    shared_vars = os.path.join(
+        inst.instance_path(), "hosts", "_shared", "vars.yaml",
+    )
+    with open(shared_vars) as f:
+        shared = f.read()
+    assert "innodb_buffer_pool_size: 8G" in shared, (
+        "the value should be recorded as the shared default so every host "
+        "inherits one:\n%s" % shared
+    )
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--", "my.cnf", "my.cnf.template"],
+        cwd=inst.instance_path(), capture_output=True, text=True,
+    ).stdout
+    assert "D  my.cnf" in status, (
+        "my.cnf should be staged as untracked:\n%s" % status
+    )
+    assert "A  my.cnf.template" in status, (
+        "the template should be staged:\n%s" % status
+    )
+    assert os.path.isfile(my_cnf), "my.cnf must stay on disk (--cached only)"
+
     print("Re-running upgrade (backfill must be create-only)...")
     with open(template, "a") as f:
         f.write("# hand-edited\n")
