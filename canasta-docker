@@ -143,6 +143,12 @@ MOUNTS=(
     -e "CANASTA_CONFIG_DIR=$CONFIG_DIR"
     -v "$HOME":"$HOME"
     -e "HOME=$HOME"
+    # Mount the host's gpg-agent runtime dir so a ~/.ssh/config
+    # RemoteForward pointing at /run/user/<uid>/gnupg/S.gpg-agent can
+    # forward the host's GPG agent to remote hosts (enables git-crypt
+    # GPG unlock from inside the container). Conditionally mounted only
+    # when the dir exists, so non-GPG setups are unaffected.
+    $([[ -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gnupg" ]] && echo "-v ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gnupg:${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gnupg")
     -v "$(pwd)":"$(pwd)"
     -w "$(pwd)"
     # Pass the host's real PWD so playbooks can resolve instances by
